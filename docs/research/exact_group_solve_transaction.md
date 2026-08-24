@@ -62,13 +62,22 @@ The topology-neutral authority and staging layers described below now exist:
   target state. Equality-bearing targets return before coefficient, shift, or
   guard translation. Ready outcomes retain translated row guards separately
   from the target's unmodified premises and expose no commit path.
+- NoTarget now consumes the running session, commits its authenticated pivot,
+  preserves every target disposition, and returns the sole continuation owner.
+  An affine-equality outcome instead consumes the running session into a sealed
+  refined-epoch suspension: its pivot is committed, its first matched target
+  remains unresolved, and same-epoch staging cannot continue. Equality target
+  and unconsumed successor state are minted as one capability-gated pair over
+  the same exact allocation.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
 successor laundering through an abandoned sibling branch, stale transactions,
 target-state allocation siblings, production physical-row ingress, immutable
 target successors, one-below resource envelopes, and exact transition replay.
-These layers remain inert: they publish no rule and infer no master.
+Recenter classification remains inert until a typed transition is consumed;
+dependent, NoTarget, and equality transitions now advance the exact state.
+None of these paths publishes a rule or infers a master.
 
 The pre-kernel repository baseline used licensed, GMP-enabled Symbolica with
 eight-way `cargo-nextest`: run
@@ -98,9 +107,26 @@ run `052dfde9-3226-4df4-a815-6c88f65d6bdb` passed all 15 selected
 exact-relation/kernel/source-seal tests. Final `cargo check --tests`,
 `cargo fmt --check`, and `git diff --check` were clean.
 
-The next missing mathematical seam is to turn the owning NoTarget and
-affine-equality-refinement outcomes into authorized state transitions, then
-join exact `WhenBad` closure and atomic guarded publication. The old raw
+The typed NoTarget/equality transition milestone passed licensed, GMP-enabled
+four-way runs `f8fefe69-c966-48eb-ada8-9bac85f24158` (sealed equality success,
+foreign-owner rejection, exact-limit success, and one-below/zero-budget
+recovery; 1/1), `e06c10c3-2f18-48ca-8eec-51a229972d82` (production authority
+surface and compositional physical-row recipe lifetime/replay; 2/2), and
+`4e1ef6e4-749e-4f2e-8f00-869059b61f20` (the other affected exact
+database/session/target/recenter-kernel tests; 44/44). Direct
+`cargo check --tests -j 4`, `cargo fmt --all -- --check`, and
+`git diff --check` passed.
+
+The production recipe test is intentionally compositional: it proves genuine
+physical-row Arc identity, survival after all staging owners drop, replay, and
+final release. The complete equality transition uses the sealed synthetic test
+adapter because current physical-row construction skips equality-premise source
+cases. An end-to-end production equality row remains a future refined-epoch
+gate, as does chronological committed-event replay.
+
+The next missing mathematical seam is a chronological committed-source/event
+ledger, followed by exact `WhenBad` closure and atomic guarded publication.
+Full suspended/event replay is therefore still pending. The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a
 differential oracle only; it is not a production authority.
 
@@ -377,24 +403,28 @@ objects are rejected.
 ## 7. Implementation sequence
 
 1. **Stage the exact database — implemented.** Refactor current ingress into
-   `stage_replayed_row` plus a consume-once sealed commit token. Retain the
-   physical-row recipe and dependent/new-pivot events. Keep the existing exact
-   hardest-only algebra unchanged.
+   `stage_replayed_row` plus a consume-once sealed commit token. The uncommitted
+   token retains its physical-row recipe and exact dependent/new-pivot payload;
+   a durable chronological committed-source event ledger remains step 4. Keep
+   the existing exact hardest-only algebra unchanged.
 2. **Bind exact targets and the session — implemented.** Persist the exact
    solve-plan target order, type equality-refinement cases, bind target state
    to the database allocation/transition, and advance unconsumed successors
    atomically with the database.
-3. **Recenter the staged pivot — arithmetic kernel implemented; sealed wrapper
-   next.** GMP geometry/translation has been extracted from
+3. **Recenter the staged pivot — implemented.** GMP geometry/translation has
+   been extracted from
    `generated_affine_residual_group_exact_relation.rs` without carrying its
-   raw-row authority. Join that inert kernel to the staged pivot and owner
-   target-state view, with transaction-preserving failure and first-match
-   equality/Ready classification. Retire raw-relation compilation as a
-   production path.
-4. **Extend the outer owner.** Add events, rules, residuals, and publication to
-   the existing database/target session boundary. Initially exercise the
-   transition matrix with a private injected classifier; do not claim complete
-   publication yet.
+   raw-row authority. The sealed session wrapper joins that inert kernel to the
+   authenticated staged pivot and owner target-state view, with
+   transaction-preserving failure and persisted first-match
+   NoTarget/equality/Ready classification. Raw-relation compilation is not a
+   production authority path.
+4. **Extend the outer owner — typed non-publishing transitions implemented;
+   ledger and publication next.** NoTarget now commits through a consuming
+   typed owner and continues only from its successful result. Equality commits
+   into a sealed refined-epoch suspension while leaving its target unresolved.
+   Add events, rules, residuals, and publication to this same database/target session
+   boundary; do not claim complete publication yet.
 5. **Adapt exact `WhenBad`.** Reuse the old polynomial/partition algorithms
    behind new exact authority certificates, replace `IndexShift`/`i64`
    boundaries with arbitrary-precision values, and source guards from the

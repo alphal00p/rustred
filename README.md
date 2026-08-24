@@ -121,6 +121,12 @@ derived the one ordinary parametric identity expected for `L=1, E=0`. The
 emitted relation has terms at shifts `[0]` and `[1]`, with coefficients that
 remain symbolic in `d`, `m2`, and the abstract index `n0`.
 
+In ordinary mathematical notation, the emitted identity is
+
+```text
+0 = (d - 2 n0) I(n0) - 2 m2 n0 I(n0 + 1)
+```
+
 It also proves a deliberate boundary: the powers and `sp(k,k)` numerator are
 retained in `[target]`, but their disposition is
 `not_processed_by_derive`. The CLI has derived an IBP; it has not claimed a
@@ -169,8 +175,10 @@ The repository currently includes tests for:
   components;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
-  sealed NoTarget, affine-equality-refinement, or Ready outcomes without
-  publishing a rule or mutating solver state;
+  sealed NoTarget, affine-equality-refinement, or Ready outcomes;
+- typed NoTarget commit and affine-equality suspension: NoTarget commits the
+  algebraic pivot while preserving every target, whereas an equality-bearing
+  first target commits the pivot and seals the old solve epoch for refinement;
 - one-loop scalar and tensor comparisons against frozen Vakint-derived oracles;
 - concrete two-loop sunset and three-loop tetrahedron scalar/tensor fixtures;
 - elementary factorized four- and five-loop fixtures which exercise the same
@@ -191,14 +199,16 @@ feature-gated validation material, not production topology dispatch.
 
 ## Current blockers and roadmap
 
-The transactional exact pivot database, hardest-first top reduction, and
-session-owned exact recentering stages are implemented. The immediate remaining
-solver work is the generic LiteRed-style continuation:
+The transactional exact pivot database, hardest-first top reduction,
+session-owned exact recentering, typed NoTarget commit, and sealed
+affine-equality suspension are implemented. The immediate remaining solver
+work is the generic LiteRed-style continuation:
 
-1. refine NoTarget and affine-equality outcomes into typed state transitions;
+1. record every committed exact transition in a chronological replay ledger;
 2. compile and close `WhenBad` exceptional branches;
-3. feed solved subsectors into supersectors and iterate residual cases; and
-4. publish replayable guarded rules and a complete reduction result.
+3. atomically publish guarded rules and residual work;
+4. feed solved subsectors into supersectors and iterate residual cases; and
+5. expose a replay-certified complete reduction result.
 
 After that generic path is joined end to end, the next non-vacuum validation
 rung is an external scalar pentagon family. Once scalar reduction is certified,
@@ -233,6 +243,7 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 - [Vakint/alphaLoop tensor and IBP audit](docs/research/vakint_alphaloop_tensor_ibp_audit.md)
 - [One- and two-loop validation audit](docs/research/one_two_loop_vacuum_validation_and_legacy_quarantine_2026-08-20.md)
 - [Exact-group database design](docs/research/litered_solvej_exact_group_database.md)
+- [Exact-session `WhenBad` and publication port plan](docs/research/exact_session_when_bad_port_plan_2026-08-24.md)
 - [Residual recentering design](docs/research/litered_solvej_residual_recentering_2026-08-13.md)
 - [Latest persistent quotient checkpoint](docs/research/persistent_cylindrical_numeric_quotient_checkpoint_2026-08-20.md)
 

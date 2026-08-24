@@ -8,14 +8,15 @@
 //! borrowed, jointly authenticated view rather than caller-supplied database,
 //! staged-row, or target-state parts.
 //!
-//! V1 exposes one typed dependent-row commit and one consuming, inert recenter
+//! V1 exposes a typed dependent-row commit and a consuming, inert recenter
 //! classification. The recenter outcome retains the transaction behind sealed
-//! no-target, equality-refinement, or Ready typestates; it publishes no rule,
-//! infers no master, and provides no direct Ready commit. A private
-//! unconsumed-commit kernel proves the atomic database/target-state transition,
-//! and no raw successor-state transition is exposed outside this module.
-//! Dropping an otherwise unconsumed staged transaction or recenter outcome
-//! leaves both retained owners unchanged.
+//! NoTarget, equality-refinement, or Ready typestates and provides no direct
+//! Ready commit. NoTarget may commit through a consuming typed continuation;
+//! equality may commit only into a one-way refined-epoch suspension. Neither
+//! path publishes a rule or infers a master. A private unconsumed-commit kernel
+//! proves the atomic database/target-state transition, and no raw successor
+//! transition is exposed outside this module. Dropping an unconsumed staged
+//! transaction or recenter outcome leaves both retained owners unchanged.
 
 use std::fmt;
 use std::mem::size_of;
@@ -46,6 +47,7 @@ use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetError, GeneratedAffineResidualGroupExactTargetState,
     GeneratedAffineResidualGroupExactTargetStateLimits,
     GeneratedAffineResidualGroupExactTargetStateView,
+    GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
     GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
     GeneratedAffineResidualGroupRetainedExactTarget,
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
@@ -558,6 +560,364 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
             .field("private_recentered_row", &"<redacted>")
             .finish()
     }
+}
+
+/// Typed successful result of committing a recentered pivot that matched no
+/// solve target.
+pub(crate) struct GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+    session: GeneratedAffineResidualGroupExactSession,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.session.database_epoch()
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.session.group_ordinal()
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.session.state_version()
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+
+    pub(crate) const fn publishes_rule(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn infers_master(&self) -> bool {
+        false
+    }
+
+    /// Continue the same exact session only after the typed NoTarget commit
+    /// has completed successfully.
+    pub(crate) fn into_session(self) -> GeneratedAffineResidualGroupExactSession {
+        self.session
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionCommittedNoTarget")
+            .field("database_epoch", &self.database_epoch())
+            .field("group_ordinal", &self.group_ordinal())
+            .field("state_version", &self.state_version())
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("publishes_rule", &false)
+            .field("infers_master", &false)
+            .field("private_session", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Failure of the typed NoTarget commit path.
+///
+/// Every preflight failure returns the complete sealed outcome, including its
+/// consume-once transaction.  The post-preflight variant is an explicit
+/// fail-stop invariant: the database consumed the token only after the session
+/// had authenticated the same transition under an exclusive borrow.
+pub(crate) enum GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
+    Preflight {
+        error: GeneratedAffineResidualGroupExactSessionError,
+        session: GeneratedAffineResidualGroupExactSession,
+        outcome: GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
+    },
+    PostPreflightCommitInvariant {
+        error: GeneratedAffineResidualGroupExactSessionError,
+    },
+}
+
+impl GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
+        match self {
+            Self::Preflight { error, .. } | Self::PostPreflightCommitInvariant { error } => *error,
+        }
+    }
+
+    pub(crate) fn into_recovery(
+        self,
+    ) -> Result<
+        (
+            GeneratedAffineResidualGroupExactSession,
+            GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
+        ),
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        match self {
+            Self::Preflight {
+                session, outcome, ..
+            } => Ok((session, outcome)),
+            Self::PostPreflightCommitInvariant { error } => Err(error),
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure")
+            .field(
+                "phase",
+                &match self {
+                    Self::Preflight { .. } => "preflight",
+                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
+                },
+            )
+            .field("error", &self.error())
+            .field("private_session", &"<redacted>")
+            .field("private_outcome", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Preflight { .. } => "exact NoTarget transition failed before commit",
+            Self::PostPreflightCommitInvariant { .. } => {
+                "exact NoTarget transition violated a post-preflight invariant"
+            }
+        })
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {}
+
+/// Private replay recipe retained while an equality-bearing exact target waits
+/// for a refined epoch.  Production sessions always retain the authenticated
+/// physical-row allocation; synthetic input is confined to this module's test
+/// adapter and remains distinguishable without exposing either recipe.
+enum GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
+    Production(Arc<GeneratedAffineResidualGroupExactPhysicalRow>),
+    #[cfg(test)]
+    Synthetic,
+}
+
+impl GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
+    fn retain(
+        production_source: Option<&Arc<GeneratedAffineResidualGroupExactPhysicalRow>>,
+    ) -> Result<Self, GeneratedAffineResidualGroupExactSessionError> {
+        match production_source {
+            Some(source) => Ok(Self::Production(Arc::clone(source))),
+            None => {
+                #[cfg(test)]
+                {
+                    Ok(Self::Synthetic)
+                }
+                #[cfg(not(test))]
+                {
+                    Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)
+                }
+            }
+        }
+    }
+
+    const fn has_production_source(&self) -> bool {
+        matches!(self, Self::Production(_))
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Production(_) => "Production(<redacted>)",
+            #[cfg(test)]
+            Self::Synthetic => "Synthetic(<redacted>)",
+        })
+    }
+}
+
+/// Sealed owner for a committed pivot whose matched target requires affine
+/// equality refinement in a later solve epoch.
+///
+/// This type intentionally offers no session accessor, extraction, resume, or
+/// staging method.  It keeps the committed session, successor-bound unresolved
+/// target, and source replay recipe alive until a future refined-epoch
+/// transition consumes the whole owner.
+pub(crate) struct GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
+    committed_session: GeneratedAffineResidualGroupExactSession,
+    source_recipe: GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe,
+    target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.committed_session.database_epoch()
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.committed_session.group_ordinal()
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.committed_session.state_version()
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) fn target_locator(&self) -> &GeneratedAffineResidualGroupSolveTargetLocator {
+        self.target.locator()
+    }
+
+    pub(crate) fn refinement(&self) -> &GeneratedAffineResidualCaseEqualityRefinementCertificate {
+        self.target.refinement()
+    }
+
+    pub(crate) const fn has_production_source(&self) -> bool {
+        self.source_recipe.has_production_source()
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+
+    pub(crate) const fn publishes_rule(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn infers_master(&self) -> bool {
+        false
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch")
+            .field("database_epoch", &self.database_epoch())
+            .field("group_ordinal", &self.group_ordinal())
+            .field("state_version", &self.state_version())
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("target_solve_ordinal", &self.target.solve_ordinal())
+            .field("has_production_source", &self.has_production_source())
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("publishes_rule", &false)
+            .field("infers_master", &false)
+            .field("private_committed_session", &"<redacted>")
+            .field("private_source_recipe", &"<redacted>")
+            .field("private_successor_target", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Failure of the consuming equality-refinement suspension transition.
+///
+/// Before commit, ownership is fully reconstructible as the original running
+/// session plus the complete recenter outcome.  Once the preflighted database
+/// token is consumed, any rejection is an explicit fail-stop invariant and no
+/// partially authoritative session is returned.
+pub(crate) enum GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
+    Preflight {
+        error: GeneratedAffineResidualGroupExactSessionError,
+        session: GeneratedAffineResidualGroupExactSession,
+        outcome: GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
+    },
+    PostPreflightCommitInvariant {
+        error: GeneratedAffineResidualGroupExactSessionError,
+    },
+}
+
+impl GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
+        match self {
+            Self::Preflight { error, .. } | Self::PostPreflightCommitInvariant { error } => *error,
+        }
+    }
+
+    pub(crate) fn into_recovery(
+        self,
+    ) -> Result<
+        (
+            GeneratedAffineResidualGroupExactSession,
+            GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
+        ),
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        match self {
+            Self::Preflight {
+                session, outcome, ..
+            } => Ok((session, outcome)),
+            Self::PostPreflightCommitInvariant { error } => Err(error),
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure")
+            .field(
+                "phase",
+                &match self {
+                    Self::Preflight { .. } => "preflight",
+                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
+                },
+            )
+            .field("error", &self.error())
+            .field("private_session", &"<redacted>")
+            .field("private_outcome", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Preflight { .. } => "exact equality-refinement suspension failed before commit",
+            Self::PostPreflightCommitInvariant { .. } => {
+                "exact equality-refinement suspension violated a post-preflight invariant"
+            }
+        })
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {}
+
+struct PreparedSessionUnconsumedTransition {
+    successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+}
+
+struct PreparedSessionEqualityRefinementSuspension {
+    source_recipe: GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe,
+    target_successor: GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
 }
 
 enum PreparedSessionRecenter {
@@ -1385,6 +1745,228 @@ impl GeneratedAffineResidualGroupExactSession {
         }
     }
 
+    /// Commit one sealed NoTarget recenter outcome without consuming a solve
+    /// target, publishing a rule, or inferring a master.
+    ///
+    /// The outcome's exact staged-pivot coordinates and complete successor
+    /// target state are authenticated and prepared before the database may
+    /// mutate. The running session is consumed structurally: every preflight
+    /// failure returns it with the original outcome, while success returns the
+    /// sole authorized continuation owner.
+    pub(crate) fn commit_no_target(
+        mut self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        outcome: GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionCommittedNoTarget,
+        GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure,
+    > {
+        let prepared = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_no_target_transition(family, context, &outcome)
+        })) {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::Preflight {
+                        error,
+                        session: self,
+                        outcome,
+                    },
+                );
+            }
+            Err(_) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::Preflight {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        session: self,
+                        outcome,
+                    },
+                );
+            }
+        };
+        let GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+            transaction,
+            source_ordinal,
+            pivot_ordinal,
+            stats,
+        } = outcome;
+        match self.commit_prepared_unconsumed(transaction, prepared) {
+            Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: committed_source_ordinal,
+                pivot_ordinal: committed_pivot_ordinal,
+            }) if committed_source_ordinal == source_ordinal
+                && committed_pivot_ordinal == pivot_ordinal =>
+            {
+                Ok(
+                    GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+                        session: self,
+                        source_ordinal,
+                        pivot_ordinal,
+                        stats,
+                    },
+                )
+            }
+            Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. })
+            | Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. }) => Err(
+                GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::PostPreflightCommitInvariant {
+                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                },
+            ),
+            Err(error) => Err(
+                GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::PostPreflightCommitInvariant {
+                    error: GeneratedAffineResidualGroupExactSessionError::Database(error),
+                },
+            ),
+        }
+    }
+
+    fn prepare_no_target_transition(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        outcome: &GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
+    ) -> Result<PreparedSessionUnconsumedTransition, GeneratedAffineResidualGroupExactSessionError>
+    {
+        let staged_pivot =
+            self.authenticate_staged_new_pivot(family, context, &outcome.transaction)?;
+        if staged_pivot.source_ordinal() != outcome.source_ordinal
+            || staged_pivot.pivot_ordinal() != outcome.pivot_ordinal
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        drop(staged_pivot);
+        self.prepare_unconsumed_transition(family, context, &outcome.transaction)
+    }
+
+    /// Commit an equality-bearing pivot and consume the running session into a
+    /// sealed owner that must wait for a refined solve epoch.
+    ///
+    /// This transition deliberately does not treat the equality target as
+    /// IdenticallyBad or unsupported, and it exposes no way to continue staging
+    /// work in the committed epoch. The target remains unresolved and is
+    /// rebound to the exact successor state before database mutation.
+    pub(crate) fn commit_and_suspend_affine_equality_refinement(
+        mut self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        outcome: GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch,
+        GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure,
+    > {
+        let prepared = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_equality_refinement_suspension(family, context, &outcome)
+        })) {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::Preflight {
+                        error,
+                        session: self,
+                        outcome,
+                    },
+                );
+            }
+            Err(_) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::Preflight {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        session: self,
+                        outcome,
+                    },
+                );
+            }
+        };
+        let PreparedSessionEqualityRefinementSuspension {
+            source_recipe,
+            target_successor,
+        } = prepared;
+        let GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
+            transaction,
+            target: predecessor_target,
+            source_ordinal,
+            pivot_ordinal,
+            stats,
+        } = outcome;
+        drop(predecessor_target);
+        match self.commit_prepared_equality_refinement_unconsumed(transaction, target_successor) {
+            Ok((
+                GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                    source_ordinal: committed_source_ordinal,
+                    pivot_ordinal: committed_pivot_ordinal,
+                },
+                successor_target,
+            )) if committed_source_ordinal == source_ordinal
+                && committed_pivot_ordinal == pivot_ordinal =>
+            {
+                Ok(
+                    GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
+                        committed_session: self,
+                        source_recipe,
+                        target: successor_target,
+                        source_ordinal,
+                        pivot_ordinal,
+                        stats,
+                    },
+                )
+            }
+            Ok((GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }, _))
+            | Ok((GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. }, _)) => Err(
+                GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::PostPreflightCommitInvariant {
+                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                },
+            ),
+            Err(error) => Err(
+                GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::PostPreflightCommitInvariant {
+                    error: GeneratedAffineResidualGroupExactSessionError::Database(error),
+                },
+            ),
+        }
+    }
+
+    fn prepare_equality_refinement_suspension(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        outcome: &GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
+    ) -> Result<
+        PreparedSessionEqualityRefinementSuspension,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let staged_pivot =
+            self.authenticate_staged_new_pivot(family, context, &outcome.transaction)?;
+        if staged_pivot.source_ordinal() != outcome.source_ordinal
+            || staged_pivot.pivot_ordinal() != outcome.pivot_ordinal
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        let source_recipe = GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::retain(
+            staged_pivot.production_source(),
+        )?;
+        drop(staged_pivot);
+        self.authenticate_target_state_allocation(&outcome.transaction.target_state)?;
+        self.database
+            .authenticate_target_state_binding(outcome.transaction.target_state.binding())?;
+        let successor_binding = self.database.successor_target_state_binding_for_session(
+            &self.database_capability,
+            &outcome.transaction.staged,
+        )?;
+        let target_successor = outcome
+            .transaction
+            .target_state
+            .prepare_equality_refinement_successor(
+                family,
+                context,
+                successor_binding,
+                &outcome.target,
+            )?;
+        Ok(PreparedSessionEqualityRefinementSuspension {
+            source_recipe,
+            target_successor,
+        })
+    }
+
     /// Consume one raw staged transaction into a non-forgeable dependent
     /// classification. Classification authenticates both retained owners and
     /// the database payload, mutates nothing, and returns the intact
@@ -1498,10 +2080,9 @@ impl GeneratedAffineResidualGroupExactSession {
     /// fallibly before database mutation; after database commit, installing
     /// the prebuilt `Arc` is an allocation-free move. This untyped kernel is
     /// intentionally module-private: exposing it directly would let a caller
-    /// skip recentering/`WhenBad` and advance an arbitrary new pivot. Future
-    /// The crate-visible dependent wrapper below already requires its sealed
-    /// classification; future wrappers must require the corresponding sealed
-    /// recenter/`WhenBad` outcome.
+    /// skip recentering/`WhenBad` and advance an arbitrary new pivot. The
+    /// crate-visible wrappers require their corresponding sealed
+    /// classification or recenter outcome.
     fn commit_unconsumed(
         &mut self,
         family: &IntegralFamily,
@@ -1511,9 +2092,11 @@ impl GeneratedAffineResidualGroupExactSession {
         GeneratedAffineResidualGroupExactRowOutcome,
         GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure,
     > {
-        let successor = match self.prepare_unconsumed_successor(family, context, &transaction) {
-            Ok(successor) => successor,
-            Err(error) => {
+        let prepared = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_unconsumed_transition(family, context, &transaction)
+        })) {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
                 return Err(
                     GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::Preflight {
                         error,
@@ -1521,51 +2104,81 @@ impl GeneratedAffineResidualGroupExactSession {
                     },
                 );
             }
+            Err(_) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::Preflight {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        transaction,
+                    },
+                );
+            }
         };
+        self.commit_prepared_unconsumed(transaction, prepared)
+            .map_err(|error| {
+                GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::PostPreflightCommitInvariant {
+                    error,
+                }
+            })
+    }
 
+    fn commit_prepared_equality_refinement_unconsumed(
+        &mut self,
+        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+        target_successor: GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
+    ) -> Result<
+        (
+            GeneratedAffineResidualGroupExactRowOutcome,
+            GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+        ),
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        let (successor, target) =
+            target_successor.into_parts_for_session(&self.database_capability);
+        let outcome = self.commit_prepared_unconsumed(
+            transaction,
+            PreparedSessionUnconsumedTransition { successor },
+        )?;
+        Ok((outcome, target))
+    }
+
+    /// Finalize a completely prepared unconsumed transition.
+    ///
+    /// The database repeats its token authentication before its own first
+    /// mutation and reports any rejection as a fail-stop invariant. Once that
+    /// call succeeds, the session tail contains only preallocated moves and
+    /// infallible drops; it performs no replay, allocation, or authentication.
+    fn commit_prepared_unconsumed(
+        &mut self,
+        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+        prepared: PreparedSessionUnconsumedTransition,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactRowOutcome,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
         let GeneratedAffineResidualGroupExactSessionStagedTransaction {
             staged,
             target_state: transaction_target_state,
         } = transaction;
-        let outcome = match self
+        let outcome = self
             .database
-            .commit_staged_row_for_session(&self.database_capability, staged)
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                return Err(GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::PostPreflightCommitInvariant {
-                    error,
-                });
-            }
-        };
+            .commit_staged_row_for_session(&self.database_capability, staged)?;
 
-        // Infallible, allocation-free publication tail. The old target state
+        // Infallible, allocation-free commit tail. The old target state
         // stays live through `transaction_target_state` until both retained
         // owners have advanced coherently.
-        let prior_target_state = std::mem::replace(&mut self.target_state, successor);
-        debug_assert_eq!(
-            self.database.state_version(),
-            self.target_state.state_version()
-        );
-        debug_assert!(
-            self.database
-                .authenticate_target_state_binding(self.target_state.binding())
-                .is_ok()
-        );
+        let prior_target_state = std::mem::replace(&mut self.target_state, prepared.successor);
         drop(transaction_target_state);
         drop(prior_target_state);
         Ok(outcome)
     }
 
-    fn prepare_unconsumed_successor(
+    fn prepare_unconsumed_transition(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         transaction: &GeneratedAffineResidualGroupExactSessionStagedTransaction,
-    ) -> Result<
-        Arc<GeneratedAffineResidualGroupExactTargetState>,
-        GeneratedAffineResidualGroupExactSessionError,
-    > {
+    ) -> Result<PreparedSessionUnconsumedTransition, GeneratedAffineResidualGroupExactSessionError>
+    {
         self.authenticate_target_state_allocation(&transaction.target_state)?;
         self.database
             .authenticate_target_state_binding(transaction.target_state.binding())?;
@@ -1573,10 +2186,11 @@ impl GeneratedAffineResidualGroupExactSession {
             &self.database_capability,
             &transaction.staged,
         )?;
-        transaction
+        let successor = transaction
             .target_state
             .prepare_successor(family, context, successor_binding, None)
-            .map_err(GeneratedAffineResidualGroupExactSessionError::from)
+            .map_err(GeneratedAffineResidualGroupExactSessionError::from)?;
+        Ok(PreparedSessionUnconsumedTransition { successor })
     }
 
     fn authenticate_target_state_allocation(
@@ -2385,7 +2999,7 @@ mod tests {
     }
 
     #[test]
-    fn recenter_no_target_is_inert_for_exact_coordinates_beyond_i64() {
+    fn typed_no_target_commit_is_exact_recoverable_and_resource_atomic() {
         let (family, context, plan) = plan_fixture("exact-session-recenter-no-target");
         let session = GeneratedAffineResidualGroupExactSession::try_new(
             &family,
@@ -2407,33 +3021,144 @@ mod tests {
             }),
             "the independent fixture premise must truly be outside the target set"
         );
-        let transaction = session
-            .stage_authenticated_terms_for_test(
-                &context,
-                vec![(physical_key(&plan, &values), context.one())],
-                Vec::new(),
-            )
-            .unwrap();
-        let before = session_state_snapshot(&session);
-        let outcome = session
-            .recenter_staged_new_pivot(&family, &context, transaction)
-            .unwrap();
-        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) = outcome
-        else {
-            panic!("an exact offset absent from the plan must return NoTarget")
+        let classify_no_target = |owner: &GeneratedAffineResidualGroupExactSession| {
+            let transaction = owner
+                .stage_authenticated_terms_for_test(
+                    &context,
+                    vec![(physical_key(&plan, &values), context.one())],
+                    Vec::new(),
+                )
+                .unwrap();
+            match owner
+                .recenter_staged_new_pivot(&family, &context, transaction)
+                .unwrap()
+            {
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(outcome) => {
+                    outcome
+                }
+                _ => panic!("an exact offset absent from the plan must return NoTarget"),
+            }
         };
-        assert_eq!(no_target.source_ordinal(), 0);
-        assert_eq!(no_target.pivot_ordinal(), 0);
-        assert_eq!(no_target.targets_consumed(), 0);
-        assert_eq!(no_target.stats().target_scans(), plan.targets().len());
+
+        // Dropping the owning classification remains inert.
+        let before = session_state_snapshot(&session);
+        let dropped = classify_no_target(&session);
+        assert_eq!(dropped.source_ordinal(), 0);
+        assert_eq!(dropped.pivot_ordinal(), 0);
+        assert_eq!(dropped.targets_consumed(), 0);
+        assert_eq!(dropped.stats().target_scans(), plan.targets().len());
         assert_eq!(
-            no_target.stats().unresolved_target_scans(),
+            dropped.stats().unresolved_target_scans(),
             plan.targets().len()
         );
         assert_eq!(session_state_snapshot(&session), before);
-        drop(no_target);
+        drop(dropped);
         session.replay(&family, &context).unwrap();
         assert_eq!(session_state_snapshot(&session), before);
+
+        // Two classifications at the same exact transition compete. A foreign
+        // owner must return the first one intact before its rightful owner may
+        // commit it.
+        let accepted = classify_no_target(&session);
+        let competing = classify_no_target(&session);
+        let initial_target_stats = session.target_state.stats();
+        let initial_target_state = Arc::clone(&session.target_state);
+        let foreign = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            83,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let foreign_before = session_state_snapshot(&foreign);
+        let failure = foreign
+            .commit_no_target(&family, &context, accepted)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+        );
+        assert!(format!("{failure:?}").contains("private_session: \"<redacted>\""));
+        assert!(format!("{failure:?}").contains("private_outcome: \"<redacted>\""));
+        let (foreign, accepted) = failure.into_recovery().unwrap();
+        assert_eq!(accepted.source_ordinal(), 0);
+        assert_eq!(accepted.pivot_ordinal(), 0);
+        assert_eq!(session_state_snapshot(&foreign), foreign_before);
+        assert_eq!(session_state_snapshot(&session), before);
+
+        let committed = session
+            .commit_no_target(&family, &context, accepted)
+            .unwrap();
+        assert_eq!(committed.database_epoch(), 83);
+        assert_eq!(committed.group_ordinal(), plan.group_ordinal());
+        assert_eq!(committed.state_version(), 1);
+        assert_eq!(committed.source_ordinal(), 0);
+        assert_eq!(committed.pivot_ordinal(), 0);
+        assert_eq!(committed.targets_consumed(), 0);
+        assert_eq!(committed.stats().target_scans(), plan.targets().len());
+        assert!(!committed.publishes_rule());
+        assert!(!committed.infers_master());
+        assert!(format!("{committed:?}").contains("private_session: \"<redacted>\""));
+        let session = committed.into_session();
+        assert_eq!(session.state_version(), 1);
+        assert_eq!(session.database.pivot_count(), 1);
+        assert!(!session.target_state.same_allocation(&initial_target_state));
+        assert_eq!(
+            session.target_state.stats().unresolved(),
+            initial_target_stats.unresolved()
+        );
+        assert_eq!(session.target_state.stats().consumed(), 0);
+        session.replay(&family, &context).unwrap();
+
+        let committed_snapshot = session_state_snapshot(&session);
+        let failure = session
+            .commit_no_target(&family, &context, competing)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+        );
+        let (session, competing) = failure.into_recovery().unwrap();
+        assert_eq!(competing.source_ordinal(), 0);
+        assert_eq!(competing.pivot_ordinal(), 0);
+        drop(competing);
+        assert_eq!(session_state_snapshot(&session), committed_snapshot);
+        session.replay(&family, &context).unwrap();
+
+        // Target-successor resource rejection happens before either retained
+        // owner mutates and returns the complete NoTarget outcome.
+        let mut limited_limits = GeneratedAffineResidualGroupExactSessionLimits::default();
+        limited_limits.target_state.max_disposition_copies = 0;
+        let limited = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            87,
+            limited_limits,
+        )
+        .unwrap();
+        let limited_before = session_state_snapshot(&limited);
+        let limited_outcome = classify_no_target(&limited);
+        let failure = limited
+            .commit_no_target(&family, &context, limited_outcome)
+            .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::Target(
+                GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
+                    resource: "exact target disposition copies",
+                    requested,
+                    limit: 0,
+                }
+            ) if requested == plan.targets().len()
+        ));
+        let (limited, recovered) = failure.into_recovery().unwrap();
+        assert_eq!(recovered.source_ordinal(), 0);
+        assert_eq!(recovered.pivot_ordinal(), 0);
+        drop(recovered);
+        assert_eq!(session_state_snapshot(&limited), limited_before);
+        limited.replay(&family, &context).unwrap();
     }
 
     #[test]
@@ -2752,7 +3477,7 @@ mod tests {
     }
 
     #[test]
-    fn recenter_first_equality_target_returns_before_any_row_translation() {
+    fn equality_target_commits_only_into_a_sealed_refined_epoch_suspension() {
         let (family, context, plan) =
             equality_refinement_plan_fixture("exact-session-recenter-first-refinement");
         let mut limits = GeneratedAffineResidualGroupExactSessionLimits::default();
@@ -2760,6 +3485,7 @@ mod tests {
         limits.recenter.kernel.max_centered_shift_outer_buffer_bytes = 0;
         limits.recenter.kernel.max_borrowed_reference_buffer_bytes = 0;
         limits.recenter.kernel.max_translation_preflight_passes = 0;
+        limits.target_state.max_disposition_copies = plan.targets().len();
         let session = GeneratedAffineResidualGroupExactSession::try_new(
             &family,
             &context,
@@ -2835,9 +3561,249 @@ mod tests {
         );
         assert_eq!(refinement.targets_consumed(), 0);
         assert_eq!(session_state_snapshot(&session), before);
-        drop(refinement);
-        session.replay(&family, &context).unwrap();
+
+        // A foreign consuming owner must return both the original session and
+        // the complete equality outcome before any commit.
+        let foreign = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            109,
+            limits,
+        )
+        .unwrap();
+        let foreign_before = session_state_snapshot(&foreign);
+        let failure = foreign
+            .commit_and_suspend_affine_equality_refinement(&family, &context, refinement)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+        );
+        let failure_debug = format!("{failure:?}");
+        assert!(failure_debug.contains("private_session: \"<redacted>\""));
+        assert!(failure_debug.contains("private_outcome: \"<redacted>\""));
+        let (foreign, refinement) = failure.into_recovery().unwrap();
+        assert_eq!(session_state_snapshot(&foreign), foreign_before);
+        foreign.replay(&family, &context).unwrap();
+        assert_eq!(refinement.target_locator(), &first_locator);
+        assert_eq!(refinement.source_ordinal(), 0);
+        assert_eq!(refinement.pivot_ordinal(), 0);
         assert_eq!(session_state_snapshot(&session), before);
+
+        // Two preparations for the same sealed database transition allocate
+        // sibling successor states. Each prepared target must authenticate
+        // only the exact successor Arc with which the target layer paired it.
+        let first_prepared = session
+            .prepare_equality_refinement_suspension(&family, &context, &refinement)
+            .unwrap();
+        let second_prepared = session
+            .prepare_equality_refinement_suspension(&family, &context, &refinement)
+            .unwrap();
+        let PreparedSessionEqualityRefinementSuspension {
+            source_recipe: first_source_recipe,
+            target_successor: first_target_successor,
+        } = first_prepared;
+        let PreparedSessionEqualityRefinementSuspension {
+            source_recipe: second_source_recipe,
+            target_successor: second_target_successor,
+        } = second_prepared;
+        let (first_successor, first_target) =
+            first_target_successor.into_parts_for_session(&session.database_capability);
+        let (second_successor, second_target) =
+            second_target_successor.into_parts_for_session(&session.database_capability);
+        assert!(!first_successor.same_allocation(&second_successor));
+        assert!(first_target.authenticates_source_state(&first_successor));
+        assert!(!first_target.authenticates_source_state(&second_successor));
+        assert!(second_target.authenticates_source_state(&second_successor));
+        assert!(!second_target.authenticates_source_state(&first_successor));
+        drop(first_source_recipe);
+        drop(second_source_recipe);
+        drop(first_target);
+        drop(second_target);
+        drop(first_successor);
+        drop(second_successor);
+        assert_eq!(session_state_snapshot(&session), before);
+
+        // A correct-owner successor limit set exactly one below the required
+        // disposition copy count returns both the running session and the full
+        // equality outcome without mutation.
+        let disposition_copy_limit = plan.targets().len() - 1;
+        let mut limited_limits = limits;
+        limited_limits.target_state.max_disposition_copies = disposition_copy_limit;
+        let limited = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            113,
+            limited_limits,
+        )
+        .unwrap();
+        let limited_transaction = limited
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &first_anchor), context.one())],
+                vec![symbolic_test_guard(&context)],
+            )
+            .unwrap();
+        let limited_outcome = limited
+            .recenter_staged_new_pivot(&family, &context, limited_transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+            limited_refinement,
+        ) = limited_outcome
+        else {
+            panic!("the limited exact target must retain its equality classification")
+        };
+        let limited_before = session_state_snapshot(&limited);
+        let failure = limited
+            .commit_and_suspend_affine_equality_refinement(&family, &context, limited_refinement)
+            .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::Target(
+                GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
+                    resource: "exact target disposition copies",
+                    requested,
+                    limit,
+                }
+            ) if requested == plan.targets().len() && limit == disposition_copy_limit
+        ));
+        let (limited, limited_refinement) = failure.into_recovery().unwrap();
+        assert_eq!(limited_refinement.target_locator(), &first_locator);
+        assert_eq!(limited_refinement.targets_consumed(), 0);
+        assert_eq!(session_state_snapshot(&limited), limited_before);
+        limited.replay(&family, &context).unwrap();
+        drop(limited_refinement);
+
+        // The equality-pair source-allocation comparison is independently
+        // gated. A correct owner with a zero allowance recovers its complete
+        // session/outcome pair and leaves the exact state untouched.
+        let mut comparison_limited_limits = limits;
+        comparison_limited_limits
+            .target_state
+            .max_source_state_allocation_comparisons = 0;
+        let comparison_limited = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            127,
+            comparison_limited_limits,
+        )
+        .unwrap();
+        let comparison_limited_transaction = comparison_limited
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &first_anchor), context.one())],
+                vec![symbolic_test_guard(&context)],
+            )
+            .unwrap();
+        let comparison_limited_outcome = comparison_limited
+            .recenter_staged_new_pivot(&family, &context, comparison_limited_transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+            comparison_limited_refinement,
+        ) = comparison_limited_outcome
+        else {
+            panic!("the comparison-limited target must retain its equality classification")
+        };
+        let comparison_limited_before = session_state_snapshot(&comparison_limited);
+        let failure = comparison_limited
+            .commit_and_suspend_affine_equality_refinement(
+                &family,
+                &context,
+                comparison_limited_refinement,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::Target(
+                GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
+                    resource: "exact target source-state allocation comparisons",
+                    requested: 1,
+                    limit: 0,
+                }
+            )
+        ));
+        let (comparison_limited, comparison_limited_refinement) = failure.into_recovery().unwrap();
+        assert_eq!(
+            comparison_limited_refinement.target_locator(),
+            &first_locator
+        );
+        assert_eq!(comparison_limited_refinement.targets_consumed(), 0);
+        assert_eq!(
+            session_state_snapshot(&comparison_limited),
+            comparison_limited_before
+        );
+        comparison_limited.replay(&family, &context).unwrap();
+        drop(comparison_limited_refinement);
+
+        let predecessor_target_state = Arc::clone(&session.target_state);
+        let initial_unresolved = session.target_state.stats().unresolved();
+        let expected_stats = refinement.stats();
+        let expected_predicates = refinement
+            .refinement()
+            .equality_predicate_ordinals()
+            .to_vec();
+        let suspended = session
+            .commit_and_suspend_affine_equality_refinement(&family, &context, refinement)
+            .unwrap();
+        assert_eq!(suspended.database_epoch(), 109);
+        assert_eq!(suspended.group_ordinal(), plan.group_ordinal());
+        assert_eq!(suspended.state_version(), 1);
+        assert_eq!(suspended.source_ordinal(), 0);
+        assert_eq!(suspended.pivot_ordinal(), 0);
+        assert_eq!(suspended.stats(), expected_stats);
+        assert_eq!(suspended.target_locator(), &first_locator);
+        assert_eq!(
+            suspended.refinement().equality_predicate_ordinals(),
+            expected_predicates
+        );
+        assert!(!suspended.has_production_source());
+        assert!(matches!(
+            suspended.source_recipe,
+            GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Synthetic
+        ));
+        assert_eq!(suspended.targets_consumed(), 0);
+        assert!(!suspended.publishes_rule());
+        assert!(!suspended.infers_master());
+        assert_eq!(suspended.committed_session.database.pivot_count(), 1);
+        assert_eq!(
+            suspended
+                .committed_session
+                .target_state
+                .stats()
+                .unresolved(),
+            initial_unresolved
+        );
+        assert_eq!(
+            suspended.committed_session.target_state.stats().consumed(),
+            0
+        );
+        assert!(
+            suspended
+                .target
+                .authenticates_source_state(&suspended.committed_session.target_state)
+        );
+        assert!(
+            !suspended
+                .target
+                .authenticates_source_state(&predecessor_target_state)
+        );
+        suspended
+            .committed_session
+            .database
+            .authenticate_target_state_binding(suspended.committed_session.target_state.binding())
+            .unwrap();
+        suspended
+            .committed_session
+            .replay(&family, &context)
+            .unwrap();
+        let suspended_debug = format!("{suspended:?}");
+        assert!(suspended_debug.contains("private_committed_session: \"<redacted>\""));
+        assert!(suspended_debug.contains("private_source_recipe: \"<redacted>\""));
+        assert!(suspended_debug.contains("private_successor_target: \"<redacted>\""));
+        drop(suspended);
     }
 
     #[test]
@@ -2877,6 +3843,7 @@ mod tests {
     fn production_database_transition_surface_is_session_capability_gated() {
         let database_source = include_str!("generated_affine_residual_group_exact_database.rs");
         let session_source = include_str!("generated_affine_residual_group_exact_session.rs");
+        let target_source = include_str!("generated_affine_residual_group_exact_targets.rs");
         let capability = "GeneratedAffineResidualGroupExactSessionDatabaseCapability";
 
         // Every production entry capable of minting, classifying, or
@@ -2987,6 +3954,174 @@ mod tests {
         assert!(!session_source.contains(&crate_visible_mint));
         assert!(!session_source.contains(&public_mint));
         assert!(!session_source.contains(&capability_accessor));
+
+        // New pivots cross crate-visible commit authority only through their
+        // exact sealed classification. The generic kernel remains private and
+        // Ready has no direct commit or transaction extraction surface.
+        for method in [
+            "commit_no_target",
+            "commit_and_suspend_affine_equality_refinement",
+        ] {
+            assert_eq!(
+                session_source
+                    .match_indices(&format!("    pub(crate) fn {method}("))
+                    .count(),
+                1,
+                "typed session transition {method} must have exactly one definition"
+            );
+        }
+        let no_target_commit_marker = format!("    pub(crate) fn {}(", "commit_no_target");
+        let no_target_commit_start = session_source
+            .find(&no_target_commit_marker)
+            .expect("missing typed NoTarget commit");
+        let no_target_commit_signature_end = session_source[no_target_commit_start..]
+            .find(") -> Result")
+            .map(|offset| no_target_commit_start + offset)
+            .expect("unterminated typed NoTarget commit signature");
+        let no_target_commit_signature =
+            &session_source[no_target_commit_start..no_target_commit_signature_end];
+        assert!(no_target_commit_signature.contains("mut self"));
+        assert!(!no_target_commit_signature.contains("&mut self"));
+
+        let committed_no_target = "GeneratedAffineResidualGroupExactSessionCommittedNoTarget";
+        let committed_no_target_declaration_start = session_source
+            .find(&format!("pub(crate) struct {committed_no_target} {{"))
+            .expect("missing committed NoTarget owner declaration");
+        let committed_no_target_declaration_end = session_source
+            [committed_no_target_declaration_start..]
+            .find("\n}\n")
+            .map(|offset| committed_no_target_declaration_start + offset)
+            .expect("unterminated committed NoTarget owner declaration");
+        let committed_no_target_declaration = &session_source
+            [committed_no_target_declaration_start..committed_no_target_declaration_end];
+        assert!(committed_no_target_declaration.contains("\n    session:"));
+        assert!(!committed_no_target_declaration.contains("pub(crate) session:"));
+        let committed_no_target_impl_start = session_source
+            .find(&format!("impl {committed_no_target} {{"))
+            .expect("missing committed NoTarget owner impl");
+        let committed_no_target_impl_end = session_source[committed_no_target_impl_start..]
+            .find(&format!("impl fmt::Debug for {committed_no_target}"))
+            .map(|offset| committed_no_target_impl_start + offset)
+            .expect("unterminated committed NoTarget owner impl");
+        assert!(
+            session_source[committed_no_target_impl_start..committed_no_target_impl_end]
+                .contains("fn into_session(")
+        );
+        let private_unconsumed = ["    fn commit_", "unconsumed("].concat();
+        assert!(session_source.contains(&private_unconsumed));
+        let crate_visible_unconsumed = ["pub(crate) fn commit_", "unconsumed("].concat();
+        assert!(!session_source.contains(&crate_visible_unconsumed));
+        for forbidden_method in [
+            "commit_recenter_outcome",
+            "commit_ready",
+            "commit_recenter_ready",
+        ] {
+            let forbidden = format!("pub(crate) fn {forbidden_method}(");
+            assert!(
+                !session_source.contains(&forbidden),
+                "generic or Ready commit authority escaped through {forbidden}"
+            );
+        }
+        let ready_impl_start = session_source
+            .find("impl GeneratedAffineResidualGroupExactSessionRecenterReady {")
+            .expect("missing Ready recenter impl");
+        let ready_impl_end = session_source[ready_impl_start..]
+            .find("impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady")
+            .map(|offset| ready_impl_start + offset)
+            .expect("unterminated Ready recenter impl");
+        let ready_impl = &session_source[ready_impl_start..ready_impl_end];
+        assert!(!ready_impl.contains("fn commit"));
+        assert!(!ready_impl.contains("fn into_transaction"));
+
+        // The successful equality branch is a one-way suspended owner. Its
+        // source recipe and all authorities are private, and the safe metadata
+        // impl cannot recover, resume, or stage the committed session.
+        let source_recipe = "GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe";
+        assert!(session_source.contains(&format!("\nenum {source_recipe} {{")));
+        assert!(!session_source.contains(&format!("pub(crate) enum {source_recipe}")));
+        let suspended = "GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch";
+        let suspended_declaration_start = session_source
+            .find(&format!("pub(crate) struct {suspended} {{"))
+            .expect("missing suspended owner declaration");
+        let suspended_declaration_end = session_source[suspended_declaration_start..]
+            .find("\n}\n")
+            .map(|offset| suspended_declaration_start + offset)
+            .expect("unterminated suspended owner declaration");
+        let suspended_declaration =
+            &session_source[suspended_declaration_start..suspended_declaration_end];
+        for field in ["committed_session", "source_recipe", "target"] {
+            assert!(suspended_declaration.contains(&format!("\n    {field}:")));
+            assert!(!suspended_declaration.contains(&format!("pub(crate) {field}:")));
+            assert!(!suspended_declaration.contains(&format!("pub {field}:")));
+        }
+        let suspended_impl_start = session_source
+            .find(&format!("impl {suspended} {{"))
+            .expect("missing suspended owner impl");
+        let suspended_impl_end = session_source[suspended_impl_start..]
+            .find(&format!("impl fmt::Debug for {suspended}"))
+            .map(|offset| suspended_impl_start + offset)
+            .expect("unterminated suspended owner impl");
+        let suspended_impl = &session_source[suspended_impl_start..suspended_impl_end];
+        for forbidden in [
+            "fn session(",
+            "fn session_mut(",
+            "fn into_session(",
+            "fn resume(",
+            "fn stage_",
+            "fn transaction(",
+            "fn into_transaction(",
+            "fn source_recipe(",
+        ] {
+            assert!(
+                !suspended_impl.contains(forbidden),
+                "suspended session authority escaped through {forbidden}"
+            );
+        }
+
+        // Equality successor allocation and retained-target authority leave
+        // the target layer only as one sealed pair. Decomposition requires the
+        // private session capability, and no after-the-fact rebind API remains.
+        let prepared_pair =
+            "GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor";
+        let prepared_pair_declaration_start = target_source
+            .find(&format!("pub(crate) struct {prepared_pair} {{"))
+            .expect("missing prepared equality target-successor pair");
+        let prepared_pair_declaration_end = target_source[prepared_pair_declaration_start..]
+            .find("\n}\n")
+            .map(|offset| prepared_pair_declaration_start + offset)
+            .expect("unterminated prepared equality target-successor pair");
+        let prepared_pair_declaration =
+            &target_source[prepared_pair_declaration_start..prepared_pair_declaration_end];
+        for field in ["successor", "target"] {
+            assert!(prepared_pair_declaration.contains(&format!("\n    {field}:")));
+            assert!(!prepared_pair_declaration.contains(&format!("pub(crate) {field}:")));
+            assert!(!prepared_pair_declaration.contains(&format!("pub {field}:")));
+        }
+        let pair_extraction_marker = format!("    pub(crate) fn {}(", "into_parts_for_session");
+        let pair_extraction_start = target_source
+            .find(&pair_extraction_marker)
+            .expect("missing session-gated equality pair extraction");
+        let pair_extraction_end = target_source[pair_extraction_start..]
+            .find(") -> (")
+            .map(|offset| pair_extraction_start + offset)
+            .expect("unterminated equality pair extraction signature");
+        assert!(target_source[pair_extraction_start..pair_extraction_end].contains(capability));
+        let prepared_pair_impl_start = target_source
+            .find(&format!("impl {prepared_pair} {{"))
+            .expect("missing prepared equality pair impl");
+        let prepared_pair_impl_end = target_source[prepared_pair_impl_start..]
+            .find(&format!("impl fmt::Debug for {prepared_pair}"))
+            .map(|offset| prepared_pair_impl_start + offset)
+            .expect("unterminated prepared equality pair impl");
+        let prepared_pair_impl = &target_source[prepared_pair_impl_start..prepared_pair_impl_end];
+        for forbidden in ["fn successor(", "fn target(", "fn into_parts("] {
+            assert!(
+                !prepared_pair_impl.contains(forbidden),
+                "prepared equality pair has ungated authority accessor {forbidden}"
+            );
+        }
+        let legacy_rebind = format!("fn {}(", "rebind_to_unconsumed_successor");
+        assert!(!target_source.contains(&legacy_rebind));
     }
 
     #[test]
@@ -3086,6 +4221,18 @@ mod tests {
         assert_eq!(joint.pivot_ordinal(), 0);
         assert_eq!(joint.source_ordinal(), 0);
         assert!(joint.production_source().is_some());
+        let source_weak = Arc::downgrade(&source);
+        let source_recipe = GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::retain(
+            joint.production_source(),
+        )
+        .unwrap();
+        let GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Production(
+            retained_source,
+        ) = &source_recipe
+        else {
+            panic!("a genuine replayed row must retain a production source recipe")
+        };
+        assert!(Arc::ptr_eq(retained_source, &source));
         assert!(joint.terms().len() > 0);
         assert_eq!(joint.key(), joint.terms().next_back().unwrap().0);
         assert!(joint.guards().len() <= source.guard_count());
@@ -3099,14 +4246,12 @@ mod tests {
         assert!(joint_debug.contains("private_compact_affine_matrix: \"<redacted>\""));
         assert!(joint_debug.contains("private_target_state: \"<redacted>\""));
         assert!(!joint_debug.contains(plan.stable_manifest()));
-        drop(retained_target);
-        drop(joint);
-        drop(transaction);
 
-        let transaction = first
+        let foreign_transaction = first
             .stage_replayed_row(&family, &context, &source)
             .unwrap();
-        let GeneratedAffineResidualGroupExactSessionStagedTransaction { staged, .. } = transaction;
+        let GeneratedAffineResidualGroupExactSessionStagedTransaction { staged, .. } =
+            foreign_transaction;
         let forged = GeneratedAffineResidualGroupExactSessionStagedTransaction {
             staged,
             target_state: Arc::clone(&second.target_state),
@@ -3119,6 +4264,35 @@ mod tests {
             second.authenticate_staged_new_pivot(&family, &context, &forged),
             Err(GeneratedAffineResidualGroupExactSessionError::Database(_))
         ));
+
+        drop(retained_target);
+        drop(joint);
+        drop(transaction);
+        drop(forged);
+        drop(source);
+
+        // This is deliberately compositional production coverage: the
+        // equality test separately proves the sealed suspension transition.
+        // Here the private recipe alone keeps the exact authenticated row
+        // allocation alive and capable of replay after every staging owner is
+        // gone; it does not claim an end-to-end production equality fixture.
+        let retained_source = source_weak
+            .upgrade()
+            .expect("the private production recipe must keep its row alive");
+        let GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Production(
+            recipe_source,
+        ) = &source_recipe
+        else {
+            panic!("the retained genuine source recipe must remain production")
+        };
+        assert!(Arc::ptr_eq(recipe_source, &retained_source));
+        retained_source
+            .replay_for_database(&family, &context, plan.physical_frame())
+            .unwrap();
+        drop(retained_source);
+        assert!(source_weak.upgrade().is_some());
+        drop(source_recipe);
+        assert!(source_weak.upgrade().is_none());
     }
 
     #[test]

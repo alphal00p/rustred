@@ -7,9 +7,10 @@
 //! authority, and projected through the existing case-premises compiler.
 //!
 //! V1 publishes no rule, performs no recentering, and exposes no caller-owned
-//! bitmap.  Equality-bearing cases remain a typed non-ready outcome.  The state
-//! owner starts with every target unresolved and intentionally has no mutation
-//! seam yet.
+//! bitmap. Equality-bearing cases remain a typed non-ready outcome. The state
+//! owner starts with every target unresolved and advances only by immutable,
+//! allocation-bound successors that either preserve every disposition or
+//! consume one authenticated Ready target.
 
 use std::fmt;
 use std::mem::{align_of, size_of};
@@ -30,6 +31,7 @@ use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCasePremisesOutcome, compile_generated_affine_residual_case_premises,
 };
 use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidualGroupExactTargetStateBinding;
+use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
 use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
     GeneratedAffineResidualGroupSolveTargetLocator,
@@ -912,6 +914,43 @@ pub(crate) struct GeneratedAffineResidualGroupExactTargetState {
     stats: GeneratedAffineResidualGroupExactTargetStateStats,
 }
 
+/// Sealed preparation that inseparably pairs one unconsumed successor-state
+/// allocation with the equality-refinement handle rebound to that exact Arc.
+///
+/// Only the allocation-sealed session can decompose this value, and it can do
+/// so only by presenting its unforgeable database capability immediately
+/// before the paired database commit.
+pub(crate) struct GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor {
+    successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+}
+
+impl GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor {
+    pub(crate) fn into_parts_for_session(
+        self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> (
+        Arc<GeneratedAffineResidualGroupExactTargetState>,
+        GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    ) {
+        (self.successor, self.target)
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct(
+                "GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor",
+            )
+            .field("state_version", &self.successor.state_version)
+            .field("target_solve_ordinal", &self.target.solve_ordinal)
+            .field("private_successor", &"<redacted>")
+            .field("private_target", &"<redacted>")
+            .finish()
+    }
+}
+
 impl fmt::Debug for GeneratedAffineResidualGroupExactTargetState {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -1368,6 +1407,66 @@ impl GeneratedAffineResidualGroupExactTargetState {
                 limits: self.limits,
                 stats,
             }))
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::SymbolicaPanic)?
+    }
+
+    /// Prepare one unconsumed successor together with an equality target
+    /// retained from that exact successor allocation.
+    ///
+    /// The target cannot be rebound after the fact: both fields are minted in
+    /// this module from the same newly allocated Arc and leave only as one
+    /// capability-gated preparation.
+    pub(crate) fn prepare_equality_refinement_successor(
+        self: &Arc<Self>,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        binding: GeneratedAffineResidualGroupExactTargetStateBinding,
+        target: &GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    ) -> Result<
+        GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
+        GeneratedAffineResidualGroupExactTargetError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            check_limit(
+                "exact target source-state allocation comparisons",
+                1,
+                self.limits.max_source_state_allocation_comparisons,
+            )?;
+            if !target.authenticates_source_state(self) {
+                return Err(
+                    GeneratedAffineResidualGroupExactTargetError::WrongSourceStateAllocation,
+                );
+            }
+            let solve_ordinal = target.solve_ordinal;
+            if self.dispositions.get(solve_ordinal) != Some(&ExactTargetDisposition::Unresolved) {
+                return Err(if solve_ordinal >= self.dispositions.len() {
+                    GeneratedAffineResidualGroupExactTargetError::TargetOutOfRange
+                } else {
+                    GeneratedAffineResidualGroupExactTargetError::TargetConsumed
+                });
+            }
+            if !matches!(
+                self.catalog.targets.get(solve_ordinal),
+                Some(
+                    GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(
+                        _,
+                    )
+                )
+            ) {
+                return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
+            }
+            let successor = self.prepare_successor(family, context, binding, None)?;
+            let target = GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget {
+                state: Arc::clone(&successor),
+                solve_ordinal,
+            };
+            Ok(
+                GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor {
+                    successor,
+                    target,
+                },
+            )
         }))
         .map_err(|_| GeneratedAffineResidualGroupExactTargetError::SymbolicaPanic)?
     }
