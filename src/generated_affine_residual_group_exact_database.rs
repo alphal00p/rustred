@@ -54,6 +54,17 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA: &str 
 /// never wraps: exhausting it is reported before a database is constructed.
 static NEXT_EXACT_DATABASE_NONCE: AtomicU64 = AtomicU64::new(1);
 
+/// Process-unique identity source for staged database transitions. Zero is
+/// reserved for the pristine database state, and this counter never wraps.
+static NEXT_EXACT_DATABASE_TRANSITION_NONCE: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ExactDatabaseTransitionIdentity(u64);
+
+impl ExactDatabaseTransitionIdentity {
+    const PRISTINE: Self = Self(0);
+}
+
 #[cfg(test)]
 thread_local! {
     static FAIL_NEXT_LOOKUP_REPLACEMENT_ALLOCATION: Cell<bool> = const { Cell::new(false) };
@@ -180,7 +191,9 @@ impl GeneratedAffineResidualGroupExactDatabaseStats {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
     WrongDatabaseAllocation,
+    WrongTargetStateBinding,
     DatabaseIdentityExhaustion,
+    TransitionIdentityExhaustion,
     WrongPlanAllocation,
     WrongFrameAllocation,
     WrongDatabaseEpoch,
@@ -192,6 +205,7 @@ pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
     InvalidTermOrder,
     InvalidUnitPivot,
     InvalidStagedRow,
+    DependentStagedRow,
     StaleStagedRow,
     WrongSourceOrder,
     SourceOrderOverflow,
@@ -214,7 +228,9 @@ impl GeneratedAffineResidualGroupExactDatabaseError {
     const fn kind(self) -> &'static str {
         match self {
             Self::WrongDatabaseAllocation => "WrongDatabaseAllocation",
+            Self::WrongTargetStateBinding => "WrongTargetStateBinding",
             Self::DatabaseIdentityExhaustion => "DatabaseIdentityExhaustion",
+            Self::TransitionIdentityExhaustion => "TransitionIdentityExhaustion",
             Self::WrongPlanAllocation => "WrongPlanAllocation",
             Self::WrongFrameAllocation => "WrongFrameAllocation",
             Self::WrongDatabaseEpoch => "WrongDatabaseEpoch",
@@ -226,6 +242,7 @@ impl GeneratedAffineResidualGroupExactDatabaseError {
             Self::InvalidTermOrder => "InvalidTermOrder",
             Self::InvalidUnitPivot => "InvalidUnitPivot",
             Self::InvalidStagedRow => "InvalidStagedRow",
+            Self::DependentStagedRow => "DependentStagedRow",
             Self::StaleStagedRow => "StaleStagedRow",
             Self::WrongSourceOrder => "WrongSourceOrder",
             Self::SourceOrderOverflow => "SourceOrderOverflow",
@@ -452,10 +469,12 @@ enum ExactStagedRowPayload {
 /// Sealed, consume-once result of exact hardest-only row reduction.
 ///
 /// This value is intentionally non-`Clone`. Dropping it commits nothing. A
-/// future exact recenterer may borrow its staged unit pivot, but only this
-/// module can construct it or consume it into database state.
+/// future exact recenterer may request a database-authenticated staged-pivot
+/// authority view, but only this module can construct the token or consume it
+/// into database state.
 pub(crate) struct GeneratedAffineResidualGroupStagedExactRow {
     database_nonce: u64,
+    next_transition_identity: ExactDatabaseTransitionIdentity,
     database_epoch: usize,
     group_ordinal: usize,
     state_version: usize,
@@ -502,18 +521,6 @@ impl GeneratedAffineResidualGroupStagedExactRow {
         }
     }
 
-    /// Borrow the exact normalized post-reduction pivot for future recentering.
-    pub(crate) fn staged_pivot(
-        &self,
-    ) -> Option<GeneratedAffineResidualGroupExactUnitPivotView<'_>> {
-        match &self.payload {
-            ExactStagedRowPayload::Dependent { .. } => None,
-            ExactStagedRowPayload::NewPivot { pivot, .. } => {
-                Some(GeneratedAffineResidualGroupExactUnitPivotView { pivot })
-            }
-        }
-    }
-
     /// Retained authenticated raw-row recipe. Synthetic rows exist only in
     /// this module's tests and return `None`.
     pub(crate) fn production_source(
@@ -537,8 +544,12 @@ impl fmt::Debug for GeneratedAffineResidualGroupStagedExactRow {
             .field("source_ordinal", &self.source_ordinal)
             .field("pivot_count", &self.pivot_count)
             .field("reduction_count", &self.reductions().len())
-            .field("is_new_pivot", &self.staged_pivot().is_some())
+            .field(
+                "is_new_pivot",
+                &matches!(&self.payload, ExactStagedRowPayload::NewPivot { .. }),
+            )
             .field("private_database_nonce", &"<redacted>")
+            .field("private_next_transition_identity", &"<redacted>")
             .field("private_source", &"<redacted>")
             .field("private_payload", &"<redacted>")
             .finish()
@@ -549,6 +560,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupStagedExactRow {
 pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     schema: &'static str,
     database_nonce: u64,
+    transition_identity: ExactDatabaseTransitionIdentity,
     plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
     frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
     database_epoch: usize,
@@ -559,6 +571,204 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     lookup: Vec<ExactPivotLookupEntry>,
     limits: GeneratedAffineResidualGroupExactDatabaseLimits,
     stats: GeneratedAffineResidualGroupExactDatabaseStats,
+}
+
+/// Opaque allocation/transition authority for the exact target state paired
+/// with this database.
+///
+/// Callers can move this value into the target-state owner, but cannot forge
+/// one from public epoch/group/version scalars: the database nonce and parent
+/// allocations and exact transition identity remain private to this module.
+/// The successor form is minted only after the corresponding staged row has
+/// passed every database check; competing rows at the same numeric version
+/// carry distinct transition identities.
+/// A later joint recenter/session wrapper must present this binding back to the
+/// same database before it may pair a target with a staged pivot.
+pub(crate) struct GeneratedAffineResidualGroupExactTargetStateBinding {
+    database_nonce: u64,
+    transition_identity: ExactDatabaseTransitionIdentity,
+    predecessor_transition_identity: Option<ExactDatabaseTransitionIdentity>,
+    plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+    frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    database_epoch: usize,
+    group_ordinal: usize,
+    state_version: usize,
+}
+
+impl GeneratedAffineResidualGroupExactTargetStateBinding {
+    /// Compare the hidden database allocation identity while keeping its nonce
+    /// private.  Target-state successor preparation uses this to reject a
+    /// transition minted by a sibling database with otherwise identical
+    /// visible coordinates.
+    pub(crate) fn same_database_allocation(&self, other: &Self) -> bool {
+        self.database_nonce == other.database_nonce
+            && Arc::ptr_eq(&self.plan, &other.plan)
+            && Arc::ptr_eq(&self.frame, &other.frame)
+            && self.database_epoch == other.database_epoch
+            && self.group_ordinal == other.group_ordinal
+    }
+
+    /// Verify sealed direct ancestry rather than merely comparing adjacent
+    /// numeric versions. Competing staged rows from the same live database
+    /// state receive distinct transition identities, so a successor minted
+    /// from one sibling cannot advance a target state retained from another.
+    pub(crate) fn is_direct_successor_of(&self, predecessor: &Self) -> bool {
+        self.same_database_allocation(predecessor)
+            && predecessor.state_version.checked_add(1) == Some(self.state_version)
+            && self.predecessor_transition_identity == Some(predecessor.transition_identity)
+    }
+
+    pub(crate) fn same_plan_allocation(
+        &self,
+        plan: &Arc<GeneratedAffineResidualGroupSolvePlan>,
+    ) -> bool {
+        Arc::ptr_eq(&self.plan, plan)
+    }
+
+    pub(crate) fn same_frame_allocation(
+        &self,
+        frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    ) -> bool {
+        Arc::ptr_eq(&self.frame, frame)
+    }
+
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.database_epoch
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.group_ordinal
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.state_version
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactTargetStateBinding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactTargetStateBinding")
+            .field("database_epoch", &self.database_epoch)
+            .field("group_ordinal", &self.group_ordinal)
+            .field("state_version", &self.state_version)
+            .field("private_database_nonce", &"<redacted>")
+            .field("private_transition_identity", &"<redacted>")
+            .field("private_predecessor_transition_identity", &"<redacted>")
+            .field("private_plan", &"<redacted>")
+            .field("private_frame", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Sealed authority for one staged new pivot authenticated against one live
+/// exact database state.
+///
+/// The simultaneous borrows keep the database allocation/state and the exact
+/// staged token inseparable for the lifetime of this view. Its private
+/// database reference retains the nonce binding without exposing the nonce;
+/// the remaining accessors expose only the plan/frame allocations, public
+/// transaction coordinates, retained source recipe, and read-only unit-pivot
+/// payload needed by exact recentering.
+pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
+    database: &'a GeneratedAffineResidualGroupExactDatabase,
+    staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    pivot: &'a ExactUnitPivot,
+}
+
+impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
+    pub(crate) fn plan(&self) -> &'a Arc<GeneratedAffineResidualGroupSolvePlan> {
+        &self.database.plan
+    }
+
+    pub(crate) fn frame(&self) -> &'a Arc<GeneratedAffineResidualGroupPhysicalFrame> {
+        &self.database.frame
+    }
+
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.database.database_epoch
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.database.group_ordinal
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.database.state_version
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.pivot.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot.ordinal
+    }
+
+    pub(crate) fn production_source(
+        &self,
+    ) -> Option<&'a Arc<GeneratedAffineResidualGroupExactPhysicalRow>> {
+        match &self.staged.source {
+            ExactStagedSource::Production(source) => Some(source),
+            #[cfg(test)]
+            ExactStagedSource::Synthetic => None,
+        }
+    }
+
+    pub(crate) fn key(&self) -> &'a GeneratedAffineResidualGroupPhysicalKey {
+        &self
+            .pivot
+            .terms
+            .last()
+            .expect("an authenticated staged unit pivot is nonempty")
+            .key
+    }
+
+    pub(crate) fn terms(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = (
+            &'a GeneratedAffineResidualGroupPhysicalKey,
+            &'a ParametricCoefficient,
+        ),
+    > + DoubleEndedIterator
+    + 'a {
+        self.pivot
+            .terms
+            .iter()
+            .map(|term| (&term.key, &term.coefficient))
+    }
+
+    pub(crate) fn guards(&self) -> &'a [ParametricNonZeroCondition] {
+        &self.pivot.guards
+    }
+
+    pub(crate) fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
+        &self.pivot.reductions
+    }
+
+    pub(crate) const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
+        &self.pivot.normalization_divisor
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView")
+            .field("database_epoch", &self.database_epoch())
+            .field("group_ordinal", &self.group_ordinal())
+            .field("state_version", &self.state_version())
+            .field("source_ordinal", &self.source_ordinal())
+            .field("pivot_ordinal", &self.pivot_ordinal())
+            .field("term_count", &self.pivot.terms.len())
+            .field("guard_count", &self.pivot.guards.len())
+            .field("reduction_count", &self.pivot.reductions.len())
+            .field("has_production_source", &self.production_source().is_some())
+            .field("private_database_nonce", &"<redacted>")
+            .field("private_payload", &"<redacted>")
+            .finish()
+    }
 }
 
 impl fmt::Debug for GeneratedAffineResidualGroupExactDatabase {
@@ -572,6 +782,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactDatabase {
             .field("next_source_ordinal", &self.next_source_ordinal)
             .field("pivot_count", &self.pivots.len())
             .field("stats", &self.stats)
+            .field("private_transition_identity", &"<redacted>")
             .field("private_plan", &"<redacted>")
             .field("private_frame", &"<redacted>")
             .field("private_payload", &"<redacted>")
@@ -612,6 +823,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             Ok(Self {
                 schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA,
                 database_nonce,
+                transition_identity: ExactDatabaseTransitionIdentity::PRISTINE,
                 group_ordinal: plan.group_ordinal(),
                 plan,
                 frame,
@@ -640,6 +852,91 @@ impl GeneratedAffineResidualGroupExactDatabase {
 
     pub(crate) const fn group_ordinal(&self) -> usize {
         self.group_ordinal
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.state_version
+    }
+
+    /// Mint an admissible authority for an initial exact target state.
+    ///
+    /// The returned value is deliberately non-`Clone` and non-constructible
+    /// outside this module. Repeated calls while the database is pristine may
+    /// mint equivalent authorities; uniqueness of a target-state owner is a
+    /// separate session-layer responsibility.
+    pub(crate) fn initial_target_state_binding(
+        &self,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        if self.state_version != 0
+            || self.next_source_ordinal != 0
+            || !self.pivots.is_empty()
+            || !self.lookup.is_empty()
+            || self.transition_identity != ExactDatabaseTransitionIdentity::PRISTINE
+        {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding);
+        }
+        Ok(self.target_state_binding_at(self.state_version, self.transition_identity, None))
+    }
+
+    /// Pre-authenticate one staged row and mint the authority for the target
+    /// state that must coexist with the database after that row is committed.
+    /// Dropping either value still mutates nothing.
+    pub(crate) fn successor_target_state_binding(
+        &self,
+        staged: &GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_row(staged)?;
+        Ok(self.target_state_binding_at(
+            staged.next_state_version,
+            staged.next_transition_identity,
+            Some(self.transition_identity),
+        ))
+    }
+
+    /// Authenticate a target-state authority against this exact live database
+    /// allocation and exact transition. This check includes the hidden
+    /// database and transition identities; equality of the visible
+    /// plan/group/epoch/version coordinates is not sufficient.
+    pub(crate) fn authenticate_target_state_binding(
+        &self,
+        binding: &GeneratedAffineResidualGroupExactTargetStateBinding,
+    ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        if binding.database_nonce != self.database_nonce
+            || binding.transition_identity != self.transition_identity
+            || !Arc::ptr_eq(&binding.plan, &self.plan)
+            || !Arc::ptr_eq(&binding.frame, &self.frame)
+            || binding.database_epoch != self.database_epoch
+            || binding.group_ordinal != self.group_ordinal
+            || binding.state_version != self.state_version
+            || (binding.state_version == 0) != binding.predecessor_transition_identity.is_none()
+        {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding);
+        }
+        Ok(())
+    }
+
+    fn target_state_binding_at(
+        &self,
+        state_version: usize,
+        transition_identity: ExactDatabaseTransitionIdentity,
+        predecessor_transition_identity: Option<ExactDatabaseTransitionIdentity>,
+    ) -> GeneratedAffineResidualGroupExactTargetStateBinding {
+        GeneratedAffineResidualGroupExactTargetStateBinding {
+            database_nonce: self.database_nonce,
+            transition_identity,
+            predecessor_transition_identity,
+            plan: Arc::clone(&self.plan),
+            frame: Arc::clone(&self.frame),
+            database_epoch: self.database_epoch,
+            group_ordinal: self.group_ordinal,
+            state_version,
+        }
     }
 
     pub(crate) fn pivot_count(&self) -> usize {
@@ -881,8 +1178,10 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     prospective_staged_live_retained_bytes,
                     observed_staged_live_retained_bytes,
                 );
+                let next_transition_identity = next_exact_database_transition_identity()?;
                 return Ok(GeneratedAffineResidualGroupStagedExactRow {
                     database_nonce: self.database_nonce,
+                    next_transition_identity,
                     database_epoch: self.database_epoch,
                     group_ordinal: self.group_ordinal,
                     state_version: self.state_version,
@@ -1106,9 +1405,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
             prospective_staged_live_retained_bytes,
             observed_staged_live_retained_bytes,
         );
+        let next_transition_identity = next_exact_database_transition_identity()?;
 
         Ok(GeneratedAffineResidualGroupStagedExactRow {
             database_nonce: self.database_nonce,
+            next_transition_identity,
             database_epoch: self.database_epoch,
             group_ordinal: self.group_ordinal,
             state_version: self.state_version,
@@ -1129,6 +1430,28 @@ impl GeneratedAffineResidualGroupExactDatabase {
         })
     }
 
+    /// Authenticate and borrow one staged new pivot together with every
+    /// allocation and transaction coordinate that authorizes its use.
+    pub(crate) fn authenticate_staged_new_pivot<'a>(
+        &'a self,
+        staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a>,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_row(staged)?;
+        let ExactStagedRowPayload::NewPivot { pivot, .. } = &staged.payload else {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::DependentStagedRow);
+        };
+        Ok(
+            GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView {
+                database: self,
+                staged,
+                pivot,
+            },
+        )
+    }
+
     /// Commit one authenticated staged row. Every check is completed before
     /// the first mutation; the mutation tail contains only capacity-admitted
     /// moves and assignments of already constructed values.
@@ -1141,6 +1464,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
     > {
         self.authenticate_staged_row(&staged)?;
         let GeneratedAffineResidualGroupStagedExactRow {
+            next_transition_identity,
             next_state_version,
             source_ordinal,
             next_source_ordinal,
@@ -1155,6 +1479,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 self.stats = committed_stats;
                 self.next_source_ordinal = next_source_ordinal;
                 self.state_version = next_state_version;
+                self.transition_identity = next_transition_identity;
                 Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent {
                     source_ordinal,
                     reductions,
@@ -1186,6 +1511,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 self.stats = committed_stats;
                 self.next_source_ordinal = next_source_ordinal;
                 self.state_version = next_state_version;
+                self.transition_identity = next_transition_identity;
                 Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
                     source_ordinal,
                     pivot_ordinal,
@@ -1219,11 +1545,13 @@ impl GeneratedAffineResidualGroupExactDatabase {
         if self.next_source_ordinal != staged.source_ordinal {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongSourceOrder);
         }
-        if staged.next_source_ordinal
-            != staged
-                .source_ordinal
-                .checked_add(1)
-                .ok_or(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)?
+        if staged.next_transition_identity == ExactDatabaseTransitionIdentity::PRISTINE
+            || staged.next_transition_identity == self.transition_identity
+            || staged.next_source_ordinal
+                != staged
+                    .source_ordinal
+                    .checked_add(1)
+                    .ok_or(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)?
             || staged.next_state_version
                 != staged
                     .state_version
@@ -2098,6 +2426,22 @@ fn take_exact_database_nonce(
         .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::DatabaseIdentityExhaustion)
 }
 
+fn next_exact_database_transition_identity()
+-> Result<ExactDatabaseTransitionIdentity, GeneratedAffineResidualGroupExactDatabaseError> {
+    take_exact_database_transition_identity(&NEXT_EXACT_DATABASE_TRANSITION_NONCE)
+}
+
+fn take_exact_database_transition_identity(
+    source: &AtomicU64,
+) -> Result<ExactDatabaseTransitionIdentity, GeneratedAffineResidualGroupExactDatabaseError> {
+    source
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |nonce| {
+            nonce.checked_add(1)
+        })
+        .map(ExactDatabaseTransitionIdentity)
+        .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::TransitionIdentityExhaustion)
+}
+
 fn checked_add(
     resource: &'static str,
     left: usize,
@@ -2441,6 +2785,7 @@ mod tests {
     }
 
     struct ExactDatabaseStateSnapshot {
+        transition_identity: ExactDatabaseTransitionIdentity,
         state_version: usize,
         next_source_ordinal: usize,
         pivots: Vec<ExactUnitPivot>,
@@ -2454,6 +2799,7 @@ mod tests {
         database: &GeneratedAffineResidualGroupExactDatabase,
     ) -> ExactDatabaseStateSnapshot {
         ExactDatabaseStateSnapshot {
+            transition_identity: database.transition_identity,
             state_version: database.state_version,
             next_source_ordinal: database.next_source_ordinal,
             pivots: database.pivots.clone(),
@@ -2468,6 +2814,7 @@ mod tests {
         database: &GeneratedAffineResidualGroupExactDatabase,
         before: &ExactDatabaseStateSnapshot,
     ) {
+        assert_eq!(database.transition_identity, before.transition_identity);
         assert_eq!(database.state_version, before.state_version);
         assert_eq!(database.next_source_ordinal, before.next_source_ordinal);
         assert_eq!(database.pivots, before.pivots);
@@ -2479,7 +2826,7 @@ mod tests {
 
     #[test]
     fn staged_row_drop_preserves_database_values_and_capacities() {
-        let (_family, context, _plan, _frame, database, keys) =
+        let (_family, context, plan, frame, database, keys) =
             database_fixture("exact-db-staged-drop");
         let before = database_state_snapshot(&database);
         let staged = database
@@ -2490,10 +2837,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(staged.source_ordinal(), 0);
-        let pivot = staged.staged_pivot().unwrap();
+        let pivot = database.authenticate_staged_new_pivot(&staged).unwrap();
+        assert!(Arc::ptr_eq(pivot.plan(), &plan));
+        assert!(Arc::ptr_eq(pivot.frame(), &frame));
+        assert_eq!(pivot.database_epoch(), database.database_epoch());
+        assert_eq!(pivot.group_ordinal(), database.group_ordinal());
+        assert_eq!(pivot.state_version(), 0);
+        assert_eq!(pivot.source_ordinal(), 0);
+        assert_eq!(pivot.pivot_ordinal(), 0);
+        assert!(pivot.production_source().is_none());
         assert_eq!(pivot.key(), &keys[0]);
+        assert_eq!(pivot.terms().len(), 1);
+        assert!(pivot.guards().is_empty());
+        assert!(pivot.reductions().is_empty());
         assert_eq!(pivot.normalization_divisor(), &context.integer(3));
         assert_database_state_unchanged(&database, &before);
+        drop(pivot);
         drop(staged);
         assert_database_state_unchanged(&database, &before);
     }
@@ -2512,6 +2871,163 @@ mod tests {
             Err(GeneratedAffineResidualGroupExactDatabaseError::DatabaseIdentityExhaustion)
         );
         assert_eq!(exhausted.load(Ordering::Relaxed), u64::MAX);
+    }
+
+    #[test]
+    fn target_binding_transition_identity_source_is_unique_and_never_wraps() {
+        let source = AtomicU64::new(11);
+        assert_eq!(
+            take_exact_database_transition_identity(&source),
+            Ok(ExactDatabaseTransitionIdentity(11))
+        );
+        assert_eq!(
+            take_exact_database_transition_identity(&source),
+            Ok(ExactDatabaseTransitionIdentity(12))
+        );
+
+        let exhausted = AtomicU64::new(u64::MAX - 1);
+        assert_eq!(
+            take_exact_database_transition_identity(&exhausted),
+            Ok(ExactDatabaseTransitionIdentity(u64::MAX - 1))
+        );
+        assert_eq!(exhausted.load(Ordering::Relaxed), u64::MAX);
+        assert_eq!(
+            take_exact_database_transition_identity(&exhausted),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::TransitionIdentityExhaustion)
+        );
+        assert_eq!(exhausted.load(Ordering::Relaxed), u64::MAX);
+    }
+
+    #[test]
+    fn target_binding_rejects_foreign_database_with_identical_visible_coordinates() {
+        let (family, context, plan, frame, source_database, _keys) =
+            database_fixture("exact-db-target-binding-foreign");
+        let foreign_database = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            Arc::clone(&frame),
+            source_database.database_epoch(),
+            source_database.limits,
+        )
+        .unwrap();
+        assert_ne!(
+            source_database.database_nonce,
+            foreign_database.database_nonce
+        );
+        assert_eq!(
+            source_database.state_version(),
+            foreign_database.state_version()
+        );
+        assert_eq!(
+            source_database.group_ordinal(),
+            foreign_database.group_ordinal()
+        );
+
+        let source_binding = source_database.initial_target_state_binding().unwrap();
+        let foreign_binding = foreign_database.initial_target_state_binding().unwrap();
+        assert!(source_binding.same_plan_allocation(&plan));
+        assert!(source_binding.same_frame_allocation(&frame));
+        assert_eq!(
+            source_database.authenticate_target_state_binding(&source_binding),
+            Ok(())
+        );
+        assert_eq!(
+            foreign_database.authenticate_target_state_binding(&foreign_binding),
+            Ok(())
+        );
+        assert_eq!(
+            foreign_database.authenticate_target_state_binding(&source_binding),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        );
+        assert_eq!(
+            source_database.authenticate_target_state_binding(&foreign_binding),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        );
+    }
+
+    #[test]
+    fn successor_target_binding_authenticates_only_after_its_matching_commit() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-target-binding-successor");
+        let initial = database.initial_target_state_binding().unwrap();
+        assert_eq!(database.authenticate_target_state_binding(&initial), Ok(()));
+        let staged = database
+            .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
+            .unwrap();
+        let successor = database.successor_target_state_binding(&staged).unwrap();
+        assert_eq!(successor.state_version(), 1);
+        assert!(successor.is_direct_successor_of(&initial));
+        assert_eq!(
+            database.authenticate_target_state_binding(&successor),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        );
+
+        database.commit_staged_row(staged).unwrap();
+        assert_eq!(
+            database.authenticate_target_state_binding(&initial),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        );
+        assert_eq!(
+            database.authenticate_target_state_binding(&successor),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn successor_target_binding_rejects_competing_same_version_transition() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-target-binding-competing");
+        let initial = database.initial_target_state_binding().unwrap();
+        let staged_a = database
+            .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
+            .unwrap();
+        let successor_a = database.successor_target_state_binding(&staged_a).unwrap();
+        let staged_b = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+        let successor_b = database.successor_target_state_binding(&staged_b).unwrap();
+        assert_eq!(successor_a.state_version(), successor_b.state_version());
+        assert!(successor_a.is_direct_successor_of(&initial));
+        assert!(successor_b.is_direct_successor_of(&initial));
+        assert_ne!(
+            staged_a.next_transition_identity,
+            staged_b.next_transition_identity
+        );
+
+        database.commit_staged_row(staged_b).unwrap();
+        assert_eq!(
+            database.authenticate_target_state_binding(&successor_b),
+            Ok(())
+        );
+        assert_eq!(
+            database.authenticate_target_state_binding(&successor_a),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        );
+        assert_eq!(
+            database.commit_staged_row(staged_a),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
+        );
+
+        let staged_c = database
+            .stage_test_terms(&context, vec![(keys[2].clone(), context.one())], Vec::new())
+            .unwrap();
+        let successor_c = database.successor_target_state_binding(&staged_c).unwrap();
+        assert!(successor_c.is_direct_successor_of(&successor_b));
+        assert!(!successor_c.is_direct_successor_of(&successor_a));
+    }
+
+    #[test]
+    fn initial_target_binding_rejects_post_commit_database() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-target-binding-late-initial");
+        database
+            .ingest_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
+            .unwrap();
+        assert!(matches!(
+            database.initial_target_state_binding(),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
+        ));
     }
 
     #[test]
@@ -2536,6 +3052,17 @@ mod tests {
         let staged = source_database
             .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
             .unwrap();
+        let authenticated = source_database
+            .authenticate_staged_new_pivot(&staged)
+            .unwrap();
+        assert_eq!(authenticated.pivot_ordinal(), 0);
+        drop(authenticated);
+        assert!(matches!(
+            foreign_database.authenticate_staged_new_pivot(&staged),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseAllocation)
+        ));
+        assert_database_state_unchanged(&source_database, &source_before);
+        assert_database_state_unchanged(&foreign_database, &foreign_before);
         assert_eq!(
             foreign_database.commit_staged_row(staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseAllocation)
@@ -2563,6 +3090,11 @@ mod tests {
         ));
         assert_eq!(database.state_version, 1);
         let committed = database_state_snapshot(&database);
+        assert!(matches!(
+            database.authenticate_staged_new_pivot(&stale),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
+        ));
+        assert_database_state_unchanged(&database, &committed);
         assert_eq!(
             database.commit_staged_row(stale),
             Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
@@ -2854,12 +3386,23 @@ mod tests {
                 &source,
             )
             .unwrap();
-        assert!(Arc::ptr_eq(staged.production_source().unwrap(), &source));
         assert_eq!(Arc::strong_count(&source), source_strong_count + 1);
         assert_eq!(Arc::strong_count(&plan), plan_strong_count);
         assert_eq!(Arc::strong_count(&frame), frame_strong_count);
-        let staged_pivot = staged.staged_pivot().unwrap();
+        let staged_pivot = database.authenticate_staged_new_pivot(&staged).unwrap();
+        assert!(Arc::ptr_eq(staged_pivot.plan(), &plan));
+        assert!(Arc::ptr_eq(staged_pivot.frame(), &frame));
+        assert_eq!(staged_pivot.database_epoch(), database.database_epoch());
+        assert_eq!(staged_pivot.group_ordinal(), database.group_ordinal());
+        assert_eq!(staged_pivot.state_version(), 0);
+        assert_eq!(staged_pivot.source_ordinal(), 0);
+        assert_eq!(staged_pivot.pivot_ordinal(), 0);
+        assert!(Arc::ptr_eq(
+            staged_pivot.production_source().unwrap(),
+            &source
+        ));
         assert_eq!(staged_pivot.key(), source_leader);
+        assert_eq!(staged_pivot.terms().len(), source_term_count);
         assert_eq!(staged_pivot.normalization_divisor(), source_divisor);
         assert_eq!(
             (
@@ -2873,6 +3416,7 @@ mod tests {
             baseline,
             "production staging must not consume or resize database state"
         );
+        drop(staged_pivot);
         let outcome = database.commit_staged_row(staged).unwrap();
         assert_eq!(Arc::strong_count(&source), source_strong_count);
         assert_eq!(Arc::strong_count(&plan), plan_strong_count);
@@ -3032,12 +3576,13 @@ mod tests {
         assert_eq!(staged.reductions().len(), 1);
         assert_eq!(staged.reductions()[0].pivot_ordinal(), 0);
         assert_eq!(staged.reductions()[0].factor(), &context.one());
-        let staged_pivot = staged
-            .staged_pivot()
+        let staged_pivot = database
+            .authenticate_staged_new_pivot(&staged)
             .expect("the reduced lower leader is not known yet");
         assert_eq!(staged_pivot.key(), &lower);
         assert_eq!(staged_pivot.normalization_divisor(), &context.integer(-2));
         assert_database_state_unchanged(&database, &before);
+        drop(staged_pivot);
 
         assert_eq!(
             database.commit_staged_row(staged).unwrap(),
@@ -3076,7 +3621,10 @@ mod tests {
                 Vec::new(),
             )
             .unwrap();
-        assert!(staged.staged_pivot().is_none());
+        assert!(matches!(
+            database.authenticate_staged_new_pivot(&staged),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::DependentStagedRow)
+        ));
         assert_eq!(
             staged
                 .reductions()
@@ -3098,6 +3646,10 @@ mod tests {
                 Vec::new(),
             )
             .unwrap();
+        assert!(matches!(
+            database.authenticate_staged_new_pivot(&staged),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::DependentStagedRow)
+        ));
         let staged_live_bytes = staged.staged_live_observed_retained_bytes();
         assert_database_state_unchanged(&database, &before);
         let outcome = database.commit_staged_row(staged).unwrap();

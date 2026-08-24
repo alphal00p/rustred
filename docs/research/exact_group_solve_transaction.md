@@ -1,6 +1,6 @@
 # Exact-group `Solvej` row transaction
 
-Status: authoritative design note for the next RustRed implementation slice.
+Status: authoritative design note and implementation checkpoint.
 
 Scope: one topology-independent, exact-GMP affine group. This note defines the
 ownership and transaction boundary joining raw-row replay, LiteRed-style
@@ -11,6 +11,53 @@ FORM as an implementation dependency.
 The broader mathematical contract remains
 `docs/research/litered_solvej_exact_group_database.md`. This note narrows that
 contract to the APIs and invariants needed for an atomic implementation.
+
+## Implemented checkpoint (2026-08-24)
+
+The topology-neutral authority and staging layers described below now exist:
+
+- `generated_affine_residual_group_exact_database.rs` performs LiteRed-style
+  hardest-only top reduction without mutation, returns a non-`Clone` staged
+  row, and commits only after complete allocation/version/cursor checks.  Each
+  database and each successfully staged transition have separate private,
+  non-wrapping identities, so distinct databases and competing same-version
+  rows cannot be cross-paired.
+- `generated_affine_residual_group_exact_targets.rs` compiles the solve plan's
+  persisted target order through the retained inventory authority.  It stores
+  either a Ready premises certificate or a typed affine-equality-refinement
+  certificate for every target.  Its immutable state is created only from an
+  opaque database binding; retained target handles own the exact state `Arc`,
+  and every successor binding names its exact predecessor transition rather
+  than trusting adjacent numeric versions. Fallible successors preflight their
+  retained/peak byte envelopes before allocating the copied disposition buffer
+  and either preserve all dispositions or consume exactly one Ready handle.
+- `generated_affine_residual_group_exact_session.rs` is the sole production
+  owner joining the database and target-state allocation.  A staged session
+  transaction seals the database row token together with the exact target
+  state.  Its narrow joint view exposes only recentering data/provenance,
+  target operations, and plan geometry.  `commit_unconsumed` preconstructs the
+  target successor and then advances database and target versions together
+  without consuming a target; this covers dependent rows and pivots rejected
+  or deferred by later policy.
+
+Adversarial tests cover value-equal foreign plans, two databases with identical
+visible coordinates, competing transitions from one live version, attempted
+successor laundering through an abandoned sibling branch, stale transactions,
+target-state allocation siblings, production physical-row ingress, immutable
+target successors, one-below resource envelopes, and exact transition replay.
+These layers remain inert: they publish no rule and infer no master.
+
+The repository release gate for this checkpoint used licensed, GMP-enabled
+Symbolica with eight-way `cargo-nextest`: run
+`0ba055e9-b517-4088-8d8c-ffd2bc28a4c9` passed all 1,392 tests (3 additional
+tests intentionally skipped) in 1,073.130 seconds, followed by clean rustdoc
+tests. Neither FORM nor Symbolica's `no_gmp` feature was used.
+
+The next missing mathematical seam is authoritative GMP pivot recentering from
+the authenticated **post-top-reduction** leader.  After that comes exact
+`WhenBad` closure and atomic guarded publication.  The old raw
+`generated_affine_residual_group_exact_relation.rs` compiler remains a
+differential oracle only; it is not a production authority.
 
 ## 1. Normative source seams
 
@@ -27,7 +74,10 @@ consumed in source order (`vendor/LiteRed2/Source/LiteRed2026.m:2648-2659`), and
 the exact bad-locus calculation is at
 `vendor/LiteRed2/Source/LiteRed2026.m:2565-2569`.
 
-RustRed already has four relevant but unjoined seams:
+The source audit that motivated the implementation identified four relevant
+but then-unjoined seams.  The first two have since been replaced/joined by the
+checkpoint above; the descriptions remain here to explain why the new
+authority boundary was necessary:
 
 1. An exact physical row retains its authenticated re-elimination source,
    frame, row/witness locators, physical terms, and guards
@@ -35,8 +85,10 @@ RustRed already has four relevant but unjoined seams:
    `replay_for_database` method supplies a sealed borrowed ingress
    (`src/generated_affine_residual_group_exact_physical_row.rs:471-485`). The
    retained `Arc` is therefore the row's replay recipe.
-2. The exact database authenticates that row and immediately ingests it
-   mutably (`src/generated_affine_residual_group_exact_database.rs:535-575`).
+2. The pre-transaction exact database authenticated that row and immediately
+   ingested it mutably
+   (`src/generated_affine_residual_group_exact_database.rs` at the historical
+   audit revision).
    Its hardest-only loop is the required LiteRed algebra
    (`src/generated_affine_residual_group_exact_database.rs:637-742`). It
    constructs a normalized pivot and complete replacement buffers
@@ -279,25 +331,29 @@ objects are rejected.
 
 ## 7. Implementation sequence
 
-1. **Stage the exact database.** Refactor current ingress into
+1. **Stage the exact database — implemented.** Refactor current ingress into
    `stage_replayed_row` plus a consume-once sealed commit token. Retain the
    physical-row recipe and dependent/new-pivot events. Keep the existing exact
    hardest-only algebra unchanged.
-2. **Recenter the staged pivot.** Extract GMP geometry/translation from
+2. **Bind exact targets and the session — implemented.** Persist the exact
+   solve-plan target order, type equality-refinement cases, bind target state
+   to the database allocation/transition, and advance unconsumed successors
+   atomically with the database.
+3. **Recenter the staged pivot — next.** Extract GMP geometry/translation from
    `generated_affine_residual_group_exact_relation.rs`; accept only the staged
    pivot and owner target-state view. Retire raw-relation compilation as a
    production path.
-3. **Add the outer owner.** Own database, batch cursor, targets, events, rules,
-   residuals, and version in one transaction boundary. Initially exercise the
+4. **Extend the outer owner.** Add events, rules, residuals, and publication to
+   the existing database/target session boundary. Initially exercise the
    transition matrix with a private injected classifier; do not claim complete
    publication yet.
-4. **Adapt exact `WhenBad`.** Reuse the old polynomial/partition algorithms
+5. **Adapt exact `WhenBad`.** Reuse the old polynomial/partition algorithms
    behind new exact authority certificates, replace `IndexShift`/`i64`
    boundaries with arbitrary-precision values, and source guards from the
    authenticated target.
-5. **Add exact publication and replay.** Issue authority-bound sealed rule and
+6. **Add exact publication and replay.** Issue authority-bound sealed rule and
    residual handles, then replay the complete chronological group transcript.
-6. **Integrate the generic scheduler.** Only after the transaction and replay
+7. **Integrate the generic scheduler.** Only after the transaction and replay
    tests pass should one-, two-, and higher-loop families exercise this path.
    Concrete topologies are validation fixtures, never implementation branches.
 

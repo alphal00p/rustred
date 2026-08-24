@@ -99,6 +99,8 @@ mod generated_affine_residual_case_reelimination;
 mod generated_affine_residual_group_exact_database;
 mod generated_affine_residual_group_exact_physical_row;
 mod generated_affine_residual_group_exact_relation;
+mod generated_affine_residual_group_exact_session;
+mod generated_affine_residual_group_exact_targets;
 mod generated_affine_residual_group_physical_key;
 mod generated_affine_residual_group_solve_plan;
 pub(crate) mod generated_affine_residual_source_authority;
