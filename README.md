@@ -167,6 +167,10 @@ The repository currently includes tests for:
 - affine denominator-basis completion for independent short lists;
 - zero-sector, symmetry, guarded specialization, and sparse-elimination proof
   components;
+- an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
+  post-top-reduction leaders are matched against persisted targets and return
+  sealed NoTarget, affine-equality-refinement, or Ready outcomes without
+  publishing a rule or mutating solver state;
 - one-loop scalar and tensor comparisons against frozen Vakint-derived oracles;
 - concrete two-loop sunset and three-loop tetrahedron scalar/tensor fixtures;
 - elementary factorized four- and five-loop fixtures which exercise the same
@@ -187,14 +191,14 @@ feature-gated validation material, not production topology dispatch.
 
 ## Current blockers and roadmap
 
-The immediate solver work is the generic LiteRed-style exact-group pipeline:
+The transactional exact pivot database, hardest-first top reduction, and
+session-owned exact recentering stages are implemented. The immediate remaining
+solver work is the generic LiteRed-style continuation:
 
-1. complete the transactional exact pivot database and hardest-first top
-   reduction;
-2. recenter accepted pivots on their target integrals;
-3. compile and close `WhenBad` exceptional branches;
-4. feed solved subsectors into supersectors and iterate residual cases; and
-5. publish replayable guarded rules and a complete reduction result.
+1. refine NoTarget and affine-equality outcomes into typed state transitions;
+2. compile and close `WhenBad` exceptional branches;
+3. feed solved subsectors into supersectors and iterate residual cases; and
+4. publish replayable guarded rules and a complete reduction result.
 
 After that generic path is joined end to end, the next non-vacuum validation
 rung is an external scalar pentagon family. Once scalar reduction is certified,

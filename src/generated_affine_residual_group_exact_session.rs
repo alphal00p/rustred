@@ -8,22 +8,24 @@
 //! borrowed, jointly authenticated view rather than caller-supplied database,
 //! staged-row, or target-state parts.
 //!
-//! V1 exposes one typed dependent-row commit and no raw successor-state,
-//! recentering, rule-publication, or master-inference transition outside this
-//! module. A private unconsumed-commit kernel proves the atomic
-//! database/target-state transition; crate callers reach its dependent branch
-//! only through a sealed owning classification. Future no-target,
-//! equality-refinement, and rejected-`WhenBad` paths must add equally typed
-//! authorities. Dropping an otherwise unconsumed staged transaction leaves
-//! both retained owners unchanged.
+//! V1 exposes one typed dependent-row commit and one consuming, inert recenter
+//! classification. The recenter outcome retains the transaction behind sealed
+//! no-target, equality-refinement, or Ready typestates; it publishes no rule,
+//! infers no master, and provides no direct Ready commit. A private
+//! unconsumed-commit kernel proves the atomic database/target-state transition,
+//! and no raw successor-state transition is exposed outside this module.
+//! Dropping an otherwise unconsumed staged transaction or recenter outcome
+//! leaves both retained owners unchanged.
 
 use std::fmt;
+use std::mem::size_of;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
+use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
 use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
@@ -32,22 +34,32 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupStagedExactRow,
 };
 use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
+use crate::generated_affine_residual_group_exact_recenter_kernel::{
+    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
+    ExactRecenteredRow, ExactRecenteredTerm, admit_inert_owner, bounded_add, checked_add,
+    exact_offsets_equal, execute_target_offset, preflight_exact_geometry, translate_centered_row,
+    verify_target_offset_census,
+};
 use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
     GeneratedAffineResidualGroupExactTargetCatalogLimits,
     GeneratedAffineResidualGroupExactTargetError, GeneratedAffineResidualGroupExactTargetState,
     GeneratedAffineResidualGroupExactTargetStateLimits,
     GeneratedAffineResidualGroupExactTargetStateView,
+    GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
     GeneratedAffineResidualGroupRetainedExactTarget,
+    GeneratedAffineResidualGroupRetainedReadyExactTarget,
 };
 use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
+    GeneratedAffineResidualGroupPhysicalKeyError,
 };
 use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
 };
 use crate::{
-    IntegralFamily, ParametricCoefficient, ParametricCoefficientContext, ParametricNonZeroCondition,
+    GuardOrigin, IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
+    ParametricNonZeroCondition,
 };
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
@@ -93,6 +105,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionLimits {
     pub(crate) database: GeneratedAffineResidualGroupExactDatabaseLimits,
     pub(crate) target_catalog: GeneratedAffineResidualGroupExactTargetCatalogLimits,
     pub(crate) target_state: GeneratedAffineResidualGroupExactTargetStateLimits,
+    pub(crate) recenter: GeneratedAffineResidualGroupExactSessionRecenterLimits,
 }
 
 impl Default for GeneratedAffineResidualGroupExactSessionLimits {
@@ -101,7 +114,66 @@ impl Default for GeneratedAffineResidualGroupExactSessionLimits {
             database: GeneratedAffineResidualGroupExactDatabaseLimits::default(),
             target_catalog: GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
             target_state: GeneratedAffineResidualGroupExactTargetStateLimits::default(),
+            recenter: GeneratedAffineResidualGroupExactSessionRecenterLimits::default(),
         }
+    }
+}
+
+/// Resource envelope for matching and translating one staged session pivot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterLimits {
+    pub(crate) kernel: ExactRecenterKernelLimits,
+    pub(crate) max_target_scans: usize,
+}
+
+impl Default for GeneratedAffineResidualGroupExactSessionRecenterLimits {
+    fn default() -> Self {
+        Self {
+            kernel: ExactRecenterKernelLimits::default(),
+            max_target_scans: 256_000_000,
+        }
+    }
+}
+
+/// Auditable accounting for one session-owned recenter attempt.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterStats {
+    staged_live_prospective_retained_bytes: usize,
+    staged_live_observed_retained_bytes: usize,
+    target_state_combined_retained_byte_envelope: usize,
+    external_live_retained_bytes: usize,
+    target_scans: usize,
+    unresolved_target_scans: usize,
+    kernel: ExactRecenterKernelStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterStats {
+    pub(crate) const fn staged_live_prospective_retained_bytes(self) -> usize {
+        self.staged_live_prospective_retained_bytes
+    }
+
+    pub(crate) const fn staged_live_observed_retained_bytes(self) -> usize {
+        self.staged_live_observed_retained_bytes
+    }
+
+    pub(crate) const fn target_state_combined_retained_byte_envelope(self) -> usize {
+        self.target_state_combined_retained_byte_envelope
+    }
+
+    pub(crate) const fn external_live_retained_bytes(self) -> usize {
+        self.external_live_retained_bytes
+    }
+
+    pub(crate) const fn target_scans(self) -> usize {
+        self.target_scans
+    }
+
+    pub(crate) const fn unresolved_target_scans(self) -> usize {
+        self.unresolved_target_scans
+    }
+
+    pub(crate) const fn kernel(self) -> ExactRecenterKernelStats {
+        self.kernel
     }
 }
 
@@ -175,6 +247,338 @@ impl From<GeneratedAffineResidualGroupExactTargetError>
     fn from(error: GeneratedAffineResidualGroupExactTargetError) -> Self {
         Self::Target(error)
     }
+}
+
+/// Failure kind for a transaction-preserving session recenter attempt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratedAffineResidualGroupExactSessionRecenterError {
+    Session(GeneratedAffineResidualGroupExactSessionError),
+    Kernel(ExactRecenterKernelError),
+    PhysicalKey(GeneratedAffineResidualGroupPhysicalKeyError),
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterError {
+    const fn kind(self) -> &'static str {
+        match self {
+            Self::Session(_) => "Session",
+            Self::Kernel(_) => "Kernel",
+            Self::PhysicalKey(_) => "PhysicalKey",
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionRecenterError")
+            .field("kind", &self.kind())
+            .field("private_detail", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactSessionRecenterError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Session(_) => "exact session recenter authentication failed",
+            Self::Kernel(_) => "exact session recenter arithmetic failed",
+            Self::PhysicalKey(_) => "exact session recenter target geometry failed",
+        })
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactSessionRecenterError {}
+
+impl From<GeneratedAffineResidualGroupExactSessionError>
+    for GeneratedAffineResidualGroupExactSessionRecenterError
+{
+    fn from(error: GeneratedAffineResidualGroupExactSessionError) -> Self {
+        Self::Session(error)
+    }
+}
+
+impl From<ExactRecenterKernelError> for GeneratedAffineResidualGroupExactSessionRecenterError {
+    fn from(error: ExactRecenterKernelError) -> Self {
+        Self::Kernel(error)
+    }
+}
+
+impl From<GeneratedAffineResidualGroupPhysicalKeyError>
+    for GeneratedAffineResidualGroupExactSessionRecenterError
+{
+    fn from(error: GeneratedAffineResidualGroupPhysicalKeyError) -> Self {
+        Self::PhysicalKey(error)
+    }
+}
+
+/// Recenter failure that returns the exact consume-once transaction.
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterFailure {
+    error: GeneratedAffineResidualGroupExactSessionRecenterError,
+    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionRecenterError {
+        self.error
+    }
+
+    pub(crate) fn into_transaction(
+        self,
+    ) -> GeneratedAffineResidualGroupExactSessionStagedTransaction {
+        self.transaction
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionRecenterFailure")
+            .field("error", &self.error)
+            .field("private_transaction", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactSessionRecenterFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("exact session recentering failed before classification")
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactSessionRecenterFailure {}
+
+/// Owning, non-forgeable result of matching one staged post-reduction pivot.
+///
+/// Every branch keeps the consume-once transaction private. Matching never
+/// consumes a target, and the Ready branch deliberately has no commit or
+/// transaction-extraction method: a later `WhenBad` classifier must refine it
+/// into an authorized transition.
+pub(crate) enum GeneratedAffineResidualGroupExactSessionRecenterOutcome {
+    NoTarget(GeneratedAffineResidualGroupExactSessionRecenterNoTarget),
+    RequiresAffineEqualityRefinement(
+        GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
+    ),
+    Ready(GeneratedAffineResidualGroupExactSessionRecenterReady),
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterOutcome {
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        match self {
+            Self::NoTarget(outcome) => outcome.stats(),
+            Self::RequiresAffineEqualityRefinement(outcome) => outcome.stats(),
+            Self::Ready(outcome) => outcome.stats(),
+        }
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        match self {
+            Self::NoTarget(outcome) => outcome.source_ordinal(),
+            Self::RequiresAffineEqualityRefinement(outcome) => outcome.source_ordinal(),
+            Self::Ready(outcome) => outcome.source_ordinal(),
+        }
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        match self {
+            Self::NoTarget(outcome) => outcome.pivot_ordinal(),
+            Self::RequiresAffineEqualityRefinement(outcome) => outcome.pivot_ordinal(),
+            Self::Ready(outcome) => outcome.pivot_ordinal(),
+        }
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoTarget(outcome) => outcome.fmt(formatter),
+            Self::RequiresAffineEqualityRefinement(outcome) => outcome.fmt(formatter),
+            Self::Ready(outcome) => outcome.fmt(formatter),
+        }
+    }
+}
+
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionRecenterNoTarget")
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("private_transaction", &"<redacted>")
+            .finish()
+    }
+}
+
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
+    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) fn target_locator(&self) -> &GeneratedAffineResidualGroupSolveTargetLocator {
+        self.target.locator()
+    }
+
+    pub(crate) fn refinement(&self) -> &GeneratedAffineResidualCaseEqualityRefinementCertificate {
+        self.target.refinement()
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+}
+
+impl fmt::Debug
+    for GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct(
+                "GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement",
+            )
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("target_solve_ordinal", &self.target.solve_ordinal())
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("private_transaction", &"<redacted>")
+            .field("private_target", &"<redacted>")
+            .finish()
+    }
+}
+
+pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterReady {
+    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    target: GeneratedAffineResidualGroupRetainedReadyExactTarget,
+    recentered: ExactRecenteredRow,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionRecenterReady {
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) fn target_locator(&self) -> &GeneratedAffineResidualGroupSolveTargetLocator {
+        self.target.locator()
+    }
+
+    /// Premises owned by the matched target, kept separate from translated
+    /// row guards generated from the staged pivot.
+    pub(crate) fn target_premises(&self) -> &[ParametricNonZeroCondition] {
+        self.target.premises()
+    }
+
+    pub(crate) fn coefficient_translation(&self) -> &[Integer] {
+        self.recentered.coefficient_translation().values()
+    }
+
+    pub(crate) fn terms(&self) -> &[ExactRecenteredTerm] {
+        self.recentered.terms()
+    }
+
+    pub(crate) fn row_guards(&self) -> &[ParametricNonZeroCondition] {
+        self.recentered.guards()
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionRecenterReady")
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("target_solve_ordinal", &self.target.solve_ordinal())
+            .field("target_premise_count", &self.target.premises().len())
+            .field("term_count", &self.recentered.terms().len())
+            .field("row_guard_count", &self.recentered.guards().len())
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("private_transaction", &"<redacted>")
+            .field("private_target", &"<redacted>")
+            .field("private_recentered_row", &"<redacted>")
+            .finish()
+    }
+}
+
+enum PreparedSessionRecenter {
+    NoTarget {
+        source_ordinal: usize,
+        pivot_ordinal: usize,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
+    RequiresAffineEqualityRefinement {
+        target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+        source_ordinal: usize,
+        pivot_ordinal: usize,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
+    Ready {
+        target: GeneratedAffineResidualGroupRetainedReadyExactTarget,
+        recentered: ExactRecenteredRow,
+        source_ordinal: usize,
+        pivot_ordinal: usize,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
 }
 
 /// Failure of an unconsumed session transition.
@@ -609,9 +1013,40 @@ impl GeneratedAffineResidualGroupExactSession {
         })
     }
 
+    /// Test-only ingress for a sibling module that has already constructed
+    /// authenticated physical keys, coefficients, and guards. The database
+    /// call remains protected by the private session capability, and callers
+    /// receive the same inseparable transaction used by production staging.
+    #[cfg(test)]
+    pub(crate) fn stage_authenticated_terms_for_test(
+        &self,
+        context: &ParametricCoefficientContext,
+        terms: Vec<(
+            GeneratedAffineResidualGroupPhysicalKey,
+            ParametricCoefficient,
+        )>,
+        guards: Vec<ParametricNonZeroCondition>,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionStagedTransaction,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        self.database
+            .authenticate_target_state_binding(self.target_state.binding())?;
+        let staged = self.database.stage_authenticated_terms_for_session(
+            &self.database_capability,
+            context,
+            terms,
+            guards,
+        )?;
+        Ok(GeneratedAffineResidualGroupExactSessionStagedTransaction {
+            staged,
+            target_state: Arc::clone(&self.target_state),
+        })
+    }
+
     /// Jointly authenticate one staged new pivot and its exact unresolved
     /// target state.  This is the sole V1 recentering ingress.
-    pub(crate) fn authenticate_staged_new_pivot<'a>(
+    fn authenticate_staged_new_pivot<'a>(
         &'a self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -690,6 +1125,264 @@ impl GeneratedAffineResidualGroupExactSession {
             staged_live_observed_retained_bytes,
             target_state_combined_retained_byte_envelope,
         })
+    }
+
+    /// Consume one staged new-pivot transaction into a sealed recenter
+    /// typestate. Preparation borrows the transaction behind an unwind
+    /// boundary; every ordinary error and every caught panic therefore returns
+    /// the exact original token without reconstructing either authority.
+    pub(crate) fn recenter_staged_new_pivot(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionRecenterOutcome,
+        GeneratedAffineResidualGroupExactSessionRecenterFailure,
+    > {
+        let prepared = catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_staged_new_pivot_recenter(family, context, &transaction)
+        }));
+        let prepared = match prepared {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                return Err(GeneratedAffineResidualGroupExactSessionRecenterFailure {
+                    error,
+                    transaction,
+                });
+            }
+            Err(_) => {
+                return Err(GeneratedAffineResidualGroupExactSessionRecenterFailure {
+                    error: GeneratedAffineResidualGroupExactSessionRecenterError::Session(
+                        GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                    ),
+                    transaction,
+                });
+            }
+        };
+
+        Ok(match prepared {
+            PreparedSessionRecenter::NoTarget {
+                source_ordinal,
+                pivot_ordinal,
+                stats,
+            } => GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(
+                GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+                    transaction,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                },
+            ),
+            PreparedSessionRecenter::RequiresAffineEqualityRefinement {
+                target,
+                source_ordinal,
+                pivot_ordinal,
+                stats,
+            } => GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+                GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
+                    transaction,
+                    target,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                },
+            ),
+            PreparedSessionRecenter::Ready {
+                target,
+                recentered,
+                source_ordinal,
+                pivot_ordinal,
+                stats,
+            } => GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(
+                GeneratedAffineResidualGroupExactSessionRecenterReady {
+                    transaction,
+                    target,
+                    recentered,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                },
+            ),
+        })
+    }
+
+    fn prepare_staged_new_pivot_recenter(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        transaction: &GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    ) -> Result<PreparedSessionRecenter, GeneratedAffineResidualGroupExactSessionRecenterError>
+    {
+        let joint = self.authenticate_staged_new_pivot(family, context, transaction)?;
+        let recenter_limits = self.limits.recenter;
+        let kernel_limits = recenter_limits.kernel;
+        let mut kernel = ExactRecenterKernelStats::for_row(
+            joint.terms().len(),
+            joint.guards().len(),
+            kernel_limits,
+        )?;
+        let staged_live_prospective_retained_bytes = joint.staged_live_prospective_retained_bytes();
+        let staged_live_observed_retained_bytes = joint.staged_live_observed_retained_bytes();
+        let target_state_combined_retained_byte_envelope =
+            joint.target_state_combined_retained_byte_envelope();
+        let external_live_retained_bytes = checked_add(
+            "exact session recenter external live retained bytes",
+            staged_live_prospective_retained_bytes.max(staged_live_observed_retained_bytes),
+            target_state_combined_retained_byte_envelope,
+        )?;
+        let mut stats = GeneratedAffineResidualGroupExactSessionRecenterStats {
+            staged_live_prospective_retained_bytes,
+            staged_live_observed_retained_bytes,
+            target_state_combined_retained_byte_envelope,
+            external_live_retained_bytes,
+            ..GeneratedAffineResidualGroupExactSessionRecenterStats::default()
+        };
+
+        // The key of an authenticated staged unit pivot is its post-top
+        // leader. Geometry preflight performs no GMP construction. Admit the
+        // complete outcome owner and all already-live session allocations
+        // before materializing the target offset.
+        let pivot = joint.key().shift();
+        preflight_exact_geometry(
+            pivot,
+            joint.compact_affine_matrix(),
+            joint.free_positions(),
+            kernel_limits,
+            &mut kernel,
+        )?;
+        admit_inert_owner(
+            size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
+            external_live_retained_bytes,
+            0,
+            kernel_limits,
+            &mut kernel,
+        )?;
+        let target_offset = execute_target_offset(
+            pivot,
+            joint.compact_affine_matrix(),
+            joint.free_positions(),
+            joint.ambient_arity(),
+        )?;
+        verify_target_offset_census(&target_offset, &kernel)?;
+
+        let target_ordinals = joint.target_ordinals();
+        if target_ordinals.start != 0 || target_ordinals.end != joint.target_locators().len() {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into());
+        }
+        let mut selected = None;
+        for solve_ordinal in target_ordinals {
+            stats.target_scans = bounded_add(
+                "exact session recenter target scans",
+                stats.target_scans,
+                1,
+                recenter_limits.max_target_scans,
+            )?;
+            let locator = joint
+                .target_locators()
+                .get(solve_ordinal)
+                .copied()
+                .ok_or(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+            if locator.solve_ordinal() != solve_ordinal {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into());
+            }
+            if !joint.is_target_unresolved(solve_ordinal)? {
+                continue;
+            }
+            stats.unresolved_target_scans = checked_add(
+                "exact session recenter unresolved target scans",
+                stats.unresolved_target_scans,
+                1,
+            )?;
+            if exact_offsets_equal(
+                joint
+                    .physical_frame()
+                    .anchor_offset(locator.inventory_position(), locator.case_ordinal())?
+                    .values(),
+                target_offset.values(),
+                kernel_limits,
+                &mut kernel,
+            )? {
+                let retained = joint.retain_target(solve_ordinal)?;
+                if retained.solve_ordinal() != solve_ordinal || retained.locator() != &locator {
+                    return Err(
+                        GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into(),
+                    );
+                }
+                selected = Some(retained);
+                break;
+            }
+        }
+
+        let source_ordinal = joint.source_ordinal();
+        let pivot_ordinal = joint.pivot_ordinal();
+        let Some(target) = selected else {
+            stats.kernel = kernel;
+            return Ok(PreparedSessionRecenter::NoTarget {
+                source_ordinal,
+                pivot_ordinal,
+                stats,
+            });
+        };
+
+        match target {
+            GeneratedAffineResidualGroupRetainedExactTarget::RequiresAffineEqualityRefinement(
+                target,
+            ) => {
+                // First-match semantics are final. Equality-bearing targets
+                // return before coefficient, centered-shift, or guard
+                // translation and retain neither the temporary offset nor a
+                // recentered row.
+                if !target.authenticates_source_state(&transaction.target_state) {
+                    return Err(
+                        GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into(),
+                    );
+                }
+                stats.kernel = kernel;
+                Ok(PreparedSessionRecenter::RequiresAffineEqualityRefinement {
+                    target,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                })
+            }
+            GeneratedAffineResidualGroupRetainedExactTarget::Ready(target) => {
+                if !target.authenticates_source_state(&transaction.target_state) {
+                    return Err(
+                        GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into(),
+                    );
+                }
+                let locator_origin = GuardOrigin::GeneratedAffineGroupRecentering {
+                    solve_group_ordinal: joint.group_ordinal(),
+                    database_epoch: joint.database_epoch(),
+                    event_ordinal: source_ordinal,
+                };
+                let recentered = translate_centered_row(
+                    context,
+                    joint
+                        .terms()
+                        .map(|(key, coefficient)| (key.shift(), coefficient)),
+                    joint.guards().iter(),
+                    pivot,
+                    joint.free_positions(),
+                    &locator_origin,
+                    size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
+                    0,
+                    external_live_retained_bytes,
+                    0,
+                    kernel_limits,
+                    &mut kernel,
+                )?;
+                stats.kernel = recentered.stats();
+                Ok(PreparedSessionRecenter::Ready {
+                    target,
+                    recentered,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                })
+            }
+        }
     }
 
     /// Consume one raw staged transaction into a non-forgeable dependent
@@ -923,7 +1616,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionStagedTransaction {
 
 /// Sealed simultaneous borrow of a database-authenticated new pivot and the
 /// exact unresolved targets belonging to the same live session state.
-pub(crate) struct GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
+struct GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
     staged_pivot: GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a>,
     targets: GeneratedAffineResidualGroupExactTargetStateView<'a>,
     anchor_case_ordinal: usize,
@@ -937,11 +1630,11 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a>
 }
 
 impl<'a> GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
-    pub(crate) fn key(&self) -> &'a GeneratedAffineResidualGroupPhysicalKey {
+    fn key(&self) -> &'a GeneratedAffineResidualGroupPhysicalKey {
         self.staged_pivot.key()
     }
 
-    pub(crate) fn terms(
+    fn terms(
         &self,
     ) -> impl ExactSizeIterator<
         Item = (
@@ -953,37 +1646,35 @@ impl<'a> GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
         self.staged_pivot.terms()
     }
 
-    pub(crate) fn guards(&self) -> &'a [ParametricNonZeroCondition] {
+    fn guards(&self) -> &'a [ParametricNonZeroCondition] {
         self.staged_pivot.guards()
     }
 
-    pub(crate) fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
+    fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
         self.staged_pivot.reductions()
     }
 
-    pub(crate) const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
+    const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
         self.staged_pivot.normalization_divisor()
     }
 
-    pub(crate) const fn source_ordinal(&self) -> usize {
+    const fn source_ordinal(&self) -> usize {
         self.staged_pivot.source_ordinal()
     }
 
-    pub(crate) const fn pivot_ordinal(&self) -> usize {
+    const fn pivot_ordinal(&self) -> usize {
         self.staged_pivot.pivot_ordinal()
     }
 
-    pub(crate) fn production_source(
-        &self,
-    ) -> Option<&'a Arc<GeneratedAffineResidualGroupExactPhysicalRow>> {
+    fn production_source(&self) -> Option<&'a Arc<GeneratedAffineResidualGroupExactPhysicalRow>> {
         self.staged_pivot.production_source()
     }
 
-    pub(crate) fn target_ordinals(&self) -> Range<usize> {
+    fn target_ordinals(&self) -> Range<usize> {
         self.targets.iter()
     }
 
-    pub(crate) fn is_target_unresolved(
+    fn is_target_unresolved(
         &self,
         solve_ordinal: usize,
     ) -> Result<bool, GeneratedAffineResidualGroupExactSessionError> {
@@ -992,7 +1683,7 @@ impl<'a> GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
             .map_err(GeneratedAffineResidualGroupExactSessionError::from)
     }
 
-    pub(crate) fn retain_target(
+    fn retain_target(
         &self,
         solve_ordinal: usize,
     ) -> Result<
@@ -1004,49 +1695,49 @@ impl<'a> GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'a> {
             .map_err(GeneratedAffineResidualGroupExactSessionError::from)
     }
 
-    pub(crate) fn physical_frame(&self) -> &'a Arc<GeneratedAffineResidualGroupPhysicalFrame> {
+    fn physical_frame(&self) -> &'a Arc<GeneratedAffineResidualGroupPhysicalFrame> {
         self.staged_pivot.frame()
     }
 
-    pub(crate) const fn database_epoch(&self) -> usize {
+    const fn database_epoch(&self) -> usize {
         self.staged_pivot.database_epoch()
     }
 
-    pub(crate) const fn group_ordinal(&self) -> usize {
+    const fn group_ordinal(&self) -> usize {
         self.staged_pivot.group_ordinal()
     }
 
-    pub(crate) fn anchor_case_ordinal(&self) -> usize {
+    fn anchor_case_ordinal(&self) -> usize {
         self.anchor_case_ordinal
     }
 
-    pub(crate) fn free_positions(&self) -> &[usize] {
+    fn free_positions(&self) -> &[usize] {
         self.free_positions
     }
 
-    pub(crate) fn target_locators(&self) -> &[GeneratedAffineResidualGroupSolveTargetLocator] {
+    fn target_locators(&self) -> &[GeneratedAffineResidualGroupSolveTargetLocator] {
         self.target_locators
     }
 
-    pub(crate) const fn ambient_arity(&self) -> usize {
+    const fn ambient_arity(&self) -> usize {
         self.ambient_arity
     }
 
     /// Borrowed row-major `ambient_arity * free_positions().len()` compact
     /// affine matrix authenticated from the retained plan authority.
-    pub(crate) const fn compact_affine_matrix(&self) -> &'a [Integer] {
+    const fn compact_affine_matrix(&self) -> &'a [Integer] {
         self.compact_affine_matrix
     }
 
-    pub(crate) const fn staged_live_prospective_retained_bytes(&self) -> usize {
+    const fn staged_live_prospective_retained_bytes(&self) -> usize {
         self.staged_live_prospective_retained_bytes
     }
 
-    pub(crate) const fn staged_live_observed_retained_bytes(&self) -> usize {
+    const fn staged_live_observed_retained_bytes(&self) -> usize {
         self.staged_live_observed_retained_bytes
     }
 
-    pub(crate) const fn target_state_combined_retained_byte_envelope(&self) -> usize {
+    const fn target_state_combined_retained_byte_envelope(&self) -> usize {
         self.target_state_combined_retained_byte_envelope
     }
 }
@@ -1114,17 +1805,87 @@ mod tests {
         GeneratedAffineResidualGroupExactPhysicalRowCompiler,
         GeneratedAffineResidualGroupExactPhysicalRowLimits,
     };
+    use crate::generated_affine_residual_group_exact_recenter_kernel::{
+        centered_shift_arithmetic_operations_for_test,
+        reset_centered_shift_arithmetic_operations_for_test,
+    };
+    use crate::generated_affine_residual_group_exact_targets::{
+        GeneratedAffineResidualGroupAuthenticatedExactTargetView,
+        GeneratedAffineResidualGroupExactTargetStateStats,
+    };
     use crate::generated_affine_residual_group_physical_key::{
         GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::generated_sector_affine_effective_coverage::{
+        GeneratedSectorAffineEffectiveCoverageCompiler,
+        GeneratedSectorAffineEffectiveCoverageConfig, GeneratedSectorAffineEffectiveCoverageLimits,
+    };
+    use crate::generated_sector_affine_effective_residual_queue::{
+        GeneratedSectorAffineEffectiveResidualQueueCompiler,
+        GeneratedSectorAffineEffectiveResidualQueueLimits,
+    };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
+        AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
+        GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
         GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
         SectorMask,
     };
+
+    const M: i64 = i64::MAX;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct SessionStateSnapshot {
+        database_state_version: usize,
+        target_state_version: usize,
+        pivot_count: usize,
+        target_stats: GeneratedAffineResidualGroupExactTargetStateStats,
+    }
+
+    fn session_state_snapshot(
+        session: &GeneratedAffineResidualGroupExactSession,
+    ) -> SessionStateSnapshot {
+        SessionStateSnapshot {
+            database_state_version: session.database.state_version(),
+            target_state_version: session.target_state.state_version(),
+            pivot_count: session.database.pivot_count(),
+            target_stats: session.target_state.stats(),
+        }
+    }
+
+    fn physical_key(
+        plan: &Arc<GeneratedAffineResidualGroupSolvePlan>,
+        values: &[Integer],
+    ) -> GeneratedAffineResidualGroupPhysicalKey {
+        plan.physical_frame()
+            .test_key_for_borrowed_physical_values(values)
+            .unwrap()
+    }
+
+    fn symbolic_test_coefficient(context: &ParametricCoefficientContext) -> ParametricCoefficient {
+        let n0 = context.index(0).unwrap();
+        let n1 = context.index(1).unwrap();
+        context
+            .add(&n0, &context.mul(&context.integer(2), &n1).unwrap())
+            .unwrap()
+    }
+
+    fn symbolic_test_guard(context: &ParametricCoefficientContext) -> ParametricNonZeroCondition {
+        let d = context
+            .lift(&context.base().parameter("d").unwrap())
+            .unwrap();
+        let n0 = context.index(0).unwrap();
+        context
+            .nonzero_condition(
+                context
+                    .numerator_condition(&context.add(&d, &n0).unwrap())
+                    .unwrap(),
+                GuardOrigin::GuardedDivisionDivisorNumerator,
+            )
+            .unwrap()
+    }
 
     fn test_family(name: &str) -> IntegralFamily {
         let coefficients = CoefficientContext::new(["d", "m2"]);
@@ -1193,6 +1954,131 @@ mod tests {
                 &family,
                 &context,
                 GeneratedAffineResidualSourceAuthority::initial_global(queue),
+                GeneratedAffineResidualBooleanCoverLimits::default(),
+            )
+            .unwrap(),
+        );
+        let inventory = Arc::new(
+            GeneratedAffineResidualCaseInventoryCompiler::compile(
+                &family,
+                &context,
+                boolean,
+                GeneratedAffineResidualCaseInventoryLimits::default(),
+            )
+            .unwrap(),
+        );
+        let group_ordinal = (0..inventory.group_count())
+            .max_by_key(|&ordinal| {
+                inventory
+                    .authenticated_group_view(&context, ordinal)
+                    .unwrap()
+                    .case_ordinals()
+                    .len()
+            })
+            .unwrap();
+        let group = inventory
+            .authenticated_group_view(&context, group_ordinal)
+            .unwrap();
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new(
+                &family,
+                &context,
+                Arc::clone(&inventory),
+                group.anchor_case_ordinal(),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new(
+                &family,
+                &context,
+                inventory,
+                authority,
+                frame,
+                GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            )
+            .unwrap(),
+        );
+        (family, context, plan)
+    }
+
+    fn equality_refinement_plan_fixture(
+        name: &str,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        Arc<GeneratedAffineResidualGroupSolvePlan>,
+    ) {
+        let family = test_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
+        discovery_limits.adaptive.max_search_depth = 0;
+        let discovery = GeneratedSectorDiscoveryCompiler::compile(
+            &family,
+            &context,
+            SectorMask::try_from_bit_string("001").unwrap(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
+            discovery_limits,
+        )
+        .unwrap();
+        let mut queue_limits = GeneratedSectorLiveLeafQueueLimits::default();
+        queue_limits.translation_radius = 0;
+        queue_limits.max_translation_points = 1;
+        let queue = Arc::new(
+            GeneratedSectorLiveLeafQueueCompiler::compile(
+                &family,
+                &context,
+                &discovery,
+                queue_limits,
+            )
+            .unwrap(),
+        );
+        let prior_inventory = Arc::new(
+            GeneratedResidualAffineCaseInventoryCompiler::compile(
+                &family,
+                &context,
+                queue,
+                GeneratedResidualAffineCaseInventoryLimits::default(),
+            )
+            .unwrap(),
+        );
+        let effective = Arc::new(
+            GeneratedSectorAffineEffectiveCoverageCompiler::compile(
+                &family,
+                &context,
+                prior_inventory,
+                GeneratedSectorAffineEffectiveCoverageConfig::new(0),
+                GeneratedSectorAffineEffectiveCoverageLimits::default(),
+            )
+            .unwrap(),
+        );
+        let prior_queue = Arc::new(
+            GeneratedSectorAffineEffectiveResidualQueueCompiler::compile(
+                &family,
+                &context,
+                effective,
+                GeneratedSectorAffineEffectiveResidualQueueLimits::default(),
+            )
+            .unwrap(),
+        );
+        let boolean = Arc::new(
+            GeneratedAffineResidualBooleanCoverCompiler::compile(
+                &family,
+                &context,
+                GeneratedAffineResidualSourceAuthority::prior_effective(prior_queue),
                 GeneratedAffineResidualBooleanCoverLimits::default(),
             )
             .unwrap(),
@@ -1345,6 +2231,616 @@ mod tests {
     }
 
     #[test]
+    fn recenter_natural_ready_uses_exact_centering_and_keeps_target_premises_separate() {
+        let (family, context, plan) = plan_fixture("exact-session-recenter-natural-ready");
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            79,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(plan.free_positions(), [0]);
+        assert_eq!(
+            plan.authority()
+                .authenticated_group_view(&context)
+                .unwrap()
+                .compact_linear_coefficients(),
+            [Integer::from(1), Integer::from(0), Integer::from(0)]
+        );
+
+        let pivot_values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let second_values = [Integer::from(7), Integer::from(M - 2), Integer::from(M - 1)];
+        let expected_target_offset = [Integer::from(0), Integer::from(M - 1), Integer::from(M - 1)];
+        let target_ordinal = plan
+            .targets()
+            .iter()
+            .position(|locator| {
+                plan.physical_frame()
+                    .anchor_offset(locator.inventory_position(), locator.case_ordinal())
+                    .unwrap()
+                    .values()
+                    == expected_target_offset
+            })
+            .expect("the natural affine group must contain the non-anchor target");
+        let target_view = session
+            .target_state
+            .authenticated_view(&family, &context)
+            .unwrap();
+        let expected_target_premises = match target_view
+            .authenticated_target(target_ordinal)
+            .unwrap()
+        {
+            GeneratedAffineResidualGroupAuthenticatedExactTargetView::Ready(target) => {
+                target.premises().to_vec()
+            }
+            GeneratedAffineResidualGroupAuthenticatedExactTargetView::RequiresAffineEqualityRefinement(
+                _,
+            ) => panic!("the natural target unexpectedly requires equality refinement"),
+        };
+        drop(target_view);
+
+        let source_guard = symbolic_test_guard(&context);
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![
+                    (
+                        physical_key(&plan, &second_values),
+                        symbolic_test_coefficient(&context),
+                    ),
+                    (physical_key(&plan, &pivot_values), context.one()),
+                ],
+                vec![source_guard.clone()],
+            )
+            .unwrap();
+        let before = session_state_snapshot(&session);
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        assert_eq!(outcome.targets_consumed(), 0);
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) = outcome else {
+            panic!("the natural non-anchor target must classify Ready")
+        };
+
+        assert_eq!(ready.target_locator(), &plan.targets()[target_ordinal]);
+        assert_eq!(
+            ready.coefficient_translation(),
+            [Integer::from(-7), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(ready.terms().len(), 2);
+        let zero_term = ready
+            .terms()
+            .iter()
+            .find(|term| {
+                term.shift().values() == [Integer::from(0), Integer::from(0), Integer::from(0)]
+            })
+            .expect("the pivot must center to zero");
+        assert_eq!(zero_term.coefficient(), &context.one());
+        let second_term = ready
+            .terms()
+            .iter()
+            .find(|term| {
+                term.shift().values() == [Integer::from(0), Integer::from(-1), Integer::from(0)]
+            })
+            .expect("the second row must center independently of coefficients");
+        let expected_second_coefficient = context
+            .add(&symbolic_test_coefficient(&context), &context.integer(-7))
+            .unwrap();
+        assert_eq!(second_term.coefficient(), &expected_second_coefficient);
+
+        assert_eq!(ready.row_guards().len(), 1);
+        let d = context
+            .lift(&context.base().parameter("d").unwrap())
+            .unwrap();
+        let expected_guard_polynomial = context
+            .numerator_condition(
+                &context
+                    .add(
+                        &context.add(&d, &context.index(0).unwrap()).unwrap(),
+                        &context.integer(-7),
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+        let recenter_origin = GuardOrigin::GeneratedAffineGroupRecentering {
+            solve_group_ordinal: plan.group_ordinal(),
+            database_epoch: 79,
+            event_ordinal: ready.source_ordinal(),
+        };
+        assert_eq!(
+            ready.row_guards()[0].polynomial(),
+            &expected_guard_polynomial
+        );
+        assert!(
+            ready.row_guards()[0]
+                .origins()
+                .contains(&GuardOrigin::GuardedDivisionDivisorNumerator)
+        );
+        assert!(ready.row_guards()[0].origins().contains(&recenter_origin));
+        assert_eq!(
+            ready.row_guards()[0]
+                .origins()
+                .iter()
+                .filter(|origin| *origin == &recenter_origin)
+                .count(),
+            1
+        );
+        assert_eq!(ready.target_premises(), expected_target_premises);
+        assert!(
+            ready
+                .target_premises()
+                .iter()
+                .all(|premise| !premise.origins().contains(&recenter_origin))
+        );
+        assert_eq!(ready.stats().target_scans(), target_ordinal + 1);
+        assert_eq!(ready.stats().unresolved_target_scans(), target_ordinal + 1);
+        assert_eq!(ready.source_ordinal(), ready.pivot_ordinal());
+        assert_eq!(session_state_snapshot(&session), before);
+        assert_eq!(session.target_state.stats().consumed(), 0);
+        drop(ready);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+    }
+
+    #[test]
+    fn recenter_no_target_is_inert_for_exact_coordinates_beyond_i64() {
+        let (family, context, plan) = plan_fixture("exact-session-recenter-no-target");
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            83,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let beyond_i64 = Integer::from(i128::from(M) + 1);
+        let values = [Integer::from(0), beyond_i64.clone(), beyond_i64];
+        assert!(
+            plan.targets().iter().all(|locator| {
+                plan.physical_frame()
+                    .anchor_offset(locator.inventory_position(), locator.case_ordinal())
+                    .unwrap()
+                    .values()
+                    != values
+            }),
+            "the independent fixture premise must truly be outside the target set"
+        );
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &values), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        let before = session_state_snapshot(&session);
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) = outcome
+        else {
+            panic!("an exact offset absent from the plan must return NoTarget")
+        };
+        assert_eq!(no_target.source_ordinal(), 0);
+        assert_eq!(no_target.pivot_ordinal(), 0);
+        assert_eq!(no_target.targets_consumed(), 0);
+        assert_eq!(no_target.stats().target_scans(), plan.targets().len());
+        assert_eq!(
+            no_target.stats().unresolved_target_scans(),
+            plan.targets().len()
+        );
+        assert_eq!(session_state_snapshot(&session), before);
+        drop(no_target);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+    }
+
+    #[test]
+    fn recenter_cancels_a_4096_bit_free_coordinate_and_keeps_exact_negative_delta() {
+        let (family, context, plan) = plan_fixture("exact-session-recenter-gmp-cancellation");
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            89,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let huge = Integer::from(1) << 4096_u32;
+        let values = [huge.clone(), Integer::from(0), Integer::from(0)];
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &values), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        let before = session_state_snapshot(&session);
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) = outcome else {
+            panic!("the exact zero target must be Ready in the natural fixture")
+        };
+        assert_eq!(
+            plan.physical_frame()
+                .anchor_offset(
+                    ready.target_locator().inventory_position(),
+                    ready.target_locator().case_ordinal(),
+                )
+                .unwrap()
+                .values(),
+            [Integer::from(0), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(
+            ready.coefficient_translation(),
+            [-huge, Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(ready.terms().len(), 1);
+        assert_eq!(
+            ready.terms()[0].shift().values(),
+            [Integer::from(0), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(ready.terms()[0].coefficient(), &context.one());
+        assert!(ready.stats().kernel().geometry_integer_bit_work() > 4096);
+        assert_eq!(session_state_snapshot(&session), before);
+        drop(ready);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+    }
+
+    #[test]
+    fn recenter_uses_post_top_reduction_leader_and_source_event_not_pivot_ordinal() {
+        let (family, context, plan) = plan_fixture("exact-session-recenter-post-top-leader");
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            97,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let a_values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let b_values = [Integer::from(6), Integer::from(M - 1), Integer::from(M - 1)];
+        let a = physical_key(&plan, &a_values);
+        let b = physical_key(&plan, &b_values);
+        assert!(b > a, "b must be the raw hardest key of P0 = 2a + b");
+
+        let seed = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(a.clone(), context.integer(2)), (b.clone(), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            session.commit_unconsumed(&family, &context, seed).unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        );
+
+        // Advance the source event once without inserting another pivot.
+        let dependent = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(a.clone(), context.integer(2)), (b.clone(), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        let dependent = session.classify_dependent(dependent).unwrap();
+        assert_eq!(dependent.source_ordinal(), 1);
+        session
+            .commit_dependent(&family, &context, dependent)
+            .unwrap();
+        assert_eq!(session.database.pivot_count(), 1);
+        assert_eq!(session.state_version(), 2);
+
+        // Raw b reduces by P0 to -2a. The recenter wrapper must use staged a,
+        // not raw b, and must retain the source-event ordinal 2 even though
+        // the prospective pivot ordinal is 1.
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(b, context.one())],
+                vec![symbolic_test_guard(&context)],
+            )
+            .unwrap();
+        let joint = session
+            .authenticate_staged_new_pivot(&family, &context, &transaction)
+            .unwrap();
+        assert_eq!(joint.key(), &a);
+        assert_eq!(joint.terms().len(), 1);
+        assert_eq!(joint.terms().next().unwrap().1, &context.one());
+        assert_eq!(joint.normalization_divisor(), &context.integer(-2));
+        assert_eq!(joint.reductions().len(), 1);
+        assert_eq!(joint.reductions()[0].pivot_ordinal(), 0);
+        assert_eq!(joint.reductions()[0].factor(), &context.one());
+        assert_eq!(joint.source_ordinal(), 2);
+        assert_eq!(joint.pivot_ordinal(), 1);
+        drop(joint);
+
+        let before = session_state_snapshot(&session);
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) = outcome else {
+            panic!("post-top-reduction a must match the natural Ready target")
+        };
+        assert_eq!(ready.source_ordinal(), 2);
+        assert_eq!(ready.pivot_ordinal(), 1);
+        assert_eq!(
+            ready.coefficient_translation(),
+            [Integer::from(-7), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(ready.terms().len(), 1);
+        assert_eq!(
+            ready.terms()[0].shift().values(),
+            [Integer::from(0), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(ready.terms()[0].coefficient(), &context.one());
+        assert_eq!(ready.row_guards().len(), 1);
+        let source_event_origin = GuardOrigin::GeneratedAffineGroupRecentering {
+            solve_group_ordinal: plan.group_ordinal(),
+            database_epoch: 97,
+            event_ordinal: 2,
+        };
+        let pivot_ordinal_origin = GuardOrigin::GeneratedAffineGroupRecentering {
+            solve_group_ordinal: plan.group_ordinal(),
+            database_epoch: 97,
+            event_ordinal: 1,
+        };
+        assert!(
+            ready.row_guards()[0]
+                .origins()
+                .contains(&source_event_origin)
+        );
+        assert!(
+            !ready.row_guards()[0]
+                .origins()
+                .contains(&pivot_ordinal_origin)
+        );
+        assert_eq!(session_state_snapshot(&session), before);
+        drop(ready);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+    }
+
+    #[test]
+    fn recenter_foreign_stale_and_resource_failures_return_the_exact_transaction() {
+        let (family, context, plan) = plan_fixture("exact-session-recenter-recoverable-errors");
+        let values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let key = physical_key(&plan, &values);
+
+        let source = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            101,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let foreign = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            101,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let transaction = source
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(key.clone(), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        let transaction_state = Arc::clone(&transaction.target_state);
+        let source_before = session_state_snapshot(&source);
+        let foreign_before = session_state_snapshot(&foreign);
+        let failure = foreign
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionRecenterError::Session(
+                GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+            )
+        );
+        let recovered = failure.into_transaction();
+        assert!(Arc::ptr_eq(&recovered.target_state, &transaction_state));
+        let recovered_view = source
+            .authenticate_staged_new_pivot(&family, &context, &recovered)
+            .unwrap();
+        assert_eq!(recovered_view.source_ordinal(), 0);
+        drop(recovered_view);
+        drop(recovered);
+        assert_eq!(session_state_snapshot(&source), source_before);
+        assert_eq!(session_state_snapshot(&foreign), foreign_before);
+
+        let mut stale_owner = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            103,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let stale = stale_owner
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(key.clone(), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        let stale_state = Arc::clone(&stale.target_state);
+        let accepted = stale_owner
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(key.clone(), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        stale_owner
+            .commit_unconsumed(&family, &context, accepted)
+            .unwrap();
+        let stale_before = session_state_snapshot(&stale_owner);
+        let failure = stale_owner
+            .recenter_staged_new_pivot(&family, &context, stale)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionRecenterError::Session(
+                GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+            )
+        );
+        let recovered = failure.into_transaction();
+        assert!(Arc::ptr_eq(&recovered.target_state, &stale_state));
+        let failure = stale_owner
+            .recenter_staged_new_pivot(&family, &context, recovered)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionRecenterError::Session(
+                GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+            )
+        );
+        drop(failure.into_transaction());
+        assert_eq!(session_state_snapshot(&stale_owner), stale_before);
+        stale_owner.replay(&family, &context).unwrap();
+
+        let mut resource_limits = GeneratedAffineResidualGroupExactSessionLimits::default();
+        resource_limits.recenter.kernel.max_terms = 0;
+        let limited = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            107,
+            resource_limits,
+        )
+        .unwrap();
+        let transaction = limited
+            .stage_authenticated_terms_for_test(&context, vec![(key, context.one())], Vec::new())
+            .unwrap();
+        let transaction_state = Arc::clone(&transaction.target_state);
+        let limited_before = session_state_snapshot(&limited);
+        let failure = limited
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionRecenterError::Kernel(
+                ExactRecenterKernelError::ResourceLimit {
+                    resource: "exact recentering terms",
+                    requested: 1,
+                    limit: 0,
+                }
+            )
+        ));
+        let recovered = failure.into_transaction();
+        assert!(Arc::ptr_eq(&recovered.target_state, &transaction_state));
+        let recovered_view = limited
+            .authenticate_staged_new_pivot(&family, &context, &recovered)
+            .unwrap();
+        assert_eq!(recovered_view.source_ordinal(), 0);
+        drop(recovered_view);
+        drop(recovered);
+        assert_eq!(session_state_snapshot(&limited), limited_before);
+        limited.replay(&family, &context).unwrap();
+    }
+
+    #[test]
+    fn recenter_first_equality_target_returns_before_any_row_translation() {
+        let (family, context, plan) =
+            equality_refinement_plan_fixture("exact-session-recenter-first-refinement");
+        let mut limits = GeneratedAffineResidualGroupExactSessionLimits::default();
+        limits.recenter.kernel.max_exact_shift_components = 0;
+        limits.recenter.kernel.max_centered_shift_outer_buffer_bytes = 0;
+        limits.recenter.kernel.max_borrowed_reference_buffer_bytes = 0;
+        limits.recenter.kernel.max_translation_preflight_passes = 0;
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            109,
+            limits,
+        )
+        .unwrap();
+        assert!(!plan.targets().is_empty());
+        assert_eq!(session.catalog.stats().ready_targets(), 0);
+        assert_eq!(
+            session.catalog.stats().equality_refinement_targets(),
+            plan.targets().len()
+        );
+
+        let first_locator = plan.targets()[0];
+        let first_anchor = plan
+            .physical_frame()
+            .anchor_offset(
+                first_locator.inventory_position(),
+                first_locator.case_ordinal(),
+            )
+            .unwrap()
+            .values()
+            .to_vec();
+        assert!(
+            plan.free_positions()
+                .iter()
+                .all(|&position| first_anchor[position] == Integer::from(0)),
+            "an anchor offset must have zero free coordinates"
+        );
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &first_anchor), context.one())],
+                vec![symbolic_test_guard(&context)],
+            )
+            .unwrap();
+        let before = session_state_snapshot(&session);
+        reset_centered_shift_arithmetic_operations_for_test();
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+            refinement,
+        ) = outcome
+        else {
+            panic!("the first exact equality-bearing target must stop matching immediately")
+        };
+        assert_eq!(refinement.target_locator(), &first_locator);
+        assert!(
+            !refinement
+                .refinement()
+                .equality_predicate_ordinals()
+                .is_empty()
+        );
+        assert_eq!(refinement.stats().target_scans(), 1);
+        assert_eq!(refinement.stats().unresolved_target_scans(), 1);
+        assert_eq!(
+            refinement.stats().kernel().exact_shift_components(),
+            0,
+            "no centered-row preflight may run on the refinement branch"
+        );
+        assert_eq!(
+            refinement.stats().kernel().translation_preflight_passes(),
+            0,
+            "zero translation limits prove the refinement branch did not translate coefficients"
+        );
+        assert_eq!(
+            centered_shift_arithmetic_operations_for_test(),
+            0,
+            "the refinement branch must return before centered GMP subtraction"
+        );
+        assert_eq!(refinement.targets_consumed(), 0);
+        assert_eq!(session_state_snapshot(&session), before);
+        drop(refinement);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+    }
+
+    #[test]
     fn construction_owns_one_database_bound_catalog_and_initial_state() {
         let (family, context, plan) = plan_fixture("exact-session-construction-private");
         let session = GeneratedAffineResidualGroupExactSession::try_new(
@@ -1451,6 +2947,32 @@ mod tests {
             database_source.contains("#[cfg(test)]\n    fn authenticate_staged_new_pivot_for_test")
         );
         assert!(database_source.contains("#[cfg(test)]\n    fn plan_for_test("));
+
+        // Synthetic term ingress exists only so this module can exercise the
+        // sealed session wrapper. It must remain absent from production and
+        // must still require the same unforgeable session capability.
+        let synthetic_marker = "    pub(crate) fn stage_authenticated_terms_for_session(";
+        let synthetic_occurrences = database_source
+            .match_indices(synthetic_marker)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            synthetic_occurrences.len(),
+            1,
+            "synthetic session ingress must have exactly one definition"
+        );
+        let synthetic_start = synthetic_occurrences[0].0;
+        assert!(
+            database_source[..synthetic_start].ends_with("    #[cfg(test)]\n"),
+            "synthetic session ingress is not cfg(test)-sealed"
+        );
+        let synthetic_signature_end = database_source[synthetic_start..]
+            .find(" {\n")
+            .map(|offset| synthetic_start + offset)
+            .expect("unterminated synthetic session-ingress signature");
+        assert!(
+            database_source[synthetic_start..synthetic_signature_end].contains(capability),
+            "synthetic session ingress lacks the session capability"
+        );
 
         // The capability itself has a private seal and a module-private mint;
         // the session stores it privately and exposes no capability accessor.

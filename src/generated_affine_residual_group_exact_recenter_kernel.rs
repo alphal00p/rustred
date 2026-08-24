@@ -84,6 +84,49 @@ pub(crate) struct ExactRecenterKernelLimits {
     pub(crate) max_native_temporary_byte_envelope: usize,
 }
 
+impl Default for ExactRecenterKernelLimits {
+    fn default() -> Self {
+        const LARGE: usize = 64_000_000_000;
+        const VERY_LARGE: usize = 4_000_000_000_000_000_000;
+        const GIB: usize = 1024 * 1024 * 1024;
+
+        Self {
+            arithmetic: ParametricArithmeticLimits::default(),
+            max_terms: 16_000_000,
+            max_guards: 16_000_000,
+            max_geometry_integer_operations: LARGE,
+            max_geometry_integer_bit_work: VERY_LARGE,
+            max_target_offset_integer_bits: VERY_LARGE,
+            max_target_offset_temporary_bytes: 128 * GIB,
+            max_exact_integer_bits: VERY_LARGE,
+            max_exact_shift_components: LARGE,
+            max_exact_shift_integer_bits: VERY_LARGE,
+            max_exact_shift_retained_bytes: 128 * GIB,
+            max_centered_shift_outer_buffer_bytes: 16 * GIB,
+            max_borrowed_reference_buffer_bytes: 16 * GIB,
+            max_coefficient_translation_integer_bits: VERY_LARGE,
+            max_coefficient_translation_retained_bytes: 128 * GIB,
+            max_translation_preflight_passes: LARGE,
+            max_translation_source_terms: VERY_LARGE,
+            max_translation_source_exponent_entries: VERY_LARGE,
+            max_translation_output_terms: VERY_LARGE,
+            max_translation_output_exponent_entries: VERY_LARGE,
+            max_translation_power_operations: VERY_LARGE,
+            max_translation_integer_bit_work: VERY_LARGE,
+            max_translation_normalized_terms: VERY_LARGE,
+            max_translation_retained_output_bytes: 128 * GIB,
+            max_guard_origin_occurrences: LARGE,
+            // The legacy raw-relation path admitted a 128-GiB result owner.
+            // A session additionally retains its staged database and target
+            // owners, so combined-live and native peaks need independent
+            // headroom instead of aliasing the result-owner ceiling.
+            max_owner_retained_bytes: 128 * GIB,
+            max_combined_live_retained_bytes: 256 * GIB,
+            max_native_temporary_byte_envelope: 512 * GIB,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ExactRecenterKernelStats {
     terms: usize,
@@ -1836,6 +1879,49 @@ pub(crate) fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_preserve_legacy_gmp_limits_and_session_memory_headroom() {
+        const LARGE: usize = 64_000_000_000;
+        const VERY_LARGE: usize = 4_000_000_000_000_000_000;
+        const GIB: usize = 1024 * 1024 * 1024;
+
+        let limits = ExactRecenterKernelLimits::default();
+
+        assert_eq!(limits.arithmetic, ParametricArithmeticLimits::default());
+        assert_eq!(limits.max_terms, 16_000_000);
+        assert_eq!(limits.max_guards, 16_000_000);
+        assert_eq!(limits.max_geometry_integer_operations, LARGE);
+        assert_eq!(limits.max_geometry_integer_bit_work, VERY_LARGE);
+        assert_eq!(limits.max_target_offset_integer_bits, VERY_LARGE);
+        assert_eq!(limits.max_target_offset_temporary_bytes, 128 * GIB);
+        assert_eq!(limits.max_exact_integer_bits, VERY_LARGE);
+        assert_eq!(limits.max_exact_shift_components, LARGE);
+        assert_eq!(limits.max_exact_shift_integer_bits, VERY_LARGE);
+        assert_eq!(limits.max_exact_shift_retained_bytes, 128 * GIB);
+        assert_eq!(limits.max_centered_shift_outer_buffer_bytes, 16 * GIB);
+        assert_eq!(limits.max_borrowed_reference_buffer_bytes, 16 * GIB);
+        assert_eq!(limits.max_coefficient_translation_integer_bits, VERY_LARGE);
+        assert_eq!(limits.max_coefficient_translation_retained_bytes, 128 * GIB);
+        assert_eq!(limits.max_translation_preflight_passes, LARGE);
+        assert_eq!(limits.max_translation_source_terms, VERY_LARGE);
+        assert_eq!(limits.max_translation_source_exponent_entries, VERY_LARGE);
+        assert_eq!(limits.max_translation_output_terms, VERY_LARGE);
+        assert_eq!(limits.max_translation_output_exponent_entries, VERY_LARGE);
+        assert_eq!(limits.max_translation_power_operations, VERY_LARGE);
+        assert_eq!(limits.max_translation_integer_bit_work, VERY_LARGE);
+        assert_eq!(limits.max_translation_normalized_terms, VERY_LARGE);
+        assert_eq!(limits.max_translation_retained_output_bytes, 128 * GIB);
+        assert_eq!(limits.max_guard_origin_occurrences, LARGE);
+
+        assert_eq!(limits.max_owner_retained_bytes, 128 * GIB);
+        assert_eq!(limits.max_combined_live_retained_bytes, 256 * GIB);
+        assert_eq!(limits.max_native_temporary_byte_envelope, 512 * GIB);
+        assert!(limits.max_owner_retained_bytes < limits.max_combined_live_retained_bytes);
+        assert!(
+            limits.max_combined_live_retained_bytes < limits.max_native_temporary_byte_envelope
+        );
+    }
 
     #[test]
     fn zero_arity_target_offset_census_includes_wrapper_fields() {

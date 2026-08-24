@@ -1861,6 +1861,30 @@ impl GeneratedAffineResidualGroupExactDatabase {
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::StateVersionOverflow)
     }
 
+    /// Narrow session-capability adapter for sibling recentering tests that
+    /// already hold authenticated physical keys, coefficients, and guards.
+    /// It is absent from production builds and still cannot be called without
+    /// the session module's unforgeable database capability.
+    #[cfg(test)]
+    pub(crate) fn stage_authenticated_terms_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        context: &ParametricCoefficientContext,
+        terms: Vec<(
+            GeneratedAffineResidualGroupPhysicalKey,
+            ParametricCoefficient,
+        )>,
+        guards: Vec<ParametricNonZeroCondition>,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            self.stage_test_terms(context, terms, guards)
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic)?
+    }
+
     #[cfg(test)]
     fn stage_test_terms(
         &self,

@@ -53,6 +53,15 @@ The topology-neutral authority and staging layers described below now exist:
   scratch.  The legacy exact-relation compiler projects into this kernel and
   remains the differential oracle; the kernel accepts no raw relation,
   database/session token, solve plan, target bitmap, topology, or loop count.
+- `generated_affine_residual_group_exact_session.rs` now owns the only
+  production recentering entry point. It consumes a staged session transaction,
+  authenticates the post-top-reduction pivot together with its exact target
+  state, and returns a non-`Clone` NoTarget, affine-equality-refinement, or
+  Ready typestate. Ordinary errors and caught Symbolica panics return the exact
+  original transaction; matching and translation mutate neither database nor
+  target state. Equality-bearing targets return before coefficient, shift, or
+  guard translation. Ready outcomes retain translated row guards separately
+  from the target's unmodified premises and expose no commit path.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
@@ -74,11 +83,24 @@ tests, and post-audit run `c0eeba4d-2693-4536-bec0-4a540f196572` passed all
 13 exact-relation/kernel tests.  `cargo check --tests`, `cargo fmt --check`,
 and `git diff --check` were clean.
 
-The next missing mathematical seam is the sealed session-owned wrapper that
-applies the extracted arithmetic to the authenticated
-**post-top-reduction** leader and returns owning `NoTarget`, affine-equality
-refinement, or Ready outcomes without committing.  After that comes exact
-`WhenBad` closure and atomic guarded publication.  The old raw
+The session-owned recenter wrapper was validated with four-way, licensed GMP
+`cargo-nextest` run `bb510535-b3be-48c2-814a-fbd81794ead3`: all six focused
+behavioral tests passed. They cover natural Ready translation with separate
+target premises, NoTarget beyond `i64`, exact cancellation of a 4,096-bit free
+coordinate, post-top-reduction leader selection, source-event provenance,
+transaction recovery from foreign/stale/resource failures, and an
+affine-equality return under zero translation budgets.
+
+The combined database/session/target/kernel regression gate then passed all
+47 tests in four-way run `9b961e8e-2a6a-4bac-af78-69242fdbe0f5`. After the
+source-surface test was extended to name the synthetic `cfg(test)` ingress,
+run `052dfde9-3226-4df4-a815-6c88f65d6bdb` passed all 15 selected
+exact-relation/kernel/source-seal tests. Final `cargo check --tests`,
+`cargo fmt --check`, and `git diff --check` were clean.
+
+The next missing mathematical seam is to turn the owning NoTarget and
+affine-equality-refinement outcomes into authorized state transitions, then
+join exact `WhenBad` closure and atomic guarded publication. The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a
 differential oracle only; it is not a production authority.
 
