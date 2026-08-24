@@ -2701,7 +2701,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
@@ -2723,7 +2723,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
@@ -2810,7 +2810,7 @@ mod tests {
                 &context,
                 Arc::clone(&catalog),
                 foreign_plan_database
-                    .initial_target_state_binding()
+                    .initial_target_state_binding_for_test()
                     .unwrap(),
                 GeneratedAffineResidualGroupExactTargetStateLimits::default(),
             ),
@@ -2822,7 +2822,9 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            foreign_database.initial_target_state_binding().unwrap(),
+            foreign_database
+                .initial_target_state_binding_for_test()
+                .unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
@@ -2868,7 +2870,7 @@ mod tests {
                 &family,
                 &context,
                 Arc::clone(&catalog),
-                database.initial_target_state_binding().unwrap(),
+                database.initial_target_state_binding_for_test().unwrap(),
                 initial_group_limited,
             ),
             Err(
@@ -2887,7 +2889,7 @@ mod tests {
                 &family,
                 &context,
                 Arc::clone(&catalog),
-                database.initial_target_state_binding().unwrap(),
+                database.initial_target_state_binding_for_test().unwrap(),
                 initial_state_envelope_limited,
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
@@ -2904,7 +2906,7 @@ mod tests {
                 &family,
                 &context,
                 Arc::clone(&catalog),
-                database.initial_target_state_binding().unwrap(),
+                database.initial_target_state_binding_for_test().unwrap(),
                 initial_combined_envelope_limited,
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
@@ -2917,7 +2919,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
@@ -2925,7 +2927,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
@@ -2935,7 +2937,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             copy_limited,
         )
         .unwrap();
@@ -2945,7 +2947,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             peak_limited,
         )
         .unwrap();
@@ -2955,7 +2957,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             allocation_limited,
         )
         .unwrap();
@@ -2965,7 +2967,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             version_limited,
         )
         .unwrap();
@@ -2975,7 +2977,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             group_limited,
         )
         .unwrap();
@@ -2985,7 +2987,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             transition_limited,
         )
         .unwrap();
@@ -2995,7 +2997,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             epoch_limited,
         )
         .unwrap();
@@ -3004,7 +3006,7 @@ mod tests {
 
         let physical_row = production_exact_physical_row(&family, &context, &plan);
         let staged = database
-            .stage_replayed_row(
+            .stage_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3014,7 +3016,7 @@ mod tests {
             )
             .unwrap();
         let competing_staged = database
-            .stage_replayed_row(
+            .stage_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3028,7 +3030,7 @@ mod tests {
                 &family,
                 &context,
                 database
-                    .successor_target_state_binding(&competing_staged)
+                    .successor_target_state_binding_for_test(&competing_staged)
                     .unwrap(),
                 None,
             )
@@ -3037,7 +3039,7 @@ mod tests {
 
         let foreign_database = exact_database_for_plan(&family, &context, &plan, 31);
         let foreign_staged = foreign_database
-            .stage_replayed_row(
+            .stage_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3051,7 +3053,7 @@ mod tests {
                 &family,
                 &context,
                 foreign_database
-                    .successor_target_state_binding(&foreign_staged)
+                    .successor_target_state_binding_for_test(&foreign_staged)
                     .unwrap(),
                 None,
             ),
@@ -3073,7 +3075,9 @@ mod tests {
             state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 Some(sibling_handle),
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::WrongSourceStateAllocation)
@@ -3082,7 +3086,7 @@ mod tests {
             copy_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database.successor_target_state_binding_for_test(&staged).unwrap(),
                 None,
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
@@ -3097,7 +3101,7 @@ mod tests {
             peak_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database.successor_target_state_binding_for_test(&staged).unwrap(),
                 None,
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
@@ -3112,7 +3116,9 @@ mod tests {
             allocation_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             ),
             Err(
@@ -3129,7 +3135,9 @@ mod tests {
             version_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             ),
             Err(
@@ -3146,7 +3154,9 @@ mod tests {
             group_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             ),
             Err(
@@ -3162,7 +3172,9 @@ mod tests {
             transition_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             ),
             Err(
@@ -3183,7 +3195,9 @@ mod tests {
             epoch_limited_state.prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             ),
             Err(
@@ -3200,7 +3214,9 @@ mod tests {
             .prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 None,
             )
             .unwrap();
@@ -3220,7 +3236,9 @@ mod tests {
             .prepare_successor(
                 &family,
                 &context,
-                database.successor_target_state_binding(&staged).unwrap(),
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
                 Some(ready_handle),
             )
             .unwrap();
@@ -3286,7 +3304,7 @@ mod tests {
                 .authenticate_target_state_binding(consumed.binding())
                 .is_err()
         );
-        database.commit_staged_row(staged).unwrap();
+        database.commit_staged_row_for_test(staged).unwrap();
         database
             .authenticate_target_state_binding(unchanged.binding())
             .unwrap();
@@ -3305,7 +3323,7 @@ mod tests {
         );
 
         let live_continuation = database
-            .stage_replayed_row(
+            .stage_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3319,7 +3337,7 @@ mod tests {
                 &family,
                 &context,
                 database
-                    .successor_target_state_binding(&live_continuation)
+                    .successor_target_state_binding_for_test(&live_continuation)
                     .unwrap(),
                 None,
             ),
@@ -3361,7 +3379,7 @@ mod tests {
             &family,
             &context,
             Arc::clone(&catalog),
-            database.initial_target_state_binding().unwrap(),
+            database.initial_target_state_binding_for_test().unwrap(),
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();

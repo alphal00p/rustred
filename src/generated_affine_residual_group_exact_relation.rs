@@ -20,19 +20,31 @@
 //! native-temporary envelope before executing a substitution.
 
 use std::fmt;
-use std::mem::{align_of, size_of};
+use std::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
 
 use symbolica::prelude::Integer;
 
-use crate::affine_parametric_ordering::integer_magnitude_bits;
 #[cfg(test)]
 use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthority;
 use crate::generated_affine_residual_case_reelimination::{
     GeneratedAffineResidualCaseReeliminationCertificate,
     GeneratedAffineResidualCaseReeliminationError,
+};
+#[cfg(test)]
+use crate::generated_affine_residual_group_exact_recenter_kernel::{
+    ExactBorrowedTerm, ExactCenteredShift, centered_shift_arithmetic_operations_for_test,
+    execute_centered_shifts, preflight_centered_shifts,
+    reset_centered_shift_arithmetic_operations_for_test,
+    reset_target_offset_arithmetic_entries_for_test, target_offset_arithmetic_entries_for_test,
+};
+use crate::generated_affine_residual_group_exact_recenter_kernel::{
+    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
+    ExactRecenteredTerm, admit_inert_owner, arc_vec_retained_bytes_bound, bounded_add, check_limit,
+    checked_add, checked_mul, exact_offsets_equal, execute_target_offset, integer_bits,
+    native_exact_scratch_bytes, preflight_exact_geometry, prospective_integer_heap_bytes,
+    translate_centered_row, try_vec, vec_retained_bytes_bound, verify_target_offset_census,
 };
 use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
@@ -42,13 +54,9 @@ use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
     GeneratedAffineResidualGroupSolveTargetLocator,
 };
-use crate::parametric_coefficient::{
-    ParametricCoefficientTranslationPreflight, ParametricPolynomialTranslationPreflight,
-};
 use crate::{
-    GuardOrigin, IntegralFamily, ParametricArithmeticLimits, ParametricCoefficient,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricNonZeroCondition,
-    ParametricRelation,
+    GuardOrigin, IntegralFamily, ParametricArithmeticLimits, ParametricCoefficientContext,
+    ParametricCoefficientError, ParametricNonZeroCondition, ParametricRelation,
 };
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_RELATION_V1_SCHEMA: &str =
@@ -81,6 +89,8 @@ pub(crate) struct GeneratedAffineResidualGroupExactRelationLimits {
     pub(crate) max_exact_shift_components: usize,
     pub(crate) max_exact_shift_integer_bits: usize,
     pub(crate) max_exact_shift_retained_bytes: usize,
+    pub(crate) max_centered_shift_outer_buffer_bytes: usize,
+    pub(crate) max_borrowed_reference_buffer_bytes: usize,
     pub(crate) max_coefficient_translation_integer_bits: usize,
     pub(crate) max_coefficient_translation_retained_bytes: usize,
     pub(crate) max_translation_preflight_passes: usize,
@@ -127,6 +137,8 @@ impl Default for GeneratedAffineResidualGroupExactRelationLimits {
             max_exact_shift_components: LARGE,
             max_exact_shift_integer_bits: VERY_LARGE,
             max_exact_shift_retained_bytes: 128 * 1024 * 1024 * 1024,
+            max_centered_shift_outer_buffer_bytes: 16 * 1024 * 1024 * 1024,
+            max_borrowed_reference_buffer_bytes: 16 * 1024 * 1024 * 1024,
             max_coefficient_translation_integer_bits: VERY_LARGE,
             max_coefficient_translation_retained_bytes: 128 * 1024 * 1024 * 1024,
             max_translation_preflight_passes: LARGE,
@@ -171,6 +183,8 @@ pub(crate) struct GeneratedAffineResidualGroupExactRelationStats {
     exact_shift_components: usize,
     exact_shift_integer_bits: usize,
     exact_shift_retained_bytes: usize,
+    centered_shift_outer_buffer_bytes: usize,
+    borrowed_reference_buffer_bytes: usize,
     coefficient_translation_integer_bits: usize,
     coefficient_translation_retained_bytes: usize,
     translation_preflight_passes: usize,
@@ -219,6 +233,8 @@ impl GeneratedAffineResidualGroupExactRelationStats {
         exact_shift_components,
         exact_shift_integer_bits,
         exact_shift_retained_bytes,
+        centered_shift_outer_buffer_bytes,
+        borrowed_reference_buffer_bytes,
         coefficient_translation_integer_bits,
         coefficient_translation_retained_bytes,
         translation_preflight_passes,
@@ -325,55 +341,111 @@ impl From<ParametricCoefficientError> for GeneratedAffineResidualGroupExactRelat
     }
 }
 
-#[derive(Clone)]
-struct ExactCenteredShift {
-    values: Arc<Vec<Integer>>,
-    retained_integer_bits: usize,
-    retained_bytes: usize,
-}
-
-impl PartialEq for ExactCenteredShift {
-    fn eq(&self, other: &Self) -> bool {
-        self.values == other.values
-    }
-}
-impl Eq for ExactCenteredShift {}
-impl Ord for ExactCenteredShift {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.values.cmp(&other.values)
-    }
-}
-impl PartialOrd for ExactCenteredShift {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl fmt::Debug for ExactCenteredShift {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ExactCenteredShift")
-            .field("arity", &self.values.len())
-            .field("retained_integer_bits", &self.retained_integer_bits)
-            .field("private_values", &"<redacted>")
-            .finish()
+impl From<ExactRecenterKernelError> for GeneratedAffineResidualGroupExactRelationError {
+    fn from(error: ExactRecenterKernelError) -> Self {
+        match error {
+            ExactRecenterKernelError::MalformedGeometry => Self::MalformedGeometry,
+            ExactRecenterKernelError::CensusMismatch => Self::PhysicalKey,
+            ExactRecenterKernelError::OutputCensusMismatch => Self::Coefficient,
+            ExactRecenterKernelError::Coefficient => Self::Coefficient,
+            ExactRecenterKernelError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            },
+            ExactRecenterKernelError::ResourceCountOverflow { resource } => {
+                Self::ResourceCountOverflow { resource }
+            }
+            ExactRecenterKernelError::AllocationFailure { resource } => {
+                Self::AllocationFailure { resource }
+            }
+        }
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct ExactRelationTerm {
-    shift: ExactCenteredShift,
-    coefficient: ParametricCoefficient,
+fn kernel_limits(
+    limits: GeneratedAffineResidualGroupExactRelationLimits,
+) -> ExactRecenterKernelLimits {
+    ExactRecenterKernelLimits {
+        arithmetic: limits.arithmetic,
+        max_terms: limits.max_terms,
+        max_guards: limits.max_guards,
+        max_geometry_integer_operations: limits.max_geometry_integer_operations,
+        max_geometry_integer_bit_work: limits.max_geometry_integer_bit_work,
+        max_target_offset_integer_bits: limits.max_target_offset_integer_bits,
+        max_target_offset_temporary_bytes: limits.max_target_offset_temporary_bytes,
+        max_exact_integer_bits: limits.max_exact_integer_bits,
+        max_exact_shift_components: limits.max_exact_shift_components,
+        max_exact_shift_integer_bits: limits.max_exact_shift_integer_bits,
+        max_exact_shift_retained_bytes: limits.max_exact_shift_retained_bytes,
+        max_centered_shift_outer_buffer_bytes: limits.max_centered_shift_outer_buffer_bytes,
+        max_borrowed_reference_buffer_bytes: limits.max_borrowed_reference_buffer_bytes,
+        max_coefficient_translation_integer_bits: limits.max_coefficient_translation_integer_bits,
+        max_coefficient_translation_retained_bytes: limits
+            .max_coefficient_translation_retained_bytes,
+        max_translation_preflight_passes: limits.max_translation_preflight_passes,
+        max_translation_source_terms: limits.max_translation_source_terms,
+        max_translation_source_exponent_entries: limits.max_translation_source_exponent_entries,
+        max_translation_output_terms: limits.max_translation_output_terms,
+        max_translation_output_exponent_entries: limits.max_translation_output_exponent_entries,
+        max_translation_power_operations: limits.max_translation_power_operations,
+        max_translation_integer_bit_work: limits.max_translation_integer_bit_work,
+        max_translation_normalized_terms: limits.max_translation_normalized_terms,
+        max_translation_retained_output_bytes: limits.max_translation_retained_output_bytes,
+        max_guard_origin_occurrences: limits.max_guard_origin_occurrences,
+        max_owner_retained_bytes: limits.max_owner_retained_bytes,
+        max_combined_live_retained_bytes: limits.max_owner_retained_bytes,
+        max_native_temporary_byte_envelope: limits.max_native_temporary_byte_envelope,
+    }
 }
 
-impl fmt::Debug for ExactRelationTerm {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ExactRelationTerm")
-            .field("shift", &self.shift)
-            .field("private_coefficient", &"<redacted>")
-            .finish()
+fn merge_kernel_stats(
+    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
+    kernel: ExactRecenterKernelStats,
+) {
+    stats.geometry_integer_operations = kernel.geometry_integer_operations();
+    stats.geometry_integer_bit_work = kernel.geometry_integer_bit_work();
+    stats.target_offset_integer_bits = kernel.target_offset_integer_bits();
+    stats.target_offset_temporary_bytes = kernel.target_offset_temporary_bytes();
+    stats.exact_shift_components = kernel.exact_shift_components();
+    stats.exact_shift_integer_bits = kernel.exact_shift_integer_bits();
+    stats.exact_shift_retained_bytes = kernel.exact_shift_retained_bytes();
+    stats.centered_shift_outer_buffer_bytes = kernel.centered_shift_outer_buffer_bytes();
+    stats.borrowed_reference_buffer_bytes = kernel.borrowed_reference_buffer_bytes();
+    stats.coefficient_translation_integer_bits = kernel.coefficient_translation_integer_bits();
+    stats.coefficient_translation_retained_bytes = kernel.coefficient_translation_retained_bytes();
+    stats.translation_preflight_passes = kernel.translation_preflight_passes();
+    stats.translation_source_terms = kernel.translation_source_terms();
+    stats.translation_source_exponent_entries = kernel.translation_source_exponent_entries();
+    stats.translation_output_terms = kernel.translation_output_terms();
+    stats.translation_output_exponent_entries = kernel.translation_output_exponent_entries();
+    stats.translation_power_operations = kernel.translation_power_operations();
+    stats.translation_integer_bit_work = kernel.translation_integer_bit_work();
+    stats.translation_normalized_terms = kernel.translation_normalized_terms();
+    stats.translation_retained_output_bytes = kernel.translation_retained_output_bytes();
+    stats.guard_origin_occurrences = kernel.guard_origin_occurrences();
+    stats.owner_retained_bytes = kernel.owner_retained_bytes();
+    stats.native_temporary_byte_envelope = kernel.native_temporary_byte_envelope();
+}
+
+fn physical_native_scratch_bytes(
+    stats: &GeneratedAffineResidualGroupExactRelationStats,
+) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
+    let resource = "exact recentering native temporary byte envelope";
+    let mut bytes = vec_retained_bytes_bound::<GeneratedAffineResidualGroupPhysicalKey>(
+        stats.physical_key_constructions,
+    )?;
+    for increment in [
+        stats.physical_key_prospective_retained_bytes,
+        stats.physical_key_retained_bytes,
+    ] {
+        bytes = checked_add(resource, bytes, increment)?;
     }
+    Ok(bytes)
 }
 
 #[derive(Clone)]
@@ -395,7 +467,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactRelationCandidate {
     target: GeneratedAffineResidualGroupSolveTargetLocator,
     pivot: GeneratedAffineResidualGroupLatticeShift,
     coefficient_translation: Arc<Vec<Integer>>,
-    terms: Arc<Vec<ExactRelationTerm>>,
+    terms: Arc<Vec<ExactRecenteredTerm>>,
     guards: Arc<Vec<ParametricNonZeroCondition>>,
     limits: GeneratedAffineResidualGroupExactRelationLimits,
     stats: GeneratedAffineResidualGroupExactRelationStats,
@@ -799,9 +871,18 @@ fn compile_authenticated_relation(
         .ok_or(GeneratedAffineResidualGroupExactRelationError::EmptyRelation)?;
     let pivot = physical_keys[pivot_position].shift().clone();
 
-    preflight_exact_geometry(&pivot, matrix, free_positions, limits, &mut stats)?;
+    let exact_limits = kernel_limits(limits);
+    let mut exact_stats =
+        ExactRecenterKernelStats::for_row(stats.terms, stats.guards, exact_limits)?;
+    preflight_exact_geometry(
+        &pivot,
+        matrix,
+        free_positions,
+        exact_limits,
+        &mut exact_stats,
+    )?;
     let target_offset = execute_target_offset(&pivot, matrix, free_positions, arity)?;
-    verify_target_offset_census(&target_offset, &stats)?;
+    verify_target_offset_census(&target_offset, &exact_stats)?;
     let mut selected = None;
     for locator in plan.targets() {
         stats.target_scans = bounded_add(
@@ -818,9 +899,9 @@ fn compile_authenticated_relation(
                 frame
                     .anchor_offset(locator.inventory_position(), locator.case_ordinal())?
                     .values(),
-                target_offset.as_slice(),
-                limits,
-                &mut stats,
+                target_offset.values(),
+                exact_limits,
+                &mut exact_stats,
             )?
         {
             selected = Some(*locator);
@@ -828,7 +909,14 @@ fn compile_authenticated_relation(
         }
     }
     let Some(target) = selected else {
-        admit_no_target(&mut stats, limits)?;
+        admit_inert_owner(
+            size_of::<GeneratedAffineResidualGroupExactRelationNoTarget>(),
+            0,
+            physical_native_scratch_bytes(&stats)?,
+            exact_limits,
+            &mut exact_stats,
+        )?;
+        merge_kernel_stats(&mut stats, exact_stats);
         return Ok(GeneratedAffineResidualGroupExactRelationOutcome::NoTarget(
             GeneratedAffineResidualGroupExactRelationNoTarget {
                 source: source_binding,
@@ -839,66 +927,30 @@ fn compile_authenticated_relation(
         ));
     };
 
-    preflight_coefficient_translation(&pivot, free_positions, arity, limits, &mut stats)?;
-    let coefficient_translation = coefficient_translation(&pivot, free_positions, arity)?;
-    verify_coefficient_translation_census(&coefficient_translation, &stats)?;
-    let centered_shifts = preflight_and_center_keys(&physical_keys, &pivot, limits, &mut stats)?;
     let locator_origin = GuardOrigin::GeneratedAffineGroupRecentering {
         solve_group_ordinal: plan.group_ordinal(),
         database_epoch,
         event_ordinal,
     };
-    let translation_admission = preflight_translations(
+    let recentered = translate_centered_row(
         context,
-        relation,
-        coefficient_translation.as_slice(),
-        pivot.retained_bytes(),
-        &locator_origin,
-        limits,
-        &mut stats,
-    )?;
-
-    let mut terms = try_vec("exact recentering output terms", stats.terms)?;
-    let mut guards = try_vec("exact recentering output guards", stats.guards)?;
-    for (coefficient, shift) in relation.terms().values().zip(centered_shifts.into_iter()) {
-        terms.push(ExactRelationTerm {
-            shift,
-            coefficient: context.translate_exact(
-                coefficient,
-                coefficient_translation.as_slice(),
-                limits.arithmetic,
-            )?,
-        });
-    }
-    for condition in relation.guarded_nonzero_conditions() {
-        let polynomial = context.translate_polynomial_exact(
-            condition.polynomial(),
-            coefficient_translation.as_slice(),
-            limits.arithmetic,
-        )?;
-        let origins = condition
-            .origins()
+        physical_keys
             .iter()
-            .cloned()
-            .chain(std::iter::once(locator_origin.clone()));
-        guards.push(context.nonzero_condition_with_origins_and_origin_limit(
-            polynomial,
-            origins,
-            limits.arithmetic.exact_algebra,
-            limits.arithmetic.max_guard_origins,
-        )?);
-    }
-    let owner_retained_bytes =
-        observed_output_bytes(&terms, &guards, &coefficient_translation, &pivot)?;
-    check_limit(
-        "exact recentering owner retained bytes",
-        owner_retained_bytes,
-        limits.max_owner_retained_bytes,
+            .map(GeneratedAffineResidualGroupPhysicalKey::shift)
+            .zip(relation.terms().values()),
+        relation.guarded_nonzero_conditions().iter(),
+        &pivot,
+        free_positions,
+        &locator_origin,
+        size_of::<GeneratedAffineResidualGroupExactRelationCandidate>(),
+        pivot.retained_bytes(),
+        0,
+        physical_native_scratch_bytes(&stats)?,
+        exact_limits,
+        &mut exact_stats,
     )?;
-    if owner_retained_bytes > translation_admission.final_retained_output_bytes {
-        return Err(GeneratedAffineResidualGroupExactRelationError::Coefficient);
-    }
-    stats.owner_retained_bytes = owner_retained_bytes;
+    let (coefficient_translation, terms, guards, completed_exact_stats) = recentered.into_parts();
+    merge_kernel_stats(&mut stats, completed_exact_stats);
     Ok(GeneratedAffineResidualGroupExactRelationOutcome::Pending(
         GeneratedAffineResidualGroupExactRelationCandidate {
             schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_RELATION_V1_SCHEMA,
@@ -910,957 +962,14 @@ fn compile_authenticated_relation(
             witness_ordinal,
             target,
             pivot,
-            coefficient_translation: Arc::new(coefficient_translation),
-            terms: Arc::new(terms),
-            guards: Arc::new(guards),
+            coefficient_translation,
+            terms,
+            guards,
             limits,
             stats,
         },
     ))
 }
-
-#[derive(Clone, Copy)]
-struct TranslationAdmission {
-    final_retained_output_bytes: usize,
-}
-
-fn preflight_exact_geometry(
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-    matrix: &[Integer],
-    free_positions: &[usize],
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    let arity = pivot.arity();
-    let operations_per_row = checked_add(
-        "exact recentering geometry integer operations",
-        checked_mul(
-            "exact recentering geometry integer operations",
-            free_positions.len(),
-            2,
-        )?,
-        1,
-    )?;
-    stats.geometry_integer_operations = checked_mul(
-        "exact recentering geometry integer operations",
-        arity,
-        operations_per_row,
-    )?;
-    check_limit(
-        "exact recentering geometry integer operations",
-        stats.geometry_integer_operations,
-        limits.max_geometry_integer_operations,
-    )?;
-    let mut bit_work = 0usize;
-    let mut target_offset_bits = 0usize;
-    let mut target_offset_bytes = vec_retained_bytes_bound::<Integer>(arity)?;
-    // `execute_target_offset` evaluates every matrix product before adding it
-    // to the live accumulator.  Conservatively admit the product, the old
-    // accumulator, and the prospective addition result simultaneously.  The
-    // final retained component alone is not a sound temporary bound: a large
-    // product and accumulator can cancel when `r - A r_F` is formed.
-    let mut target_offset_live_integer_peak = 0usize;
-    for row in 0..arity {
-        let mut sum_bits = 0usize;
-        for (free_ordinal, &free_position) in free_positions.iter().enumerate() {
-            let matrix_bits = integer_bits(&matrix[row * free_positions.len() + free_ordinal])?;
-            let pivot_bits = integer_bits(&pivot.values()[free_position])?;
-            let product_bits =
-                checked_add("exact recentering integer bits", matrix_bits, pivot_bits)?;
-            check_limit(
-                "exact recentering integer bits",
-                product_bits,
-                limits.max_exact_integer_bits,
-            )?;
-            let prior_sum_bits = sum_bits;
-            let next_sum_bits = checked_add(
-                "exact recentering integer bits",
-                sum_bits.max(product_bits),
-                1,
-            )?;
-            check_limit(
-                "exact recentering integer bits",
-                next_sum_bits,
-                limits.max_exact_integer_bits,
-            )?;
-            let live_integer_bytes = checked_add(
-                "exact recentering target-offset temporary bytes",
-                integer_retained_bytes(product_bits)?,
-                checked_add(
-                    "exact recentering target-offset temporary bytes",
-                    integer_retained_bytes(prior_sum_bits)?,
-                    integer_retained_bytes(next_sum_bits)?,
-                )?,
-            )?;
-            target_offset_live_integer_peak =
-                target_offset_live_integer_peak.max(live_integer_bytes);
-            sum_bits = next_sum_bits;
-            bit_work = checked_add(
-                "exact recentering geometry integer-bit work",
-                bit_work,
-                checked_add(
-                    "exact recentering geometry integer-bit work",
-                    matrix_bits.max(1),
-                    checked_add(
-                        "exact recentering geometry integer-bit work",
-                        pivot_bits.max(1),
-                        product_bits.max(1),
-                    )?,
-                )?,
-            )?;
-        }
-        let row_bits = integer_bits(&pivot.values()[row])?;
-        let target_bits = checked_add("exact recentering integer bits", row_bits.max(sum_bits), 1)?;
-        check_limit(
-            "exact recentering integer bits",
-            target_bits,
-            limits.max_exact_integer_bits,
-        )?;
-        bit_work = checked_add(
-            "exact recentering geometry integer-bit work",
-            bit_work,
-            checked_add(
-                "exact recentering geometry integer-bit work",
-                row_bits.max(1),
-                target_bits.max(1),
-            )?,
-        )?;
-        target_offset_bits = checked_add(
-            "exact recentering target-offset integer bits",
-            target_offset_bits,
-            target_bits,
-        )?;
-        target_offset_bytes = checked_add(
-            "exact recentering target-offset temporary bytes",
-            target_offset_bytes,
-            prospective_integer_heap_bytes(target_bits)?,
-        )?;
-        let subtraction_live_bytes = checked_add(
-            "exact recentering target-offset temporary bytes",
-            integer_retained_bytes(sum_bits)?,
-            integer_retained_bytes(target_bits)?,
-        )?;
-        target_offset_live_integer_peak =
-            target_offset_live_integer_peak.max(subtraction_live_bytes);
-    }
-    target_offset_bytes = checked_add(
-        "exact recentering target-offset temporary bytes",
-        target_offset_bytes,
-        target_offset_live_integer_peak,
-    )?;
-    check_limit(
-        "exact recentering geometry integer-bit work",
-        bit_work,
-        limits.max_geometry_integer_bit_work,
-    )?;
-    check_limit(
-        "exact recentering target-offset integer bits",
-        target_offset_bits,
-        limits.max_target_offset_integer_bits,
-    )?;
-    check_limit(
-        "exact recentering target-offset temporary bytes",
-        target_offset_bytes,
-        limits.max_target_offset_temporary_bytes,
-    )?;
-    stats.geometry_integer_bit_work = bit_work;
-    stats.target_offset_integer_bits = target_offset_bits;
-    stats.target_offset_temporary_bytes = target_offset_bytes;
-    Ok(())
-}
-
-fn verify_target_offset_census(
-    target_offset: &Vec<Integer>,
-    stats: &GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    let (bits, bytes) = integer_vec_owned_census(target_offset, false)?;
-    if bits > stats.target_offset_integer_bits || bytes > stats.target_offset_temporary_bytes {
-        return Err(GeneratedAffineResidualGroupExactRelationError::PhysicalKey);
-    }
-    Ok(())
-}
-
-fn exact_offsets_equal(
-    left: &[Integer],
-    right: &[Integer],
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<bool, GeneratedAffineResidualGroupExactRelationError> {
-    if left.len() != right.len() {
-        return Ok(false);
-    }
-    for (left, right) in left.iter().zip(right) {
-        stats.geometry_integer_operations = bounded_add(
-            "exact recentering geometry integer operations",
-            stats.geometry_integer_operations,
-            1,
-            limits.max_geometry_integer_operations,
-        )?;
-        let comparison_work = integer_bits(left)?.max(integer_bits(right)?).max(1);
-        stats.geometry_integer_bit_work = bounded_add(
-            "exact recentering geometry integer-bit work",
-            stats.geometry_integer_bit_work,
-            comparison_work,
-            limits.max_geometry_integer_bit_work,
-        )?;
-        if left != right {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-fn execute_target_offset(
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-    matrix: &[Integer],
-    free_positions: &[usize],
-    arity: usize,
-) -> Result<Vec<Integer>, GeneratedAffineResidualGroupExactRelationError> {
-    let mut output = try_vec("exact recentering target offset", arity)?;
-    for row in 0..arity {
-        let mut sum = Integer::from(0);
-        for (free_ordinal, &free_position) in free_positions.iter().enumerate() {
-            sum +=
-                &matrix[row * free_positions.len() + free_ordinal] * &pivot.values()[free_position];
-        }
-        output.push(canonical_integer(&pivot.values()[row] - sum));
-    }
-    Ok(output)
-}
-
-fn coefficient_translation(
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-    free_positions: &[usize],
-    arity: usize,
-) -> Result<Vec<Integer>, GeneratedAffineResidualGroupExactRelationError> {
-    let mut output = try_vec("exact recentering coefficient translation", arity)?;
-    let mut free_cursor = 0usize;
-    for position in 0..arity {
-        let is_free = free_positions.get(free_cursor).copied() == Some(position);
-        free_cursor += usize::from(is_free);
-        output.push(if is_free {
-            canonical_integer(-&pivot.values()[position])
-        } else {
-            Integer::from(0)
-        });
-    }
-    Ok(output)
-}
-
-fn preflight_coefficient_translation(
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-    free_positions: &[usize],
-    arity: usize,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    let mut total_bits = 0usize;
-    let mut retained_bytes = arc_vec_retained_bytes_bound::<Integer>(arity)?;
-    let mut free_cursor = 0usize;
-    for position in 0..arity {
-        let is_free = free_positions.get(free_cursor).copied() == Some(position);
-        free_cursor += usize::from(is_free);
-        if !is_free {
-            continue;
-        }
-        let bits = integer_bits(&pivot.values()[position])?;
-        check_limit(
-            "exact recentering coefficient-translation integer bits",
-            bits,
-            limits.max_exact_integer_bits,
-        )?;
-        total_bits = checked_add(
-            "exact recentering coefficient-translation integer bits",
-            total_bits,
-            bits,
-        )?;
-        retained_bytes = checked_add(
-            "exact recentering coefficient-translation retained bytes",
-            retained_bytes,
-            prospective_integer_heap_bytes(bits)?,
-        )?;
-        stats.geometry_integer_operations = bounded_add(
-            "exact recentering geometry integer operations",
-            stats.geometry_integer_operations,
-            1,
-            limits.max_geometry_integer_operations,
-        )?;
-        stats.geometry_integer_bit_work = bounded_add(
-            "exact recentering geometry integer-bit work",
-            stats.geometry_integer_bit_work,
-            bits.max(1),
-            limits.max_geometry_integer_bit_work,
-        )?;
-    }
-    check_limit(
-        "exact recentering coefficient-translation integer bits",
-        total_bits,
-        limits.max_coefficient_translation_integer_bits,
-    )?;
-    check_limit(
-        "exact recentering coefficient-translation retained bytes",
-        retained_bytes,
-        limits.max_coefficient_translation_retained_bytes,
-    )?;
-    stats.coefficient_translation_integer_bits = total_bits;
-    stats.coefficient_translation_retained_bytes = retained_bytes;
-    Ok(())
-}
-
-fn verify_coefficient_translation_census(
-    translation: &Vec<Integer>,
-    stats: &GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    let (bits, bytes) = integer_vec_owned_census(translation, true)?;
-    if bits > stats.coefficient_translation_integer_bits
-        || bytes > stats.coefficient_translation_retained_bytes
-    {
-        return Err(GeneratedAffineResidualGroupExactRelationError::PhysicalKey);
-    }
-    Ok(())
-}
-
-fn preflight_and_center_keys(
-    physical_keys: &[GeneratedAffineResidualGroupPhysicalKey],
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<Vec<ExactCenteredShift>, GeneratedAffineResidualGroupExactRelationError> {
-    let components = checked_mul(
-        "exact recentering exact-shift components",
-        physical_keys.len(),
-        pivot.arity(),
-    )?;
-    check_limit(
-        "exact recentering exact-shift components",
-        components,
-        limits.max_exact_shift_components,
-    )?;
-    let mut prospective_bits = 0usize;
-    let mut prospective_bytes = 0usize;
-    for key in physical_keys {
-        prospective_bytes = checked_add(
-            "exact recentering exact-shift retained bytes",
-            prospective_bytes,
-            arc_vec_retained_bytes_bound::<Integer>(pivot.arity())?,
-        )?;
-        for (value, center) in key.shift().values().iter().zip(pivot.values()) {
-            let bits = checked_add(
-                "exact recentering exact-shift integer bits",
-                integer_bits(value)?.max(integer_bits(center)?),
-                1,
-            )?;
-            check_limit(
-                "exact recentering exact-shift integer bits",
-                bits,
-                limits.max_exact_integer_bits,
-            )?;
-            prospective_bits = checked_add(
-                "exact recentering exact-shift integer bits",
-                prospective_bits,
-                bits,
-            )?;
-            prospective_bytes = checked_add(
-                "exact recentering exact-shift retained bytes",
-                prospective_bytes,
-                prospective_integer_heap_bytes(bits)?,
-            )?;
-        }
-    }
-    check_limit(
-        "exact recentering exact-shift integer bits",
-        prospective_bits,
-        limits.max_exact_shift_integer_bits,
-    )?;
-    check_limit(
-        "exact recentering exact-shift retained bytes",
-        prospective_bytes,
-        limits.max_exact_shift_retained_bytes,
-    )?;
-    let mut output = try_vec("exact recentering centered shifts", physical_keys.len())?;
-    let mut observed_bits = 0usize;
-    let mut observed_bytes = 0usize;
-    for key in physical_keys {
-        let mut values = try_vec("exact recentering centered-shift values", pivot.arity())?;
-        let mut retained_bits = 0usize;
-        for (value, center) in key.shift().values().iter().zip(pivot.values()) {
-            let centered = canonical_integer(value - center);
-            let bits = integer_bits(&centered)?;
-            retained_bits = checked_add(
-                "exact recentering exact-shift integer bits",
-                retained_bits,
-                bits,
-            )?;
-            values.push(centered);
-        }
-        let (censused_bits, retained_bytes) = integer_vec_owned_census(&values, true)?;
-        if censused_bits != retained_bits {
-            return Err(GeneratedAffineResidualGroupExactRelationError::PhysicalKey);
-        }
-        observed_bits = checked_add(
-            "exact recentering exact-shift integer bits",
-            observed_bits,
-            retained_bits,
-        )?;
-        observed_bytes = checked_add(
-            "exact recentering exact-shift retained bytes",
-            observed_bytes,
-            retained_bytes,
-        )?;
-        output.push(ExactCenteredShift {
-            values: Arc::new(values),
-            retained_integer_bits: retained_bits,
-            retained_bytes,
-        });
-    }
-    if observed_bits > prospective_bits || observed_bytes > prospective_bytes {
-        return Err(GeneratedAffineResidualGroupExactRelationError::PhysicalKey);
-    }
-    stats.exact_shift_components = components;
-    stats.exact_shift_integer_bits = observed_bits;
-    stats.exact_shift_retained_bytes = observed_bytes;
-    Ok(output)
-}
-
-fn preflight_translations(
-    context: &ParametricCoefficientContext,
-    relation: &ParametricRelation,
-    shift: &[Integer],
-    pivot_retained_bytes: usize,
-    locator_origin: &GuardOrigin,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<TranslationAdmission, GeneratedAffineResidualGroupExactRelationError> {
-    let mut maximum_polynomial_bytes = 0usize;
-    let mut final_bytes = size_of::<GeneratedAffineResidualGroupExactRelationCandidate>();
-    final_bytes = checked_add(
-        "exact recentering final retained output bytes",
-        final_bytes,
-        arc_vec_retained_bytes_bound::<ExactRelationTerm>(relation.terms().len())?,
-    )?;
-    final_bytes = checked_add(
-        "exact recentering final retained output bytes",
-        final_bytes,
-        arc_vec_retained_bytes_bound::<ParametricNonZeroCondition>(
-            relation.guarded_nonzero_conditions().len(),
-        )?,
-    )?;
-    final_bytes = checked_add(
-        "exact recentering final retained output bytes",
-        final_bytes,
-        stats.exact_shift_retained_bytes,
-    )?;
-    final_bytes = checked_add(
-        "exact recentering final retained output bytes",
-        final_bytes,
-        stats.coefficient_translation_retained_bytes,
-    )?;
-    final_bytes = checked_add(
-        "exact recentering final retained output bytes",
-        final_bytes,
-        pivot_retained_bytes,
-    )?;
-    for coefficient in relation.terms().values() {
-        let preflight =
-            context.preflight_translate_coefficient_exact(coefficient, shift, limits.arithmetic)?;
-        accumulate_coefficient_preflight(stats, preflight, limits)?;
-        maximum_polynomial_bytes = maximum_polynomial_bytes
-            .max(preflight.numerator().retained_output_byte_bound())
-            .max(preflight.denominator().retained_output_byte_bound());
-        final_bytes = checked_add(
-            "exact recentering final retained output bytes",
-            final_bytes,
-            preflight.normalized_coefficient_byte_bound(),
-        )?;
-    }
-    for guard in relation.guarded_nonzero_conditions() {
-        let prospective_origins = checked_add(
-            "exact recentering guard-origin occurrences",
-            guard.origins().len(),
-            usize::from(!guard.origins().contains(locator_origin)),
-        )?;
-        check_limit(
-            "exact recentering guard origins per condition",
-            prospective_origins,
-            limits.arithmetic.max_guard_origins,
-        )?;
-        stats.guard_origin_occurrences = bounded_add(
-            "exact recentering guard-origin occurrences",
-            stats.guard_origin_occurrences,
-            prospective_origins,
-            limits.max_guard_origin_occurrences,
-        )?;
-        let preflight = context.preflight_translate_polynomial_exact(
-            guard.polynomial(),
-            shift,
-            limits.arithmetic,
-        )?;
-        accumulate_polynomial_preflight(stats, preflight, limits)?;
-        maximum_polynomial_bytes =
-            maximum_polynomial_bytes.max(preflight.retained_output_byte_bound());
-        final_bytes = checked_add(
-            "exact recentering final retained output bytes",
-            final_bytes,
-            preflight.retained_output_byte_bound(),
-        )?;
-        for origin in guard.origins() {
-            final_bytes = checked_add(
-                "exact recentering final retained output bytes",
-                final_bytes,
-                origin.retained_byte_bound().ok_or(
-                    GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-                        resource: "exact recentering final retained output bytes",
-                    },
-                )?,
-            )?;
-        }
-        final_bytes = checked_add(
-            "exact recentering final retained output bytes",
-            final_bytes,
-            locator_origin.retained_byte_bound().ok_or(
-                GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-                    resource: "exact recentering final retained output bytes",
-                },
-            )?,
-        )?;
-    }
-    check_limit(
-        "exact recentering translation retained output bytes",
-        stats.translation_retained_output_bytes,
-        limits.max_translation_retained_output_bytes,
-    )?;
-    check_limit(
-        "exact recentering owner retained bytes",
-        final_bytes,
-        limits.max_owner_retained_bytes,
-    )?;
-    let native_temporary = checked_add(
-        "exact recentering native temporary byte envelope",
-        final_bytes,
-        checked_add(
-            "exact recentering native temporary byte envelope",
-            checked_mul(
-                "exact recentering native temporary byte envelope",
-                maximum_polynomial_bytes,
-                3,
-            )?,
-            native_exact_scratch_bytes(stats)?,
-        )?,
-    )?;
-    check_limit(
-        "exact recentering native temporary byte envelope",
-        native_temporary,
-        limits.max_native_temporary_byte_envelope,
-    )?;
-    stats.native_temporary_byte_envelope = native_temporary;
-    Ok(TranslationAdmission {
-        final_retained_output_bytes: final_bytes,
-    })
-}
-
-fn accumulate_coefficient_preflight(
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-    preflight: ParametricCoefficientTranslationPreflight,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    accumulate_translation_counts(
-        stats,
-        preflight.source_terms(),
-        checked_add(
-            "exact recentering source exponent entries",
-            preflight.numerator().source_exponent_entries(),
-            preflight.denominator().source_exponent_entries(),
-        )?,
-        preflight.output_term_bound(),
-        checked_add(
-            "exact recentering output exponent entries",
-            preflight.numerator().output_exponent_entry_bound(),
-            preflight.denominator().output_exponent_entry_bound(),
-        )?,
-        preflight.power_operation_bound(),
-        preflight.integer_bit_work_bound(),
-        preflight.normalized_coefficient_term_bound(),
-        preflight.normalized_coefficient_byte_bound(),
-        limits,
-    )
-}
-
-fn accumulate_polynomial_preflight(
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-    preflight: ParametricPolynomialTranslationPreflight,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    accumulate_translation_counts(
-        stats,
-        preflight.source_terms(),
-        preflight.source_exponent_entries(),
-        preflight.output_term_bound(),
-        preflight.output_exponent_entry_bound(),
-        preflight.power_operation_bound(),
-        preflight.integer_bit_work_bound(),
-        preflight.retained_output_term_bound(),
-        preflight.retained_output_byte_bound(),
-        limits,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn accumulate_translation_counts(
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-    source_terms: usize,
-    source_exponent_entries: usize,
-    output_terms: usize,
-    output_exponent_entries: usize,
-    power_operations: usize,
-    integer_bit_work: usize,
-    normalized_terms: usize,
-    retained_bytes: usize,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    // The exact execution API repeats the allocation-free scan/work preflight
-    // internally. Charge both passes for those logical work counters. The
-    // normalized terms and retained bytes describe the single successful
-    // output, however, and must not be doubled merely because its bound was
-    // computed twice.
-    stats.translation_preflight_passes = bounded_add(
-        "exact recentering translation preflight passes",
-        stats.translation_preflight_passes,
-        2,
-        limits.max_translation_preflight_passes,
-    )?;
-    for (resource, field, increment, limit) in [
-        (
-            "exact recentering translation source terms",
-            &mut stats.translation_source_terms,
-            source_terms,
-            limits.max_translation_source_terms,
-        ),
-        (
-            "exact recentering translation source exponent entries",
-            &mut stats.translation_source_exponent_entries,
-            source_exponent_entries,
-            limits.max_translation_source_exponent_entries,
-        ),
-        (
-            "exact recentering translation output terms",
-            &mut stats.translation_output_terms,
-            output_terms,
-            limits.max_translation_output_terms,
-        ),
-        (
-            "exact recentering translation output exponent entries",
-            &mut stats.translation_output_exponent_entries,
-            output_exponent_entries,
-            limits.max_translation_output_exponent_entries,
-        ),
-        (
-            "exact recentering translation power operations",
-            &mut stats.translation_power_operations,
-            power_operations,
-            limits.max_translation_power_operations,
-        ),
-        (
-            "exact recentering translation integer-bit work",
-            &mut stats.translation_integer_bit_work,
-            integer_bit_work,
-            limits.max_translation_integer_bit_work,
-        ),
-    ] {
-        let doubled = checked_mul(resource, increment, 2)?;
-        *field = bounded_add(resource, *field, doubled, limit)?;
-    }
-    stats.translation_normalized_terms = bounded_add(
-        "exact recentering translation normalized terms",
-        stats.translation_normalized_terms,
-        normalized_terms,
-        limits.max_translation_normalized_terms,
-    )?;
-    stats.translation_retained_output_bytes = bounded_add(
-        "exact recentering translation retained output bytes",
-        stats.translation_retained_output_bytes,
-        retained_bytes,
-        limits.max_translation_retained_output_bytes,
-    )?;
-    Ok(())
-}
-
-fn admit_no_target(
-    stats: &mut GeneratedAffineResidualGroupExactRelationStats,
-    limits: GeneratedAffineResidualGroupExactRelationLimits,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    let owner_retained_bytes = size_of::<GeneratedAffineResidualGroupExactRelationNoTarget>();
-    check_limit(
-        "exact recentering owner retained bytes",
-        owner_retained_bytes,
-        limits.max_owner_retained_bytes,
-    )?;
-    let native_temporary_byte_envelope = checked_add(
-        "exact recentering native temporary byte envelope",
-        owner_retained_bytes,
-        native_exact_scratch_bytes(stats)?,
-    )?;
-    check_limit(
-        "exact recentering native temporary byte envelope",
-        native_temporary_byte_envelope,
-        limits.max_native_temporary_byte_envelope,
-    )?;
-    stats.owner_retained_bytes = owner_retained_bytes;
-    stats.native_temporary_byte_envelope = native_temporary_byte_envelope;
-    Ok(())
-}
-
-fn native_exact_scratch_bytes(
-    stats: &GeneratedAffineResidualGroupExactRelationStats,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    let resource = "exact recentering native temporary byte envelope";
-    let mut bytes = vec_retained_bytes_bound::<GeneratedAffineResidualGroupPhysicalKey>(
-        stats.physical_key_constructions,
-    )?;
-    for increment in [
-        stats.physical_key_prospective_retained_bytes,
-        stats.physical_key_retained_bytes,
-        stats.target_offset_temporary_bytes,
-        stats.exact_shift_retained_bytes,
-        stats.coefficient_translation_retained_bytes,
-    ] {
-        bytes = checked_add(resource, bytes, increment)?;
-    }
-    Ok(bytes)
-}
-
-fn observed_output_bytes(
-    terms: &Vec<ExactRelationTerm>,
-    guards: &Vec<ParametricNonZeroCondition>,
-    coefficient_translation: &Vec<Integer>,
-    pivot: &GeneratedAffineResidualGroupLatticeShift,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    let mut bytes = size_of::<GeneratedAffineResidualGroupExactRelationCandidate>();
-    bytes = checked_add(
-        "exact recentering observed output bytes",
-        bytes,
-        arc_vec_retained_bytes_bound::<ExactRelationTerm>(terms.capacity())?,
-    )?;
-    for term in terms {
-        bytes = checked_add(
-            "exact recentering observed output bytes",
-            bytes,
-            term.shift.retained_bytes,
-        )?;
-        bytes = checked_add(
-            "exact recentering observed output bytes",
-            bytes,
-            term.coefficient.owned_retained_byte_bound().ok_or(
-                GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-                    resource: "exact recentering observed output bytes",
-                },
-            )?,
-        )?;
-    }
-    bytes = checked_add(
-        "exact recentering observed output bytes",
-        bytes,
-        arc_vec_retained_bytes_bound::<ParametricNonZeroCondition>(guards.capacity())?,
-    )?;
-    for guard in guards {
-        bytes = checked_add(
-            "exact recentering observed output bytes",
-            bytes,
-            guard.owned_retained_byte_bound().ok_or(
-                GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-                    resource: "exact recentering observed output bytes",
-                },
-            )?,
-        )?;
-    }
-    bytes = checked_add(
-        "exact recentering observed output bytes",
-        bytes,
-        integer_vec_owned_census(coefficient_translation, true)?.1,
-    )?;
-    checked_add(
-        "exact recentering observed output bytes",
-        bytes,
-        pivot.retained_bytes(),
-    )
-}
-
-fn canonical_integer(value: Integer) -> Integer {
-    match value {
-        Integer::Single(value) => Integer::from(value),
-        Integer::Double(value) => Integer::from(value),
-        Integer::Large(value) => Integer::from(value),
-    }
-}
-
-fn integer_bits(value: &Integer) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    integer_magnitude_bits(value).map_err(|_| {
-        GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-            resource: "exact recentering integer bits",
-        }
-    })
-}
-
-fn integer_owned_heap_bytes(
-    value: &Integer,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    match value {
-        Integer::Single(_) | Integer::Double(_) => Ok(0),
-        Integer::Large(value) => value.capacity().checked_add(7).map(|bits| bits / 8).ok_or(
-            GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow {
-                resource: "exact recentering integer owned heap bytes",
-            },
-        ),
-    }
-}
-
-fn prospective_integer_heap_bytes(
-    bits: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    if bits <= i128::BITS as usize - 1 {
-        Ok(0)
-    } else {
-        // GMP commonly retains a small number of spare limbs.  Match the
-        // conservative allowance used by the exact physical-key layer rather
-        // than admitting only the mathematical minimum limb count.
-        let limbs = checked_add("exact recentering integer retained bytes", bits, 191)? / 64;
-        checked_mul(
-            "exact recentering integer retained bytes",
-            limbs,
-            size_of::<u64>(),
-        )
-    }
-}
-
-fn integer_retained_bytes(
-    bits: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    checked_add(
-        "exact recentering integer retained bytes",
-        size_of::<Integer>(),
-        prospective_integer_heap_bytes(bits)?,
-    )
-}
-
-fn arc_payload_control_and_padding_byte_bound<T>()
--> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    checked_add(
-        "exact recentering retained bytes",
-        checked_mul(
-            "exact recentering retained bytes",
-            2,
-            size_of::<AtomicUsize>(),
-        )?,
-        checked_add(
-            "exact recentering retained bytes",
-            align_of::<T>().saturating_sub(1),
-            size_of::<T>(),
-        )?,
-    )
-}
-
-fn vec_retained_bytes_bound<T>(
-    capacity: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    checked_add(
-        "exact recentering retained bytes",
-        size_of::<Vec<T>>(),
-        checked_mul("exact recentering retained bytes", capacity, size_of::<T>())?,
-    )
-}
-
-fn arc_vec_retained_bytes_bound<T>(
-    capacity: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    checked_add(
-        "exact recentering retained bytes",
-        arc_payload_control_and_padding_byte_bound::<Vec<T>>()?,
-        checked_mul("exact recentering retained bytes", capacity, size_of::<T>())?,
-    )
-}
-
-fn integer_vec_owned_census(
-    values: &Vec<Integer>,
-    retained_in_arc: bool,
-) -> Result<(usize, usize), GeneratedAffineResidualGroupExactRelationError> {
-    let mut bits = 0usize;
-    let mut bytes = if retained_in_arc {
-        arc_vec_retained_bytes_bound::<Integer>(values.capacity())?
-    } else {
-        vec_retained_bytes_bound::<Integer>(values.capacity())?
-    };
-    for value in values {
-        bits = checked_add(
-            "exact recentering integer-vector bits",
-            bits,
-            integer_bits(value)?,
-        )?;
-        bytes = checked_add(
-            "exact recentering integer-vector retained bytes",
-            bytes,
-            integer_owned_heap_bytes(value)?,
-        )?;
-    }
-    Ok((bits, bytes))
-}
-
-fn try_vec<T>(
-    resource: &'static str,
-    capacity: usize,
-) -> Result<Vec<T>, GeneratedAffineResidualGroupExactRelationError> {
-    let mut output = Vec::new();
-    output.try_reserve_exact(capacity).map_err(|_| {
-        GeneratedAffineResidualGroupExactRelationError::AllocationFailure { resource }
-    })?;
-    Ok(output)
-}
-
-fn checked_add(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    left.checked_add(right)
-        .ok_or(GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow { resource })
-}
-
-fn checked_mul(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    left.checked_mul(right)
-        .ok_or(GeneratedAffineResidualGroupExactRelationError::ResourceCountOverflow { resource })
-}
-
-fn bounded_add(
-    resource: &'static str,
-    current: usize,
-    increment: usize,
-    limit: usize,
-) -> Result<usize, GeneratedAffineResidualGroupExactRelationError> {
-    let requested = checked_add(resource, current, increment)?;
-    check_limit(resource, requested, limit)?;
-    Ok(requested)
-}
-
-fn check_limit(
-    resource: &'static str,
-    requested: usize,
-    limit: usize,
-) -> Result<(), GeneratedAffineResidualGroupExactRelationError> {
-    if requested > limit {
-        Err(
-            GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
-                resource,
-                requested,
-                limit,
-            },
-        )
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn compile_synthetic_for_test(
@@ -2255,8 +1364,8 @@ mod tests {
             .terms
             .iter()
             .map(|term| {
-                term.shift
-                    .values
+                term.shift()
+                    .values()
                     .iter()
                     .map(exact_to_i64)
                     .collect::<Vec<_>>()
@@ -2281,12 +1390,12 @@ mod tests {
             .iter()
             .map(|term| {
                 (
-                    term.shift
-                        .values
+                    term.shift()
+                        .values()
                         .iter()
                         .map(exact_to_i64)
                         .collect::<Vec<_>>(),
-                    term.coefficient.clone(),
+                    term.coefficient().clone(),
                 )
             })
             .collect::<BTreeMap<_, _>>();
@@ -2340,8 +1449,8 @@ mod tests {
             [two_to_63.clone(), Integer::from(0), Integer::from(0)]
         );
         assert!(candidate.terms.iter().all(|term| {
-            term.shift
-                .values
+            term.shift()
+                .values()
                 .iter()
                 .all(|value| value == &Integer::from(0))
         }));
@@ -2363,7 +1472,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap();
-        assert_eq!(candidate.terms[0].coefficient, expected);
+        assert_eq!(candidate.terms[0].coefficient(), &expected);
     }
 
     #[test]
@@ -2384,10 +1493,32 @@ mod tests {
         let matrix = group.compact_linear_coefficients();
         let free_positions = group.free_positions();
         let limits = GeneratedAffineResidualGroupExactRelationLimits::default();
-        let mut stats = GeneratedAffineResidualGroupExactRelationStats::default();
-        preflight_exact_geometry(&pivot, matrix, free_positions, limits, &mut stats).unwrap();
+        let exact_limits = kernel_limits(limits);
+        let mut stats = ExactRecenterKernelStats::for_row(0, 0, exact_limits).unwrap();
+        preflight_exact_geometry(&pivot, matrix, free_positions, exact_limits, &mut stats).unwrap();
+        let huge_bits = integer_bits(&pivot.values()[0]).unwrap();
+        let expected_bit_work = huge_bits
+            .checked_mul(19)
+            .and_then(|work| work.checked_add(25))
+            .unwrap();
+        let formerly_undercharged_bit_work = huge_bits
+            .checked_mul(10)
+            .and_then(|work| work.checked_add(13))
+            .unwrap();
+        assert_eq!(
+            stats.geometry_integer_bit_work(),
+            expected_bit_work,
+            "three rows each charge multiplication operands/result, accumulator-addition operands/result, and final-subtraction operands/result"
+        );
+        assert!(expected_bit_work > formerly_undercharged_bit_work);
+        assert_eq!(stats.geometry_integer_operations(), 9);
         let offset = execute_target_offset(&pivot, matrix, free_positions, pivot.arity()).unwrap();
-        assert!(offset.iter().all(|value| value == &Integer::from(0)));
+        assert!(
+            offset
+                .values()
+                .iter()
+                .all(|value| value == &Integer::from(0))
+        );
 
         // Reconstruct the previous final-result-only envelope exactly.  It
         // admitted only the output Vec plus prospective result components,
@@ -2414,32 +1545,29 @@ mod tests {
         assert!(stats.target_offset_temporary_bytes() > old_final_only_bound);
 
         let exact_demand = stats.target_offset_temporary_bytes();
-        let mut exact_limits = limits;
-        exact_limits.max_target_offset_temporary_bytes = exact_demand;
-        let mut exact_stats = GeneratedAffineResidualGroupExactRelationStats::default();
+        let mut exact_demand_limits = exact_limits;
+        exact_demand_limits.max_target_offset_temporary_bytes = exact_demand;
+        let mut exact_stats = ExactRecenterKernelStats::for_row(0, 0, exact_demand_limits).unwrap();
         preflight_exact_geometry(
             &pivot,
             matrix,
             free_positions,
-            exact_limits,
+            exact_demand_limits,
             &mut exact_stats,
         )
         .unwrap();
         assert_eq!(exact_stats.target_offset_temporary_bytes(), exact_demand);
 
-        let with_target_scratch = native_exact_scratch_bytes(&stats).unwrap();
-        let mut without_target = stats;
-        without_target.target_offset_temporary_bytes = 0;
-        let without_target_scratch = native_exact_scratch_bytes(&without_target).unwrap();
         assert_eq!(
-            with_target_scratch.checked_sub(without_target_scratch),
-            Some(exact_demand),
+            native_exact_scratch_bytes(&stats, 0).unwrap(),
+            exact_demand,
             "the revised target envelope must enter native scratch exactly once"
         );
 
-        let mut formerly_admitted = limits;
+        let mut formerly_admitted = exact_limits;
         formerly_admitted.max_target_offset_temporary_bytes = old_final_only_bound;
-        let mut rejected_stats = GeneratedAffineResidualGroupExactRelationStats::default();
+        let mut rejected_stats =
+            ExactRecenterKernelStats::for_row(0, 0, formerly_admitted).unwrap();
         assert!(matches!(
             preflight_exact_geometry(
                 &pivot,
@@ -2448,12 +1576,12 @@ mod tests {
                 formerly_admitted,
                 &mut rejected_stats,
             ),
-            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit { .. })
+            Err(ExactRecenterKernelError::ResourceLimit { .. })
         ));
 
-        let mut one_below = limits;
+        let mut one_below = exact_limits;
         one_below.max_target_offset_temporary_bytes = exact_demand - 1;
-        let mut one_below_stats = GeneratedAffineResidualGroupExactRelationStats::default();
+        let mut one_below_stats = ExactRecenterKernelStats::for_row(0, 0, one_below).unwrap();
         assert!(matches!(
             preflight_exact_geometry(
                 &pivot,
@@ -2462,7 +1590,405 @@ mod tests {
                 one_below,
                 &mut one_below_stats,
             ),
-            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit { .. })
+            Err(ExactRecenterKernelError::ResourceLimit { .. })
+        ));
+
+        let mut exact_work = exact_limits;
+        exact_work.max_geometry_integer_bit_work = expected_bit_work;
+        let mut exact_work_stats = ExactRecenterKernelStats::for_row(0, 0, exact_work).unwrap();
+        preflight_exact_geometry(
+            &pivot,
+            matrix,
+            free_positions,
+            exact_work,
+            &mut exact_work_stats,
+        )
+        .unwrap();
+        assert_eq!(
+            exact_work_stats.geometry_integer_bit_work(),
+            expected_bit_work
+        );
+
+        let mut work_one_below = exact_limits;
+        work_one_below.max_geometry_integer_bit_work = expected_bit_work - 1;
+        let mut work_one_below_stats =
+            ExactRecenterKernelStats::for_row(0, 0, work_one_below).unwrap();
+        reset_target_offset_arithmetic_entries_for_test();
+        assert!(matches!(
+            preflight_exact_geometry(
+                &pivot,
+                matrix,
+                free_positions,
+                work_one_below,
+                &mut work_one_below_stats,
+            ),
+            Err(ExactRecenterKernelError::ResourceLimit {
+                resource: "exact recentering geometry integer-bit work",
+                requested,
+                limit,
+            }) if requested == expected_bit_work && limit + 1 == expected_bit_work
+        ));
+        assert_eq!(
+            target_offset_arithmetic_entries_for_test(),
+            0,
+            "a rejected geometry admission must not enter target-offset GMP arithmetic"
+        );
+    }
+
+    #[test]
+    fn legacy_adapter_rejects_geometry_work_one_below_before_target_offset_arithmetic() {
+        let fixture = fixture("exact-relation-work-admission-private");
+        let relation = source_relation(
+            &fixture,
+            [7, M - 1, M - 1],
+            None,
+            "work-admission-row-private",
+        );
+        let candidate = pending(&fixture, 1, &relation);
+        let pivot = candidate.pivot.clone();
+        let group = fixture
+            .plan
+            .authority()
+            .authenticated_group_view(&fixture.context)
+            .unwrap();
+        let matrix = group.compact_linear_coefficients();
+        let free_positions = group.free_positions();
+        let mut limits = GeneratedAffineResidualGroupExactRelationLimits::default();
+        let exact_limits = kernel_limits(limits);
+        let mut stats = ExactRecenterKernelStats::for_row(0, 0, exact_limits).unwrap();
+        preflight_exact_geometry(&pivot, matrix, free_positions, exact_limits, &mut stats).unwrap();
+        let exact_work = stats.geometry_integer_bit_work();
+        assert!(exact_work > 0);
+        limits.max_geometry_integer_bit_work = exact_work - 1;
+
+        let unresolved = vec![true; fixture.plan.targets().len()];
+        let unchanged_unresolved = unresolved.clone();
+        reset_target_offset_arithmetic_entries_for_test();
+        assert!(matches!(
+            compile_synthetic_for_test(
+                &fixture.family,
+                &fixture.context,
+                authority_for_case(&fixture, 1),
+                &relation,
+                Arc::clone(&fixture.frame),
+                Arc::clone(&fixture.plan),
+                &unresolved,
+                17,
+                23,
+                limits,
+            ),
+            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
+                resource: "exact recentering geometry integer-bit work",
+                requested,
+                limit,
+            }) if requested == exact_work && limit + 1 == exact_work
+        ));
+        assert_eq!(unresolved, unchanged_unresolved);
+        assert_eq!(
+            target_offset_arithmetic_entries_for_test(),
+            0,
+            "the adapter must return the one-below error before target-offset GMP arithmetic"
+        );
+    }
+
+    #[test]
+    fn centered_subtractions_have_exact_limits_and_replay_does_not_double_charge() {
+        let fixture = fixture("exact-relation-centered-work-private");
+        let relation = source_relation(
+            &fixture,
+            [7, M - 1, M - 1],
+            Some([7, M - 2, M - 1]),
+            "centered-work-row-private",
+        );
+        let baseline = pending(&fixture, 1, &relation);
+
+        // This fixture has nine target-offset operations (324 bit-work),
+        // five target comparisons (191), one free-coordinate negation (3),
+        // and six centered subtractions (780).  The last contribution is two
+        // rows of [3+3+4, 63+63+64, 63+63+64].
+        const EXPECTED_OPERATIONS: usize = 21;
+        const EXPECTED_INTEGER_BIT_WORK: usize = 1_298;
+        const EXPECTED_CENTERED_SUBTRACTIONS: usize = 6;
+        assert_eq!(baseline.stats().target_scans(), 2);
+        assert_eq!(
+            baseline.stats().geometry_integer_operations(),
+            EXPECTED_OPERATIONS
+        );
+        assert_eq!(
+            baseline.stats().geometry_integer_bit_work(),
+            EXPECTED_INTEGER_BIT_WORK
+        );
+
+        let unresolved = vec![true; fixture.plan.targets().len()];
+        let unchanged_unresolved = unresolved.clone();
+        let mut exact = GeneratedAffineResidualGroupExactRelationLimits::default();
+        exact.max_geometry_integer_operations = EXPECTED_OPERATIONS;
+        exact.max_geometry_integer_bit_work = EXPECTED_INTEGER_BIT_WORK;
+        reset_centered_shift_arithmetic_operations_for_test();
+        let exact_outcome = compile_synthetic_for_test(
+            &fixture.family,
+            &fixture.context,
+            authority_for_case(&fixture, 1),
+            &relation,
+            Arc::clone(&fixture.frame),
+            Arc::clone(&fixture.plan),
+            &unresolved,
+            17,
+            23,
+            exact,
+        )
+        .unwrap();
+        let GeneratedAffineResidualGroupExactRelationOutcome::Pending(exact_candidate) =
+            exact_outcome
+        else {
+            panic!("exact centered arithmetic limits must retain the pending outcome")
+        };
+        assert_eq!(
+            exact_candidate.stats().geometry_integer_operations(),
+            EXPECTED_OPERATIONS,
+            "the isolated execution replay must not charge caller operations twice"
+        );
+        assert_eq!(
+            exact_candidate.stats().geometry_integer_bit_work(),
+            EXPECTED_INTEGER_BIT_WORK,
+            "the isolated execution replay must not charge caller bit-work twice"
+        );
+        assert_eq!(
+            centered_shift_arithmetic_operations_for_test(),
+            EXPECTED_CENTERED_SUBTRACTIONS
+        );
+
+        let mut work_one_below = exact;
+        work_one_below.max_geometry_integer_bit_work = EXPECTED_INTEGER_BIT_WORK - 1;
+        reset_centered_shift_arithmetic_operations_for_test();
+        assert!(matches!(
+            compile_synthetic_for_test(
+                &fixture.family,
+                &fixture.context,
+                authority_for_case(&fixture, 1),
+                &relation,
+                Arc::clone(&fixture.frame),
+                Arc::clone(&fixture.plan),
+                &unresolved,
+                17,
+                23,
+                work_one_below,
+            ),
+            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
+                resource: "exact recentering geometry integer-bit work",
+                requested: EXPECTED_INTEGER_BIT_WORK,
+                limit,
+            }) if limit + 1 == EXPECTED_INTEGER_BIT_WORK
+        ));
+        assert_eq!(unresolved, unchanged_unresolved);
+        assert_eq!(
+            centered_shift_arithmetic_operations_for_test(),
+            0,
+            "one-below bit-work admission must reject before centered GMP subtraction"
+        );
+
+        let mut operations_one_below = exact;
+        operations_one_below.max_geometry_integer_operations = EXPECTED_OPERATIONS - 1;
+        reset_centered_shift_arithmetic_operations_for_test();
+        assert!(matches!(
+            compile_synthetic_for_test(
+                &fixture.family,
+                &fixture.context,
+                authority_for_case(&fixture, 1),
+                &relation,
+                Arc::clone(&fixture.frame),
+                Arc::clone(&fixture.plan),
+                &unresolved,
+                17,
+                23,
+                operations_one_below,
+            ),
+            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
+                resource: "exact recentering geometry integer operations",
+                requested: EXPECTED_OPERATIONS,
+                limit,
+            }) if limit + 1 == EXPECTED_OPERATIONS
+        ));
+        assert_eq!(unresolved, unchanged_unresolved);
+        assert_eq!(
+            centered_shift_arithmetic_operations_for_test(),
+            0,
+            "one-below operation admission must reject before centered GMP subtraction"
+        );
+    }
+
+    #[test]
+    fn centered_admission_rejects_same_shape_low_bit_caller_stats_before_arithmetic() {
+        let fixture = fixture("exact-relation-centered-binding-private");
+        let huge = Integer::from(1) << 4096_u32;
+        let high_pivot_key = fixture
+            .frame
+            .test_key_for_borrowed_physical_values(&[
+                huge.clone(),
+                Integer::from(0),
+                Integer::from(0),
+            ])
+            .unwrap();
+        let high_term_key = fixture
+            .frame
+            .test_key_for_borrowed_physical_values(&[
+                &huge + Integer::from(1),
+                Integer::from(1),
+                Integer::from(0),
+            ])
+            .unwrap();
+        let low_pivot_key = fixture
+            .frame
+            .test_key_for_borrowed_physical_values(&[
+                Integer::from(1),
+                Integer::from(0),
+                Integer::from(0),
+            ])
+            .unwrap();
+        let low_term_key = fixture
+            .frame
+            .test_key_for_borrowed_physical_values(&[
+                Integer::from(2),
+                Integer::from(1),
+                Integer::from(0),
+            ])
+            .unwrap();
+        let coefficient = fixture.context.one();
+        let high_terms = [(high_term_key.shift(), &coefficient)];
+        let low_terms = [(low_term_key.shift(), &coefficient)];
+        let limits = kernel_limits(GeneratedAffineResidualGroupExactRelationLimits::default());
+        let mut high_stats = ExactRecenterKernelStats::default();
+        let high_admission =
+            preflight_centered_shifts(&high_terms, high_pivot_key.shift(), limits, &mut high_stats)
+                .unwrap();
+        let mut low_stats = ExactRecenterKernelStats::default();
+        let low_admission =
+            preflight_centered_shifts(&low_terms, low_pivot_key.shift(), limits, &mut low_stats)
+                .unwrap();
+
+        assert_eq!(high_admission.shift_count(), low_admission.shift_count());
+        assert_eq!(high_admission.components(), low_admission.components());
+        assert_eq!(
+            high_stats.centered_shift_outer_buffer_bytes(),
+            low_stats.centered_shift_outer_buffer_bytes()
+        );
+        assert!(
+            high_admission.prospective_integer_bits() > low_admission.prospective_integer_bits()
+        );
+        assert!(
+            high_admission.prospective_retained_bytes()
+                > low_admission.prospective_retained_bytes()
+        );
+        assert!(high_stats.geometry_integer_bit_work() > low_stats.geometry_integer_bit_work());
+
+        let high_pivot_before = high_pivot_key.shift().values().to_vec();
+        let high_term_before = high_term_key.shift().values().to_vec();
+        let low_stats_before = low_stats;
+        reset_centered_shift_arithmetic_operations_for_test();
+        assert!(matches!(
+            execute_centered_shifts(
+                &high_terms,
+                high_pivot_key.shift(),
+                high_admission,
+                limits,
+                &mut low_stats,
+            ),
+            Err(ExactRecenterKernelError::CensusMismatch)
+        ));
+        assert_eq!(centered_shift_arithmetic_operations_for_test(), 0);
+        assert_eq!(low_stats, low_stats_before);
+        assert_eq!(high_pivot_key.shift().values(), high_pivot_before);
+        assert_eq!(high_term_key.shift().values(), high_term_before);
+    }
+
+    #[test]
+    fn centered_outer_and_borrowed_reference_buffers_have_exact_one_below_limits() {
+        let fixture = fixture("exact-relation-buffer-envelopes-private");
+        let relation = source_relation(
+            &fixture,
+            [7, M - 1, M - 1],
+            Some([7, M - 2, M - 1]),
+            "buffer-envelope-row-private",
+        );
+        let baseline = pending(&fixture, 1, &relation);
+        let centered_demand = baseline.stats().centered_shift_outer_buffer_bytes();
+        let reference_demand = baseline.stats().borrowed_reference_buffer_bytes();
+        assert!(centered_demand > size_of::<Vec<ExactCenteredShift>>());
+        assert!(reference_demand > size_of::<Vec<ExactBorrowedTerm<'_>>>());
+
+        let unresolved = vec![true; fixture.plan.targets().len()];
+        let mut exact = GeneratedAffineResidualGroupExactRelationLimits::default();
+        exact.max_centered_shift_outer_buffer_bytes = centered_demand;
+        exact.max_borrowed_reference_buffer_bytes = reference_demand;
+        let exact_outcome = compile_synthetic_for_test(
+            &fixture.family,
+            &fixture.context,
+            authority_for_case(&fixture, 1),
+            &relation,
+            Arc::clone(&fixture.frame),
+            Arc::clone(&fixture.plan),
+            &unresolved,
+            17,
+            23,
+            exact,
+        )
+        .unwrap();
+        let GeneratedAffineResidualGroupExactRelationOutcome::Pending(exact_candidate) =
+            exact_outcome
+        else {
+            panic!("exact buffer limits must retain the pending outcome")
+        };
+        assert_eq!(
+            exact_candidate.stats().centered_shift_outer_buffer_bytes(),
+            centered_demand
+        );
+        assert_eq!(
+            exact_candidate.stats().borrowed_reference_buffer_bytes(),
+            reference_demand
+        );
+
+        let mut centered_one_below = exact;
+        centered_one_below.max_centered_shift_outer_buffer_bytes = centered_demand - 1;
+        assert!(matches!(
+            compile_synthetic_for_test(
+                &fixture.family,
+                &fixture.context,
+                authority_for_case(&fixture, 1),
+                &relation,
+                Arc::clone(&fixture.frame),
+                Arc::clone(&fixture.plan),
+                &unresolved,
+                17,
+                23,
+                centered_one_below,
+            ),
+            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
+                resource: "exact recentering centered-shift outer buffer bytes",
+                requested,
+                limit,
+            }) if requested == centered_demand && limit + 1 == centered_demand
+        ));
+
+        let mut reference_one_below = exact;
+        reference_one_below.max_borrowed_reference_buffer_bytes = reference_demand - 1;
+        assert!(matches!(
+            compile_synthetic_for_test(
+                &fixture.family,
+                &fixture.context,
+                authority_for_case(&fixture, 1),
+                &relation,
+                Arc::clone(&fixture.frame),
+                Arc::clone(&fixture.plan),
+                &unresolved,
+                17,
+                23,
+                reference_one_below,
+            ),
+            Err(GeneratedAffineResidualGroupExactRelationError::ResourceLimit {
+                resource: "exact recentering borrowed-reference buffer bytes",
+                requested,
+                limit,
+            }) if requested == reference_demand && limit + 1 == reference_demand
         ));
     }
 

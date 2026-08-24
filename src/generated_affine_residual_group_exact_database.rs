@@ -31,6 +31,7 @@ use crate::generated_affine_residual_group_exact_physical_row::{
     GeneratedAffineResidualGroupExactPhysicalRow,
     GeneratedAffineResidualGroupReplayedExactPhysicalRow,
 };
+use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
 use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
 };
@@ -206,6 +207,7 @@ pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
     InvalidUnitPivot,
     InvalidStagedRow,
     DependentStagedRow,
+    NewPivotStagedRow,
     StaleStagedRow,
     WrongSourceOrder,
     SourceOrderOverflow,
@@ -243,6 +245,7 @@ impl GeneratedAffineResidualGroupExactDatabaseError {
             Self::InvalidUnitPivot => "InvalidUnitPivot",
             Self::InvalidStagedRow => "InvalidStagedRow",
             Self::DependentStagedRow => "DependentStagedRow",
+            Self::NewPivotStagedRow => "NewPivotStagedRow",
             Self::StaleStagedRow => "StaleStagedRow",
             Self::WrongSourceOrder => "WrongSourceOrder",
             Self::SourceOrderOverflow => "SourceOrderOverflow",
@@ -677,7 +680,19 @@ pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a
 }
 
 impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
-    pub(crate) fn plan(&self) -> &'a Arc<GeneratedAffineResidualGroupSolvePlan> {
+    /// Raw plan access is restricted to the allocation-sealed session. The
+    /// session immediately narrows this owner to authenticated geometry and
+    /// immutable locator slices before returning its own joint view.
+    pub(crate) fn plan_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> &'a Arc<GeneratedAffineResidualGroupSolvePlan> {
+        &self.database.plan
+    }
+
+    /// Explicit unit-test adapter for database-local authority assertions.
+    #[cfg(test)]
+    fn plan_for_test(&self) -> &'a Arc<GeneratedAffineResidualGroupSolvePlan> {
         &self.database.plan
     }
 
@@ -750,6 +765,19 @@ impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
     pub(crate) const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
         &self.pivot.normalization_divisor
     }
+
+    /// Retained coexistence envelope admitted before this sealed stage was
+    /// returned.  Recenter accounting receives only the scalar, never the
+    /// staged token or database statistics owner from which it was derived.
+    pub(crate) const fn staged_live_prospective_retained_bytes(&self) -> usize {
+        self.staged.staged_live_prospective_retained_bytes()
+    }
+
+    /// Allocator-observed counterpart of
+    /// [`Self::staged_live_prospective_retained_bytes`].
+    pub(crate) const fn staged_live_observed_retained_bytes(&self) -> usize {
+        self.staged.staged_live_observed_retained_bytes()
+    }
 }
 
 impl fmt::Debug for GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'_> {
@@ -767,6 +795,43 @@ impl fmt::Debug for GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<
             .field("has_production_source", &self.production_source().is_some())
             .field("private_database_nonce", &"<redacted>")
             .field("private_payload", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Sealed proof that one consume-once stage is both live for this database
+/// allocation and algebraically dependent on its retained pivots.
+///
+/// The proof is borrowed so it cannot outlive either authenticated input, and
+/// it exposes no database nonce, transition identity, staged token, or
+/// payload owner.  The session layer turns this proof into an owning,
+/// non-`Clone` dependent classification before any crate caller may commit.
+pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a> {
+    database: &'a GeneratedAffineResidualGroupExactDatabase,
+    staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    reductions: &'a [GeneratedAffineResidualGroupExactReductionStep],
+}
+
+impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a> {
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.staged.source_ordinal
+    }
+
+    pub(crate) const fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
+        self.reductions
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupAuthenticatedStagedDependentView")
+            .field("database_epoch", &self.database.database_epoch)
+            .field("state_version", &self.database.state_version)
+            .field("source_ordinal", &self.source_ordinal())
+            .field("reduction_count", &self.reductions.len())
+            .field("private_database_authority", &"<redacted>")
+            .field("private_staged_token", &"<redacted>")
             .finish()
     }
 }
@@ -864,7 +929,28 @@ impl GeneratedAffineResidualGroupExactDatabase {
     /// outside this module. Repeated calls while the database is pristine may
     /// mint equivalent authorities; uniqueness of a target-state owner is a
     /// separate session-layer responsibility.
-    pub(crate) fn initial_target_state_binding(
+    pub(crate) fn initial_target_state_binding_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.initial_target_state_binding_inner()
+    }
+
+    /// Explicit test-only adapter for database/target-state unit tests.
+    #[cfg(test)]
+    pub(crate) fn initial_target_state_binding_for_test(
+        &self,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.initial_target_state_binding_inner()
+    }
+
+    fn initial_target_state_binding_inner(
         &self,
     ) -> Result<
         GeneratedAffineResidualGroupExactTargetStateBinding,
@@ -884,7 +970,30 @@ impl GeneratedAffineResidualGroupExactDatabase {
     /// Pre-authenticate one staged row and mint the authority for the target
     /// state that must coexist with the database after that row is committed.
     /// Dropping either value still mutates nothing.
-    pub(crate) fn successor_target_state_binding(
+    pub(crate) fn successor_target_state_binding_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: &GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.successor_target_state_binding_inner(staged)
+    }
+
+    /// Explicit test-only adapter for database/target-state unit tests.
+    #[cfg(test)]
+    pub(crate) fn successor_target_state_binding_for_test(
+        &self,
+        staged: &GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactTargetStateBinding,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.successor_target_state_binding_inner(staged)
+    }
+
+    fn successor_target_state_binding_inner(
         &self,
         staged: &GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<
@@ -996,7 +1105,30 @@ impl GeneratedAffineResidualGroupExactDatabase {
 
     /// Authenticate and stage one raw physical row without mutating this
     /// database. Dropping the returned consume-once token commits nothing.
-    pub(crate) fn stage_replayed_row(
+    pub(crate) fn stage_replayed_row_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        plan: &Arc<GeneratedAffineResidualGroupSolvePlan>,
+        frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+        database_epoch: usize,
+        source: &Arc<GeneratedAffineResidualGroupExactPhysicalRow>,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            self.stage_replayed_row_inner(family, context, plan, frame, database_epoch, source)
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic)?
+    }
+
+    /// Explicit test-only adapter for algebraic database and target-state
+    /// transaction tests. Production callers must use the capability-gated
+    /// session entry point above.
+    #[cfg(test)]
+    pub(crate) fn stage_replayed_row_for_test(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -1044,9 +1176,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
         )
     }
 
-    /// Compatibility entry point. New transaction owners should keep the
-    /// staged token through recentering and `WhenBad`, then commit it once.
-    pub(crate) fn ingest_replayed_row(
+    /// Explicit test-only compatibility adapter. Production transaction
+    /// owners must keep the capability-gated session token through
+    /// recentering and `WhenBad`, then commit through a typed session path.
+    #[cfg(test)]
+    pub(crate) fn ingest_replayed_row_for_test(
         &mut self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -1059,8 +1193,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
         let staged =
-            self.stage_replayed_row(family, context, plan, frame, database_epoch, source)?;
-        self.commit_staged_row(staged)
+            self.stage_replayed_row_for_test(family, context, plan, frame, database_epoch, source)?;
+        self.commit_staged_row_for_test(staged)
     }
 
     fn stage_view(
@@ -1432,7 +1566,30 @@ impl GeneratedAffineResidualGroupExactDatabase {
 
     /// Authenticate and borrow one staged new pivot together with every
     /// allocation and transaction coordinate that authorizes its use.
-    pub(crate) fn authenticate_staged_new_pivot<'a>(
+    pub(crate) fn authenticate_staged_new_pivot_for_session<'a>(
+        &'a self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a>,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_new_pivot_inner(staged)
+    }
+
+    /// Explicit test-only adapter for database-local staged-pivot assertions.
+    #[cfg(test)]
+    fn authenticate_staged_new_pivot_for_test<'a>(
+        &'a self,
+        staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a>,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_new_pivot_inner(staged)
+    }
+
+    fn authenticate_staged_new_pivot_inner<'a>(
         &'a self,
         staged: &'a GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<
@@ -1452,10 +1609,59 @@ impl GeneratedAffineResidualGroupExactDatabase {
         )
     }
 
+    /// Authenticate and classify one live staged row as dependent without
+    /// exposing its consume-once token or the database authority used for the
+    /// classification.  New pivots are rejected symmetrically with
+    /// [`Self::authenticate_staged_new_pivot_for_session`]'s dependent-row
+    /// rejection.
+    pub(crate) fn authenticate_staged_dependent_for_session<'a>(
+        &'a self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a>,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_row(staged)?;
+        let ExactStagedRowPayload::Dependent { reductions, .. } = &staged.payload else {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::NewPivotStagedRow);
+        };
+        Ok(
+            GeneratedAffineResidualGroupAuthenticatedStagedDependentView {
+                database: self,
+                staged,
+                reductions,
+            },
+        )
+    }
+
     /// Commit one authenticated staged row. Every check is completed before
     /// the first mutation; the mutation tail contains only capacity-admitted
     /// moves and assignments of already constructed values.
-    pub(crate) fn commit_staged_row(
+    pub(crate) fn commit_staged_row_for_session(
+        &mut self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactRowOutcome,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.commit_staged_row_inner(staged)
+    }
+
+    /// Explicit test-only adapter for algebraic transaction tests.
+    #[cfg(test)]
+    pub(crate) fn commit_staged_row_for_test(
+        &mut self,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactRowOutcome,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.commit_staged_row_inner(staged)
+    }
+
+    fn commit_staged_row_inner(
         &mut self,
         staged: GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<
@@ -1737,7 +1943,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
         let staged = self.stage_test_terms(context, terms, guards)?;
-        self.commit_staged_row(staged)
+        self.commit_staged_row_for_test(staged)
     }
 }
 
@@ -2837,8 +3043,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(staged.source_ordinal(), 0);
-        let pivot = database.authenticate_staged_new_pivot(&staged).unwrap();
-        assert!(Arc::ptr_eq(pivot.plan(), &plan));
+        let pivot = database
+            .authenticate_staged_new_pivot_for_test(&staged)
+            .unwrap();
+        assert!(Arc::ptr_eq(pivot.plan_for_test(), &plan));
         assert!(Arc::ptr_eq(pivot.frame(), &frame));
         assert_eq!(pivot.database_epoch(), database.database_epoch());
         assert_eq!(pivot.group_ordinal(), database.group_ordinal());
@@ -2924,8 +3132,12 @@ mod tests {
             foreign_database.group_ordinal()
         );
 
-        let source_binding = source_database.initial_target_state_binding().unwrap();
-        let foreign_binding = foreign_database.initial_target_state_binding().unwrap();
+        let source_binding = source_database
+            .initial_target_state_binding_for_test()
+            .unwrap();
+        let foreign_binding = foreign_database
+            .initial_target_state_binding_for_test()
+            .unwrap();
         assert!(source_binding.same_plan_allocation(&plan));
         assert!(source_binding.same_frame_allocation(&frame));
         assert_eq!(
@@ -2950,12 +3162,14 @@ mod tests {
     fn successor_target_binding_authenticates_only_after_its_matching_commit() {
         let (_family, context, _plan, _frame, mut database, keys) =
             database_fixture("exact-db-target-binding-successor");
-        let initial = database.initial_target_state_binding().unwrap();
+        let initial = database.initial_target_state_binding_for_test().unwrap();
         assert_eq!(database.authenticate_target_state_binding(&initial), Ok(()));
         let staged = database
             .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
             .unwrap();
-        let successor = database.successor_target_state_binding(&staged).unwrap();
+        let successor = database
+            .successor_target_state_binding_for_test(&staged)
+            .unwrap();
         assert_eq!(successor.state_version(), 1);
         assert!(successor.is_direct_successor_of(&initial));
         assert_eq!(
@@ -2963,7 +3177,7 @@ mod tests {
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
         );
 
-        database.commit_staged_row(staged).unwrap();
+        database.commit_staged_row_for_test(staged).unwrap();
         assert_eq!(
             database.authenticate_target_state_binding(&initial),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
@@ -2978,15 +3192,19 @@ mod tests {
     fn successor_target_binding_rejects_competing_same_version_transition() {
         let (_family, context, _plan, _frame, mut database, keys) =
             database_fixture("exact-db-target-binding-competing");
-        let initial = database.initial_target_state_binding().unwrap();
+        let initial = database.initial_target_state_binding_for_test().unwrap();
         let staged_a = database
             .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
             .unwrap();
-        let successor_a = database.successor_target_state_binding(&staged_a).unwrap();
+        let successor_a = database
+            .successor_target_state_binding_for_test(&staged_a)
+            .unwrap();
         let staged_b = database
             .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
             .unwrap();
-        let successor_b = database.successor_target_state_binding(&staged_b).unwrap();
+        let successor_b = database
+            .successor_target_state_binding_for_test(&staged_b)
+            .unwrap();
         assert_eq!(successor_a.state_version(), successor_b.state_version());
         assert!(successor_a.is_direct_successor_of(&initial));
         assert!(successor_b.is_direct_successor_of(&initial));
@@ -2995,7 +3213,7 @@ mod tests {
             staged_b.next_transition_identity
         );
 
-        database.commit_staged_row(staged_b).unwrap();
+        database.commit_staged_row_for_test(staged_b).unwrap();
         assert_eq!(
             database.authenticate_target_state_binding(&successor_b),
             Ok(())
@@ -3005,14 +3223,16 @@ mod tests {
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
         );
         assert_eq!(
-            database.commit_staged_row(staged_a),
+            database.commit_staged_row_for_test(staged_a),
             Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
         );
 
         let staged_c = database
             .stage_test_terms(&context, vec![(keys[2].clone(), context.one())], Vec::new())
             .unwrap();
-        let successor_c = database.successor_target_state_binding(&staged_c).unwrap();
+        let successor_c = database
+            .successor_target_state_binding_for_test(&staged_c)
+            .unwrap();
         assert!(successor_c.is_direct_successor_of(&successor_b));
         assert!(!successor_c.is_direct_successor_of(&successor_a));
     }
@@ -3025,7 +3245,7 @@ mod tests {
             .ingest_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
             .unwrap();
         assert!(matches!(
-            database.initial_target_state_binding(),
+            database.initial_target_state_binding_for_test(),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongTargetStateBinding)
         ));
     }
@@ -3053,18 +3273,18 @@ mod tests {
             .stage_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
             .unwrap();
         let authenticated = source_database
-            .authenticate_staged_new_pivot(&staged)
+            .authenticate_staged_new_pivot_for_test(&staged)
             .unwrap();
         assert_eq!(authenticated.pivot_ordinal(), 0);
         drop(authenticated);
         assert!(matches!(
-            foreign_database.authenticate_staged_new_pivot(&staged),
+            foreign_database.authenticate_staged_new_pivot_for_test(&staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseAllocation)
         ));
         assert_database_state_unchanged(&source_database, &source_before);
         assert_database_state_unchanged(&foreign_database, &foreign_before);
         assert_eq!(
-            foreign_database.commit_staged_row(staged),
+            foreign_database.commit_staged_row_for_test(staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseAllocation)
         );
         assert_database_state_unchanged(&source_database, &source_before);
@@ -3082,7 +3302,7 @@ mod tests {
             .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
             .unwrap();
         assert!(matches!(
-            database.commit_staged_row(accepted).unwrap(),
+            database.commit_staged_row_for_test(accepted).unwrap(),
             GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
                 source_ordinal: 0,
                 pivot_ordinal: 0,
@@ -3091,12 +3311,12 @@ mod tests {
         assert_eq!(database.state_version, 1);
         let committed = database_state_snapshot(&database);
         assert!(matches!(
-            database.authenticate_staged_new_pivot(&stale),
+            database.authenticate_staged_new_pivot_for_test(&stale),
             Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
         ));
         assert_database_state_unchanged(&database, &committed);
         assert_eq!(
-            database.commit_staged_row(stale),
+            database.commit_staged_row_for_test(stale),
             Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
         );
         assert_database_state_unchanged(&database, &committed);
@@ -3119,7 +3339,7 @@ mod tests {
         *committed_pivots = Vec::new();
         let before = database_state_snapshot(&database);
         assert_eq!(
-            database.commit_staged_row(missing_pivot_capacity),
+            database.commit_staged_row_for_test(missing_pivot_capacity),
             Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
         );
         assert_database_state_unchanged(&database, &before);
@@ -3136,7 +3356,7 @@ mod tests {
         *committed_lookup = Vec::new();
         let before = database_state_snapshot(&database);
         assert_eq!(
-            database.commit_staged_row(missing_lookup_capacity),
+            database.commit_staged_row_for_test(missing_lookup_capacity),
             Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
         );
         assert_database_state_unchanged(&database, &before);
@@ -3153,7 +3373,7 @@ mod tests {
         wrong_order.next_source_ordinal += 1;
         let before = database_state_snapshot(&database);
         assert_eq!(
-            database.commit_staged_row(wrong_order),
+            database.commit_staged_row_for_test(wrong_order),
             Err(GeneratedAffineResidualGroupExactDatabaseError::WrongSourceOrder)
         );
         assert_database_state_unchanged(&database, &before);
@@ -3167,7 +3387,7 @@ mod tests {
         assert!(database.lookup.pop().is_some());
         let malformed = database_state_snapshot(&database);
         assert_eq!(
-            database.commit_staged_row(staged),
+            database.commit_staged_row_for_test(staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
         );
         assert_database_state_unchanged(&database, &malformed);
@@ -3298,7 +3518,7 @@ mod tests {
 
         let foreign_plan = Arc::new(plan.as_ref().clone());
         assert!(matches!(
-            database.ingest_replayed_row(
+            database.ingest_replayed_row_for_test(
                 &family,
                 &context,
                 &foreign_plan,
@@ -3322,7 +3542,7 @@ mod tests {
 
         let foreign_frame = Arc::new(frame.as_ref().clone());
         assert!(matches!(
-            database.ingest_replayed_row(
+            database.ingest_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3345,7 +3565,7 @@ mod tests {
         );
 
         assert!(matches!(
-            database.ingest_replayed_row(
+            database.ingest_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3377,7 +3597,7 @@ mod tests {
         let plan_strong_count = Arc::strong_count(&plan);
         let frame_strong_count = Arc::strong_count(&frame);
         let staged = database
-            .stage_replayed_row(
+            .stage_replayed_row_for_test(
                 &family,
                 &context,
                 &plan,
@@ -3389,8 +3609,10 @@ mod tests {
         assert_eq!(Arc::strong_count(&source), source_strong_count + 1);
         assert_eq!(Arc::strong_count(&plan), plan_strong_count);
         assert_eq!(Arc::strong_count(&frame), frame_strong_count);
-        let staged_pivot = database.authenticate_staged_new_pivot(&staged).unwrap();
-        assert!(Arc::ptr_eq(staged_pivot.plan(), &plan));
+        let staged_pivot = database
+            .authenticate_staged_new_pivot_for_test(&staged)
+            .unwrap();
+        assert!(Arc::ptr_eq(staged_pivot.plan_for_test(), &plan));
         assert!(Arc::ptr_eq(staged_pivot.frame(), &frame));
         assert_eq!(staged_pivot.database_epoch(), database.database_epoch());
         assert_eq!(staged_pivot.group_ordinal(), database.group_ordinal());
@@ -3417,7 +3639,7 @@ mod tests {
             "production staging must not consume or resize database state"
         );
         drop(staged_pivot);
-        let outcome = database.commit_staged_row(staged).unwrap();
+        let outcome = database.commit_staged_row_for_test(staged).unwrap();
         assert_eq!(Arc::strong_count(&source), source_strong_count);
         assert_eq!(Arc::strong_count(&plan), plan_strong_count);
         assert_eq!(Arc::strong_count(&frame), frame_strong_count);
@@ -3577,7 +3799,7 @@ mod tests {
         assert_eq!(staged.reductions()[0].pivot_ordinal(), 0);
         assert_eq!(staged.reductions()[0].factor(), &context.one());
         let staged_pivot = database
-            .authenticate_staged_new_pivot(&staged)
+            .authenticate_staged_new_pivot_for_test(&staged)
             .expect("the reduced lower leader is not known yet");
         assert_eq!(staged_pivot.key(), &lower);
         assert_eq!(staged_pivot.normalization_divisor(), &context.integer(-2));
@@ -3585,7 +3807,7 @@ mod tests {
         drop(staged_pivot);
 
         assert_eq!(
-            database.commit_staged_row(staged).unwrap(),
+            database.commit_staged_row_for_test(staged).unwrap(),
             GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
                 source_ordinal: 1,
                 pivot_ordinal: 1,
@@ -3622,7 +3844,7 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            database.authenticate_staged_new_pivot(&staged),
+            database.authenticate_staged_new_pivot_for_test(&staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::DependentStagedRow)
         ));
         assert_eq!(
@@ -3647,12 +3869,12 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            database.authenticate_staged_new_pivot(&staged),
+            database.authenticate_staged_new_pivot_for_test(&staged),
             Err(GeneratedAffineResidualGroupExactDatabaseError::DependentStagedRow)
         ));
         let staged_live_bytes = staged.staged_live_observed_retained_bytes();
         assert_database_state_unchanged(&database, &before);
-        let outcome = database.commit_staged_row(staged).unwrap();
+        let outcome = database.commit_staged_row_for_test(staged).unwrap();
         let GeneratedAffineResidualGroupExactRowOutcome::Dependent {
             source_ordinal,
             reductions,
@@ -3930,7 +4152,7 @@ mod tests {
         );
         assert_eq!(staged.staged_live_observed_retained_bytes(), exact_bytes);
         assert_database_state_unchanged(&exact, &before);
-        exact.commit_staged_row(staged).unwrap();
+        exact.commit_staged_row_for_test(staged).unwrap();
         assert_eq!(
             exact.stats().last_staged_live_prospective_retained_bytes(),
             prospective_bytes
@@ -4011,7 +4233,7 @@ mod tests {
         assert_eq!(staged.staged_live_observed_retained_bytes(), exact_bytes);
         assert_database_state_unchanged(&exact, &before);
         assert!(matches!(
-            exact.commit_staged_row(staged).unwrap(),
+            exact.commit_staged_row_for_test(staged).unwrap(),
             GeneratedAffineResidualGroupExactRowOutcome::Dependent {
                 source_ordinal: 2,
                 ..

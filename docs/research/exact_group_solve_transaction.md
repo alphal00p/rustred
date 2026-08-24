@@ -39,6 +39,20 @@ The topology-neutral authority and staging layers described below now exist:
   target successor and then advances database and target versions together
   without consuming a target; this covers dependent rows and pivots rejected
   or deferred by later policy.
+- Production database transition methods now require a non-constructible,
+  non-`Clone` capability retained privately by that session.  Direct database
+  staging/commit and raw plan access exist only as `cfg(test)` adapters, so a
+  sibling production module cannot bypass the session's typed outcome policy.
+- `generated_affine_residual_group_exact_recenter_kernel.rs` now contains the
+  authority-free GMP/Symbolica arithmetic extracted from the legacy raw-row
+  adapter.  It consumes exact-size borrowed exact-shift/coefficient/guard
+  streams once into admitted stable reference buffers, computes
+  `t = r - A r_F`, `delta_F = -r_F`, and
+  `q = s - r`, and returns only inert centered values.  Its resource contract
+  separates pre-existing live owners, additional retained output, and native
+  scratch.  The legacy exact-relation compiler projects into this kernel and
+  remains the differential oracle; the kernel accepts no raw relation,
+  database/session token, solve plan, target bitmap, topology, or loop count.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
@@ -47,14 +61,23 @@ target-state allocation siblings, production physical-row ingress, immutable
 target successors, one-below resource envelopes, and exact transition replay.
 These layers remain inert: they publish no rule and infer no master.
 
-The repository release gate for this checkpoint used licensed, GMP-enabled
-Symbolica with eight-way `cargo-nextest`: run
+The pre-kernel repository baseline used licensed, GMP-enabled Symbolica with
+eight-way `cargo-nextest`: run
 `0ba055e9-b517-4088-8d8c-ffd2bc28a4c9` passed all 1,392 tests (3 additional
 tests intentionally skipped) in 1,073.130 seconds, followed by clean rustdoc
 tests. Neither FORM nor Symbolica's `no_gmp` feature was used.
 
-The next missing mathematical seam is authoritative GMP pivot recentering from
-the authenticated **post-top-reduction** leader.  After that comes exact
+The extracted-kernel/session milestone was then checked with four-way,
+licensed GMP `cargo-nextest` gates: run
+`147bdfcb-dcb7-4d1b-bf1d-6374c5d5ff17` passed all 38 database/session/target
+tests, and post-audit run `c0eeba4d-2693-4536-bec0-4a540f196572` passed all
+13 exact-relation/kernel tests.  `cargo check --tests`, `cargo fmt --check`,
+and `git diff --check` were clean.
+
+The next missing mathematical seam is the sealed session-owned wrapper that
+applies the extracted arithmetic to the authenticated
+**post-top-reduction** leader and returns owning `NoTarget`, affine-equality
+refinement, or Ready outcomes without committing.  After that comes exact
 `WhenBad` closure and atomic guarded publication.  The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a
 differential oracle only; it is not a production authority.
@@ -339,9 +362,12 @@ objects are rejected.
    solve-plan target order, type equality-refinement cases, bind target state
    to the database allocation/transition, and advance unconsumed successors
    atomically with the database.
-3. **Recenter the staged pivot — next.** Extract GMP geometry/translation from
-   `generated_affine_residual_group_exact_relation.rs`; accept only the staged
-   pivot and owner target-state view. Retire raw-relation compilation as a
+3. **Recenter the staged pivot — arithmetic kernel implemented; sealed wrapper
+   next.** GMP geometry/translation has been extracted from
+   `generated_affine_residual_group_exact_relation.rs` without carrying its
+   raw-row authority. Join that inert kernel to the staged pivot and owner
+   target-state view, with transaction-preserving failure and first-match
+   equality/Ready classification. Retire raw-relation compilation as a
    production path.
 4. **Extend the outer owner.** Add events, rules, residuals, and publication to
    the existing database/target session boundary. Initially exercise the
