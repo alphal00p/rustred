@@ -1,0 +1,359 @@
+use std::ffi::OsString;
+use std::fmt;
+use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InputFormat {
+    Auto,
+    Toml,
+    Symbolica,
+}
+
+impl InputFormat {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Toml => "toml",
+            Self::Symbolica => "symbolica",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, ArgError> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "toml" => Ok(Self::Toml),
+            "symbolica" => Ok(Self::Symbolica),
+            _ => Err(ArgError::InvalidValue {
+                option: "--input-format",
+                value: value.to_owned(),
+                expected: "auto, toml, or symbolica",
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RelationSelection {
+    All,
+    Ordinary,
+    LorentzInvariance,
+}
+
+impl RelationSelection {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Ordinary => "ordinary",
+            Self::LorentzInvariance => "li",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, ArgError> {
+        match value {
+            "all" => Ok(Self::All),
+            "ordinary" => Ok(Self::Ordinary),
+            "li" => Ok(Self::LorentzInvariance),
+            _ => Err(ArgError::InvalidValue {
+                option: "--relations",
+                value: value.to_owned(),
+                expected: "all, ordinary, or li",
+            }),
+        }
+    }
+
+    pub(crate) const fn includes_ordinary(self) -> bool {
+        matches!(self, Self::All | Self::Ordinary)
+    }
+
+    pub(crate) const fn includes_li(self) -> bool {
+        matches!(self, Self::All | Self::LorentzInvariance)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StreamPath {
+    Stdio,
+    File(PathBuf),
+}
+
+impl StreamPath {
+    fn parse(value: OsString) -> Result<Self, ArgError> {
+        if value == "-" {
+            Ok(Self::Stdio)
+        } else if value.is_empty() {
+            Err(ArgError::EmptyPath)
+        } else {
+            Ok(Self::File(PathBuf::from(value)))
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeriveArgs {
+    pub(crate) input: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) input_format: InputFormat,
+    pub(crate) relations: RelationSelection,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Command {
+    Derive(DeriveArgs),
+    Help,
+    Version,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ArgError {
+    NonUtf8Option(OsString),
+    MissingCommand,
+    UnknownCommand(String),
+    UnknownOption(String),
+    DuplicateOption(&'static str),
+    MissingValue(&'static str),
+    UnexpectedArgument(String),
+    InvalidValue {
+        option: &'static str,
+        value: String,
+        expected: &'static str,
+    },
+    EmptyPath,
+}
+
+impl fmt::Display for ArgError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonUtf8Option(value) => {
+                write!(formatter, "command-line option is not UTF-8: {value:?}")
+            }
+            Self::MissingCommand => formatter.write_str("missing command; expected `derive`"),
+            Self::UnknownCommand(command) => write!(formatter, "unknown command {command:?}"),
+            Self::UnknownOption(option) => write!(formatter, "unknown option {option:?}"),
+            Self::DuplicateOption(option) => {
+                write!(formatter, "option {option} was supplied twice")
+            }
+            Self::MissingValue(option) => write!(formatter, "option {option} needs a value"),
+            Self::UnexpectedArgument(argument) => {
+                write!(formatter, "unexpected positional argument {argument:?}")
+            }
+            Self::InvalidValue {
+                option,
+                value,
+                expected,
+            } => write!(
+                formatter,
+                "invalid value {value:?} for {option}; expected {expected}"
+            ),
+            Self::EmptyPath => formatter.write_str("an input or output path cannot be empty"),
+        }
+    }
+}
+
+impl std::error::Error for ArgError {}
+
+pub(crate) fn parse_args(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<Command, ArgError> {
+    let mut arguments = arguments.into_iter();
+    let _program = arguments.next();
+    let Some(command) = arguments.next() else {
+        return Err(ArgError::MissingCommand);
+    };
+    let command = command.into_string().map_err(ArgError::NonUtf8Option)?;
+    match command.as_str() {
+        "--help" | "-h" | "help" => {
+            reject_trailing(arguments)?;
+            return Ok(Command::Help);
+        }
+        "--version" | "-V" => {
+            reject_trailing(arguments)?;
+            return Ok(Command::Version);
+        }
+        "derive" => {}
+        _ => return Err(ArgError::UnknownCommand(command)),
+    }
+
+    let mut input = None;
+    let mut output = None;
+    let mut input_format = None;
+    let mut relations = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => {
+                if help {
+                    return Err(ArgError::DuplicateOption("--help"));
+                }
+                help = true;
+            }
+            "--force" => {
+                if force {
+                    return Err(ArgError::DuplicateOption("--force"));
+                }
+                force = true;
+            }
+            "--input" => {
+                set_once(
+                    &mut input,
+                    "--input",
+                    StreamPath::parse(next_value(&mut arguments, "--input")?)?,
+                )?;
+            }
+            "--output" => {
+                set_once(
+                    &mut output,
+                    "--output",
+                    StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+                )?;
+            }
+            "--input-format" => {
+                let value = next_utf8_value(&mut arguments, "--input-format")?;
+                set_once(
+                    &mut input_format,
+                    "--input-format",
+                    InputFormat::parse(&value)?,
+                )?;
+            }
+            "--relations" => {
+                let value = next_utf8_value(&mut arguments, "--relations")?;
+                set_once(
+                    &mut relations,
+                    "--relations",
+                    RelationSelection::parse(&value)?,
+                )?;
+            }
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::Derive(DeriveArgs {
+        input: input.unwrap_or(StreamPath::Stdio),
+        output: output.unwrap_or(StreamPath::Stdio),
+        input_format: input_format.unwrap_or(InputFormat::Auto),
+        relations: relations.unwrap_or(RelationSelection::All),
+        force,
+    }))
+}
+
+fn reject_trailing(arguments: impl IntoIterator<Item = OsString>) -> Result<(), ArgError> {
+    if let Some(argument) = arguments.into_iter().next() {
+        let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
+        Err(ArgError::UnexpectedArgument(argument))
+    } else {
+        Ok(())
+    }
+}
+
+fn next_value(
+    arguments: &mut impl Iterator<Item = OsString>,
+    option: &'static str,
+) -> Result<OsString, ArgError> {
+    arguments.next().ok_or(ArgError::MissingValue(option))
+}
+
+fn next_utf8_value(
+    arguments: &mut impl Iterator<Item = OsString>,
+    option: &'static str,
+) -> Result<String, ArgError> {
+    next_value(arguments, option)?
+        .into_string()
+        .map_err(ArgError::NonUtf8Option)
+}
+
+fn set_once<T>(slot: &mut Option<T>, option: &'static str, value: T) -> Result<(), ArgError> {
+    if slot.is_some() {
+        Err(ArgError::DuplicateOption(option))
+    } else {
+        *slot = Some(value);
+        Ok(())
+    }
+}
+
+pub(crate) const HELP: &str = "\
+RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
+
+USAGE:
+    rustred derive [OPTIONS]
+
+OPTIONS:
+    --input <PATH|->             Read from PATH, or standard input with - [default: -]
+    --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
+    --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
+    --relations <SELECTION>      all, ordinary, or li [default: all]
+    --force                     Atomically replace an existing output file
+    -h, --help                  Print this help
+    -V, --version               Print the RustRed version
+
+`derive` generates fully parametric identities. Any concrete target carried by
+the input is validated and reported as not processed; it is never reduced by
+this command.
+";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(arguments: &[&str]) -> Result<Command, ArgError> {
+        parse_args(arguments.iter().map(OsString::from))
+    }
+
+    #[test]
+    fn defaults_to_stdio_auto_and_all_relations() {
+        assert_eq!(
+            parse(&["rustred", "derive"]).unwrap(),
+            Command::Derive(DeriveArgs {
+                input: StreamPath::Stdio,
+                output: StreamPath::Stdio,
+                input_format: InputFormat::Auto,
+                relations: RelationSelection::All,
+                force: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_the_complete_derive_surface() {
+        assert_eq!(
+            parse(&[
+                "rustred",
+                "derive",
+                "--input",
+                "family.toml",
+                "--output",
+                "relations.toml",
+                "--input-format",
+                "toml",
+                "--relations",
+                "ordinary",
+                "--force",
+            ])
+            .unwrap(),
+            Command::Derive(DeriveArgs {
+                input: StreamPath::File("family.toml".into()),
+                output: StreamPath::File("relations.toml".into()),
+                input_format: InputFormat::Toml,
+                relations: RelationSelection::Ordinary,
+                force: true,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_and_unknown_options() {
+        assert_eq!(
+            parse(&["rustred", "derive", "--force", "--force"]),
+            Err(ArgError::DuplicateOption("--force"))
+        );
+        assert_eq!(
+            parse(&["rustred", "derive", "--mystery"]),
+            Err(ArgError::UnknownOption("--mystery".to_owned()))
+        );
+    }
+}

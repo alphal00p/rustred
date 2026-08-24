@@ -1,0 +1,40 @@
+[package]
+name = "rustred"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Pure-Rust parametric IBP reductions for multiloop Feynman integrals"
+license = "MIT"
+
+[lib]
+name = "rustred"
+path = "src/lib.rs"
+
+[[example]]
+name = "four_loop_next_elimination"
+required-features = ["legacy-authored-oracles"]
+
+[[example]]
+name = "four_loop_next_modular_rank"
+required-features = ["legacy-authored-oracles"]
+
+[[example]]
+name = "four_loop_three_loop_closure_probe"
+required-features = ["legacy-authored-oracles"]
+
+[[example]]
+name = "four_loop_three_loop_target_census"
+required-features = ["legacy-authored-oracles"]
+
+[features]
+default = []
+legacy-authored-oracles = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
+toml = "1"
+
+[patch.crates-io]
+graphica = { path = "vendor/symbolica/lib/graphica" }
+numerica = { path = "vendor/symbolica/lib/numerica" }

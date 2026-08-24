@@ -1,0 +1,10 @@
+/target/
+.direnv/
+.env
+.env.*
+!.env.example
+result
+result-*
+*.profraw
+*.profdata
+.DS_Store

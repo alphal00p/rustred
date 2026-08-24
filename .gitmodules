@@ -1,0 +1,9 @@
+[submodule "vendor/symbolica"]
+	path = vendor/symbolica
+	url = https://github.com/symbolica-dev/symbolica
+[submodule "vendor/LiteRed2"]
+	path = vendor/LiteRed2
+	url = https://github.com/rnlg/LiteRed2
+[submodule "vendor/gammaloop"]
+	path = vendor/gammaloop
+	url = https://github.com/alphal00p/gammaloop

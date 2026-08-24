@@ -1,0 +1,233 @@
+# RustRed governing scope and acceptance criteria
+
+Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
+on 2026-08-20.
+
+## Reading status
+
+This document is normative: its feature lists and validation ladder define
+governing acceptance criteria, not evidence that those features are already
+implemented or validated.  A module name, test fixture, or concrete oracle
+does not establish parity by itself.  Current source coverage and known gaps
+are tracked separately in
+[`rustred_source_surface_gap_audit_2026-08-14.md`](rustred_source_surface_gap_audit_2026-08-14.md).
+
+## Governing objective
+
+RustRed is a pure-Rust, fully Symbolica implementation of the functionality
+provided by LiteRed.  It must not be a collection of built-in reductions for
+particular loop counts or topologies.  Algorithms may differ from LiteRed
+where Symbolica provides a better exact representation, but the public scope
+and mathematical behavior are defined by the LiteRed implementation vendored
+in `vendor/LiteRed2`.
+
+RustRed also owns tensor-numerator reduction and the application of discovered
+scalar reduction rules.  The behavioral reference for that layer is Vakint
+and its alphaLoop integration under `vendor/gammaloop/crates/vakint`.  FORM
+sources may be read to understand the algorithms and conventions, but RustRed
+must never invoke or depend on FORM.  The implementation is Rust plus the
+vendored Symbolica Rust API.
+
+## Source-of-truth order
+
+1. LiteRed's Mathematica source defines basis construction, scalar-product
+   conversion, fully parametric IBP and LI relations, sectors, symmetries,
+   guarded recurrence discovery, rule application, masters, and persistence.
+2. Symbolica's vendored Rust source defines the exact algebra, patterns,
+   substitutions, polynomial/rational-polynomial operations, serialization,
+   and performance facilities available to the implementation.
+3. Vakint's Rust, tests, FORM resources, and alphaLoop resources define tensor
+   input/output conventions, tensor projection behavior, topology
+   normalization, and the expected application of parametric rules.
+
+No new production implementation begins until the relevant source paths have
+been audited and their semantics recorded with exact references.
+
+## Production versus validation
+
+Production APIs must be topology- and loop-count independent.  Their inputs
+may include family definitions, loop and external momenta, kinematic
+relations, denominators, power shifts, cuts, sector policies, orderings,
+resource limits, and parameter assumptions.  They must not include expected
+ranks, expected masters, preselected recurrence weights, golden reduction
+coefficients, or dispatch on a named built-in topology.
+
+Concrete topologies and concrete integer powers are permitted only for:
+
+- exact specialization tests of parametric identities and rules;
+- randomized or exhaustive finite-point validation;
+- regression fixtures;
+- comparisons against LiteRed examples or Vakint outputs; and
+- performance benchmarks.
+
+Cached discovered rules are allowed only as versioned artifacts carrying the
+family/kinematics/order fingerprint, domains, guards, and replayable source
+provenance.  They must be reproducibly derivable from the generic engine.
+
+## Required scalar scope
+
+The completed scalar implementation covers at least the corresponding
+LiteRed facilities:
+
+- denominator sets and independent bases, including optional ISP completion;
+- loop and external momenta and their scalar-product basis;
+- Symbolica rational-function kinematics and external Gram relations;
+- conversion between scalar products and denominator powers;
+- cuts, sector patterns, and power shifts;
+- fully parametric ordinary IBPs and separate LI relations;
+- AB shift-operator conversion and exact round-trip semantics;
+- partial fractioning for overcomplete denominator sets;
+- integral and sector ordering;
+- zero-sector analysis;
+- internal and external symmetry discovery and sector mappings;
+- adaptive guarded parametric rule discovery from generated identities;
+- exact rule provenance, exceptional domains, and termination/descent checks;
+- rule application, master candidate handling, and user-selected masters;
+- stable, authenticated persistence and recovery;
+- Feynman-parametric and dimension-shift facilities where LiteRed exposes
+  them; and
+- no implicit promotion of an uncovered integral to a proved master.
+
+The first generator milestone is specifically LiteRed `GenerateIBP` parity:
+for `L` loops and `E` external momenta it emits `L*(L+E)` ordinary parametric
+relations in contraction-major order, plus `E*(E-1)/2` LI relations.  It
+supports symbolic power shifts, never applies sector/symmetry rules during raw
+generation, and specializes exactly to an independent concrete generator.
+LiteRed's later `GenerateFPIBP` syzygy facility is a distinct eventual scope
+item; it is not another spelling of these symbolic-index IBP/LI rows and is not
+part of the first solver milestone.
+
+## Required tensor and application scope
+
+RustRed natively parses or receives tensor numerator structures, contracts
+metrics, projects loop tensors, rewrites scalar products in the selected
+family, applies the generated scalar rules, and returns coefficients times
+unsubstituted master topologies.  The implementation must cover the tensor
+structures and conventions exercised throughout Vakint's tests and alphaLoop
+paths.  It may use a different Symbolica-native algorithm, but comparisons
+must be structural and exact after a documented convention map.
+
+Vakint's `TensorReduce` is specifically an oracle for a vacuum subgraph: it
+retains numerator-only external vectors and opaque factors as spectators.
+That does not by itself validate the more general covariant decomposition for
+a denominator family containing external momenta; RustRed must implement and
+test that case independently.
+
+## Validation ladder
+
+Validation advances only after the preceding rung passes:
+
+1. synthetic generic family and algebra properties;
+2. one-loop parametric relation generation and scalar reductions;
+3. varied one-loop tensor numerators, compared with Vakint while leaving
+   master topologies unsubstituted;
+4. representation-closure checks in which a numerator factor equal to a
+   propagator (for example `q_i^2-m_i^2`) is compared exactly with the same
+   input after explicit propagator-power cancellation, before IBP and again
+   on the unreplaced-master result and semantic guard loci;
+5. two-loop scalar and tensor reductions, including the same cancellation
+   closure checks;
+6. three-loop scalar and tensor reductions, including comparison with the
+   alphaLoop parametric-rule behavior;
+7. four-loop massive-vacuum families; and
+8. five-loop massive-vacuum families.
+
+At every rung, accepted parametric rules must replay symbolically from freshly
+generated source relations.  Agreement at finitely many concrete powers is an
+independent validation layer, not the proof of a rule.
+
+## Runtime and build constraints
+
+- RustRed never invokes Mathematica or FORM.
+- Symbolica is built with GMP, not `no_gmp`.
+- Tests use the configured Symbolica license and run in parallel.
+- Every caller-controlled search or algebraic expansion has an explicit,
+  checked resource budget.
+- Exceptional parameter or index loci are preserved as typed guards rather
+  than silently assumed away.
+
+## Current implementation gate and next generic slice
+
+The raw generic generator is real rather than a recurrence table: licensed
+GMP run `5ae578f9-5bff-4cf9-bf3f-7013730923ee` passed 20/20 parallel tests
+covering one- through five-loop generated IBP/LI identities, symbolic power
+shifts and external-momentum families, the Symbolica tensor-numerator
+boundary, and FORM-free one-loop Vakint scalar/tensor oracles.  Those concrete
+families validate generation; they do not establish complete LiteRed
+`SolvejSector` parity.
+
+The post-cylindrical-elimination library checkpoint is licensed GMP nextest
+run `2d77c75d-173b-4aea-9c44-063afe03703d`: 499/499 library tests passed with
+four workers in 120.315 seconds.  This includes the anchor-free persistent
+cylindrical elimination certificate, exact structural-identity utility, and
+the refactored typed V2 relation manifest.  It is a regression checkpoint,
+not evidence that the later recentering, `WhenBad`, exceptional recursion, or
+provider seams are complete.
+
+The strongest complete concrete multiloop acceptance remains the equal-mass
+three-loop tetrahedron.  Freshly generated rows and discovered `S4`
+symmetries reduce, among other inputs,
+`J(2,1,1,1,1,1)=(d-4)/(4 m2) J(1,1,1,1,1,1)` and reduce the rank-two dotted-B4
+tensor fixture to `3/8 g(mu,nu) B4`, with masters left unsubstituted.  That
+test uses certified demand-time concrete quotient elimination and an explicit
+five-class master selection.  It therefore validates the generated algebra
+at three loops but does not claim a reusable three-loop parametric
+`SolvejSector` database.
+
+The next solver milestone is a topology-neutral
+`GeneratedFamilySymbolicResidualSolveV1`.  It will connect the existing
+authenticated cylindrical symbolic start, cumulative translated IBP/LI row
+system, preordered persistent elimination, generated `WhenBad` candidates,
+coverage/live residual queue, and the generic provider.  Its first accepted
+mode is an independent integer cylinder; dependent symbolic starts remain a
+typed pending outcome rather than being replaced by an arbitrary integer
+sample.  The artifact may contain no loop-count/topology tag, expected
+recurrence, or inferred master.  Initially the same ordered generated attempts
+will compile into legacy explicit V4 coverage and the private product-free V5
+subject for differential validation.
+
+The exact first-mode pipeline is:
+
+```text
+generated IBP/LI rows
+-> proved-zero and self-symmetry canonicalized prepare-point rows
+-> one persistent cylindrical elimination database per residual case
+-> symbolic pivot recentering
+-> generated WhenBad with coefficient-pole and RHS-boundary loci
+-> exceptional-domain partition and live-queue recursion
+-> replayed coverage certificate
+-> generic provider and descending application
+```
+
+Increasing prepare-point depth extends the same residual-case database; it
+does not restart elimination.  Finite prepare points discover candidates but
+never prove their symbolic domains.  A failed search remains typed uncovered
+state and is not promoted to either a zero proof or a certified master.
+
+Acceptance first derives the complete one-loop tadpole recurrence family and
+checks powers two through four with only `I(1)` explicitly selected, then
+passes tensor ranks zero, one, two, and four through the Symbolica parser,
+generic projector/lowering, generated provider, and Vakint oracle.  Each
+supported numerator rank must also pass a metamorphic cancellation oracle:
+an uncancelled numerator factor equal to a propagator and the explicitly
+power-lowered input independently rebuild and replay their proof graphs, have
+identical exact lowering maps, and reduce to the same unreplaced-master map on
+the same semantic domain.  Raw source-origin ordinals are not compared because
+equivalent presentations legitimately have different provenance histories. A second
+one-loop family with an external momentum and automatically completed ISP
+guards against accidentally specializing the solver to vacuum or one
+denominator.  Only after that generic symbolic path replays and passes its
+resource/tamper matrix does validation advance to two, three, four, and five
+loops.
+
+## Legacy loop-specific oracle surface
+
+The current source still exposes authored one-, two-, and three-loop reducers
+and hardcoded IBP weights from `src/lib.rs`.  The canonical-`I2L`
+`VakintTwoLoopAdapter` has been removed from the default surface and is
+available only through the non-default `legacy-authored-oracles` feature.
+Those implementations are regression/oracle fixtures, not admissible
+production derivation.  They must move behind an explicit test-support
+boundary (and ultimately out of the default public library surface).  No
+acceptance milestone may call them on the RustRed subject path; only the
+freshly generated generic rules may produce the result being compared.
