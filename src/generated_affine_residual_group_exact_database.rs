@@ -65,6 +65,11 @@ fn take_fail_next_lookup_replacement_allocation_for_test() -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
     pub(crate) coefficient_work: ParametricCoefficientWorkLedgerLimits,
+    /// Caller-owned budget for authenticating the retained solve plan before
+    /// this database accepts its allocation identity. Keeping this inside the
+    /// database limits makes the replay authority persistent rather than
+    /// silently substituting a library default at construction time.
+    pub(crate) solve_plan_replay: GeneratedAffineResidualGroupSolvePlanReplayLimits,
     pub(crate) max_pivots: usize,
     pub(crate) max_terms_per_row: usize,
     pub(crate) max_guards_per_row: usize,
@@ -88,6 +93,7 @@ impl Default for GeneratedAffineResidualGroupExactDatabaseLimits {
         const LARGE_BYTES: usize = 256 * 1024 * 1024 * 1024;
         Self {
             coefficient_work: ParametricCoefficientWorkLedgerLimits::default(),
+            solve_plan_replay: GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
             max_pivots: 16_000_000,
             max_terms_per_row: 16_000_000,
             max_guards_per_row: 16_000_000,
@@ -437,7 +443,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 plan.inventory(),
                 plan.authority(),
                 &frame,
-                GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
+                limits.solve_plan_replay,
             )
             .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
             Ok(Self {
@@ -1602,12 +1608,31 @@ mod tests {
     use symbolica::prelude::Integer;
 
     use super::*;
+    use crate::generated_affine_parametric_ordering::{
+        GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
+    };
+    use crate::generated_affine_prepare_point_schedule::{
+        GeneratedAffinePreparePointScheduleCertificate, GeneratedAffinePreparePointScheduleLimits,
+    };
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
     use crate::generated_affine_residual_case_inventory::{
         GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+    };
+    use crate::generated_affine_residual_case_premises::{
+        GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
+        compile_generated_affine_residual_case_premises,
+    };
+    use crate::generated_affine_residual_case_reelimination::{
+        GeneratedAffineResidualCaseReeliminationCompilation,
+        GeneratedAffineResidualCaseReeliminationCompiler,
+        GeneratedAffineResidualCaseReeliminationLimits,
+    };
+    use crate::generated_affine_residual_group_exact_physical_row::{
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
     };
     use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
     use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
@@ -1770,6 +1795,99 @@ mod tests {
         (family, context, plan, frame, database, keys)
     }
 
+    fn production_exact_physical_row(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        plan: &Arc<GeneratedAffineResidualGroupSolvePlan>,
+        frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    ) -> Arc<GeneratedAffineResidualGroupExactPhysicalRow> {
+        for &case_ordinal in frame.case_ordinals() {
+            let authority = Arc::new(
+                GeneratedAffineResidualCaseAuthority::try_new(
+                    family,
+                    context,
+                    Arc::clone(plan.inventory()),
+                    case_ordinal,
+                    GeneratedAffineResidualCaseAuthorityLimits::default(),
+                )
+                .unwrap(),
+            );
+            let premises = match compile_generated_affine_residual_case_premises(
+                family,
+                context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualCasePremisesLimits::default(),
+            )
+            .unwrap()
+            {
+                GeneratedAffineResidualCasePremisesOutcome::Ready(value) => Arc::new(value),
+                GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
+                    continue;
+                }
+            };
+            let ordering = Arc::new(
+                GeneratedAffineParametricOrderingCertificate::try_new(
+                    family,
+                    context,
+                    Arc::clone(&authority),
+                    GeneratedAffineParametricOrderingLimits::default(),
+                )
+                .unwrap(),
+            );
+            let schedule = Arc::new(
+                GeneratedAffinePreparePointScheduleCertificate::compile(
+                    family,
+                    context,
+                    Arc::clone(&ordering),
+                    &authority,
+                    0,
+                    GeneratedAffinePreparePointScheduleLimits::default(),
+                )
+                .unwrap(),
+            );
+            let compilation = GeneratedAffineResidualCaseReeliminationCompiler::compile(
+                family,
+                context,
+                authority,
+                premises,
+                ordering,
+                schedule,
+                GeneratedAffineResidualCaseReeliminationLimits::default(),
+            )
+            .unwrap();
+            let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
+                compilation
+            else {
+                continue;
+            };
+            let certificate = Arc::new(certificate);
+            let Some(witness_ordinal) = certificate
+                .witnesses()
+                .iter()
+                .position(|witness| witness.outcome().is_retained())
+            else {
+                continue;
+            };
+            let retained_row_ordinal = certificate.witnesses()[..witness_ordinal]
+                .iter()
+                .filter(|witness| witness.outcome().is_retained())
+                .count();
+            return Arc::new(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                    family,
+                    context,
+                    certificate,
+                    retained_row_ordinal,
+                    witness_ordinal,
+                    Arc::clone(frame),
+                    GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+                )
+                .unwrap(),
+            );
+        }
+        panic!("the generic affine-group fixture produced no authenticated physical row")
+    }
+
     fn indexed_guard(
         context: &ParametricCoefficientContext,
         offset: i64,
@@ -1784,6 +1902,246 @@ mod tests {
         context
             .nonzero_condition(polynomial, GuardOrigin::ExplicitRelationCondition)
             .unwrap()
+    }
+
+    fn exact_solve_plan_replay_limits(
+        plan: &GeneratedAffineResidualGroupSolvePlan,
+    ) -> GeneratedAffineResidualGroupSolvePlanReplayLimits {
+        let stats = plan.stats();
+        GeneratedAffineResidualGroupSolvePlanReplayLimits {
+            max_parent_allocation_comparisons: stats.retained_parent_references(),
+            max_combined_owner_bytes: stats.replay_combined_owner_bytes(),
+            max_payload_comparison_units: stats.payload_comparison_units(),
+            max_payload_comparison_bytes: stats.payload_comparison_bytes(),
+        }
+    }
+
+    #[test]
+    fn constructor_uses_caller_owned_solve_plan_replay_limits_exactly() {
+        let (family, context, plan, frame, database, _keys) =
+            database_fixture("exact-db-caller-owned-plan-replay");
+        let exact = exact_solve_plan_replay_limits(&plan);
+        assert!(exact.max_parent_allocation_comparisons > 0);
+        assert!(exact.max_combined_owner_bytes > 0);
+        assert!(exact.max_payload_comparison_units > 0);
+        assert!(exact.max_payload_comparison_bytes > 0);
+
+        let baseline_database = (
+            database.next_source_ordinal,
+            database.pivots.len(),
+            database.pivots.capacity(),
+            database.lookup.len(),
+            database.lookup.capacity(),
+            database.stats(),
+            database.limits,
+        );
+        let baseline_parent_counts = (
+            Arc::strong_count(&plan),
+            Arc::strong_count(&frame),
+            Arc::strong_count(plan.inventory()),
+            Arc::strong_count(plan.authority()),
+        );
+
+        let mut limits = GeneratedAffineResidualGroupExactDatabaseLimits::default();
+        limits.solve_plan_replay = exact;
+        let admitted = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            Arc::clone(&frame),
+            31,
+            limits,
+        )
+        .unwrap();
+        assert_eq!(admitted.limits.solve_plan_replay, exact);
+        assert_eq!(admitted.database_epoch(), 31);
+        drop(admitted);
+        assert_eq!(
+            (
+                Arc::strong_count(&plan),
+                Arc::strong_count(&frame),
+                Arc::strong_count(plan.inventory()),
+                Arc::strong_count(plan.authority()),
+            ),
+            baseline_parent_counts
+        );
+
+        let one_below = [
+            GeneratedAffineResidualGroupSolvePlanReplayLimits {
+                max_parent_allocation_comparisons: exact.max_parent_allocation_comparisons - 1,
+                ..exact
+            },
+            GeneratedAffineResidualGroupSolvePlanReplayLimits {
+                max_combined_owner_bytes: exact.max_combined_owner_bytes - 1,
+                ..exact
+            },
+            GeneratedAffineResidualGroupSolvePlanReplayLimits {
+                max_payload_comparison_units: exact.max_payload_comparison_units - 1,
+                ..exact
+            },
+            GeneratedAffineResidualGroupSolvePlanReplayLimits {
+                max_payload_comparison_bytes: exact.max_payload_comparison_bytes - 1,
+                ..exact
+            },
+        ];
+        for rejected in one_below {
+            let mut limits = GeneratedAffineResidualGroupExactDatabaseLimits::default();
+            limits.solve_plan_replay = rejected;
+            assert!(matches!(
+                GeneratedAffineResidualGroupExactDatabase::try_new(
+                    &family,
+                    &context,
+                    Arc::clone(&plan),
+                    Arc::clone(&frame),
+                    31,
+                    limits,
+                ),
+                Err(GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)
+            ));
+            assert_eq!(
+                (
+                    Arc::strong_count(&plan),
+                    Arc::strong_count(&frame),
+                    Arc::strong_count(plan.inventory()),
+                    Arc::strong_count(plan.authority()),
+                ),
+                baseline_parent_counts,
+                "failed construction must release every temporary parent reference"
+            );
+            assert_eq!(
+                (
+                    database.next_source_ordinal,
+                    database.pivots.len(),
+                    database.pivots.capacity(),
+                    database.lookup.len(),
+                    database.lookup.capacity(),
+                    database.stats(),
+                    database.limits,
+                ),
+                baseline_database,
+                "a failed sibling construction must not mutate retained database state"
+            );
+        }
+    }
+
+    #[test]
+    fn production_replayed_row_authenticates_before_exact_ingress() {
+        let (family, context, plan, frame, mut database, _keys) =
+            database_fixture("exact-db-production-row-ingress");
+        let source = production_exact_physical_row(&family, &context, &plan, &frame);
+        assert_eq!(source.group_ordinal(), database.group_ordinal());
+        let baseline = (
+            database.next_source_ordinal,
+            database.pivots.len(),
+            database.pivots.capacity(),
+            database.lookup.len(),
+            database.lookup.capacity(),
+            database.stats(),
+        );
+
+        let foreign_plan = Arc::new(plan.as_ref().clone());
+        assert!(matches!(
+            database.ingest_replayed_row(
+                &family,
+                &context,
+                &foreign_plan,
+                &frame,
+                database.database_epoch(),
+                &source,
+            ),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongPlanAllocation)
+        ));
+        assert_eq!(
+            (
+                database.next_source_ordinal,
+                database.pivots.len(),
+                database.pivots.capacity(),
+                database.lookup.len(),
+                database.lookup.capacity(),
+                database.stats(),
+            ),
+            baseline
+        );
+
+        let foreign_frame = Arc::new(frame.as_ref().clone());
+        assert!(matches!(
+            database.ingest_replayed_row(
+                &family,
+                &context,
+                &plan,
+                &foreign_frame,
+                database.database_epoch(),
+                &source,
+            ),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongFrameAllocation)
+        ));
+        assert_eq!(
+            (
+                database.next_source_ordinal,
+                database.pivots.len(),
+                database.pivots.capacity(),
+                database.lookup.len(),
+                database.lookup.capacity(),
+                database.stats(),
+            ),
+            baseline
+        );
+
+        assert!(matches!(
+            database.ingest_replayed_row(
+                &family,
+                &context,
+                &plan,
+                &frame,
+                database.database_epoch() + 1,
+                &source,
+            ),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseEpoch)
+        ));
+        assert_eq!(
+            (
+                database.next_source_ordinal,
+                database.pivots.len(),
+                database.pivots.capacity(),
+                database.lookup.len(),
+                database.lookup.capacity(),
+                database.stats(),
+            ),
+            baseline
+        );
+
+        let replayed = source
+            .replay_for_database(&family, &context, &frame)
+            .unwrap();
+        let source_term_count = replayed.term_count();
+        let source_guard_count = replayed.guard_count();
+        let (source_leader, source_divisor) = replayed.terms().next_back().unwrap();
+        let outcome = database
+            .ingest_replayed_row(
+                &family,
+                &context,
+                &plan,
+                &frame,
+                database.database_epoch(),
+                &source,
+            )
+            .unwrap();
+        assert_eq!(
+            outcome,
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        );
+        let pivot = database.pivot(0).unwrap();
+        assert_eq!(pivot.key(), source_leader);
+        assert_eq!(pivot.normalization_divisor(), source_divisor);
+        assert_eq!(pivot.terms().len(), source_term_count);
+        assert!(pivot.guards().len() >= source_guard_count);
+        for source_guard in replayed.guards() {
+            assert!(pivot.guards().contains(source_guard));
+        }
+        assert_eq!(database.next_source_ordinal, 1);
     }
 
     #[test]

@@ -428,7 +428,9 @@ For a unique sector with symbolic indices $n_i$, the solver:
    denominator vanishes and no right-side integral leaves the allowed order;
 8. adds valid rules, refines the remaining cases, and increases search depth
    when necessary;
-9. records uncovered points as master integrals.
+9. records currently uncovered points in `MIs` as operational master
+   candidates.  This is LiteRed's bounded-search heuristic, not correctness
+   evidence that RustRed may use to certify a master.
 
 `WhenBad` and `SmartReduce` use integer-domain logical reduction to protect
 against invalid recurrence ranges and exceptional coefficients.  This is the

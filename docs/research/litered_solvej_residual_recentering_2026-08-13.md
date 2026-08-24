@@ -114,10 +114,12 @@ turn a point sample into a symbolic-domain proof.
 A partial coordinate assignment may use the sector corner in unassigned
 positions as a concrete elimination-order anchor.  This is a valid conservative
 search heuristic, but it is not yet full `SolvejSector` parity: LiteRed preserves
-symbolic components of `startp`, groups contiguous symbolic cases, and feeds
-accepted rules back into the equation database.  RustRed must continue to keep
-leaves with unrecognized polynomial predicates explicit and must not infer a
-master from an unsuccessful bounded search.
+symbolic components of `startp` and groups contiguous symbolic cases.  The
+unrecentered algebraic pivot is already retained in the shared `Solvej` database
+before recentering and `WhenBad`; an accepted conditional public rule is recorded
+separately and is not fed back into that algebraic database.  RustRed must
+continue to keep leaves with unrecognized polynomial predicates explicit and
+must not infer a master from an unsuccessful bounded search.
 
 ## Required fixed point after anchored discovery
 
