@@ -1,5 +1,11 @@
 # Exact four- and five-loop massive-vacuum reduction plan
 
+Priority update (2026-08-24): this remains the correctness and oracle plan for
+the four-/five-loop gates, but those gates now feed a generic six-loop
+single-scale vacuum campaign rather than ending the roadmap.  The governing
+offline rule-foundry/online batch-runtime design is
+[`six_loop_single_scale_vacuum_priority_2026-08-24.md`](six_loop_single_scale_vacuum_priority_2026-08-24.md).
+
 ## Scope and status
 
 This note fixes an honest scope for RustRed's four- and five-loop milestones.
@@ -63,6 +69,9 @@ The short conclusion is:
 5. Production four-/five-loop solving should be target-driven and modular in
    the single remaining symbolic variable `d`, with exact replay as the final
    proof.  Eager exact elimination over every sector is not a viable design.
+   The same unit-mass `Q(d)` strategy, graph-lifted symmetry/factorization,
+   durable parametric-rule artifacts, and separate batch application engine
+   are prerequisites for the declared six-loop GammaLoop/BPHZ corpus.
 
 ## 1. Common convention and complexity
 

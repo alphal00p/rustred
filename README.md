@@ -220,6 +220,16 @@ feature-gated validation material, not production topology dispatch.
 
 ## Current blockers and roadmap
 
+The priority deployment is now a six-loop QCD beta-function campaign after
+GammaLoop's general BPHZ R-operation.  RustRed will keep its full generic
+LiteRed scope, but near-term work emphasizes single-scale massive vacuum
+families with the common mass set to one.  The architecture is deliberately
+two-stage: an offline, topology-generic foundry derives and verifies guarded
+parametric rules for canonical families/sectors; a separate online runtime
+applies the compiled artifacts in batches to the many concrete numerator
+integrals produced by GammaLoop.  See the
+[six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md).
+
 The transactional exact pivot database, hardest-first top reduction,
 session-owned exact recentering, typed NoTarget commit, sealed affine-equality
 suspension, private chronological event ledger, and shadow replay are
@@ -236,13 +246,15 @@ gcd, Gaussian-elimination, and determinant implementations have been deleted.
 Checked row-major conversion, allocation/shape admission, panic containment,
 and the independent singularity guard remain RustRed-owned boundaries.
 
-B0 is not the end of the Symbolica-first cleanup. The audit also identifies
-remaining production matrix, polynomial, integer, and modular arithmetic at
-priorities P1 through P3. Each must cross the corresponding public Symbolica
-API before its algebraic milestone is complete. The next migration slice
-moves generated-affine composition and polynomial-associate checks onto
-Symbolica's native polynomial APIs; direct parametric matrix consumers and a
-`SparseRowReducer` transcript-equivalence spike follow it.
+B0 is not the end of the Symbolica-first cleanup. Generated-affine composition,
+strict polynomial-associate checks, generic-family matrices, automatic ISP
+rank, and tensor-projector matrices have since crossed public Symbolica APIs.
+The active slice moves affine-family/symmetry determinants, transpose, Gram
+congruence, and denominator-coordinate products to the authenticated
+Symbolica boundary. Vacuum-critical follow-up includes graph-lifted symmetry
+discovery and the `SparseRowReducer` transcript-equivalence path; unrelated
+Feynman/non-vacuum algebra migrations stay required but no longer displace the
+six-loop vacuum critical path.
 
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:
@@ -254,9 +266,10 @@ solver work is to:
 
 This checkpoint is not a complete LiteRed port, complete `WhenBad` or rule
 publication, an arbitrary one-loop pentagon reduction, or completion of the
-two- through five-loop reduction milestones. Those remain downstream of the
-generic end-to-end solver. Concrete multi-loop families currently serve only
-as bounded validation fixtures.
+two- through six-loop reduction campaign. Concrete multi-loop families
+currently serve only as bounded validation fixtures. Non-vacuum pentagon work
+remains in scope but is behind the vacuum rule-foundry and batch-application
+critical path.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent
@@ -279,6 +292,7 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 
 - [CLI contract and input formats](docs/CLI.md)
 - [RustRed scope and acceptance criteria](docs/research/rustred_scope_and_acceptance.md)
+- [Six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md)
 - [Full LiteRed scope specification](docs/research/litered_full_scope_spec.md)
 - [LiteRed2 algorithm report](docs/research/litered2_algorithm_report.md)
 - [Generic IBP parity audit](docs/research/generic_ibp_litered_parity_audit_2026-08-13.md)

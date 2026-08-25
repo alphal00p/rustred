@@ -1,7 +1,8 @@
 # RustRed governing scope and acceptance criteria
 
 Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
-on 2026-08-20.
+on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
+on 2026-08-24.
 
 ## Reading status
 
@@ -27,6 +28,15 @@ and its alphaLoop integration under `vendor/gammaloop/crates/vakint`.  FORM
 sources may be read to understand the algorithms and conventions, but RustRed
 must never invoke or depend on FORM.  The implementation is Rust plus the
 vendored Symbolica Rust API.
+
+The immediate deployment priority is highly efficient reduction of up to
+six-loop, single-scale massive vacuum graphs produced after GammaLoop's
+general BPHZ R-operation.  This priority does not permit loop-count or topology
+dispatch in production.  It changes the order of implementation: reusable
+vacuum-family/sector rule derivation and a separate batched rule-application
+runtime take precedence over non-vacuum examples and broad Feynman-parametric
+polishing.  The detailed two-stage architecture and benchmark contract are in
+[`six_loop_single_scale_vacuum_priority_2026-08-24.md`](six_loop_single_scale_vacuum_priority_2026-08-24.md).
 
 ## Source-of-truth order
 
@@ -130,7 +140,8 @@ Validation advances only after the preceding rung passes:
 6. three-loop scalar and tensor reductions, including comparison with the
    alphaLoop parametric-rule behavior;
 7. four-loop massive-vacuum families; and
-8. five-loop massive-vacuum families.
+8. general five-loop massive-vacuum families, not only the banana; and
+9. a declared six-loop GammaLoop/BPHZ-derived single-scale vacuum corpus.
 
 At every rung, accepted parametric rules must replay symbolically from freshly
 generated source relations.  Agreement at finitely many concrete powers is an
@@ -213,12 +224,16 @@ an uncancelled numerator factor equal to a propagator and the explicitly
 power-lowered input independently rebuild and replay their proof graphs, have
 identical exact lowering maps, and reduce to the same unreplaced-master map on
 the same semantic domain.  Raw source-origin ordinals are not compared because
-equivalent presentations legitimately have different provenance histories. A second
-one-loop family with an external momentum and automatically completed ISP
-guards against accidentally specializing the solver to vacuum or one
-denominator.  Only after that generic symbolic path replays and passes its
-resource/tamper matrix does validation advance to two, three, four, and five
-loops.
+equivalent presentations legitimately have different provenance histories. A
+second one-loop family with an external momentum and automatically completed
+ISP guards against accidentally specializing the solver to vacuum or one
+denominator.  This remains a compact genericity test rather than the next
+deployment feature.  Only after the generic symbolic path replays and passes
+its resource/tamper matrix does validation advance through two and three
+loops, the complete Vakint four-loop corpus, general five-loop families, and a
+declared six-loop GammaLoop/BPHZ corpus.  Engineering effort between those
+gates prioritizes the shared vacuum foundry and batch-application path rather
+than an arbitrary non-vacuum pentagon milestone.
 
 ## Legacy loop-specific oracle surface
 

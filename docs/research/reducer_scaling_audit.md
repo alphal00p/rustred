@@ -1,5 +1,12 @@
 # RustRed reducer scaling audit
 
+Priority update (2026-08-24): the governing deployment target is now a
+six-loop, unit-mass vacuum-rule foundry plus a separate high-throughput
+GammaLoop/BPHZ application runtime.  The measurements and failure analysis in
+this audit remain valid.  Section 8 has been revised accordingly; the complete
+architecture is
+[`six_loop_single_scale_vacuum_priority_2026-08-24.md`](six_loop_single_scale_vacuum_priority_2026-08-24.md).
+
 ## Scope and conclusion
 
 This audit covers RustRed's generic seed enumeration, momentum-space IBP
@@ -669,53 +676,66 @@ recurrence discovery.  It is not required for finite 3-loop completion, and a
 partially implemented unguarded s-basis is less trustworthy than explicit
 finite certificates.
 
-## 8. Incremental implementation order
+## 8. Revised incremental implementation order
 
-The smallest bounded sequence which advances the milestones is:
+The earlier three-loop-first sequence identified the right enabling services,
+but it treated four and five loops as successive endpoints.  The six-loop
+campaign instead needs those services to form one reusable offline/online
+architecture:
 
-1. **API hardening**
-   - typed arity/canonicality errors in `ReductionTable` and `SparseReducer`;
-   - separate target and seed specifications;
-   - version the order explicitly;
-   - mark uncertified table loading honestly.
+1. **Symbolica-native proof kernels and API hardening**
+   - finish authenticated family/symmetry matrices and the sparse-row API
+     spike without retaining a private algebra implementation;
+   - keep typed arity/canonicality errors, separate target and seed
+     specifications, versioned order, and honest uncertified-table status.
 
-2. **Three-loop boundary completion**
-   - sector-orbit dispatch with explicit transformation;
-   - arbitrary bounded tree numerators;
-   - arbitrary bounded paw numerators through the two-loop pipeline;
-   - resource estimates and exact factorization/tensor tests.
+2. **Reusable guarded parametric-rule publication**
+   - finish the generic persistent cylindrical/residual solver;
+   - compile `WhenBad` branches, feed solved subsectors upward, prove descent
+     and domain coverage, and publish durable replayable artifacts;
+   - use one-loop through three-loop cases as correctness gates, not as the
+     architectural endpoint.
 
-3. **Sector-local exact backend**
-   - sector DAG and bottom-up lower-sector closure;
-   - integral/column interning;
-   - Symbolica `SparseRowReducer` adapter;
-   - deterministic row ordering and reachable-rule extraction;
-   - derivation provenance.
+3. **Unit-mass modular acceleration**
+   - fingerprint `m2=1` as a campaign specialization so concrete coefficients
+     live in `Q(d)`;
+   - use Symbolica finite fields for pivot/rank discovery and univariate
+     reconstruction in `d`;
+   - reconstruct only reachable rules, then require fresh-prime checks and
+     exact symbolic replay.
 
-4. **Certified three-loop `(1,1)` box**
-   - adaptive inverse-parent/total-shell halo;
-   - exact coverage, whole-row residuals, held-out shells, pole metadata;
-   - compare the new backend against the prototype on small systems.
+4. **Topology/sector foundry through six loops**
+   - ingest a declared graph corpus, complete generic families/ISPs, and build
+     the canonical sector DAG;
+   - factorize certified lower-loop components before matrix insertion;
+   - generate symmetry candidates from graph automorphisms/routing maps rather
+     than bounded `GL(L,Z)` enumeration, then certify full ISP-aware affine
+     maps;
+   - maintain resumable `(family, sector, shell)` derivation artifacts.
 
-5. **Modular acceleration**
-   - `m2=1` homogeneity normalization;
-   - `Zp64` pivot/rank discovery;
-   - univariate rational reconstruction in `d`;
-   - fresh-sample and exact symbolic replay.
+5. **Four- and five-loop campaign gates**
+   - reduce every Vakint H/X/BMW/FG contraction and numerator target;
+   - cover multiple general five-loop families, including ISP-rich and
+     duplicate-denominator cases rather than only the banana;
+   - profile modular discovery, reconstruction, exact replay, memory, and
+     artifact size separately.
 
-6. **Four-loop enabling services**
-   - automatic factorization into certified lower-loop components;
-   - ISP-aware symmetry maps;
-   - resumable sector-shell caches;
-   - target-driven reductions of the Vakint H, X, BMW, and FG contraction sets.
+6. **Separate high-throughput application runtime**
+   - consume normalized GammaLoop/BPHZ vacuum terms;
+   - tensor/scalar lower once, intern/canonicalize integral keys, and apply
+     compiled parametric rules in batches;
+   - share normal-form and coefficient-specialization caches across numerator
+     terms and parallel workers without mixing discovery into the hot path.
 
-7. **Five-loop scaling**
-   - generic family/topology input rather than a banana-only assumption;
-   - modular-only exploration before reconstruction;
-   - reconstruct only rules reachable from requested targets;
-   - guarded recurrence/syzygy work where repeated finite shells justify it.
+7. **Six-loop declared-corpus milestone**
+   - derive or load every required canonical artifact for a versioned QCD
+     vacuum graph/numerator manifest;
+   - reduce it to unsubstituted masters with no uncovered keys;
+   - publish exact replay evidence and online throughput/parallel-scaling
+     measurements before claiming readiness for the beta-function campaign.
 
-At every stage, “complete” means complete for an explicit target domain and
-generic parameter field, with exact provenance and held-out validation.  A
-stable list of free columns at two shallow seed depths remains useful evidence,
-but is neither a coverage proof nor a master-count proof.
+At every stage, “complete” means complete for an explicit topology and target
+manifest, coefficient domain, and integer coverage domain, with exact
+provenance and held-out validation.  A stable list of free columns at shallow
+seed depths remains useful evidence, but is neither a coverage proof nor a
+master-count proof.
