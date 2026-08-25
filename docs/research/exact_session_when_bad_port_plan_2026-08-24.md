@@ -5,8 +5,8 @@ the scoped independent-cylinder Ready geometry/descent/hazard checkpoint are
 implemented; upstream sealed normalization, direct formula-residual search,
 one-pass sealed candidate ingress/replay, normalized-source V2 ordering-policy
 binding, and the K21 evidence are implemented at pushed checkpoint `c593865`;
-the standalone direct formula-path coordinate-affine terminal is validated in
-this checkpoint; updated 2026-08-25.
+the direct formula-path coordinate-affine terminal now enters authenticated
+direct-singleton case authority and sealed premise replay; updated 2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -179,20 +179,19 @@ The policy-bound all-36 `L=6`, `K=21` run
 authentications, the unchanged 15 Certified/21 Unsupported semantics, and a
 1.405-millisecond first-residual search.
 
-This checkpoint adds a standalone generic direct formula-path
-coordinate-affine terminal. It replays the selected path, incrementally rejects
-coordinate contradictions, delegates compact affine guard substitution to
-Symbolica, and returns typed `ProvedEmpty`, `Unsupported`, or `Actionable`
-outcomes. It fabricates no V4/V5, Boolean/DPLL, or integer-system certificate.
-Independent default-GMP run `ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root
-rerun `3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. The
-terminal has not yet entered case authority, `ReadyForConditions`, reduction,
-or publication.
+This checkpoint carries the generic direct formula-path coordinate-affine
+terminal into direct-singleton case authority and sealed premise replay. It
+retains exact source/path ancestry, borrows authenticated source rows, exposes
+coordinate geometry and ordered guard loci, and rechecks source/term, anchor,
+and replay budgets. It fabricates no V4/V5, Boolean/DPLL, or integer-system
+certificate. Independent default-GMP run
+`6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
+broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes
+36/36.
 
-The next upstream-to-session seam is therefore the remaining generic
-direct-backed singleton inventory/adapter. It must extend case authority with
-the terminal's exact source/path ancestry and ordered guards, form one
-singleton group, and carry it through the physical frame, solve plan,
+The next upstream-to-session seam is stable source-neutral identity plus
+physical-frame and solve-plan support for that direct singleton. It must carry
+the already authenticated singleton group through the physical frame,
 `GeneratedAffineResidualGroupExactSession` staging, and recentering into the
 existing `ReadyForConditions` boundary without reconstructing V4, V5, the
 live-leaf queue, or Boolean/DPLL certificates. No arity-21 input has reached
@@ -945,15 +944,18 @@ Implement in this order:
    `6a5267d1-fe75-4854-8b98-9a03b1bb2370` (14/14), independent run
    `430af297-b806-431e-a169-bd0f19a9f9c8` (30/30), and policy-bound K21 run
    `88a73ec1-52c2-4771-8a21-75e1b2a848b6` (1/1) passed;
-6. add the generic direct-backed singleton affine inventory/adapter — this
-   checkpoint's standalone coordinate-affine terminal passes 9/9 focused
-   tests, uses Symbolica compact substitution, and returns typed
-   `ProvedEmpty`, `Unsupported`, or `Actionable` without fabricating V4/V5,
-   Boolean/DPLL, or integer-system certificates. Next extend case authority
-   with its exact source/path ancestry and ordered guards, then carry a
-   singleton group through physical frame, solve plan, exact-session staging,
-   and recentering into the existing `ReadyForConditions` boundary. The
-   terminal has not yet reached that boundary, reduction, or publication;
+6. add the generic direct-backed singleton affine inventory/adapter —
+   completed in this checkpoint. `Actionable` terminals retain exact
+   source/path ancestry and authenticated rows, expose typed geometry and
+   ordered guards, and compile sealed premises without fabricating V4/V5,
+   Boolean/DPLL, or integer-system certificates. Independent default-GMP run
+   `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
+   broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3`
+   passes 36/36.
+   Next add stable source-neutral identity and carry the singleton through
+   physical frame, solve plan, exact-session staging, and recentering into the
+   existing `ReadyForConditions` boundary. It has not yet reached that
+   boundary, reduction, or publication;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;

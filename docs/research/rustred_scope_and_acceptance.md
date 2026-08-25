@@ -3,7 +3,7 @@
 Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
 on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
 on 2026-08-24. Implementation status was reconciled with pushed checkpoint
-`c593865` and the standalone direct-terminal checkpoint on 2026-08-25.
+`c593865` and the direct-singleton authority/premise checkpoint on 2026-08-25.
 
 ## Reading status
 
@@ -249,24 +249,21 @@ production source API ahead of that materialization and preserves exact
 binding/replay guarantees through its sealed token. Public library and CLI
 integration of that API remain pending.
 
-This checkpoint adds a standalone generic direct formula-path
-coordinate-affine terminal. It replays the selected path, incrementally rejects
-exact coordinate contradictions, and delegates compact affine guard
-substitution to Symbolica. Its typed outcomes are `ProvedEmpty`, `Unsupported`,
-and `Actionable`; it fabricates no V4/V5, Boolean/DPLL, or integer-system
-certificate. Independent default-GMP run
-`ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root rerun
-`3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. This
-terminal has not yet entered case authority, `ReadyForConditions`, reduction,
-or publication.
+This checkpoint carries the generic direct formula-path coordinate-affine
+terminal into direct-singleton case authority and sealed premise replay. An
+`Actionable` terminal retains exact source/path ancestry, borrows its
+authenticated source rows, exposes typed coordinate geometry and ordered guard
+loci, and rechecks source/term, anchor, and replay budgets. It fabricates no
+V4/V5, Boolean/DPLL, or integer-system certificate. Independent default-GMP
+run `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
+broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes
+36/36.
 
-The immediate generic semantic slice is therefore the remaining direct-backed
-singleton adapter: extend case authority with the terminal's exact source/path
-ancestry and ordered guards, create a singleton group, and carry it through the
-physical frame, solve plan, `GeneratedAffineResidualGroupExactSession`
-staging, and recentering into the existing `ReadyForConditions` boundary. It
-must not reconstruct V4, V5, the live-leaf queue, or the old Boolean/DPLL
-certificates along the way.
+The immediate generic semantic slice is now stable source-neutral identity
+plus physical-frame and solve-plan support for that direct singleton, followed
+by `GeneratedAffineResidualGroupExactSession` staging and recentering into the
+existing `ReadyForConditions` boundary. It must not reconstruct V4, V5, the
+live-leaf queue, or old Boolean/DPLL certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -294,9 +291,10 @@ generated IBP/LI rows
 -> one-pass sealed normalized-source ingress/replay token          [pushed c593865]
 -> sealed normalized-source V2 + ordering-policy binding          [pushed c593865]
 -> bounded direct formula-residual cursor                        [implemented]
--> coordinate-affine direct formula-path terminal                [this checkpoint, standalone]
--> direct singleton case authority/inventory                     [next]
--> singleton group -> physical frame -> solve plan -> exact session
+-> coordinate-affine direct formula-path terminal                [implemented]
+-> direct singleton case authority + sealed premises             [this checkpoint]
+-> stable source identity + physical frame + solve plan          [next]
+-> singleton group -> exact-session staging and recentering
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering
 -> generated WhenBad with coefficient-pole and RHS-boundary loci

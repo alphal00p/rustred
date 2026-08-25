@@ -21,14 +21,10 @@ use std::sync::Arc;
 
 use symbolica::domains::integer::Integer;
 
-use crate::generated_affine_residual_boolean_cover::{
-    GeneratedAffineResidualBooleanPriorGuardClassSourceView,
-    GeneratedAffineResidualBooleanPriorGuardSourceView,
-};
 use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualInventoryCaseSourceRecordView,
-    GeneratedAffineResidualInventoryCaseSourceView,
-    GeneratedAffineResidualInventoryGroupSourceView,
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseGuardClassSourceView,
+    GeneratedAffineResidualCaseSourceLocator, GeneratedAffineResidualCaseSourceRecordView,
+    GeneratedAffineResidualCaseSourceView, GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::generated_residual_affine_condition_accumulator::{
     GeneratedResidualAffineConditionAccumulatorLimits,
@@ -36,16 +32,13 @@ use crate::generated_residual_affine_condition_accumulator::{
     GeneratedResidualAffineConditionScope, GeneratedResidualAffineConditionSourceLocator,
     accumulate_generated_residual_affine_conditions,
 };
-use crate::residual_affine_branch_guard_composition::{
-    ResidualAffineBranchSealedGuardClassSourceView, ResidualAffineBranchSealedGuardSourceView,
-};
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext,
     ParametricNonZeroCondition, ParametricPolynomial, SymbolicPolynomialPredicateKind,
 };
 
-pub(crate) const GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V1_SCHEMA: &str =
-    "rustred-generated-affine-residual-case-premises-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-case-premises-v2";
 
 #[cfg(test)]
 thread_local! {
@@ -360,7 +353,7 @@ struct CaseBinding {
     sector_bits: Vec<bool>,
     ordering: IntegralOrderingPolicy,
     case_ordinal: usize,
-    terminal_ordinal: usize,
+    source_locator: GeneratedAffineResidualCaseSourceLocator,
     group_ordinal: usize,
     ordinal_within_group: usize,
     ambient_arity: usize,
@@ -576,7 +569,7 @@ fn compile_inner(
     let mut stats = GeneratedAffineResidualCasePremisesStats::default();
     authenticate_scope_and_authority(family, context, authority.as_ref(), limits, &mut stats)?;
     let case = authority
-        .authenticated_case_view(context)
+        .authenticated_source_neutral_case_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     stats.case_lookups = bounded_add(
         "case lookups",
@@ -585,7 +578,7 @@ fn compile_inner(
         limits.max_case_lookups,
     )?;
     let group = authority
-        .authenticated_group_view(context)
+        .authenticated_source_neutral_group_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     stats.group_lookups = bounded_add(
         "group lookups",
@@ -672,7 +665,7 @@ fn compile_inner(
     }
     Ok(GeneratedAffineResidualCasePremisesOutcome::Ready(
         GeneratedAffineResidualCasePremisesCertificate {
-            schema: GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V1_SCHEMA,
+            schema: GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V2_SCHEMA,
             authority,
             binding,
             premises,
@@ -684,7 +677,7 @@ fn compile_inner(
 
 fn compile_equality_outcome(
     authority: Arc<GeneratedAffineResidualCaseAuthority>,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineResidualCasePremisesLimits,
     mut stats: GeneratedAffineResidualCasePremisesStats,
@@ -724,7 +717,7 @@ fn compile_equality_outcome(
     Ok(
         GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(
             GeneratedAffineResidualCaseEqualityRefinementCertificate {
-                schema: GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V1_SCHEMA,
+                schema: GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V2_SCHEMA,
                 authority,
                 binding,
                 equality_predicate_ordinals,
@@ -782,12 +775,12 @@ const GEOMETRY_SHAPE_COMPARISONS: usize = 12;
 
 fn authenticate_case_geometry(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineResidualCasePremisesLimits,
     stats: &mut GeneratedAffineResidualCasePremisesStats,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    let map = case.source().affine_map();
+    let geometry = case.source().geometry();
     let arity = authority.arity();
     let free_count = group.free_positions().len();
     let compact_entries = checked_mul("compact matrix entries", arity, free_count)?;
@@ -810,9 +803,9 @@ fn authenticate_case_geometry(
         || case.group_ordinal() != authority.group_ordinal()
         || group.ordinal() != authority.group_ordinal()
         || group.ambient_arity() != arity
-        || map.ambient_arity() != arity
+        || geometry.ambient_arity() != arity
         || case.constants().len() != arity
-        || group.free_positions().len() != map.free_positions().len()
+        || group.free_positions().len() != geometry.free_positions().len()
         || group.compact_linear_coefficients().len() != compact_entries
         || group.anchor_offsets().len() != group.case_ordinals().len()
         || group
@@ -820,13 +813,13 @@ fn authenticate_case_geometry(
             .get(case.ordinal_within_group())
             .copied()
             != Some(case.ordinal())
-        || group.free_positions() != map.free_positions()
+        || group.free_positions() != geometry.free_positions()
     {
         return Err(GeneratedAffineResidualCasePremisesError::SourceBinding);
     }
     let mut integer_bits = 0usize;
     for position in 0..arity {
-        let constant = map
+        let constant = geometry
             .constant(position)
             .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
         if case.constants().get(position) != Some(constant) {
@@ -841,9 +834,9 @@ fn authenticate_case_geometry(
     }
     let mut compact_position = 0usize;
     for row in 0..arity {
-        for &column in group.free_positions() {
-            let coefficient = map
-                .linear_coefficient(row, column)
+        for free_ordinal in 0..group.free_positions().len() {
+            let coefficient = geometry
+                .compact_linear_coefficient(row, free_ordinal)
                 .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
             if group.compact_linear_coefficients().get(compact_position) != Some(coefficient) {
                 return Err(GeneratedAffineResidualCasePremisesError::SourceBinding);
@@ -863,7 +856,7 @@ fn authenticate_case_geometry(
 
 fn preflight_source(
     context: &ParametricCoefficientContext,
-    source: GeneratedAffineResidualInventoryCaseSourceView<'_>,
+    source: GeneratedAffineResidualCaseSourceView<'_>,
     limits: GeneratedAffineResidualCasePremisesLimits,
 ) -> Result<SourceScan, GeneratedAffineResidualCasePremisesError> {
     let mut scan = SourceScan {
@@ -984,105 +977,40 @@ fn merge_source_scan(stats: &mut GeneratedAffineResidualCasePremisesStats, scan:
 /// identifies a contradiction; discharged nonzero integer constants are not
 /// visited because they need no durable premise.
 fn visit_guard_conditions<'source>(
-    source: GeneratedAffineResidualInventoryCaseSourceView<'source>,
+    source: GeneratedAffineResidualCaseSourceView<'source>,
     mut visit: impl FnMut(
         usize,
         usize,
         Option<&'source ParametricPolynomial>,
     ) -> Result<(), GeneratedAffineResidualCasePremisesError>,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    match source {
-        GeneratedAffineResidualInventoryCaseSourceView::Initial(initial) => {
-            visit_initial_guards(initial.guards(), &mut visit)
-        }
-        GeneratedAffineResidualInventoryCaseSourceView::PriorActionable(prior) => {
-            visit_prior_guards(
-                prior.guard_entry_count(),
-                |position| prior.guard_entry(position),
-                &mut visit,
-            )
-        }
-        GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalDomain(prior)
-        | GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalLeak(prior) => {
-            visit_prior_guards(
-                prior.guard_entry_count(),
-                |position| prior.guard_entry(position),
-                &mut visit,
-            )
-        }
-    }
-}
-
-fn visit_initial_guards<'source>(
-    guards: ResidualAffineBranchSealedGuardSourceView<'source>,
-    visit: &mut impl FnMut(
-        usize,
-        usize,
-        Option<&'source ParametricPolynomial>,
-    ) -> Result<(), GeneratedAffineResidualCasePremisesError>,
-) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    for guard_ordinal in 0..guards.guard_count() {
-        let entry = guards
+    for guard_ordinal in 0..source.guard_count() {
+        let entry = source
             .guard_entry(guard_ordinal)
             .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
+        if entry.entry_ordinal() != guard_ordinal {
+            return Err(GeneratedAffineResidualCasePremisesError::SourceBinding);
+        }
         match entry.class() {
-            ResidualAffineBranchSealedGuardClassSourceView::Contradiction => {
+            GeneratedAffineResidualCaseGuardClassSourceView::Contradiction => {
                 visit(guard_ordinal, entry.structural_locus_ordinal(), None)?
             }
-            ResidualAffineBranchSealedGuardClassSourceView::DischargedNonzeroIntegerConstant => {}
-            ResidualAffineBranchSealedGuardClassSourceView::BaseAssumption {
-                condition_polynomial,
+            GeneratedAffineResidualCaseGuardClassSourceView::DischargedNonzeroIntegerConstant => {}
+            GeneratedAffineResidualCaseGuardClassSourceView::BaseAssumption(polynomial)
+            | GeneratedAffineResidualCaseGuardClassSourceView::FreeIndexDependent(polynomial) => {
+                visit(
+                    guard_ordinal,
+                    entry.structural_locus_ordinal(),
+                    Some(polynomial),
+                )?
             }
-            | ResidualAffineBranchSealedGuardClassSourceView::FreeIndexDependent {
-                condition_polynomial,
-            } => visit(
-                guard_ordinal,
-                entry.structural_locus_ordinal(),
-                Some(condition_polynomial),
-            )?,
-        }
-    }
-    Ok(())
-}
-
-fn visit_prior_guards<'source>(
-    count: usize,
-    mut guard_at: impl FnMut(
-        usize,
-    ) -> Option<GeneratedAffineResidualBooleanPriorGuardSourceView<'source>>,
-    visit: &mut impl FnMut(
-        usize,
-        usize,
-        Option<&'source ParametricPolynomial>,
-    ) -> Result<(), GeneratedAffineResidualCasePremisesError>,
-) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    for guard_ordinal in 0..count {
-        let entry = guard_at(guard_ordinal)
-            .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
-        match entry.class() {
-            GeneratedAffineResidualBooleanPriorGuardClassSourceView::Contradiction => visit(
-                guard_ordinal,
-                entry.structural_locus_ordinal(),
-                None,
-            )?,
-            GeneratedAffineResidualBooleanPriorGuardClassSourceView::DischargedNonzeroIntegerConstant => {}
-            GeneratedAffineResidualBooleanPriorGuardClassSourceView::BaseAssumption {
-                condition_polynomial,
-            }
-            | GeneratedAffineResidualBooleanPriorGuardClassSourceView::FreeIndexDependent {
-                condition_polynomial,
-            } => visit(
-                guard_ordinal,
-                entry.structural_locus_ordinal(),
-                Some(condition_polynomial),
-            )?,
         }
     }
     Ok(())
 }
 
 fn visit_exceptional_predicates<'source>(
-    source: GeneratedAffineResidualInventoryCaseSourceView<'source>,
+    source: GeneratedAffineResidualCaseSourceView<'source>,
     mut visit: impl FnMut(
         usize,
         usize,
@@ -1090,29 +1018,25 @@ fn visit_exceptional_predicates<'source>(
         &'source ParametricPolynomial,
     ) -> Result<(), GeneratedAffineResidualCasePremisesError>,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    match source {
-        GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalDomain(prior)
-        | GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalLeak(prior) => {
-            for predicate_ordinal in 0..prior.predicate_count() {
-                let predicate = prior
-                    .predicate(predicate_ordinal)
-                    .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
-                visit(
-                    predicate_ordinal,
-                    predicate.locus_ordinal(),
-                    predicate.kind(),
-                    predicate.polynomial(),
-                )?;
-            }
+    for predicate_ordinal in 0..source.exceptional_predicate_count() {
+        let predicate = source
+            .exceptional_predicate(predicate_ordinal)
+            .ok_or(GeneratedAffineResidualCasePremisesError::SourceBinding)?;
+        if predicate.predicate_ordinal() != predicate_ordinal {
+            return Err(GeneratedAffineResidualCasePremisesError::SourceBinding);
         }
-        GeneratedAffineResidualInventoryCaseSourceView::Initial(_)
-        | GeneratedAffineResidualInventoryCaseSourceView::PriorActionable(_) => {}
+        visit(
+            predicate_ordinal,
+            predicate.locus_ordinal(),
+            predicate.kind(),
+            predicate.polynomial(),
+        )?;
     }
     Ok(())
 }
 
 fn collect_nonzero_inputs<'source>(
-    source: GeneratedAffineResidualInventoryCaseSourceView<'source>,
+    source: GeneratedAffineResidualCaseSourceView<'source>,
     expected: usize,
 ) -> Result<
     Vec<GeneratedResidualAffineConditionInput<'source>>,
@@ -1164,7 +1088,7 @@ fn collect_nonzero_inputs<'source>(
 }
 
 fn collect_equality_predicate_ordinals(
-    source: GeneratedAffineResidualInventoryCaseSourceView<'_>,
+    source: GeneratedAffineResidualCaseSourceView<'_>,
     expected: usize,
 ) -> Result<Vec<usize>, GeneratedAffineResidualCasePremisesError> {
     let mut ordinals = Vec::new();
@@ -1186,7 +1110,7 @@ fn collect_equality_predicate_ordinals(
 }
 
 fn authenticate_equality_predicate_ordinals(
-    source: GeneratedAffineResidualInventoryCaseSourceView<'_>,
+    source: GeneratedAffineResidualCaseSourceView<'_>,
     expected: &[usize],
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
     let mut equality_position = 0usize;
@@ -1310,7 +1234,7 @@ fn materialize_premises(
 
 fn build_binding(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<CaseBinding, GeneratedAffineResidualCasePremisesError> {
     Ok(CaseBinding {
@@ -1322,7 +1246,7 @@ fn build_binding(
         sector_bits: try_copy_bool_slice(authority.sector().active_bits(), "sector bits")?,
         ordering: authority.ordering(),
         case_ordinal: case.ordinal(),
-        terminal_ordinal: case.terminal_ordinal(),
+        source_locator: case.locator(),
         group_ordinal: case.group_ordinal(),
         ordinal_within_group: case.ordinal_within_group(),
         ambient_arity: group.ambient_arity(),
@@ -1517,7 +1441,7 @@ fn replay_ready_inner(
     context: &ParametricCoefficientContext,
     authority: &Arc<GeneratedAffineResidualCaseAuthority>,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    if certificate.schema != GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V1_SCHEMA {
+    if certificate.schema != GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V2_SCHEMA {
         return Err(GeneratedAffineResidualCasePremisesError::SchemaMismatch);
     }
     authenticate_expected_authority(&certificate.authority, authority, certificate.limits)?;
@@ -1533,7 +1457,7 @@ fn replay_ready_inner(
         &mut replay_stats,
     )?;
     let case = authority
-        .authenticated_case_view(context)
+        .authenticated_source_neutral_case_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     replay_stats.case_lookups = bounded_add(
         "case lookups",
@@ -1542,7 +1466,7 @@ fn replay_ready_inner(
         certificate.limits.max_case_lookups,
     )?;
     let group = authority
-        .authenticated_group_view(context)
+        .authenticated_source_neutral_group_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     replay_stats.group_lookups = bounded_add(
         "group lookups",
@@ -1695,7 +1619,7 @@ fn replay_equality_inner(
     context: &ParametricCoefficientContext,
     authority: &Arc<GeneratedAffineResidualCaseAuthority>,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
-    if certificate.schema != GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V1_SCHEMA {
+    if certificate.schema != GENERATED_AFFINE_RESIDUAL_CASE_PREMISES_V2_SCHEMA {
         return Err(GeneratedAffineResidualCasePremisesError::SchemaMismatch);
     }
     authenticate_expected_authority(&certificate.authority, authority, certificate.limits)?;
@@ -1711,7 +1635,7 @@ fn replay_equality_inner(
         &mut replay_stats,
     )?;
     let case = authority
-        .authenticated_case_view(context)
+        .authenticated_source_neutral_case_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     replay_stats.case_lookups = bounded_add(
         "case lookups",
@@ -1720,7 +1644,7 @@ fn replay_equality_inner(
         certificate.limits.max_case_lookups,
     )?;
     let group = authority
-        .authenticated_group_view(context)
+        .authenticated_source_neutral_group_view(context)
         .map_err(|_| GeneratedAffineResidualCasePremisesError::SourceBinding)?;
     replay_stats.group_lookups = bounded_add(
         "group lookups",
@@ -1806,7 +1730,7 @@ fn authenticate_expected_authority(
 fn authenticate_binding(
     binding: &CaseBinding,
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<(), GeneratedAffineResidualCasePremisesError> {
     if binding.family_fingerprint != authority.family_fingerprint()
@@ -1821,7 +1745,7 @@ fn authenticate_binding(
     }
     if binding.case_ordinal != authority.case_ordinal()
         || binding.case_ordinal != case.ordinal()
-        || binding.terminal_ordinal != case.terminal_ordinal()
+        || binding.source_locator != case.locator()
         || binding.ordinal_within_group != case.ordinal_within_group()
     {
         return Err(GeneratedAffineResidualCasePremisesError::WrongCaseBinding);

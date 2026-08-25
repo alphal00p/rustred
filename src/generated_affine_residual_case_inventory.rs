@@ -8,7 +8,7 @@
 //! predicates remain behind their authenticated source owners.
 
 use std::fmt;
-use std::mem::{size_of, size_of_val};
+use std::mem::{align_of, size_of, size_of_val};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -53,6 +53,14 @@ use crate::generated_affine_residual_source_authority::{
     GeneratedAffineResidualSourceNavigationLimits, GeneratedAffineResidualSourceNavigationStats,
     GeneratedAffineResidualSourcePointError,
 };
+use crate::parametric_sector_formula_affine_terminal::{
+    PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_V1_SCHEMA,
+    ParametricSectorFormulaAffineCylinderGeometry, ParametricSectorFormulaAffineGuardClass,
+    ParametricSectorFormulaAffineTerminalCertificate, ParametricSectorFormulaAffineTerminalOutcome,
+};
+use crate::parametric_sector_formula_residual::{
+    ParametricSectorFormulaResidualKind, ParametricSectorFormulaResidualRequest,
+};
 use crate::residual_affine_branch_guard_composition::{
     ResidualAffineBranchSealedGuardClassSourceView, ResidualAffineBranchSealedGuardEntrySourceView,
     ResidualAffineBranchSealedGuardSourceView,
@@ -65,8 +73,8 @@ use crate::{
     IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, ParametricPolynomial,
     ParametricRelation, ResidualAffineBranchEmptyReason,
     ResidualAffineBranchGuardCompositionLimits, ResidualAffineBranchSystemLimits,
-    ResidualAffineBranchUnsupportedReason, ResidualAffineIntegerMap,
-    ResidualUnitAffinePolynomialCompositionStats, SectorMask, SymbolicPolynomialPredicateKind,
+    ResidualAffineBranchUnsupportedReason, ResidualAffineIntegerMap, SectorMask,
+    SymbolicPolynomialPredicateKind,
 };
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_CASE_INVENTORY_V2_SCHEMA: &str =
@@ -785,6 +793,14 @@ pub(crate) struct GeneratedAffineResidualCaseAuthorityLimits {
     pub(crate) max_replay_recursive_child_comparison_bytes: usize,
     pub(crate) max_replay_recursive_child_comparison_integer_bits: usize,
     pub(crate) max_replay_owned_logical_peak: usize,
+    pub(crate) max_direct_terminal_replays: usize,
+    pub(crate) max_direct_terminal_authentications: usize,
+    pub(crate) max_direct_case_authentications: usize,
+    pub(crate) max_direct_group_authentications: usize,
+    pub(crate) max_direct_guard_scans: usize,
+    pub(crate) max_direct_anchor_offset_entries: usize,
+    pub(crate) max_direct_anchor_offset_integer_bits: usize,
+    pub(crate) max_direct_anchor_offset_bytes: usize,
     pub(crate) authentication: GeneratedAffineResidualInventoryAuthenticationLimits,
 }
 
@@ -806,6 +822,14 @@ impl Default for GeneratedAffineResidualCaseAuthorityLimits {
             max_replay_recursive_child_comparison_bytes: VERY_LARGE,
             max_replay_recursive_child_comparison_integer_bits: VERY_LARGE,
             max_replay_owned_logical_peak: VERY_LARGE,
+            max_direct_terminal_replays: 1,
+            max_direct_terminal_authentications: 1,
+            max_direct_case_authentications: 1,
+            max_direct_group_authentications: 1,
+            max_direct_guard_scans: 16_000_000,
+            max_direct_anchor_offset_entries: 1_000_000,
+            max_direct_anchor_offset_integer_bits: VERY_LARGE,
+            max_direct_anchor_offset_bytes: VERY_LARGE,
             authentication: GeneratedAffineResidualInventoryAuthenticationLimits::default(),
         }
     }
@@ -827,6 +851,15 @@ pub(crate) struct GeneratedAffineResidualCaseAuthorityStats {
     replay_recursive_child_comparison_bytes: usize,
     replay_recursive_child_comparison_integer_bits: usize,
     replay_owned_logical_peak: usize,
+    direct_terminal_replays: usize,
+    direct_terminal_authentications: usize,
+    direct_case_authentications: usize,
+    direct_group_authentications: usize,
+    direct_guard_scans: usize,
+    direct_anchor_offset_entries: usize,
+    direct_anchor_offset_integer_bits: usize,
+    direct_anchor_offset_bytes: usize,
+    direct_owner_retained_bytes_excluding_source: usize,
     authentication: GeneratedAffineResidualInventoryAuthenticationStats,
 }
 
@@ -872,6 +905,33 @@ impl GeneratedAffineResidualCaseAuthorityStats {
     }
     pub(crate) const fn replay_owned_logical_peak(self) -> usize {
         self.replay_owned_logical_peak
+    }
+    pub(crate) const fn direct_terminal_replays(self) -> usize {
+        self.direct_terminal_replays
+    }
+    pub(crate) const fn direct_terminal_authentications(self) -> usize {
+        self.direct_terminal_authentications
+    }
+    pub(crate) const fn direct_case_authentications(self) -> usize {
+        self.direct_case_authentications
+    }
+    pub(crate) const fn direct_group_authentications(self) -> usize {
+        self.direct_group_authentications
+    }
+    pub(crate) const fn direct_guard_scans(self) -> usize {
+        self.direct_guard_scans
+    }
+    pub(crate) const fn direct_anchor_offset_entries(self) -> usize {
+        self.direct_anchor_offset_entries
+    }
+    pub(crate) const fn direct_anchor_offset_integer_bits(self) -> usize {
+        self.direct_anchor_offset_integer_bits
+    }
+    pub(crate) const fn direct_anchor_offset_bytes(self) -> usize {
+        self.direct_anchor_offset_bytes
+    }
+    pub(crate) const fn direct_owner_retained_bytes_excluding_source(self) -> usize {
+        self.direct_owner_retained_bytes_excluding_source
     }
     pub(crate) const fn authentication(
         self,
@@ -1286,7 +1346,7 @@ impl<'authority> GeneratedAffineResidualSameGroupTargetCases<'authority> {
             let authority: &'authority GeneratedAffineResidualCaseAuthority =
                 self.authority.as_ref();
             let inventory: &'authority GeneratedAffineResidualCaseInventoryCertificate =
-                authority.inventory.as_ref();
+                authority.legacy_inventory()?;
             let case_ordinal = self
                 .group
                 .case_ordinals()
@@ -1385,6 +1445,8 @@ pub(crate) enum GeneratedAffineResidualCaseAuthorityError {
     WrongTargetOrdinal,
     TargetGeometryMismatch,
     SourceBinding,
+    DirectTerminalNotActionable,
+    DirectTerminalGeometryMissing,
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -1392,6 +1454,10 @@ pub(crate) enum GeneratedAffineResidualCaseAuthorityError {
         resource: &'static str,
         requested: usize,
         limit: usize,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
     },
     Inventory(GeneratedAffineResidualCaseInventoryError),
     SymbolicaPanic,
@@ -1413,8 +1479,11 @@ impl fmt::Debug for GeneratedAffineResidualCaseAuthorityError {
             Self::WrongTargetOrdinal => "WrongTargetOrdinal",
             Self::TargetGeometryMismatch => "TargetGeometryMismatch",
             Self::SourceBinding => "SourceBinding",
+            Self::DirectTerminalNotActionable => "DirectTerminalNotActionable",
+            Self::DirectTerminalGeometryMissing => "DirectTerminalGeometryMissing",
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
             Self::ResourceLimit { .. } => "ResourceLimit",
+            Self::AllocationFailure { .. } => "AllocationFailure",
             Self::Inventory(_) => "Inventory",
             Self::SymbolicaPanic => "SymbolicaPanic",
         };
@@ -1459,11 +1528,20 @@ impl fmt::Display for GeneratedAffineResidualCaseAuthorityError {
             Self::SourceBinding => {
                 formatter.write_str("residual case authority source binding mismatch")
             }
+            Self::DirectTerminalNotActionable => {
+                formatter.write_str("direct formula terminal is not an actionable affine case")
+            }
+            Self::DirectTerminalGeometryMissing => {
+                formatter.write_str("direct actionable formula terminal has no affine geometry")
+            }
             Self::ResourceCountOverflow { .. } => {
                 formatter.write_str("residual case authority resource count overflow")
             }
             Self::ResourceLimit { .. } => {
                 formatter.write_str("residual case authority resource limit exceeded")
+            }
+            Self::AllocationFailure { .. } => {
+                formatter.write_str("residual case authority allocation failed")
             }
             Self::Inventory(_) => {
                 formatter.write_str("residual case authority inventory authentication failed")
@@ -1477,12 +1555,22 @@ impl fmt::Display for GeneratedAffineResidualCaseAuthorityError {
 
 impl std::error::Error for GeneratedAffineResidualCaseAuthorityError {}
 
+#[derive(Clone)]
+enum GeneratedAffineResidualCaseAuthoritySource {
+    LegacyInventory(Arc<GeneratedAffineResidualCaseInventoryCertificate>),
+    DirectFormulaSingleton {
+        terminal: Arc<ParametricSectorFormulaAffineTerminalCertificate>,
+        anchor_offsets: Arc<Vec<Vec<Integer>>>,
+    },
+}
+
 /// Allocation-bound authority for one source-neutral actionable case.  The
-/// inventory allocation cannot be replaced after construction and is never
-/// returned as an owning handle.
+/// exact source allocation cannot be replaced after construction and is never
+/// returned as an owning handle.  A direct formula terminal is represented by
+/// one case in one group; no legacy Boolean/integer-system object is minted.
 #[derive(Clone)]
 pub(crate) struct GeneratedAffineResidualCaseAuthority {
-    inventory: Arc<GeneratedAffineResidualCaseInventoryCertificate>,
+    source: GeneratedAffineResidualCaseAuthoritySource,
     case_ordinal: usize,
     group_ordinal: usize,
     limits: GeneratedAffineResidualCaseAuthorityLimits,
@@ -1496,7 +1584,7 @@ impl fmt::Debug for GeneratedAffineResidualCaseAuthority {
             .field("case_ordinal", &self.case_ordinal)
             .field("group_ordinal", &self.group_ordinal)
             .field("arity", &self.arity())
-            .field("private_inventory", &"<redacted>")
+            .field("private_source", &"<redacted>")
             .finish()
     }
 }
@@ -1588,11 +1676,207 @@ impl GeneratedAffineResidualCaseAuthority {
             }
             stats.authentication = authentication;
             Ok(Self {
-                inventory,
+                source: GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory),
                 case_ordinal,
                 group_ordinal,
                 limits,
                 stats,
+            })
+        }))
+        .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SymbolicaPanic)?
+    }
+
+    /// Admit one replayed actionable direct formula terminal as an exact
+    /// singleton case/group authority.  Non-actionable outcomes are rejected
+    /// before any replay or anchor-offset allocation.
+    pub(crate) fn try_new_direct_formula_singleton(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        terminal: Arc<ParametricSectorFormulaAffineTerminalCertificate>,
+        limits: GeneratedAffineResidualCaseAuthorityLimits,
+    ) -> Result<Self, GeneratedAffineResidualCaseAuthorityError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            if terminal.outcome() != ParametricSectorFormulaAffineTerminalOutcome::Actionable {
+                return Err(GeneratedAffineResidualCaseAuthorityError::DirectTerminalNotActionable);
+            }
+            let geometry = terminal
+                .geometry()
+                .ok_or(GeneratedAffineResidualCaseAuthorityError::DirectTerminalGeometryMissing)?;
+            if terminal.schema() != PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_V1_SCHEMA {
+                return Err(GeneratedAffineResidualCaseAuthorityError::SchemaMismatch);
+            }
+            if terminal.terminal_kind() != ParametricSectorFormulaResidualKind::Uncovered {
+                return Err(GeneratedAffineResidualCaseAuthorityError::DirectTerminalNotActionable);
+            }
+            let scope_comparison_bytes = direct_case_authority_validate_scope(
+                terminal.as_ref(),
+                family,
+                context,
+                limits.max_scope_comparison_bytes,
+            )?;
+            if geometry.ambient_arity() != context.index_count()
+                || geometry.constants().len() != context.index_count()
+                || geometry.compact_linear_coefficients().len()
+                    != context
+                        .index_count()
+                        .checked_mul(geometry.free_positions().len())
+                        .ok_or(
+                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                                resource: "direct compact geometry entries",
+                            },
+                        )?
+            {
+                return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+            }
+            let guard_scans = terminal.guards().len();
+            for (resource, limit) in [
+                (
+                    "direct terminal replays",
+                    limits.max_direct_terminal_replays,
+                ),
+                (
+                    "direct terminal authentications",
+                    limits.max_direct_terminal_authentications,
+                ),
+                (
+                    "direct case authentications",
+                    limits.max_direct_case_authentications,
+                ),
+                (
+                    "direct group authentications",
+                    limits.max_direct_group_authentications,
+                ),
+            ] {
+                case_authority_check_limit(resource, 1, limit)?;
+            }
+            case_authority_check_limit(
+                "direct terminal guard scans",
+                guard_scans,
+                limits.max_direct_guard_scans,
+            )?;
+            let anchor_entries = geometry.ambient_arity();
+            let prospective_anchor_bytes = case_authority_checked_sum(
+                "direct singleton anchor-offset bytes",
+                [
+                    case_authority_arc_payload_control_and_padding_byte_bound::<Vec<Vec<Integer>>>(
+                    )?,
+                    size_of::<Vec<Integer>>(),
+                    anchor_entries.checked_mul(size_of::<Integer>()).ok_or(
+                        GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                            resource: "direct singleton anchor-offset bytes",
+                        },
+                    )?,
+                ],
+            )?;
+            // Admit every outer replay/authentication and retained-allocation
+            // count before invoking the expensive nested terminal replay.
+            for (resource, requested, limit) in [
+                (
+                    "direct singleton anchor-offset entries",
+                    anchor_entries,
+                    limits.max_direct_anchor_offset_entries,
+                ),
+                (
+                    "direct singleton anchor-offset integer bits",
+                    0,
+                    limits.max_direct_anchor_offset_integer_bits,
+                ),
+                (
+                    "direct singleton anchor-offset bytes",
+                    prospective_anchor_bytes,
+                    limits.max_direct_anchor_offset_bytes,
+                ),
+            ] {
+                case_authority_check_limit(resource, requested, limit)?;
+            }
+            terminal
+                .replay(family, context)
+                .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
+            for guard in terminal.guards() {
+                match guard.class() {
+                    ParametricSectorFormulaAffineGuardClass::BaseAssumption(condition)
+                    | ParametricSectorFormulaAffineGuardClass::FreeIndexDependent(condition)
+                        if condition.origins().len() == 1
+                            && condition
+                                .origins()
+                                .contains(&crate::GuardOrigin::GeneratedAffineSealedCondition) => {}
+                    ParametricSectorFormulaAffineGuardClass::DischargedNonzeroIntegerConstant(
+                        _,
+                    ) => {}
+                    _ => return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding),
+                }
+            }
+
+            let mut zero_offset = Vec::new();
+            zero_offset.try_reserve_exact(anchor_entries).map_err(|_| {
+                GeneratedAffineResidualCaseAuthorityError::AllocationFailure {
+                    resource: "direct singleton anchor offset",
+                    requested: anchor_entries,
+                }
+            })?;
+            zero_offset.resize_with(anchor_entries, || Integer::from(0));
+            let mut offsets = Vec::new();
+            offsets.try_reserve_exact(1).map_err(|_| {
+                GeneratedAffineResidualCaseAuthorityError::AllocationFailure {
+                    resource: "direct singleton anchor-offset table",
+                    requested: 1,
+                }
+            })?;
+            offsets.push(zero_offset);
+            let observed_anchor_bytes = case_authority_checked_sum(
+                "direct singleton anchor-offset bytes",
+                [
+                    case_authority_arc_payload_control_and_padding_byte_bound::<Vec<Vec<Integer>>>(
+                    )?,
+                    offsets
+                        .capacity()
+                        .checked_mul(size_of::<Vec<Integer>>())
+                        .ok_or(
+                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                                resource: "direct singleton anchor-offset bytes",
+                            },
+                        )?,
+                    offsets[0]
+                        .capacity()
+                        .checked_mul(size_of::<Integer>())
+                        .ok_or(
+                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                                resource: "direct singleton anchor-offset bytes",
+                            },
+                        )?,
+                ],
+            )?;
+            case_authority_check_limit(
+                "direct singleton anchor-offset bytes",
+                observed_anchor_bytes,
+                limits.max_direct_anchor_offset_bytes,
+            )?;
+            let direct_owner_retained_bytes_excluding_source = case_authority_checked_add(
+                "direct case-authority retained bytes excluding source",
+                size_of::<Self>(),
+                observed_anchor_bytes,
+            )?;
+            Ok(Self {
+                source: GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal,
+                    anchor_offsets: Arc::new(offsets),
+                },
+                case_ordinal: 0,
+                group_ordinal: 0,
+                limits,
+                stats: GeneratedAffineResidualCaseAuthorityStats {
+                    scope_comparison_bytes,
+                    direct_terminal_replays: 1,
+                    direct_terminal_authentications: 1,
+                    direct_case_authentications: 1,
+                    direct_group_authentications: 1,
+                    direct_guard_scans: guard_scans,
+                    direct_anchor_offset_entries: anchor_entries,
+                    direct_anchor_offset_integer_bits: 0,
+                    direct_anchor_offset_bytes: observed_anchor_bytes,
+                    direct_owner_retained_bytes_excluding_source,
+                    ..GeneratedAffineResidualCaseAuthorityStats::default()
+                },
             })
         }))
         .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SymbolicaPanic)?
@@ -1611,33 +1895,83 @@ impl GeneratedAffineResidualCaseAuthority {
         self.stats
     }
 
-    /// Bytes owned by this authority allocation itself. The retained
-    /// inventory pointee is deliberately excluded: exact-group solve plans
-    /// and physical frames keep that common inventory ancestry alive, while a
-    /// non-anchor source authority can still become uniquely owned by a raw
-    /// row recipe.
+    /// Bytes owned by this authority allocation itself. The retained source
+    /// pointee is deliberately excluded and is accounted by its replayable
+    /// owner.
+    pub(crate) const fn owner_retained_bytes_excluding_source(&self) -> usize {
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => size_of::<Self>(),
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton { .. } => {
+                self.stats.direct_owner_retained_bytes_excluding_source
+            }
+        }
+    }
     pub(crate) const fn owner_retained_bytes_excluding_inventory(&self) -> usize {
-        size_of::<Self>()
+        self.owner_retained_bytes_excluding_source()
     }
     pub(crate) fn family_fingerprint(&self) -> &str {
-        self.inventory.family_fingerprint()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.family_fingerprint()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal.family_fingerprint(),
+        }
     }
     pub(crate) fn context_fingerprint(&self) -> &str {
-        self.inventory.context_fingerprint()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.context_fingerprint()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal.context_fingerprint(),
+        }
     }
     pub(crate) fn sector(&self) -> &SectorMask {
-        self.inventory.sector()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.sector()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal.sector(),
+        }
     }
     pub(crate) fn ordering(&self) -> IntegralOrderingPolicy {
-        self.inventory.ordering()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.ordering()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal.ordering_policy(),
+        }
     }
     pub(crate) fn arity(&self) -> usize {
-        self.inventory.arity()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.arity()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal
+                .geometry()
+                .map_or(0, |geometry| geometry.ambient_arity()),
+        }
     }
     /// Number of parametric rows owned by this authority's exact retained
     /// source allocation.  Only the scalar count crosses the boundary.
     pub(crate) fn source_row_count(&self) -> usize {
-        self.inventory.source_row_count()
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                inventory.source_row_count()
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => terminal.path_arc().source_arc().row_span().rows().len(),
+        }
     }
 
     /// Test exact retained allocation identity without returning an owning
@@ -1646,7 +1980,11 @@ impl GeneratedAffineResidualCaseAuthority {
         &self,
         inventory: &Arc<GeneratedAffineResidualCaseInventoryCertificate>,
     ) -> bool {
-        Arc::ptr_eq(&self.inventory, inventory)
+        matches!(
+            &self.source,
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(retained)
+                if Arc::ptr_eq(retained, inventory)
+        )
     }
 
     /// Compare the retained inventory ancestry of two case authorities
@@ -1658,7 +1996,46 @@ impl GeneratedAffineResidualCaseAuthority {
     /// retained inventory. Mathematical/value equality is deliberately not
     /// sufficient for that proof boundary.
     pub(crate) fn same_inventory_allocation_as(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inventory, &other.inventory)
+        matches!(
+            (&self.source, &other.source),
+            (
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(left),
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(right)
+            ) if Arc::ptr_eq(left, right)
+        )
+    }
+
+    pub(crate) fn same_source_allocation_as(&self, other: &Self) -> bool {
+        match (&self.source, &other.source) {
+            (
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(left),
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(right),
+            ) => Arc::ptr_eq(left, right),
+            (
+                GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal: left,
+                    ..
+                },
+                GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal: right,
+                    ..
+                },
+            ) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn same_direct_formula_terminal_allocation(
+        &self,
+        terminal: &Arc<ParametricSectorFormulaAffineTerminalCertificate>,
+    ) -> bool {
+        matches!(
+            &self.source,
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal: retained,
+                ..
+            } if Arc::ptr_eq(retained, terminal)
+        )
     }
 
     pub(crate) fn authenticated_case_view(
@@ -1671,23 +2048,21 @@ impl GeneratedAffineResidualCaseAuthority {
         if context.fingerprint() != self.context_fingerprint() {
             return Err(GeneratedAffineResidualCaseAuthorityError::WrongContext);
         }
-        let retained_case = self
-            .inventory
+        let inventory = self.legacy_inventory()?;
+        let retained_case = inventory
             .cases
             .get(self.case_ordinal)
             .filter(|case| case.ordinal == self.case_ordinal)
             .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
         let mut stats = GeneratedAffineResidualInventoryAuthenticationStats::default();
-        let source_record = self
-            .inventory
+        let source_record = inventory
             .authenticated_boolean_terminal_for_inventory(
                 retained_case.terminal_ordinal,
                 self.limits.authentication.boolean_source_navigation,
                 &mut stats,
             )
             .map_err(map_inventory_authentication_authority_error)?;
-        let terminal = self
-            .inventory
+        let terminal = inventory
             .authenticated_terminal_view_from_boolean_record(
                 context,
                 retained_case.terminal_ordinal,
@@ -1696,7 +2071,7 @@ impl GeneratedAffineResidualCaseAuthority {
                 &mut stats,
             )
             .map_err(map_inventory_authentication_authority_error)?;
-        self.inventory
+        inventory
             .authenticated_case_view_from_terminal(
                 self.case_ordinal,
                 terminal,
@@ -1716,8 +2091,9 @@ impl GeneratedAffineResidualCaseAuthority {
         if context.fingerprint() != self.context_fingerprint() {
             return Err(GeneratedAffineResidualCaseAuthorityError::WrongContext);
         }
+        let inventory = self.legacy_inventory()?;
         let mut stats = GeneratedAffineResidualInventoryAuthenticationStats::default();
-        self.inventory
+        inventory
             .authenticated_group_view_with_inventory_limits(
                 context,
                 self.group_ordinal,
@@ -1725,6 +2101,110 @@ impl GeneratedAffineResidualCaseAuthority {
                 &mut stats,
             )
             .map_err(map_inventory_authentication_authority_error)
+    }
+
+    /// Source-neutral authenticated case view used by premise projection.
+    /// Legacy consumers keep using `authenticated_case_view` and therefore
+    /// cannot accidentally route a Direct authority into V2 solve manifests.
+    pub(crate) fn authenticated_source_neutral_case_view(
+        &self,
+        context: &ParametricCoefficientContext,
+    ) -> Result<
+        GeneratedAffineResidualCaseSourceRecordView<'_>,
+        GeneratedAffineResidualCaseAuthorityError,
+    > {
+        if context.fingerprint() != self.context_fingerprint() {
+            return Err(GeneratedAffineResidualCaseAuthorityError::WrongContext);
+        }
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => {
+                let legacy = self.authenticated_case_view(context)?;
+                Ok(GeneratedAffineResidualCaseSourceRecordView {
+                    ordinal: legacy.ordinal(),
+                    locator: GeneratedAffineResidualCaseSourceLocator::Legacy(legacy.locator()),
+                    group_ordinal: legacy.group_ordinal(),
+                    ordinal_within_group: legacy.ordinal_within_group(),
+                    constants: legacy.constants(),
+                    source: GeneratedAffineResidualCaseSourceView {
+                        inner: GeneratedAffineResidualCaseSourceViewInner::Legacy(legacy.source()),
+                    },
+                })
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal, ..
+            } => {
+                if self.case_ordinal != 0
+                    || self.group_ordinal != 0
+                    || terminal.outcome()
+                        != ParametricSectorFormulaAffineTerminalOutcome::Actionable
+                {
+                    return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                }
+                let geometry = terminal.geometry().ok_or(
+                    GeneratedAffineResidualCaseAuthorityError::DirectTerminalGeometryMissing,
+                )?;
+                Ok(GeneratedAffineResidualCaseSourceRecordView {
+                    ordinal: 0,
+                    locator: GeneratedAffineResidualCaseSourceLocator::DirectFormula {
+                        normalized_source_schema: terminal.path_arc().source_arc().schema(),
+                        path_schema: terminal.path_arc().schema(),
+                        branch_order_schema: terminal.path_arc().branch_order_schema(),
+                        request: terminal.path_arc().request(),
+                        yield_ordinal: terminal.path_arc().yield_ordinal(),
+                        terminal_kind: terminal.terminal_kind(),
+                    },
+                    group_ordinal: 0,
+                    ordinal_within_group: 0,
+                    constants: geometry.constants(),
+                    source: GeneratedAffineResidualCaseSourceView {
+                        inner: GeneratedAffineResidualCaseSourceViewInner::Direct(
+                            terminal.as_ref(),
+                        ),
+                    },
+                })
+            }
+        }
+    }
+
+    pub(crate) fn authenticated_source_neutral_group_view(
+        &self,
+        context: &ParametricCoefficientContext,
+    ) -> Result<
+        GeneratedAffineResidualInventoryGroupSourceView<'_>,
+        GeneratedAffineResidualCaseAuthorityError,
+    > {
+        if context.fingerprint() != self.context_fingerprint() {
+            return Err(GeneratedAffineResidualCaseAuthorityError::WrongContext);
+        }
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => {
+                self.authenticated_group_view(context)
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal,
+                anchor_offsets,
+            } => {
+                let geometry = terminal.geometry().ok_or(
+                    GeneratedAffineResidualCaseAuthorityError::DirectTerminalGeometryMissing,
+                )?;
+                if self.case_ordinal != 0
+                    || self.group_ordinal != 0
+                    || anchor_offsets.len() != 1
+                    || anchor_offsets[0].len() != geometry.ambient_arity()
+                {
+                    return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                }
+                Ok(GeneratedAffineResidualInventoryGroupSourceView {
+                    ordinal: 0,
+                    ambient_arity: geometry.ambient_arity(),
+                    case_ordinals: &DIRECT_FORMULA_SINGLETON_CASE_ORDINALS,
+                    anchor_case_ordinal: 0,
+                    free_positions: geometry.free_positions(),
+                    compact_linear_coefficients: geometry.compact_linear_coefficients(),
+                    anchor_offsets: anchor_offsets.as_slice(),
+                })
+            }
+        }
     }
 
     pub(crate) fn same_group_target_cases<'authority>(
@@ -1739,8 +2219,9 @@ impl GeneratedAffineResidualCaseAuthority {
         catch_unwind(AssertUnwindSafe(|| {
             const ORDINAL_COMPARISONS: usize = 5;
             const SHAPE_COMPARISONS: usize = 2;
+            let inventory = self.legacy_inventory()?;
             let scope_comparison_bytes = case_authority_validate_scope(
-                self.inventory.as_ref(),
+                inventory,
                 family,
                 context,
                 limits.max_scope_comparison_bytes,
@@ -1761,13 +2242,11 @@ impl GeneratedAffineResidualCaseAuthority {
             ] {
                 case_authority_check_limit(resource, requested, limit)?;
             }
-            let retained_case = self
-                .inventory
+            let retained_case = inventory
                 .cases
                 .get(self.case_ordinal)
                 .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
-            let retained_group = self
-                .inventory
+            let retained_group = inventory
                 .groups
                 .get(self.group_ordinal)
                 .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
@@ -1790,8 +2269,7 @@ impl GeneratedAffineResidualCaseAuthority {
                 return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
             }
             let mut authentication = GeneratedAffineResidualInventoryAuthenticationStats::default();
-            let group = self
-                .inventory
+            let group = inventory
                 .authenticated_group_view_with_inventory_limits(
                     context,
                     self.group_ordinal,
@@ -1837,8 +2315,9 @@ impl GeneratedAffineResidualCaseAuthority {
             const GROUP_LOOKUPS: usize = 1;
             const ORDINAL_COMPARISONS: usize = 6;
             const GEOMETRY_REFERENCE_COMPARISONS: usize = 5;
+            let inventory = self.legacy_inventory()?;
             let scope_comparison_bytes = case_authority_validate_scope(
-                self.inventory.as_ref(),
+                inventory,
                 family,
                 context,
                 limits.max_scope_comparison_bytes,
@@ -1874,16 +2353,14 @@ impl GeneratedAffineResidualCaseAuthority {
             if handle.group_ordinal != self.group_ordinal {
                 return Err(GeneratedAffineResidualCaseAuthorityError::WrongTargetGroup);
             }
-            let group = self
-                .inventory
+            let group = inventory
                 .groups
                 .get(handle.group_ordinal)
                 .ok_or(GeneratedAffineResidualCaseAuthorityError::WrongTargetGroup)?;
             if group.ordinal != handle.group_ordinal {
                 return Err(GeneratedAffineResidualCaseAuthorityError::WrongTargetGroup);
             }
-            let case = self
-                .inventory
+            let case = inventory
                 .cases
                 .get(handle.case_ordinal)
                 .ok_or(GeneratedAffineResidualCaseAuthorityError::WrongTargetCase)?;
@@ -1919,16 +2396,14 @@ impl GeneratedAffineResidualCaseAuthority {
                 return Err(GeneratedAffineResidualCaseAuthorityError::TargetGeometryMismatch);
             }
             let mut authentication = GeneratedAffineResidualInventoryAuthenticationStats::default();
-            let source_record = self
-                .inventory
+            let source_record = inventory
                 .authenticated_boolean_terminal_for_inventory(
                     case.terminal_ordinal,
                     self.limits.authentication.boolean_source_navigation,
                     &mut authentication,
                 )
                 .map_err(map_inventory_authentication_authority_error)?;
-            let terminal = self
-                .inventory
+            let terminal = inventory
                 .authenticated_terminal_view_from_boolean_record(
                     context,
                     case.terminal_ordinal,
@@ -1937,8 +2412,7 @@ impl GeneratedAffineResidualCaseAuthority {
                     &mut authentication,
                 )
                 .map_err(map_inventory_authentication_authority_error)?;
-            let target = self
-                .inventory
+            let target = inventory
                 .authenticated_case_view_from_terminal(
                     handle.case_ordinal,
                     terminal,
@@ -1975,18 +2449,42 @@ impl GeneratedAffineResidualCaseAuthority {
         GeneratedAffineResidualCaseAuthorityError,
     > {
         catch_unwind(AssertUnwindSafe(|| {
-            let scope_comparison_bytes = case_authority_validate_scope(
-                self.inventory.as_ref(),
-                family,
-                context,
-                limits.max_scope_comparison_bytes,
-            )?;
-            let source_rows = self.inventory.source_row_count();
+            let scope_comparison_bytes = match &self.source {
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                    case_authority_validate_scope(
+                        inventory.as_ref(),
+                        family,
+                        context,
+                        limits.max_scope_comparison_bytes,
+                    )?
+                }
+                GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal,
+                    ..
+                } => direct_case_authority_validate_scope(
+                    terminal.as_ref(),
+                    family,
+                    context,
+                    limits.max_scope_comparison_bytes,
+                )?,
+            };
+            let source_rows = self.source_row_count();
             case_authority_check_limit("source rows", source_rows, limits.max_source_rows)?;
-            let relation = self
-                .inventory
-                .source_row(source_row_ordinal)
-                .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceRowOutOfRange)?;
+            let relation = match &self.source {
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                    inventory.source_row(source_row_ordinal)
+                }
+                GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal,
+                    ..
+                } => terminal
+                    .path_arc()
+                    .source_arc()
+                    .row_span()
+                    .rows()
+                    .get(source_row_ordinal),
+            }
+            .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceRowOutOfRange)?;
             if relation.family_fingerprint() != self.family_fingerprint()
                 || relation.context_fingerprint() != self.context_fingerprint()
                 || relation.arity() != self.arity()
@@ -2025,51 +2523,227 @@ impl GeneratedAffineResidualCaseAuthority {
         context: &ParametricCoefficientContext,
     ) -> Result<(), GeneratedAffineResidualCaseAuthorityError> {
         catch_unwind(AssertUnwindSafe(|| {
-            case_authority_validate_scope(
-                self.inventory.as_ref(),
-                family,
-                context,
-                self.limits.max_scope_comparison_bytes,
-            )?;
-            case_authority_preflight_replay(self.inventory.as_ref(), self.limits)?;
             #[cfg(test)]
             CASE_AUTHORITY_REPLAY_PANIC_FOR_TEST.with(|panic_next| {
                 if panic_next.replace(false) {
                     panic!("injected case-authority replay panic");
                 }
             });
-            self.inventory
-                .replay(family, context)
-                .map_err(GeneratedAffineResidualCaseAuthorityError::Inventory)?;
-            let mut authentication = GeneratedAffineResidualInventoryAuthenticationStats::default();
-            let group = self
-                .inventory
-                .authenticated_group_view_with_inventory_limits(
-                    context,
-                    self.group_ordinal,
-                    self.limits.authentication,
-                    &mut authentication,
-                )
-                .map_err(map_inventory_authentication_authority_error)?;
-            let case = self
-                .inventory
-                .cases
-                .get(self.case_ordinal)
-                .filter(|case| case.ordinal == self.case_ordinal)
-                .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
-            if case.group_ordinal != self.group_ordinal
-                || group
-                    .case_ordinals()
-                    .get(case.ordinal_within_group)
-                    .copied()
-                    != Some(self.case_ordinal)
-            {
-                return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+            match &self.source {
+                GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                    case_authority_validate_scope(
+                        inventory.as_ref(),
+                        family,
+                        context,
+                        self.limits.max_scope_comparison_bytes,
+                    )?;
+                    case_authority_preflight_replay(inventory.as_ref(), self.limits)?;
+                    inventory
+                        .replay(family, context)
+                        .map_err(GeneratedAffineResidualCaseAuthorityError::Inventory)?;
+                    let mut authentication =
+                        GeneratedAffineResidualInventoryAuthenticationStats::default();
+                    let group = inventory
+                        .authenticated_group_view_with_inventory_limits(
+                            context,
+                            self.group_ordinal,
+                            self.limits.authentication,
+                            &mut authentication,
+                        )
+                        .map_err(map_inventory_authentication_authority_error)?;
+                    let case = inventory
+                        .cases
+                        .get(self.case_ordinal)
+                        .filter(|case| case.ordinal == self.case_ordinal)
+                        .ok_or(GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
+                    if case.group_ordinal != self.group_ordinal
+                        || group
+                            .case_ordinals()
+                            .get(case.ordinal_within_group)
+                            .copied()
+                            != Some(self.case_ordinal)
+                    {
+                        return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                    }
+                    Ok(())
+                }
+                GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                    terminal,
+                    anchor_offsets,
+                } => {
+                    let scope_comparison_bytes = direct_case_authority_validate_scope(
+                        terminal.as_ref(),
+                        family,
+                        context,
+                        self.limits.max_scope_comparison_bytes,
+                    )?;
+                    if self.case_ordinal != 0
+                        || self.group_ordinal != 0
+                        || terminal.outcome()
+                            != ParametricSectorFormulaAffineTerminalOutcome::Actionable
+                        || terminal.terminal_kind()
+                            != ParametricSectorFormulaResidualKind::Uncovered
+                    {
+                        return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                    }
+                    let geometry = terminal.geometry().ok_or(
+                        GeneratedAffineResidualCaseAuthorityError::DirectTerminalGeometryMissing,
+                    )?;
+                    let anchor_entries = geometry.ambient_arity();
+                    for (resource, requested, limit) in [
+                        (
+                            "direct terminal replays",
+                            1,
+                            self.limits.max_direct_terminal_replays,
+                        ),
+                        (
+                            "direct terminal authentications",
+                            1,
+                            self.limits.max_direct_terminal_authentications,
+                        ),
+                        (
+                            "direct case authentications",
+                            1,
+                            self.limits.max_direct_case_authentications,
+                        ),
+                        (
+                            "direct group authentications",
+                            1,
+                            self.limits.max_direct_group_authentications,
+                        ),
+                        (
+                            "direct terminal guard scans",
+                            terminal.guards().len(),
+                            self.limits.max_direct_guard_scans,
+                        ),
+                        (
+                            "direct singleton anchor-offset entries",
+                            anchor_entries,
+                            self.limits.max_direct_anchor_offset_entries,
+                        ),
+                        (
+                            "direct singleton anchor-offset integer bits",
+                            0,
+                            self.limits.max_direct_anchor_offset_integer_bits,
+                        ),
+                    ] {
+                        case_authority_check_limit(resource, requested, limit)?;
+                    }
+                    if anchor_offsets.len() != 1
+                        || anchor_offsets[0].len() != anchor_entries
+                    {
+                        return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                    }
+                    let observed_anchor_bytes = case_authority_checked_sum(
+                        "direct singleton anchor-offset bytes",
+                        [
+                            case_authority_arc_payload_control_and_padding_byte_bound::<
+                                Vec<Vec<Integer>>,
+                            >()?,
+                            anchor_offsets
+                                .capacity()
+                                .checked_mul(size_of::<Vec<Integer>>())
+                                .ok_or(
+                                    GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                                        resource: "direct singleton anchor-offset bytes",
+                                    },
+                                )?,
+                            anchor_offsets[0]
+                                .capacity()
+                                .checked_mul(size_of::<Integer>())
+                                .ok_or(
+                                    GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                                        resource: "direct singleton anchor-offset bytes",
+                                    },
+                                )?,
+                        ],
+                    )?;
+                    case_authority_check_limit(
+                        "direct singleton anchor-offset bytes",
+                        observed_anchor_bytes,
+                        self.limits.max_direct_anchor_offset_bytes,
+                    )?;
+                    let owner_retained = case_authority_checked_add(
+                        "direct case-authority retained bytes excluding source",
+                        size_of::<Self>(),
+                        observed_anchor_bytes,
+                    )?;
+                    let expected_stats = GeneratedAffineResidualCaseAuthorityStats {
+                        scope_comparison_bytes,
+                        direct_terminal_replays: 1,
+                        direct_terminal_authentications: 1,
+                        direct_case_authentications: 1,
+                        direct_group_authentications: 1,
+                        direct_guard_scans: terminal.guards().len(),
+                        direct_anchor_offset_entries: anchor_entries,
+                        direct_anchor_offset_integer_bits: 0,
+                        direct_anchor_offset_bytes: observed_anchor_bytes,
+                        direct_owner_retained_bytes_excluding_source: owner_retained,
+                        ..GeneratedAffineResidualCaseAuthorityStats::default()
+                    };
+                    if self.stats != expected_stats
+                        || anchor_offsets[0].iter().any(|value| !value.is_zero())
+                    {
+                        return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+                    }
+                    terminal
+                        .replay(family, context)
+                        .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
+                    Ok(())
+                }
             }
-            Ok(())
         }))
         .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SymbolicaPanic)?
     }
+
+    fn legacy_inventory(
+        &self,
+    ) -> Result<
+        &GeneratedAffineResidualCaseInventoryCertificate,
+        GeneratedAffineResidualCaseAuthorityError,
+    > {
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                Ok(inventory.as_ref())
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton { .. } => {
+                Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding)
+            }
+        }
+    }
+}
+
+fn direct_case_authority_validate_scope(
+    terminal: &ParametricSectorFormulaAffineTerminalCertificate,
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    max_scope_comparison_bytes: usize,
+) -> Result<usize, GeneratedAffineResidualCaseAuthorityError> {
+    let supplied_family_fingerprint = family.fingerprint_ref();
+    let scope_comparison_bytes = case_authority_checked_sum(
+        "scope comparison bytes",
+        [
+            terminal.family_fingerprint().len(),
+            supplied_family_fingerprint.len(),
+            terminal.context_fingerprint().len(),
+            context.fingerprint().len(),
+        ],
+    )?;
+    case_authority_check_limit(
+        "scope comparison bytes",
+        scope_comparison_bytes,
+        max_scope_comparison_bytes,
+    )?;
+    if terminal.family_fingerprint() != supplied_family_fingerprint {
+        return Err(GeneratedAffineResidualCaseAuthorityError::WrongFamily);
+    }
+    if terminal.context_fingerprint() != context.fingerprint() {
+        return Err(GeneratedAffineResidualCaseAuthorityError::WrongContext);
+    }
+    if terminal.sector().arity() != context.index_count() {
+        return Err(GeneratedAffineResidualCaseAuthorityError::WrongArity);
+    }
+    Ok(scope_comparison_bytes)
 }
 
 fn case_authority_validate_scope(
@@ -2248,6 +2922,21 @@ fn case_authority_checked_sum<const N: usize>(
     values.into_iter().try_fold(0usize, |total, value| {
         case_authority_checked_add(resource, total, value)
     })
+}
+
+fn case_authority_arc_payload_control_and_padding_byte_bound<T>()
+-> Result<usize, GeneratedAffineResidualCaseAuthorityError> {
+    let controls = 2usize.checked_mul(size_of::<usize>()).ok_or(
+        GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+            resource: "direct singleton anchor-offset bytes",
+        },
+    )?;
+    let alignment = align_of::<T>();
+    let padding = (alignment - (controls % alignment)) % alignment;
+    case_authority_checked_sum(
+        "direct singleton anchor-offset bytes",
+        [controls, padding, size_of::<T>()],
+    )
 }
 
 fn case_authority_check_limit(
@@ -2490,6 +3179,406 @@ impl fmt::Debug for GeneratedAffineResidualInventoryGroupSourceView<'_> {
             .field("private_geometry", &"<redacted>")
             .finish()
     }
+}
+
+const DIRECT_FORMULA_SINGLETON_CASE_ORDINALS: [usize; 1] = [0];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GeneratedAffineResidualCaseSourceLocator {
+    Legacy(GeneratedAffineResidualInventoryTerminalLocator),
+    DirectFormula {
+        normalized_source_schema: &'static str,
+        path_schema: &'static str,
+        branch_order_schema: &'static str,
+        request: ParametricSectorFormulaResidualRequest,
+        yield_ordinal: usize,
+        terminal_kind: ParametricSectorFormulaResidualKind,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum GeneratedAffineResidualCaseGeometryView<'source> {
+    Legacy(&'source ResidualAffineIntegerMap),
+    Direct(&'source ParametricSectorFormulaAffineCylinderGeometry),
+}
+
+impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
+    pub(crate) fn ambient_arity(self) -> usize {
+        match self {
+            Self::Legacy(map) => map.ambient_arity(),
+            Self::Direct(geometry) => geometry.ambient_arity(),
+        }
+    }
+
+    pub(crate) fn free_positions(self) -> &'source [usize] {
+        match self {
+            Self::Legacy(map) => map.free_positions(),
+            Self::Direct(geometry) => geometry.free_positions(),
+        }
+    }
+
+    pub(crate) fn constant(self, row: usize) -> Option<&'source Integer> {
+        match self {
+            Self::Legacy(map) => map.constant(row),
+            Self::Direct(geometry) => geometry.constants().get(row),
+        }
+    }
+
+    pub(crate) fn compact_linear_coefficient(
+        self,
+        row: usize,
+        free_ordinal: usize,
+    ) -> Option<&'source Integer> {
+        match self {
+            Self::Legacy(map) => {
+                let ambient_column = *map.free_positions().get(free_ordinal)?;
+                map.linear_coefficient(row, ambient_column)
+            }
+            Self::Direct(geometry) => {
+                if row >= geometry.ambient_arity()
+                    || free_ordinal >= geometry.free_positions().len()
+                {
+                    return None;
+                }
+                let compact_position = row
+                    .checked_mul(geometry.free_positions().len())?
+                    .checked_add(free_ordinal)?;
+                geometry.compact_linear_coefficients().get(compact_position)
+            }
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseGeometryView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualCaseGeometryView")
+            .field("ambient_arity", &self.ambient_arity())
+            .field("free_position_count", &self.free_positions().len())
+            .field("private_geometry", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GeneratedAffineResidualCaseGuardClassSourceView<'source> {
+    Contradiction,
+    DischargedNonzeroIntegerConstant,
+    BaseAssumption(&'source ParametricPolynomial),
+    FreeIndexDependent(&'source ParametricPolynomial),
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseGuardClassSourceView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self {
+            Self::Contradiction => "Contradiction",
+            Self::DischargedNonzeroIntegerConstant => "DischargedNonzeroIntegerConstant",
+            Self::BaseAssumption(_) => "BaseAssumption",
+            Self::FreeIndexDependent(_) => "FreeIndexDependent",
+        };
+        formatter.write_str(kind)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GeneratedAffineResidualCaseGuardSourceView<'source> {
+    entry_ordinal: usize,
+    structural_locus_ordinal: usize,
+    class: GeneratedAffineResidualCaseGuardClassSourceView<'source>,
+    mapped_polynomial: &'source ParametricPolynomial,
+}
+
+impl<'source> GeneratedAffineResidualCaseGuardSourceView<'source> {
+    pub(crate) const fn entry_ordinal(self) -> usize {
+        self.entry_ordinal
+    }
+    pub(crate) const fn structural_locus_ordinal(self) -> usize {
+        self.structural_locus_ordinal
+    }
+    pub(crate) const fn class(self) -> GeneratedAffineResidualCaseGuardClassSourceView<'source> {
+        self.class
+    }
+    pub(crate) const fn mapped_polynomial(self) -> &'source ParametricPolynomial {
+        self.mapped_polynomial
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseGuardSourceView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualCaseGuardSourceView")
+            .field("entry_ordinal", &self.entry_ordinal)
+            .field("structural_locus_ordinal", &self.structural_locus_ordinal)
+            .field("class", &self.class)
+            .field("private_polynomial_and_condition", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GeneratedAffineResidualCaseExceptionalPredicateSourceView<'source> {
+    predicate_ordinal: usize,
+    locus_ordinal: usize,
+    kind: SymbolicPolynomialPredicateKind,
+    polynomial: &'source ParametricPolynomial,
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseExceptionalPredicateSourceView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualCaseExceptionalPredicateSourceView")
+            .field("predicate_ordinal", &self.predicate_ordinal)
+            .field("locus_ordinal", &self.locus_ordinal)
+            .field("kind", &self.kind)
+            .field("private_polynomial", &"<redacted>")
+            .finish()
+    }
+}
+
+impl<'source> GeneratedAffineResidualCaseExceptionalPredicateSourceView<'source> {
+    pub(crate) const fn predicate_ordinal(self) -> usize {
+        self.predicate_ordinal
+    }
+    pub(crate) const fn locus_ordinal(self) -> usize {
+        self.locus_ordinal
+    }
+    pub(crate) const fn kind(self) -> SymbolicPolynomialPredicateKind {
+        self.kind
+    }
+    pub(crate) const fn polynomial(self) -> &'source ParametricPolynomial {
+        self.polynomial
+    }
+}
+
+#[derive(Clone, Copy)]
+enum GeneratedAffineResidualCaseSourceViewInner<'source> {
+    Legacy(GeneratedAffineResidualInventoryCaseSourceView<'source>),
+    Direct(&'source ParametricSectorFormulaAffineTerminalCertificate),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GeneratedAffineResidualCaseSourceView<'source> {
+    inner: GeneratedAffineResidualCaseSourceViewInner<'source>,
+}
+
+impl<'source> GeneratedAffineResidualCaseSourceView<'source> {
+    pub(crate) fn geometry(self) -> GeneratedAffineResidualCaseGeometryView<'source> {
+        match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(source) => {
+                GeneratedAffineResidualCaseGeometryView::Legacy(source.affine_map())
+            }
+            GeneratedAffineResidualCaseSourceViewInner::Direct(terminal) => {
+                GeneratedAffineResidualCaseGeometryView::Direct(
+                    terminal
+                        .geometry()
+                        .expect("authenticated direct actionable terminal has geometry"),
+                )
+            }
+        }
+    }
+
+    pub(crate) fn guard_count(self) -> usize {
+        match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(source) => source.guard_count(),
+            GeneratedAffineResidualCaseSourceViewInner::Direct(terminal) => terminal.guards().len(),
+        }
+    }
+
+    pub(crate) fn guard_entry(
+        self,
+        entry_ordinal: usize,
+    ) -> Option<GeneratedAffineResidualCaseGuardSourceView<'source>> {
+        match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(source) => {
+                neutral_legacy_guard_entry(source, entry_ordinal)
+            }
+            GeneratedAffineResidualCaseSourceViewInner::Direct(terminal) => {
+                let entry = terminal.guards().get(entry_ordinal)?;
+                let class = match entry.class() {
+                    ParametricSectorFormulaAffineGuardClass::Contradiction(_) => {
+                        GeneratedAffineResidualCaseGuardClassSourceView::Contradiction
+                    }
+                    ParametricSectorFormulaAffineGuardClass::DischargedNonzeroIntegerConstant(
+                        _,
+                    ) => GeneratedAffineResidualCaseGuardClassSourceView::DischargedNonzeroIntegerConstant,
+                    ParametricSectorFormulaAffineGuardClass::BaseAssumption(condition) => {
+                        GeneratedAffineResidualCaseGuardClassSourceView::BaseAssumption(
+                            condition.polynomial(),
+                        )
+                    }
+                    ParametricSectorFormulaAffineGuardClass::FreeIndexDependent(condition) => {
+                        GeneratedAffineResidualCaseGuardClassSourceView::FreeIndexDependent(
+                            condition.polynomial(),
+                        )
+                    }
+                };
+                Some(GeneratedAffineResidualCaseGuardSourceView {
+                    entry_ordinal,
+                    structural_locus_ordinal: entry.decision().structural_locus_ordinal(),
+                    class,
+                    mapped_polynomial: entry.mapped_polynomial(),
+                })
+            }
+        }
+    }
+
+    pub(crate) fn exceptional_predicate_count(self) -> usize {
+        match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(source) => {
+                source.exceptional_predicate_count()
+            }
+            GeneratedAffineResidualCaseSourceViewInner::Direct(_) => 0,
+        }
+    }
+
+    pub(crate) fn exceptional_predicate(
+        self,
+        predicate_ordinal: usize,
+    ) -> Option<GeneratedAffineResidualCaseExceptionalPredicateSourceView<'source>> {
+        let prior = match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(
+                GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalDomain(prior)
+                | GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalLeak(prior),
+            ) => prior,
+            _ => return None,
+        };
+        let predicate = prior.predicate(predicate_ordinal)?;
+        Some(GeneratedAffineResidualCaseExceptionalPredicateSourceView {
+            predicate_ordinal,
+            locus_ordinal: predicate.locus_ordinal(),
+            kind: predicate.kind(),
+            polynomial: predicate.polynomial(),
+        })
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseSourceView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self.inner {
+            GeneratedAffineResidualCaseSourceViewInner::Legacy(_) => "Legacy",
+            GeneratedAffineResidualCaseSourceViewInner::Direct(_) => "DirectFormulaSingleton",
+        };
+        formatter
+            .debug_struct("GeneratedAffineResidualCaseSourceView")
+            .field("kind", &kind)
+            .field("private_source", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GeneratedAffineResidualCaseSourceRecordView<'source> {
+    ordinal: usize,
+    locator: GeneratedAffineResidualCaseSourceLocator,
+    group_ordinal: usize,
+    ordinal_within_group: usize,
+    constants: &'source [Integer],
+    source: GeneratedAffineResidualCaseSourceView<'source>,
+}
+
+impl fmt::Debug for GeneratedAffineResidualCaseSourceRecordView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualCaseSourceRecordView")
+            .field("ordinal", &self.ordinal)
+            .field("locator", &self.locator)
+            .field("group_ordinal", &self.group_ordinal)
+            .field("ordinal_within_group", &self.ordinal_within_group)
+            .field("constant_count", &self.constants.len())
+            .field("private_constants_and_source", &"<redacted>")
+            .finish()
+    }
+}
+
+impl<'source> GeneratedAffineResidualCaseSourceRecordView<'source> {
+    pub(crate) const fn ordinal(self) -> usize {
+        self.ordinal
+    }
+    pub(crate) const fn locator(self) -> GeneratedAffineResidualCaseSourceLocator {
+        self.locator
+    }
+    pub(crate) const fn group_ordinal(self) -> usize {
+        self.group_ordinal
+    }
+    pub(crate) const fn ordinal_within_group(self) -> usize {
+        self.ordinal_within_group
+    }
+    pub(crate) const fn constants(self) -> &'source [Integer] {
+        self.constants
+    }
+    pub(crate) const fn source(self) -> GeneratedAffineResidualCaseSourceView<'source> {
+        self.source
+    }
+}
+
+fn neutral_legacy_guard_entry<'source>(
+    source: GeneratedAffineResidualInventoryCaseSourceView<'source>,
+    entry_ordinal: usize,
+) -> Option<GeneratedAffineResidualCaseGuardSourceView<'source>> {
+    match source {
+        GeneratedAffineResidualInventoryCaseSourceView::Initial(initial) => {
+            let entry = initial.guards().guard_entry(entry_ordinal)?;
+            let class = match entry.class() {
+                ResidualAffineBranchSealedGuardClassSourceView::Contradiction => {
+                    GeneratedAffineResidualCaseGuardClassSourceView::Contradiction
+                }
+                ResidualAffineBranchSealedGuardClassSourceView::DischargedNonzeroIntegerConstant => {
+                    GeneratedAffineResidualCaseGuardClassSourceView::DischargedNonzeroIntegerConstant
+                }
+                ResidualAffineBranchSealedGuardClassSourceView::BaseAssumption {
+                    condition_polynomial,
+                } => GeneratedAffineResidualCaseGuardClassSourceView::BaseAssumption(
+                    condition_polynomial,
+                ),
+                ResidualAffineBranchSealedGuardClassSourceView::FreeIndexDependent {
+                    condition_polynomial,
+                } => GeneratedAffineResidualCaseGuardClassSourceView::FreeIndexDependent(
+                    condition_polynomial,
+                ),
+            };
+            Some(GeneratedAffineResidualCaseGuardSourceView {
+                entry_ordinal,
+                structural_locus_ordinal: entry.structural_locus_ordinal(),
+                class,
+                mapped_polynomial: entry.mapped_polynomial(),
+            })
+        }
+        GeneratedAffineResidualInventoryCaseSourceView::PriorActionable(prior) => {
+            neutral_prior_guard_entry(prior.guard_entry(entry_ordinal)?, entry_ordinal)
+        }
+        GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalDomain(prior)
+        | GeneratedAffineResidualInventoryCaseSourceView::PriorExceptionalLeak(prior) => {
+            neutral_prior_guard_entry(prior.guard_entry(entry_ordinal)?, entry_ordinal)
+        }
+    }
+}
+
+fn neutral_prior_guard_entry<'source>(
+    entry: GeneratedAffineResidualBooleanPriorGuardSourceView<'source>,
+    entry_ordinal: usize,
+) -> Option<GeneratedAffineResidualCaseGuardSourceView<'source>> {
+    let class = match entry.class() {
+        GeneratedAffineResidualBooleanPriorGuardClassSourceView::Contradiction => {
+            GeneratedAffineResidualCaseGuardClassSourceView::Contradiction
+        }
+        GeneratedAffineResidualBooleanPriorGuardClassSourceView::DischargedNonzeroIntegerConstant => {
+            GeneratedAffineResidualCaseGuardClassSourceView::DischargedNonzeroIntegerConstant
+        }
+        GeneratedAffineResidualBooleanPriorGuardClassSourceView::BaseAssumption {
+            condition_polynomial,
+        } => GeneratedAffineResidualCaseGuardClassSourceView::BaseAssumption(condition_polynomial),
+        GeneratedAffineResidualBooleanPriorGuardClassSourceView::FreeIndexDependent {
+            condition_polynomial,
+        } => GeneratedAffineResidualCaseGuardClassSourceView::FreeIndexDependent(
+            condition_polynomial,
+        ),
+    };
+    Some(GeneratedAffineResidualCaseGuardSourceView {
+        entry_ordinal,
+        structural_locus_ordinal: entry.structural_locus_ordinal(),
+        class,
+        mapped_polynomial: entry.mapped_polynomial(),
+    })
 }
 
 impl fmt::Debug for GeneratedAffineResidualCaseInventoryCertificate {
@@ -7731,8 +8820,21 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::generated_affine_parametric_ordering::{
+        GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingError,
+        GeneratedAffineParametricOrderingLimits,
+    };
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
+    };
+    use crate::generated_affine_residual_case_premises::{
+        GeneratedAffineResidualCasePremisesError, GeneratedAffineResidualCasePremisesLimits,
+        GeneratedAffineResidualCasePremisesOutcome,
+        compile_generated_affine_residual_case_premises,
+    };
+    use crate::generated_affine_residual_group_physical_key::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
+        GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_affine_residual_source_authority::{
@@ -7758,12 +8860,24 @@ mod tests {
         GeneratedSectorAffineEffectiveResidualQueueCompiler,
         GeneratedSectorAffineEffectiveResidualQueueLimits,
     };
+    use crate::parametric_sector_formula_affine_terminal::{
+        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
+    };
+    use crate::parametric_sector_formula_residual::{
+        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
+    };
+    use crate::parametric_sector_normalized_source::{
+        ParametricSectorNormalizedCoverageSourceCompiler,
+        ParametricSectorNormalizedCoverageSourceLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
         GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricArithmeticLimits,
-        ParametricIbpGenerator, SectorMask,
+        GeneratedSectorLiveLeafQueueLimits, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
+        GeneratedWhenBadLimits, IntegralOrderingPolicy, ParametricArithmeticLimits,
+        ParametricElimination, ParametricEliminationLimits, ParametricEliminationOrdering,
+        ParametricIbpGenerator, ParametricReductionRuleCandidate, ParametricRuleLimits, SectorMask,
     };
 
     fn massive_tadpole_family(name: &str) -> IntegralFamily {
@@ -7810,6 +8924,655 @@ mod tests {
             vec![zero.clone(), zero.clone(), zero],
         )
         .unwrap()
+    }
+
+    fn direct_sunset_terminals(
+        name: &str,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        Vec<Arc<ParametricSectorFormulaAffineTerminalCertificate>>,
+    ) {
+        let family = equal_mass_two_loop_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
+        discovery_limits.adaptive.max_search_depth = 0;
+        discovery_limits
+            .coverage
+            .max_materialized_product_zero_support_terms = 0;
+        let discovery = GeneratedSectorDiscoveryCompiler::compile(
+            &family,
+            &context,
+            SectorMask::try_from_bit_string("111").unwrap(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
+            discovery_limits,
+        )
+        .unwrap();
+        let compilations = discovery
+            .coverage()
+            .candidate_attempts()
+            .iter()
+            .map(|attempt| attempt.compilation().clone())
+            .collect();
+        let source = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                discovery.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                compilations,
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            source,
+            ParametricSectorFormulaResidualRequest::AnyResidual,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let mut terminals = Vec::new();
+        while let Some(path) = cursor.next_path().unwrap() {
+            terminals.push(Arc::new(
+                ParametricSectorFormulaAffineTerminalCompiler::compile(
+                    &family,
+                    &context,
+                    Arc::new(path),
+                    ParametricSectorFormulaAffineTerminalLimits::default(),
+                )
+                .unwrap(),
+            ));
+        }
+        assert_eq!(terminals.len(), 9);
+        (family, context, terminals)
+    }
+
+    fn direct_unsupported_terminal() -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        Arc<ParametricSectorFormulaAffineTerminalCertificate>,
+    ) {
+        let family = massive_tadpole_family("direct-case-authority-unsupported-one-loop");
+        let generated = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .generate()
+            .unwrap();
+        let context = generated.context().clone();
+        let rows = generated.ibp_li().cloned().collect::<Vec<_>>();
+        let sector = SectorMask::try_new([false]).unwrap();
+        let elimination = ParametricElimination::build(
+            &context,
+            &rows,
+            ParametricEliminationOrdering::try_new(IntegralOrderingPolicy::RustRedUnshiftedV1, [0])
+                .unwrap(),
+            ParametricEliminationLimits::default(),
+        )
+        .unwrap();
+        let candidate = ParametricReductionRuleCandidate::try_from_elimination_pivot(
+            &context,
+            &rows,
+            &elimination,
+            0,
+            sector.clone(),
+            ParametricRuleLimits::default(),
+        )
+        .unwrap();
+        let compilation = GeneratedWhenBadCompiler::compile(
+            &family,
+            &context,
+            &candidate,
+            GeneratedWhenBadLimits::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            compilation,
+            GeneratedWhenBadCompilation::Unsupported(_)
+        ));
+        let source = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                vec![compilation.clone(), compilation],
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            source,
+            ParametricSectorFormulaResidualRequest::Unsupported,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let path = Arc::new(cursor.next_path().unwrap().unwrap());
+        assert!(cursor.next_path().unwrap().is_none());
+        let terminal = Arc::new(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            terminal.outcome(),
+            ParametricSectorFormulaAffineTerminalOutcome::Unsupported
+        );
+        (family, context, terminal)
+    }
+
+    #[test]
+    fn direct_formula_singleton_preserves_exact_terminal_geometry_guards_and_rows() {
+        let (family, context, mut terminals) =
+            direct_sunset_terminals("direct-case-authority-source-views");
+        let terminal = terminals.remove(0);
+        drop(terminals);
+        assert_eq!(
+            terminal.outcome(),
+            ParametricSectorFormulaAffineTerminalOutcome::Actionable
+        );
+        let terminal_path = Arc::clone(terminal.path_arc());
+        let source_owner = Arc::clone(terminal_path.source_arc());
+        let weak_terminal = Arc::downgrade(&terminal);
+        let weak_path = Arc::downgrade(&terminal_path);
+        let weak_source = Arc::downgrade(&source_owner);
+        let source_row_count = source_owner.row_span().rows().len();
+        assert!(source_row_count > 0);
+        let (selected_source_row_ordinal, selected_source_row) = source_owner
+            .row_span()
+            .rows()
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, relation)| {
+                (
+                    relation.guarded_nonzero_conditions().len(),
+                    relation.terms().len(),
+                )
+            })
+            .unwrap();
+        let selected_relation_terms = selected_source_row.terms().len();
+        let selected_guard_conditions = selected_source_row.guarded_nonzero_conditions().len();
+        assert!(selected_relation_terms > 0);
+        assert_eq!(selected_guard_conditions, 0);
+        let selected_source_row = selected_source_row as *const ParametricRelation;
+
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminal),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert_eq!(authority.case_ordinal(), 0);
+        assert_eq!(authority.group_ordinal(), 0);
+        assert_eq!(authority.arity(), 3);
+        assert_eq!(authority.source_row_count(), source_row_count);
+        assert!(authority.same_direct_formula_terminal_allocation(&terminal));
+        assert_eq!(authority.stats().inventory_replays(), 0);
+        assert_eq!(authority.stats().replay_terminals(), 0);
+        assert_eq!(authority.stats().replay_cases(), 0);
+        assert_eq!(authority.stats().replay_groups(), 0);
+        assert_eq!(authority.stats().authentication(), Default::default());
+        assert_eq!(authority.stats().direct_terminal_replays(), 1);
+        assert_eq!(authority.stats().direct_terminal_authentications(), 1);
+        assert_eq!(authority.stats().direct_case_authentications(), 1);
+        assert_eq!(authority.stats().direct_group_authentications(), 1);
+        assert_eq!(authority.stats().direct_guard_scans(), 3);
+        assert_eq!(authority.stats().direct_anchor_offset_entries(), 3);
+        assert_eq!(authority.stats().direct_anchor_offset_integer_bits(), 0);
+        assert_eq!(
+            authority.owner_retained_bytes_excluding_source(),
+            authority
+                .stats()
+                .direct_owner_retained_bytes_excluding_source()
+        );
+        assert!(matches!(
+            authority.authenticated_case_view(&context),
+            Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding)
+        ));
+        assert!(matches!(
+            authority.authenticated_group_view(&context),
+            Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding)
+        ));
+        assert!(matches!(
+            GeneratedAffineParametricOrderingCertificate::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineParametricOrderingLimits::default(),
+            ),
+            Err(GeneratedAffineParametricOrderingError::Authority(
+                GeneratedAffineResidualCaseAuthorityError::SourceBinding
+            ))
+        ));
+        assert!(matches!(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            ),
+            Err(GeneratedAffineResidualGroupPhysicalKeyError::Authority)
+        ));
+
+        let case = authority
+            .authenticated_source_neutral_case_view(&context)
+            .unwrap();
+        assert_eq!(case.ordinal(), 0);
+        assert_eq!(case.group_ordinal(), 0);
+        assert_eq!(case.ordinal_within_group(), 0);
+        let GeneratedAffineResidualCaseSourceLocator::DirectFormula {
+            normalized_source_schema,
+            path_schema,
+            branch_order_schema,
+            request,
+            yield_ordinal,
+            terminal_kind,
+        } = case.locator()
+        else {
+            panic!("direct singleton must expose a typed direct locator")
+        };
+        assert_eq!(normalized_source_schema, source_owner.schema());
+        assert_eq!(path_schema, terminal_path.schema());
+        assert_eq!(branch_order_schema, terminal_path.branch_order_schema());
+        assert_eq!(request, ParametricSectorFormulaResidualRequest::AnyResidual);
+        assert_eq!(yield_ordinal, 1);
+        assert_eq!(
+            terminal_kind,
+            ParametricSectorFormulaResidualKind::Uncovered
+        );
+
+        let geometry = case.source().geometry();
+        assert_eq!(geometry.ambient_arity(), 3);
+        assert_eq!(geometry.free_positions(), &[1]);
+        assert_eq!(
+            (0..3)
+                .map(|row| geometry.constant(row).unwrap().clone())
+                .collect::<Vec<_>>(),
+            [
+                Integer::from(i64::MAX),
+                Integer::from(0),
+                Integer::from(i64::MAX),
+            ]
+        );
+        assert_eq!(
+            geometry.compact_linear_coefficient(0, 0),
+            Some(&Integer::from(0))
+        );
+        assert_eq!(
+            geometry.compact_linear_coefficient(1, 0),
+            Some(&Integer::from(1))
+        );
+        assert_eq!(
+            geometry.compact_linear_coefficient(2, 0),
+            Some(&Integer::from(0))
+        );
+        assert!(geometry.compact_linear_coefficient(3, 0).is_none());
+        assert!(geometry.compact_linear_coefficient(0, 1).is_none());
+
+        let source = case.source();
+        assert_eq!(source.guard_count(), 3);
+        for (entry_ordinal, (decision_ordinal, structural_locus_ordinal)) in
+            [(0, 0), (2, 3), (3, 4)].into_iter().enumerate()
+        {
+            let guard = source.guard_entry(entry_ordinal).unwrap();
+            assert_eq!(guard.entry_ordinal(), entry_ordinal);
+            assert_eq!(guard.structural_locus_ordinal(), structural_locus_ordinal);
+            assert!(matches!(
+                guard.class(),
+                GeneratedAffineResidualCaseGuardClassSourceView::BaseAssumption(_)
+            ));
+            assert!(std::ptr::eq(
+                guard.mapped_polynomial(),
+                terminal.guards()[entry_ordinal].mapped_polynomial()
+            ));
+            assert_eq!(
+                terminal.guards()[entry_ordinal].decision_ordinal(),
+                decision_ordinal
+            );
+        }
+        assert_eq!(source.exceptional_predicate_count(), 0);
+        assert!(source.exceptional_predicate(0).is_none());
+
+        let group = authority
+            .authenticated_source_neutral_group_view(&context)
+            .unwrap();
+        assert_eq!(group.ordinal(), 0);
+        assert_eq!(group.ambient_arity(), 3);
+        assert_eq!(group.case_ordinals(), &[0]);
+        assert_eq!(group.anchor_case_ordinal(), 0);
+        assert_eq!(group.free_positions(), &[1]);
+        assert_eq!(group.anchor_offsets().len(), 1);
+        assert_eq!(group.anchor_offsets()[0].len(), 3);
+        assert!(group.anchor_offsets()[0].iter().all(Integer::is_zero));
+
+        drop(source_owner);
+        drop(terminal_path);
+        drop(terminal);
+        assert_eq!(weak_terminal.strong_count(), 1);
+        assert_eq!(weak_path.strong_count(), 1);
+        assert_eq!(weak_source.strong_count(), 1);
+        let mut exact_rows = GeneratedAffineResidualCaseSourceRowLimits::default();
+        exact_rows.max_source_rows = source_row_count;
+        exact_rows.max_relation_terms = selected_relation_terms;
+        exact_rows.max_guard_conditions = selected_guard_conditions;
+        let selected = authority
+            .authenticated_source_row_view(
+                &family,
+                &context,
+                selected_source_row_ordinal,
+                exact_rows,
+            )
+            .unwrap();
+        assert_eq!(selected.source_row_ordinal(), selected_source_row_ordinal);
+        assert_eq!(selected.stats().source_rows(), source_row_count);
+        assert_eq!(selected.stats().relation_terms(), selected_relation_terms);
+        assert_eq!(
+            selected.stats().guard_conditions(),
+            selected_guard_conditions
+        );
+        assert!(std::ptr::eq(selected.relation(), selected_source_row));
+        assert!(matches!(
+            authority.authenticated_source_row_view(
+                &family,
+                &context,
+                source_row_count,
+                exact_rows,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::SourceRowOutOfRange)
+        ));
+        let mut below_rows = exact_rows;
+        below_rows.max_source_rows = source_row_count - 1;
+        assert!(matches!(
+            authority.authenticated_source_row_view(
+                &family,
+                &context,
+                selected_source_row_ordinal,
+                below_rows,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                resource: "source rows",
+                requested,
+                limit,
+            }) if requested == source_row_count && limit + 1 == source_row_count
+        ));
+        let mut below_terms = exact_rows;
+        below_terms.max_relation_terms = selected_relation_terms - 1;
+        assert!(matches!(
+            authority.authenticated_source_row_view(
+                &family,
+                &context,
+                selected_source_row_ordinal,
+                below_terms,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                resource: "source relation terms",
+                requested,
+                limit,
+            }) if requested == selected_relation_terms && limit + 1 == selected_relation_terms
+        ));
+        authority.replay(&family, &context).unwrap();
+        drop(authority);
+        assert_eq!(weak_terminal.strong_count(), 0);
+        assert_eq!(weak_path.strong_count(), 0);
+        assert_eq!(weak_source.strong_count(), 0);
+    }
+
+    #[test]
+    fn direct_formula_singleton_rejects_non_actionable_outcomes_before_replay_limits() {
+        let (family, context, terminals) =
+            direct_sunset_terminals("direct-case-authority-proved-empty-precedence");
+        assert!(matches!(
+            terminals[1].outcome(),
+            ParametricSectorFormulaAffineTerminalOutcome::ProvedEmpty(_)
+        ));
+        let mut no_replay = GeneratedAffineResidualCaseAuthorityLimits::default();
+        no_replay.max_direct_terminal_replays = 0;
+        assert!(matches!(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminals[1]),
+                no_replay,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::DirectTerminalNotActionable)
+        ));
+        assert!(matches!(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminals[0]),
+                no_replay,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                resource: "direct terminal replays",
+                requested: 1,
+                limit: 0,
+            })
+        ));
+
+        let (unsupported_family, unsupported_context, unsupported) = direct_unsupported_terminal();
+        assert!(matches!(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &unsupported_family,
+                &unsupported_context,
+                unsupported,
+                no_replay,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::DirectTerminalNotActionable)
+        ));
+    }
+
+    #[test]
+    fn direct_formula_singleton_anchor_limits_are_exact_and_replayed() {
+        let (family, context, terminals) =
+            direct_sunset_terminals("direct-case-authority-anchor-limits");
+        let terminal = Arc::clone(&terminals[5]);
+        let authority = GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+            &family,
+            &context,
+            Arc::clone(&terminal),
+            GeneratedAffineResidualCaseAuthorityLimits::default(),
+        )
+        .unwrap();
+        let observed_entries = authority.stats().direct_anchor_offset_entries();
+        let observed_bytes = authority.stats().direct_anchor_offset_bytes();
+        assert_eq!(observed_entries, 3);
+        assert!(observed_bytes > 0);
+
+        let mut exact = GeneratedAffineResidualCaseAuthorityLimits::default();
+        exact.max_direct_anchor_offset_entries = observed_entries;
+        exact.max_direct_anchor_offset_bytes = observed_bytes;
+        GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+            &family,
+            &context,
+            Arc::clone(&terminal),
+            exact,
+        )
+        .unwrap()
+        .replay(&family, &context)
+        .unwrap();
+
+        let mut below_entries = exact;
+        below_entries.max_direct_anchor_offset_entries = observed_entries - 1;
+        assert!(matches!(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminal),
+                below_entries,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                resource: "direct singleton anchor-offset entries",
+                requested,
+                limit,
+            }) if requested == observed_entries && limit + 1 == observed_entries
+        ));
+
+        let mut below_bytes = exact;
+        below_bytes.max_direct_anchor_offset_bytes = observed_bytes - 1;
+        assert!(matches!(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                terminal,
+                below_bytes,
+            ),
+            Err(GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                resource: "direct singleton anchor-offset bytes",
+                requested,
+                limit,
+            }) if requested == observed_bytes && limit + 1 == observed_bytes
+        ));
+    }
+
+    #[test]
+    fn direct_formula_singleton_identity_and_premises_remain_allocation_bound() {
+        let fixture_name = "direct-case-authority-premise-identity";
+        let (family, context, terminals) = direct_sunset_terminals(fixture_name);
+        let terminal = Arc::clone(&terminals[0]);
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminal),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let same_terminal_other_authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminal),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert!(authority.same_source_allocation_as(&same_terminal_other_authority));
+
+        let (independent_family, independent_context, independent_terminals) =
+            direct_sunset_terminals(fixture_name);
+        let independent_authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &independent_family,
+                &independent_context,
+                Arc::clone(&independent_terminals[0]),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert!(!authority.same_source_allocation_as(&independent_authority));
+        assert!(!authority.same_direct_formula_terminal_allocation(&independent_terminals[0]));
+
+        let ready = match compile_generated_affine_residual_case_premises(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            GeneratedAffineResidualCasePremisesLimits::default(),
+        )
+        .unwrap()
+        {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(ready) => ready,
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
+                panic!("direct actionable terminal unexpectedly requires equality refinement")
+            }
+        };
+        assert_eq!(ready.premises().len(), 1);
+        assert_eq!(ready.stats().guard_scans(), 3);
+        assert_eq!(ready.stats().nonzero_condition_inputs(), 3);
+        assert!(ready.same_authority_allocation(&authority));
+        ready
+            .replay(&family, &context, &Arc::clone(&authority))
+            .unwrap();
+        assert!(matches!(
+            ready.replay(&family, &context, &same_terminal_other_authority),
+            Err(GeneratedAffineResidualCasePremisesError::WrongAuthorityAllocation)
+        ));
+        assert!(matches!(
+            ready.replay(&family, &context, &independent_authority),
+            Err(GeneratedAffineResidualCasePremisesError::WrongAuthorityAllocation)
+        ));
+
+        let (legacy_family, legacy_context, _, legacy_inventory) = initial_inventory_fixture(
+            equal_mass_two_loop_family(fixture_name),
+            SectorMask::try_from_bit_string("111").unwrap(),
+        );
+        assert!(legacy_inventory.case_count() > 0);
+        let legacy_authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new(
+                &legacy_family,
+                &legacy_context,
+                Arc::new(legacy_inventory),
+                0,
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert!(!authority.same_source_allocation_as(&legacy_authority));
+        assert!(matches!(
+            ready.replay(&family, &context, &legacy_authority),
+            Err(GeneratedAffineResidualCasePremisesError::WrongAuthorityAllocation)
+        ));
+        let legacy_premises = compile_generated_affine_residual_case_premises(
+            &legacy_family,
+            &legacy_context,
+            Arc::clone(&legacy_authority),
+            GeneratedAffineResidualCasePremisesLimits::default(),
+        )
+        .unwrap();
+        match legacy_premises {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(legacy) => assert!(matches!(
+                legacy.replay(&legacy_family, &legacy_context, &authority),
+                Err(GeneratedAffineResidualCasePremisesError::WrongAuthorityAllocation)
+            )),
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(
+                legacy,
+            ) => assert!(matches!(
+                legacy.replay(&legacy_family, &legacy_context, &authority),
+                Err(GeneratedAffineResidualCasePremisesError::WrongAuthorityAllocation)
+            )),
+        }
+
+        let fixed_authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminals[5]),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let fixed_ready = match compile_generated_affine_residual_case_premises(
+            &family,
+            &context,
+            Arc::clone(&fixed_authority),
+            GeneratedAffineResidualCasePremisesLimits::default(),
+        )
+        .unwrap()
+        {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(ready) => ready,
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
+                panic!("fully fixed direct terminal unexpectedly requires equality refinement")
+            }
+        };
+        assert!(fixed_ready.premises().is_empty());
+        assert_eq!(fixed_ready.stats().guard_scans(), 1);
+        assert_eq!(fixed_ready.stats().nonzero_condition_inputs(), 0);
+        fixed_ready
+            .replay(&family, &context, &fixed_authority)
+            .unwrap();
     }
 
     /// Mixed natural recognizer fixture: one active denominator has a

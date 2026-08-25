@@ -5,8 +5,8 @@ Status: governing deployment priority and implementation plan, adopted
 normative LiteRed scope.  Production algorithms remain topology- and
 loop-count independent; concrete four-, five-, and six-loop graphs are test,
 campaign, and benchmark inputs only. Implementation status below is reconciled
-with pushed checkpoint `c593865` and the standalone direct-terminal checkpoint
-on 2026-08-25.
+with pushed checkpoint `c593865` and the direct-singleton authority/premise
+checkpoint on 2026-08-25.
 
 ## 1. Deployment objective
 
@@ -247,28 +247,22 @@ deliberate reauthentication checks are not part of production direct-search
 cost. The production direct path invokes no MTBDD compiler and constructs no
 MTBDD owner or DAG.
 
-This checkpoint adds a standalone generic direct formula-path
-coordinate-affine terminal. It replays the selected path, uses Symbolica
-compact substitution for ordered guards, and returns typed `ProvedEmpty`,
-`Unsupported`, or `Actionable` outcomes. It fabricates no V4/V5,
-Boolean/DPLL, or integer-system certificate. Independent default-GMP run
-`ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root rerun
-`3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. The
-terminal remains standalone: it has not entered case authority,
-`ReadyForConditions`, reduction, or publication.
+This checkpoint carries the generic direct formula-path coordinate-affine
+terminal into direct-singleton case authority and sealed premise replay. It
+retains exact source/path ancestry, borrows authenticated source rows, exposes
+coordinate geometry and ordered guard loci, and rechecks source/term, anchor,
+and replay budgets. It fabricates no V4/V5, Boolean/DPLL, or integer-system
+certificate. Independent default-GMP run
+`6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
+broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes
+36/36.
 
-The next implementation slice is the remaining direct singleton affine
-adapter from that terminal to `ReadyForConditions`; it must preserve the
-bypass end to end:
-
-1. extend the existing affine inventory/case-authority boundary with the
-   terminal's exact source/path ancestry and ordered guards, without
-   manufacturing V4, V5, the legacy live-leaf queue, source authority, or
-   Boolean/DPLL certificates; and
-2. create a generic singleton affine group, then pass it through the physical
-   frame, solve plan, `GeneratedAffineResidualGroupExactSession` staging, and
-   recentering into the existing `ReadyForConditions` boundary before
-   attempting the declared `K=21` gate.
+The next implementation slice is stable source-neutral identity plus
+physical-frame and solve-plan support for that direct singleton, followed by
+`GeneratedAffineResidualGroupExactSession` staging and recentering into the
+existing `ReadyForConditions` boundary before attempting the declared `K=21`
+gate. The bypass must remain direct: it may not manufacture V4, V5, the legacy
+live-leaf queue, source authority, or Boolean/DPLL certificates.
 
 The successful `K=21` fixture stops at the first formula-residual path. It is
 not a Ready result, published guarded rule, reduction, or calculation on a
@@ -525,14 +519,17 @@ or physical-topology calculation.
    and authenticates all present candidate policies. Focused 21/21 and 14/14
    suites, an independent 30/30 audit/validation run, and the policy-bound
    all-36 K21 1/1 gate pass.
-8. **Completed in this checkpoint:** a standalone generic direct formula-path
-   coordinate-affine terminal uses Symbolica compact substitution and returns
-   typed `ProvedEmpty`, `Unsupported`, or `Actionable` without fabricating
-   V4/V5, Boolean/DPLL, or integer-system certificates; its independently
-   repeated focused gate passes 9/9. **Next:** extend case authority with this
-   direct singleton, then carry it through physical frame, solve plan,
-   exact-session staging, and recentering into the existing
-   `ReadyForConditions` boundary. The terminal has not yet reached that
+8. **Completed in this checkpoint:** the generic direct formula-path terminal
+   enters direct-singleton case authority and sealed premise replay while
+   retaining exact source/path ancestry, authenticated source rows, geometry,
+   and ordered guards, without fabricating V4/V5, Boolean/DPLL, or
+   integer-system certificates. Independent default-GMP run
+   `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
+   broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3`
+   passes 36/36.
+   **Next:** add stable source-neutral identity and carry the singleton through
+   physical frame, solve plan, exact-session staging, and recentering into the
+   existing `ReadyForConditions` boundary. It has not yet reached that
    boundary, reduction, or publication. Then validate one declared arity-21
    sector; this remains a scaling gate, not a rule or reduction claim.
 9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
