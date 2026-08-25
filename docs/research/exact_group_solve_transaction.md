@@ -179,8 +179,15 @@ injecting a recurrence, checks recoverable authentication and exact one-below
 resource failures, and exercises 4,096-bit descent and hazard coordinates. A
 separate fast `L=6`, `K=21` coordinate-family gate proves the generic generator
 emits 36 ordered ordinary IBPs with deterministic manifests; it stops before
-the currently eager Boolean-cover path and is not a six-loop reduction. A
-separate existing generic-provider oracle baseline fully reduces tadpole powers
+the currently eager Boolean-cover path and is not a six-loop reduction.  A
+later complete-MTBDD experiment avoided the explicit `2^K` partition but
+retained 49 atoms and 268,427 rooted nodes before residual traversal.  The
+primary high-loop replacement is therefore direct bounded search over a shared
+authenticated normalized source; the MTBDD remains an optional compact-case
+backend under a measured construction budget.  This supersedes this note's
+earlier "lazy MTBDD/sector-DAG" entry wording without invalidating V5 as a
+compact-case oracle.  A separate existing generic-provider oracle baseline
+fully reduces tadpole powers
 two through four against frozen Vakint scalar coefficients; it does not pass
 through the unpublished `ReadyForConditions` path and is not evidence that
 current-lineage publication is complete. The concrete tadpole remains
@@ -529,10 +536,13 @@ plan/frame/inventory/source objects are rejected at live authority boundaries.
    physical-key ordering, and inactive-coordinate crossing ranges are retained
    as arbitrary-precision Symbolica integers. Success returns
    `ReadyForConditions`; it neither mutates the session nor consumes a target.
-5. **Replace eager case entry — next high-loop prerequisite.** Build the
-   target-frontier lazy MTBDD/sector-DAG path so `K=21` families can enter this
-   exact session without first materializing every orthant case. The existing
-   lower-arity Ready gate remains the oracle while that entry path is replaced.
+5. **Replace eager case entry — next high-loop prerequisite.** Build a
+   replayable shared normalized-source owner and bounded direct
+   normalized-formula target-frontier path so `K=21` families can enter this
+   exact session without first materializing every orthant case or a complete
+   MTBDD. Retain the MTBDD as an optional compact-case/repeated-query backend
+   under a separately measured construction budget. The existing lower-arity
+   Ready gate remains the oracle while that entry path is replaced.
 6. **Adapt exact `WhenBad` — pending after scalable case entry.** Reuse the authority-neutral
    polynomial/partition algorithms behind new exact authority certificates,
    replace `IndexShift`/`i64` boundaries with arbitrary-precision values, and

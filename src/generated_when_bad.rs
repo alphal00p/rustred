@@ -336,7 +336,8 @@ impl GeneratedSourceAuthenticationCertificate {
             && self.family_fingerprint == other.family_fingerprint
             && self.context_fingerprint == other.context_fingerprint
             && self.candidate_source_manifest == other.candidate_source_manifest
-            && self.row_span.payload_eq(&other.row_span)
+            && (Arc::ptr_eq(&self.row_span, &other.row_span)
+                || self.row_span.payload_eq(&other.row_span))
             && self.witnesses == other.witnesses
             && self.stats == other.stats
             && self.limits == other.limits

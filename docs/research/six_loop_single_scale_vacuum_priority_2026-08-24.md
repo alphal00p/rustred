@@ -198,22 +198,29 @@ built. Thus the cursor solves terminal-path retention, not high-loop owner
 construction. The MTBDD remains a compact-case oracle and an optional
 repeated-query classifier under an explicit node/time/memory budget.
 
-The next implementation must therefore:
+The replayable shared normalized-source owner is now implemented and shared by
+the MTBDD backend. The remaining implementation must therefore:
 
-1. extract a replayable shared normalized-source certificate owning the exact
-   row span, ordered authenticated attempts, normalized coverage IR, limits,
-   and phase-separated statistics;
-2. add a bounded deterministic residual cursor directly over the normalized
+1. add a bounded deterministic residual cursor directly over the normalized
    candidate bad-formulas, pruning as soon as any certified candidate is
    necessarily applicable and branching nonzero before equal-zero on an
    authenticated structural-locus ordinal;
-3. run the existing coordinate/orthant contradiction recognizer on the one
+2. run the existing coordinate/orthant contradiction recognizer on the one
    selected path, without inventing a general polynomial satisfiability
    engine;
-4. carry that path, its exact Unsupported-candidate list when present, and one
+3. carry that path, its exact Unsupported-candidate list when present, and one
    affine group into a narrow target-frontier owner; and
-5. drive one declared `K=21` sector through Ready without manufacturing the
+4. drive one declared `K=21` sector through Ready without manufacturing the
    legacy partition, queue, or Boolean-cover certificates.
+
+The shared source preserves the exact row-span allocation, all ordered
+attempts including dead suffixes, original pre-intersection limits, normalized
+IR/loci, and replayed coverage/normalization phase censuses. Common
+same-allocation row-span checks are O(1), with exact deep comparison retained
+for independently allocated payload-equal proofs. One performance follow-up
+remains before production-size foundry runs: a sealed fresh-compilation
+normalization seam should remove the current roughly three authentication
+passes per candidate during construction and two during replay.
 
 The direct Boolean control layer performs no algebra. Polynomial projection,
 monic normalization, GCD/divisibility, matrix work, finite fields, and
@@ -404,6 +411,13 @@ stress itself took 132.985 seconds. That timing includes source construction,
 authenticated replay, first-path traversal, and cheap exact/one-below repeats;
 it must not be quoted as an online reduction benchmark.
 
+The shared normalized-source checkpoint passed independent licensed GMP
+Nextest run `1cd1cd6f-b282-489e-b1d6-3bf2088f635a` (15/15 focused owner,
+MTBDD-certificate, and polarity tests) and residual-compatibility run
+`ce3d7162-ba19-45bb-9c36-9f087ef0de48` (5/5, with the K21 stress excluded).
+The stable normalized-source SHA-256 was
+`f74ccd89ce1755d7672393a169dbd0e2586a2675c9643f77196697154ad3629e`.
+
 1. **Completed:** Symbolica-native affine-family/symmetry verifier and
    independent matrix oracle, pushed as a standalone milestone.
 2. **Completed generation-only checkpoint:** topology-neutral `L=6`, `K=21`
@@ -414,10 +428,12 @@ it must not be quoted as an online reduction benchmark.
    cursor over the rooted MTBDD, including compact replay/resource tests and
    an ignored honest all-36 `K=21` scaling oracle. This does not solve global
    MTBDD construction and has not reached Ready.
-5. **Next:** make authenticated normalized coverage the shared authority, add
-   direct target-frontier formula search plus a narrow one-path solve owner,
-   and validate one declared arity-21 sector through Ready. Use the MTBDD only
-   when its separately measured construction budget is acceptable.
+5. **In progress:** the replayable authenticated normalized-source owner is
+   implemented and the MTBDD now consumes that shared authority. Add direct
+   target-frontier formula search plus a narrow one-path solve owner, remove
+   duplicate candidate authentication through a sealed fresh-normalization
+   seam, and validate one declared arity-21 sector through Ready. Use the MTBDD
+   only when its separately measured construction budget is acceptable.
 6. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
    path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
    subsector feedback, atomic publication, durable artifacts, and a 36-source

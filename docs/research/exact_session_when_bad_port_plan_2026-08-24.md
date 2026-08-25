@@ -130,8 +130,15 @@ only the first decisive component rather than retaining every RHS key. A fast
 test-only `L=6`, `K=21` family validates all 36 generic ordinary-IBP rows and
 stable regeneration. A genuine all-inactive arity-21 Ready probe is currently
 blocked earlier by eager Boolean-cover split 65,537 exceeding the 65,536 cap;
-the cap was not raised because the high-loop path requires lazy target-frontier
-case construction rather than `2^K` expansion.
+the cap was not raised.  A later complete-MTBDD experiment avoided that
+explicit partition but retained 49 atoms and 268,427 rooted nodes before its
+cursor could return the first residual.  The high-loop path therefore requires
+a shared authenticated normalized-source owner and bounded direct
+normalized-formula frontier search.  The MTBDD remains an optional compact-case
+backend under a separately measured construction budget, not the primary
+arity-21 entry path.  This supersedes this plan's earlier "lazy
+MTBDD/sector-DAG" entry wording without invalidating the V5 representation or
+its replay contract.
 
 Not yet implemented are the Ready-native condition transcript and relative
 partition, the terminal current-lineage exact `WhenBad` compiler,
@@ -854,9 +861,12 @@ Implement in this order:
 2. extend the common fully prepared tail with the minimal chronological event
    ledger and owner-wide replacement preparation — completed for Dependent,
    NoTarget, and equality-refinement dispositions;
-3. replace the upstream eager all-orthant case inventory with target-frontier
-   lazy MTBDD/sector-DAG construction so `K=21` families can enter the exact
-   session without first materializing `2^K` cases;
+3. replace the upstream eager all-orthant case inventory with a replayable
+   shared normalized-source owner and bounded direct normalized-formula
+   target-frontier search so `K=21` families can enter the exact session
+   without first materializing either `2^K` cases or a complete MTBDD; retain
+   the MTBDD only as a compact-case/repeated-query backend under its own
+   measured construction budget;
 4. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
    independent-cylinder descent/lazy hazards implemented; general compact-
    affine geometry plus conditions and pullbacks active;

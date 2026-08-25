@@ -20,6 +20,7 @@ mod exact_identity;
 mod parametric_sector_formula_ir;
 mod parametric_sector_mtbdd;
 mod parametric_sector_mtbdd_certificate;
+mod parametric_sector_normalized_source;
 mod parametric_sector_residual_path;
 pub(crate) mod symbolica_coefficient_matrix;
 

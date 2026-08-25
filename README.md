@@ -278,9 +278,10 @@ path.
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:
 
-1. make authenticated normalized coverage the high-loop source authority and
-   search only a requested residual frontier directly; use the full MTBDD only
-   when a measured construction budget makes it appropriate;
+1. use the implemented shared, replayable normalized-coverage owner as the
+   high-loop source authority and add direct search for only a requested
+   residual frontier; use the full MTBDD only when a measured construction
+   budget makes it appropriate;
 2. compile and close `WhenBad` exceptional branches;
 3. atomically publish guarded rules and residual work;
 4. feed solved subsectors into supersectors and iterate residual cases; and
@@ -297,10 +298,14 @@ A genuine all-inactive `K=21` probe first exposed the legacy Boolean-cover cap
 at split 65,537 of 65,536. The replacement MTBDD avoids that explicit
 `2^K` partition, and its new cursor avoids flattening all terminal paths, but
 the real all-36 source still constructs 49 atoms and 268,427 nodes before the
-cursor can return its first residual. The cap is not being raised: the next
-high-loop gate is a direct, bounded search over the authenticated normalized
+cursor can return its first residual. The cap is not being raised. The
+backend-neutral normalized source is now a separate replayable owner shared by
+the MTBDD backend, with exact source-Arc fast paths on the common case. The next
+high-loop gate is a direct, bounded search over those authenticated normalized
 formulas, followed by the existing exact Ready analysis. No arity-21 case has
-reached Ready yet.
+reached Ready yet. Before production-size foundry runs, the remaining duplicate
+candidate-authentication passes will be collapsed behind a sealed
+fresh-normalization token.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent

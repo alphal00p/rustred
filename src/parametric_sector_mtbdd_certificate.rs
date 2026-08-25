@@ -8,21 +8,20 @@
 //! replays their source proofs, renormalizes, recompiles, and compares the
 //! complete typed payload.
 
-use crate::generated_when_bad::GeneratedWhenBadCompilation;
 use crate::parametric_sector_coverage::{
     AuthenticatedNormalizedCoverage, ParametricSectorCoverageError, ParametricSectorCoverageLimits,
-    ParametricSectorCoverageStats, ParametricSectorFormulaNormalizationLimits,
-    SectorCoverageCandidateAttempt, charge_formula_normalization_source_census,
-    normalize_authenticated_attempts_with_replayed_row_span, validate_coherent_limits,
-    validate_family_context,
+    ParametricSectorFormulaNormalizationLimits, SectorCoverageCandidateAttempt,
 };
 use crate::parametric_sector_mtbdd::{
     ParametricSectorMtbddCompiler, ParametricSectorMtbddDecisionFunction,
     ParametricSectorMtbddDisposition, ParametricSectorMtbddError, ParametricSectorMtbddLimits,
 };
+use crate::parametric_sector_normalized_source::{
+    ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceCompiler,
+    ParametricSectorNormalizedCoverageSourceError, ParametricSectorNormalizedCoverageSourceLimits,
+};
 use crate::{
-    GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
-    GeneratedSymbolicRowSpanError, GeneratedWhenBadCompiler, GeneratedWhenBadError, IntegralFamily,
+    GeneratedSymbolicRowSpanCertificate, GeneratedWhenBadCompilation, IntegralFamily,
     ParametricCoefficientContext, SectorMask,
 };
 use std::fmt;
@@ -85,15 +84,22 @@ impl From<ParametricSectorMtbddError> for ParametricSectorMtbddCoverageError {
     }
 }
 
-impl From<GeneratedSymbolicRowSpanError> for ParametricSectorMtbddCoverageError {
-    fn from(value: GeneratedSymbolicRowSpanError) -> Self {
-        Self::Coverage(ParametricSectorCoverageError::from(value))
-    }
-}
-
-impl From<GeneratedWhenBadError> for ParametricSectorMtbddCoverageError {
-    fn from(value: GeneratedWhenBadError) -> Self {
-        Self::Coverage(ParametricSectorCoverageError::from(value))
+impl From<ParametricSectorNormalizedCoverageSourceError> for ParametricSectorMtbddCoverageError {
+    fn from(value: ParametricSectorNormalizedCoverageSourceError) -> Self {
+        match value {
+            ParametricSectorNormalizedCoverageSourceError::SchemaMismatch => Self::SchemaMismatch,
+            ParametricSectorNormalizedCoverageSourceError::WrongFamily => Self::WrongFamily,
+            ParametricSectorNormalizedCoverageSourceError::WrongContext => Self::WrongContext,
+            ParametricSectorNormalizedCoverageSourceError::ReplayMismatch => Self::ReplayMismatch,
+            ParametricSectorNormalizedCoverageSourceError::AllocationFailure {
+                resource,
+                requested,
+            } => Self::AllocationFailure {
+                resource,
+                requested,
+            },
+            ParametricSectorNormalizedCoverageSourceError::Coverage(error) => Self::Coverage(error),
+        }
     }
 }
 
@@ -107,11 +113,9 @@ impl From<GeneratedWhenBadError> for ParametricSectorMtbddCoverageError {
 #[derive(Debug)]
 pub(crate) struct ParametricSectorMtbddCoverageCertificate {
     schema: &'static str,
-    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
-    attempts: Box<[SectorCoverageCandidateAttempt]>,
-    normalized: AuthenticatedNormalizedCoverage,
+    source: Arc<ParametricSectorNormalizedCoverageSource>,
     decision: ParametricSectorMtbddDecisionFunction,
-    limits: ParametricSectorMtbddCoverageLimits,
+    mtbdd_limits: ParametricSectorMtbddLimits,
 }
 
 impl ParametricSectorMtbddCoverageCertificate {
@@ -120,35 +124,48 @@ impl ParametricSectorMtbddCoverageCertificate {
     }
 
     pub(crate) fn family_fingerprint(&self) -> &str {
-        self.normalized.family_fingerprint()
+        self.source.family_fingerprint()
     }
 
     pub(crate) fn context_fingerprint(&self) -> &str {
-        self.normalized.context_fingerprint()
+        self.source.context_fingerprint()
     }
 
-    pub(crate) const fn sector(&self) -> &SectorMask {
-        self.normalized.sector()
+    pub(crate) fn sector(&self) -> &SectorMask {
+        self.source.sector()
     }
 
     pub(crate) fn attempts(&self) -> &[SectorCoverageCandidateAttempt] {
-        &self.attempts
+        self.source.attempts()
     }
 
     pub(crate) fn row_span(&self) -> &GeneratedSymbolicRowSpanCertificate {
-        &self.row_span
+        self.source.row_span()
     }
 
-    pub(crate) const fn normalized(&self) -> &AuthenticatedNormalizedCoverage {
-        &self.normalized
+    pub(crate) fn row_span_arc(&self) -> &Arc<GeneratedSymbolicRowSpanCertificate> {
+        self.source.row_span_arc()
+    }
+
+    pub(crate) const fn source_arc(&self) -> &Arc<ParametricSectorNormalizedCoverageSource> {
+        &self.source
+    }
+
+    pub(crate) fn normalized(&self) -> &AuthenticatedNormalizedCoverage {
+        self.source.normalized()
     }
 
     pub(crate) const fn decision(&self) -> &ParametricSectorMtbddDecisionFunction {
         &self.decision
     }
 
-    pub(crate) const fn limits(&self) -> ParametricSectorMtbddCoverageLimits {
-        self.limits
+    pub(crate) fn limits(&self) -> ParametricSectorMtbddCoverageLimits {
+        let source = self.source.limits();
+        ParametricSectorMtbddCoverageLimits {
+            coverage: source.coverage,
+            normalization: source.normalization,
+            mtbdd: self.mtbdd_limits,
+        }
     }
 
     pub(crate) fn classify_assignment(
@@ -167,64 +184,26 @@ impl ParametricSectorMtbddCoverageCertificate {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
     ) -> Result<(), ParametricSectorMtbddCoverageError> {
-        self.validate_scope(family, context)?;
-        self.row_span.replay(family, context)?;
-        for (ordinal, attempt) in self.attempts.iter().enumerate() {
-            if !Arc::ptr_eq(
-                attempt.compilation().source_authentication().row_span_arc(),
-                &self.row_span,
-            ) {
-                return Err(ParametricSectorMtbddCoverageError::Coverage(
-                    ParametricSectorCoverageError::SharedRowSpanAllocationMismatch { ordinal },
-                ));
-            }
+        if self.schema != PARAMETRIC_SECTOR_MTBDD_COVERAGE_V5_STAGE1_SCHEMA {
+            return Err(ParametricSectorMtbddCoverageError::SchemaMismatch);
         }
-        let normalized = normalize_authenticated_attempts_with_replayed_row_span(
-            family,
-            context,
-            self.normalized.sector(),
-            &self.attempts,
-            self.row_span.clone(),
-            self.limits.coverage,
-            self.limits.normalization,
+        self.source.replay(family, context)?;
+        let decision = ParametricSectorMtbddCompiler::compile(
+            self.source.normalized().ir(),
+            self.mtbdd_limits,
         )?;
-        let decision = ParametricSectorMtbddCompiler::compile(normalized.ir(), self.limits.mtbdd)?;
-        if normalized == self.normalized && decision == self.decision {
+        if decision == self.decision {
             Ok(())
         } else {
             Err(ParametricSectorMtbddCoverageError::ReplayMismatch)
         }
     }
 
-    fn validate_scope(
-        &self,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-    ) -> Result<(), ParametricSectorMtbddCoverageError> {
-        if self.schema != PARAMETRIC_SECTOR_MTBDD_COVERAGE_V5_STAGE1_SCHEMA {
-            return Err(ParametricSectorMtbddCoverageError::SchemaMismatch);
-        }
-        if self.normalized.family_fingerprint() != family.fingerprint() {
-            return Err(ParametricSectorMtbddCoverageError::WrongFamily);
-        }
-        if self.normalized.context_fingerprint() != context.fingerprint() {
-            return Err(ParametricSectorMtbddCoverageError::WrongContext);
-        }
-        Ok(())
-    }
-
     pub(crate) fn payload_eq(&self, other: &Self) -> bool {
         self.schema == other.schema
-            && self.row_span.payload_eq(&other.row_span)
-            && self.normalized == other.normalized
+            && self.source.payload_eq(&other.source)
             && self.decision == other.decision
-            && self.limits == other.limits
-            && self.attempts.len() == other.attempts.len()
-            && self
-                .attempts
-                .iter()
-                .zip(other.attempts.iter())
-                .all(|(left, right)| left.payload_eq(right))
+            && self.mtbdd_limits == other.mtbdd_limits
     }
 }
 
@@ -241,143 +220,33 @@ impl ParametricSectorMtbddCoverageCompiler {
         compilations: Vec<GeneratedWhenBadCompilation>,
         limits: ParametricSectorMtbddCoverageLimits,
     ) -> Result<ParametricSectorMtbddCoverageCertificate, ParametricSectorMtbddCoverageError> {
-        validate_coherent_limits(limits.coverage)?;
-        validate_family_context(family, context)?;
-        if sector.arity() != context.index_count() {
-            return Err(ParametricSectorMtbddCoverageError::Coverage(
-                ParametricSectorCoverageError::WrongArity {
-                    expected: context.index_count(),
-                    actual: sector.arity(),
-                },
-            ));
-        }
-        if compilations.len() > limits.coverage.max_candidates {
-            return Err(ParametricSectorMtbddCoverageError::Coverage(
-                ParametricSectorCoverageError::ResourceLimit {
-                    resource: "sector-coverage candidates",
-                    requested: compilations.len(),
-                    limit: limits.coverage.max_candidates,
-                },
-            ));
-        }
-        if compilations.len() > limits.normalization.max_attempts() {
-            return Err(ParametricSectorMtbddCoverageError::Coverage(
-                ParametricSectorCoverageError::ResourceLimit {
-                    resource: "formula-normalization attempts",
-                    requested: compilations.len(),
-                    limit: limits.normalization.max_attempts(),
-                },
-            ));
-        }
-
-        let row_span = if let Some(first) = compilations.first() {
-            first.source_authentication().row_span_arc().clone()
-        } else {
-            Arc::new(GeneratedSymbolicRowSpanCompiler::compile(
-                family,
-                context,
-                limits.coverage.generated_when_bad.ibp,
-                limits.coverage.generated_when_bad.row_span,
-            )?)
-        };
-        // Reject a malformed late batch member before replaying or retaining
-        // any earlier candidate.  Fresh recompilation below deliberately
-        // rebinds payload-equal inputs onto this one shared allocation.
-        for (ordinal, compilation) in compilations.iter().enumerate() {
-            if !compilation
-                .source_authentication()
-                .row_span()
-                .payload_eq(&row_span)
-            {
-                return Err(ParametricSectorMtbddCoverageError::Coverage(
-                    ParametricSectorCoverageError::SharedRowSpanCertificateMismatch,
-                ));
-            }
-            let candidate = compilation.candidate();
-            if candidate.family_fingerprint() != family.fingerprint() {
-                return Err(ParametricSectorMtbddCoverageError::Coverage(
-                    ParametricSectorCoverageError::CandidateWrongFamily { ordinal },
-                ));
-            }
-            if candidate.context_fingerprint() != context.fingerprint() {
-                return Err(ParametricSectorMtbddCoverageError::Coverage(
-                    ParametricSectorCoverageError::CandidateWrongContext { ordinal },
-                ));
-            }
-            if candidate.sector() != &sector {
-                return Err(ParametricSectorMtbddCoverageError::Coverage(
-                    ParametricSectorCoverageError::CandidateWrongSector { ordinal },
-                ));
-            }
-        }
-        let mut aggregate_source_census = ParametricSectorCoverageStats::default();
-        for compilation in &compilations {
-            charge_formula_normalization_source_census(
-                compilation,
-                &mut aggregate_source_census,
-                limits.coverage,
-            )?;
-        }
-        row_span.replay(family, context)?;
-
-        let mut attempts = Vec::new();
-        attempts
-            .try_reserve_exact(compilations.len())
-            .map_err(|_| ParametricSectorMtbddCoverageError::AllocationFailure {
-                resource: "owning MTBDD candidate attempts",
-                requested: compilations.len(),
-            })?;
-        for (ordinal, compilation) in compilations.into_iter().enumerate() {
-            compilation.replay_with_replayed_row_span(family, context, row_span.clone())?;
-            let fresh = GeneratedWhenBadCompiler::compile_with_replayed_row_span(
-                family,
-                context,
-                compilation.candidate(),
-                row_span.clone(),
-                limits.coverage.generated_when_bad,
-            )?;
-            if !compilation.payload_eq(&fresh) {
-                return Err(ParametricSectorMtbddCoverageError::ReplayMismatch);
-            }
-            attempts.push(SectorCoverageCandidateAttempt::from_compilation(
-                ordinal, fresh,
-            ));
-        }
-        Self::compile_attempts(
+        let source = ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
             family,
             context,
             sector,
-            attempts.into_boxed_slice(),
-            row_span,
-            limits,
-        )
+            compilations,
+            ParametricSectorNormalizedCoverageSourceLimits {
+                coverage: limits.coverage,
+                normalization: limits.normalization,
+            },
+        )?;
+        Self::compile_from_source(Arc::new(source), limits.mtbdd)
     }
 
-    fn compile_attempts(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        sector: SectorMask,
-        attempts: Box<[SectorCoverageCandidateAttempt]>,
-        row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
-        limits: ParametricSectorMtbddCoverageLimits,
+    /// Compile one MTBDD backend while retaining the exact normalized source
+    /// Arc.  The source has already crossed its replayable authentication
+    /// boundary; this stage receives no algebra or topology inputs.
+    pub(crate) fn compile_from_source(
+        source: Arc<ParametricSectorNormalizedCoverageSource>,
+        mtbdd_limits: ParametricSectorMtbddLimits,
     ) -> Result<ParametricSectorMtbddCoverageCertificate, ParametricSectorMtbddCoverageError> {
-        let normalized = normalize_authenticated_attempts_with_replayed_row_span(
-            family,
-            context,
-            &sector,
-            &attempts,
-            row_span.clone(),
-            limits.coverage,
-            limits.normalization,
-        )?;
-        let decision = ParametricSectorMtbddCompiler::compile(normalized.ir(), limits.mtbdd)?;
+        let decision =
+            ParametricSectorMtbddCompiler::compile(source.normalized().ir(), mtbdd_limits)?;
         Ok(ParametricSectorMtbddCoverageCertificate {
             schema: PARAMETRIC_SECTOR_MTBDD_COVERAGE_V5_STAGE1_SCHEMA,
-            row_span,
-            attempts,
-            normalized,
+            source,
             decision,
-            limits,
+            mtbdd_limits,
         })
     }
 }
@@ -484,7 +353,7 @@ mod tests {
         );
         assert!(certificate.attempts().iter().all(|attempt| Arc::ptr_eq(
             attempt.compilation().source_authentication().row_span_arc(),
-            &certificate.row_span
+            certificate.row_span_arc()
         )));
         assert!(
             certificate.row_span().payload_eq(
@@ -587,6 +456,10 @@ mod tests {
         let certificate = make();
         let equivalent = make();
         assert!(certificate.payload_eq(&equivalent));
+        assert!(!Arc::ptr_eq(
+            certificate.source_arc(),
+            equivalent.source_arc()
+        ));
 
         let mut schema = make();
         schema.schema = "tampered";
@@ -609,14 +482,6 @@ mod tests {
             Err(ParametricSectorMtbddCoverageError::WrongContext)
         );
 
-        let mut attempts = make();
-        attempts.attempts = Vec::new().into_boxed_slice();
-        assert_eq!(
-            attempts.replay(&family, &context),
-            Err(ParametricSectorMtbddCoverageError::ReplayMismatch)
-        );
-        assert!(!certificate.payload_eq(&attempts));
-
         let empty = ParametricSectorMtbddCoverageCompiler::compile_authenticated(
             &family,
             &context,
@@ -626,7 +491,7 @@ mod tests {
         )
         .unwrap();
         let mut normalized = make();
-        normalized.normalized = empty.normalized;
+        normalized.source = empty.source;
         assert_eq!(
             normalized.replay(&family, &context),
             Err(ParametricSectorMtbddCoverageError::ReplayMismatch)
@@ -647,46 +512,49 @@ mod tests {
         );
 
         let mut limits = make();
-        limits.limits.mtbdd.max_formula_compile_steps += 1;
+        limits.mtbdd_limits.max_formula_compile_steps += 1;
         assert_eq!(
             limits.replay(&family, &context),
             Err(ParametricSectorMtbddCoverageError::ReplayMismatch)
         );
+    }
 
-        let mut coverage_limits = make();
-        coverage_limits
-            .limits
-            .coverage
-            .max_product_zero_multiplications += 1;
-        assert_eq!(
-            coverage_limits.replay(&family, &context),
-            Err(ParametricSectorMtbddCoverageError::ReplayMismatch)
-        );
+    #[test]
+    fn compile_from_source_preserves_arc_and_source_survives_backend_failure() {
+        let (family, context, legacy) = source();
+        let certificate = ParametricSectorMtbddCoverageCompiler::compile_authenticated(
+            &family,
+            &context,
+            legacy.sector().clone(),
+            compilations(&legacy),
+            ParametricSectorMtbddCoverageLimits::default(),
+        )
+        .unwrap();
+        let source = Arc::clone(certificate.source_arc());
 
-        let (_, _, other_legacy) = source();
-        let mut foreign_allocation = make();
-        foreign_allocation.attempts = compilations(&other_legacy)
-            .into_iter()
-            .enumerate()
-            .map(|(ordinal, compilation)| {
-                SectorCoverageCandidateAttempt::from_compilation(ordinal, compilation)
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-        assert!(
-            foreign_allocation.row_span.payload_eq(
-                foreign_allocation.attempts[0]
-                    .compilation()
-                    .source_authentication()
-                    .row_span()
-            )
-        );
-        assert_eq!(
-            foreign_allocation.replay(&family, &context),
-            Err(ParametricSectorMtbddCoverageError::Coverage(
-                ParametricSectorCoverageError::SharedRowSpanAllocationMismatch { ordinal: 0 }
+        let mut rejected_limits = ParametricSectorMtbddLimits::default();
+        rejected_limits.max_attempts = 0;
+        assert!(matches!(
+            ParametricSectorMtbddCoverageCompiler::compile_from_source(
+                Arc::clone(&source),
+                rejected_limits,
+            ),
+            Err(ParametricSectorMtbddCoverageError::Mtbdd(
+                ParametricSectorMtbddError::ResourceLimit {
+                    resource: "normalized coverage attempts",
+                    ..
+                }
             ))
-        );
+        ));
+        source.replay(&family, &context).unwrap();
+
+        let rebuilt = ParametricSectorMtbddCoverageCompiler::compile_from_source(
+            Arc::clone(&source),
+            ParametricSectorMtbddLimits::default(),
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(rebuilt.source_arc(), &source));
+        rebuilt.replay(&family, &context).unwrap();
     }
 
     #[test]

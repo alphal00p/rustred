@@ -1349,6 +1349,40 @@ mod tests {
     }
 
     #[test]
+    fn true_bad_skips_candidate_and_false_bad_cuts_off_without_dropping_suffix_census() {
+        let function = compile(&ir(
+            0,
+            vec![
+                true_attempt(0),
+                unsupported(1),
+                false_attempt(2),
+                unsupported(3),
+                false_attempt(4),
+            ],
+        ));
+        assert_eq!(function.stats().attempts, 5);
+        assert_eq!(function.stats().certified_attempts, 3);
+        assert_eq!(function.stats().unsupported_attempts, 2);
+        assert_eq!(
+            function.classify_assignment(&[]).unwrap(),
+            &ParametricSectorMtbddDisposition::DescendingRule {
+                candidate_ordinal: 2,
+            }
+        );
+
+        let all_bad = compile(&ir(
+            0,
+            vec![true_attempt(0), unsupported(1), true_attempt(2)],
+        ));
+        assert_eq!(
+            all_bad.classify_assignment(&[]).unwrap(),
+            &ParametricSectorMtbddDisposition::Unsupported {
+                candidate_ordinals: vec![1].into_boxed_slice(),
+            }
+        );
+    }
+
+    #[test]
     fn sparse_loci_compile_densely_and_match_an_independent_exhaustive_oracle() {
         let normalized = ir(
             12,

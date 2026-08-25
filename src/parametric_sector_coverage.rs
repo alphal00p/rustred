@@ -670,7 +670,7 @@ impl ParametricSectorCoverageCertificate {
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
     ) -> Result<(), ParametricSectorCoverageError> {
         self.validate_replay_scope(family, context)?;
-        if !self.row_span.payload_eq(&row_span) {
+        if !Arc::ptr_eq(&self.row_span, &row_span) && !self.row_span.payload_eq(&row_span) {
             return Err(ParametricSectorCoverageError::SharedRowSpanCertificateMismatch);
         }
         self.preflight_product_zero_payload(context)?;
@@ -781,7 +781,8 @@ impl ParametricSectorCoverageCertificate {
             && self.family_fingerprint == other.family_fingerprint
             && self.context_fingerprint == other.context_fingerprint
             && self.sector == other.sector
-            && self.row_span.payload_eq(&other.row_span)
+            && (Arc::ptr_eq(&self.row_span, &other.row_span)
+                || self.row_span.payload_eq(&other.row_span))
             && self.structural_loci == other.structural_loci
             && self.product_zero_decompositions == other.product_zero_decompositions
             && self.partition == other.partition
@@ -979,10 +980,9 @@ impl ParametricSectorCoverageCompiler {
             // A payload-different certificate cannot replay against this
             // caller-owned proof.  Reject it before retained-elimination and
             // source-row authentication work.
-            if !compilation
-                .source_authentication()
-                .row_span()
-                .payload_eq(&row_span)
+            let compilation_row_span = compilation.source_authentication().row_span_arc();
+            if !Arc::ptr_eq(compilation_row_span, &row_span)
+                && !compilation_row_span.payload_eq(&row_span)
             {
                 return Err(ParametricSectorCoverageError::SharedRowSpanCertificateMismatch);
             }
@@ -1771,6 +1771,22 @@ impl Default for ParametricSectorFormulaNormalizationLimits {
 }
 
 impl ParametricSectorFormulaNormalizationLimits {
+    pub(crate) const fn with_max_family_fingerprint_bytes(
+        mut self,
+        max_family_fingerprint_bytes: usize,
+    ) -> Self {
+        self.max_family_fingerprint_bytes = max_family_fingerprint_bytes;
+        self
+    }
+
+    pub(crate) const fn with_max_context_fingerprint_bytes(
+        mut self,
+        max_context_fingerprint_bytes: usize,
+    ) -> Self {
+        self.max_context_fingerprint_bytes = max_context_fingerprint_bytes;
+        self
+    }
+
     pub(crate) const fn max_attempts(self) -> usize {
         self.max_attempts
     }
@@ -1809,6 +1825,28 @@ pub(crate) struct ParametricSectorFormulaNormalizationStats {
     retained_base_locus_bytes: usize,
     base_locus_associate_comparisons: usize,
     base_locus_associate_term_pairs: usize,
+}
+
+impl ParametricSectorFormulaNormalizationStats {
+    pub(crate) const fn family_fingerprint_bytes(self) -> usize {
+        self.family_fingerprint_bytes
+    }
+
+    pub(crate) const fn context_fingerprint_bytes(self) -> usize {
+        self.context_fingerprint_bytes
+    }
+
+    pub(crate) const fn attempts(self) -> usize {
+        self.attempts
+    }
+
+    pub(crate) const fn certified_attempts(self) -> usize {
+        self.certified_attempts
+    }
+
+    pub(crate) const fn unsupported_attempts(self) -> usize {
+        self.unsupported_attempts
+    }
 }
 
 /// One authenticated, backend-neutral normalization of all persisted attempts.
@@ -2144,7 +2182,7 @@ fn preflight_authenticated_attempt_batch(
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
     attempts: &[SectorCoverageCandidateAttempt],
-    row_span: &GeneratedSymbolicRowSpanCertificate,
+    row_span: &Arc<GeneratedSymbolicRowSpanCertificate>,
 ) -> Result<(), ParametricSectorCoverageError> {
     for (position, attempt) in attempts.iter().enumerate() {
         if attempt.ordinal != position {
@@ -2169,12 +2207,8 @@ fn preflight_authenticated_attempt_batch(
                 ordinal: attempt.ordinal,
             });
         }
-        if !attempt
-            .compilation
-            .source_authentication()
-            .row_span()
-            .payload_eq(row_span)
-        {
+        let attempt_row_span = attempt.compilation.source_authentication().row_span_arc();
+        if !Arc::ptr_eq(attempt_row_span, row_span) && !attempt_row_span.payload_eq(row_span) {
             return Err(ParametricSectorCoverageError::SharedRowSpanCertificateMismatch);
         }
     }
@@ -2252,7 +2286,7 @@ pub(crate) fn charge_formula_normalization_source_census(
     Ok(())
 }
 
-fn preflight_formula_normalization_scope(
+pub(crate) fn preflight_formula_normalization_scope(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
@@ -4328,7 +4362,7 @@ pub(crate) fn validate_family_context(
     Ok(())
 }
 
-fn validate_row_span_binding(
+pub(crate) fn validate_row_span_binding(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     row_span: &GeneratedSymbolicRowSpanCertificate,

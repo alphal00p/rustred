@@ -185,17 +185,33 @@ five-class master selection.  It therefore validates the generated algebra
 at three loops but does not claim a reusable three-loop parametric
 `SolvejSector` database.
 
-The next solver milestone is a topology-neutral
-`GeneratedFamilySymbolicResidualSolveV1`.  It will connect the existing
-authenticated cylindrical symbolic start, cumulative translated IBP/LI row
-system, preordered persistent elimination, generated `WhenBad` candidates,
-coverage/live residual queue, and the generic provider.  Its first accepted
+The immediate high-loop entry milestone is a topology-neutral, replayable
+normalized-source owner plus a bounded direct search over its authenticated
+candidate bad-formulas.  It must carry only the requested residual frontier
+into the exact session, without first constructing the legacy explicit V4
+partition or the complete V5 MTBDD.  V4 remains a small-fixture differential
+oracle, and V5 remains an optional repeated-query classifier only when its
+separately measured construction budget is acceptable.  The first scaling gate
+is one declared arity-21 sector reaching exact Ready through this direct path;
+it is not a six-loop reduction claim.
+
+The normalized-source half of this milestone is implemented: it owns and
+replays one exact row-span allocation, every ordered attempt, the normalized
+IR/locus table, and the original resource envelope, and the MTBDD backend now
+shares it by `Arc`. The direct formula cursor and arity-21 Ready hand-off are
+still pending. A sealed freshly authenticated normalization seam must also
+remove the remaining repeated candidate-authentication passes before
+production-size high-loop runs.
+
+The following publication milestone remains the topology-neutral
+`GeneratedFamilySymbolicResidualSolveV1`.  It will connect the authenticated
+normalized frontier, cylindrical symbolic start, cumulative translated IBP/LI
+row system, preordered persistent elimination, generated `WhenBad` candidates,
+exceptional residual work, and the generic provider.  Its first accepted solve
 mode is an independent integer cylinder; dependent symbolic starts remain a
 typed pending outcome rather than being replaced by an arbitrary integer
 sample.  The artifact may contain no loop-count/topology tag, expected
-recurrence, or inferred master.  Initially the same ordered generated attempts
-will compile into legacy explicit V4 coverage and the private product-free V5
-subject for differential validation.
+recurrence, or inferred master.
 
 The exact first-mode pipeline is:
 
