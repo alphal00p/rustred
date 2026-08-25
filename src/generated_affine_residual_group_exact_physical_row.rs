@@ -439,6 +439,39 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
         self.stats
     }
 
+    /// Conservative unique-owner graph retained by a staged raw-row recipe.
+    ///
+    /// This includes the physical-row and re-elimination `Arc` allocations and
+    /// every uniquely reachable re-elimination child. The physical frame and
+    /// common inventory are shared with the exact solve plan and excluded.
+    /// Only exact authority pointer identity with that frame suppresses the
+    /// source-authority allocation; a non-anchor authority which merely shares
+    /// the inventory remains charged.
+    pub(crate) fn unique_retained_source_graph_byte_bound(&self) -> Option<usize> {
+        let charge_source_authority = !self
+            .frame
+            .same_authority_allocation(self.source.authority());
+        let mut bytes = self.stats.owner_retained_bytes();
+        for contribution in [
+            arc_control_and_padding_byte_bound::<Self>()?,
+            arc_control_and_padding_byte_bound::<
+                GeneratedAffineResidualCaseReeliminationCertificate,
+            >()?,
+            self.source
+                .retained_source_graph_byte_bound(charge_source_authority)?,
+        ] {
+            bytes = bytes.checked_add(contribution)?;
+        }
+        Some(bytes)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn reelimination_source_for_retained_graph_test(
+        &self,
+    ) -> &Arc<GeneratedAffineResidualCaseReeliminationCertificate> {
+        &self.source
+    }
+
     pub(crate) fn same_parent_allocations(
         &self,
         source: &Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
@@ -517,6 +550,12 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
         }))
         .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::SymbolicaPanic)?
     }
+}
+
+fn arc_control_and_padding_byte_bound<T>() -> Option<usize> {
+    size_of::<AtomicUsize>()
+        .checked_mul(2)?
+        .checked_add(align_of::<T>().saturating_sub(1))
 }
 
 pub(crate) struct GeneratedAffineResidualGroupExactPhysicalRowCompiler;
@@ -1426,6 +1465,7 @@ mod tests {
         family: IntegralFamily,
         context: ParametricCoefficientContext,
         inventory: Arc<GeneratedAffineResidualCaseInventoryCertificate>,
+        anchor: Arc<GeneratedAffineResidualCaseAuthority>,
         frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
     }
 
@@ -1583,7 +1623,7 @@ mod tests {
             GeneratedAffineResidualGroupPhysicalFrame::try_new(
                 &family,
                 &context,
-                anchor,
+                Arc::clone(&anchor),
                 GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
             )
             .unwrap(),
@@ -1592,6 +1632,7 @@ mod tests {
             family,
             context,
             inventory,
+            anchor,
             frame,
         }
     }
@@ -1626,6 +1667,18 @@ mod tests {
             )
             .unwrap(),
         );
+        production_source_for_authority_at_depth(fixture, authority, maximum_depth)
+    }
+
+    fn production_source_for_authority_at_depth(
+        fixture: &Fixture,
+        authority: Arc<GeneratedAffineResidualCaseAuthority>,
+        maximum_depth: usize,
+    ) -> Option<(
+        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
+        usize,
+        usize,
+    )> {
         let premises = match compile_generated_affine_residual_case_premises(
             &fixture.family,
             &fixture.context,
@@ -1737,6 +1790,59 @@ mod tests {
             }
         }
         panic!("concrete equal-mass fixture produced no row-local base-assumption guard")
+    }
+
+    #[test]
+    fn retained_source_graph_deduplicates_exact_frame_authority_allocation() {
+        let fixture = fixture("exact-physical-row-shared-anchor-memory");
+        let (source, retained_row_ordinal, witness_ordinal) =
+            production_source_for_authority_at_depth(&fixture, Arc::clone(&fixture.anchor), 0)
+                .expect("the concrete anchor case must produce an authenticated retained row");
+        assert!(fixture.frame.same_authority_allocation(source.authority()));
+
+        let row = Arc::new(
+            GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                &fixture.family,
+                &fixture.context,
+                Arc::clone(&source),
+                retained_row_ordinal,
+                witness_ordinal,
+                Arc::clone(&fixture.frame),
+                GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+            )
+            .unwrap(),
+        );
+        let shared_source_graph = source
+            .retained_source_graph_byte_bound(false)
+            .expect("the finite shared-authority graph must fit in usize");
+        let independently_owned_source_graph = source
+            .retained_source_graph_byte_bound(true)
+            .expect("the finite independently owned graph must fit in usize");
+        assert!(independently_owned_source_graph > shared_source_graph);
+
+        let expected = row
+            .stats()
+            .owner_retained_bytes()
+            .checked_add(
+                arc_control_and_padding_byte_bound::<GeneratedAffineResidualGroupExactPhysicalRow>(
+                )
+                .unwrap(),
+            )
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    arc_control_and_padding_byte_bound::<
+                        GeneratedAffineResidualCaseReeliminationCertificate,
+                    >()
+                    .unwrap(),
+                )
+            })
+            .and_then(|bytes| bytes.checked_add(shared_source_graph))
+            .unwrap();
+        assert_eq!(
+            row.unique_retained_source_graph_byte_bound().unwrap(),
+            expected,
+            "exact frame-authority identity must select the deduplicated source graph"
+        );
     }
 
     #[test]

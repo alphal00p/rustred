@@ -1,6 +1,7 @@
 # Exact-session `WhenBad` and publication port plan
 
-Status: authoritative implementation plan, 2026-08-24.
+Status: authoritative implementation plan; Phase A event-ledger foundation
+implemented, 2026-08-24.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -47,15 +48,26 @@ The current-lineage components below are implemented and tested:
   after commit. Equality consumes the running session into a sealed
   `GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch` that
   retains the committed session, successor-bound unresolved equality target,
-  and private source replay recipe while exposing no resume, staging, or
+  and exact private terminal event while exposing no resume, staging, or
   session-extraction method.
-- The private unconsumed path now separates complete successor preparation
-  from the database commit and allocation-free target-state swap. For the two
-  consuming typed pivot transitions, recoverable preflight failure returns the
-  original session and owning outcome; a post-database rejection is an explicit
-  fail-stop invariant that returns no callable session. Equality successor
-  state and rebound target are minted as one capability-gated pair over the
-  same exact allocation.
+- Staged database rows retain an opaque production or synthetic source recipe
+  and shared exact dependent-reduction or new-pivot evidence. The private
+  transaction path prepares an owning database commit that can be aborted on
+  recoverable outer-preflight failure. After all event and target replacements
+  are admitted, an allocation-free checked fail-stop boundary precedes the
+  infallible database/owner commit tail. Equality successor state and rebound
+  target are minted as one capability-gated pair over the same exact
+  allocation.
+- The session owns a private append-only event ledger for every consumed
+  source. Current events cover `Dependent`, `NoTarget`, and mandatory
+  affine-equality refinement, share the database's exact source/evidence
+  allocations, and retain authenticated versions, disposition, target data,
+  exact offsets where applicable, and cumulative resource statistics.
+- `replay()` creates a fresh shadow session and restages every opaque source
+  recipe chronologically. It reruns hardest-only reduction, recentering, and
+  target matching; compares exact shared evidence and dispositions; and checks
+  terminal database, target, event, and resource state. Equality-suspension
+  replay additionally authenticates the exact terminal event.
 
 Focused tests cover exact Ready translation, NoTarget beyond `i64`, a 4,096-bit
 coordinate, post-top-reduction leader selection, transaction return after
@@ -71,22 +83,50 @@ production recipe, 2/2), and `4e1ef6e4-749e-4f2e-8f00-869059b61f20`
 `cargo check --tests -j 4`, `cargo fmt --all -- --check`, and
 `git diff --check` also passed.
 
+The event-ledger slice adds focused tests for private
+event/source/evidence `Arc` identity and lifetime, retained production-source
+replay after staging owners drop, cumulative and one-below event/replay owner
+limits, chronological fresh-shadow re-execution of dependent and pivot
+transitions, exact NoTarget/equality offsets, and sealed suspension replay.
+The production-source resource test additionally drops every external source
+pipeline handle and proves that the admitted recipe owns the physical row,
+re-elimination, bound outcomes, elimination, and source-local
+authority/premises/ordering/schedule graph. A separate anchor fixture proves
+that only exact frame-authority pointer identity suppresses that authority's
+otherwise unique allocation.
+
+The frozen event-ledger milestone passed licensed, GMP-enabled four-way
+`cargo-nextest` runs `34021f1d-7458-4700-9ec9-4155cd338c39` (all 16 exact
+session tests, including the sealed equality replay, 16/16),
+`75cec2fb-6846-4a1b-8df5-029b1331e717` (exact database, physical-row, and
+recenter-kernel tests, 42/42), and `ff9310fa-fb3b-42e2-b79f-531fc93708ad`
+(the complete retained source-parent graph gate, 62/62). `cargo check
+--all-targets -j 4`, `cargo fmt --all -- --check`, and `git diff --check`
+also passed. Neither FORM nor Symbolica's `no_gmp` feature was used.
+
 Production-source coverage is deliberately compositional: genuine physical-row
 ingress proves retained Arc identity, lifetime, and row replay, while the full
 equality transition test uses its sealed synthetic test adapter. The current
 physical-row fixture skips equality-premise source cases, so an end-to-end
 production equality row remains a future refined-epoch gate.
 
-Not yet implemented are a session-wide chronological event ledger, the
-current-lineage exact `WhenBad` compiler, target-consuming publication,
-exceptional residual work, or replayable current-lineage rule handles. The
-mature `GeneratedResidualAffine...` implementation is an oracle, not production
-authority for these missing pieces.
+Not yet implemented are the current-lineage exact `WhenBad` compiler,
+target-consuming rule publication, exceptional residual orchestration, or
+replayable current-lineage rule/residual handles. The current event ledger is a
+complete transcript only for its implemented non-publishing dispositions; its
+schema and replay must be extended with the future `WhenBad`, publication, and
+residual manifests. The mature `GeneratedResidualAffine...` implementation is
+an oracle, not production authority for these missing pieces. Full LiteRed
+parity, arbitrary one-loop pentagon reduction, and the two- through five-loop
+milestones therefore remain pending.
 
-Until that ledger lands, the committed NoTarget metadata and suspended
-equality metadata are transition results, not complete chronological replay or
-owner-wide resource transcripts. In particular, equality-pair authentication
-is limit-checked but is not yet projected into successor-state statistics.
+Before Phase B/C algebra grows, existing home-grown algebra must be migrated to
+Symbolica's public APIs, beginning with `src/exact.rs`. See the
+[`Symbolica exact-linear-algebra API inventory`](symbolica_exact_linear_algebra_api_inventory.md)
+and the
+[`Symbolica-first algebra migration audit`](symbolica_first_algebra_migration_audit_2026-08-24.md).
+This is the immediate implementation blocker; RustRed must not build a second
+CAS or matrix layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -321,12 +361,13 @@ target disposition, or the parametric bad formula.
 
 ## 6. Implementation phases and APIs
 
-### Phase A: validated typed non-publishing commits; add the event ledger
+### Phase A: validated typed non-publishing commits and event ledger —
+implemented foundation
 
-The typed NoTarget commit and consuming equality suspension described in the
-checkpoint are the validated first slice of this phase. Next, extend the exact
-session owner with an append-only chronological event collection and, for
-ordinary owner-resident transitions, a group-run disposition such as
+The typed NoTarget commit, consuming equality suspension, private append-only
+chronological event collection, cumulative resource accounting, and
+fresh-shadow replay described in the checkpoint are the validated foundation
+of this phase. The current private event disposition is equivalent in scope to
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactRunDisposition {
@@ -388,12 +429,12 @@ with a fresh database; generic-field pivots must not be imported blindly into
 the equality quotient. Equality is neither `IdenticallyBad`, a normal
 rejection, nor a solved target.
 
-The existing unconsumed kernel has already been split into preparation and a
-preallocated final tail. Preserve that seam and extend it to prepared event,
-rule, and residual replacements for later `WhenBad` outcomes. The suspended
-equality owner is itself the immediate refinement authority; the later
-chronological ledger must record/project that transition without making the
-committed session resumable.
+The existing unconsumed kernel and database now use owning preparation plus a
+preallocated event/target replacement and infallible final tail. Preserve that
+seam and extend it to prepared rule and residual replacements for later
+`WhenBad` outcomes. The suspended equality owner is itself the immediate
+refinement authority; its chronological event is already recorded/replayed
+without making the committed session resumable.
 
 ### Phase B: exact target geometry, descent, and hazards
 
@@ -708,12 +749,13 @@ Implement in this order:
 
 1. typed NoTarget commit and sealed equality suspension — completed;
 2. extend the common fully prepared tail with the minimal chronological event
-   ledger and owner-wide replacement preparation;
+   ledger and owner-wide replacement preparation — completed for Dependent,
+   NoTarget, and equality-refinement dispositions;
 3. exact-`Integer` geometry, descent, boundary, condition, and pullback cores;
 4. owning current-lineage exact `WhenBad` terminal compiler;
 5. atomic Certified/rejected disposition, sealed rules, and exceptional work;
-6. replay, durable manifest validation, concrete application, and provider
-   integration;
+6. extend the implemented chronological replay with durable rule/residual
+   manifest validation, concrete application, and provider integration;
 7. topology-based validation from one loop upward.
 
 A phase is complete only when its success disposition, retry ownership,

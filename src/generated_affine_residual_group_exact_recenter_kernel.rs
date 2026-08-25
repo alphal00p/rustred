@@ -134,6 +134,10 @@ pub(crate) struct ExactRecenterKernelStats {
     geometry_integer_operations: usize,
     geometry_integer_bit_work: usize,
     target_offset_integer_bits: usize,
+    target_offset_prospective_retained_bytes: usize,
+    target_offset_arc_retained_bytes: usize,
+    target_offset_observed_retained_bytes: usize,
+    target_offset_observed_arc_retained_bytes: usize,
     target_offset_temporary_bytes: usize,
     exact_shift_components: usize,
     prospective_exact_shift_integer_bits: usize,
@@ -187,6 +191,10 @@ impl ExactRecenterKernelStats {
         geometry_integer_operations,
         geometry_integer_bit_work,
         target_offset_integer_bits,
+        target_offset_prospective_retained_bytes,
+        target_offset_arc_retained_bytes,
+        target_offset_observed_retained_bytes,
+        target_offset_observed_arc_retained_bytes,
         target_offset_temporary_bytes,
         exact_shift_components,
         prospective_exact_shift_integer_bits,
@@ -281,6 +289,53 @@ impl ExactTargetOffset {
 
     pub(crate) const fn retained_bytes(&self) -> usize {
         self.retained_bytes
+    }
+
+    /// Bytes retained by an `Arc<ExactTargetOffset>`, excluding the inline
+    /// `Arc` handle stored by its outer owner but including the Arc control
+    /// block, alignment padding, exact offset wrapper, vector, and GMP limbs.
+    pub(crate) fn arc_retained_bytes(&self) -> Result<usize, ExactRecenterKernelError> {
+        Ok(self.authenticate_retained_census()?.1)
+    }
+
+    /// Recompute the ledger-owned offset census directly from the GMP payload
+    /// and reject a stale or altered child scalar before an outer replay uses
+    /// it for resource admission.
+    pub(crate) fn authenticate_retained_census(
+        &self,
+    ) -> Result<(usize, usize), ExactRecenterKernelError> {
+        let (retained_integer_bits, retained_vector_bytes) =
+            integer_vec_owned_census(&self.values, false)?;
+        let retained_bytes = checked_add(
+            "exact recentering authenticated target-offset bytes",
+            retained_vector_bytes,
+            exact_target_offset_wrapper_overhead()?,
+        )?;
+        if retained_integer_bits != self.retained_integer_bits
+            || retained_bytes != self.retained_bytes
+        {
+            return Err(ExactRecenterKernelError::CensusMismatch);
+        }
+        let arc_retained_bytes = checked_add(
+            "exact recentering retained target-offset Arc bytes",
+            retained_bytes,
+            arc_payload_control_and_padding_byte_bound::<ExactTargetOffset>()?
+                .checked_sub(size_of::<ExactTargetOffset>())
+                .ok_or(ExactRecenterKernelError::ResourceCountOverflow {
+                    resource: "exact recentering retained target-offset Arc bytes",
+                })?,
+        )?;
+        Ok((retained_integer_bits, arc_retained_bytes))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_retained_census_for_test(
+        &mut self,
+        retained_integer_bits: usize,
+        retained_bytes: usize,
+    ) {
+        self.retained_integer_bits = retained_integer_bits;
+        self.retained_bytes = retained_bytes;
     }
 }
 
@@ -627,6 +682,16 @@ pub(crate) fn preflight_exact_geometry(
         target_offset_live_integer_peak =
             target_offset_live_integer_peak.max(subtraction_live_bytes);
     }
+    let target_offset_prospective_retained_bytes = target_offset_bytes;
+    let target_offset_arc_retained_bytes = checked_add(
+        "exact recentering retained target-offset Arc bytes",
+        target_offset_prospective_retained_bytes,
+        arc_payload_control_and_padding_byte_bound::<ExactTargetOffset>()?
+            .checked_sub(size_of::<ExactTargetOffset>())
+            .ok_or(ExactRecenterKernelError::ResourceCountOverflow {
+                resource: "exact recentering retained target-offset Arc bytes",
+            })?,
+    )?;
     target_offset_bytes = checked_add(
         "exact recentering target-offset temporary bytes",
         target_offset_bytes,
@@ -649,6 +714,8 @@ pub(crate) fn preflight_exact_geometry(
     )?;
     stats.geometry_integer_bit_work = bit_work;
     stats.target_offset_integer_bits = target_offset_bits;
+    stats.target_offset_prospective_retained_bytes = target_offset_prospective_retained_bytes;
+    stats.target_offset_arc_retained_bytes = target_offset_arc_retained_bytes;
     stats.target_offset_temporary_bytes = target_offset_bytes;
     Ok(())
 }
@@ -706,13 +773,18 @@ fn exact_geometry_operation_bit_work(
 
 pub(crate) fn verify_target_offset_census(
     target_offset: &ExactTargetOffset,
-    stats: &ExactRecenterKernelStats,
+    stats: &mut ExactRecenterKernelStats,
 ) -> Result<(), ExactRecenterKernelError> {
-    if target_offset.retained_integer_bits() > stats.target_offset_integer_bits
-        || target_offset.retained_bytes() > stats.target_offset_temporary_bytes
+    let (observed_integer_bits, observed_arc_retained_bytes) =
+        target_offset.authenticate_retained_census()?;
+    if observed_integer_bits > stats.target_offset_integer_bits
+        || target_offset.retained_bytes() > stats.target_offset_prospective_retained_bytes
+        || observed_arc_retained_bytes > stats.target_offset_arc_retained_bytes
     {
         return Err(ExactRecenterKernelError::CensusMismatch);
     }
+    stats.target_offset_observed_retained_bytes = target_offset.retained_bytes();
+    stats.target_offset_observed_arc_retained_bytes = observed_arc_retained_bytes;
     Ok(())
 }
 
@@ -1153,10 +1225,11 @@ where
 /// Translate a borrowed centered row without knowing its source or owner.
 ///
 /// `owner_size` is the fixed retained size of the caller's eventual wrapper.
-/// `additional_output_retained_bytes` counts payload retained outside the
-/// translated vectors (the legacy adapter uses it for its pivot; a staged
-/// transaction that already owns that pivot passes zero). Existing live owner
-/// bytes and native scratch are admitted separately before output allocation.
+/// The prospective/observed additional-output values count payload retained
+/// outside the translated vectors.  Keeping them separate prevents temporary
+/// GMP construction headroom from being reported as durable output bytes.
+/// Existing live owner bytes and native scratch are admitted separately before
+/// output allocation.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn translate_centered_row<'a, I, G>(
     context: &ParametricCoefficientContext,
@@ -1166,7 +1239,9 @@ pub(crate) fn translate_centered_row<'a, I, G>(
     free_positions: &[usize],
     locator_origin: &GuardOrigin,
     owner_size: usize,
-    additional_output_retained_bytes: usize,
+    additional_output_prospective_retained_bytes: usize,
+    additional_output_observed_retained_bytes: usize,
+    target_offset_retained_in_output: bool,
     external_live_retained_bytes: usize,
     external_native_scratch_bytes: usize,
     limits: ExactRecenterKernelLimits,
@@ -1183,7 +1258,7 @@ where
     let reference_phase_output_bytes = checked_add(
         "exact recentering reference phase retained bytes",
         owner_size,
-        additional_output_retained_bytes,
+        additional_output_prospective_retained_bytes,
     )?;
     admit_combined_live(
         reference_phase_output_bytes,
@@ -1191,7 +1266,12 @@ where
         limits,
         stats,
     )?;
-    admit_native_phase(external_native_scratch_bytes, limits, stats)?;
+    admit_native_phase(
+        external_native_scratch_bytes,
+        target_offset_retained_in_output,
+        limits,
+        stats,
+    )?;
     let (retained_terms, retained_guards) = materialize_borrowed_references(terms, guards, stats)?;
     preflight_coefficient_translation(pivot, free_positions, pivot.arity(), limits, stats)?;
     let coefficient_phase_output_bytes = checked_add(
@@ -1199,7 +1279,7 @@ where
         checked_add(
             "exact recentering coefficient phase retained bytes",
             owner_size,
-            additional_output_retained_bytes,
+            additional_output_prospective_retained_bytes,
         )?,
         stats.coefficient_translation_retained_bytes,
     )?;
@@ -1209,7 +1289,12 @@ where
         limits,
         stats,
     )?;
-    admit_native_phase(external_native_scratch_bytes, limits, stats)?;
+    admit_native_phase(
+        external_native_scratch_bytes,
+        target_offset_retained_in_output,
+        limits,
+        stats,
+    )?;
     let coefficient_translation =
         execute_coefficient_translation(pivot, free_positions, pivot.arity())?;
     verify_coefficient_translation_census(&coefficient_translation, stats)?;
@@ -1219,11 +1304,12 @@ where
         &retained_terms,
         &retained_guards,
         coefficient_translation.values(),
-        additional_output_retained_bytes,
+        additional_output_prospective_retained_bytes,
         locator_origin,
         owner_size,
         external_live_retained_bytes,
         external_native_scratch_bytes,
+        target_offset_retained_in_output,
         limits,
         stats,
     )?;
@@ -1265,7 +1351,7 @@ where
         &output_terms,
         &output_guards,
         &coefficient_translation,
-        additional_output_retained_bytes,
+        additional_output_observed_retained_bytes,
     )?;
     check_limit(
         "exact recentering owner retained bytes",
@@ -1303,6 +1389,7 @@ fn preflight_symbolica_translations<T>(
     owner_size: usize,
     external_live_retained_bytes: usize,
     external_native_scratch_bytes: usize,
+    target_offset_retained_in_output: bool,
     limits: ExactRecenterKernelLimits,
     stats: &mut ExactRecenterKernelStats,
 ) -> Result<ExactTranslationAdmission, ExactRecenterKernelError> {
@@ -1415,7 +1502,11 @@ fn preflight_symbolica_translations<T>(
                 maximum_polynomial_bytes,
                 3,
             )?,
-            native_exact_scratch_bytes(stats, external_native_scratch_bytes)?,
+            native_exact_scratch_bytes(
+                stats,
+                external_native_scratch_bytes,
+                target_offset_retained_in_output,
+            )?,
         )?,
     )?;
     check_limit(
@@ -1579,13 +1670,18 @@ fn admit_combined_live(
 
 fn admit_native_phase(
     external_native_scratch_bytes: usize,
+    target_offset_retained_in_output: bool,
     limits: ExactRecenterKernelLimits,
     stats: &mut ExactRecenterKernelStats,
 ) -> Result<(), ExactRecenterKernelError> {
     let native = checked_add(
         "exact recentering native temporary byte envelope",
         stats.combined_live_retained_bytes,
-        native_exact_scratch_bytes(stats, external_native_scratch_bytes)?,
+        native_exact_scratch_bytes(
+            stats,
+            external_native_scratch_bytes,
+            target_offset_retained_in_output,
+        )?,
     )?;
     check_limit(
         "exact recentering native temporary byte envelope",
@@ -1600,6 +1696,7 @@ pub(crate) fn admit_inert_owner(
     owner_retained_bytes: usize,
     external_live_retained_bytes: usize,
     external_native_scratch_bytes: usize,
+    target_offset_retained_in_output: bool,
     limits: ExactRecenterKernelLimits,
     stats: &mut ExactRecenterKernelStats,
 ) -> Result<(), ExactRecenterKernelError> {
@@ -1618,7 +1715,11 @@ pub(crate) fn admit_inert_owner(
     let native_temporary_byte_envelope = checked_add(
         "exact recentering native temporary byte envelope",
         stats.combined_live_retained_bytes,
-        native_exact_scratch_bytes(stats, external_native_scratch_bytes)?,
+        native_exact_scratch_bytes(
+            stats,
+            external_native_scratch_bytes,
+            target_offset_retained_in_output,
+        )?,
     )?;
     check_limit(
         "exact recentering native temporary byte envelope",
@@ -1630,14 +1731,44 @@ pub(crate) fn admit_inert_owner(
     Ok(())
 }
 
+/// Replace the prospective inert-owner census with the allocator-observed
+/// retained size after construction, without changing the already-admitted
+/// prospective or combined-live envelopes.
+pub(crate) fn observe_inert_owner(
+    observed_owner_retained_bytes: usize,
+    external_live_retained_bytes: usize,
+    stats: &mut ExactRecenterKernelStats,
+) -> Result<(), ExactRecenterKernelError> {
+    if observed_owner_retained_bytes > stats.prospective_owner_retained_bytes
+        || checked_add(
+            "exact recentering observed combined live retained bytes",
+            external_live_retained_bytes,
+            observed_owner_retained_bytes,
+        )? > stats.combined_live_retained_bytes
+    {
+        return Err(ExactRecenterKernelError::OutputCensusMismatch);
+    }
+    stats.owner_retained_bytes = observed_owner_retained_bytes;
+    Ok(())
+}
+
 pub(crate) fn native_exact_scratch_bytes(
     stats: &ExactRecenterKernelStats,
     external_native_scratch_bytes: usize,
+    target_offset_retained_in_output: bool,
 ) -> Result<usize, ExactRecenterKernelError> {
     let resource = "exact recentering native temporary byte envelope";
     let mut bytes = external_native_scratch_bytes;
+    let target_offset_temporary_bytes = if target_offset_retained_in_output {
+        stats
+            .target_offset_temporary_bytes
+            .checked_sub(stats.target_offset_prospective_retained_bytes)
+            .ok_or(ExactRecenterKernelError::ResourceCountOverflow { resource })?
+    } else {
+        stats.target_offset_temporary_bytes
+    };
     for increment in [
-        stats.target_offset_temporary_bytes,
+        target_offset_temporary_bytes,
         stats.centered_shift_outer_buffer_bytes,
         stats.borrowed_reference_buffer_bytes,
     ] {
@@ -1878,7 +2009,144 @@ pub(crate) fn check_limit(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::generated_affine_residual_boolean_cover::{
+        GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
+    };
+    use crate::generated_affine_residual_case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+    };
+    use crate::generated_affine_residual_group_physical_key::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+    };
+    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::{
+        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
+        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
+        GeneratedSectorLiveLeafQueueLimits, IntegralFamily, IntegralOrderingPolicy,
+        ParametricIbpGenerator, SectorMask,
+    };
+
+    fn equal_mass_two_loop_family(name: &str) -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "m2"]);
+        let zero = coefficients.zero();
+        let one = coefficients.one();
+        let minus_m2 = coefficients.parse("-m2").unwrap();
+        IntegralFamily::new(
+            name,
+            vec!["k1".into(), "k2".into()],
+            Vec::new(),
+            coefficients.clone(),
+            coefficients.parameter("d").unwrap(),
+            vec![
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![one.clone(), zero.clone(), zero.clone()],
+                ),
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![zero.clone(), zero.clone(), one.clone()],
+                ),
+                AffineDenominator::new(minus_m2, vec![one.clone(), coefficients.integer(2), one]),
+            ],
+            Vec::new(),
+            vec![zero.clone(), zero.clone(), zero],
+        )
+        .unwrap()
+    }
+
+    fn cancellation_geometry() -> (
+        GeneratedAffineResidualGroupLatticeShift,
+        Vec<Integer>,
+        Vec<usize>,
+    ) {
+        let family = equal_mass_two_loop_family("exact-kernel-target-offset-cancellation");
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
+        discovery_limits.adaptive.max_search_depth = 0;
+        let discovery = GeneratedSectorDiscoveryCompiler::compile(
+            &family,
+            &context,
+            SectorMask::try_from_bit_string("011").unwrap(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
+            discovery_limits,
+        )
+        .unwrap();
+        let mut queue_limits = GeneratedSectorLiveLeafQueueLimits::default();
+        queue_limits.translation_radius = 0;
+        queue_limits.max_translation_points = 1;
+        let queue = Arc::new(
+            GeneratedSectorLiveLeafQueueCompiler::compile(
+                &family,
+                &context,
+                &discovery,
+                queue_limits,
+            )
+            .unwrap(),
+        );
+        let boolean = Arc::new(
+            GeneratedAffineResidualBooleanCoverCompiler::compile(
+                &family,
+                &context,
+                GeneratedAffineResidualSourceAuthority::initial_global(queue),
+                GeneratedAffineResidualBooleanCoverLimits::default(),
+            )
+            .unwrap(),
+        );
+        let inventory = Arc::new(
+            GeneratedAffineResidualCaseInventoryCompiler::compile(
+                &family,
+                &context,
+                boolean,
+                GeneratedAffineResidualCaseInventoryLimits::default(),
+            )
+            .unwrap(),
+        );
+        let group_ordinal = (0..inventory.group_count())
+            .max_by_key(|&ordinal| {
+                inventory
+                    .authenticated_group_view(&context, ordinal)
+                    .unwrap()
+                    .case_ordinals()
+                    .len()
+            })
+            .unwrap();
+        let group = inventory
+            .authenticated_group_view(&context, group_ordinal)
+            .unwrap();
+        let matrix = group.compact_linear_coefficients().to_vec();
+        let free_positions = group.free_positions().to_vec();
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new(
+                &family,
+                &context,
+                Arc::clone(&inventory),
+                group.anchor_case_ordinal(),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                authority,
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let huge = Integer::from(1) << 4096_u32;
+        let key = frame
+            .test_key_for_borrowed_physical_values(&[huge, Integer::from(0), Integer::from(0)])
+            .unwrap();
+        (key.shift().clone(), matrix, free_positions)
+    }
 
     #[test]
     fn defaults_preserve_legacy_gmp_limits_and_session_memory_headroom() {
@@ -1941,8 +2209,249 @@ mod tests {
     }
 
     #[test]
+    fn target_offset_arc_census_excludes_the_outer_arc_handle() {
+        let values = vec![Integer::from(1) << 512_u32, Integer::from(0)];
+        let (retained_integer_bits, vector_bytes) =
+            integer_vec_owned_census(&values, false).unwrap();
+        let retained_bytes = checked_add(
+            "test target-offset retained bytes",
+            vector_bytes,
+            exact_target_offset_wrapper_overhead().unwrap(),
+        )
+        .unwrap();
+        let offset = ExactTargetOffset {
+            values,
+            retained_integer_bits,
+            retained_bytes,
+        };
+        let arc_control_and_padding =
+            arc_payload_control_and_padding_byte_bound::<ExactTargetOffset>().unwrap()
+                - size_of::<ExactTargetOffset>();
+        let deep_arc_bytes = offset.arc_retained_bytes().unwrap();
+
+        assert_eq!(
+            deep_arc_bytes,
+            offset.retained_bytes() + arc_control_and_padding
+        );
+        let outer_owner_bytes = checked_add(
+            "test target-offset outer owner bytes",
+            size_of::<Arc<ExactTargetOffset>>(),
+            deep_arc_bytes,
+        )
+        .unwrap();
+        assert_eq!(
+            outer_owner_bytes.checked_sub(deep_arc_bytes),
+            Some(size_of::<Arc<ExactTargetOffset>>())
+        );
+        assert_ne!(
+            deep_arc_bytes, outer_owner_bytes,
+            "the Arc-backed payload census must not include its outer owner's inline Arc handle"
+        );
+
+        let mut stats = ExactRecenterKernelStats {
+            target_offset_integer_bits: retained_integer_bits,
+            target_offset_prospective_retained_bytes: retained_bytes,
+            target_offset_arc_retained_bytes: deep_arc_bytes,
+            ..ExactRecenterKernelStats::default()
+        };
+        verify_target_offset_census(&offset, &mut stats).unwrap();
+        assert_eq!(
+            stats.target_offset_observed_retained_bytes(),
+            retained_bytes
+        );
+        assert_eq!(
+            stats.target_offset_observed_arc_retained_bytes(),
+            deep_arc_bytes
+        );
+    }
+
+    #[test]
+    fn retained_target_offset_enters_native_envelope_once_with_exact_limits() {
+        let template = ExactRecenterKernelStats {
+            target_offset_prospective_retained_bytes: 40,
+            target_offset_temporary_bytes: 64,
+            centered_shift_outer_buffer_bytes: 7,
+            borrowed_reference_buffer_bytes: 11,
+            ..ExactRecenterKernelStats::default()
+        };
+        let owner_retained_bytes = 101;
+        let external_live_retained_bytes = 13;
+        let external_native_scratch_bytes = 17;
+        let combined_live = owner_retained_bytes + external_live_retained_bytes;
+        let native_scratch = external_native_scratch_bytes
+            + (template.target_offset_temporary_bytes()
+                - template.target_offset_prospective_retained_bytes())
+            + template.centered_shift_outer_buffer_bytes()
+            + template.borrowed_reference_buffer_bytes();
+        let native_envelope = combined_live + native_scratch;
+
+        assert_eq!(
+            native_exact_scratch_bytes(&template, external_native_scratch_bytes, true).unwrap(),
+            native_scratch
+        );
+        assert_eq!(
+            native_exact_scratch_bytes(&template, external_native_scratch_bytes, false).unwrap()
+                - native_scratch,
+            template.target_offset_prospective_retained_bytes(),
+            "an owner that already retains the offset must add only its construction scratch"
+        );
+
+        let exact_limits = ExactRecenterKernelLimits {
+            max_owner_retained_bytes: owner_retained_bytes,
+            max_combined_live_retained_bytes: combined_live,
+            max_native_temporary_byte_envelope: native_envelope,
+            ..ExactRecenterKernelLimits::default()
+        };
+        let mut exact = template;
+        admit_inert_owner(
+            owner_retained_bytes,
+            external_live_retained_bytes,
+            external_native_scratch_bytes,
+            true,
+            exact_limits,
+            &mut exact,
+        )
+        .unwrap();
+        assert_eq!(
+            exact.prospective_owner_retained_bytes(),
+            owner_retained_bytes
+        );
+        assert_eq!(exact.owner_retained_bytes(), owner_retained_bytes);
+        assert_eq!(exact.combined_live_retained_bytes(), combined_live);
+        assert_eq!(exact.native_temporary_byte_envelope(), native_envelope);
+
+        for (resource, limits) in [
+            (
+                "exact recentering owner retained bytes",
+                ExactRecenterKernelLimits {
+                    max_owner_retained_bytes: owner_retained_bytes - 1,
+                    ..exact_limits
+                },
+            ),
+            (
+                "exact recentering combined live retained bytes",
+                ExactRecenterKernelLimits {
+                    max_combined_live_retained_bytes: combined_live - 1,
+                    ..exact_limits
+                },
+            ),
+            (
+                "exact recentering native temporary byte envelope",
+                ExactRecenterKernelLimits {
+                    max_native_temporary_byte_envelope: native_envelope - 1,
+                    ..exact_limits
+                },
+            ),
+        ] {
+            let mut rejected = template;
+            assert!(matches!(
+                admit_inert_owner(
+                    owner_retained_bytes,
+                    external_live_retained_bytes,
+                    external_native_scratch_bytes,
+                    true,
+                    limits,
+                    &mut rejected,
+                ),
+                Err(ExactRecenterKernelError::ResourceLimit {
+                    resource: actual,
+                    requested,
+                    limit,
+                }) if actual == resource && requested == limit + 1
+            ));
+        }
+    }
+
+    #[test]
+    fn large_bit_cancellation_separates_temporary_and_observed_offset_bytes() {
+        let (pivot, matrix, free_positions) = cancellation_geometry();
+        let limits = ExactRecenterKernelLimits::default();
+        let mut stats = ExactRecenterKernelStats::for_row(0, 0, limits).unwrap();
+        preflight_exact_geometry(&pivot, &matrix, &free_positions, limits, &mut stats).unwrap();
+
+        let exact_bits = stats.target_offset_integer_bits();
+        let prospective_bytes = stats.target_offset_prospective_retained_bytes();
+        let prospective_arc_bytes = stats.target_offset_arc_retained_bytes();
+        let temporary_bytes = stats.target_offset_temporary_bytes();
+        assert!(exact_bits > 4096);
+        assert!(prospective_arc_bytes > prospective_bytes);
+        assert!(temporary_bytes > prospective_bytes);
+
+        let offset =
+            execute_target_offset(&pivot, &matrix, &free_positions, pivot.arity()).unwrap();
+        assert!(
+            offset
+                .values()
+                .iter()
+                .all(|value| value == &Integer::from(0))
+        );
+        verify_target_offset_census(&offset, &mut stats).unwrap();
+        assert!(
+            prospective_bytes > stats.target_offset_observed_retained_bytes(),
+            "cancelling large GMP intermediates must not become retained zero limbs"
+        );
+        assert!(prospective_arc_bytes > stats.target_offset_observed_arc_retained_bytes());
+        assert!(temporary_bytes > stats.target_offset_observed_retained_bytes());
+        assert_eq!(
+            stats.target_offset_observed_arc_retained_bytes(),
+            offset.arc_retained_bytes().unwrap()
+        );
+
+        let exact_limits = ExactRecenterKernelLimits {
+            max_target_offset_integer_bits: exact_bits,
+            max_target_offset_temporary_bytes: temporary_bytes,
+            ..limits
+        };
+        let mut exact_stats = ExactRecenterKernelStats::for_row(0, 0, exact_limits).unwrap();
+        preflight_exact_geometry(
+            &pivot,
+            &matrix,
+            &free_positions,
+            exact_limits,
+            &mut exact_stats,
+        )
+        .unwrap();
+        assert_eq!(exact_stats.target_offset_integer_bits(), exact_bits);
+        assert_eq!(exact_stats.target_offset_temporary_bytes(), temporary_bytes);
+
+        for (resource, one_below) in [
+            (
+                "exact recentering target-offset integer bits",
+                ExactRecenterKernelLimits {
+                    max_target_offset_integer_bits: exact_bits - 1,
+                    ..limits
+                },
+            ),
+            (
+                "exact recentering target-offset temporary bytes",
+                ExactRecenterKernelLimits {
+                    max_target_offset_temporary_bytes: temporary_bytes - 1,
+                    ..limits
+                },
+            ),
+        ] {
+            let mut rejected = ExactRecenterKernelStats::for_row(0, 0, one_below).unwrap();
+            assert!(matches!(
+                preflight_exact_geometry(
+                    &pivot,
+                    &matrix,
+                    &free_positions,
+                    one_below,
+                    &mut rejected,
+                ),
+                Err(ExactRecenterKernelError::ResourceLimit {
+                    resource: actual,
+                    requested,
+                    limit,
+                }) if actual == resource && requested == limit + 1
+            ));
+        }
+    }
+
+    #[test]
     fn native_scratch_categories_exclude_retained_output_payloads() {
         let stats = ExactRecenterKernelStats {
+            target_offset_prospective_retained_bytes: 7,
             target_offset_temporary_bytes: 11,
             centered_shift_outer_buffer_bytes: 13,
             borrowed_reference_buffer_bytes: 17,
@@ -1951,6 +2460,7 @@ mod tests {
             coefficient_translation_retained_bytes: 29,
             ..ExactRecenterKernelStats::default()
         };
-        assert_eq!(native_exact_scratch_bytes(&stats, 5).unwrap(), 46);
+        assert_eq!(native_exact_scratch_bytes(&stats, 5, false).unwrap(), 46);
+        assert_eq!(native_exact_scratch_bytes(&stats, 5, true).unwrap(), 39);
     }
 }

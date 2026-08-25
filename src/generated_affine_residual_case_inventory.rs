@@ -1610,6 +1610,15 @@ impl GeneratedAffineResidualCaseAuthority {
     pub(crate) const fn stats(&self) -> GeneratedAffineResidualCaseAuthorityStats {
         self.stats
     }
+
+    /// Bytes owned by this authority allocation itself. The retained
+    /// inventory pointee is deliberately excluded: exact-group solve plans
+    /// and physical frames keep that common inventory ancestry alive, while a
+    /// non-anchor source authority can still become uniquely owned by a raw
+    /// row recipe.
+    pub(crate) const fn owner_retained_bytes_excluding_inventory(&self) -> usize {
+        size_of::<Self>()
+    }
     pub(crate) fn family_fingerprint(&self) -> &str {
         self.inventory.family_fingerprint()
     }

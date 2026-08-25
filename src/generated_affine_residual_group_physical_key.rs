@@ -1092,6 +1092,17 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
         self.stable_manifest.as_str()
     }
 
+    /// Allocation-identity check used only to deduplicate retained source
+    /// graphs against the frame/solve-plan anchor authority. Sharing the same
+    /// inventory is not sufficient: non-anchor case authorities are distinct
+    /// allocations and remain chargeable.
+    pub(crate) fn same_authority_allocation(
+        &self,
+        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
+    ) -> bool {
+        Arc::ptr_eq(&self.authority, authority)
+    }
+
     pub(crate) fn anchor_offset(
         &self,
         ordinal_within_group: usize,

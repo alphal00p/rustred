@@ -1654,6 +1654,37 @@ impl AffineStartIntegralComplexityKey {
         self.ordering_manifest.as_str()
     }
 
+    /// Complete bytes owned by this key apart from the generated ordering's
+    /// shared manifest allocation. The manifest `Arc` handle is inline in the
+    /// key and is therefore covered by `size_of::<Self>()`; its pointee is
+    /// charged exactly once by the ordering certificate. All other `Arc`
+    /// pointees are minted for this key and are included here.
+    pub(crate) fn owned_retained_byte_bound(&self) -> Option<usize> {
+        let mut bytes = size_of::<Self>();
+        bytes = bytes.checked_add(
+            arc_payload_control_and_padding_byte_bound::<SectorMask>()?
+                .checked_add(self.formal_sector.owned_retained_byte_bound()?)?,
+        )?;
+        for value in [
+            &self.corner_distance_offset,
+            &self.dots_offset,
+            &self.numerators_offset,
+        ] {
+            bytes = bytes.checked_add(
+                arc_payload_control_and_padding_byte_bound::<Integer>()?
+                    .checked_add(integer_owned_heap_bytes(value.as_ref())?)?,
+            )?;
+        }
+        bytes = bytes.checked_add(arc_vec_owned_byte_bound(&self.signed_index_excess)?)?;
+        for value in self.signed_index_excess.iter() {
+            bytes = bytes.checked_add(integer_owned_heap_bytes(value)?)?;
+        }
+        bytes.checked_add(
+            arc_payload_control_and_padding_byte_bound::<IndexShift>()?
+                .checked_add(self.shift.owned_retained_byte_bound()?)?,
+        )
+    }
+
     /// Render the complete replay diagnostic under the ordering's explicit
     /// byte ceiling. Every GMP-backed decimal first receives a prospective
     /// sign-plus-digit check before its formatter can allocate. That decimal
@@ -1697,6 +1728,13 @@ impl AffineStartIntegralComplexityKey {
         write_values(&mut output, self.shift.as_ref().values(), RESOURCE)?;
         output.write_char(']').map_err(|_| output.error(RESOURCE))?;
         Ok(output.finish())
+    }
+}
+
+fn integer_owned_heap_bytes(value: &Integer) -> Option<usize> {
+    match value {
+        Integer::Single(_) | Integer::Double(_) => Some(0),
+        Integer::Large(value) => value.capacity().checked_add(7).map(|bits| bits / 8),
     }
 }
 

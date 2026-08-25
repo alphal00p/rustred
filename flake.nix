@@ -15,6 +15,7 @@
             packages = with pkgs; [
               rustc
               cargo
+              rustfmt
               cargo-nextest
               gcc
               gnum4

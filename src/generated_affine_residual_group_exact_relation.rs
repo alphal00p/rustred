@@ -882,7 +882,7 @@ fn compile_authenticated_relation(
         &mut exact_stats,
     )?;
     let target_offset = execute_target_offset(&pivot, matrix, free_positions, arity)?;
-    verify_target_offset_census(&target_offset, &exact_stats)?;
+    verify_target_offset_census(&target_offset, &mut exact_stats)?;
     let mut selected = None;
     for locator in plan.targets() {
         stats.target_scans = bounded_add(
@@ -913,6 +913,7 @@ fn compile_authenticated_relation(
             size_of::<GeneratedAffineResidualGroupExactRelationNoTarget>(),
             0,
             physical_native_scratch_bytes(&stats)?,
+            false,
             exact_limits,
             &mut exact_stats,
         )?;
@@ -944,6 +945,8 @@ fn compile_authenticated_relation(
         &locator_origin,
         size_of::<GeneratedAffineResidualGroupExactRelationCandidate>(),
         pivot.retained_bytes(),
+        pivot.retained_bytes(),
+        false,
         0,
         physical_native_scratch_bytes(&stats)?,
         exact_limits,
@@ -1559,7 +1562,7 @@ mod tests {
         assert_eq!(exact_stats.target_offset_temporary_bytes(), exact_demand);
 
         assert_eq!(
-            native_exact_scratch_bytes(&stats, 0).unwrap(),
+            native_exact_scratch_bytes(&stats, 0, false).unwrap(),
             exact_demand,
             "the revised target envelope must enter native scratch exactly once"
         );

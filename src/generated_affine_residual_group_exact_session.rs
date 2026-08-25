@@ -31,15 +31,19 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
     GeneratedAffineResidualGroupExactDatabaseLimits,
-    GeneratedAffineResidualGroupExactReductionStep, GeneratedAffineResidualGroupExactRowOutcome,
-    GeneratedAffineResidualGroupStagedExactRow,
+    GeneratedAffineResidualGroupExactReductionStep,
+    GeneratedAffineResidualGroupPrepareExactRowCommitFailure,
+    GeneratedAffineResidualGroupPreparedExactRowCommit,
+    GeneratedAffineResidualGroupRetainedExactDependentReductions,
+    GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    GeneratedAffineResidualGroupRetainedExactUnitPivot, GeneratedAffineResidualGroupStagedExactRow,
 };
 use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::generated_affine_residual_group_exact_recenter_kernel::{
     ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
-    ExactRecenteredRow, ExactRecenteredTerm, admit_inert_owner, bounded_add, checked_add,
-    exact_offsets_equal, execute_target_offset, preflight_exact_geometry, translate_centered_row,
-    verify_target_offset_census,
+    ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset, admit_inert_owner, bounded_add,
+    checked_add, exact_offsets_equal, execute_target_offset, observe_inert_owner,
+    preflight_exact_geometry, translate_centered_row, verify_target_offset_census,
 };
 use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
@@ -64,8 +68,36 @@ use crate::{
     ParametricNonZeroCondition,
 };
 
+#[cfg(test)]
+use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidualGroupExactRowOutcome;
+
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v1";
+const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-session-event-v1";
+
+#[cfg(test)]
+std::thread_local! {
+    static EVENT_LEDGER_REPLACEMENT_RESERVATIONS_FOR_TEST: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_event_ledger_replacement_reservations_for_test() {
+    EVENT_LEDGER_REPLACEMENT_RESERVATIONS_FOR_TEST.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn event_ledger_replacement_reservations_for_test() -> usize {
+    EVENT_LEDGER_REPLACEMENT_RESERVATIONS_FOR_TEST.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn record_event_ledger_replacement_reservation_for_test() {
+    EVENT_LEDGER_REPLACEMENT_RESERVATIONS_FOR_TEST.with(|count| {
+        count.set(count.get().saturating_add(1));
+    });
+}
 
 /// Unforgeable safe-Rust capability for the session-only exact-database API.
 ///
@@ -108,6 +140,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionLimits {
     pub(crate) target_catalog: GeneratedAffineResidualGroupExactTargetCatalogLimits,
     pub(crate) target_state: GeneratedAffineResidualGroupExactTargetStateLimits,
     pub(crate) recenter: GeneratedAffineResidualGroupExactSessionRecenterLimits,
+    pub(crate) events: GeneratedAffineResidualGroupExactSessionEventLimits,
 }
 
 impl Default for GeneratedAffineResidualGroupExactSessionLimits {
@@ -117,7 +150,151 @@ impl Default for GeneratedAffineResidualGroupExactSessionLimits {
             target_catalog: GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
             target_state: GeneratedAffineResidualGroupExactTargetStateLimits::default(),
             recenter: GeneratedAffineResidualGroupExactSessionRecenterLimits::default(),
+            events: GeneratedAffineResidualGroupExactSessionEventLimits::default(),
         }
+    }
+}
+
+/// Resource envelope for the allocation-bound chronological session ledger.
+///
+/// This ledger is deliberately bounded independently of the algebra database:
+/// dependent reduction traces and raw source recipes remain live here even
+/// when the database itself does not retain them. Replay work has separate
+/// limits so authentication cannot silently turn staging into an unbounded
+/// historical scan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactSessionEventLimits {
+    pub(crate) max_events: usize,
+    pub(crate) max_source_recipe_allocation_comparisons: usize,
+    pub(crate) max_target_state_successor_copies: usize,
+    pub(crate) max_ledger_arc_copies: usize,
+    pub(crate) max_reduction_steps: usize,
+    pub(crate) max_source_recipe_retained_bytes: usize,
+    pub(crate) max_target_offset_components: usize,
+    pub(crate) max_target_offset_integer_bits: usize,
+    pub(crate) max_target_offset_retained_bytes: usize,
+    pub(crate) max_equality_predicates: usize,
+    pub(crate) max_individual_event_retained_bytes: usize,
+    pub(crate) max_ledger_outer_buffer_bytes: usize,
+    pub(crate) max_ledger_retained_bytes: usize,
+    pub(crate) max_ledger_replacement_peak_bytes: usize,
+    pub(crate) max_replay_events: usize,
+    pub(crate) max_replay_reduction_steps: usize,
+    pub(crate) max_replay_pivot_terms: usize,
+    pub(crate) max_replay_pivot_guards: usize,
+    pub(crate) max_replay_target_offset_components: usize,
+    pub(crate) max_replay_equality_predicates: usize,
+    pub(crate) max_replay_target_scans: usize,
+    pub(crate) max_replay_target_state_successor_copies: usize,
+    pub(crate) max_replay_ledger_arc_copies: usize,
+    /// Session-local coexistence while a fresh replay shadow is built. The
+    /// pointer-shared plan-local allocation is charged once. Deeper immutable
+    /// ancestry (inventory, frame parents, compiler certificates) follows the
+    /// child-owner conventions and is excluded; this is not a whole-process
+    /// RSS bound.
+    pub(crate) max_replay_combined_retained_bytes: usize,
+}
+
+impl Default for GeneratedAffineResidualGroupExactSessionEventLimits {
+    fn default() -> Self {
+        Self {
+            max_events: 256_000_000,
+            max_source_recipe_allocation_comparisons: 1_000_000_000,
+            max_target_state_successor_copies: 1_000_000_000,
+            max_ledger_arc_copies: 1_000_000_000,
+            max_reduction_steps: 1_000_000_000,
+            max_source_recipe_retained_bytes: usize::MAX,
+            max_target_offset_components: 256_000_000,
+            max_target_offset_integer_bits: usize::MAX,
+            max_target_offset_retained_bytes: usize::MAX,
+            max_equality_predicates: 256_000_000,
+            max_individual_event_retained_bytes: usize::MAX,
+            max_ledger_outer_buffer_bytes: usize::MAX,
+            max_ledger_retained_bytes: usize::MAX,
+            max_ledger_replacement_peak_bytes: usize::MAX,
+            max_replay_events: 256_000_000,
+            max_replay_reduction_steps: 1_000_000_000,
+            max_replay_pivot_terms: 1_000_000_000,
+            max_replay_pivot_guards: 1_000_000_000,
+            max_replay_target_offset_components: 1_000_000_000,
+            max_replay_equality_predicates: 1_000_000_000,
+            max_replay_target_scans: 1_000_000_000,
+            max_replay_target_state_successor_copies: 1_000_000_000,
+            max_replay_ledger_arc_copies: 1_000_000_000,
+            max_replay_combined_retained_bytes: usize::MAX,
+        }
+    }
+}
+
+/// Exact/observed owner census for the chronological event ledger.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactSessionEventStats {
+    events: usize,
+    source_recipe_allocation_comparisons: usize,
+    target_state_successor_copies: usize,
+    ledger_arc_copies: usize,
+    reduction_steps: usize,
+    unique_source_recipe_retained_bytes: usize,
+    target_offset_components: usize,
+    target_offset_integer_bits: usize,
+    target_offset_retained_bytes: usize,
+    equality_predicates: usize,
+    ledger_outer_buffer_bytes: usize,
+    ledger_retained_bytes: usize,
+    ledger_replacement_peak_bytes: usize,
+}
+
+impl GeneratedAffineResidualGroupExactSessionEventStats {
+    pub(crate) const fn events(self) -> usize {
+        self.events
+    }
+
+    pub(crate) const fn reduction_steps(self) -> usize {
+        self.reduction_steps
+    }
+
+    pub(crate) const fn source_recipe_allocation_comparisons(self) -> usize {
+        self.source_recipe_allocation_comparisons
+    }
+
+    pub(crate) const fn target_state_successor_copies(self) -> usize {
+        self.target_state_successor_copies
+    }
+
+    pub(crate) const fn ledger_arc_copies(self) -> usize {
+        self.ledger_arc_copies
+    }
+
+    pub(crate) const fn unique_source_recipe_retained_bytes(self) -> usize {
+        self.unique_source_recipe_retained_bytes
+    }
+
+    pub(crate) const fn target_offset_components(self) -> usize {
+        self.target_offset_components
+    }
+
+    pub(crate) const fn target_offset_integer_bits(self) -> usize {
+        self.target_offset_integer_bits
+    }
+
+    pub(crate) const fn target_offset_retained_bytes(self) -> usize {
+        self.target_offset_retained_bytes
+    }
+
+    pub(crate) const fn equality_predicates(self) -> usize {
+        self.equality_predicates
+    }
+
+    pub(crate) const fn ledger_outer_buffer_bytes(self) -> usize {
+        self.ledger_outer_buffer_bytes
+    }
+
+    pub(crate) const fn ledger_retained_bytes(self) -> usize {
+        self.ledger_retained_bytes
+    }
+
+    pub(crate) const fn ledger_replacement_peak_bytes(self) -> usize {
+        self.ledger_replacement_peak_bytes
     }
 }
 
@@ -179,6 +356,397 @@ impl GeneratedAffineResidualGroupExactSessionRecenterStats {
     }
 }
 
+/// Exact parent-allocation authority shared by one session and every event it
+/// commits. Pointer identity is deliberately private: visible epoch/version
+/// scalars can never substitute for the retained plan/catalog allocations.
+struct GeneratedAffineResidualGroupExactSessionEventAuthority {
+    schema: &'static str,
+    plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+    catalog: Arc<GeneratedAffineResidualGroupExactTargetCatalog>,
+    database_epoch: usize,
+    group_ordinal: usize,
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventAuthority {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionEventAuthority")
+            .field("schema", &self.schema)
+            .field("database_epoch", &self.database_epoch)
+            .field("group_ordinal", &self.group_ordinal)
+            .field("private_plan", &"<redacted>")
+            .field("private_catalog", &"<redacted>")
+            .finish()
+    }
+}
+
+enum GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence {
+    Dependent(GeneratedAffineResidualGroupRetainedExactDependentReductions),
+    NewPivot(GeneratedAffineResidualGroupRetainedExactUnitPivot),
+}
+
+impl GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence {
+    fn reduction_count(&self) -> usize {
+        match self {
+            Self::Dependent(evidence) => evidence.reductions().len(),
+            Self::NewPivot(evidence) => evidence.reductions().len(),
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Dependent(_) => "Dependent(<redacted>)",
+            Self::NewPivot(_) => "NewPivot(<redacted>)",
+        })
+    }
+}
+
+enum GeneratedAffineResidualGroupExactSessionEventDisposition {
+    Dependent,
+    NoTarget {
+        target_offset: Arc<ExactTargetOffset>,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
+    RequiresAffineEqualityRefinement {
+        target_offset: Arc<ExactTargetOffset>,
+        locator: GeneratedAffineResidualGroupSolveTargetLocator,
+        equality_predicate_ordinals: Vec<usize>,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
+    #[cfg(test)]
+    TestSeedPivot,
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDisposition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dependent => formatter.write_str("Dependent"),
+            Self::NoTarget { stats, .. } => formatter
+                .debug_struct("NoTarget")
+                .field("stats", stats)
+                .field("private_target_offset", &"<redacted>")
+                .finish(),
+            Self::RequiresAffineEqualityRefinement { locator, stats, .. } => formatter
+                .debug_struct("RequiresAffineEqualityRefinement")
+                .field("locator", locator)
+                .field("stats", stats)
+                .field("private_target_offset", &"<redacted>")
+                .field("private_equality_predicates", &"<redacted>")
+                .finish(),
+            #[cfg(test)]
+            Self::TestSeedPivot => formatter.write_str("TestSeedPivot"),
+        }
+    }
+}
+
+/// Immutable chronological evidence for one exact stage/commit transition.
+///
+/// The type is non-Clone; receipts and suspended owners may share only its
+/// exact `Arc`. The database pivot/reduction payloads are likewise the exact
+/// allocations installed by the prepared database transition.
+struct GeneratedAffineResidualGroupExactSessionEvent {
+    authority: Arc<GeneratedAffineResidualGroupExactSessionEventAuthority>,
+    event_ordinal: usize,
+    source_ordinal: usize,
+    predecessor_state_version: usize,
+    successor_state_version: usize,
+    source_recipe: GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    database_evidence: GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
+    disposition: GeneratedAffineResidualGroupExactSessionEventDisposition,
+    retained_bytes: usize,
+}
+
+impl GeneratedAffineResidualGroupExactSessionEvent {
+    fn reduction_count(&self) -> usize {
+        self.database_evidence.reduction_count()
+    }
+
+    fn has_production_source(&self) -> bool {
+        self.source_recipe.has_production_source()
+    }
+
+    fn account_replay_work(
+        &self,
+        target_count: usize,
+        work: &mut GeneratedAffineResidualGroupExactSessionReplayWork,
+        limits: GeneratedAffineResidualGroupExactSessionEventLimits,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        work.events = session_event_bounded_add(
+            "exact session replay events",
+            work.events,
+            1,
+            limits.max_replay_events,
+        )?;
+        work.reduction_steps = session_event_bounded_add(
+            "exact session replay reduction steps",
+            work.reduction_steps,
+            self.reduction_count(),
+            limits.max_replay_reduction_steps,
+        )?;
+        work.target_state_successor_copies = session_event_bounded_add(
+            "exact session replay target-state successor copies",
+            work.target_state_successor_copies,
+            target_count,
+            limits.max_replay_target_state_successor_copies,
+        )?;
+        work.ledger_arc_copies = session_event_bounded_add(
+            "exact session replay ledger Arc copies",
+            work.ledger_arc_copies,
+            self.event_ordinal,
+            limits.max_replay_ledger_arc_copies,
+        )?;
+        if let GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot) =
+            &self.database_evidence
+        {
+            work.pivot_terms = session_event_bounded_add(
+                "exact session replay pivot terms",
+                work.pivot_terms,
+                pivot.terms().len(),
+                limits.max_replay_pivot_terms,
+            )?;
+            work.pivot_guards = session_event_bounded_add(
+                "exact session replay pivot guards",
+                work.pivot_guards,
+                pivot.guards().len(),
+                limits.max_replay_pivot_guards,
+            )?;
+        }
+        match &self.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {}
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                target_offset,
+                ..
+            } => {
+                work.target_offset_components = session_event_bounded_add(
+                    "exact session replay target-offset components",
+                    work.target_offset_components,
+                    target_offset.values().len(),
+                    limits.max_replay_target_offset_components,
+                )?;
+                work.target_scans = session_event_bounded_add(
+                    "exact session replay target scans",
+                    work.target_scans,
+                    target_count,
+                    limits.max_replay_target_scans,
+                )?;
+            }
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                target_offset,
+                equality_predicate_ordinals,
+                ..
+            } => {
+                work.target_offset_components = session_event_bounded_add(
+                    "exact session replay target-offset components",
+                    work.target_offset_components,
+                    target_offset.values().len(),
+                    limits.max_replay_target_offset_components,
+                )?;
+                work.equality_predicates = session_event_bounded_add(
+                    "exact session replay equality predicates",
+                    work.equality_predicates,
+                    equality_predicate_ordinals.len(),
+                    limits.max_replay_equality_predicates,
+                )?;
+                work.target_scans = session_event_bounded_add(
+                    "exact session replay target scans",
+                    work.target_scans,
+                    target_count,
+                    limits.max_replay_target_scans,
+                )?;
+            }
+            #[cfg(test)]
+            GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {}
+        }
+        Ok(())
+    }
+
+    fn semantically_equal(&self, other: &Self) -> bool {
+        if self.event_ordinal != other.event_ordinal
+            || self.source_ordinal != other.source_ordinal
+            || self.predecessor_state_version != other.predecessor_state_version
+            || self.successor_state_version != other.successor_state_version
+            || self.retained_bytes != other.retained_bytes
+            || !self
+                .source_recipe
+                .same_source_allocation(&other.source_recipe)
+        {
+            return false;
+        }
+        let database_equal = match (&self.database_evidence, &other.database_evidence) {
+            (
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(left),
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(right),
+            ) => left.structurally_equal(right),
+            (
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(left),
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(right),
+            ) => left.structurally_equal(right),
+            _ => false,
+        };
+        if !database_equal {
+            return false;
+        }
+        match (&self.disposition, &other.disposition) {
+            (
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+            ) => true,
+            (
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                    target_offset: left_offset,
+                    stats: left_stats,
+                },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                    target_offset: right_offset,
+                    stats: right_stats,
+                },
+            ) => left_offset.values() == right_offset.values() && left_stats == right_stats,
+            (
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                    target_offset: left_offset,
+                    locator: left_locator,
+                    equality_predicate_ordinals: left_predicates,
+                    stats: left_stats,
+                },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                    target_offset: right_offset,
+                    locator: right_locator,
+                    equality_predicate_ordinals: right_predicates,
+                    stats: right_stats,
+                },
+            ) => {
+                left_offset.values() == right_offset.values()
+                    && left_locator == right_locator
+                    && left_predicates == right_predicates
+                    && left_stats == right_stats
+            }
+            #[cfg(test)]
+            (
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
+            ) => true,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEvent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionEvent")
+            .field("event_ordinal", &self.event_ordinal)
+            .field("source_ordinal", &self.source_ordinal)
+            .field("predecessor_state_version", &self.predecessor_state_version)
+            .field("successor_state_version", &self.successor_state_version)
+            .field("reduction_count", &self.reduction_count())
+            .field("retained_bytes", &self.retained_bytes)
+            .field("disposition", &self.disposition)
+            .field("private_authority", &"<redacted>")
+            .field("private_source_recipe", &"<redacted>")
+            .field("private_database_evidence", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct GeneratedAffineResidualGroupExactSessionReplayWork {
+    events: usize,
+    reduction_steps: usize,
+    pivot_terms: usize,
+    pivot_guards: usize,
+    target_offset_components: usize,
+    equality_predicates: usize,
+    target_scans: usize,
+    target_state_successor_copies: usize,
+    ledger_arc_copies: usize,
+}
+
+fn session_event_checked_add(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    left.checked_add(right)
+        .ok_or(GeneratedAffineResidualGroupExactSessionError::EventCountOverflow { resource })
+}
+
+fn session_event_checked_mul(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    left.checked_mul(right)
+        .ok_or(GeneratedAffineResidualGroupExactSessionError::EventCountOverflow { resource })
+}
+
+fn session_event_checked_sub(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    left.checked_sub(right)
+        .ok_or(GeneratedAffineResidualGroupExactSessionError::EventCountOverflow { resource })
+}
+
+fn session_event_check_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+    if requested > limit {
+        return Err(
+            GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                resource,
+                requested,
+                limit,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn session_event_bounded_add(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+    limit: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    let requested = session_event_checked_add(resource, left, right)?;
+    session_event_check_limit(resource, requested, limit)?;
+    Ok(requested)
+}
+
+fn session_event_saturating_sum(values: impl IntoIterator<Item = usize>) -> usize {
+    values
+        .into_iter()
+        .fold(0usize, |total, value| total.saturating_add(value))
+}
+
+fn session_event_arc_retained_bytes<T>()
+-> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    session_event_checked_add(
+        "exact session Arc owner retained bytes",
+        session_event_checked_mul(
+            "exact session Arc owner retained bytes",
+            2,
+            size_of::<usize>(),
+        )?,
+        size_of::<T>(),
+    )
+}
+
+fn session_event_outer_buffer_bytes(
+    capacity: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+    session_event_checked_mul(
+        "exact session event-ledger outer buffer bytes",
+        capacity,
+        size_of::<Arc<GeneratedAffineResidualGroupExactSessionEvent>>(),
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratedAffineResidualGroupExactSessionError {
     Database(GeneratedAffineResidualGroupExactDatabaseError),
@@ -187,6 +755,17 @@ pub(crate) enum GeneratedAffineResidualGroupExactSessionError {
     GeometryAuthentication,
     GeometryCountOverflow,
     MalformedGeometry,
+    EventResourceLimit {
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    },
+    EventCountOverflow {
+        resource: &'static str,
+    },
+    EventAllocationFailure {
+        resource: &'static str,
+    },
     ReplayMismatch,
     SymbolicaPanic,
 }
@@ -200,6 +779,9 @@ impl GeneratedAffineResidualGroupExactSessionError {
             Self::GeometryAuthentication => "GeometryAuthentication",
             Self::GeometryCountOverflow => "GeometryCountOverflow",
             Self::MalformedGeometry => "MalformedGeometry",
+            Self::EventResourceLimit { .. } => "EventResourceLimit",
+            Self::EventCountOverflow { .. } => "EventCountOverflow",
+            Self::EventAllocationFailure { .. } => "EventAllocationFailure",
             Self::ReplayMismatch => "ReplayMismatch",
             Self::SymbolicaPanic => "SymbolicaPanic",
         }
@@ -227,6 +809,15 @@ impl fmt::Display for GeneratedAffineResidualGroupExactSessionError {
             Self::GeometryAuthentication => "exact session affine geometry authentication failed",
             Self::GeometryCountOverflow => "exact session affine geometry size overflowed",
             Self::MalformedGeometry => "exact session affine geometry is malformed",
+            Self::EventResourceLimit { .. } => {
+                "exact session chronological event resource limit exceeded"
+            }
+            Self::EventCountOverflow { .. } => {
+                "exact session chronological event accounting overflowed"
+            }
+            Self::EventAllocationFailure { .. } => {
+                "exact session chronological event allocation failed"
+            }
             Self::ReplayMismatch => "exact session retained allocation replay mismatch",
             Self::SymbolicaPanic => "Symbolica panicked inside the exact session boundary",
         })
@@ -405,6 +996,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterOutcome {
 
 pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
     transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+    target_offset: Arc<ExactTargetOffset>,
     source_ordinal: usize,
     pivot_ordinal: usize,
     stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
@@ -437,6 +1029,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
             .field("stats", &self.stats)
             .field("targets_consumed", &0)
             .field("private_transaction", &"<redacted>")
+            .field("private_target_offset", &"<redacted>")
             .finish()
     }
 }
@@ -444,6 +1037,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
 pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
     transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
     target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    target_offset: Arc<ExactTargetOffset>,
     source_ordinal: usize,
     pivot_ordinal: usize,
     stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
@@ -490,6 +1084,7 @@ impl fmt::Debug
             .field("targets_consumed", &0)
             .field("private_transaction", &"<redacted>")
             .field("private_target", &"<redacted>")
+            .field("private_target_offset", &"<redacted>")
             .finish()
     }
 }
@@ -497,6 +1092,7 @@ impl fmt::Debug
 pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterReady {
     transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
     target: GeneratedAffineResidualGroupRetainedReadyExactTarget,
+    target_offset: Arc<ExactTargetOffset>,
     recentered: ExactRecenteredRow,
     source_ordinal: usize,
     pivot_ordinal: usize,
@@ -557,6 +1153,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
             .field("targets_consumed", &0)
             .field("private_transaction", &"<redacted>")
             .field("private_target", &"<redacted>")
+            .field("private_target_offset", &"<redacted>")
             .field("private_recentered_row", &"<redacted>")
             .finish()
     }
@@ -566,6 +1163,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
 /// solve target.
 pub(crate) struct GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
     session: GeneratedAffineResidualGroupExactSession,
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
     source_ordinal: usize,
     pivot_ordinal: usize,
     stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
@@ -629,31 +1227,28 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
             .field("publishes_rule", &false)
             .field("infers_master", &false)
             .field("private_session", &"<redacted>")
+            .field("private_event", &"<redacted>")
             .finish()
     }
 }
 
 /// Failure of the typed NoTarget commit path.
 ///
-/// Every preflight failure returns the complete sealed outcome, including its
-/// consume-once transaction.  The post-preflight variant is an explicit
-/// fail-stop invariant: the database consumed the token only after the session
-/// had authenticated the same transition under an exclusive borrow.
+/// Every failure returns the complete sealed outcome, including its
+/// consume-once transaction. The database transition is represented by an
+/// owning prepared token and its final commit tail is infallible.
 pub(crate) enum GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
     Preflight {
         error: GeneratedAffineResidualGroupExactSessionError,
         session: GeneratedAffineResidualGroupExactSession,
         outcome: GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
     },
-    PostPreflightCommitInvariant {
-        error: GeneratedAffineResidualGroupExactSessionError,
-    },
 }
 
 impl GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
     pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
         match self {
-            Self::Preflight { error, .. } | Self::PostPreflightCommitInvariant { error } => *error,
+            Self::Preflight { error, .. } => *error,
         }
     }
 
@@ -670,7 +1265,6 @@ impl GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
             Self::Preflight {
                 session, outcome, ..
             } => Ok((session, outcome)),
-            Self::PostPreflightCommitInvariant { error } => Err(error),
         }
     }
 }
@@ -679,13 +1273,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailur
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure")
-            .field(
-                "phase",
-                &match self {
-                    Self::Preflight { .. } => "preflight",
-                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
-                },
-            )
+            .field("phase", &"preflight")
             .field("error", &self.error())
             .field("private_session", &"<redacted>")
             .field("private_outcome", &"<redacted>")
@@ -695,60 +1283,11 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailur
 
 impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Preflight { .. } => "exact NoTarget transition failed before commit",
-            Self::PostPreflightCommitInvariant { .. } => {
-                "exact NoTarget transition violated a post-preflight invariant"
-            }
-        })
+        formatter.write_str("exact NoTarget transition failed before commit")
     }
 }
 
 impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {}
-
-/// Private replay recipe retained while an equality-bearing exact target waits
-/// for a refined epoch.  Production sessions always retain the authenticated
-/// physical-row allocation; synthetic input is confined to this module's test
-/// adapter and remains distinguishable without exposing either recipe.
-enum GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
-    Production(Arc<GeneratedAffineResidualGroupExactPhysicalRow>),
-    #[cfg(test)]
-    Synthetic,
-}
-
-impl GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
-    fn retain(
-        production_source: Option<&Arc<GeneratedAffineResidualGroupExactPhysicalRow>>,
-    ) -> Result<Self, GeneratedAffineResidualGroupExactSessionError> {
-        match production_source {
-            Some(source) => Ok(Self::Production(Arc::clone(source))),
-            None => {
-                #[cfg(test)]
-                {
-                    Ok(Self::Synthetic)
-                }
-                #[cfg(not(test))]
-                {
-                    Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)
-                }
-            }
-        }
-    }
-
-    const fn has_production_source(&self) -> bool {
-        matches!(self, Self::Production(_))
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Production(_) => "Production(<redacted>)",
-            #[cfg(test)]
-            Self::Synthetic => "Synthetic(<redacted>)",
-        })
-    }
-}
 
 /// Sealed owner for a committed pivot whose matched target requires affine
 /// equality refinement in a later solve epoch.
@@ -759,7 +1298,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedSourceRecip
 /// transition consumes the whole owner.
 pub(crate) struct GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
     committed_session: GeneratedAffineResidualGroupExactSession,
-    source_recipe: GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe,
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
     target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
     source_ordinal: usize,
     pivot_ordinal: usize,
@@ -799,8 +1338,8 @@ impl GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
         self.target.refinement()
     }
 
-    pub(crate) const fn has_production_source(&self) -> bool {
-        self.source_recipe.has_production_source()
+    pub(crate) fn has_production_source(&self) -> bool {
+        self.event.has_production_source()
     }
 
     pub(crate) const fn targets_consumed(&self) -> usize {
@@ -813,6 +1352,49 @@ impl GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
 
     pub(crate) const fn infers_master(&self) -> bool {
         false
+    }
+
+    pub(crate) fn replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        self.committed_session.replay(family, context)?;
+        let Some(last) = self.committed_session.events.last() else {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        };
+        if !Arc::ptr_eq(last, &self.event)
+            || !self
+                .target
+                .authenticates_source_state(&self.committed_session.target_state)
+            || self.source_ordinal != self.event.source_ordinal
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        let GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+            locator,
+            equality_predicate_ordinals,
+            stats,
+            ..
+        } = &self.event.disposition
+        else {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        };
+        let GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot) =
+            &self.event.database_evidence
+        else {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        };
+        if self.pivot_ordinal != pivot.ordinal()
+            || pivot.source_ordinal() != self.source_ordinal
+            || self.stats != *stats
+            || self.target.locator() != locator
+            || self.target.refinement().equality_predicate_ordinals()
+                != equality_predicate_ordinals.as_slice()
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -832,7 +1414,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedForRefinedE
             .field("publishes_rule", &false)
             .field("infers_master", &false)
             .field("private_committed_session", &"<redacted>")
-            .field("private_source_recipe", &"<redacted>")
+            .field("private_event", &"<redacted>")
             .field("private_successor_target", &"<redacted>")
             .finish()
     }
@@ -840,25 +1422,20 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendedForRefinedE
 
 /// Failure of the consuming equality-refinement suspension transition.
 ///
-/// Before commit, ownership is fully reconstructible as the original running
-/// session plus the complete recenter outcome.  Once the preflighted database
-/// token is consumed, any rejection is an explicit fail-stop invariant and no
-/// partially authoritative session is returned.
+/// Ownership is fully reconstructible as the original running session plus
+/// the complete recenter outcome until the infallible prepared commit tail.
 pub(crate) enum GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
     Preflight {
         error: GeneratedAffineResidualGroupExactSessionError,
         session: GeneratedAffineResidualGroupExactSession,
         outcome: GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement,
     },
-    PostPreflightCommitInvariant {
-        error: GeneratedAffineResidualGroupExactSessionError,
-    },
 }
 
 impl GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
     pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
         match self {
-            Self::Preflight { error, .. } | Self::PostPreflightCommitInvariant { error } => *error,
+            Self::Preflight { error, .. } => *error,
         }
     }
 
@@ -875,7 +1452,6 @@ impl GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
             Self::Preflight {
                 session, outcome, ..
             } => Ok((session, outcome)),
-            Self::PostPreflightCommitInvariant { error } => Err(error),
         }
     }
 }
@@ -884,13 +1460,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochF
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure")
-            .field(
-                "phase",
-                &match self {
-                    Self::Preflight { .. } => "preflight",
-                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
-                },
-            )
+            .field("phase", &"preflight")
             .field("error", &self.error())
             .field("private_session", &"<redacted>")
             .field("private_outcome", &"<redacted>")
@@ -900,12 +1470,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochF
 
 impl fmt::Display for GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Preflight { .. } => "exact equality-refinement suspension failed before commit",
-            Self::PostPreflightCommitInvariant { .. } => {
-                "exact equality-refinement suspension violated a post-preflight invariant"
-            }
-        })
+        formatter.write_str("exact equality-refinement suspension failed before commit")
     }
 }
 
@@ -913,27 +1478,56 @@ impl std::error::Error for GeneratedAffineResidualGroupExactSessionSuspendRefine
 
 struct PreparedSessionUnconsumedTransition {
     successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    transaction_target_state: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    database_commit: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
+    replacement_events: Vec<Arc<GeneratedAffineResidualGroupExactSessionEvent>>,
+    event_stats: GeneratedAffineResidualGroupExactSessionEventStats,
+}
+
+struct PreparedSessionEventLedgerReplacement {
+    event_ordinal: usize,
+    predecessor_state_version: usize,
+    successor_state_version: usize,
+    individual_event_retained_bytes: usize,
+    replacement_events: Vec<Arc<GeneratedAffineResidualGroupExactSessionEvent>>,
+    event_stats: GeneratedAffineResidualGroupExactSessionEventStats,
 }
 
 struct PreparedSessionEqualityRefinementSuspension {
-    source_recipe: GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe,
-    target_successor: GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
+    successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+    locator: GeneratedAffineResidualGroupSolveTargetLocator,
+    equality_predicate_ordinals: Vec<usize>,
+}
+
+struct GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+    error: GeneratedAffineResidualGroupExactSessionError,
+    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+}
+
+enum ExpectedSessionEventDatabaseOutcome {
+    Dependent { reduction_count: usize },
+    NewPivot { pivot_ordinal: usize },
 }
 
 enum PreparedSessionRecenter {
     NoTarget {
+        target_offset: Arc<ExactTargetOffset>,
         source_ordinal: usize,
         pivot_ordinal: usize,
         stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
     },
     RequiresAffineEqualityRefinement {
         target: GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
+        target_offset: Arc<ExactTargetOffset>,
         source_ordinal: usize,
         pivot_ordinal: usize,
         stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
     },
     Ready {
         target: GeneratedAffineResidualGroupRetainedReadyExactTarget,
+        target_offset: Arc<ExactTargetOffset>,
         recentered: ExactRecenteredRow,
         source_ordinal: usize,
         pivot_ordinal: usize,
@@ -943,20 +1537,13 @@ enum PreparedSessionRecenter {
 
 /// Failure of an unconsumed session transition.
 ///
-/// Every error before database commit returns the complete sealed transaction,
-/// so a caller may drop, inspect through a future policy layer, or retry it
-/// without reconstructing authority. `PostPreflightCommitInvariant` is the
-/// sole exception: the existing database API consumes its staged token when
-/// called. That branch is unreachable while the database's documented
-/// preflight/commit contract holds, because this session has already run the
-/// same staged-token authentication under an exclusive `&mut self` borrow.
+/// Every error before the infallible prepared database commit returns the
+/// complete sealed transaction, so a caller may drop or retry it without
+/// reconstructing authority.
 enum GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure {
     Preflight {
         error: GeneratedAffineResidualGroupExactSessionError,
         transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
-    },
-    PostPreflightCommitInvariant {
-        error: GeneratedAffineResidualGroupExactDatabaseError,
     },
 }
 
@@ -964,9 +1551,6 @@ impl GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure {
     const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
         match self {
             Self::Preflight { error, .. } => *error,
-            Self::PostPreflightCommitInvariant { error } => {
-                GeneratedAffineResidualGroupExactSessionError::Database(*error)
-            }
         }
     }
 
@@ -978,9 +1562,6 @@ impl GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure {
     > {
         match self {
             Self::Preflight { transaction, .. } => Ok(transaction),
-            Self::PostPreflightCommitInvariant { error } => Err(
-                GeneratedAffineResidualGroupExactSessionError::Database(error),
-            ),
         }
     }
 }
@@ -989,13 +1570,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitUnconsumedFail
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure")
-            .field(
-                "phase",
-                &match self {
-                    Self::Preflight { .. } => "preflight",
-                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
-                },
-            )
+            .field("phase", &"preflight")
             .field("error", &self.error())
             .field("private_transaction", &"<redacted>")
             .finish()
@@ -1004,12 +1579,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitUnconsumedFail
 
 impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Preflight { .. } => "exact unconsumed session transition failed before commit",
-            Self::PostPreflightCommitInvariant { .. } => {
-                "exact database rejected a completely preflighted unconsumed transition"
-            }
-        })
+        formatter.write_str("exact unconsumed session transition failed before commit")
     }
 }
 
@@ -1068,7 +1638,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionClassifiedDependent {
 }
 
 impl GeneratedAffineResidualGroupExactSessionClassifiedDependent {
-    pub(crate) const fn source_ordinal(&self) -> usize {
+    pub(crate) fn source_ordinal(&self) -> usize {
         self.source_ordinal
     }
 
@@ -1096,17 +1666,23 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionClassifiedDependent 
 
 /// Typed successful result of committing a sealed dependent row.
 pub(crate) struct GeneratedAffineResidualGroupExactSessionCommittedDependent {
-    source_ordinal: usize,
-    reductions: Vec<GeneratedAffineResidualGroupExactReductionStep>,
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
 }
 
 impl GeneratedAffineResidualGroupExactSessionCommittedDependent {
-    pub(crate) const fn source_ordinal(&self) -> usize {
-        self.source_ordinal
+    pub(crate) fn source_ordinal(&self) -> usize {
+        self.event.source_ordinal
     }
 
     pub(crate) fn reductions(&self) -> &[GeneratedAffineResidualGroupExactReductionStep] {
-        &self.reductions
+        match &self.event.database_evidence {
+            GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(evidence) => {
+                evidence.reductions()
+            }
+            GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_) => {
+                unreachable!("sealed dependent receipt changed database evidence")
+            }
+        }
     }
 }
 
@@ -1114,32 +1690,29 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommittedDependent {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeneratedAffineResidualGroupExactSessionCommittedDependent")
-            .field("source_ordinal", &self.source_ordinal)
-            .field("reduction_count", &self.reductions.len())
+            .field("source_ordinal", &self.source_ordinal())
+            .field("reduction_count", &self.reductions().len())
             .field("private_reductions", &"<redacted>")
+            .field("private_event", &"<redacted>")
             .finish()
     }
 }
 
 /// Failure of the typed dependent commit path.
 ///
-/// Every ordinary preflight error retains the complete sealed classification,
-/// including its consume-once transaction. Only violation of the database's
-/// already-preflighted commit invariant lacks a recoverable token.
+/// Every failure retains the complete sealed classification, including its
+/// consume-once transaction. The prepared database commit tail cannot fail.
 pub(crate) enum GeneratedAffineResidualGroupExactSessionCommitDependentFailure {
     Preflight {
         error: GeneratedAffineResidualGroupExactSessionError,
         classified: GeneratedAffineResidualGroupExactSessionClassifiedDependent,
-    },
-    PostPreflightCommitInvariant {
-        error: GeneratedAffineResidualGroupExactSessionError,
     },
 }
 
 impl GeneratedAffineResidualGroupExactSessionCommitDependentFailure {
     pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
         match self {
-            Self::Preflight { error, .. } | Self::PostPreflightCommitInvariant { error } => *error,
+            Self::Preflight { error, .. } => *error,
         }
     }
 
@@ -1151,7 +1724,6 @@ impl GeneratedAffineResidualGroupExactSessionCommitDependentFailure {
     > {
         match self {
             Self::Preflight { classified, .. } => Ok(classified),
-            Self::PostPreflightCommitInvariant { error } => Err(error),
         }
     }
 
@@ -1170,13 +1742,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitDependentFailu
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeneratedAffineResidualGroupExactSessionCommitDependentFailure")
-            .field(
-                "phase",
-                &match self {
-                    Self::Preflight { .. } => "preflight",
-                    Self::PostPreflightCommitInvariant { .. } => "post-preflight commit invariant",
-                },
-            )
+            .field("phase", &"preflight")
             .field("error", &self.error())
             .field("private_classification", &"<redacted>")
             .finish()
@@ -1185,12 +1751,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitDependentFailu
 
 impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitDependentFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Preflight { .. } => "exact dependent session transition failed before commit",
-            Self::PostPreflightCommitInvariant { .. } => {
-                "exact dependent session transition violated a post-preflight invariant"
-            }
-        })
+        formatter.write_str("exact dependent session transition failed before commit")
     }
 }
 
@@ -1209,6 +1770,9 @@ pub(crate) struct GeneratedAffineResidualGroupExactSession {
     database: GeneratedAffineResidualGroupExactDatabase,
     catalog: Arc<GeneratedAffineResidualGroupExactTargetCatalog>,
     target_state: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    event_authority: Arc<GeneratedAffineResidualGroupExactSessionEventAuthority>,
+    events: Vec<Arc<GeneratedAffineResidualGroupExactSessionEvent>>,
+    event_stats: GeneratedAffineResidualGroupExactSessionEventStats,
     limits: GeneratedAffineResidualGroupExactSessionLimits,
 }
 
@@ -1222,11 +1786,15 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSession {
             .field("state_version", &self.database.state_version())
             .field("pivot_count", &self.database.pivot_count())
             .field("target_count", &self.catalog.len())
+            .field("event_count", &self.events.len())
+            .field("event_stats", &self.event_stats)
             .field("private_plan", &"<redacted>")
             .field("private_database_capability", &"<redacted>")
             .field("private_database", &"<redacted>")
             .field("private_catalog", &"<redacted>")
             .field("private_target_state", &"<redacted>")
+            .field("private_event_authority", &"<redacted>")
+            .field("private_events", &"<redacted>")
             .field("publishes_rule", &false)
             .field("infers_master", &false)
             .finish()
@@ -1267,6 +1835,22 @@ impl GeneratedAffineResidualGroupExactSession {
                 limits.target_state,
             )?;
             database.authenticate_target_state_binding(target_state.binding())?;
+            let event_authority =
+                Arc::new(GeneratedAffineResidualGroupExactSessionEventAuthority {
+                    schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA,
+                    plan: Arc::clone(&plan),
+                    catalog: Arc::clone(&catalog),
+                    database_epoch,
+                    group_ordinal: plan.group_ordinal(),
+                });
+            let authority_retained_bytes = session_event_arc_retained_bytes::<
+                GeneratedAffineResidualGroupExactSessionEventAuthority,
+            >()?;
+            session_event_check_limit(
+                "exact session event-ledger retained bytes",
+                authority_retained_bytes,
+                limits.events.max_ledger_retained_bytes,
+            )?;
             Ok(Self {
                 schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA,
                 plan,
@@ -1274,6 +1858,13 @@ impl GeneratedAffineResidualGroupExactSession {
                 database,
                 catalog,
                 target_state,
+                event_authority,
+                events: Vec::new(),
+                event_stats: GeneratedAffineResidualGroupExactSessionEventStats {
+                    ledger_retained_bytes: authority_retained_bytes,
+                    ledger_replacement_peak_bytes: authority_retained_bytes,
+                    ..GeneratedAffineResidualGroupExactSessionEventStats::default()
+                },
                 limits,
             })
         }))
@@ -1304,6 +1895,10 @@ impl GeneratedAffineResidualGroupExactSession {
         self.catalog.len()
     }
 
+    pub(crate) const fn event_stats(&self) -> GeneratedAffineResidualGroupExactSessionEventStats {
+        self.event_stats
+    }
+
     pub(crate) const fn publishes_rule(&self) -> bool {
         false
     }
@@ -1312,8 +1907,318 @@ impl GeneratedAffineResidualGroupExactSession {
         false
     }
 
-    /// Replay every retained child and the opaque database/state handshake.
-    pub(crate) fn replay(
+    fn authenticate_event_head(&self) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        if self.event_authority.schema
+            != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA
+            || !Arc::ptr_eq(&self.event_authority.plan, &self.plan)
+            || !Arc::ptr_eq(&self.event_authority.catalog, &self.catalog)
+            || self.event_authority.database_epoch != self.database_epoch()
+            || self.event_authority.group_ordinal != self.group_ordinal()
+            || self.events.len() != self.event_stats.events
+            || self.events.len() != self.database.state_version()
+            || session_event_outer_buffer_bytes(self.events.capacity())?
+                != self.event_stats.ledger_outer_buffer_bytes
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        let authority_bytes = session_event_arc_retained_bytes::<
+            GeneratedAffineResidualGroupExactSessionEventAuthority,
+        >()?;
+        if self.event_stats.ledger_retained_bytes < authority_bytes
+            || self.event_stats.ledger_replacement_peak_bytes
+                < self.event_stats.ledger_retained_bytes
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        let Some(last) = self.events.last() else {
+            if self.database.state_version() != 0
+                || self.event_stats
+                    != (GeneratedAffineResidualGroupExactSessionEventStats {
+                        ledger_retained_bytes: authority_bytes,
+                        ledger_replacement_peak_bytes: authority_bytes,
+                        ..GeneratedAffineResidualGroupExactSessionEventStats::default()
+                    })
+            {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+            return Ok(());
+        };
+        if !Arc::ptr_eq(&last.authority, &self.event_authority)
+            || last.event_ordinal.checked_add(1) != Some(self.events.len())
+            || last.source_ordinal != last.event_ordinal
+            || last.successor_state_version != self.database.state_version()
+            || last.predecessor_state_version.checked_add(1) != Some(last.successor_state_version)
+            || last.source_recipe.database_epoch() != self.database_epoch()
+            || last.source_recipe.group_ordinal() != self.group_ordinal()
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        match (&last.database_evidence, &last.disposition) {
+            (
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_),
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+            ) => {}
+            (
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
+                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. },
+            ) if pivot.source_ordinal() == last.source_ordinal => {}
+            #[cfg(test)]
+            (
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
+            ) if pivot.source_ordinal() == last.source_ordinal => {}
+            _ => return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch),
+        }
+        Ok(())
+    }
+
+    /// Recompute the complete ledger-level census from allocation-bound event
+    /// payloads before replay trusts the persisted aggregate ledger scalars.
+    /// Child owners retain their own authenticated census conventions.
+    /// Production staging deliberately uses only the constant-time head
+    /// authentication above; this historical walk belongs exclusively to
+    /// chronological replay.
+    fn authenticate_event_ledger_census(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+        let limits = self.limits.events;
+        let authority_bytes = session_event_arc_retained_bytes::<
+            GeneratedAffineResidualGroupExactSessionEventAuthority,
+        >()?;
+        let mut computed = GeneratedAffineResidualGroupExactSessionEventStats::default();
+        let mut event_payload_bytes = 0usize;
+
+        for (position, event) in self.events.iter().enumerate() {
+            if !Arc::ptr_eq(&event.authority, &self.event_authority)
+                || event.event_ordinal != position
+                || event.source_ordinal != position
+                || event.predecessor_state_version != position
+                || event.successor_state_version
+                    != position.checked_add(1).ok_or(
+                        GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                            resource: "exact session authenticated event successor version",
+                        },
+                    )?
+                || event.source_recipe.database_epoch() != self.database_epoch()
+                || event.source_recipe.group_ordinal() != self.group_ordinal()
+            {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+
+            computed.events = session_event_checked_add(
+                "exact session authenticated events",
+                computed.events,
+                1,
+            )?;
+            computed.target_state_successor_copies = session_event_checked_add(
+                "exact session authenticated target-state successor copies",
+                computed.target_state_successor_copies,
+                self.target_count(),
+            )?;
+            computed.ledger_arc_copies = session_event_checked_add(
+                "exact session authenticated ledger Arc copies",
+                computed.ledger_arc_copies,
+                position,
+            )?;
+
+            let mut source_is_new = true;
+            for prior in &self.events[..position] {
+                computed.source_recipe_allocation_comparisons = session_event_bounded_add(
+                    "exact session source-recipe allocation comparisons",
+                    computed.source_recipe_allocation_comparisons,
+                    1,
+                    limits.max_source_recipe_allocation_comparisons,
+                )?;
+                if prior
+                    .source_recipe
+                    .same_source_allocation(&event.source_recipe)
+                {
+                    source_is_new = false;
+                    break;
+                }
+            }
+            let source_recipe_deep_bytes = if source_is_new {
+                session_event_checked_sub(
+                    "exact session authenticated source-recipe retained bytes",
+                    event.source_recipe.retained_byte_bound()?,
+                    size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
+                )?
+            } else {
+                0
+            };
+            computed.unique_source_recipe_retained_bytes = session_event_checked_add(
+                "exact session authenticated unique source-recipe retained bytes",
+                computed.unique_source_recipe_retained_bytes,
+                source_recipe_deep_bytes,
+            )?;
+            computed.reduction_steps = session_event_checked_add(
+                "exact session authenticated retained reduction steps",
+                computed.reduction_steps,
+                event.reduction_count(),
+            )?;
+
+            let dependent_evidence_deep_bytes = match &event.database_evidence {
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                    evidence,
+                ) if matches!(
+                    &event.disposition,
+                    GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent
+                ) => evidence.retained_byte_bound()?,
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot)
+                    if matches!(
+                        &event.disposition,
+                        GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
+                            | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
+                    ) && pivot.source_ordinal() == event.source_ordinal =>
+                {
+                    0
+                }
+                #[cfg(test)]
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot)
+                    if matches!(
+                        &event.disposition,
+                        GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot
+                    ) && pivot.source_ordinal() == event.source_ordinal =>
+                {
+                    0
+                }
+                _ => return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch),
+            };
+
+            let (
+                target_offset_components,
+                target_offset_integer_bits,
+                target_offset_retained_bytes,
+                equality_predicates,
+                equality_predicate_buffer_bytes,
+            ) = match &event.disposition {
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
+                    (0, 0, 0, 0, 0)
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                    target_offset,
+                    ..
+                } => {
+                    let (retained_integer_bits, retained_bytes) = target_offset
+                        .authenticate_retained_census()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    (
+                        target_offset.values().len(),
+                        retained_integer_bits,
+                        retained_bytes,
+                        0,
+                        0,
+                    )
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                    target_offset,
+                    equality_predicate_ordinals,
+                    ..
+                } => {
+                    let (retained_integer_bits, retained_bytes) = target_offset
+                        .authenticate_retained_census()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    (
+                        target_offset.values().len(),
+                        retained_integer_bits,
+                        retained_bytes,
+                        equality_predicate_ordinals.len(),
+                        session_event_checked_mul(
+                            "exact session authenticated equality-predicate bytes",
+                            equality_predicate_ordinals.capacity(),
+                            size_of::<usize>(),
+                        )?,
+                    )
+                }
+                #[cfg(test)]
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
+                    (0, 0, 0, 0, 0)
+                }
+            };
+            computed.target_offset_components = session_event_checked_add(
+                "exact session authenticated target-offset components",
+                computed.target_offset_components,
+                target_offset_components,
+            )?;
+            computed.target_offset_integer_bits = session_event_checked_add(
+                "exact session authenticated target-offset integer bits",
+                computed.target_offset_integer_bits,
+                target_offset_integer_bits,
+            )?;
+            computed.target_offset_retained_bytes = session_event_checked_add(
+                "exact session authenticated target-offset retained bytes",
+                computed.target_offset_retained_bytes,
+                target_offset_retained_bytes,
+            )?;
+            computed.equality_predicates = session_event_checked_add(
+                "exact session authenticated equality predicates",
+                computed.equality_predicates,
+                equality_predicates,
+            )?;
+
+            let individual_event_retained_bytes = [
+                session_event_arc_retained_bytes::<GeneratedAffineResidualGroupExactSessionEvent>(
+                )?,
+                source_recipe_deep_bytes,
+                dependent_evidence_deep_bytes,
+                target_offset_retained_bytes,
+                equality_predicate_buffer_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add(
+                    "exact session authenticated individual event retained bytes",
+                    total,
+                    bytes,
+                )
+            })?;
+            if event.retained_bytes != individual_event_retained_bytes {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+            event_payload_bytes = session_event_checked_add(
+                "exact session authenticated event payload bytes",
+                event_payload_bytes,
+                individual_event_retained_bytes,
+            )?;
+        }
+
+        computed.ledger_outer_buffer_bytes =
+            session_event_outer_buffer_bytes(self.events.capacity())?;
+        computed.ledger_retained_bytes = [
+            authority_bytes,
+            computed.ledger_outer_buffer_bytes,
+            event_payload_bytes,
+        ]
+        .into_iter()
+        .try_fold(0usize, |total, bytes| {
+            session_event_checked_add(
+                "exact session authenticated event-ledger retained bytes",
+                total,
+                bytes,
+            )
+        })?;
+        computed.ledger_replacement_peak_bytes = self.event_stats.ledger_replacement_peak_bytes;
+        if computed != self.event_stats
+            || self.event_stats.ledger_replacement_peak_bytes
+                < self.event_stats.ledger_retained_bytes
+            || self.event_stats.ledger_replacement_peak_bytes
+                > self.event_stats.ledger_retained_bytes.saturating_mul(2)
+            || self.event_stats.ledger_replacement_peak_bytes
+                > limits.max_ledger_replacement_peak_bytes
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        Ok(computed.ledger_retained_bytes)
+    }
+
+    /// Authenticate every retained child and the opaque database/state
+    /// handshake without walking committed source history.
+    ///
+    /// Production staging deliberately calls this bounded current-state seam.
+    /// The chronological event replayer uses a separate path so appending row
+    /// `k` never recursively replays prefixes `0..k`.
+    fn authenticate_live_state(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -1328,6 +2233,7 @@ impl GeneratedAffineResidualGroupExactSession {
             {
                 return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
             }
+            self.authenticate_event_head()?;
             self.database
                 .authenticate_target_state_binding(self.target_state.binding())?;
             self.catalog.replay(family, context, &self.plan)?;
@@ -1340,6 +2246,302 @@ impl GeneratedAffineResidualGroupExactSession {
                 self.database.state_version(),
             )?;
             Ok(())
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic)?
+    }
+
+    fn stage_retained_event_recipe_for_replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionStagedTransaction,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        self.authenticate_event_head()?;
+        self.database
+            .authenticate_target_state_binding(self.target_state.binding())?;
+        let staged = self.database.stage_retained_source_recipe_for_session(
+            &self.database_capability,
+            family,
+            context,
+            recipe,
+        )?;
+        Ok(GeneratedAffineResidualGroupExactSessionStagedTransaction {
+            staged,
+            target_state: Arc::clone(&self.target_state),
+        })
+    }
+
+    fn compare_replayed_final_state(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        shadow: &Self,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        if self.database.state_version() != shadow.database.state_version()
+            || self.database.pivot_count() != shadow.database.pivot_count()
+            || self.database.stats() != shadow.database.stats()
+            || self.target_state.stats() != shadow.target_state.stats()
+            || self.event_stats != shadow.event_stats
+            || self.events.len() != shadow.events.len()
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        let left = self.target_state.authenticated_view(family, context)?;
+        let right = shadow.target_state.authenticated_view(family, context)?;
+        if left.iter().len() != right.iter().len() {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        for solve_ordinal in left.iter() {
+            if left.is_unresolved(solve_ordinal)? != right.is_unresolved(solve_ordinal)? {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+        }
+        Ok(())
+    }
+
+    fn preflight_replay_work(&self) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        let mut work = GeneratedAffineResidualGroupExactSessionReplayWork::default();
+        for recorded in &self.events {
+            recorded.account_replay_work(self.target_count(), &mut work, self.limits.events)?;
+        }
+        // Final state comparison scans the complete target catalog once after
+        // all events. Admit that work together with the event history before
+        // constructing the fresh shadow owner.
+        work.target_scans = session_event_bounded_add(
+            "exact session replay target scans",
+            work.target_scans,
+            self.target_count(),
+            self.limits.events.max_replay_target_scans,
+        )?;
+        Ok(())
+    }
+
+    fn replay_combined_retained_peak_bound(
+        &self,
+        authenticated_ledger_retained_bytes: usize,
+    ) -> usize {
+        // Child limits, rather than persisted peak scalars, bound the fresh
+        // shadow's session-local staging coexistence. Every child enforces
+        // these same limits while constructing the shadow. Immutable parent
+        // ancestry follows the child-owner conventions and is pointer-shared,
+        // so this is deliberately not a transitive whole-process RSS census.
+        // The plan-local census includes its pointee but not its Arc control
+        // block. Original and shadow share that allocation, so charge it once;
+        // their two inline Arc handles are already present in the two Self
+        // envelopes below.
+        let shared_plan_arc_owner_bytes = self
+            .plan
+            .stats()
+            .owner_retained_bytes()
+            .saturating_add(2usize.saturating_mul(size_of::<usize>()));
+        let original_owner_bound = session_event_saturating_sum([
+            size_of::<Self>(),
+            self.limits.database.max_database_retained_bytes,
+            self.limits.target_state.max_combined_retained_byte_envelope,
+            authenticated_ledger_retained_bytes,
+        ]);
+        let shadow_peak_bound = session_event_saturating_sum([
+            size_of::<Self>(),
+            self.limits
+                .database
+                .max_database_retained_bytes
+                .max(self.limits.database.max_staged_live_retained_bytes),
+            self.limits.target_catalog.max_peak_staging_byte_envelope,
+            self.limits
+                .target_state
+                .max_combined_retained_byte_envelope
+                .max(
+                    self.limits
+                        .target_state
+                        .max_successor_peak_retained_byte_envelope,
+                ),
+            self.limits.events.max_ledger_replacement_peak_bytes,
+        ]);
+        session_event_saturating_sum([
+            shared_plan_arc_owner_bytes,
+            original_owner_bound,
+            shadow_peak_bound,
+        ])
+    }
+
+    fn replay_committed_events_inner(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        session_event_check_limit(
+            "exact session replay events",
+            self.events.len(),
+            self.limits.events.max_replay_events,
+        )?;
+        // This pass reads only retained collection lengths and admits event
+        // replay plus every deep reduction/pivot/offset traversal before the
+        // census walks coefficient factors. Source-allocation comparisons are
+        // separately bounded immediately before each census comparison.
+        self.preflight_replay_work()?;
+        let authenticated_ledger_retained_bytes = self.authenticate_event_ledger_census()?;
+        let replay_combined_retained_bytes =
+            self.replay_combined_retained_peak_bound(authenticated_ledger_retained_bytes);
+        session_event_check_limit(
+            "exact session replay combined retained bytes",
+            replay_combined_retained_bytes,
+            self.limits.events.max_replay_combined_retained_bytes,
+        )?;
+        let mut shadow = GeneratedAffineResidualGroupExactSession::try_new(
+            family,
+            context,
+            Arc::clone(&self.plan),
+            self.database_epoch(),
+            self.limits,
+        )?;
+        for (position, recorded) in self.events.iter().enumerate() {
+            if !Arc::ptr_eq(&recorded.authority, &self.event_authority)
+                || recorded.event_ordinal != position
+                || recorded.source_ordinal != position
+                || recorded.predecessor_state_version != position
+                || recorded.successor_state_version != position + 1
+            {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+            let transaction = shadow.stage_retained_event_recipe_for_replay(
+                family,
+                context,
+                &recorded.source_recipe,
+            )?;
+            match &recorded.disposition {
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
+                    let expected = match &recorded.database_evidence {
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                            evidence,
+                        ) => evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                            _,
+                        ) => {
+                            return Err(
+                                GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                            );
+                        }
+                    };
+                    let replayed = shadow.database.authenticate_staged_dependent_for_session(
+                        &shadow.database_capability,
+                        &transaction.staged,
+                    )?;
+                    if replayed.source_ordinal() != recorded.source_ordinal
+                        || replayed.reductions() != expected.reductions()
+                    {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    drop(replayed);
+                    let classified = shadow
+                        .classify_dependent(transaction)
+                        .map_err(|failure| failure.error())?;
+                    let receipt = shadow
+                        .commit_dependent(family, context, classified)
+                        .map_err(|failure| failure.error())?;
+                    if !recorded.semantically_equal(&receipt.event) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. } => {
+                    let outcome = shadow
+                        .recenter_staged_new_pivot(family, context, transaction)
+                        .map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch
+                        })?;
+                    let GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(
+                        outcome,
+                    ) = outcome
+                    else {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    };
+                    let committed = shadow
+                        .commit_no_target(family, context, outcome)
+                        .map_err(|failure| failure.error())?;
+                    if !recorded.semantically_equal(&committed.event) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    shadow = committed.into_session();
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. } => {
+                    if position.checked_add(1) != Some(self.events.len()) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    let outcome = shadow
+                        .recenter_staged_new_pivot(family, context, transaction)
+                        .map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch
+                        })?;
+                    let GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(outcome) = outcome else {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    };
+                    let suspended = shadow
+                        .commit_and_suspend_affine_equality_refinement(
+                            family,
+                            context,
+                            outcome,
+                        )
+                        .map_err(|failure| failure.error())?;
+                    if !recorded.semantically_equal(&suspended.event) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    return self.compare_replayed_final_state(
+                        family,
+                        context,
+                        &suspended.committed_session,
+                    );
+                }
+                #[cfg(test)]
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
+                    let outcome = shadow
+                        .commit_unconsumed(family, context, transaction)
+                        .map_err(|failure| failure.error())?;
+                    if !matches!(
+                        outcome,
+                        GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }
+                    ) || !recorded.semantically_equal(
+                        shadow.events.last().ok_or(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        )?,
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                }
+            }
+        }
+        self.compare_replayed_final_state(family, context, &shadow)
+    }
+
+    /// Authenticate current authority and chronologically re-execute every
+    /// retained raw source recipe into fresh database/target/event owners.
+    /// Production staging uses only `authenticate_live_state`, so appending
+    /// row `k` does not recursively replay `0..k`.
+    pub(crate) fn replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        self.authenticate_live_state(family, context)?;
+        catch_unwind(AssertUnwindSafe(|| {
+            self.replay_committed_events_inner(family, context)
         }))
         .map_err(|_| GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic)?
     }
@@ -1357,7 +2559,7 @@ impl GeneratedAffineResidualGroupExactSession {
         GeneratedAffineResidualGroupExactSessionStagedTransaction,
         GeneratedAffineResidualGroupExactSessionError,
     > {
-        self.replay(family, context)?;
+        self.authenticate_live_state(family, context)?;
         let staged = self.database.stage_replayed_row_for_session(
             &self.database_capability,
             family,
@@ -1523,12 +2725,14 @@ impl GeneratedAffineResidualGroupExactSession {
 
         Ok(match prepared {
             PreparedSessionRecenter::NoTarget {
+                target_offset,
                 source_ordinal,
                 pivot_ordinal,
                 stats,
             } => GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(
                 GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
                     transaction,
+                    target_offset,
                     source_ordinal,
                     pivot_ordinal,
                     stats,
@@ -1536,6 +2740,7 @@ impl GeneratedAffineResidualGroupExactSession {
             ),
             PreparedSessionRecenter::RequiresAffineEqualityRefinement {
                 target,
+                target_offset,
                 source_ordinal,
                 pivot_ordinal,
                 stats,
@@ -1543,6 +2748,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
                     transaction,
                     target,
+                    target_offset,
                     source_ordinal,
                     pivot_ordinal,
                     stats,
@@ -1550,6 +2756,7 @@ impl GeneratedAffineResidualGroupExactSession {
             ),
             PreparedSessionRecenter::Ready {
                 target,
+                target_offset,
                 recentered,
                 source_ordinal,
                 pivot_ordinal,
@@ -1558,6 +2765,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 GeneratedAffineResidualGroupExactSessionRecenterReady {
                     transaction,
                     target,
+                    target_offset,
                     recentered,
                     source_ordinal,
                     pivot_ordinal,
@@ -1588,8 +2796,12 @@ impl GeneratedAffineResidualGroupExactSession {
             joint.target_state_combined_retained_byte_envelope();
         let external_live_retained_bytes = checked_add(
             "exact session recenter external live retained bytes",
-            staged_live_prospective_retained_bytes.max(staged_live_observed_retained_bytes),
-            target_state_combined_retained_byte_envelope,
+            checked_add(
+                "exact session recenter external live retained bytes",
+                staged_live_prospective_retained_bytes.max(staged_live_observed_retained_bytes),
+                target_state_combined_retained_byte_envelope,
+            )?,
+            self.event_stats.ledger_retained_bytes,
         )?;
         let mut stats = GeneratedAffineResidualGroupExactSessionRecenterStats {
             staged_live_prospective_retained_bytes,
@@ -1611,20 +2823,41 @@ impl GeneratedAffineResidualGroupExactSession {
             kernel_limits,
             &mut kernel,
         )?;
+        // Every classified outcome retains the exact offset used for target
+        // selection.  The geometry preflight's temporary-byte envelope is a
+        // conservative upper bound for the retained offset payload. The
+        // outcome wrapper already includes its inline Arc handle, while the
+        // kernel census adds only the Arc pointee/control-block allocation.
+        let target_offset_owner_bound = kernel.target_offset_arc_retained_bytes();
         admit_inert_owner(
-            size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
+            checked_add(
+                "exact session recenter outcome retained bytes",
+                size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
+                target_offset_owner_bound,
+            )?,
             external_live_retained_bytes,
             0,
+            true,
             kernel_limits,
             &mut kernel,
         )?;
-        let target_offset = execute_target_offset(
+        let target_offset = Arc::new(execute_target_offset(
             pivot,
             joint.compact_affine_matrix(),
             joint.free_positions(),
             joint.ambient_arity(),
+        )?);
+        verify_target_offset_census(&target_offset, &mut kernel)?;
+        let target_offset_observed_retained_bytes = target_offset.arc_retained_bytes()?;
+        observe_inert_owner(
+            checked_add(
+                "exact session observed recenter outcome retained bytes",
+                size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
+                target_offset_observed_retained_bytes,
+            )?,
+            external_live_retained_bytes,
+            &mut kernel,
         )?;
-        verify_target_offset_census(&target_offset, &kernel)?;
 
         let target_ordinals = joint.target_ordinals();
         if target_ordinals.start != 0 || target_ordinals.end != joint.target_locators().len() {
@@ -1679,6 +2912,7 @@ impl GeneratedAffineResidualGroupExactSession {
         let Some(target) = selected else {
             stats.kernel = kernel;
             return Ok(PreparedSessionRecenter::NoTarget {
+                target_offset,
                 source_ordinal,
                 pivot_ordinal,
                 stats,
@@ -1691,8 +2925,8 @@ impl GeneratedAffineResidualGroupExactSession {
             ) => {
                 // First-match semantics are final. Equality-bearing targets
                 // return before coefficient, centered-shift, or guard
-                // translation and retain neither the temporary offset nor a
-                // recentered row.
+                // translation. They retain the exact matched offset for the
+                // chronological event but never construct a recentered row.
                 if !target.authenticates_source_state(&transaction.target_state) {
                     return Err(
                         GeneratedAffineResidualGroupExactSessionError::ReplayMismatch.into(),
@@ -1701,6 +2935,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 stats.kernel = kernel;
                 Ok(PreparedSessionRecenter::RequiresAffineEqualityRefinement {
                     target,
+                    target_offset,
                     source_ordinal,
                     pivot_ordinal,
                     stats,
@@ -1727,7 +2962,9 @@ impl GeneratedAffineResidualGroupExactSession {
                     joint.free_positions(),
                     &locator_origin,
                     size_of::<GeneratedAffineResidualGroupExactSessionRecenterOutcome>(),
-                    0,
+                    target_offset_owner_bound,
+                    target_offset_observed_retained_bytes,
+                    true,
                     external_live_retained_bytes,
                     0,
                     kernel_limits,
@@ -1736,6 +2973,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 stats.kernel = recentered.stats();
                 Ok(PreparedSessionRecenter::Ready {
                     target,
+                    target_offset,
                     recentered,
                     source_ordinal,
                     pivot_ordinal,
@@ -1743,6 +2981,541 @@ impl GeneratedAffineResidualGroupExactSession {
                 })
             }
         }
+    }
+
+    fn preflight_event_ledger_replacement(
+        &self,
+        source_ordinal: usize,
+        source_recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+        database_evidence: &GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
+        disposition: &GeneratedAffineResidualGroupExactSessionEventDisposition,
+    ) -> Result<PreparedSessionEventLedgerReplacement, GeneratedAffineResidualGroupExactSessionError>
+    {
+        (|| {
+            let limits = self.limits.events;
+            let event_ordinal = self.events.len();
+            let event_count = session_event_bounded_add(
+                "exact session committed events",
+                event_ordinal,
+                1,
+                limits.max_events,
+            )?;
+            let target_state_successor_copies = session_event_bounded_add(
+                "exact session target-state successor copies",
+                self.event_stats.target_state_successor_copies,
+                self.target_count(),
+                limits.max_target_state_successor_copies,
+            )?;
+            let ledger_arc_copies = session_event_bounded_add(
+                "exact session event-ledger Arc copies",
+                self.event_stats.ledger_arc_copies,
+                event_ordinal,
+                limits.max_ledger_arc_copies,
+            )?;
+            if source_ordinal != event_ordinal
+                || source_recipe.database_epoch() != self.database_epoch()
+                || source_recipe.group_ordinal() != self.group_ordinal()
+            {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
+
+            let predecessor_state_version = self.database.state_version();
+            let successor_state_version = session_event_checked_add(
+                "exact session event successor version",
+                predecessor_state_version,
+                1,
+            )?;
+
+            let mut source_is_new = true;
+            let mut source_recipe_allocation_comparisons =
+                self.event_stats.source_recipe_allocation_comparisons;
+            for event in &self.events {
+                source_recipe_allocation_comparisons = session_event_bounded_add(
+                    "exact session source-recipe allocation comparisons",
+                    source_recipe_allocation_comparisons,
+                    1,
+                    limits.max_source_recipe_allocation_comparisons,
+                )?;
+                if event.source_recipe.same_source_allocation(source_recipe) {
+                    source_is_new = false;
+                    break;
+                }
+            }
+            let source_recipe_deep_bytes = if source_is_new {
+                session_event_checked_sub(
+                    "exact session source-recipe retained bytes",
+                    source_recipe.retained_byte_bound()?,
+                    size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
+                )?
+            } else {
+                0
+            };
+            let unique_source_recipe_retained_bytes = session_event_bounded_add(
+                "exact session unique source-recipe retained bytes",
+                self.event_stats.unique_source_recipe_retained_bytes,
+                source_recipe_deep_bytes,
+                limits.max_source_recipe_retained_bytes,
+            )?;
+
+            let reduction_count = database_evidence.reduction_count();
+            let reduction_steps = session_event_bounded_add(
+                "exact session retained reduction steps",
+                self.event_stats.reduction_steps,
+                reduction_count,
+                limits.max_reduction_steps,
+            )?;
+            let dependent_evidence_deep_bytes = match database_evidence {
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                    evidence,
+                ) => evidence.retained_byte_bound()?,
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_) => 0,
+            };
+
+            let (
+                new_target_offset_components,
+                new_target_offset_integer_bits,
+                new_target_offset_retained_bytes,
+                new_equality_predicates,
+                equality_predicate_buffer_bytes,
+            ) = match disposition {
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
+                    if !matches!(
+                        database_evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_)
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (0, 0, 0, 0, 0)
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                    target_offset,
+                    ..
+                } => {
+                    if !matches!(
+                        database_evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (
+                        target_offset.values().len(),
+                        target_offset.retained_integer_bits(),
+                        target_offset.arc_retained_bytes().map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                                resource: "exact session retained target-offset bytes",
+                            }
+                        })?,
+                        0,
+                        0,
+                    )
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                    target_offset,
+                    equality_predicate_ordinals,
+                    ..
+                } => {
+                    if !matches!(
+                        database_evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (
+                        target_offset.values().len(),
+                        target_offset.retained_integer_bits(),
+                        target_offset.arc_retained_bytes().map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                                resource: "exact session retained target-offset bytes",
+                            }
+                        })?,
+                        equality_predicate_ordinals.len(),
+                        session_event_checked_mul(
+                            "exact session retained equality-predicate bytes",
+                            equality_predicate_ordinals.capacity(),
+                            size_of::<usize>(),
+                        )?,
+                    )
+                }
+                #[cfg(test)]
+                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
+                    if !matches!(
+                        database_evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (0, 0, 0, 0, 0)
+                }
+            };
+            let target_offset_components = session_event_bounded_add(
+                "exact session retained target-offset components",
+                self.event_stats.target_offset_components,
+                new_target_offset_components,
+                limits.max_target_offset_components,
+            )?;
+            let target_offset_integer_bits = session_event_bounded_add(
+                "exact session retained target-offset integer bits",
+                self.event_stats.target_offset_integer_bits,
+                new_target_offset_integer_bits,
+                limits.max_target_offset_integer_bits,
+            )?;
+            let target_offset_retained_bytes = session_event_bounded_add(
+                "exact session retained target-offset bytes",
+                self.event_stats.target_offset_retained_bytes,
+                new_target_offset_retained_bytes,
+                limits.max_target_offset_retained_bytes,
+            )?;
+            let equality_predicates = session_event_bounded_add(
+                "exact session retained equality predicates",
+                self.event_stats.equality_predicates,
+                new_equality_predicates,
+                limits.max_equality_predicates,
+            )?;
+
+            let individual_event_retained_bytes = [
+                session_event_arc_retained_bytes::<GeneratedAffineResidualGroupExactSessionEvent>(
+                )?,
+                source_recipe_deep_bytes,
+                dependent_evidence_deep_bytes,
+                new_target_offset_retained_bytes,
+                equality_predicate_buffer_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add(
+                    "exact session individual event retained bytes",
+                    total,
+                    bytes,
+                )
+            })?;
+            session_event_check_limit(
+                "exact session individual event retained bytes",
+                individual_event_retained_bytes,
+                limits.max_individual_event_retained_bytes,
+            )?;
+
+            // Never let a later ledger replacement have a smaller outer
+            // capacity than its predecessor. This makes twice the final
+            // authenticated ledger a sound upper bound for every historical
+            // old-plus-replacement ledger coexistence, independently of the
+            // allocator's `try_reserve_exact` growth policy.
+            let replacement_capacity = event_count.max(self.events.capacity());
+            let prospective_ledger_outer_buffer_bytes =
+                session_event_outer_buffer_bytes(replacement_capacity)?;
+            session_event_check_limit(
+                "exact session event-ledger outer buffer bytes",
+                prospective_ledger_outer_buffer_bytes,
+                limits.max_ledger_outer_buffer_bytes,
+            )?;
+            let retained_without_old_outer = session_event_checked_sub(
+                "exact session event-ledger retained bytes",
+                self.event_stats.ledger_retained_bytes,
+                self.event_stats.ledger_outer_buffer_bytes,
+            )?;
+            let prospective_ledger_retained_bytes = [
+                retained_without_old_outer,
+                prospective_ledger_outer_buffer_bytes,
+                individual_event_retained_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add("exact session event-ledger retained bytes", total, bytes)
+            })?;
+            session_event_check_limit(
+                "exact session event-ledger retained bytes",
+                prospective_ledger_retained_bytes,
+                limits.max_ledger_retained_bytes,
+            )?;
+            let prospective_current_replacement_peak_bytes = [
+                self.event_stats.ledger_retained_bytes,
+                prospective_ledger_outer_buffer_bytes,
+                individual_event_retained_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add(
+                    "exact session event-ledger replacement peak bytes",
+                    total,
+                    bytes,
+                )
+            })?;
+            let prospective_ledger_replacement_peak_bytes = self
+                .event_stats
+                .ledger_replacement_peak_bytes
+                .max(prospective_current_replacement_peak_bytes);
+            session_event_check_limit(
+                "exact session event-ledger replacement peak bytes",
+                prospective_ledger_replacement_peak_bytes,
+                limits.max_ledger_replacement_peak_bytes,
+            )?;
+
+            let mut replacement_events = Vec::new();
+            #[cfg(test)]
+            record_event_ledger_replacement_reservation_for_test();
+            replacement_events
+                .try_reserve_exact(replacement_capacity)
+                .map_err(|_| {
+                    GeneratedAffineResidualGroupExactSessionError::EventAllocationFailure {
+                        resource: "exact session event-ledger replacement",
+                    }
+                })?;
+            replacement_events.extend(self.events.iter().cloned());
+            let ledger_outer_buffer_bytes =
+                session_event_outer_buffer_bytes(replacement_events.capacity())?;
+            if replacement_events.capacity() < replacement_capacity
+                || replacement_events.len() != event_ordinal
+            {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionError::EventAllocationFailure {
+                        resource: "exact session event-ledger replacement",
+                    },
+                );
+            }
+            session_event_check_limit(
+                "exact session event-ledger outer buffer bytes",
+                ledger_outer_buffer_bytes,
+                limits.max_ledger_outer_buffer_bytes,
+            )?;
+            let ledger_retained_bytes = [
+                retained_without_old_outer,
+                ledger_outer_buffer_bytes,
+                individual_event_retained_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add("exact session event-ledger retained bytes", total, bytes)
+            })?;
+            session_event_check_limit(
+                "exact session event-ledger retained bytes",
+                ledger_retained_bytes,
+                limits.max_ledger_retained_bytes,
+            )?;
+            let current_replacement_peak_bytes = [
+                self.event_stats.ledger_retained_bytes,
+                ledger_outer_buffer_bytes,
+                individual_event_retained_bytes,
+            ]
+            .into_iter()
+            .try_fold(0usize, |total, bytes| {
+                session_event_checked_add(
+                    "exact session event-ledger replacement peak bytes",
+                    total,
+                    bytes,
+                )
+            })?;
+            let ledger_replacement_peak_bytes = self
+                .event_stats
+                .ledger_replacement_peak_bytes
+                .max(current_replacement_peak_bytes);
+            session_event_check_limit(
+                "exact session event-ledger replacement peak bytes",
+                ledger_replacement_peak_bytes,
+                limits.max_ledger_replacement_peak_bytes,
+            )?;
+
+            Ok(PreparedSessionEventLedgerReplacement {
+                event_ordinal,
+                predecessor_state_version,
+                successor_state_version,
+                individual_event_retained_bytes,
+                replacement_events,
+                event_stats: GeneratedAffineResidualGroupExactSessionEventStats {
+                    events: event_count,
+                    source_recipe_allocation_comparisons,
+                    target_state_successor_copies,
+                    ledger_arc_copies,
+                    reduction_steps,
+                    unique_source_recipe_retained_bytes,
+                    target_offset_components,
+                    target_offset_integer_bits,
+                    target_offset_retained_bytes,
+                    equality_predicates,
+                    ledger_outer_buffer_bytes,
+                    ledger_retained_bytes,
+                    ledger_replacement_peak_bytes,
+                },
+            })
+        })()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_session_event_transition(
+        &self,
+        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
+        successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+        disposition: GeneratedAffineResidualGroupExactSessionEventDisposition,
+        expected_source_ordinal: usize,
+        expected: ExpectedSessionEventDatabaseOutcome,
+    ) -> Result<
+        PreparedSessionUnconsumedTransition,
+        GeneratedAffineResidualGroupExactSessionEventPreparationFailure,
+    > {
+        let GeneratedAffineResidualGroupExactSessionStagedTransaction {
+            staged,
+            target_state: transaction_target_state,
+        } = transaction;
+        if transaction_target_state.state_version().checked_add(1)
+            != Some(successor.state_version())
+            || transaction_target_state.database_epoch() != successor.database_epoch()
+            || transaction_target_state.group_ordinal() != successor.group_ordinal()
+        {
+            return Err(
+                GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction {
+                        staged,
+                        target_state: transaction_target_state,
+                    },
+                },
+            );
+        }
+        let database_commit = match self
+            .database
+            .prepare_staged_row_commit_for_session(&self.database_capability, staged)
+        {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                let error = failure.error();
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+                        error: GeneratedAffineResidualGroupExactSessionError::Database(error),
+                        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction {
+                            staged: failure.into_staged(),
+                            target_state: transaction_target_state,
+                        },
+                    },
+                );
+            }
+        };
+        let source_ordinal = database_commit.source_ordinal();
+        let source_recipe =
+            database_commit.retain_source_recipe_for_session(&self.database_capability);
+        let database_evidence = match &disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => database_commit
+                .retain_dependent_evidence_for_session(&self.database_capability)
+                .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent),
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
+            | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. } => database_commit
+                .retain_new_pivot_evidence_for_session(&self.database_capability)
+                .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot),
+            #[cfg(test)]
+            GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => database_commit
+                .retain_new_pivot_evidence_for_session(&self.database_capability)
+                .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot),
+        };
+        let evidence_matches = source_ordinal == expected_source_ordinal
+            && match (&database_evidence, expected) {
+                (
+                    Some(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                        _,
+                    )),
+                    ExpectedSessionEventDatabaseOutcome::Dependent { reduction_count },
+                ) => database_evidence
+                    .as_ref()
+                    .is_some_and(|evidence| evidence.reduction_count() == reduction_count),
+                (
+                    Some(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                        evidence,
+                    )),
+                    ExpectedSessionEventDatabaseOutcome::NewPivot { pivot_ordinal },
+                ) => {
+                    evidence.ordinal() == pivot_ordinal
+                        && evidence.source_ordinal() == source_ordinal
+                }
+                _ => false,
+            };
+        let Some(database_evidence) = database_evidence.filter(|_| evidence_matches) else {
+            let staged = self.database.abort_prepared_staged_row_commit_for_session(
+                &self.database_capability,
+                database_commit,
+            );
+            return Err(
+                GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                    transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction {
+                        staged,
+                        target_state: transaction_target_state,
+                    },
+                },
+            );
+        };
+        let ledger_preflight = catch_unwind(AssertUnwindSafe(|| {
+            self.preflight_event_ledger_replacement(
+                source_ordinal,
+                &source_recipe,
+                &database_evidence,
+                &disposition,
+            )
+        }));
+        let ledger_preflight = match ledger_preflight {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                let staged = self.database.abort_prepared_staged_row_commit_for_session(
+                    &self.database_capability,
+                    database_commit,
+                );
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+                        error,
+                        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction {
+                            staged,
+                            target_state: transaction_target_state,
+                        },
+                    },
+                );
+            }
+            Err(_) => {
+                let staged = self.database.abort_prepared_staged_row_commit_for_session(
+                    &self.database_capability,
+                    database_commit,
+                );
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionEventPreparationFailure {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction {
+                            staged,
+                            target_state: transaction_target_state,
+                        },
+                    },
+                );
+            }
+        };
+        let PreparedSessionEventLedgerReplacement {
+            event_ordinal,
+            predecessor_state_version,
+            successor_state_version,
+            individual_event_retained_bytes,
+            mut replacement_events,
+            event_stats,
+        } = ledger_preflight;
+        let event = Arc::new(GeneratedAffineResidualGroupExactSessionEvent {
+            authority: Arc::clone(&self.event_authority),
+            event_ordinal,
+            source_ordinal,
+            predecessor_state_version,
+            successor_state_version,
+            source_recipe,
+            database_evidence,
+            disposition,
+            retained_bytes: individual_event_retained_bytes,
+        });
+        replacement_events.push(Arc::clone(&event));
+        Ok(PreparedSessionUnconsumedTransition {
+            successor,
+            transaction_target_state,
+            database_commit,
+            event,
+            replacement_events,
+            event_stats,
+        })
     }
 
     /// Commit one sealed NoTarget recenter outcome without consuming a solve
@@ -1762,10 +3535,10 @@ impl GeneratedAffineResidualGroupExactSession {
         GeneratedAffineResidualGroupExactSessionCommittedNoTarget,
         GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure,
     > {
-        let prepared = match catch_unwind(AssertUnwindSafe(|| {
-            self.prepare_no_target_transition(family, context, &outcome)
+        let successor = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_no_target_successor(family, context, &outcome)
         })) {
-            Ok(Ok(prepared)) => prepared,
+            Ok(Ok(successor)) => successor,
             Ok(Err(error)) => {
                 return Err(
                     GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::Preflight {
@@ -1787,47 +3560,58 @@ impl GeneratedAffineResidualGroupExactSession {
         };
         let GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
             transaction,
+            target_offset,
             source_ordinal,
             pivot_ordinal,
             stats,
         } = outcome;
-        match self.commit_prepared_unconsumed(transaction, prepared) {
-            Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
-                source_ordinal: committed_source_ordinal,
-                pivot_ordinal: committed_pivot_ordinal,
-            }) if committed_source_ordinal == source_ordinal
-                && committed_pivot_ordinal == pivot_ordinal =>
-            {
-                Ok(
-                    GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+        let prepared = match self.prepare_session_event_transition(
+            transaction,
+            successor,
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                target_offset: Arc::clone(&target_offset),
+                stats,
+            },
+            source_ordinal,
+            ExpectedSessionEventDatabaseOutcome::NewPivot { pivot_ordinal },
+        ) {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::Preflight {
+                        error: failure.error,
                         session: self,
-                        source_ordinal,
-                        pivot_ordinal,
-                        stats,
+                        outcome: GeneratedAffineResidualGroupExactSessionRecenterNoTarget {
+                            transaction: failure.transaction,
+                            target_offset,
+                            source_ordinal,
+                            pivot_ordinal,
+                            stats,
+                        },
                     },
-                )
+                );
             }
-            Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. })
-            | Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. }) => Err(
-                GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
-                },
-            ),
-            Err(error) => Err(
-                GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::Database(error),
-                },
-            ),
-        }
+        };
+        let event = self.commit_prepared_unconsumed(prepared);
+        drop(target_offset);
+        Ok(GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
+            session: self,
+            event,
+            source_ordinal,
+            pivot_ordinal,
+            stats,
+        })
     }
 
-    fn prepare_no_target_transition(
+    fn prepare_no_target_successor(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         outcome: &GeneratedAffineResidualGroupExactSessionRecenterNoTarget,
-    ) -> Result<PreparedSessionUnconsumedTransition, GeneratedAffineResidualGroupExactSessionError>
-    {
+    ) -> Result<
+        Arc<GeneratedAffineResidualGroupExactTargetState>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
         let staged_pivot =
             self.authenticate_staged_new_pivot(family, context, &outcome.transaction)?;
         if staged_pivot.source_ordinal() != outcome.source_ordinal
@@ -1836,7 +3620,7 @@ impl GeneratedAffineResidualGroupExactSession {
             return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         }
         drop(staged_pivot);
-        self.prepare_unconsumed_transition(family, context, &outcome.transaction)
+        self.prepare_unchanged_target_successor(family, context, &outcome.transaction)
     }
 
     /// Commit an equality-bearing pivot and consume the running session into a
@@ -1879,50 +3663,62 @@ impl GeneratedAffineResidualGroupExactSession {
             }
         };
         let PreparedSessionEqualityRefinementSuspension {
-            source_recipe,
-            target_successor,
+            successor,
+            target: successor_target,
+            locator,
+            equality_predicate_ordinals,
         } = prepared;
         let GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
             transaction,
             target: predecessor_target,
+            target_offset,
             source_ordinal,
             pivot_ordinal,
             stats,
         } = outcome;
-        drop(predecessor_target);
-        match self.commit_prepared_equality_refinement_unconsumed(transaction, target_successor) {
-            Ok((
-                GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
-                    source_ordinal: committed_source_ordinal,
-                    pivot_ordinal: committed_pivot_ordinal,
-                },
-                successor_target,
-            )) if committed_source_ordinal == source_ordinal
-                && committed_pivot_ordinal == pivot_ordinal =>
-            {
-                Ok(
-                    GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
-                        committed_session: self,
-                        source_recipe,
-                        target: successor_target,
-                        source_ordinal,
-                        pivot_ordinal,
-                        stats,
+        let prepared = match self.prepare_session_event_transition(
+            transaction,
+            successor,
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                target_offset: Arc::clone(&target_offset),
+                locator,
+                equality_predicate_ordinals,
+                stats,
+            },
+            source_ordinal,
+            ExpectedSessionEventDatabaseOutcome::NewPivot { pivot_ordinal },
+        ) {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::Preflight {
+                        error: failure.error,
+                        session: self,
+                        outcome: GeneratedAffineResidualGroupExactSessionRecenterRequiresAffineEqualityRefinement {
+                            transaction: failure.transaction,
+                            target: predecessor_target,
+                            target_offset,
+                            source_ordinal,
+                            pivot_ordinal,
+                            stats,
+                        },
                     },
-                )
+                );
             }
-            Ok((GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }, _))
-            | Ok((GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. }, _)) => Err(
-                GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
-                },
-            ),
-            Err(error) => Err(
-                GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::Database(error),
-                },
-            ),
-        }
+        };
+        let event = self.commit_prepared_unconsumed(prepared);
+        drop(predecessor_target);
+        drop(target_offset);
+        Ok(
+            GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
+                committed_session: self,
+                event,
+                target: successor_target,
+                source_ordinal,
+                pivot_ordinal,
+                stats,
+            },
+        )
     }
 
     fn prepare_equality_refinement_suspension(
@@ -1941,9 +3737,23 @@ impl GeneratedAffineResidualGroupExactSession {
         {
             return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         }
-        let source_recipe = GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::retain(
-            staged_pivot.production_source(),
+        self.preflight_target_state_successor_copy_work()?;
+        let locator = *outcome.target.locator();
+        let equality_predicates = outcome.refinement().equality_predicate_ordinals();
+        session_event_check_limit(
+            "exact session equality predicates",
+            equality_predicates.len(),
+            self.limits.events.max_equality_predicates,
         )?;
+        let mut equality_predicate_ordinals = Vec::new();
+        equality_predicate_ordinals
+            .try_reserve_exact(equality_predicates.len())
+            .map_err(
+                |_| GeneratedAffineResidualGroupExactSessionError::EventAllocationFailure {
+                    resource: "exact session equality-predicate manifest",
+                },
+            )?;
+        equality_predicate_ordinals.extend_from_slice(equality_predicates);
         drop(staged_pivot);
         self.authenticate_target_state_allocation(&outcome.transaction.target_state)?;
         self.database
@@ -1961,9 +3771,19 @@ impl GeneratedAffineResidualGroupExactSession {
                 successor_binding,
                 &outcome.target,
             )?;
+        let (successor, target) =
+            target_successor.into_parts_for_session(&self.database_capability);
+        if target.locator() != &locator
+            || target.refinement().equality_predicate_ordinals()
+                != equality_predicate_ordinals.as_slice()
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
         Ok(PreparedSessionEqualityRefinementSuspension {
-            source_recipe,
-            target_successor,
+            successor,
+            target,
+            locator,
+            equality_predicate_ordinals,
         })
     }
 
@@ -2020,55 +3840,81 @@ impl GeneratedAffineResidualGroupExactSession {
         GeneratedAffineResidualGroupExactSessionCommittedDependent,
         GeneratedAffineResidualGroupExactSessionCommitDependentFailure,
     > {
+        let successor = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_dependent_successor(family, context, &classified)
+        })) {
+            Ok(Ok(successor)) => successor,
+            Ok(Err(error)) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitDependentFailure::Preflight {
+                        error,
+                        classified,
+                    },
+                );
+            }
+            Err(_) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitDependentFailure::Preflight {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        classified,
+                    },
+                );
+            }
+        };
         let GeneratedAffineResidualGroupExactSessionClassifiedDependent {
             transaction,
             source_ordinal: classified_source_ordinal,
             reduction_count: classified_reduction_count,
         } = classified;
-        match self.commit_unconsumed(family, context, transaction) {
-            Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent {
-                source_ordinal,
-                reductions,
-            }) if source_ordinal == classified_source_ordinal
-                && reductions.len() == classified_reduction_count =>
-            {
-                Ok(
-                    GeneratedAffineResidualGroupExactSessionCommittedDependent {
-                        source_ordinal,
-                        reductions,
-                    },
-                )
-            }
-            Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. })
-            | Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }) => Err(
-                GeneratedAffineResidualGroupExactSessionCommitDependentFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
-                },
-            ),
-            Err(GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::Preflight {
-                error,
-                transaction,
-            }) => Err(
-                GeneratedAffineResidualGroupExactSessionCommitDependentFailure::Preflight {
-                    error,
-                    classified:
-                        GeneratedAffineResidualGroupExactSessionClassifiedDependent {
-                            transaction,
+        let prepared = match self.prepare_session_event_transition(
+            transaction,
+            successor,
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+            classified_source_ordinal,
+            ExpectedSessionEventDatabaseOutcome::Dependent {
+                reduction_count: classified_reduction_count,
+            },
+        ) {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitDependentFailure::Preflight {
+                        error: failure.error,
+                        classified: GeneratedAffineResidualGroupExactSessionClassifiedDependent {
+                            transaction: failure.transaction,
                             source_ordinal: classified_source_ordinal,
                             reduction_count: classified_reduction_count,
                         },
-                },
-            ),
-            Err(
-                GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::PostPreflightCommitInvariant {
-                    error,
-                },
-            ) => Err(
-                GeneratedAffineResidualGroupExactSessionCommitDependentFailure::PostPreflightCommitInvariant {
-                    error: GeneratedAffineResidualGroupExactSessionError::Database(error),
-                },
-            ),
+                    },
+                );
+            }
+        };
+        let event = self.commit_prepared_unconsumed(prepared);
+        Ok(GeneratedAffineResidualGroupExactSessionCommittedDependent { event })
+    }
+
+    fn prepare_dependent_successor(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        classified: &GeneratedAffineResidualGroupExactSessionClassifiedDependent,
+    ) -> Result<
+        Arc<GeneratedAffineResidualGroupExactTargetState>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let successor =
+            self.prepare_unchanged_target_successor(family, context, &classified.transaction)?;
+        let dependent = self.database.authenticate_staged_dependent_for_session(
+            &self.database_capability,
+            &classified.transaction.staged,
+        )?;
+        if dependent.source_ordinal() != classified.source_ordinal
+            || dependent.reductions().len() != classified.reduction_count
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         }
+        drop(dependent);
+        Ok(successor)
     }
 
     /// Commit a staged row without consuming any solve target.
@@ -2083,6 +3929,7 @@ impl GeneratedAffineResidualGroupExactSession {
     /// skip recentering/`WhenBad` and advance an arbitrary new pivot. The
     /// crate-visible wrappers require their corresponding sealed
     /// classification or recenter outcome.
+    #[cfg(test)]
     fn commit_unconsumed(
         &mut self,
         family: &IntegralFamily,
@@ -2092,10 +3939,52 @@ impl GeneratedAffineResidualGroupExactSession {
         GeneratedAffineResidualGroupExactRowOutcome,
         GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure,
     > {
-        let prepared = match catch_unwind(AssertUnwindSafe(|| {
-            self.prepare_unconsumed_transition(family, context, &transaction)
+        let preflight = match catch_unwind(AssertUnwindSafe(|| {
+            let successor =
+                self.prepare_unchanged_target_successor(family, context, &transaction)?;
+            match self.database.authenticate_staged_new_pivot_for_session(
+                &self.database_capability,
+                &transaction.staged,
+            ) {
+                Ok(pivot) => Ok((
+                    successor,
+                    GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
+                    pivot.source_ordinal(),
+                    ExpectedSessionEventDatabaseOutcome::NewPivot {
+                        pivot_ordinal: pivot.pivot_ordinal(),
+                    },
+                    GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                        source_ordinal: pivot.source_ordinal(),
+                        pivot_ordinal: pivot.pivot_ordinal(),
+                    },
+                )),
+                Err(new_pivot_error) => {
+                    let dependent = self
+                        .database
+                        .authenticate_staged_dependent_for_session(
+                            &self.database_capability,
+                            &transaction.staged,
+                        )
+                        .map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::Database(new_pivot_error)
+                        })?;
+                    let reductions = dependent.reductions().to_vec();
+                    Ok((
+                        successor,
+                        GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+                        dependent.source_ordinal(),
+                        ExpectedSessionEventDatabaseOutcome::Dependent {
+                            reduction_count: reductions.len(),
+                        },
+                        GeneratedAffineResidualGroupExactRowOutcome::Dependent {
+                            source_ordinal: dependent.source_ordinal(),
+                            reductions,
+                        },
+                    ))
+                }
+            }
         })) {
-            Ok(Ok(prepared)) => prepared,
+            Ok(Ok(preflight)) => preflight,
             Ok(Err(error)) => {
                 return Err(
                     GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::Preflight {
@@ -2113,32 +4002,26 @@ impl GeneratedAffineResidualGroupExactSession {
                 );
             }
         };
-        self.commit_prepared_unconsumed(transaction, prepared)
-            .map_err(|error| {
-                GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::PostPreflightCommitInvariant {
-                    error,
-                }
-            })
-    }
-
-    fn commit_prepared_equality_refinement_unconsumed(
-        &mut self,
-        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
-        target_successor: GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
-    ) -> Result<
-        (
-            GeneratedAffineResidualGroupExactRowOutcome,
-            GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
-        ),
-        GeneratedAffineResidualGroupExactDatabaseError,
-    > {
-        let (successor, target) =
-            target_successor.into_parts_for_session(&self.database_capability);
-        let outcome = self.commit_prepared_unconsumed(
+        let (successor, disposition, source_ordinal, expected, outcome) = preflight;
+        let prepared = match self.prepare_session_event_transition(
             transaction,
-            PreparedSessionUnconsumedTransition { successor },
-        )?;
-        Ok((outcome, target))
+            successor,
+            disposition,
+            source_ordinal,
+            expected,
+        ) {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitUnconsumedFailure::Preflight {
+                        error: failure.error,
+                        transaction: failure.transaction,
+                    },
+                );
+            }
+        };
+        drop(self.commit_prepared_unconsumed(prepared));
+        Ok(outcome)
     }
 
     /// Finalize a completely prepared unconsumed transition.
@@ -2149,48 +4032,64 @@ impl GeneratedAffineResidualGroupExactSession {
     /// infallible drops; it performs no replay, allocation, or authentication.
     fn commit_prepared_unconsumed(
         &mut self,
-        transaction: GeneratedAffineResidualGroupExactSessionStagedTransaction,
         prepared: PreparedSessionUnconsumedTransition,
-    ) -> Result<
-        GeneratedAffineResidualGroupExactRowOutcome,
-        GeneratedAffineResidualGroupExactDatabaseError,
-    > {
-        let GeneratedAffineResidualGroupExactSessionStagedTransaction {
-            staged,
-            target_state: transaction_target_state,
-        } = transaction;
-        let outcome = self
-            .database
-            .commit_staged_row_for_session(&self.database_capability, staged)?;
+    ) -> Arc<GeneratedAffineResidualGroupExactSessionEvent> {
+        let PreparedSessionUnconsumedTransition {
+            successor,
+            transaction_target_state,
+            database_commit,
+            event,
+            replacement_events,
+            event_stats,
+        } = prepared;
+        self.database
+            .commit_prepared_staged_row_for_session(&self.database_capability, database_commit);
 
         // Infallible, allocation-free commit tail. The old target state
         // stays live through `transaction_target_state` until both retained
         // owners have advanced coherently.
-        let prior_target_state = std::mem::replace(&mut self.target_state, prepared.successor);
+        let prior_target_state = std::mem::replace(&mut self.target_state, successor);
+        let prior_events = std::mem::replace(&mut self.events, replacement_events);
+        self.event_stats = event_stats;
         drop(transaction_target_state);
         drop(prior_target_state);
-        Ok(outcome)
+        drop(prior_events);
+        event
     }
 
-    fn prepare_unconsumed_transition(
+    fn prepare_unchanged_target_successor(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         transaction: &GeneratedAffineResidualGroupExactSessionStagedTransaction,
-    ) -> Result<PreparedSessionUnconsumedTransition, GeneratedAffineResidualGroupExactSessionError>
-    {
+    ) -> Result<
+        Arc<GeneratedAffineResidualGroupExactTargetState>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
         self.authenticate_target_state_allocation(&transaction.target_state)?;
         self.database
             .authenticate_target_state_binding(transaction.target_state.binding())?;
+        self.preflight_target_state_successor_copy_work()?;
         let successor_binding = self.database.successor_target_state_binding_for_session(
             &self.database_capability,
             &transaction.staged,
         )?;
-        let successor = transaction
+        transaction
             .target_state
             .prepare_successor(family, context, successor_binding, None)
-            .map_err(GeneratedAffineResidualGroupExactSessionError::from)?;
-        Ok(PreparedSessionUnconsumedTransition { successor })
+            .map_err(GeneratedAffineResidualGroupExactSessionError::from)
+    }
+
+    fn preflight_target_state_successor_copy_work(
+        &self,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        session_event_bounded_add(
+            "exact session target-state successor copies",
+            self.event_stats.target_state_successor_copies,
+            self.target_count(),
+            self.limits.events.max_target_state_successor_copies,
+        )?;
+        Ok(())
     }
 
     fn authenticate_target_state_allocation(
@@ -2456,6 +4355,9 @@ mod tests {
         target_state_version: usize,
         pivot_count: usize,
         target_stats: GeneratedAffineResidualGroupExactTargetStateStats,
+        event_count: usize,
+        event_capacity: usize,
+        event_stats: GeneratedAffineResidualGroupExactSessionEventStats,
     }
 
     fn session_state_snapshot(
@@ -2466,6 +4368,9 @@ mod tests {
             target_state_version: session.target_state.state_version(),
             pivot_count: session.database.pivot_count(),
             target_stats: session.target_state.stats(),
+            event_count: session.events.len(),
+            event_capacity: session.events.capacity(),
+            event_stats: session.event_stats,
         }
     }
 
@@ -3060,6 +4965,8 @@ mod tests {
         // owner must return the first one intact before its rightful owner may
         // commit it.
         let accepted = classify_no_target(&session);
+        let accepted_offset_weak = Arc::downgrade(&accepted.target_offset);
+        let accepted_offset_pointer = Arc::as_ptr(&accepted.target_offset);
         let competing = classify_no_target(&session);
         let initial_target_stats = session.target_state.stats();
         let initial_target_state = Arc::clone(&session.target_state);
@@ -3084,6 +4991,10 @@ mod tests {
         let (foreign, accepted) = failure.into_recovery().unwrap();
         assert_eq!(accepted.source_ordinal(), 0);
         assert_eq!(accepted.pivot_ordinal(), 0);
+        assert_eq!(
+            Arc::as_ptr(&accepted.target_offset),
+            accepted_offset_pointer
+        );
         assert_eq!(session_state_snapshot(&foreign), foreign_before);
         assert_eq!(session_state_snapshot(&session), before);
 
@@ -3099,8 +5010,29 @@ mod tests {
         assert_eq!(committed.stats().target_scans(), plan.targets().len());
         assert!(!committed.publishes_rule());
         assert!(!committed.infers_master());
+        assert!(Arc::ptr_eq(
+            &committed.event,
+            committed.session.events.last().unwrap()
+        ));
+        let event_offset = match &committed.event.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                target_offset,
+                ..
+            } => target_offset,
+            _ => panic!("typed NoTarget commit must retain a NoTarget event"),
+        };
+        assert_eq!(Arc::as_ptr(event_offset), accepted_offset_pointer);
+        assert_eq!(
+            committed.session.event_stats.target_offset_retained_bytes(),
+            committed
+                .stats()
+                .kernel()
+                .target_offset_observed_arc_retained_bytes()
+        );
         assert!(format!("{committed:?}").contains("private_session: \"<redacted>\""));
-        let session = committed.into_session();
+        let mut session = committed.into_session();
+        assert!(accepted_offset_weak.upgrade().is_some());
+        drop(accepted_offset_weak);
         assert_eq!(session.state_version(), 1);
         assert_eq!(session.database.pivot_count(), 1);
         assert!(!session.target_state.same_allocation(&initial_target_state));
@@ -3109,6 +5041,87 @@ mod tests {
             initial_target_stats.unresolved()
         );
         assert_eq!(session.target_state.stats().consumed(), 0);
+        session.replay(&family, &context).unwrap();
+
+        // Replay charges the authenticated catalog-size upper bound before
+        // re-executing this recenter event. A corrupted historical scan scalar
+        // therefore cannot under-admit the work envelope.
+        let target_count = session.target_count();
+        assert!(target_count > 0);
+        let event = Arc::get_mut(session.events.last_mut().unwrap())
+            .expect("the committed event has no external strong owner");
+        let original_target_scans = match &mut event.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                stats, ..
+            } => {
+                let original = stats.target_scans;
+                stats.target_scans = 0;
+                original
+            }
+            _ => panic!("typed NoTarget commit must retain a NoTarget event"),
+        };
+        session.limits.events.max_replay_target_scans = target_count - 1;
+        assert!(matches!(
+            session.replay(&family, &context),
+            Err(GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                resource: "exact session replay target scans",
+                requested,
+                limit,
+            }) if requested == target_count && limit == target_count - 1
+        ));
+        let event = Arc::get_mut(session.events.last_mut().unwrap())
+            .expect("the committed event has no external strong owner");
+        match &mut event.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                stats, ..
+            } => stats.target_scans = original_target_scans,
+            _ => unreachable!(),
+        }
+        session.limits.events.max_replay_target_scans =
+            GeneratedAffineResidualGroupExactSessionEventLimits::default().max_replay_target_scans;
+        session.replay(&family, &context).unwrap();
+
+        // Ledger replay independently re-censuses the GMP offset payload, so
+        // coupled outer-stat edits cannot make a smaller child byte claim
+        // authoritative before shadow admission.
+        let (offset_integer_bits, offset_retained_bytes) = {
+            let event = Arc::get_mut(session.events.last_mut().unwrap())
+                .expect("the committed event has no external strong owner");
+            let GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                target_offset,
+                ..
+            } = &mut event.disposition
+            else {
+                unreachable!()
+            };
+            let target_offset = Arc::get_mut(target_offset)
+                .expect("the committed offset has no external Arc or Weak owner");
+            let exact = (
+                target_offset.retained_integer_bits(),
+                target_offset.retained_bytes(),
+            );
+            assert!(exact.1 > 0);
+            target_offset.replace_retained_census_for_test(exact.0, exact.1 - 1);
+            exact
+        };
+        assert_eq!(
+            session.replay(&family, &context),
+            Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)
+        );
+        {
+            let event = Arc::get_mut(session.events.last_mut().unwrap())
+                .expect("the committed event has no external strong owner");
+            let GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                target_offset,
+                ..
+            } = &mut event.disposition
+            else {
+                unreachable!()
+            };
+            Arc::get_mut(target_offset)
+                .expect("the committed offset has no external Arc or Weak owner")
+                .replace_retained_census_for_test(offset_integer_bits, offset_retained_bytes);
+        }
         session.replay(&family, &context).unwrap();
 
         let committed_snapshot = session_state_snapshot(&session);
@@ -3129,7 +5142,7 @@ mod tests {
         // Target-successor resource rejection happens before either retained
         // owner mutates and returns the complete NoTarget outcome.
         let mut limited_limits = GeneratedAffineResidualGroupExactSessionLimits::default();
-        limited_limits.target_state.max_disposition_copies = 0;
+        limited_limits.events.max_target_state_successor_copies = plan.targets().len() - 1;
         let limited = GeneratedAffineResidualGroupExactSession::try_new(
             &family,
             &context,
@@ -3145,13 +5158,11 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             failure.error(),
-            GeneratedAffineResidualGroupExactSessionError::Target(
-                GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
-                    resource: "exact target disposition copies",
-                    requested,
-                    limit: 0,
-                }
-            ) if requested == plan.targets().len()
+            GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                resource: "exact session target-state successor copies",
+                requested,
+                limit,
+            } if requested == plan.targets().len() && limit == plan.targets().len() - 1
         ));
         let (limited, recovered) = failure.into_recovery().unwrap();
         assert_eq!(recovered.source_ordinal(), 0);
@@ -3601,24 +5612,20 @@ mod tests {
             .prepare_equality_refinement_suspension(&family, &context, &refinement)
             .unwrap();
         let PreparedSessionEqualityRefinementSuspension {
-            source_recipe: first_source_recipe,
-            target_successor: first_target_successor,
+            successor: first_successor,
+            target: first_target,
+            ..
         } = first_prepared;
         let PreparedSessionEqualityRefinementSuspension {
-            source_recipe: second_source_recipe,
-            target_successor: second_target_successor,
+            successor: second_successor,
+            target: second_target,
+            ..
         } = second_prepared;
-        let (first_successor, first_target) =
-            first_target_successor.into_parts_for_session(&session.database_capability);
-        let (second_successor, second_target) =
-            second_target_successor.into_parts_for_session(&session.database_capability);
         assert!(!first_successor.same_allocation(&second_successor));
         assert!(first_target.authenticates_source_state(&first_successor));
         assert!(!first_target.authenticates_source_state(&second_successor));
         assert!(second_target.authenticates_source_state(&second_successor));
         assert!(!second_target.authenticates_source_state(&first_successor));
-        drop(first_source_recipe);
-        drop(second_source_recipe);
         drop(first_target);
         drop(second_target);
         drop(first_successor);
@@ -3760,9 +5767,22 @@ mod tests {
             expected_predicates
         );
         assert!(!suspended.has_production_source());
+        assert!(Arc::ptr_eq(
+            &suspended.event,
+            suspended.committed_session.events.last().unwrap()
+        ));
+        assert_eq!(
+            suspended
+                .committed_session
+                .event_stats
+                .target_offset_retained_bytes(),
+            expected_stats
+                .kernel()
+                .target_offset_observed_arc_retained_bytes()
+        );
         assert!(matches!(
-            suspended.source_recipe,
-            GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Synthetic
+            &suspended.event.disposition,
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
         ));
         assert_eq!(suspended.targets_consumed(), 0);
         assert!(!suspended.publishes_rule());
@@ -3795,13 +5815,10 @@ mod tests {
             .database
             .authenticate_target_state_binding(suspended.committed_session.target_state.binding())
             .unwrap();
-        suspended
-            .committed_session
-            .replay(&family, &context)
-            .unwrap();
+        suspended.replay(&family, &context).unwrap();
         let suspended_debug = format!("{suspended:?}");
         assert!(suspended_debug.contains("private_committed_session: \"<redacted>\""));
-        assert!(suspended_debug.contains("private_source_recipe: \"<redacted>\""));
+        assert!(suspended_debug.contains("private_event: \"<redacted>\""));
         assert!(suspended_debug.contains("private_successor_target: \"<redacted>\""));
         drop(suspended);
     }
@@ -3849,27 +5866,43 @@ mod tests {
         // Every production entry capable of minting, classifying, or
         // consuming database transition authority names the unforgeable
         // session capability in its signature.
-        for method in [
-            "initial_target_state_binding_for_session",
-            "successor_target_state_binding_for_session",
-            "stage_replayed_row_for_session",
-            "authenticate_staged_new_pivot_for_session",
-            "authenticate_staged_dependent_for_session",
-            "commit_staged_row_for_session",
-            "plan_for_session",
+        for (method, expected_occurrences) in [
+            ("retain_source_recipe_for_session", 2),
+            ("retain_dependent_evidence_for_session", 1),
+            ("retain_new_pivot_evidence_for_session", 1),
+            ("plan_for_session", 1),
+            ("retain_exact_pivot_evidence_for_session", 1),
+            ("retain_exact_reduction_evidence_for_session", 1),
+            ("initial_target_state_binding_for_session", 1),
+            ("successor_target_state_binding_for_session", 1),
+            ("stage_replayed_row_for_session", 1),
+            ("stage_retained_source_recipe_for_session", 1),
+            ("authenticate_staged_new_pivot_for_session", 1),
+            ("authenticate_staged_dependent_for_session", 1),
+            ("prepare_staged_row_commit_for_session", 1),
+            ("abort_prepared_staged_row_commit_for_session", 1),
+            ("commit_prepared_staged_row_for_session", 1),
         ] {
             let marker = format!("fn {method}");
-            let start = database_source
-                .find(&marker)
-                .unwrap_or_else(|| panic!("missing capability-gated method {method}"));
-            let signature_end = database_source[start..]
-                .find(" {")
-                .map(|offset| start + offset)
-                .unwrap_or_else(|| panic!("unterminated signature for {method}"));
-            assert!(
-                database_source[start..signature_end].contains(capability),
-                "production database method {method} lacks the session capability"
+            let occurrences = database_source
+                .match_indices(&marker)
+                .map(|(offset, _)| offset)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                occurrences.len(),
+                expected_occurrences,
+                "capability-gated database seam {method} has an unexpected definition count"
             );
+            for start in occurrences {
+                let signature_end = database_source[start..]
+                    .find(" {")
+                    .map(|offset| start + offset)
+                    .unwrap_or_else(|| panic!("unterminated signature for {method}"));
+                assert!(
+                    database_source[start..signature_end].contains(capability),
+                    "production database method {method} lacks the session capability"
+                );
+            }
         }
 
         // Legacy direct database names no longer exist. Explicit `_for_test`
@@ -3882,6 +5915,7 @@ mod tests {
             "ingest_replayed_row",
             "authenticate_staged_new_pivot",
             "commit_staged_row",
+            "commit_staged_row_for_session",
             "plan",
         ] {
             assert!(
@@ -3907,6 +5941,25 @@ mod tests {
             assert!(
                 prefix.ends_with("    #[cfg(test)]\n"),
                 "test transition adapter {method} is not cfg(test)-sealed"
+            );
+        }
+        for method in [
+            "stage_retained_source_recipe_for_test",
+            "prepare_staged_row_commit_for_test",
+            "abort_prepared_staged_row_commit_for_test",
+            "commit_prepared_staged_row_for_test",
+        ] {
+            let marker = format!("    fn {method}(");
+            let occurrences = database_source.match_indices(&marker).collect::<Vec<_>>();
+            assert_eq!(
+                occurrences.len(),
+                1,
+                "private test authority adapter {method} must have exactly one definition"
+            );
+            let prefix = &database_source[..occurrences[0].0];
+            assert!(
+                prefix.ends_with("    #[cfg(test)]\n"),
+                "private test authority adapter {method} is not cfg(test)-sealed"
             );
         }
         assert!(!database_source.contains("pub(crate) fn authenticate_staged_dependent("));
@@ -4034,11 +6087,16 @@ mod tests {
         assert!(!ready_impl.contains("fn into_transaction"));
 
         // The successful equality branch is a one-way suspended owner. Its
-        // source recipe and all authorities are private, and the safe metadata
-        // impl cannot recover, resume, or stage the committed session.
-        let source_recipe = "GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe";
-        assert!(session_source.contains(&format!("\nenum {source_recipe} {{")));
-        assert!(!session_source.contains(&format!("pub(crate) enum {source_recipe}")));
+        // terminal event and all authorities are private, and the safe metadata
+        // impl cannot recover, resume, or stage the committed session. The old
+        // equality-only source recipe has been retired in favor of the common
+        // chronological event recipe.
+        let retired_source_recipe = [
+            "GeneratedAffineResidualGroupExactSessionSuspended",
+            "SourceRecipe",
+        ]
+        .concat();
+        assert!(!session_source.contains(&retired_source_recipe));
         let suspended = "GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch";
         let suspended_declaration_start = session_source
             .find(&format!("pub(crate) struct {suspended} {{"))
@@ -4049,7 +6107,7 @@ mod tests {
             .expect("unterminated suspended owner declaration");
         let suspended_declaration =
             &session_source[suspended_declaration_start..suspended_declaration_end];
-        for field in ["committed_session", "source_recipe", "target"] {
+        for field in ["committed_session", "event", "target"] {
             assert!(suspended_declaration.contains(&format!("\n    {field}:")));
             assert!(!suspended_declaration.contains(&format!("pub(crate) {field}:")));
             assert!(!suspended_declaration.contains(&format!("pub {field}:")));
@@ -4071,6 +6129,8 @@ mod tests {
             "fn transaction(",
             "fn into_transaction(",
             "fn source_recipe(",
+            "fn target_offset(",
+            "fn target_offset_values(",
         ] {
             assert!(
                 !suspended_impl.contains(forbidden),
@@ -4222,17 +6282,11 @@ mod tests {
         assert_eq!(joint.source_ordinal(), 0);
         assert!(joint.production_source().is_some());
         let source_weak = Arc::downgrade(&source);
-        let source_recipe = GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::retain(
-            joint.production_source(),
-        )
-        .unwrap();
-        let GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Production(
-            retained_source,
-        ) = &source_recipe
-        else {
-            panic!("a genuine replayed row must retain a production source recipe")
-        };
-        assert!(Arc::ptr_eq(retained_source, &source));
+        let source_recipe = first
+            .database
+            .retain_source_recipe_for_session(&first.database_capability, &transaction.staged)
+            .unwrap();
+        assert!(source_recipe.authenticates_production_source_allocation(&source));
         assert!(joint.terms().len() > 0);
         assert_eq!(joint.key(), joint.terms().next_back().unwrap().0);
         assert!(joint.guards().len() <= source.guard_count());
@@ -4279,16 +6333,17 @@ mod tests {
         let retained_source = source_weak
             .upgrade()
             .expect("the private production recipe must keep its row alive");
-        let GeneratedAffineResidualGroupExactSessionSuspendedSourceRecipe::Production(
-            recipe_source,
-        ) = &source_recipe
-        else {
-            panic!("the retained genuine source recipe must remain production")
-        };
-        assert!(Arc::ptr_eq(recipe_source, &retained_source));
-        retained_source
-            .replay_for_database(&family, &context, plan.physical_frame())
+        assert!(source_recipe.authenticates_production_source_allocation(&retained_source));
+        let replayed = first
+            .database
+            .stage_retained_source_recipe_for_session(
+                &first.database_capability,
+                &family,
+                &context,
+                &source_recipe,
+            )
             .unwrap();
+        drop(replayed);
         drop(retained_source);
         assert!(source_weak.upgrade().is_some());
         drop(source_recipe);
@@ -4448,6 +6503,383 @@ mod tests {
         assert_eq!(limited.database.pivot_count(), 0);
         assert_eq!(limited.target_state.stats().consumed(), 0);
         limited.replay(&family, &context).unwrap();
+    }
+
+    #[test]
+    fn production_event_recipe_retains_exact_source_allocation_for_replay() {
+        let (family, context, plan) = plan_fixture("exact-session-production-event-recipe");
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            67,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let source = production_row(&family, &context, &plan);
+        let source_weak = Arc::downgrade(&source);
+        let transaction = session
+            .stage_replayed_row(&family, &context, &source)
+            .unwrap();
+        drop(source);
+        assert!(source_weak.upgrade().is_some());
+
+        let outcome = session
+            .commit_unconsumed(&family, &context, transaction)
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        ));
+        let event = session.events.last().unwrap();
+        let retained_source = source_weak
+            .upgrade()
+            .expect("the chronological event must retain its production source");
+        assert!(
+            event
+                .source_recipe
+                .authenticates_production_source_allocation(&retained_source)
+        );
+        drop(retained_source);
+        session.replay(&family, &context).unwrap();
+        assert!(source_weak.upgrade().is_some());
+        drop(session);
+        assert!(source_weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn empty_replay_bound_includes_initial_database_and_target_owners() {
+        let (family, context, plan) = plan_fixture("exact-session-empty-replay-owner-bound");
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            68,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        assert!(session.events.is_empty());
+        session.limits.database.max_database_retained_bytes =
+            session.database.stats().retained_database_bytes();
+        session.limits.database.max_staged_live_retained_bytes = 0;
+        session.limits.target_catalog.max_peak_staging_byte_envelope =
+            session.catalog.stats().peak_staging_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_combined_retained_byte_envelope = session
+            .target_state
+            .stats()
+            .combined_retained_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_successor_peak_retained_byte_envelope = 0;
+        session.limits.events.max_ledger_replacement_peak_bytes =
+            session.event_stats.ledger_replacement_peak_bytes();
+        let authenticated_ledger = session.authenticate_event_ledger_census().unwrap();
+        let exact_combined = session.replay_combined_retained_peak_bound(authenticated_ledger);
+        let shared_plan_owner = plan
+            .stats()
+            .owner_retained_bytes()
+            .checked_add(2 * size_of::<usize>())
+            .unwrap();
+        let expected_original = session_event_saturating_sum([
+            size_of::<GeneratedAffineResidualGroupExactSession>(),
+            session.limits.database.max_database_retained_bytes,
+            session
+                .limits
+                .target_state
+                .max_combined_retained_byte_envelope,
+            authenticated_ledger,
+        ]);
+        let expected_shadow = session_event_saturating_sum([
+            size_of::<GeneratedAffineResidualGroupExactSession>(),
+            session
+                .limits
+                .database
+                .max_database_retained_bytes
+                .max(session.limits.database.max_staged_live_retained_bytes),
+            session.limits.target_catalog.max_peak_staging_byte_envelope,
+            session
+                .limits
+                .target_state
+                .max_combined_retained_byte_envelope
+                .max(
+                    session
+                        .limits
+                        .target_state
+                        .max_successor_peak_retained_byte_envelope,
+                ),
+            session.limits.events.max_ledger_replacement_peak_bytes,
+        ]);
+        assert_eq!(
+            exact_combined,
+            session_event_saturating_sum([shared_plan_owner, expected_original, expected_shadow,])
+        );
+        session.limits.events.max_replay_combined_retained_bytes = exact_combined;
+        session.replay(&family, &context).unwrap();
+        session.limits.events.max_replay_combined_retained_bytes = exact_combined - 1;
+        assert_eq!(
+            session.replay(&family, &context),
+            Err(
+                GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                    resource: "exact session replay combined retained bytes",
+                    requested: exact_combined,
+                    limit: exact_combined - 1,
+                },
+            )
+        );
+    }
+
+    #[test]
+    fn event_ledger_replacement_limits_precede_reservation_and_observed_capacity_is_authenticated()
+    {
+        let (family, context, plan) =
+            plan_fixture("exact-session-ledger-prospective-before-reserve");
+        let values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let stage_first = |session: &GeneratedAffineResidualGroupExactSession| {
+            session
+                .stage_authenticated_terms_for_test(
+                    &context,
+                    vec![(physical_key(&plan, &values), context.one())],
+                    Vec::new(),
+                )
+                .unwrap()
+        };
+
+        // First observe the allocator-selected capacity and exact accepted
+        // ledger census for this deterministic one-event transition.
+        let mut pilot = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            70,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        reset_event_ledger_replacement_reservations_for_test();
+        assert!(matches!(
+            pilot
+                .commit_unconsumed(&family, &context, stage_first(&pilot))
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        ));
+        assert_eq!(event_ledger_replacement_reservations_for_test(), 1);
+        let exact_stats = pilot.event_stats;
+        let individual_event_retained_bytes = pilot.events[0].retained_bytes;
+        assert_eq!(
+            session_event_outer_buffer_bytes(pilot.events.capacity()).unwrap(),
+            exact_stats.ledger_outer_buffer_bytes()
+        );
+        assert_eq!(
+            pilot.authenticate_event_ledger_census().unwrap(),
+            exact_stats.ledger_retained_bytes()
+        );
+
+        let initial_ledger_retained_bytes = session_event_arc_retained_bytes::<
+            GeneratedAffineResidualGroupExactSessionEventAuthority,
+        >()
+        .unwrap();
+        let requested_outer_buffer_bytes =
+            session_event_outer_buffer_bytes(1).expect("one event slot must be representable");
+        let requested_ledger_retained_bytes = session_event_saturating_sum([
+            initial_ledger_retained_bytes,
+            requested_outer_buffer_bytes,
+            individual_event_retained_bytes,
+        ]);
+        let requested_replacement_peak_bytes = requested_ledger_retained_bytes;
+        assert!(requested_outer_buffer_bytes > 0);
+        assert!(requested_ledger_retained_bytes > 0);
+        assert!(requested_replacement_peak_bytes > 0);
+
+        // Every requested-capacity one-below limit rejects before the ledger
+        // reserve is attempted and before either retained owner commits.
+        for (resource, requested, axis) in [
+            (
+                "exact session event-ledger outer buffer bytes",
+                requested_outer_buffer_bytes,
+                0usize,
+            ),
+            (
+                "exact session event-ledger retained bytes",
+                requested_ledger_retained_bytes,
+                1usize,
+            ),
+            (
+                "exact session event-ledger replacement peak bytes",
+                requested_replacement_peak_bytes,
+                2usize,
+            ),
+        ] {
+            let mut limited = GeneratedAffineResidualGroupExactSession::try_new(
+                &family,
+                &context,
+                Arc::clone(&plan),
+                70,
+                GeneratedAffineResidualGroupExactSessionLimits::default(),
+            )
+            .unwrap();
+            let transaction = stage_first(&limited);
+            match axis {
+                0 => limited.limits.events.max_ledger_outer_buffer_bytes = requested - 1,
+                1 => limited.limits.events.max_ledger_retained_bytes = requested - 1,
+                2 => limited.limits.events.max_ledger_replacement_peak_bytes = requested - 1,
+                _ => unreachable!(),
+            }
+            let before = session_state_snapshot(&limited);
+            reset_event_ledger_replacement_reservations_for_test();
+            let failure = limited
+                .commit_unconsumed(&family, &context, transaction)
+                .unwrap_err();
+            assert_eq!(
+                failure.error(),
+                GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                    resource,
+                    requested,
+                    limit: requested - 1,
+                }
+            );
+            assert_eq!(
+                event_ledger_replacement_reservations_for_test(),
+                0,
+                "{resource} must reject before replacement reservation"
+            );
+            assert_eq!(session_state_snapshot(&limited), before);
+            drop(failure.into_transaction().unwrap());
+        }
+
+        // The allocator-observed exact limits accept the same transition; the
+        // installed capacity and full payload census remain authoritative for
+        // both live authentication and chronological shadow replay.
+        let mut exact = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            70,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        exact.limits.events.max_ledger_outer_buffer_bytes = exact_stats.ledger_outer_buffer_bytes();
+        exact.limits.events.max_ledger_retained_bytes = exact_stats.ledger_retained_bytes();
+        exact.limits.events.max_ledger_replacement_peak_bytes =
+            exact_stats.ledger_replacement_peak_bytes();
+        reset_event_ledger_replacement_reservations_for_test();
+        assert!(matches!(
+            exact
+                .commit_unconsumed(&family, &context, stage_first(&exact))
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        ));
+        assert_eq!(event_ledger_replacement_reservations_for_test(), 1);
+        assert_eq!(exact.event_stats, exact_stats);
+        assert_eq!(
+            session_event_outer_buffer_bytes(exact.events.capacity()).unwrap(),
+            exact.event_stats.ledger_outer_buffer_bytes()
+        );
+        assert_eq!(
+            exact.authenticate_event_ledger_census().unwrap(),
+            exact.event_stats.ledger_retained_bytes()
+        );
+        reset_event_ledger_replacement_reservations_for_test();
+        exact.replay(&family, &context).unwrap();
+        assert_eq!(event_ledger_replacement_reservations_for_test(), 1);
+    }
+
+    #[test]
+    fn replay_combined_owner_bound_and_ledger_census_are_exactly_admitted() {
+        let (family, context, plan) = plan_fixture("exact-session-replay-owner-bound");
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            69,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(physical_key(&plan, &values), context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        assert!(matches!(
+            session
+                .commit_unconsumed(&family, &context, transaction)
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        ));
+
+        // Tighten every child peak used by the combined replay bound to the
+        // authenticated peak actually required by this one-event history.
+        // The aggregate limit can then be exercised at its exact charged
+        // value and one byte below without relying on an unbounded default.
+        let database_stats = session.database.stats();
+        session.limits.database.max_database_retained_bytes =
+            database_stats.retained_database_bytes();
+        session.limits.database.max_staged_live_retained_bytes =
+            database_stats.peak_staged_live_retained_bytes();
+        session.limits.target_catalog.max_peak_staging_byte_envelope =
+            session.catalog.stats().peak_staging_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_combined_retained_byte_envelope = session
+            .target_state
+            .stats()
+            .combined_retained_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_successor_peak_retained_byte_envelope = session
+            .target_state
+            .stats()
+            .successor_peak_retained_byte_envelope();
+        session.limits.events.max_ledger_replacement_peak_bytes =
+            session.event_stats.ledger_replacement_peak_bytes();
+        let authenticated_ledger = session.authenticate_event_ledger_census().unwrap();
+        let exact_combined = session.replay_combined_retained_peak_bound(authenticated_ledger);
+        assert!(exact_combined > 0);
+        session.limits.events.max_replay_combined_retained_bytes = exact_combined;
+        session.replay(&family, &context).unwrap();
+
+        session.limits.events.max_replay_combined_retained_bytes = exact_combined - 1;
+        assert_eq!(
+            session.replay(&family, &context),
+            Err(
+                GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                    resource: "exact session replay combined retained bytes",
+                    requested: exact_combined,
+                    limit: exact_combined - 1,
+                },
+            )
+        );
+
+        // A lowered persisted ledger scalar is rejected by the payload census
+        // before it can influence shadow-memory admission.
+        session.limits.events.max_replay_combined_retained_bytes = exact_combined;
+        let exact_ledger = session.event_stats.ledger_retained_bytes;
+        session.event_stats.ledger_retained_bytes = exact_ledger - 1;
+        assert_eq!(
+            session.replay(&family, &context),
+            Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)
+        );
+        session.event_stats.ledger_retained_bytes = exact_ledger;
+        session.replay(&family, &context).unwrap();
     }
 
     #[test]

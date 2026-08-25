@@ -426,6 +426,14 @@ impl GeneratedAffineResidualCasePremisesCertificate {
         self.stats
     }
 
+    /// Authenticated prospective owner envelope for this certificate and its
+    /// private binding/premise payload. The authority pointee and this
+    /// certificate's outer `Arc` control block are excluded and belong to the
+    /// retaining parent graph's accounting boundary.
+    pub(crate) const fn owner_retained_byte_envelope(&self) -> usize {
+        self.stats.retained_byte_envelope
+    }
+
     pub(crate) fn same_authority_allocation(
         &self,
         authority: &Arc<GeneratedAffineResidualCaseAuthority>,

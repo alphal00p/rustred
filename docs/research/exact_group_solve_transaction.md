@@ -21,7 +21,11 @@ The topology-neutral authority and staging layers described below now exist:
   row, and commits only after complete allocation/version/cursor checks.  Each
   database and each successfully staged transition have separate private,
   non-wrapping identities, so distinct databases and competing same-version
-  rows cannot be cross-paired.
+  rows cannot be cross-paired. Staged rows retain an opaque production or
+  synthetic source recipe and share the exact dependent-reduction or
+  new-pivot evidence that is later installed and recorded. An owning prepared
+  database commit can be aborted during outer preflight; once admitted, its
+  checked fail-stop boundary and infallible commit tail perform no allocation.
 - `generated_affine_residual_group_exact_targets.rs` compiles the solve plan's
   persisted target order through the retained inventory authority.  It stores
   either a Ready premises certificate or a typed affine-equality-refinement
@@ -69,15 +73,36 @@ The topology-neutral authority and staging layers described below now exist:
   remains unresolved, and same-epoch staging cannot continue. Equality target
   and unconsumed successor state are minted as one capability-gated pair over
   the same exact allocation.
+- The exact session now retains a private, append-only event for every consumed
+  source. Each event shares the database's opaque source recipe and exact
+  reduction/pivot evidence and records the authenticated disposition,
+  transition versions, target information, exact offset where applicable, and
+  cumulative resource statistics. Event-vector replacement, retained owners,
+  target-state successor copies, comparisons, and replay work are all admitted
+  against explicit cumulative limits before the commit tail.
+- A retained production recipe now uses one overflow-checked source-graph
+  census owned by the physical-row/re-elimination boundary. It includes the
+  row, re-elimination owner, bound outcomes, elimination, and source-local
+  authority/premises/ordering/schedule allocations. Only exact pointer-proven
+  plan/frame ancestry and the common inventory pointee are excluded. Exact,
+  one-byte-below, lifetime, and shared-anchor-deduplication tests cover that
+  contract.
+- Session replay is chronological rather than a final-state comparison. It
+  builds a fresh shadow database/target/session owner, restages every opaque
+  source recipe in order, reruns hardest-only reduction, recentering and target
+  matching, compares the shared evidence and exact event disposition, and then
+  compares terminal database, target, event, and resource state. A sealed
+  equality suspension authenticates and replays its mandatory terminal event.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
 successor laundering through an abandoned sibling branch, stale transactions,
 target-state allocation siblings, production physical-row ingress, immutable
-target successors, one-below resource envelopes, and exact transition replay.
-Recenter classification remains inert until a typed transition is consumed;
-dependent, NoTarget, and equality transitions now advance the exact state.
-None of these paths publishes a rule or infers a master.
+target successors, event/source/evidence `Arc` identity, cumulative and
+one-below resource envelopes, and chronological fresh-shadow transition
+replay. Recenter classification remains inert until a typed transition is
+consumed; dependent, NoTarget, and equality transitions now advance the exact
+state. None of these paths publishes a rule or infers a master.
 
 The pre-kernel repository baseline used licensed, GMP-enabled Symbolica with
 eight-way `cargo-nextest`: run
@@ -117,18 +142,40 @@ database/session/target/recenter-kernel tests; 44/44). Direct
 `cargo check --tests -j 4`, `cargo fmt --all -- --check`, and
 `git diff --check` passed.
 
-The production recipe test is intentionally compositional: it proves genuine
-physical-row Arc identity, survival after all staging owners drop, replay, and
-final release. The complete equality transition uses the sealed synthetic test
-adapter because current physical-row construction skips equality-premise source
-cases. An end-to-end production equality row remains a future refined-epoch
-gate, as does chronological committed-event replay.
+The subsequent frozen chronological-ledger gate passed licensed, GMP-enabled
+four-way `cargo-nextest` runs `34021f1d-7458-4700-9ec9-4155cd338c39` (all 16
+exact-session tests, 16/16), `75cec2fb-6846-4a1b-8df5-029b1331e717` (exact
+database, physical-row, and recenter-kernel tests, 42/42), and
+`ff9310fa-fb3b-42e2-b79f-531fc93708ad` (the complete retained source-parent
+graph gate, 62/62). `cargo check --all-targets -j 4`, `cargo fmt --all --
+--check`, and `git diff --check` also passed. Neither FORM nor Symbolica's
+`no_gmp` feature was used.
 
-The next missing mathematical seam is a chronological committed-source/event
-ledger, followed by exact `WhenBad` closure and atomic guarded publication.
-Full suspended/event replay is therefore still pending. The old raw
+The production recipe tests are intentionally compositional: they prove
+genuine physical-row Arc identity, survival after all staging owners drop,
+event retention, chronological fresh-shadow replay, and final release. The
+complete equality transition uses the sealed synthetic test adapter because
+current physical-row construction skips equality-premise source cases. An
+end-to-end production equality row remains a future refined-epoch gate.
+
+The next missing mathematical seam is exact `WhenBad` branch closure followed
+by atomic guarded publication and exceptional residual orchestration. The event
+ledger currently records `Dependent`, `NoTarget`, and mandatory
+affine-equality-refinement transitions; it does not yet record unpublished
+future `WhenBad`/rule/residual leaves. The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a
 differential oracle only; it is not a production authority.
+
+Before extending that seam, existing home-grown algebra must be migrated to
+Symbolica's public APIs, beginning with `src/exact.rs`. The concrete API
+inventory is
+[`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md),
+and the prioritized audit is
+[`symbolica_first_algebra_migration_audit_2026-08-24.md`](symbolica_first_algebra_migration_audit_2026-08-24.md).
+This migration is the immediate implementation blocker; RustRed must not grow
+a parallel CAS or matrix layer. Full LiteRed parity, arbitrary one-loop
+pentagon reduction, and the two- through five-loop reduction milestones remain
+pending behind the generic `WhenBad`/publication/residual pipeline.
 
 ## 1. Normative source seams
 
@@ -384,29 +431,40 @@ state.
 
 ## 6. Event and replay contract
 
-Retain an append-only event for every consumed source row. At minimum it binds:
+The private append-only event ledger and chronological fresh-shadow replay are
+implemented for the current `Dependent`, `NoTarget`, and
+`RequiresAffineEqualityRefinement` transitions. Each current event binds:
 
 - the physical-row recipe `Arc`, source ordinal, group, epoch, and owner version;
 - actual hardest-key lookup sequence and exact factors;
 - dependent status or pivot key, divisor, guards, and normalized terms;
 - target locator or `NoTarget`, exact offset and translations;
-- `WhenBad` disposition and exact applicable/exceptional leaf manifests;
-- target transition and published/residual handle ordinals.
+- the current disposition and target transition.
 
-Replay regenerates each raw row in submitted order, repeats the actual
-hardest-only lookup sequence, reconstructs the staged leader and divisor,
-repeats target selection against replayed target state, recompiles `WhenBad`,
-and compares all event and leaf manifests. Final state alone is not replay
-evidence. Value-equal but independently allocated plan/frame/inventory/source
-objects are rejected.
+The following fields extend that same event contract when `WhenBad` and
+publication land:
+
+- `WhenBad` disposition and exact applicable/exceptional leaf manifests;
+- published/residual handle ordinals.
+
+Current replay regenerates each raw row in submitted order from its opaque
+recipe, repeats the actual hardest-only lookup sequence, reconstructs the
+staged leader and divisor, repeats recentering and target selection against a
+fresh shadow target state, and compares every implemented event plus the final
+owner state and statistics. Future replay additionally recompiles `WhenBad`
+and compares all rule and residual leaf manifests. Final state alone is never
+replay evidence. Value-equal but independently allocated
+plan/frame/inventory/source objects are rejected at live authority boundaries.
 
 ## 7. Implementation sequence
 
 1. **Stage the exact database — implemented.** Refactor current ingress into
    `stage_replayed_row` plus a consume-once sealed commit token. The uncommitted
-   token retains its physical-row recipe and exact dependent/new-pivot payload;
-   a durable chronological committed-source event ledger remains step 4. Keep
-   the existing exact hardest-only algebra unchanged.
+   token retains its opaque physical-row recipe and shared exact
+   dependent/new-pivot payload. The owning prepared-commit/abort seam and
+   infallible final commit tail are implemented. Keep the existing exact
+   hardest-only algorithm unchanged while migrating its coefficient algebra to
+   Symbolica public APIs.
 2. **Bind exact targets and the session — implemented.** Persist the exact
    solve-plan target order, type equality-refinement cases, bind target state
    to the database allocation/transition, and advance unconsumed successors
@@ -419,18 +477,21 @@ objects are rejected.
    transaction-preserving failure and persisted first-match
    NoTarget/equality/Ready classification. Raw-relation compilation is not a
    production authority path.
-4. **Extend the outer owner — typed non-publishing transitions implemented;
-   ledger and publication next.** NoTarget now commits through a consuming
-   typed owner and continues only from its successful result. Equality commits
-   into a sealed refined-epoch suspension while leaving its target unresolved.
-   Add events, rules, residuals, and publication to this same database/target session
-   boundary; do not claim complete publication yet.
+4. **Extend the outer owner — event-ledger foundation implemented; publication
+   next.** NoTarget now commits through a consuming typed owner and continues
+   only from its successful result. Equality commits into a sealed
+   refined-epoch suspension while leaving its target unresolved. Dependent,
+   NoTarget, and equality commits append private events under cumulative limits
+   and support chronological fresh-shadow replay. Add `WhenBad` events, rules,
+   residuals, and publication to this same database/target session boundary;
+   do not claim complete publication yet.
 5. **Adapt exact `WhenBad`.** Reuse the old polynomial/partition algorithms
    behind new exact authority certificates, replace `IndexShift`/`i64`
    boundaries with arbitrary-precision values, and source guards from the
    authenticated target.
-6. **Add exact publication and replay.** Issue authority-bound sealed rule and
-   residual handles, then replay the complete chronological group transcript.
+6. **Add exact publication and extend replay.** Issue authority-bound sealed
+   rule and residual handles, then extend the implemented chronological replay
+   to `WhenBad`, rule, and residual leaf manifests.
 7. **Integrate the generic scheduler.** Only after the transaction and replay
    tests pass should one-, two-, and higher-loop families exercise this path.
    Concrete topologies are validation fixtures, never implementation branches.

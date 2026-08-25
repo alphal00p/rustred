@@ -20,7 +20,7 @@ use std::fmt;
 use std::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
-    Arc,
+    Arc, Weak,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -108,9 +108,10 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
     /// Coexistence bound for this live database and one returned sealed stage.
     /// It charges the token inline (including shared `Arc` handles), its owned
     /// vectors/deep coefficient payload, and empty replacement-buffer
-    /// capacities. Deep payload behind shared source/plan/frame `Arc`s is not
-    /// charged a second time. Earlier Symbolica arithmetic scratch remains
-    /// outside this retained-state bound.
+    /// capacities. The complete uniquely retained source pipeline is charged
+    /// once even when stage/recipe handles clone its outer `Arc`; plan/frame
+    /// ancestry is pointer-deduplicated. Earlier Symbolica arithmetic scratch
+    /// remains outside this retained-state bound.
     pub(crate) max_staged_live_retained_bytes: usize,
 }
 
@@ -359,7 +360,7 @@ struct ExactUnitPivot {
     source_ordinal: usize,
     terms: Vec<ExactDatabaseTerm>,
     guards: Vec<ParametricNonZeroCondition>,
-    reductions: Vec<GeneratedAffineResidualGroupExactReductionStep>,
+    reductions: Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
     normalization_divisor: ParametricCoefficient,
 }
 
@@ -390,11 +391,11 @@ pub(crate) struct GeneratedAffineResidualGroupExactUnitPivotView<'a> {
 }
 
 impl<'a> GeneratedAffineResidualGroupExactUnitPivotView<'a> {
-    pub(crate) const fn ordinal(&self) -> usize {
+    pub(crate) fn ordinal(&self) -> usize {
         self.pivot.ordinal
     }
 
-    pub(crate) const fn source_ordinal(&self) -> usize {
+    pub(crate) fn source_ordinal(&self) -> usize {
         self.pivot.source_ordinal
     }
 
@@ -427,15 +428,16 @@ impl<'a> GeneratedAffineResidualGroupExactUnitPivotView<'a> {
     }
 
     pub(crate) fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
-        &self.pivot.reductions
+        self.pivot.reductions.as_slice()
     }
 
     /// Exact pre-normalization leader retained for future event replay.
-    pub(crate) const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
+    pub(crate) fn normalization_divisor(&self) -> &'a ParametricCoefficient {
         &self.pivot.normalization_divisor
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum GeneratedAffineResidualGroupExactRowOutcome {
     Dependent {
@@ -448,22 +450,337 @@ pub(crate) enum GeneratedAffineResidualGroupExactRowOutcome {
     },
 }
 
+#[derive(Clone)]
 enum ExactStagedSource {
-    Production(Arc<GeneratedAffineResidualGroupExactPhysicalRow>),
+    Production {
+        source: Arc<GeneratedAffineResidualGroupExactPhysicalRow>,
+        allocation: Weak<GeneratedAffineResidualGroupExactPhysicalRow>,
+    },
     #[cfg(test)]
-    Synthetic,
+    Synthetic {
+        source: Arc<ExactSyntheticSourceRecipe>,
+        allocation: Weak<ExactSyntheticSourceRecipe>,
+    },
+}
+
+#[cfg(test)]
+struct ExactSyntheticSourceRecipe {
+    terms: Vec<(
+        GeneratedAffineResidualGroupPhysicalKey,
+        ParametricCoefficient,
+    )>,
+    guards: Vec<ParametricNonZeroCondition>,
+    retained_bytes: usize,
+}
+
+#[cfg(test)]
+impl fmt::Debug for ExactSyntheticSourceRecipe {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExactSyntheticSourceRecipe")
+            .field("term_count", &self.terms.len())
+            .field("guard_count", &self.guards.len())
+            .field("retained_bytes", &self.retained_bytes)
+            .field("private_terms", &"<redacted>")
+            .field("private_guards", &"<redacted>")
+            .finish()
+    }
+}
+
+impl ExactStagedSource {
+    fn production(source: &Arc<GeneratedAffineResidualGroupExactPhysicalRow>) -> Self {
+        Self::Production {
+            source: Arc::clone(source),
+            allocation: Arc::downgrade(source),
+        }
+    }
+
+    #[cfg(test)]
+    fn synthetic(source: Arc<ExactSyntheticSourceRecipe>) -> Self {
+        let allocation = Arc::downgrade(&source);
+        Self::Synthetic { source, allocation }
+    }
+
+    fn authenticates_own_allocation(&self) -> bool {
+        match self {
+            Self::Production { source, allocation } => {
+                Weak::ptr_eq(allocation, &Arc::downgrade(source))
+            }
+            #[cfg(test)]
+            Self::Synthetic { source, allocation } => {
+                Weak::ptr_eq(allocation, &Arc::downgrade(source))
+            }
+        }
+    }
+
+    fn same_allocation(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Production { source: left, .. }, Self::Production { source: right, .. }) => {
+                Arc::ptr_eq(left, right)
+            }
+            #[cfg(test)]
+            (Self::Synthetic { source: left, .. }, Self::Synthetic { source: right, .. }) => {
+                Arc::ptr_eq(left, right)
+            }
+            #[cfg(test)]
+            _ => false,
+        }
+    }
+
+    fn unique_retained_bytes(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+        match self {
+            // The stage/recipe may become the sole owner of the complete
+            // frozen source pipeline after every caller handle is released.
+            // The physical-row authority performs the descendant census and
+            // exact pointer deduplication against its shared plan/frame
+            // ancestry. The enclosing session ledger separately deduplicates
+            // repeated handles to this same authenticated row allocation.
+            Self::Production { source, .. } => {
+                source.unique_retained_source_graph_byte_bound().ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                        resource: "exact retained production source graph bytes",
+                    },
+                )
+            }
+            #[cfg(test)]
+            Self::Synthetic { source, .. } => Ok(source.retained_bytes),
+        }
+    }
+}
+
+impl fmt::Debug for ExactStagedSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Production { .. } => "Production(<redacted>)",
+            #[cfg(test)]
+            Self::Synthetic { .. } => "Synthetic(<redacted>)",
+        })
+    }
+}
+
+/// Opaque allocation-bound recipe for replaying the exact raw source row that
+/// produced one authenticated database stage.
+///
+/// Only the database can mint this owner, and only after the staged token has
+/// authenticated against the live database. The retained plan/frame/source
+/// allocations are intentionally private; callers may replay the recipe only
+/// through the capability-gated database ingress below.
+pub(crate) struct GeneratedAffineResidualGroupRetainedExactSourceRecipe {
+    plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+    frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    database_epoch: usize,
+    group_ordinal: usize,
+    source: ExactStagedSource,
+}
+
+impl GeneratedAffineResidualGroupRetainedExactSourceRecipe {
+    fn retained_copy(&self) -> Self {
+        Self {
+            plan: Arc::clone(&self.plan),
+            frame: Arc::clone(&self.frame),
+            database_epoch: self.database_epoch,
+            group_ordinal: self.group_ordinal,
+            source: self.source.clone(),
+        }
+    }
+
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.database_epoch
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.group_ordinal
+    }
+
+    pub(crate) const fn has_production_source(&self) -> bool {
+        matches!(self.source, ExactStagedSource::Production { .. })
+    }
+
+    pub(crate) fn same_source_allocation(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.plan, &other.plan)
+            && Arc::ptr_eq(&self.frame, &other.frame)
+            && self.database_epoch == other.database_epoch
+            && self.group_ordinal == other.group_ordinal
+            && self.source.same_allocation(&other.source)
+    }
+
+    pub(crate) fn retained_byte_bound(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+        checked_add(
+            "exact retained source-recipe bytes",
+            size_of::<Self>(),
+            self.source.unique_retained_bytes()?,
+        )
+    }
+
+    pub(crate) fn authenticates_production_source_allocation(
+        &self,
+        source: &Arc<GeneratedAffineResidualGroupExactPhysicalRow>,
+    ) -> bool {
+        match &self.source {
+            ExactStagedSource::Production {
+                source: retained, ..
+            } => Arc::ptr_eq(retained, source),
+            #[cfg(test)]
+            ExactStagedSource::Synthetic { .. } => false,
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupRetainedExactSourceRecipe {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupRetainedExactSourceRecipe")
+            .field("database_epoch", &self.database_epoch)
+            .field("group_ordinal", &self.group_ordinal)
+            .field("has_production_source", &self.has_production_source())
+            .field("private_plan", &"<redacted>")
+            .field("private_frame", &"<redacted>")
+            .field("private_source", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Immutable shared owner of one authenticated dependent reduction trace.
+/// The allocation is exactly the allocation carried by the staged row.
+pub(crate) struct GeneratedAffineResidualGroupRetainedExactDependentReductions {
+    reductions: Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
+}
+
+impl GeneratedAffineResidualGroupRetainedExactDependentReductions {
+    fn retained_copy(&self) -> Self {
+        Self {
+            reductions: Arc::clone(&self.reductions),
+        }
+    }
+
+    pub(crate) fn reductions(&self) -> &[GeneratedAffineResidualGroupExactReductionStep] {
+        self.reductions.as_slice()
+    }
+
+    pub(crate) fn same_allocation(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.reductions, &other.reductions)
+    }
+
+    pub(crate) fn structurally_equal(&self, other: &Self) -> bool {
+        self.reductions == other.reductions
+    }
+
+    pub(crate) fn retained_byte_bound(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+        shared_reduction_trace_retained_bytes(&self.reductions)
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupRetainedExactDependentReductions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupRetainedExactDependentReductions")
+            .field("reduction_count", &self.reductions.len())
+            .field("private_reductions", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Immutable shared owner of one exact unit pivot. A committed new-pivot
+/// transition installs this same allocation in the chronological database.
+pub(crate) struct GeneratedAffineResidualGroupRetainedExactUnitPivot {
+    pivot: Arc<ExactUnitPivot>,
+}
+
+impl GeneratedAffineResidualGroupRetainedExactUnitPivot {
+    fn retained_copy(&self) -> Self {
+        Self {
+            pivot: Arc::clone(&self.pivot),
+        }
+    }
+
+    pub(crate) fn ordinal(&self) -> usize {
+        self.pivot.ordinal
+    }
+
+    pub(crate) fn source_ordinal(&self) -> usize {
+        self.pivot.source_ordinal
+    }
+
+    pub(crate) fn key(&self) -> &GeneratedAffineResidualGroupPhysicalKey {
+        &self
+            .pivot
+            .terms
+            .last()
+            .expect("an authenticated retained exact pivot is nonempty")
+            .key
+    }
+
+    pub(crate) fn terms(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = (
+            &GeneratedAffineResidualGroupPhysicalKey,
+            &ParametricCoefficient,
+        ),
+    > + DoubleEndedIterator {
+        self.pivot
+            .terms
+            .iter()
+            .map(|term| (&term.key, &term.coefficient))
+    }
+
+    pub(crate) fn guards(&self) -> &[ParametricNonZeroCondition] {
+        &self.pivot.guards
+    }
+
+    pub(crate) fn reductions(&self) -> &[GeneratedAffineResidualGroupExactReductionStep] {
+        self.pivot.reductions.as_slice()
+    }
+
+    pub(crate) fn normalization_divisor(&self) -> &ParametricCoefficient {
+        &self.pivot.normalization_divisor
+    }
+
+    pub(crate) fn same_allocation(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.pivot, &other.pivot)
+    }
+
+    pub(crate) fn structurally_equal(&self, other: &Self) -> bool {
+        self.pivot == other.pivot
+    }
+
+    pub(crate) fn retained_byte_bound(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+        exact_unit_pivot_owner_retained_bytes(&self.pivot)
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupRetainedExactUnitPivot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupRetainedExactUnitPivot")
+            .field("ordinal", &self.ordinal())
+            .field("source_ordinal", &self.source_ordinal())
+            .field("term_count", &self.pivot.terms.len())
+            .field("guard_count", &self.pivot.guards.len())
+            .field("reduction_count", &self.pivot.reductions.len())
+            .field("private_pivot", &"<redacted>")
+            .finish()
+    }
 }
 
 enum ExactStagedRowPayload {
     Dependent {
-        reductions: Vec<GeneratedAffineResidualGroupExactReductionStep>,
+        reductions: Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
         committed_stats: GeneratedAffineResidualGroupExactDatabaseStats,
     },
     NewPivot {
-        pivot: ExactUnitPivot,
+        pivot: Arc<ExactUnitPivot>,
         pivot_key: GeneratedAffineResidualGroupPhysicalKey,
         lookup_insertion: usize,
-        committed_pivots: Vec<ExactUnitPivot>,
+        committed_pivots: Vec<Arc<ExactUnitPivot>>,
         committed_lookup: Vec<ExactPivotLookupEntry>,
         committed_stats: GeneratedAffineResidualGroupExactDatabaseStats,
     },
@@ -491,14 +808,14 @@ pub(crate) struct GeneratedAffineResidualGroupStagedExactRow {
 }
 
 impl GeneratedAffineResidualGroupStagedExactRow {
-    pub(crate) const fn source_ordinal(&self) -> usize {
+    pub(crate) fn source_ordinal(&self) -> usize {
         self.source_ordinal
     }
 
     pub(crate) fn reductions(&self) -> &[GeneratedAffineResidualGroupExactReductionStep] {
         match &self.payload {
-            ExactStagedRowPayload::Dependent { reductions, .. } => reductions,
-            ExactStagedRowPayload::NewPivot { pivot, .. } => &pivot.reductions,
+            ExactStagedRowPayload::Dependent { reductions, .. } => reductions.as_slice(),
+            ExactStagedRowPayload::NewPivot { pivot, .. } => pivot.reductions.as_slice(),
         }
     }
 
@@ -530,9 +847,9 @@ impl GeneratedAffineResidualGroupStagedExactRow {
         &self,
     ) -> Option<&Arc<GeneratedAffineResidualGroupExactPhysicalRow>> {
         match &self.source {
-            ExactStagedSource::Production(source) => Some(source),
+            ExactStagedSource::Production { source, .. } => Some(source),
             #[cfg(test)]
-            ExactStagedSource::Synthetic => None,
+            ExactStagedSource::Synthetic { .. } => None,
         }
     }
 }
@@ -559,6 +876,151 @@ impl fmt::Debug for GeneratedAffineResidualGroupStagedExactRow {
     }
 }
 
+enum PreparedExactRowEvidence {
+    Dependent(GeneratedAffineResidualGroupRetainedExactDependentReductions),
+    NewPivot(GeneratedAffineResidualGroupRetainedExactUnitPivot),
+}
+
+/// Owning proof that fallible database preparation for one staged transition
+/// has completed. It is non-Clone and carries the exact staged token plus the
+/// predecessor transition identity into an infallible move-only commit tail.
+/// The tail performs one allocation-free fail-stop invariant assertion against
+/// the live database immediately before its first mutation.
+pub(crate) struct GeneratedAffineResidualGroupPreparedExactRowCommit {
+    predecessor_transition_identity: ExactDatabaseTransitionIdentity,
+    staged: GeneratedAffineResidualGroupStagedExactRow,
+    source_recipe: GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    evidence: PreparedExactRowEvidence,
+}
+
+impl GeneratedAffineResidualGroupPreparedExactRowCommit {
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.staged.source_ordinal
+    }
+
+    pub(crate) fn retain_source_recipe_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> GeneratedAffineResidualGroupRetainedExactSourceRecipe {
+        self.source_recipe.retained_copy()
+    }
+
+    pub(crate) fn retain_dependent_evidence_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> Option<GeneratedAffineResidualGroupRetainedExactDependentReductions> {
+        match &self.evidence {
+            PreparedExactRowEvidence::Dependent(evidence) => Some(evidence.retained_copy()),
+            PreparedExactRowEvidence::NewPivot(_) => None,
+        }
+    }
+
+    pub(crate) fn retain_new_pivot_evidence_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> Option<GeneratedAffineResidualGroupRetainedExactUnitPivot> {
+        match &self.evidence {
+            PreparedExactRowEvidence::Dependent(_) => None,
+            PreparedExactRowEvidence::NewPivot(evidence) => Some(evidence.retained_copy()),
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupPreparedExactRowCommit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupPreparedExactRowCommit")
+            .field("source_ordinal", &self.source_ordinal())
+            .field(
+                "kind",
+                &match self.evidence {
+                    PreparedExactRowEvidence::Dependent(_) => "Dependent",
+                    PreparedExactRowEvidence::NewPivot(_) => "NewPivot",
+                },
+            )
+            .field("private_predecessor_transition_identity", &"<redacted>")
+            .field("private_staged", &"<redacted>")
+            .field("private_source_recipe", &"<redacted>")
+            .field("private_evidence", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Preparation failure that returns the exact consume-once staged token.
+pub(crate) struct GeneratedAffineResidualGroupPrepareExactRowCommitFailure {
+    error: GeneratedAffineResidualGroupExactDatabaseError,
+    staged: GeneratedAffineResidualGroupStagedExactRow,
+}
+
+impl GeneratedAffineResidualGroupPrepareExactRowCommitFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactDatabaseError {
+        self.error
+    }
+
+    pub(crate) fn into_staged(self) -> GeneratedAffineResidualGroupStagedExactRow {
+        self.staged
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupPrepareExactRowCommitFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupPrepareExactRowCommitFailure")
+            .field("error", &self.error)
+            .field("private_staged", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Shared evidence returned by the infallible prepared database commit.
+pub(crate) enum GeneratedAffineResidualGroupPreparedExactRowOutcome {
+    Dependent {
+        source_ordinal: usize,
+        evidence: GeneratedAffineResidualGroupRetainedExactDependentReductions,
+    },
+    NewPivot {
+        source_ordinal: usize,
+        pivot_ordinal: usize,
+        evidence: GeneratedAffineResidualGroupRetainedExactUnitPivot,
+    },
+}
+
+impl GeneratedAffineResidualGroupPreparedExactRowOutcome {
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        match self {
+            Self::Dependent { source_ordinal, .. } | Self::NewPivot { source_ordinal, .. } => {
+                *source_ordinal
+            }
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupPreparedExactRowOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dependent {
+                source_ordinal,
+                evidence,
+            } => formatter
+                .debug_struct("Dependent")
+                .field("source_ordinal", source_ordinal)
+                .field("reduction_count", &evidence.reductions().len())
+                .field("private_evidence", &"<redacted>")
+                .finish(),
+            Self::NewPivot {
+                source_ordinal,
+                pivot_ordinal,
+                ..
+            } => formatter
+                .debug_struct("NewPivot")
+                .field("source_ordinal", source_ordinal)
+                .field("pivot_ordinal", pivot_ordinal)
+                .field("private_evidence", &"<redacted>")
+                .finish(),
+        }
+    }
+}
+
 /// Persistent algebraic database for one exact solve-plan allocation.
 pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     schema: &'static str,
@@ -570,7 +1032,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     group_ordinal: usize,
     state_version: usize,
     next_source_ordinal: usize,
-    pivots: Vec<ExactUnitPivot>,
+    pivots: Vec<Arc<ExactUnitPivot>>,
     lookup: Vec<ExactPivotLookupEntry>,
     limits: GeneratedAffineResidualGroupExactDatabaseLimits,
     stats: GeneratedAffineResidualGroupExactDatabaseStats,
@@ -676,6 +1138,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactTargetStateBinding {
 pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
     database: &'a GeneratedAffineResidualGroupExactDatabase,
     staged: &'a GeneratedAffineResidualGroupStagedExactRow,
+    pivot_allocation: &'a Arc<ExactUnitPivot>,
     pivot: &'a ExactUnitPivot,
 }
 
@@ -724,9 +1187,9 @@ impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
         &self,
     ) -> Option<&'a Arc<GeneratedAffineResidualGroupExactPhysicalRow>> {
         match &self.staged.source {
-            ExactStagedSource::Production(source) => Some(source),
+            ExactStagedSource::Production { source, .. } => Some(source),
             #[cfg(test)]
-            ExactStagedSource::Synthetic => None,
+            ExactStagedSource::Synthetic { .. } => None,
         }
     }
 
@@ -759,11 +1222,22 @@ impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
     }
 
     pub(crate) fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
-        &self.pivot.reductions
+        self.pivot.reductions.as_slice()
     }
 
     pub(crate) const fn normalization_divisor(&self) -> &'a ParametricCoefficient {
         &self.pivot.normalization_divisor
+    }
+
+    /// Retain the exact immutable pivot allocation carried by this
+    /// authenticated stage. The same Arc is installed by prepared commit.
+    pub(crate) fn retain_exact_pivot_evidence_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> GeneratedAffineResidualGroupRetainedExactUnitPivot {
+        GeneratedAffineResidualGroupRetainedExactUnitPivot {
+            pivot: Arc::clone(self.pivot_allocation),
+        }
     }
 
     /// Retained coexistence envelope admitted before this sealed stage was
@@ -809,7 +1283,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<
 pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a> {
     database: &'a GeneratedAffineResidualGroupExactDatabase,
     staged: &'a GeneratedAffineResidualGroupStagedExactRow,
-    reductions: &'a [GeneratedAffineResidualGroupExactReductionStep],
+    reductions: &'a Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
 }
 
 impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a> {
@@ -817,8 +1291,17 @@ impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedDependentView<'a> {
         self.staged.source_ordinal
     }
 
-    pub(crate) const fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
-        self.reductions
+    pub(crate) fn reductions(&self) -> &'a [GeneratedAffineResidualGroupExactReductionStep] {
+        self.reductions.as_slice()
+    }
+
+    pub(crate) fn retain_exact_reduction_evidence_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    ) -> GeneratedAffineResidualGroupRetainedExactDependentReductions {
+        GeneratedAffineResidualGroupRetainedExactDependentReductions {
+            reductions: Arc::clone(self.reductions),
+        }
     }
 }
 
@@ -1124,6 +1607,110 @@ impl GeneratedAffineResidualGroupExactDatabase {
         .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic)?
     }
 
+    /// Retain the exact raw-row recipe carried by one live authenticated stage.
+    /// No source allocation is reconstructed or compared by value.
+    pub(crate) fn retain_source_recipe_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: &GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        self.authenticate_staged_row(staged)?;
+        self.retained_source_recipe(staged)
+    }
+
+    /// Restage an opaque retained recipe through the same exact raw-row ingress.
+    /// This is the chronological replay seam; the recipe remains bound to the
+    /// original plan/frame allocation, group, and database epoch while a fresh
+    /// database allocation may replay it.
+    pub(crate) fn stage_retained_source_recipe_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            self.stage_retained_source_recipe_inner(family, context, recipe)
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic)?
+    }
+
+    /// Explicit test-only adapter for replaying the same opaque recipe ingress
+    /// without making the session capability forgeable in database tests.
+    #[cfg(test)]
+    fn stage_retained_source_recipe_for_test(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            self.stage_retained_source_recipe_inner(family, context, recipe)
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic)?
+    }
+
+    fn stage_retained_source_recipe_inner(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        if !Arc::ptr_eq(&recipe.plan, &self.plan)
+            || !Arc::ptr_eq(&recipe.frame, &self.frame)
+            || recipe.database_epoch != self.database_epoch
+            || recipe.group_ordinal != self.group_ordinal
+            || !recipe.source.authenticates_own_allocation()
+        {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::RowReplay);
+        }
+        match &recipe.source {
+            ExactStagedSource::Production { source, .. } => self.stage_replayed_row_inner(
+                family,
+                context,
+                &recipe.plan,
+                &recipe.frame,
+                recipe.database_epoch,
+                source,
+            ),
+            #[cfg(test)]
+            ExactStagedSource::Synthetic { source, .. } => {
+                self.stage_synthetic_source_recipe(context, Arc::clone(source))
+            }
+        }
+    }
+
+    fn retained_source_recipe(
+        &self,
+        staged: &GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
+        if !staged.source.authenticates_own_allocation() {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow);
+        }
+        Ok(GeneratedAffineResidualGroupRetainedExactSourceRecipe {
+            plan: Arc::clone(&self.plan),
+            frame: Arc::clone(&self.frame),
+            database_epoch: self.database_epoch,
+            group_ordinal: self.group_ordinal,
+            source: staged.source.clone(),
+        })
+    }
+
     /// Explicit test-only adapter for algebraic database and target-state
     /// transaction tests. Production callers must use the capability-gated
     /// session entry point above.
@@ -1172,7 +1759,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             view,
             next_source_ordinal,
             next_state_version,
-            ExactStagedSource::Production(Arc::clone(source)),
+            ExactStagedSource::production(source),
         )
     }
 
@@ -1287,6 +1874,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     self.stats.retained_database_bytes,
                     &reductions,
                     reductions.len(),
+                    source.unique_retained_bytes()?,
                 )?;
                 check_limit(
                     "exact-group staged live retained bytes",
@@ -1297,6 +1885,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     self.stats.retained_database_bytes,
                     &reductions,
                     reductions.capacity(),
+                    source.unique_retained_bytes()?,
                 )?;
                 check_limit(
                     "exact-group staged live retained bytes",
@@ -1313,6 +1902,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     observed_staged_live_retained_bytes,
                 );
                 let next_transition_identity = next_exact_database_transition_identity()?;
+                let reductions = Arc::new(reductions);
                 return Ok(GeneratedAffineResidualGroupStagedExactRow {
                     database_nonce: self.database_nonce,
                     next_transition_identity,
@@ -1449,14 +2039,15 @@ impl GeneratedAffineResidualGroupExactDatabase {
             prospective_retained_bytes,
             self.limits.max_candidate_retained_bytes,
         )?;
-        let pivot = ExactUnitPivot {
+        let reductions = Arc::new(reductions);
+        let pivot = Arc::new(ExactUnitPivot {
             ordinal: pivot_ordinal,
             source_ordinal,
             terms,
             guards,
             reductions,
             normalization_divisor,
-        };
+        });
         let observed_retained_bytes = exact_unit_pivot_retained_bytes(&pivot)?;
         check_limit(
             "exact-group pivot observed retained bytes",
@@ -1468,6 +2059,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             &pivot,
             requested,
             requested,
+            source.unique_retained_bytes()?,
         )?;
         check_limit(
             "exact-group staged live retained bytes",
@@ -1504,6 +2096,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             &pivot,
             committed_pivots.capacity(),
             committed_lookup.capacity(),
+            source.unique_retained_bytes()?,
         )?;
         check_limit(
             "exact-group staged live retained bytes",
@@ -1604,7 +2197,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
             GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView {
                 database: self,
                 staged,
-                pivot,
+                pivot_allocation: pivot,
+                pivot: pivot.as_ref(),
             },
         )
     }
@@ -1635,21 +2229,75 @@ impl GeneratedAffineResidualGroupExactDatabase {
         )
     }
 
-    /// Commit one authenticated staged row. Every check is completed before
-    /// the first mutation; the mutation tail contains only capacity-admitted
-    /// moves and assignments of already constructed values.
-    pub(crate) fn commit_staged_row_for_session(
-        &mut self,
+    /// Consume and completely authenticate a stage before any database
+    /// mutation. Failure returns the exact staged token to the session.
+    pub(crate) fn prepare_staged_row_commit_for_session(
+        &self,
         _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
         staged: GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<
-        GeneratedAffineResidualGroupExactRowOutcome,
-        GeneratedAffineResidualGroupExactDatabaseError,
+        GeneratedAffineResidualGroupPreparedExactRowCommit,
+        GeneratedAffineResidualGroupPrepareExactRowCommitFailure,
     > {
-        self.commit_staged_row_inner(staged)
+        self.prepare_staged_row_commit_inner(staged)
     }
 
-    /// Explicit test-only adapter for algebraic transaction tests.
+    /// Recover the original stage when a fallible outer-owner preparation
+    /// fails after database preparation but before the final move-only tail.
+    pub(crate) fn abort_prepared_staged_row_commit_for_session(
+        &self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) -> GeneratedAffineResidualGroupStagedExactRow {
+        prepared.staged
+    }
+
+    /// Infallible database-local tail for a prepared owning token. Immediately
+    /// before mutation, a local allocation-free assertion verifies the live
+    /// database/predecessor identity and all move-only capacity assumptions;
+    /// invariant violation is fail-stop rather than a recoverable post-prepare
+    /// branch. Safe production code can reach this only through the
+    /// allocation-sealed session capability and an exclusive database borrow.
+    pub(crate) fn commit_prepared_staged_row_for_session(
+        &mut self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) {
+        drop(self.commit_prepared_staged_row_inner(prepared));
+    }
+
+    /// Explicit test-only adapters exercise the owning prepare/abort/commit
+    /// protocol while leaving the production capability unforgeable.
+    #[cfg(test)]
+    fn prepare_staged_row_commit_for_test(
+        &self,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupPreparedExactRowCommit,
+        GeneratedAffineResidualGroupPrepareExactRowCommitFailure,
+    > {
+        self.prepare_staged_row_commit_inner(staged)
+    }
+
+    #[cfg(test)]
+    fn abort_prepared_staged_row_commit_for_test(
+        &self,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) -> GeneratedAffineResidualGroupStagedExactRow {
+        prepared.staged
+    }
+
+    #[cfg(test)]
+    fn commit_prepared_staged_row_for_test(
+        &mut self,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) {
+        drop(self.commit_prepared_staged_row_inner(prepared));
+    }
+
+    /// Test-only compatibility adapter returning the historical owned-vector
+    /// outcome used by algebraic transaction tests. Production retains shared
+    /// evidence through the owning prepare/commit protocol instead.
     #[cfg(test)]
     pub(crate) fn commit_staged_row_for_test(
         &mut self,
@@ -1661,6 +2309,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         self.commit_staged_row_inner(staged)
     }
 
+    #[cfg(test)]
     fn commit_staged_row_inner(
         &mut self,
         staged: GeneratedAffineResidualGroupStagedExactRow,
@@ -1668,7 +2317,89 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupExactRowOutcome,
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
-        self.authenticate_staged_row(&staged)?;
+        let prepared = self
+            .prepare_staged_row_commit_inner(staged)
+            .map_err(|failure| failure.error)?;
+        Ok(match self.commit_prepared_staged_row_inner(prepared) {
+            GeneratedAffineResidualGroupPreparedExactRowOutcome::Dependent {
+                source_ordinal,
+                evidence,
+            } => {
+                let reductions = Arc::try_unwrap(evidence.reductions)
+                    .unwrap_or_else(|shared| shared.as_ref().clone());
+                GeneratedAffineResidualGroupExactRowOutcome::Dependent {
+                    source_ordinal,
+                    reductions,
+                }
+            }
+            GeneratedAffineResidualGroupPreparedExactRowOutcome::NewPivot {
+                source_ordinal,
+                pivot_ordinal,
+                ..
+            } => GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal,
+                pivot_ordinal,
+            },
+        })
+    }
+
+    fn prepare_staged_row_commit_inner(
+        &self,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> Result<
+        GeneratedAffineResidualGroupPreparedExactRowCommit,
+        GeneratedAffineResidualGroupPrepareExactRowCommitFailure,
+    > {
+        let prepared = (|| {
+            self.authenticate_staged_row(&staged)?;
+            let source_recipe = self.retained_source_recipe(&staged)?;
+            let evidence = match &staged.payload {
+                ExactStagedRowPayload::Dependent { reductions, .. } => {
+                    PreparedExactRowEvidence::Dependent(
+                        GeneratedAffineResidualGroupRetainedExactDependentReductions {
+                            reductions: Arc::clone(reductions),
+                        },
+                    )
+                }
+                ExactStagedRowPayload::NewPivot { pivot, .. } => {
+                    PreparedExactRowEvidence::NewPivot(
+                        GeneratedAffineResidualGroupRetainedExactUnitPivot {
+                            pivot: Arc::clone(pivot),
+                        },
+                    )
+                }
+            };
+            Ok((source_recipe, evidence))
+        })();
+        match prepared {
+            Ok((source_recipe, evidence)) => {
+                Ok(GeneratedAffineResidualGroupPreparedExactRowCommit {
+                    predecessor_transition_identity: self.transition_identity,
+                    staged,
+                    source_recipe,
+                    evidence,
+                })
+            }
+            Err(error) => {
+                Err(GeneratedAffineResidualGroupPrepareExactRowCommitFailure { error, staged })
+            }
+        }
+    }
+
+    fn commit_prepared_staged_row_inner(
+        &mut self,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) -> GeneratedAffineResidualGroupPreparedExactRowOutcome {
+        assert!(
+            self.prepared_commit_invariants_hold(&prepared),
+            "prepared exact database commit invariant violated"
+        );
+        let GeneratedAffineResidualGroupPreparedExactRowCommit {
+            predecessor_transition_identity: _,
+            staged,
+            source_recipe: _,
+            evidence,
+        } = prepared;
         let GeneratedAffineResidualGroupStagedExactRow {
             next_transition_identity,
             next_state_version,
@@ -1677,28 +2408,35 @@ impl GeneratedAffineResidualGroupExactDatabase {
             payload,
             ..
         } = staged;
-        match payload {
-            ExactStagedRowPayload::Dependent {
-                reductions,
-                committed_stats,
-            } => {
+        match (payload, evidence) {
+            (
+                ExactStagedRowPayload::Dependent {
+                    reductions,
+                    committed_stats,
+                },
+                PreparedExactRowEvidence::Dependent(evidence),
+            ) => {
                 self.stats = committed_stats;
                 self.next_source_ordinal = next_source_ordinal;
                 self.state_version = next_state_version;
                 self.transition_identity = next_transition_identity;
-                Ok(GeneratedAffineResidualGroupExactRowOutcome::Dependent {
+                drop(reductions);
+                GeneratedAffineResidualGroupPreparedExactRowOutcome::Dependent {
                     source_ordinal,
-                    reductions,
-                })
+                    evidence,
+                }
             }
-            ExactStagedRowPayload::NewPivot {
-                pivot,
-                pivot_key,
-                lookup_insertion,
-                mut committed_pivots,
-                mut committed_lookup,
-                committed_stats,
-            } => {
+            (
+                ExactStagedRowPayload::NewPivot {
+                    pivot,
+                    pivot_key,
+                    lookup_insertion,
+                    mut committed_pivots,
+                    mut committed_lookup,
+                    committed_stats,
+                },
+                PreparedExactRowEvidence::NewPivot(evidence),
+            ) => {
                 let pivot_ordinal = pivot.ordinal;
                 let mut prior_pivots = std::mem::take(&mut self.pivots);
                 let mut prior_lookup = std::mem::take(&mut self.lookup);
@@ -1718,11 +2456,90 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 self.next_source_ordinal = next_source_ordinal;
                 self.state_version = next_state_version;
                 self.transition_identity = next_transition_identity;
-                Ok(GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                GeneratedAffineResidualGroupPreparedExactRowOutcome::NewPivot {
                     source_ordinal,
                     pivot_ordinal,
-                })
+                    evidence,
+                }
             }
+            _ => unreachable!("prepared database evidence changed staged outcome"),
+        }
+    }
+
+    /// Allocation-free local assertion predicate for the final prepared tail.
+    /// This deliberately returns a boolean rather than a recoverable error:
+    /// once an outer session starts its infallible commit tail, a violated
+    /// sealed-token invariant must stop before the first database mutation.
+    fn prepared_commit_invariants_hold(
+        &self,
+        prepared: &GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) -> bool {
+        let staged = &prepared.staged;
+        if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA
+            || self.database_nonce != staged.database_nonce
+            || self.database_epoch != staged.database_epoch
+            || self.group_ordinal != staged.group_ordinal
+            || self.state_version != staged.state_version
+            || self.next_source_ordinal != staged.source_ordinal
+            || self.pivots.len() != staged.pivot_count
+            || self.lookup.len() != staged.lookup_len
+            || self.pivots.len() != self.lookup.len()
+            || self.transition_identity != prepared.predecessor_transition_identity
+            || staged.next_transition_identity == ExactDatabaseTransitionIdentity::PRISTINE
+            || staged.next_transition_identity == prepared.predecessor_transition_identity
+            || staged.source_ordinal.checked_add(1) != Some(staged.next_source_ordinal)
+            || staged.state_version.checked_add(1) != Some(staged.next_state_version)
+            || !staged.source.authenticates_own_allocation()
+            || !prepared.source_recipe.source.authenticates_own_allocation()
+            || !prepared
+                .source_recipe
+                .source
+                .same_allocation(&staged.source)
+            || !Arc::ptr_eq(&prepared.source_recipe.plan, &self.plan)
+            || !Arc::ptr_eq(&prepared.source_recipe.frame, &self.frame)
+            || prepared.source_recipe.database_epoch != self.database_epoch
+            || prepared.source_recipe.group_ordinal != self.group_ordinal
+        {
+            return false;
+        }
+
+        match (&staged.payload, &prepared.evidence) {
+            (
+                ExactStagedRowPayload::Dependent { reductions, .. },
+                PreparedExactRowEvidence::Dependent(evidence),
+            ) => Arc::ptr_eq(reductions, &evidence.reductions),
+            (
+                ExactStagedRowPayload::NewPivot {
+                    pivot,
+                    pivot_key,
+                    lookup_insertion,
+                    committed_pivots,
+                    committed_lookup,
+                    ..
+                },
+                PreparedExactRowEvidence::NewPivot(evidence),
+            ) => {
+                let Some(requested_pivots) = self.pivots.len().checked_add(1) else {
+                    return false;
+                };
+                let Some(requested_lookup) = self.lookup.len().checked_add(1) else {
+                    return false;
+                };
+                Arc::ptr_eq(pivot, &evidence.pivot)
+                    && pivot.ordinal == self.pivots.len()
+                    && pivot.source_ordinal == staged.source_ordinal
+                    && pivot.terms.last().map(|term| &term.key) == Some(pivot_key)
+                    && committed_pivots.is_empty()
+                    && committed_lookup.is_empty()
+                    && committed_pivots.capacity() >= requested_pivots
+                    && committed_lookup.capacity() >= requested_lookup
+                    && *lookup_insertion <= self.lookup.len()
+                    && self
+                        .lookup
+                        .binary_search_by(|entry| entry.key.cmp(pivot_key))
+                        == Err(*lookup_insertion)
+            }
+            _ => false,
         }
     }
 
@@ -1730,6 +2547,9 @@ impl GeneratedAffineResidualGroupExactDatabase {
         &self,
         staged: &GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        if !staged.source.authenticates_own_allocation() {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow);
+        }
         if self.database_nonce != staged.database_nonce {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongDatabaseAllocation);
         }
@@ -1898,11 +2718,29 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupStagedExactRow,
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
+        let retained_bytes = synthetic_source_recipe_retained_bytes(&terms, &guards)?;
+        let source = Arc::new(ExactSyntheticSourceRecipe {
+            terms,
+            guards,
+            retained_bytes,
+        });
+        self.stage_synthetic_source_recipe(context, source)
+    }
+
+    #[cfg(test)]
+    fn stage_synthetic_source_recipe(
+        &self,
+        context: &ParametricCoefficientContext,
+        source: Arc<ExactSyntheticSourceRecipe>,
+    ) -> Result<
+        GeneratedAffineResidualGroupStagedExactRow,
+        GeneratedAffineResidualGroupExactDatabaseError,
+    > {
         let next_source_ordinal = self.preflight_next_source_ordinal()?;
         let next_state_version = self.preflight_next_state_version()?;
         check_limit(
             "terms in one exact top-reduction row",
-            terms.len(),
+            source.terms.len(),
             self.limits.max_terms_per_row,
         )?;
         let mut ledger = ParametricCoefficientWorkLedger::new(
@@ -1912,9 +2750,12 @@ impl GeneratedAffineResidualGroupExactDatabase {
         let ingress = preflight_borrowed_ingress(
             context,
             &self.frame,
-            terms.iter().map(|(key, coefficient)| (key, coefficient)),
-            terms.len(),
-            &guards,
+            source
+                .terms
+                .iter()
+                .map(|(key, coefficient)| (key, coefficient)),
+            source.terms.len(),
+            &source.guards,
             self.limits,
         )?;
         check_limit(
@@ -1922,8 +2763,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
             ingress.prospective_retained_bytes,
             self.limits.max_ingress_retained_bytes,
         )?;
-        let mut retained = try_terms_with_capacity(terms.len())?;
-        let mut retained_guards = try_guards_with_capacity(guards.len())?;
+        let mut retained = try_terms_with_capacity(source.terms.len())?;
+        let mut retained_guards = try_guards_with_capacity(source.guards.len())?;
         let observed_ingress_retained_bytes =
             ingress.observed_retained_bytes(retained.capacity(), retained_guards.capacity())?;
         check_limit(
@@ -1931,15 +2772,15 @@ impl GeneratedAffineResidualGroupExactDatabase {
             observed_ingress_retained_bytes,
             self.limits.max_ingress_retained_bytes,
         )?;
-        for (key, coefficient) in terms {
+        for (key, coefficient) in &source.terms {
             retained.push(ExactDatabaseTerm {
-                key,
+                key: key.clone(),
                 coefficient: ledger
-                    .try_copy_authenticated(&coefficient)
+                    .try_copy_authenticated(coefficient)
                     .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::CoefficientWork)?,
             });
         }
-        retained_guards.extend(guards.iter().cloned());
+        retained_guards.extend(source.guards.iter().cloned());
         self.finish_stage(
             context,
             retained,
@@ -1949,7 +2790,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             next_state_version,
             ingress.prospective_retained_bytes,
             observed_ingress_retained_bytes,
-            ExactStagedSource::Synthetic,
+            ExactStagedSource::synthetic(source),
         )
     }
 
@@ -2350,27 +3191,22 @@ fn check_guard_occurrence_limits(
 }
 
 fn exact_unit_pivot_retained_bytes(
-    pivot: &ExactUnitPivot,
+    pivot: &Arc<ExactUnitPivot>,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
     pivot_retained_bytes(
         &pivot.terms,
         &pivot.guards,
-        &pivot.reductions,
+        pivot.reductions.as_ref(),
         &pivot.normalization_divisor,
         true,
     )
 }
 
-fn pivot_deep_retained_bytes(
-    pivot: &ExactUnitPivot,
+fn exact_unit_pivot_owner_retained_bytes(
+    pivot: &Arc<ExactUnitPivot>,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
-    let inline = checked_add(
-        "exact-group pivot retained bytes",
-        size_of::<ExactUnitPivot>(),
-        size_of::<ExactPivotLookupEntry>(),
-    )?;
     exact_unit_pivot_retained_bytes(pivot)?
-        .checked_sub(inline)
+        .checked_sub(size_of::<ExactPivotLookupEntry>())
         .ok_or(
             GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
                 resource: "exact-group pivot retained bytes",
@@ -2378,28 +3214,29 @@ fn pivot_deep_retained_bytes(
         )
 }
 
-/// Retained coexistence of the live database and a sealed dependent stage.
-/// The token's inline size charges all handles. Only the reduction vector's
-/// backing allocation and coefficient payload are additional unique owners;
-/// source/plan/frame deep graphs remain charged by their existing owners.
-fn dependent_staged_live_retained_bytes(
-    database_retained_bytes: usize,
+fn shared_reduction_trace_retained_bytes(
+    reductions: &Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
+) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+    shared_reduction_trace_retained_bytes_with_slots(reductions.as_slice(), reductions.capacity())
+}
+
+fn shared_reduction_trace_retained_bytes_with_slots(
     reductions: &[GeneratedAffineResidualGroupExactReductionStep],
     reduction_slots: usize,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
-    const RESOURCE: &str = "exact-group staged live retained bytes";
+    const RESOURCE: &str = "exact shared reduction-trace retained bytes";
     if reduction_slots < reductions.len() {
         return Err(
             GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
-                resource: "staged dependent reduction trace",
+                resource: "shared exact reduction trace",
             },
         );
     }
     let mut bytes = checked_sum(
         RESOURCE,
         [
-            database_retained_bytes,
-            size_of::<GeneratedAffineResidualGroupStagedExactRow>(),
+            checked_mul(RESOURCE, 2, size_of::<usize>())?,
+            size_of::<Vec<GeneratedAffineResidualGroupExactReductionStep>>(),
             checked_mul(
                 RESOURCE,
                 reduction_slots,
@@ -2421,14 +3258,112 @@ fn dependent_staged_live_retained_bytes(
     Ok(bytes)
 }
 
+#[cfg(test)]
+fn synthetic_source_recipe_retained_bytes(
+    terms: &Vec<(
+        GeneratedAffineResidualGroupPhysicalKey,
+        ParametricCoefficient,
+    )>,
+    guards: &Vec<ParametricNonZeroCondition>,
+) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+    const RESOURCE: &str = "synthetic exact source-recipe retained bytes";
+    let mut bytes = checked_sum(
+        RESOURCE,
+        [
+            checked_mul(RESOURCE, 2, size_of::<usize>())?,
+            size_of::<ExactSyntheticSourceRecipe>(),
+            checked_mul(
+                RESOURCE,
+                terms.capacity(),
+                size_of::<(
+                    GeneratedAffineResidualGroupPhysicalKey,
+                    ParametricCoefficient,
+                )>(),
+            )?,
+            checked_mul(
+                RESOURCE,
+                guards.capacity(),
+                size_of::<ParametricNonZeroCondition>(),
+            )?,
+        ],
+    )?;
+    for (key, coefficient) in terms {
+        bytes = checked_add(RESOURCE, bytes, key.retained_bytes())?;
+        bytes = checked_add(
+            RESOURCE,
+            bytes,
+            coefficient.owned_retained_byte_bound().ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                    resource: RESOURCE,
+                },
+            )?,
+        )?;
+    }
+    for guard in guards {
+        bytes = checked_add(
+            RESOURCE,
+            bytes,
+            guard.owned_retained_byte_bound().ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                    resource: RESOURCE,
+                },
+            )?,
+        )?;
+    }
+    Ok(bytes)
+}
+
+fn exact_unit_pivot_arc_allocation_bytes()
+-> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+    checked_sum(
+        "exact-group pivot retained bytes",
+        [
+            checked_mul("exact-group pivot retained bytes", 2, size_of::<usize>())?,
+            size_of::<ExactUnitPivot>(),
+        ],
+    )
+}
+
+/// Retained coexistence of the live database and a sealed dependent stage.
+/// The token's inline size charges all handles. Its source argument is the
+/// deduplicated complete source-pipeline graph (excluding shared plan/frame
+/// ancestry); the reduction vector and coefficient payload are the remaining
+/// additional unique owners.
+fn dependent_staged_live_retained_bytes(
+    database_retained_bytes: usize,
+    reductions: &[GeneratedAffineResidualGroupExactReductionStep],
+    reduction_slots: usize,
+    source_unique_retained_bytes: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
+    const RESOURCE: &str = "exact-group staged live retained bytes";
+    if reduction_slots < reductions.len() {
+        return Err(
+            GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                resource: "staged dependent reduction trace",
+            },
+        );
+    }
+    checked_sum(
+        RESOURCE,
+        [
+            database_retained_bytes,
+            size_of::<GeneratedAffineResidualGroupStagedExactRow>(),
+            source_unique_retained_bytes,
+            shared_reduction_trace_retained_bytes_with_slots(reductions, reduction_slots)?,
+        ],
+    )
+}
+
 /// Retained coexistence of the live database and a sealed new-pivot stage.
 /// The candidate's inline pivot/key/handles live inside the token. Its deep
-/// payload plus both still-empty replacement allocations are charged here.
+/// payload, the deduplicated unique source graph, and both still-empty
+/// replacement allocations are charged here.
 fn new_pivot_staged_live_retained_bytes(
     database_retained_bytes: usize,
-    pivot: &ExactUnitPivot,
+    pivot: &Arc<ExactUnitPivot>,
     pivot_replacement_slots: usize,
     lookup_replacement_slots: usize,
+    source_unique_retained_bytes: usize,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
     const RESOURCE: &str = "exact-group staged live retained bytes";
     checked_sum(
@@ -2436,11 +3371,12 @@ fn new_pivot_staged_live_retained_bytes(
         [
             database_retained_bytes,
             size_of::<GeneratedAffineResidualGroupStagedExactRow>(),
-            pivot_deep_retained_bytes(pivot)?,
+            source_unique_retained_bytes,
+            exact_unit_pivot_owner_retained_bytes(pivot)?,
             checked_mul(
                 RESOURCE,
                 pivot_replacement_slots,
-                size_of::<ExactUnitPivot>(),
+                size_of::<Arc<ExactUnitPivot>>(),
             )?,
             checked_mul(
                 RESOURCE,
@@ -2455,10 +3391,10 @@ fn new_pivot_staged_live_retained_bytes(
 /// capacities. Deep lookup-key payload is excluded because each lookup key is
 /// a shallow clone of the leader key already charged by its pivot terms.
 fn database_retained_bytes_with_candidate(
-    pivots: &[ExactUnitPivot],
+    pivots: &[Arc<ExactUnitPivot>],
     pivot_capacity: usize,
     lookup_capacity: usize,
-    candidate: Option<&ExactUnitPivot>,
+    candidate: Option<&Arc<ExactUnitPivot>>,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
     const RESOURCE: &str = "exact-group database retained bytes";
     let required = checked_add(RESOURCE, pivots.len(), usize::from(candidate.is_some()))?;
@@ -2473,7 +3409,7 @@ fn database_retained_bytes_with_candidate(
         RESOURCE,
         [
             size_of::<GeneratedAffineResidualGroupExactDatabase>(),
-            checked_mul(RESOURCE, pivot_capacity, size_of::<ExactUnitPivot>())?,
+            checked_mul(RESOURCE, pivot_capacity, size_of::<Arc<ExactUnitPivot>>())?,
             checked_mul(
                 RESOURCE,
                 lookup_capacity,
@@ -2482,7 +3418,11 @@ fn database_retained_bytes_with_candidate(
         ],
     )?;
     for pivot in pivots.iter().chain(candidate) {
-        bytes = checked_add(RESOURCE, bytes, pivot_deep_retained_bytes(pivot)?)?;
+        bytes = checked_add(
+            RESOURCE,
+            bytes,
+            exact_unit_pivot_owner_retained_bytes(pivot)?,
+        )?;
     }
     Ok(bytes)
 }
@@ -2519,7 +3459,7 @@ fn pivot_retained_bytes(
     let mut bytes = checked_sum(
         RESOURCE,
         [
-            size_of::<ExactUnitPivot>(),
+            exact_unit_pivot_arc_allocation_bytes()?,
             size_of::<ExactPivotLookupEntry>(),
             checked_mul(RESOURCE, term_slots, size_of::<ExactDatabaseTerm>())?,
             checked_mul(
@@ -2532,6 +3472,8 @@ fn pivot_retained_bytes(
                 reduction_slots,
                 size_of::<GeneratedAffineResidualGroupExactReductionStep>(),
             )?,
+            checked_mul(RESOURCE, 2, size_of::<usize>())?,
+            size_of::<Vec<GeneratedAffineResidualGroupExactReductionStep>>(),
             normalization_divisor.owned_retained_byte_bound().ok_or(
                 GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
                     resource: RESOURCE,
@@ -2590,7 +3532,7 @@ fn try_terms_with_capacity(
 
 fn try_pivot_replacement_with_capacity(
     capacity: usize,
-) -> Result<Vec<ExactUnitPivot>, GeneratedAffineResidualGroupExactDatabaseError> {
+) -> Result<Vec<Arc<ExactUnitPivot>>, GeneratedAffineResidualGroupExactDatabaseError> {
     let mut pivots = Vec::new();
     pivots.try_reserve_exact(capacity).map_err(|_| {
         GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
@@ -2727,6 +3669,7 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationCompilation,
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
+        GeneratedAffineResidualCaseReeliminationRowOutcome,
     };
     use crate::generated_affine_residual_group_exact_physical_row::{
         GeneratedAffineResidualGroupExactPhysicalRowCompiler,
@@ -3018,7 +3961,7 @@ mod tests {
         transition_identity: ExactDatabaseTransitionIdentity,
         state_version: usize,
         next_source_ordinal: usize,
-        pivots: Vec<ExactUnitPivot>,
+        pivots: Vec<Arc<ExactUnitPivot>>,
         pivot_capacity: usize,
         lookup: Vec<ExactPivotLookupEntry>,
         lookup_capacity: usize,
@@ -3087,6 +4030,218 @@ mod tests {
         drop(pivot);
         drop(staged);
         assert_database_state_unchanged(&database, &before);
+    }
+
+    #[test]
+    fn prepared_commit_reuses_exact_allocations_and_raw_recipe_replays() {
+        let (family, context, plan, frame, mut database, keys) =
+            database_fixture("exact-db-prepared-owned-evidence");
+        let raw_guard = indexed_guard(&context, 1);
+        let pristine = database_state_snapshot(&database);
+        let staged = database
+            .stage_test_terms(
+                &context,
+                vec![(keys[0].clone(), context.integer(3))],
+                vec![raw_guard.clone()],
+            )
+            .unwrap();
+        let stale_sibling = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+
+        let recipe = database.retained_source_recipe(&staged).unwrap();
+        let recipe_copy = recipe.retained_copy();
+        assert!(recipe.same_source_allocation(&recipe_copy));
+        assert_eq!(recipe.database_epoch(), database.database_epoch());
+        assert_eq!(recipe.group_ordinal(), database.group_ordinal());
+        assert!(!recipe.has_production_source());
+        let raw_source = match &recipe.source {
+            ExactStagedSource::Synthetic { source, .. } => Arc::clone(source),
+            ExactStagedSource::Production { .. } => panic!("test source must stay synthetic"),
+        };
+        assert_eq!(raw_source.terms.len(), 1);
+        assert_eq!(raw_source.terms[0].0, keys[0]);
+        assert_eq!(raw_source.terms[0].1, context.integer(3));
+        assert_eq!(raw_source.guards, vec![raw_guard.clone()]);
+        assert_eq!(
+            recipe.retained_byte_bound().unwrap(),
+            size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>()
+                + raw_source.retained_bytes
+        );
+
+        let staged_pivot = match &staged.payload {
+            ExactStagedRowPayload::NewPivot { pivot, .. } => Arc::clone(pivot),
+            ExactStagedRowPayload::Dependent { .. } => panic!("first raw key must stage a pivot"),
+        };
+        let prepared = database.prepare_staged_row_commit_for_test(staged).unwrap();
+        let prepared_recipe = prepared.source_recipe.retained_copy();
+        assert!(recipe.same_source_allocation(&prepared_recipe));
+        let retained_pivot = match &prepared.evidence {
+            PreparedExactRowEvidence::NewPivot(evidence) => evidence.retained_copy(),
+            PreparedExactRowEvidence::Dependent(_) => panic!("first raw key must prepare a pivot"),
+        };
+        assert!(Arc::ptr_eq(&staged_pivot, &retained_pivot.pivot));
+        assert_eq!(retained_pivot.ordinal(), 0);
+        assert_eq!(retained_pivot.source_ordinal(), 0);
+        assert_eq!(retained_pivot.key(), &keys[0]);
+        assert_eq!(retained_pivot.normalization_divisor(), &context.integer(3));
+        assert_eq!(
+            retained_pivot.retained_byte_bound().unwrap(),
+            exact_unit_pivot_owner_retained_bytes(&staged_pivot).unwrap()
+        );
+        let pivot_debug = format!("{retained_pivot:?}");
+        assert!(pivot_debug.contains("private_pivot: \"<redacted>\""));
+
+        let staged = database.abort_prepared_staged_row_commit_for_test(prepared);
+        assert_database_state_unchanged(&database, &pristine);
+        let prepared = database.prepare_staged_row_commit_for_test(staged).unwrap();
+        let committed_evidence = match &prepared.evidence {
+            PreparedExactRowEvidence::NewPivot(evidence) => evidence.retained_copy(),
+            PreparedExactRowEvidence::Dependent(_) => panic!("first raw key must prepare a pivot"),
+        };
+        database.commit_prepared_staged_row_for_test(prepared);
+        assert_eq!(database.state_version(), 1);
+        assert_eq!(database.next_source_ordinal, 1);
+        assert!(Arc::ptr_eq(&database.pivots[0], &committed_evidence.pivot));
+        assert!(committed_evidence.same_allocation(&retained_pivot));
+        assert!(committed_evidence.structurally_equal(&retained_pivot));
+
+        let committed = database_state_snapshot(&database);
+        let failure = database
+            .prepare_staged_row_commit_for_test(stale_sibling)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow
+        );
+        assert!(format!("{failure:?}").contains("private_staged: \"<redacted>\""));
+        let recovered_stale = failure.into_staged();
+        assert_eq!(recovered_stale.source_ordinal(), 0);
+        assert!(recovered_stale.source.authenticates_own_allocation());
+        drop(recovered_stale);
+        assert_database_state_unchanged(&database, &committed);
+
+        // The original raw recipe remains replayable after its stage and
+        // prepared token have both been consumed. Against the populated
+        // database it produces a dependent trace that remains valid after the
+        // final commit drops its own evidence handle.
+        let dependent = database
+            .stage_retained_source_recipe_for_test(&family, &context, &recipe)
+            .unwrap();
+        let dependent_allocation = match &dependent.payload {
+            ExactStagedRowPayload::Dependent { reductions, .. } => Arc::clone(reductions),
+            ExactStagedRowPayload::NewPivot { .. } => panic!("known raw key must reduce"),
+        };
+        let prepared = database
+            .prepare_staged_row_commit_for_test(dependent)
+            .unwrap();
+        let retained_reductions = match &prepared.evidence {
+            PreparedExactRowEvidence::Dependent(evidence) => evidence.retained_copy(),
+            PreparedExactRowEvidence::NewPivot(_) => panic!("known raw key must stay dependent"),
+        };
+        assert!(Arc::ptr_eq(
+            &dependent_allocation,
+            &retained_reductions.reductions
+        ));
+        assert_eq!(retained_reductions.reductions().len(), 1);
+        assert_eq!(retained_reductions.reductions()[0].pivot_ordinal(), 0);
+        assert_eq!(
+            retained_reductions.retained_byte_bound().unwrap(),
+            shared_reduction_trace_retained_bytes(&dependent_allocation).unwrap()
+        );
+        assert!(format!("{retained_reductions:?}").contains("private_reductions: \"<redacted>\""));
+        database.commit_prepared_staged_row_for_test(prepared);
+        assert_eq!(database.state_version(), 2);
+        assert_eq!(database.next_source_ordinal, 2);
+        assert_eq!(retained_reductions.reductions().len(), 1);
+        assert!(Arc::ptr_eq(&database.pivots[0], &committed_evidence.pivot));
+
+        // A fresh database with the same authenticated plan/frame/epoch sees
+        // the same raw source as a new pivot, with equal structure but a
+        // distinct candidate allocation.
+        let fresh = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            Arc::clone(&frame),
+            database.database_epoch(),
+            GeneratedAffineResidualGroupExactDatabaseLimits::default(),
+        )
+        .unwrap();
+        let replayed = fresh
+            .stage_retained_source_recipe_for_test(&family, &context, &recipe_copy)
+            .unwrap();
+        let replayed_pivot = match &replayed.payload {
+            ExactStagedRowPayload::NewPivot { pivot, .. } => pivot,
+            ExactStagedRowPayload::Dependent { .. } => panic!("fresh database must stage a pivot"),
+        };
+        assert!(!Arc::ptr_eq(replayed_pivot, &committed_evidence.pivot));
+        assert_eq!(replayed_pivot.as_ref(), committed_evidence.pivot.as_ref());
+        assert!(raw_source.terms.len() == 1 && raw_source.guards.len() == 1);
+    }
+
+    #[test]
+    fn prepared_commit_fail_stops_stale_authority_before_mutation() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-prepared-stale-fail-stop");
+        database
+            .ingest_test_terms(&context, vec![(keys[0].clone(), context.one())], Vec::new())
+            .unwrap();
+
+        let wrong_nonce = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+        let mut wrong_nonce = database
+            .prepare_staged_row_commit_for_test(wrong_nonce)
+            .unwrap();
+        wrong_nonce.staged.database_nonce ^= 1;
+        let pristine = database_state_snapshot(&database);
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            database.commit_prepared_staged_row_for_test(wrong_nonce);
+        }));
+        assert!(panic.is_err(), "a foreign prepared nonce must fail-stop");
+        assert_database_state_unchanged(&database, &pristine);
+
+        let missing_capacity = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+        let mut missing_capacity = database
+            .prepare_staged_row_commit_for_test(missing_capacity)
+            .unwrap();
+        let ExactStagedRowPayload::NewPivot {
+            committed_pivots, ..
+        } = &mut missing_capacity.staged.payload
+        else {
+            panic!("an unknown hardest key must prepare a pivot")
+        };
+        *committed_pivots = Vec::new();
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            database.commit_prepared_staged_row_for_test(missing_capacity);
+        }));
+        assert!(
+            panic.is_err(),
+            "lost prepared replacement capacity must fail-stop"
+        );
+        assert_database_state_unchanged(&database, &pristine);
+
+        let accepted = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+        let stale = database
+            .stage_test_terms(&context, vec![(keys[1].clone(), context.one())], Vec::new())
+            .unwrap();
+        let accepted = database
+            .prepare_staged_row_commit_for_test(accepted)
+            .unwrap();
+        let stale = database.prepare_staged_row_commit_for_test(stale).unwrap();
+
+        database.commit_prepared_staged_row_for_test(accepted);
+        let committed = database_state_snapshot(&database);
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            database.commit_prepared_staged_row_for_test(stale);
+        }));
+        assert!(panic.is_err(), "a stale prepared authority must fail-stop");
+        assert_database_state_unchanged(&database, &committed);
     }
 
     #[test]
@@ -3620,6 +4775,24 @@ mod tests {
         let source_strong_count = Arc::strong_count(&source);
         let plan_strong_count = Arc::strong_count(&plan);
         let frame_strong_count = Arc::strong_count(&frame);
+        let exact_unique_production_owner_bound = source
+            .unique_retained_source_graph_byte_bound()
+            .expect("the finite production source graph must fit in usize");
+        let reelimination = source.reelimination_source_for_retained_graph_test();
+        let descendant_floor = checked_sum(
+            "test production source descendant floor",
+            [
+                source.stats().owner_retained_bytes(),
+                reelimination.stats().owner_retained_bytes(),
+                reelimination.stats().cumulative_bound_row_retained_bytes(),
+                reelimination.elimination_stats().retained_bytes(),
+            ],
+        )
+        .unwrap();
+        assert!(
+            exact_unique_production_owner_bound > descendant_floor,
+            "the source graph must additionally charge Arc controls and A/P/O/S parent allocations"
+        );
         let staged = database
             .stage_replayed_row_for_test(
                 &family,
@@ -3633,6 +4806,30 @@ mod tests {
         assert_eq!(Arc::strong_count(&source), source_strong_count + 1);
         assert_eq!(Arc::strong_count(&plan), plan_strong_count);
         assert_eq!(Arc::strong_count(&frame), frame_strong_count);
+        assert_eq!(
+            staged.source.unique_retained_bytes().unwrap(),
+            exact_unique_production_owner_bound,
+            "a retained production recipe may become the sole owner of the complete source pipeline"
+        );
+        {
+            let recipe = database.retained_source_recipe(&staged).unwrap();
+            assert!(recipe.has_production_source());
+            assert!(recipe.authenticates_production_source_allocation(&source));
+            assert_eq!(
+                recipe.retained_byte_bound().unwrap(),
+                size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>()
+                    + exact_unique_production_owner_bound
+            );
+            let recipe_copy = recipe.retained_copy();
+            assert!(recipe.same_source_allocation(&recipe_copy));
+            assert_eq!(
+                recipe_copy.retained_byte_bound().unwrap(),
+                recipe.retained_byte_bound().unwrap(),
+                "copying the opaque recipe must preserve, not multiply, its unique-owner census"
+            );
+            assert_eq!(Arc::strong_count(&source), source_strong_count + 3);
+        }
+        assert_eq!(Arc::strong_count(&source), source_strong_count + 1);
         let staged_pivot = database
             .authenticate_staged_new_pivot_for_test(&staged)
             .unwrap();
@@ -3683,6 +4880,175 @@ mod tests {
             assert!(pivot.guards().contains(source_guard));
         }
         assert_eq!(database.next_source_ordinal, 1);
+    }
+
+    #[test]
+    fn production_source_graph_bound_is_exact_at_admission_and_retains_every_child() {
+        let (family, context, plan, frame, probe_database, _keys) =
+            database_fixture("exact-db-production-source-graph-bound");
+        let source = production_exact_physical_row(&family, &context, &plan, &frame);
+        let source_unique_bound = source
+            .unique_retained_source_graph_byte_bound()
+            .expect("the finite production source graph must fit in usize");
+
+        let probe = probe_database
+            .stage_replayed_row_for_test(
+                &family,
+                &context,
+                &plan,
+                &frame,
+                probe_database.database_epoch(),
+                &source,
+            )
+            .unwrap();
+        assert_eq!(
+            probe.source.unique_retained_bytes().unwrap(),
+            source_unique_bound
+        );
+        let admitted = match &probe.payload {
+            ExactStagedRowPayload::Dependent {
+                committed_stats, ..
+            }
+            | ExactStagedRowPayload::NewPivot {
+                committed_stats, ..
+            } => committed_stats
+                .last_staged_live_prospective_retained_bytes()
+                .max(committed_stats.last_staged_live_observed_retained_bytes()),
+        };
+        assert!(admitted >= source_unique_bound);
+        drop(probe);
+
+        let mut exact_limits = GeneratedAffineResidualGroupExactDatabaseLimits::default();
+        exact_limits.max_staged_live_retained_bytes = admitted;
+        let exact_database = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            Arc::clone(&frame),
+            41,
+            exact_limits,
+        )
+        .unwrap();
+        let exact_stage = exact_database
+            .stage_replayed_row_for_test(
+                &family,
+                &context,
+                &plan,
+                &frame,
+                exact_database.database_epoch(),
+                &source,
+            )
+            .expect("the exact observed/prospective coexistence bound must admit staging");
+
+        let mut below_limits = exact_limits;
+        below_limits.max_staged_live_retained_bytes = admitted - 1;
+        let below_database = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            Arc::clone(&frame),
+            42,
+            below_limits,
+        )
+        .unwrap();
+        assert_eq!(
+            below_database
+                .stage_replayed_row_for_test(
+                    &family,
+                    &context,
+                    &plan,
+                    &frame,
+                    below_database.database_epoch(),
+                    &source,
+                )
+                .unwrap_err(),
+            GeneratedAffineResidualGroupExactDatabaseError::ResourceLimit {
+                resource: "exact-group staged live retained bytes",
+                requested: admitted,
+                limit: admitted - 1,
+            }
+        );
+
+        let recipe = exact_database.retained_source_recipe(&exact_stage).unwrap();
+        assert_eq!(
+            recipe.retained_byte_bound().unwrap(),
+            size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>()
+                + source_unique_bound
+        );
+
+        let weak_source = Arc::downgrade(&source);
+        let reelimination = source.reelimination_source_for_retained_graph_test();
+        let weak_reelimination = Arc::downgrade(reelimination);
+        let source_authority_is_plan_anchor =
+            Arc::ptr_eq(reelimination.authority(), plan.authority());
+        let weak_authority = Arc::downgrade(reelimination.authority());
+        let weak_premises = Arc::downgrade(reelimination.premises());
+        let weak_ordering = Arc::downgrade(reelimination.ordering());
+        let weak_schedule = Arc::downgrade(reelimination.schedule());
+        let weak_elimination = reelimination.elimination_weak_for_retained_graph_test();
+        let mut weak_retained_rows = Vec::new();
+        let mut weak_unavailable_rows = Vec::new();
+        for witness in reelimination.witnesses() {
+            match witness.outcome() {
+                GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(row) => {
+                    weak_retained_rows.push(Arc::downgrade(row));
+                }
+                GeneratedAffineResidualCaseReeliminationRowOutcome::Unavailable(row) => {
+                    weak_unavailable_rows.push(Arc::downgrade(row));
+                }
+            }
+        }
+        assert!(!weak_retained_rows.is_empty());
+
+        drop(source);
+        drop(exact_stage);
+        drop(below_database);
+        drop(probe_database);
+        for alive in [
+            weak_source.upgrade().is_some(),
+            weak_reelimination.upgrade().is_some(),
+            weak_authority.upgrade().is_some(),
+            weak_premises.upgrade().is_some(),
+            weak_ordering.upgrade().is_some(),
+            weak_schedule.upgrade().is_some(),
+            weak_elimination.upgrade().is_some(),
+        ] {
+            assert!(
+                alive,
+                "the opaque retained recipe must own the complete source graph"
+            );
+        }
+        assert!(weak_retained_rows.iter().all(|row| row.upgrade().is_some()));
+        assert!(
+            weak_unavailable_rows
+                .iter()
+                .all(|row| row.upgrade().is_some())
+        );
+
+        drop(recipe);
+        assert!(weak_source.upgrade().is_none());
+        assert!(weak_reelimination.upgrade().is_none());
+        assert!(weak_premises.upgrade().is_none());
+        assert!(weak_ordering.upgrade().is_none());
+        assert!(weak_schedule.upgrade().is_none());
+        assert!(weak_elimination.upgrade().is_none());
+        assert!(weak_retained_rows.iter().all(|row| row.upgrade().is_none()));
+        assert!(
+            weak_unavailable_rows
+                .iter()
+                .all(|row| row.upgrade().is_none())
+        );
+        if source_authority_is_plan_anchor {
+            assert!(
+                weak_authority.upgrade().is_some(),
+                "the shared frame/plan anchor authority must not be treated as recipe-unique"
+            );
+        } else {
+            assert!(
+                weak_authority.upgrade().is_none(),
+                "a non-anchor source authority must die with the last source recipe"
+            );
+        }
     }
 
     #[test]

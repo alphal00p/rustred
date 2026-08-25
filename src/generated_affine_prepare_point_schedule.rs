@@ -7,8 +7,10 @@
 //! schedule authenticates that ordering once before compiling all depths.
 
 use std::fmt;
+use std::mem::{align_of, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use crate::affine_prepare_point_schedule::{
     AffinePreparePointScheduleCore, compile_affine_prepare_point_schedule_key_core,
@@ -637,6 +639,25 @@ impl GeneratedAffinePreparePointScheduleCertificate {
         self.stats
     }
 
+    /// Complete schedule-local owner graph, excluding the generated ordering
+    /// allocation. Layer `Arc` handles are inline in the layer vector, while
+    /// each ordered-key allocation is charged here. A key's ordering manifest
+    /// pointee is shared with the ordering and intentionally excluded by the
+    /// key's own retained-byte API.
+    pub(crate) fn owner_retained_bytes_excluding_ordering(&self) -> Option<usize> {
+        let mut bytes = size_of::<Self>().checked_add(arc_vec_owned_byte_bound(&self.layers)?)?;
+        for layer in self.layers.iter() {
+            bytes = bytes.checked_add(arc_vec_owned_byte_bound(&layer.ordered_keys)?)?;
+            for key in layer.ordered_keys.iter() {
+                let deep_key_bytes = key
+                    .owned_retained_byte_bound()?
+                    .checked_sub(size_of::<AffineStartIntegralComplexityKey>())?;
+                bytes = bytes.checked_add(deep_key_bytes)?;
+            }
+        }
+        Some(bytes)
+    }
+
     pub(crate) fn same_ordering_allocation(
         &self,
         ordering: &Arc<GeneratedAffineParametricOrderingCertificate>,
@@ -789,6 +810,18 @@ impl GeneratedAffinePreparePointScheduleCertificate {
         }))
         .map_err(|_| GeneratedAffinePreparePointError::SymbolicaPanic)?
     }
+}
+
+fn arc_payload_control_and_padding_byte_bound<T>() -> Option<usize> {
+    size_of::<AtomicUsize>()
+        .checked_mul(2)?
+        .checked_add(align_of::<T>().saturating_sub(1))?
+        .checked_add(size_of::<T>())
+}
+
+fn arc_vec_owned_byte_bound<T>(value: &Arc<Vec<T>>) -> Option<usize> {
+    arc_payload_control_and_padding_byte_bound::<Vec<T>>()?
+        .checked_add(value.capacity().checked_mul(size_of::<T>())?)
 }
 
 pub(crate) enum GeneratedAffinePreparePointError {

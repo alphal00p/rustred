@@ -26,9 +26,13 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+
+#[cfg(test)]
+use std::sync::Weak;
 
 use crate::generated_affine_parametric_ordering::{
     GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingError,
@@ -496,6 +500,80 @@ impl GeneratedAffineResidualCaseReeliminationCertificate {
     pub(crate) fn elimination_stats(&self) -> ParametricEliminationStats {
         self.elimination.stats()
     }
+
+    /// Conservative retained-byte bound for every uniquely reachable pointee
+    /// below this re-elimination certificate.
+    ///
+    /// The certificate's own outer `Arc` control block is excluded for its
+    /// physical-row parent to charge. The common inventory pointee is also
+    /// excluded because the exact solve plan/frame own it independently.
+    /// `charge_authority_allocation` must be false only after the physical
+    /// frame proves exact pointer identity with this source authority; mere
+    /// shared-inventory ancestry is insufficient.
+    ///
+    /// Bound-row outcome controls are already explicit in the owner envelope.
+    /// Parent, direct owner-buffer, and elimination controls are charged
+    /// conservatively here rather than assigning meaning to the owner's
+    /// historical unlabeled fixed slack.
+    pub(crate) fn retained_source_graph_byte_bound(
+        &self,
+        charge_authority_allocation: bool,
+    ) -> Option<usize> {
+        let authority = if charge_authority_allocation {
+            arc_control_and_padding_byte_bound::<GeneratedAffineResidualCaseAuthority>()?
+                .checked_add(
+                    self.parents
+                        .authority
+                        .owner_retained_bytes_excluding_inventory(),
+                )?
+        } else {
+            0
+        };
+        let premises =
+            arc_control_and_padding_byte_bound::<GeneratedAffineResidualCasePremisesCertificate>()?
+                .checked_add(self.parents.premises.owner_retained_byte_envelope())?;
+        let ordering =
+            arc_control_and_padding_byte_bound::<GeneratedAffineParametricOrderingCertificate>()?
+                .checked_add(
+                self.parents
+                    .ordering
+                    .owner_retained_bytes_excluding_authority()?,
+            )?;
+        let schedule =
+            arc_control_and_padding_byte_bound::<GeneratedAffinePreparePointScheduleCertificate>()?
+                .checked_add(
+                    self.parents
+                        .schedule
+                        .owner_retained_bytes_excluding_ordering()?,
+                )?;
+        let direct_owner_arc_controls = arc_control_and_padding_byte_bound::<
+            Vec<GeneratedAffineResidualCaseReeliminationRowWitness>,
+        >()?
+        .checked_add(arc_control_and_padding_byte_bound::<Vec<ParametricRelation>>()?)?;
+        let elimination = arc_control_and_padding_byte_bound::<PreorderedParametricElimination>()?
+            .checked_add(self.elimination.stats().retained_bytes())?;
+
+        let mut bytes = self.stats.owner_retained_bytes();
+        for contribution in [
+            self.stats.cumulative_bound_row_retained_bytes(),
+            direct_owner_arc_controls,
+            elimination,
+            authority,
+            premises,
+            ordering,
+            schedule,
+        ] {
+            bytes = bytes.checked_add(contribution)?;
+        }
+        Some(bytes)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn elimination_weak_for_retained_graph_test(
+        &self,
+    ) -> Weak<PreorderedParametricElimination> {
+        Arc::downgrade(&self.elimination)
+    }
     pub(crate) fn elimination_source_manifest(&self) -> &str {
         self.elimination.source_manifest()
     }
@@ -591,6 +669,12 @@ impl GeneratedAffineResidualCaseReeliminationCertificate {
         }))
         .map_err(|_| GeneratedAffineResidualCaseReeliminationError::SymbolicaPanic)?
     }
+}
+
+fn arc_control_and_padding_byte_bound<T>() -> Option<usize> {
+    size_of::<AtomicUsize>()
+        .checked_mul(2)?
+        .checked_add(align_of::<T>().saturating_sub(1))
 }
 
 /// Complete expansion with no available equation.  This certificate is an

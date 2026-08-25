@@ -1,8 +1,10 @@
 # RustRed
 
 RustRed is a pure-Rust implementation of the LiteRed approach to parametric
-integration-by-parts (IBP) identities for Feynman integrals. Symbolica supplies
-the exact symbolic algebra.
+integration-by-parts (IBP) identities for Feynman integrals. Symbolica already
+supplies the main exact coefficient algebra and is the required target for all
+remaining production algebra; the status and roadmap below identify the
+pre-existing custom layers that still have to be migrated.
 
 RustRed does not invoke FORM or a Mathematica kernel. The checked-in build uses
 Symbolica's licensed GMP backend and deliberately does not enable `no_gmp`.
@@ -18,10 +20,11 @@ all of LiteRed.
 | Infer scalar parameters from family-defining expressions | Available |
 | Derive generic ordinary parametric IBPs | Available through `rustred derive` and the library |
 | Derive generic Lorentz-invariance identities | Available through `rustred derive` and the library |
-| Preserve symbolic nonzero conditions and replay evidence | Available in the library |
+| Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
+| Chronologically replay committed generated-affine exact-session transitions | Available for the current exact-session slice |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
-| Reproduce full LiteRed sector solving, rule publication, and exceptional-locus closure | **In progress** |
+| Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
 
 The important distinction is that `derive` constructs universal, fully
 parametric identities for the declared family. It does not choose masters or
@@ -179,6 +182,18 @@ The repository currently includes tests for:
 - typed NoTarget commit and affine-equality suspension: NoTarget commits the
   algebraic pivot while preserving every target, whereas an equality-bearing
   first target commits the pivot and seals the old solve epoch for refinement;
+- an opaque, session-owned recipe for every committed production or synthetic
+  source, with the exact dependent-reduction or new-pivot evidence retained by
+  shared ownership rather than reconstructed from public metadata; production
+  recipes admit the complete uniquely retained physical-row/re-elimination
+  graph while excluding only pointer-proven shared plan/frame/inventory
+  ancestry;
+- an owning prepared-database commit whose fallible authentication, resource
+  accounting, and allocation finish before its infallible commit tail;
+- a private chronological event ledger for the generic generated-affine exact
+  session, plus shadow replay which re-stages each opaque source and re-executes
+  its dependent, NoTarget, or affine-equality transition before comparing the
+  resulting evidence and terminal state;
 - one-loop scalar and tensor comparisons against frozen Vakint-derived oracles;
 - concrete two-loop sunset and three-loop tetrahedron scalar/tensor fixtures;
 - elementary factorized four- and five-loop fixtures which exercise the same
@@ -200,20 +215,36 @@ feature-gated validation material, not production topology dispatch.
 ## Current blockers and roadmap
 
 The transactional exact pivot database, hardest-first top reduction,
-session-owned exact recentering, typed NoTarget commit, and sealed
-affine-equality suspension are implemented. The immediate remaining solver
-work is the generic LiteRed-style continuation:
+session-owned exact recentering, typed NoTarget commit, sealed affine-equality
+suspension, private chronological event ledger, and shadow replay are
+implemented for the generic generated-affine exact-session slice. Committed
+events own opaque source recipes and exact evidence, and the owning prepared
+database transition has an infallible commit tail after all fallible work has
+completed.
 
-1. record every committed exact transition in a chronological replay ledger;
-2. compile and close `WhenBad` exceptional branches;
-3. atomically publish guarded rules and residual work;
-4. feed solved subsectors into supersectors and iterate residual cases; and
-5. expose a replay-certified complete reduction result.
+The first immediate algebra blocker is a pre-existing layer in
+[`src/exact.rs`](src/exact.rs): its fixed-width rational arithmetic and custom
+matrix routines must be migrated to Symbolica's GMP `Rational` and `Matrix`
+APIs, then its consumers revalidated. The public-API inventory and migration
+audit linked below record the Symbolica operations selected for that work.
+That is the B0 migration, not the end of the Symbolica-first cleanup: the audit
+also identifies remaining production matrix, polynomial, integer, and modular
+arithmetic at priorities P1 through P3. Each must cross the corresponding
+public Symbolica API before its algebraic milestone is complete.
 
-After that generic path is joined end to end, the next non-vacuum validation
-rung is an external scalar pentagon family. Once scalar reduction is certified,
-the same family will exercise the external-momentum tensor projector. This
-ordering keeps tensor validation from hiding unresolved scalar-sector gaps.
+Alongside that staged algebra migration, the remaining generic LiteRed-style
+solver work is to:
+
+1. compile and close `WhenBad` exceptional branches;
+2. atomically publish guarded rules and residual work;
+3. feed solved subsectors into supersectors and iterate residual cases; and
+4. expose a replay-certified complete reduction result.
+
+This checkpoint is not a complete LiteRed port, complete `WhenBad` or rule
+publication, an arbitrary one-loop pentagon reduction, or completion of the
+two- through five-loop reduction milestones. Those remain downstream of the
+generic end-to-end solver. Concrete multi-loop families currently serve only
+as bounded validation fixtures.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent
@@ -240,6 +271,8 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 - [LiteRed2 algorithm report](docs/research/litered2_algorithm_report.md)
 - [Generic IBP parity audit](docs/research/generic_ibp_litered_parity_audit_2026-08-13.md)
 - [Symbolica Rust API reference](docs/research/symbolica_rust_api_for_litered.md)
+- [Symbolica exact linear-algebra API inventory](docs/research/symbolica_exact_linear_algebra_api_inventory.md)
+- [Symbolica-first algebra migration audit](docs/research/symbolica_first_algebra_migration_audit_2026-08-24.md)
 - [Vakint/alphaLoop tensor and IBP audit](docs/research/vakint_alphaloop_tensor_ibp_audit.md)
 - [One- and two-loop validation audit](docs/research/one_two_loop_vacuum_validation_and_legacy_quarantine_2026-08-20.md)
 - [Exact-group database design](docs/research/litered_solvej_exact_group_database.md)

@@ -9,8 +9,10 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Write as _;
+use std::mem::{align_of, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use symbolica::prelude::Integer;
 
@@ -491,6 +493,18 @@ impl GeneratedAffineParametricOrderingCertificate {
         self.stable_manifest.as_str()
     }
 
+    /// Complete local owner graph for this ordering, excluding only the
+    /// authority pointee. The outer `Arc` control block of this certificate is
+    /// charged by its retaining parent graph. The manifest allocation is
+    /// included here and is consequently excluded from every prepare-point
+    /// key which shares it.
+    pub(crate) fn owner_retained_bytes_excluding_authority(&self) -> Option<usize> {
+        size_of::<Self>()
+            .checked_add(arc_vec_owned_byte_bound(&self.constant_positions)?)?
+            .checked_add(arc_vec_owned_byte_bound(&self.symbolic_positions)?)?
+            .checked_add(arc_string_owned_byte_bound(&self.stable_manifest)?)
+    }
+
     /// Replay requires the exact authority allocation retained at
     /// construction. An independently allocated value-equal authority is not
     /// substitutable, even if it owns the same inventory allocation.
@@ -655,6 +669,22 @@ impl GeneratedAffineParametricOrderingCertificate {
         );
         operation(&algebra)
     }
+}
+
+fn arc_payload_control_and_padding_byte_bound<T>() -> Option<usize> {
+    size_of::<AtomicUsize>()
+        .checked_mul(2)?
+        .checked_add(align_of::<T>().saturating_sub(1))?
+        .checked_add(size_of::<T>())
+}
+
+fn arc_vec_owned_byte_bound<T>(value: &Arc<Vec<T>>) -> Option<usize> {
+    arc_payload_control_and_padding_byte_bound::<Vec<T>>()?
+        .checked_add(value.capacity().checked_mul(size_of::<T>())?)
+}
+
+fn arc_string_owned_byte_bound(value: &Arc<String>) -> Option<usize> {
+    arc_payload_control_and_padding_byte_bound::<String>()?.checked_add(value.capacity())
 }
 
 #[derive(Clone, Copy)]
