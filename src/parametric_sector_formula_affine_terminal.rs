@@ -16,12 +16,17 @@ use crate::coordinate_equality_loci::{
     CoordinateEqualityLocusError, CoordinateEqualityLocusLimits,
     recognize_coordinate_locus_for_pruning,
 };
+use crate::exact_identity::{
+    ExactIdentityError, ExactIdentityLimits, ExactIdentityPayload, ExactIdentityWriter,
+    ExactStructuralIdentity, encode_exact_identity,
+};
 use crate::parametric_coefficient::{
     PreparedResidualAffineCompactGuardComposition, ResidualAffineCompactCompositionPlan,
     ResidualAffineCompactCompositionPlanLimits, ResidualAffineCompactMapView,
     ResidualUnitAffineCompositionError, ResidualUnitAffinePolynomialCompositionLimits,
     ResidualUnitAffinePolynomialCompositionStats,
 };
+use crate::parametric_sector_formula_ir::NormalizedBadLiteralPolarity;
 use crate::parametric_sector_formula_residual::{
     ParametricSectorFormulaResidualDecision, ParametricSectorFormulaResidualError,
     ParametricSectorFormulaResidualKind, ParametricSectorFormulaResidualPathCertificate,
@@ -35,6 +40,8 @@ use crate::{
 
 pub(crate) const PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_V1_SCHEMA: &str =
     "rustred-parametric-sector-formula-affine-terminal-v1";
+pub(crate) const PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-parametric-sector-formula-affine-terminal-stable-value-identity-v1";
 
 /// Independent resource envelope for one direct coordinate-affine terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -567,6 +574,55 @@ impl ParametricSectorFormulaAffineTerminalCertificate {
         self.stats
     }
 
+    /// Allocation-independent durable identity for the entire direct source
+    /// chain and this terminal's retained proof. Allocation ancestry remains
+    /// a separate replay invariant and is deliberately not serialized.
+    pub(crate) fn encode_durable_identity(
+        &self,
+        limits: ExactIdentityLimits,
+    ) -> Result<ExactStructuralIdentity, ExactIdentityError> {
+        encode_exact_identity(self, limits)
+    }
+
+    pub(crate) const fn durable_identity_schema(&self) -> &'static str {
+        PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_STABLE_VALUE_IDENTITY_V1_SCHEMA
+    }
+
+    fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 11)?;
+        writer.string(
+            "identity_schema",
+            PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("certificate_schema", self.schema)?;
+        self.path.write_stable_value_identity(writer, "path")?;
+        writer.begin_sequence("recognitions", self.recognitions.len())?;
+        for recognition in &self.recognitions {
+            write_coordinate_recognition_identity(writer, "recognition", *recognition)?;
+        }
+        writer.end_sequence()?;
+        writer.begin_sequence("unsupported_reasons", self.unsupported_reasons.len())?;
+        for reason in &self.unsupported_reasons {
+            write_unsupported_reason_identity(writer, "reason", *reason)?;
+        }
+        writer.end_sequence()?;
+        write_geometry_identity(writer, "geometry", self.geometry.as_ref())?;
+        write_compact_plan_option_identity(writer, "compact_plan", self.compact_plan.as_ref())?;
+        writer.begin_sequence("guards", self.guards.len())?;
+        for (ordinal, guard) in self.guards.iter().enumerate() {
+            write_guard_entry_identity(writer, "guard", ordinal, guard)?;
+        }
+        writer.end_sequence()?;
+        write_terminal_outcome_identity(writer, "outcome", self.outcome)?;
+        write_terminal_limits_identity(writer, "limits", self.limits)?;
+        write_terminal_stats_identity(writer, "stats", self.stats)?;
+        writer.end_record()
+    }
+
     /// Replay the exact path allocation and rebuild the complete terminal.
     pub(crate) fn replay(
         &self,
@@ -613,6 +669,555 @@ impl ParametricSectorFormulaAffineTerminalCertificate {
                 _ => false,
             }
     }
+}
+
+impl ExactIdentityPayload for ParametricSectorFormulaAffineTerminalCertificate {
+    const SCHEMA: &'static str =
+        PARAMETRIC_SECTOR_FORMULA_AFFINE_TERMINAL_STABLE_VALUE_IDENTITY_V1_SCHEMA;
+
+    fn write_exact_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+    ) -> Result<(), ExactIdentityError> {
+        self.write_stable_value_identity(writer, "terminal")
+    }
+}
+
+fn write_formula_residual_decision_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    decision: ParametricSectorFormulaResidualDecision,
+) -> Result<(), ExactIdentityError> {
+    let split = decision.split();
+    writer.begin_record(tag, 6)?;
+    writer.usize("source_attempt_ordinal", split.source_attempt_ordinal())?;
+    writer.usize("clause_ordinal", split.clause_ordinal())?;
+    writer.usize("literal_position", usize::from(split.literal_position()))?;
+    writer.usize("structural_locus_ordinal", split.structural_locus_ordinal())?;
+    writer.variant(
+        "bad_literal_polarity",
+        match split.bad_literal_polarity() {
+            NormalizedBadLiteralPolarity::EqualZero => "EqualZero",
+            NormalizedBadLiteralPolarity::NonZero => "NonZero",
+        },
+    )?;
+    writer.variant(
+        "branch_polarity",
+        match decision.polarity() {
+            ParametricSectorFormulaResidualPolarity::NonZero => "NonZero",
+            ParametricSectorFormulaResidualPolarity::EqualZero => "EqualZero",
+        },
+    )?;
+    writer.end_record()
+}
+
+fn write_coordinate_recognition_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    recognition: ParametricSectorFormulaAffineCoordinateRecognition,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.usize("decision_ordinal", recognition.decision_ordinal())?;
+    write_formula_residual_decision_identity(writer, "decision", recognition.decision())?;
+    writer.begin_record("coordinate", 2)?;
+    match recognition.coordinate() {
+        Some((index, value)) => {
+            writer.variant("variant", "Some")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("index", index)?;
+            writer.signed_i64("value", value)?;
+            writer.end_record()?;
+        }
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_unsupported_reason_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    reason: ParametricSectorFormulaAffineUnsupportedReason,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match reason {
+        ParametricSectorFormulaAffineUnsupportedReason::SourceTerminalUnsupported => {
+            writer.variant("variant", "SourceTerminalUnsupported")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+        ParametricSectorFormulaAffineUnsupportedReason::UnrecognizedEqualZero {
+            decision_ordinal,
+            decision,
+        } => {
+            writer.variant("variant", "UnrecognizedEqualZero")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("decision_ordinal", decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "decision", decision)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_geometry_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    geometry: Option<&ParametricSectorFormulaAffineCylinderGeometry>,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match geometry {
+        Some(geometry) => {
+            writer.variant("variant", "Some")?;
+            writer.begin_record("fields", 4)?;
+            writer.usize("ambient_arity", geometry.ambient_arity())?;
+            writer.begin_sequence("constants", geometry.constants().len())?;
+            for constant in geometry.constants() {
+                writer.integer("constant", constant)?;
+            }
+            writer.end_sequence()?;
+            writer.begin_sequence("free_positions", geometry.free_positions().len())?;
+            for &position in geometry.free_positions() {
+                writer.usize("position", position)?;
+            }
+            writer.end_sequence()?;
+            writer.begin_sequence(
+                "compact_linear_coefficients",
+                geometry.compact_linear_coefficients().len(),
+            )?;
+            for coefficient in geometry.compact_linear_coefficients() {
+                writer.integer("coefficient", coefficient)?;
+            }
+            writer.end_sequence()?;
+            writer.end_record()?;
+        }
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_compact_plan_option_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    plan: Option<&ResidualAffineCompactCompositionPlan>,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match plan {
+        Some(plan) => {
+            writer.variant("variant", "Some")?;
+            plan.write_stable_value_identity(writer, "value")?;
+        }
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("value", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_condition_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    condition: Option<&ParametricNonZeroCondition>,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match condition {
+        Some(condition) => {
+            writer.variant("variant", "Some")?;
+            writer.begin_record("fields", 2)?;
+            writer.polynomial("polynomial", condition.polynomial().raw())?;
+            writer.begin_sequence("origins", condition.origins().len())?;
+            for origin in condition.origins() {
+                writer.guard_origin("origin", origin)?;
+            }
+            writer.end_sequence()?;
+            writer.end_record()?;
+        }
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_guard_class_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    class: &ParametricSectorFormulaAffineGuardClass,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.variant(
+        "variant",
+        match class {
+            ParametricSectorFormulaAffineGuardClass::Contradiction(_) => "Contradiction",
+            ParametricSectorFormulaAffineGuardClass::DischargedNonzeroIntegerConstant(_) => {
+                "DischargedNonzeroIntegerConstant"
+            }
+            ParametricSectorFormulaAffineGuardClass::BaseAssumption(_) => "BaseAssumption",
+            ParametricSectorFormulaAffineGuardClass::FreeIndexDependent(_) => "FreeIndexDependent",
+        },
+    )?;
+    writer.polynomial("mapped_polynomial", class.mapped_polynomial().raw())?;
+    write_condition_identity(writer, "condition", class.condition())?;
+    writer.end_record()
+}
+
+fn write_guard_entry_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    ordinal: usize,
+    guard: &ParametricSectorFormulaAffineGuardEntry,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 5)?;
+    writer.usize("ordinal", ordinal)?;
+    writer.usize("decision_ordinal", guard.decision_ordinal())?;
+    write_formula_residual_decision_identity(writer, "decision", guard.decision())?;
+    write_guard_class_identity(writer, "class", guard.class())?;
+    crate::parametric_coefficient::write_residual_unit_affine_polynomial_composition_stats_identity(
+        writer,
+        "composition_stats",
+        guard.composition_stats(),
+    )?;
+    writer.end_record()
+}
+
+fn write_terminal_outcome_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    outcome: ParametricSectorFormulaAffineTerminalOutcome,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match outcome {
+        ParametricSectorFormulaAffineTerminalOutcome::ProvedEmpty(reason) => {
+            writer.variant("variant", "ProvedEmpty")?;
+            write_empty_reason_identity(writer, "fields", reason)?;
+        }
+        ParametricSectorFormulaAffineTerminalOutcome::Unsupported => {
+            writer.variant("variant", "Unsupported")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+        ParametricSectorFormulaAffineTerminalOutcome::Actionable => {
+            writer.variant("variant", "Actionable")?;
+            writer.begin_record("fields", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_empty_reason_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    reason: ParametricSectorFormulaAffineEmptyReason,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match reason {
+        ParametricSectorFormulaAffineEmptyReason::OrthantViolation {
+            decision_ordinal,
+            decision,
+            index,
+            value,
+            side,
+        } => {
+            writer.variant("variant", "OrthantViolation")?;
+            writer.begin_record("fields", 5)?;
+            writer.usize("decision_ordinal", decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "decision", decision)?;
+            writer.usize("index", index)?;
+            writer.signed_i64("value", value)?;
+            writer.variant(
+                "side",
+                match side {
+                    SectorOrthantSide::AtLeastOne => "AtLeastOne",
+                    SectorOrthantSide::AtMostZero => "AtMostZero",
+                },
+            )?;
+            writer.end_record()?;
+        }
+        ParametricSectorFormulaAffineEmptyReason::ConflictingFixedValues {
+            first_decision_ordinal,
+            first_decision,
+            second_decision_ordinal,
+            second_decision,
+            index,
+            first_value,
+            second_value,
+        } => {
+            writer.variant("variant", "ConflictingFixedValues")?;
+            writer.begin_record("fields", 7)?;
+            writer.usize("first_decision_ordinal", first_decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "first_decision", first_decision)?;
+            writer.usize("second_decision_ordinal", second_decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "second_decision", second_decision)?;
+            writer.usize("index", index)?;
+            writer.signed_i64("first_value", first_value)?;
+            writer.signed_i64("second_value", second_value)?;
+            writer.end_record()?;
+        }
+        ParametricSectorFormulaAffineEmptyReason::EqualityNonzeroCoordinateConflict {
+            equality_decision_ordinal,
+            equality_decision,
+            nonzero_decision_ordinal,
+            nonzero_decision,
+            index,
+            value,
+        } => {
+            writer.variant("variant", "EqualityNonzeroCoordinateConflict")?;
+            writer.begin_record("fields", 6)?;
+            writer.usize("equality_decision_ordinal", equality_decision_ordinal)?;
+            write_formula_residual_decision_identity(
+                writer,
+                "equality_decision",
+                equality_decision,
+            )?;
+            writer.usize("nonzero_decision_ordinal", nonzero_decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "nonzero_decision", nonzero_decision)?;
+            writer.usize("index", index)?;
+            writer.signed_i64("value", value)?;
+            writer.end_record()?;
+        }
+        ParametricSectorFormulaAffineEmptyReason::MappedNonzeroGuardContradiction {
+            guard_entry_ordinal,
+            decision_ordinal,
+            decision,
+        } => {
+            writer.variant("variant", "MappedNonzeroGuardContradiction")?;
+            writer.begin_record("fields", 3)?;
+            writer.usize("guard_entry_ordinal", guard_entry_ordinal)?;
+            writer.usize("decision_ordinal", decision_ordinal)?;
+            write_formula_residual_decision_identity(writer, "decision", decision)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_terminal_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricSectorFormulaAffineTerminalLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 4)?;
+    crate::parametric_sector_coverage::write_coordinate_locus_limits_identity(
+        writer,
+        "coordinate_loci",
+        limits.coordinate_loci,
+    )?;
+    crate::parametric_coefficient::write_compact_plan_limits_identity(
+        writer,
+        "compact_plan",
+        limits.compact_plan,
+    )?;
+    crate::parametric_coefficient::write_residual_unit_affine_polynomial_composition_limits_identity(
+        writer,
+        "guard_composition",
+        limits.guard_composition,
+    )?;
+    writer.begin_record("scalar_limits", 30)?;
+    writer.usize(
+        "max_family_fingerprint_bytes",
+        limits.max_family_fingerprint_bytes,
+    )?;
+    writer.usize(
+        "max_context_fingerprint_bytes",
+        limits.max_context_fingerprint_bytes,
+    )?;
+    writer.usize("max_ambient_arity", limits.max_ambient_arity)?;
+    writer.usize("max_decisions", limits.max_decisions)?;
+    writer.usize("max_recognition_entries", limits.max_recognition_entries)?;
+    writer.usize("max_unsupported_reasons", limits.max_unsupported_reasons)?;
+    writer.usize("max_excluded_coordinates", limits.max_excluded_coordinates)?;
+    writer.usize(
+        "max_excluded_coordinate_bytes",
+        limits.max_excluded_coordinate_bytes,
+    )?;
+    writer.usize(
+        "max_coordinate_conflict_comparisons",
+        limits.max_coordinate_conflict_comparisons,
+    )?;
+    writer.usize("max_fixed_coordinates", limits.max_fixed_coordinates)?;
+    writer.usize("max_free_positions", limits.max_free_positions)?;
+    writer.usize(
+        "max_compact_matrix_entries",
+        limits.max_compact_matrix_entries,
+    )?;
+    writer.usize(
+        "max_cylinder_geometry_capacity_bytes",
+        limits.max_cylinder_geometry_capacity_bytes,
+    )?;
+    writer.usize("max_guard_entries", limits.max_guard_entries)?;
+    writer.usize(
+        "max_prepared_guard_token_bytes",
+        limits.max_prepared_guard_token_bytes,
+    )?;
+    writer.usize(
+        "max_retained_guard_entry_bytes",
+        limits.max_retained_guard_entry_bytes,
+    )?;
+    writer.usize(
+        "max_total_guard_origin_retained_bytes",
+        limits.max_total_guard_origin_retained_bytes,
+    )?;
+    writer.usize(
+        "max_total_guard_source_terms",
+        limits.max_total_guard_source_terms,
+    )?;
+    writer.usize(
+        "max_total_guard_source_exponent_entries",
+        limits.max_total_guard_source_exponent_entries,
+    )?;
+    writer.usize(
+        "max_total_guard_expanded_contribution_bound",
+        limits.max_total_guard_expanded_contribution_bound,
+    )?;
+    writer.usize(
+        "max_total_guard_output_term_bound",
+        limits.max_total_guard_output_term_bound,
+    )?;
+    writer.usize(
+        "max_total_guard_output_terms",
+        limits.max_total_guard_output_terms,
+    )?;
+    writer.usize(
+        "max_total_guard_output_exponent_entry_bound",
+        limits.max_total_guard_output_exponent_entry_bound,
+    )?;
+    writer.usize(
+        "max_total_guard_output_exponent_entries",
+        limits.max_total_guard_output_exponent_entries,
+    )?;
+    writer.usize(
+        "max_total_guard_power_calls",
+        limits.max_total_guard_power_calls,
+    )?;
+    writer.usize(
+        "max_total_guard_native_power_heap_pairs",
+        limits.max_total_guard_native_power_heap_pairs,
+    )?;
+    writer.usize(
+        "max_total_guard_multiplication_term_pairs",
+        limits.max_total_guard_multiplication_term_pairs,
+    )?;
+    writer.usize(
+        "max_total_guard_addition_term_visits",
+        limits.max_total_guard_addition_term_visits,
+    )?;
+    writer.usize(
+        "max_total_guard_native_integer_bit_work_bound",
+        limits.max_total_guard_native_integer_bit_work_bound,
+    )?;
+    writer.usize(
+        "max_total_guard_integer_bit_work_bound",
+        limits.max_total_guard_integer_bit_work_bound,
+    )?;
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_guard_composition_aggregate_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorFormulaAffineGuardCompositionStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 15)?;
+    writer.usize("source_terms", stats.source_terms())?;
+    writer.usize("source_exponent_entries", stats.source_exponent_entries())?;
+    writer.usize(
+        "expanded_contribution_bound",
+        stats.expanded_contribution_bound(),
+    )?;
+    writer.usize("output_term_bound", stats.output_term_bound())?;
+    writer.usize("output_terms", stats.output_terms())?;
+    writer.usize(
+        "output_exponent_entry_bound",
+        stats.output_exponent_entry_bound(),
+    )?;
+    writer.usize("output_exponent_entries", stats.output_exponent_entries())?;
+    writer.usize("power_calls", stats.power_calls())?;
+    writer.usize("native_power_heap_pairs", stats.native_power_heap_pairs())?;
+    writer.usize(
+        "multiplication_term_pairs",
+        stats.multiplication_term_pairs(),
+    )?;
+    writer.usize("addition_term_visits", stats.addition_term_visits())?;
+    writer.usize(
+        "largest_kronecker_exponent_bits",
+        stats.largest_kronecker_exponent_bits(),
+    )?;
+    writer.usize(
+        "largest_integer_coefficient_bit_bound",
+        stats.largest_integer_coefficient_bit_bound(),
+    )?;
+    writer.usize(
+        "native_integer_bit_work_bound",
+        stats.native_integer_bit_work_bound(),
+    )?;
+    writer.usize("integer_bit_work_bound", stats.integer_bit_work_bound())?;
+    writer.end_record()
+}
+
+fn write_terminal_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorFormulaAffineTerminalStats,
+) -> Result<(), ExactIdentityError> {
+    // Allocator capacities and all `size_of`-derived byte envelopes are
+    // intentionally excluded. They remain replay diagnostics, not stable
+    // mathematical value, and can change across targets or allocators.
+    writer.begin_record(tag, 17)?;
+    writer.usize("decisions", stats.decisions())?;
+    writer.usize("coordinate_recognitions", stats.coordinate_recognitions())?;
+    writer.usize(
+        "recognized_coordinate_loci",
+        stats.recognized_coordinate_loci(),
+    )?;
+    writer.usize(
+        "unrecognized_equal_zero_loci",
+        stats.unrecognized_equal_zero_loci(),
+    )?;
+    writer.usize("excluded_coordinates", stats.excluded_coordinates())?;
+    writer.usize(
+        "coordinate_conflict_comparisons",
+        stats.coordinate_conflict_comparisons(),
+    )?;
+    writer.usize("fixed_coordinates", stats.fixed_coordinates())?;
+    writer.usize("free_positions", stats.free_positions())?;
+    writer.usize("compact_matrix_entries", stats.compact_matrix_entries())?;
+    writer.usize("unsupported_reasons", stats.unsupported_reasons())?;
+    writer.usize("guard_entries", stats.guard_entries())?;
+    writer.usize("guard_contradictions", stats.guard_contradictions())?;
+    writer.usize(
+        "discharged_nonzero_integer_constants",
+        stats.discharged_nonzero_integer_constants(),
+    )?;
+    writer.usize("base_assumptions", stats.base_assumptions())?;
+    writer.usize(
+        "free_index_dependent_conditions",
+        stats.free_index_dependent_conditions(),
+    )?;
+    write_guard_composition_aggregate_stats_identity(
+        writer,
+        "guard_preflight",
+        stats.guard_preflight(),
+    )?;
+    write_guard_composition_aggregate_stats_identity(
+        writer,
+        "guard_execution",
+        stats.guard_execution(),
+    )?;
+    writer.end_record()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2232,6 +2837,214 @@ mod tests {
                 limit: 0,
             })
         ));
+    }
+
+    #[test]
+    fn durable_identity_is_allocation_independent_limit_sensitive_and_exactly_bounded() {
+        fn compile(
+            name: &str,
+            max_ambient_arity: usize,
+        ) -> ParametricSectorFormulaAffineTerminalCertificate {
+            let (family, context, nonempty) = one_loop_source(name);
+            let empty = Arc::new(
+                ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                    &family,
+                    &context,
+                    nonempty.sector().clone(),
+                    IntegralOrderingPolicy::RustRedUnshiftedV1,
+                    Vec::new(),
+                    ParametricSectorNormalizedCoverageSourceLimits::default(),
+                )
+                .unwrap(),
+            );
+            let path = first_path(
+                &family,
+                &context,
+                empty,
+                ParametricSectorFormulaResidualRequest::Uncovered,
+            );
+            let mut limits = ParametricSectorFormulaAffineTerminalLimits::default();
+            limits.max_ambient_arity = max_ambient_arity;
+            ParametricSectorFormulaAffineTerminalCompiler::compile(&family, &context, path, limits)
+                .unwrap()
+        }
+
+        let left = compile("affine-terminal-durable-identity", 1);
+        let right = compile("affine-terminal-durable-identity", 1);
+        assert!(!left.same_path_allocation(right.path_arc()));
+        let left_identity = left
+            .encode_durable_identity(ExactIdentityLimits::default())
+            .unwrap();
+        let right_identity = right
+            .encode_durable_identity(ExactIdentityLimits::default())
+            .unwrap();
+        assert_eq!(left_identity.as_str(), right_identity.as_str());
+
+        let looser = compile("affine-terminal-durable-identity", 2);
+        let looser_identity = looser
+            .encode_durable_identity(ExactIdentityLimits::default())
+            .unwrap();
+        assert_ne!(left_identity.as_str(), looser_identity.as_str());
+
+        let stats = left_identity.stats();
+        let exact = ExactIdentityLimits {
+            max_identity_bytes: stats.identity_bytes(),
+            max_fields: stats.fields(),
+            max_tag_bytes: stats.tag_bytes(),
+            max_string_values: stats.string_values(),
+            max_string_bytes: stats.string_bytes(),
+            max_nesting_depth: stats.maximum_nesting_depth(),
+            max_polynomials: stats.polynomials(),
+            max_polynomial_variables: stats.polynomial_variables(),
+            max_polynomial_terms: stats.polynomial_terms(),
+            max_exponent_entries: stats.exponent_entries(),
+            max_integers: stats.integers(),
+            max_integer_bits: stats.integer_bits(),
+        };
+        assert_eq!(
+            left.encode_durable_identity(exact).unwrap().as_str(),
+            left_identity.as_str()
+        );
+        let mut one_below = exact;
+        one_below.max_identity_bytes -= 1;
+        assert!(matches!(
+            left.encode_durable_identity(one_below),
+            Err(ExactIdentityError::ResourceLimit {
+                resource: "exact structural identity bytes",
+                requested,
+                limit,
+            }) if requested == stats.identity_bytes() && limit + 1 == requested
+        ));
+    }
+
+    #[test]
+    fn durable_identity_encodes_nonempty_generated_attempt_chain_exactly() {
+        fn compile(
+            name: &str,
+        ) -> (
+            IntegralFamily,
+            ParametricCoefficientContext,
+            ParametricSectorFormulaAffineTerminalCertificate,
+        ) {
+            let (family, context, source) = one_loop_source(name);
+            assert!(!source.attempts().is_empty());
+            let path = first_path(
+                &family,
+                &context,
+                source,
+                ParametricSectorFormulaResidualRequest::AnyResidual,
+            );
+            let terminal = ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap();
+            (family, context, terminal)
+        }
+
+        let (left_family, left_context, left) =
+            compile("affine-terminal-nonempty-durable-identity");
+        let (right_family, right_context, right) =
+            compile("affine-terminal-nonempty-durable-identity");
+        left.replay(&left_family, &left_context).unwrap();
+        right.replay(&right_family, &right_context).unwrap();
+        assert!(!left.same_path_allocation(right.path_arc()));
+
+        let left_identity = left
+            .encode_durable_identity(ExactIdentityLimits::default())
+            .unwrap();
+        let right_identity = right
+            .encode_durable_identity(ExactIdentityLimits::default())
+            .unwrap();
+        assert_eq!(left_identity.as_str(), right_identity.as_str());
+        assert!(left_identity.as_str().contains("source_authentication"));
+        assert!(left_identity.as_str().contains("admissibility"));
+
+        let stats = left_identity.stats();
+        let exact = ExactIdentityLimits {
+            max_identity_bytes: stats.identity_bytes(),
+            max_fields: stats.fields(),
+            max_tag_bytes: stats.tag_bytes(),
+            max_string_values: stats.string_values(),
+            max_string_bytes: stats.string_bytes(),
+            max_nesting_depth: stats.maximum_nesting_depth(),
+            max_polynomials: stats.polynomials(),
+            max_polynomial_variables: stats.polynomial_variables(),
+            max_polynomial_terms: stats.polynomial_terms(),
+            max_exponent_entries: stats.exponent_entries(),
+            max_integers: stats.integers(),
+            max_integer_bits: stats.integer_bits(),
+        };
+        assert_eq!(
+            left.encode_durable_identity(exact).unwrap().as_str(),
+            left_identity.as_str()
+        );
+        let mut one_below = exact;
+        one_below.max_fields -= 1;
+        assert!(matches!(
+            left.encode_durable_identity(one_below),
+            Err(ExactIdentityError::ResourceLimit {
+                resource: "exact structural identity fields",
+                requested,
+                limit,
+            }) if requested <= stats.fields() && requested > limit && limit + 1 == stats.fields()
+        ));
+    }
+
+    #[test]
+    fn durable_identity_distinguishes_residual_requests_with_same_terminal_geometry() {
+        let (family, context, nonempty) = one_loop_source("affine-terminal-request-identity");
+        let empty = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                nonempty.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                Vec::new(),
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        let any_path = first_path(
+            &family,
+            &context,
+            Arc::clone(&empty),
+            ParametricSectorFormulaResidualRequest::AnyResidual,
+        );
+        let uncovered_path = first_path(
+            &family,
+            &context,
+            empty,
+            ParametricSectorFormulaResidualRequest::Uncovered,
+        );
+        let any = ParametricSectorFormulaAffineTerminalCompiler::compile(
+            &family,
+            &context,
+            any_path,
+            ParametricSectorFormulaAffineTerminalLimits::default(),
+        )
+        .unwrap();
+        let uncovered = ParametricSectorFormulaAffineTerminalCompiler::compile(
+            &family,
+            &context,
+            uncovered_path,
+            ParametricSectorFormulaAffineTerminalLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(any.outcome(), uncovered.outcome());
+        assert_eq!(any.geometry(), uncovered.geometry());
+        assert_eq!(any.recognitions(), uncovered.recognitions());
+        assert_ne!(
+            any.encode_durable_identity(ExactIdentityLimits::default())
+                .unwrap()
+                .as_str(),
+            uncovered
+                .encode_durable_identity(ExactIdentityLimits::default())
+                .unwrap()
+                .as_str()
+        );
     }
 
     #[test]

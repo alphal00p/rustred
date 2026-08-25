@@ -25,7 +25,6 @@
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::fmt;
-use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::mem::{align_of, replace, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -37,7 +36,7 @@ use symbolica::prelude::Integer;
 use crate::affine_parametric_ordering::integer_magnitude_bits;
 use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
-    GeneratedAffineResidualInventoryCaseSourceRecordView,
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRecordView,
     GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::{
@@ -46,6 +45,8 @@ use crate::{
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-physical-frame-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-physical-frame-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_KEY_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-physical-key-v1";
 
@@ -53,6 +54,19 @@ const AUTHORITY_REPLAYS: usize = 1;
 const CASE_VIEW_RESOLUTIONS: usize = 1;
 const GROUP_VIEW_RESOLUTIONS: usize = 1;
 const RETAINED_AUTHORITY_REFERENCES: usize = 1;
+
+const fn physical_frame_schema_for_source(
+    source: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
+        }
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -917,8 +931,8 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
             return Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongContext);
         }
         authority.replay(family, context)?;
-        let case = authority.authenticated_case_view(context)?;
-        let group = authority.authenticated_group_view(context)?;
+        let case = authority.authenticated_source_neutral_case_view(context)?;
+        let group = authority.authenticated_source_neutral_group_view(context)?;
         validate_group_binding(authority.as_ref(), case, group)?;
 
         let arity = authority.arity();
@@ -1236,7 +1250,7 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
             manifest_bytes,
         };
         Ok(Self {
-            schema: GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA,
+            schema: physical_frame_schema_for_source(authority.source_kind()),
             source_case_ordinal: authority.case_ordinal(),
             source_ordinal_within_group: source_position,
             group_ordinal: authority.group_ordinal(),
@@ -2199,7 +2213,7 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
         authority: &Arc<GeneratedAffineResidualCaseAuthority>,
     ) -> Result<(), GeneratedAffineResidualGroupPhysicalKeyError> {
         catch_unwind(AssertUnwindSafe(|| {
-            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA {
+            if self.schema != physical_frame_schema_for_source(authority.source_kind()) {
                 return Err(GeneratedAffineResidualGroupPhysicalKeyError::SchemaMismatch);
             }
             if !Arc::ptr_eq(&self.authority, authority) {
@@ -2233,12 +2247,12 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
         source: &Arc<GeneratedAffineResidualCaseAuthority>,
     ) -> Result<(), GeneratedAffineResidualGroupPhysicalKeyError> {
         catch_unwind(AssertUnwindSafe(|| {
-            if !self.authority.same_inventory_allocation_as(source.as_ref()) {
+            if !self.authority.same_source_allocation_as(source.as_ref()) {
                 return Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongAuthorityAllocation);
             }
             source.replay(family, context)?;
-            let source_case = source.authenticated_case_view(context)?;
-            let source_group = source.authenticated_group_view(context)?;
+            let source_case = source.authenticated_source_neutral_case_view(context)?;
+            let source_group = source.authenticated_source_neutral_group_view(context)?;
             if source_case.ordinal() != source.case_ordinal()
                 || source_case.group_ordinal() != self.group_ordinal
                 || source_group.ordinal() != self.group_ordinal
@@ -2259,7 +2273,7 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
 
 fn validate_group_binding(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<(), GeneratedAffineResidualGroupPhysicalKeyError> {
     if case.ordinal() != authority.case_ordinal() {
@@ -2906,7 +2920,7 @@ fn ceil_log2(value: usize) -> usize {
 
 fn manifest_exact_bytes(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     anchor_constants: &GeneratedAffineResidualGroupLatticeShift,
     limits: GeneratedAffineResidualGroupPhysicalKeyLimits,
@@ -2939,7 +2953,7 @@ fn manifest_exact_bytes(
 
 fn render_manifest(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     anchor_constants: &GeneratedAffineResidualGroupLatticeShift,
     limits: GeneratedAffineResidualGroupPhysicalKeyLimits,
@@ -2974,7 +2988,7 @@ fn render_manifest(
 fn write_manifest_with_integer_writer<W, F>(
     output: &mut W,
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     anchor_constants: &GeneratedAffineResidualGroupLatticeShift,
     limits: GeneratedAffineResidualGroupPhysicalKeyLimits,
@@ -2984,9 +2998,29 @@ where
     W: fmt::Write,
     F: FnMut(&mut W, &Integer) -> fmt::Result,
 {
+    match authority.source_kind() {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            output.write_str(GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA)?
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            let identity = authority
+                .stable_value_identity()
+                .filter(|identity| identity.kind() == authority.source_kind())
+                .ok_or(fmt::Error)?;
+            write!(
+                output,
+                "{GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA}|source=direct-formula-singleton|source-identity-kind={}|source-identity-schema-bytes={}:{}|source-identity-bytes={}:{}",
+                identity.kind().stable_id(),
+                identity.schema().len(),
+                identity.schema(),
+                identity.bytes().len(),
+                identity.bytes(),
+            )?;
+        }
+    }
     write!(
         output,
-        "{GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA}|integer-encoding=sign-magnitude-hex-v1|family-bytes={}:{}|context-bytes={}:{}|policy={}|sector={}|source-case={}|source-within-group={}|group={}|anchor-case={}|arity={}|cases=[",
+        "|integer-encoding=sign-magnitude-hex-v1|family-bytes={}:{}|context-bytes={}:{}|policy={}|sector={}|source-case={}|source-within-group={}|group={}|anchor-case={}|arity={}|cases=[",
         authority.family_fingerprint().len(),
         authority.family_fingerprint(),
         authority.context_fingerprint().len(),

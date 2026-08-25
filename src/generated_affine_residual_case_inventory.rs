@@ -17,6 +17,9 @@ use std::cell::Cell;
 
 use symbolica::domains::integer::Integer;
 
+use crate::exact_identity::{
+    ExactIdentityError, ExactIdentityLimits, ExactIdentityStats, ExactStructuralIdentity,
+};
 use crate::generated_affine_initial_global_affine_terminal::{
     GENERATED_AFFINE_INITIAL_GLOBAL_AFFINE_TERMINAL_V1_SCHEMA,
     GeneratedAffineInitialGlobalAffineGuardedSourceView,
@@ -801,6 +804,7 @@ pub(crate) struct GeneratedAffineResidualCaseAuthorityLimits {
     pub(crate) max_direct_anchor_offset_entries: usize,
     pub(crate) max_direct_anchor_offset_integer_bits: usize,
     pub(crate) max_direct_anchor_offset_bytes: usize,
+    pub(crate) direct_source_identity: ExactIdentityLimits,
     pub(crate) authentication: GeneratedAffineResidualInventoryAuthenticationLimits,
 }
 
@@ -830,6 +834,7 @@ impl Default for GeneratedAffineResidualCaseAuthorityLimits {
             max_direct_anchor_offset_entries: 1_000_000,
             max_direct_anchor_offset_integer_bits: VERY_LARGE,
             max_direct_anchor_offset_bytes: VERY_LARGE,
+            direct_source_identity: ExactIdentityLimits::default(),
             authentication: GeneratedAffineResidualInventoryAuthenticationLimits::default(),
         }
     }
@@ -859,6 +864,7 @@ pub(crate) struct GeneratedAffineResidualCaseAuthorityStats {
     direct_anchor_offset_entries: usize,
     direct_anchor_offset_integer_bits: usize,
     direct_anchor_offset_bytes: usize,
+    direct_source_identity: ExactIdentityStats,
     direct_owner_retained_bytes_excluding_source: usize,
     authentication: GeneratedAffineResidualInventoryAuthenticationStats,
 }
@@ -929,6 +935,9 @@ impl GeneratedAffineResidualCaseAuthorityStats {
     }
     pub(crate) const fn direct_anchor_offset_bytes(self) -> usize {
         self.direct_anchor_offset_bytes
+    }
+    pub(crate) const fn direct_source_identity(self) -> ExactIdentityStats {
+        self.direct_source_identity
     }
     pub(crate) const fn direct_owner_retained_bytes_excluding_source(self) -> usize {
         self.direct_owner_retained_bytes_excluding_source
@@ -1459,6 +1468,7 @@ pub(crate) enum GeneratedAffineResidualCaseAuthorityError {
         resource: &'static str,
         requested: usize,
     },
+    StableIdentity(ExactIdentityError),
     Inventory(GeneratedAffineResidualCaseInventoryError),
     SymbolicaPanic,
 }
@@ -1484,6 +1494,7 @@ impl fmt::Debug for GeneratedAffineResidualCaseAuthorityError {
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
             Self::ResourceLimit { .. } => "ResourceLimit",
             Self::AllocationFailure { .. } => "AllocationFailure",
+            Self::StableIdentity(_) => "StableIdentity",
             Self::Inventory(_) => "Inventory",
             Self::SymbolicaPanic => "SymbolicaPanic",
         };
@@ -1543,6 +1554,9 @@ impl fmt::Display for GeneratedAffineResidualCaseAuthorityError {
             Self::AllocationFailure { .. } => {
                 formatter.write_str("residual case authority allocation failed")
             }
+            Self::StableIdentity(_) => {
+                formatter.write_str("residual case authority stable source identity failed")
+            }
             Self::Inventory(_) => {
                 formatter.write_str("residual case authority inventory authentication failed")
             }
@@ -1561,7 +1575,44 @@ enum GeneratedAffineResidualCaseAuthoritySource {
     DirectFormulaSingleton {
         terminal: Arc<ParametricSectorFormulaAffineTerminalCertificate>,
         anchor_offsets: Arc<Vec<Vec<Integer>>>,
+        stable_identity: ExactStructuralIdentity,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GeneratedAffineResidualCaseAuthoritySourceKind {
+    LegacyInventory,
+    DirectFormulaSingleton,
+}
+
+impl GeneratedAffineResidualCaseAuthoritySourceKind {
+    pub(crate) const fn stable_id(self) -> &'static str {
+        match self {
+            Self::LegacyInventory => "LegacyInventory",
+            Self::DirectFormulaSingleton => "DirectFormulaSingleton",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualCaseStableValueIdentityView<'source> {
+    kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+    schema: &'static str,
+    bytes: &'source str,
+}
+
+impl<'source> GeneratedAffineResidualCaseStableValueIdentityView<'source> {
+    pub(crate) const fn kind(self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.kind
+    }
+
+    pub(crate) const fn schema(self) -> &'static str {
+        self.schema
+    }
+
+    pub(crate) const fn bytes(self) -> &'source str {
+        self.bytes
+    }
 }
 
 /// Allocation-bound authority for one source-neutral actionable case.  The
@@ -1807,6 +1858,10 @@ impl GeneratedAffineResidualCaseAuthority {
                 }
             }
 
+            let stable_identity = terminal
+                .encode_durable_identity(limits.direct_source_identity)
+                .map_err(GeneratedAffineResidualCaseAuthorityError::StableIdentity)?;
+
             let mut zero_offset = Vec::new();
             zero_offset.try_reserve_exact(anchor_entries).map_err(|_| {
                 GeneratedAffineResidualCaseAuthorityError::AllocationFailure {
@@ -1853,13 +1908,18 @@ impl GeneratedAffineResidualCaseAuthority {
             )?;
             let direct_owner_retained_bytes_excluding_source = case_authority_checked_add(
                 "direct case-authority retained bytes excluding source",
-                size_of::<Self>(),
-                observed_anchor_bytes,
+                case_authority_checked_add(
+                    "direct case-authority retained bytes excluding source",
+                    size_of::<Self>(),
+                    observed_anchor_bytes,
+                )?,
+                case_authority_arc_string_owned_byte_bound(stable_identity.bytes())?,
             )?;
             Ok(Self {
                 source: GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
                     terminal,
                     anchor_offsets: Arc::new(offsets),
+                    stable_identity: stable_identity.clone(),
                 },
                 case_ordinal: 0,
                 group_ordinal: 0,
@@ -1874,6 +1934,7 @@ impl GeneratedAffineResidualCaseAuthority {
                     direct_anchor_offset_entries: anchor_entries,
                     direct_anchor_offset_integer_bits: 0,
                     direct_anchor_offset_bytes: observed_anchor_bytes,
+                    direct_source_identity: stable_identity.stats(),
                     direct_owner_retained_bytes_excluding_source,
                     ..GeneratedAffineResidualCaseAuthorityStats::default()
                 },
@@ -1971,6 +2032,37 @@ impl GeneratedAffineResidualCaseAuthority {
             GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
                 terminal, ..
             } => terminal.path_arc().source_arc().row_span().rows().len(),
+        }
+    }
+
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => {
+                GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton { .. } => {
+                GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+            }
+        }
+    }
+
+    /// Stable value identity for a direct formula source. Independently
+    /// allocated payload-equal sources encode to the same bytes; allocation
+    /// ancestry remains a separate replay requirement.
+    pub(crate) fn stable_value_identity(
+        &self,
+    ) -> Option<GeneratedAffineResidualCaseStableValueIdentityView<'_>> {
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => None,
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal,
+                stable_identity,
+                ..
+            } => Some(GeneratedAffineResidualCaseStableValueIdentityView {
+                kind: GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton,
+                schema: terminal.durable_identity_schema(),
+                bytes: stable_identity.as_str(),
+            }),
         }
     }
 
@@ -2183,6 +2275,7 @@ impl GeneratedAffineResidualCaseAuthority {
             GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
                 terminal,
                 anchor_offsets,
+                ..
             } => {
                 let geometry = terminal.geometry().ok_or(
                     GeneratedAffineResidualCaseAuthorityError::DirectTerminalGeometryMissing,
@@ -2570,6 +2663,7 @@ impl GeneratedAffineResidualCaseAuthority {
                 GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
                     terminal,
                     anchor_offsets,
+                    stable_identity,
                 } => {
                     let scope_comparison_bytes = direct_case_authority_validate_scope(
                         terminal.as_ref(),
@@ -2663,10 +2757,20 @@ impl GeneratedAffineResidualCaseAuthority {
                         observed_anchor_bytes,
                         self.limits.max_direct_anchor_offset_bytes,
                     )?;
+                    terminal
+                        .replay(family, context)
+                        .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
+                    let rebuilt_identity = terminal
+                        .encode_durable_identity(self.limits.direct_source_identity)
+                        .map_err(GeneratedAffineResidualCaseAuthorityError::StableIdentity)?;
                     let owner_retained = case_authority_checked_add(
                         "direct case-authority retained bytes excluding source",
-                        size_of::<Self>(),
-                        observed_anchor_bytes,
+                        case_authority_checked_add(
+                            "direct case-authority retained bytes excluding source",
+                            size_of::<Self>(),
+                            observed_anchor_bytes,
+                        )?,
+                        case_authority_arc_string_owned_byte_bound(stable_identity.bytes())?,
                     )?;
                     let expected_stats = GeneratedAffineResidualCaseAuthorityStats {
                         scope_comparison_bytes,
@@ -2678,17 +2782,16 @@ impl GeneratedAffineResidualCaseAuthority {
                         direct_anchor_offset_entries: anchor_entries,
                         direct_anchor_offset_integer_bits: 0,
                         direct_anchor_offset_bytes: observed_anchor_bytes,
+                        direct_source_identity: stable_identity.stats(),
                         direct_owner_retained_bytes_excluding_source: owner_retained,
                         ..GeneratedAffineResidualCaseAuthorityStats::default()
                     };
                     if self.stats != expected_stats
+                        || rebuilt_identity != *stable_identity
                         || anchor_offsets[0].iter().any(|value| !value.is_zero())
                     {
                         return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
                     }
-                    terminal
-                        .replay(family, context)
-                        .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SourceBinding)?;
                     Ok(())
                 }
             }
@@ -2936,6 +3039,16 @@ fn case_authority_arc_payload_control_and_padding_byte_bound<T>()
     case_authority_checked_sum(
         "direct singleton anchor-offset bytes",
         [controls, padding, size_of::<T>()],
+    )
+}
+
+fn case_authority_arc_string_owned_byte_bound(
+    value: &Arc<String>,
+) -> Result<usize, GeneratedAffineResidualCaseAuthorityError> {
+    case_authority_checked_add(
+        "direct stable source-identity bytes",
+        case_authority_arc_payload_control_and_padding_byte_bound::<String>()?,
+        value.capacity(),
     )
 }
 
@@ -8821,8 +8934,8 @@ mod tests {
 
     use super::*;
     use crate::generated_affine_parametric_ordering::{
-        GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingError,
-        GeneratedAffineParametricOrderingLimits,
+        GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA,
+        GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
     };
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
@@ -8833,8 +8946,8 @@ mod tests {
         compile_generated_affine_residual_case_premises,
     };
     use crate::generated_affine_residual_group_physical_key::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
-        GeneratedAffineResidualGroupPhysicalKeyLimits,
+        GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_affine_residual_source_authority::{
@@ -9145,26 +9258,33 @@ mod tests {
             authority.authenticated_group_view(&context),
             Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding)
         ));
-        assert!(matches!(
-            GeneratedAffineParametricOrderingCertificate::try_new(
-                &family,
-                &context,
-                Arc::clone(&authority),
-                GeneratedAffineParametricOrderingLimits::default(),
-            ),
-            Err(GeneratedAffineParametricOrderingError::Authority(
-                GeneratedAffineResidualCaseAuthorityError::SourceBinding
-            ))
-        ));
-        assert!(matches!(
-            GeneratedAffineResidualGroupPhysicalFrame::try_new(
-                &family,
-                &context,
-                Arc::clone(&authority),
-                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
-            ),
-            Err(GeneratedAffineResidualGroupPhysicalKeyError::Authority)
-        ));
+        let ordering = GeneratedAffineParametricOrderingCertificate::try_new(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            GeneratedAffineParametricOrderingLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            ordering.schema(),
+            GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA
+        );
+        assert_eq!(ordering.case_ordinal(), 0);
+        assert_eq!(ordering.group_ordinal(), 0);
+        ordering.replay(&family, &context, &authority).unwrap();
+        let frame = GeneratedAffineResidualGroupPhysicalFrame::try_new(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            frame.schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
+        );
+        assert_eq!(frame.case_ordinals(), &[0]);
+        frame.replay(&family, &context, &authority).unwrap();
 
         let case = authority
             .authenticated_source_neutral_case_view(&context)
@@ -9323,6 +9443,8 @@ mod tests {
             }) if requested == selected_relation_terms && limit + 1 == selected_relation_terms
         ));
         authority.replay(&family, &context).unwrap();
+        drop(frame);
+        drop(ordering);
         drop(authority);
         assert_eq!(weak_terminal.strong_count(), 0);
         assert_eq!(weak_path.strong_count(), 0);

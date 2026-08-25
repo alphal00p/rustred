@@ -21,6 +21,7 @@ use crate::parametric_relation::{
     ParametricRelation, ParametricRelationV2Observer, write_relation_manifest_v2_observed,
     write_typed_polynomial,
 };
+use crate::{Coefficient, CoefficientLocation, GuardOrigin, GuardRowId};
 
 pub(crate) const EXACT_STRUCTURAL_IDENTITY_V1_SCHEMA: &str = "rustred-exact-structural-identity-v1";
 
@@ -210,6 +211,10 @@ pub(crate) enum ExactIdentityError {
         resource: &'static str,
         requested: usize,
     },
+    ReferenceBindingMismatch {
+        reference: &'static str,
+        ordinal: usize,
+    },
     ImplementationNestingLimit {
         requested: usize,
         limit: usize,
@@ -263,6 +268,10 @@ impl fmt::Display for ExactIdentityError {
             } => write!(
                 formatter,
                 "could not reserve {requested} bytes for {resource}"
+            ),
+            Self::ReferenceBindingMismatch { reference, ordinal } => write!(
+                formatter,
+                "exact structural identity {reference} reference at ordinal {ordinal} does not match its owning payload"
             ),
             Self::ImplementationNestingLimit { requested, limit } => write!(
                 formatter,
@@ -596,6 +605,45 @@ impl<'a> ExactIdentityWriter<'a> {
         self.sink.write_text(";")
     }
 
+    /// Write an architecture-neutral semantic `u64`, charging its exact
+    /// magnitude to the integer census.  This is distinct from [`Self::u128`],
+    /// whose fixed-width values are reserved for structural/self-census data.
+    pub(crate) fn unsigned_u64(&mut self, tag: &str, value: u64) -> Result<(), ExactIdentityError> {
+        self.observe_leaf(tag)?;
+        self.observe_unsigned(u128::from(value))?;
+        self.write_tag_header("N", tag)?;
+        self.sink.write_text("=")?;
+        self.sink.write_arguments(format_args!("{value:X}"))?;
+        self.sink.write_text(";")
+    }
+
+    /// Write an architecture-neutral semantic `u128`, charging its exact
+    /// magnitude to the integer census.
+    pub(crate) fn unsigned_u128(
+        &mut self,
+        tag: &str,
+        value: u128,
+    ) -> Result<(), ExactIdentityError> {
+        self.observe_leaf(tag)?;
+        self.observe_unsigned(value)?;
+        self.write_tag_header("W", tag)?;
+        self.sink.write_text("=")?;
+        self.sink.write_arguments(format_args!("{value:X}"))?;
+        self.sink.write_text(";")
+    }
+
+    /// Write one signed semantic `i128` in canonical sign-magnitude form.
+    pub(crate) fn signed_i128(&mut self, tag: &str, value: i128) -> Result<(), ExactIdentityError> {
+        self.observe_leaf(tag)?;
+        self.observe_integer_bits((i128::BITS - value.unsigned_abs().leading_zeros()) as usize)?;
+        self.write_tag_header("J", tag)?;
+        self.sink.write_text("=")?;
+        self.sink.write_text(if value < 0 { "-" } else { "+" })?;
+        self.sink
+            .write_arguments(format_args!("{:X}", value.unsigned_abs()))?;
+        self.sink.write_text(";")
+    }
+
     /// Write a Symbolica arbitrary integer in version-stable signed
     /// hexadecimal form.  No GMP limb width or decimal formatter is part of
     /// the identity.
@@ -625,6 +673,19 @@ impl<'a> ExactIdentityWriter<'a> {
         self.sink.write_text("{")?;
         self.sink.write_polynomial(polynomial)?;
         self.sink.write_text("};")
+    }
+
+    /// Write a canonical Symbolica rational polynomial without materializing
+    /// an expression or textual manifest.
+    pub(crate) fn rational_coefficient(
+        &mut self,
+        tag: &str,
+        coefficient: &Coefficient,
+    ) -> Result<(), ExactIdentityError> {
+        self.begin_record(tag, 2)?;
+        self.polynomial("numerator", &coefficient.numerator)?;
+        self.polynomial("denominator", &coefficient.denominator)?;
+        self.end_record()
     }
 
     /// Embed a complete canonical ParametricRelation V2 manifest without
@@ -663,6 +724,317 @@ impl<'a> ExactIdentityWriter<'a> {
         }
         self.sink.finish_write(result)?;
         self.sink.write_text("};")
+    }
+
+    /// Write one flat guard-provenance atom without allocating its standalone
+    /// stable string.  The exhaustive typed mirror is deliberately owned by
+    /// the exact-identity layer so all proof owners share one injective,
+    /// resource-accounted representation.
+    pub(crate) fn guard_origin(
+        &mut self,
+        tag: &str,
+        origin: &GuardOrigin,
+    ) -> Result<(), ExactIdentityError> {
+        self.begin_record(tag, 2)?;
+        let (variant, fields) = guard_origin_shape(origin);
+        self.variant("variant", variant)?;
+        self.begin_record("fields", fields)?;
+        match origin {
+            GuardOrigin::FamilyInputCoefficientDenominator { location } => {
+                self.coefficient_location("location", location)?;
+            }
+            GuardOrigin::FamilyBasisDeterminantNumerator
+            | GuardOrigin::GuardedDivisionDividendDenominator
+            | GuardOrigin::GuardedDivisionDivisorDenominator
+            | GuardOrigin::GuardedDivisionDivisorNumerator
+            | GuardOrigin::ExplicitRelationCondition
+            | GuardOrigin::GeneratedAffineSealedCondition
+            | GuardOrigin::CoefficientSpecializationDenominator
+            | GuardOrigin::CoefficientPartialSpecializationDenominator
+            | GuardOrigin::QuotientPivotNumerator
+            | GuardOrigin::ExplicitShiftOperatorCondition => {}
+            GuardOrigin::PowerShiftSupport { denominator } => {
+                self.usize("denominator", *denominator)?;
+            }
+            GuardOrigin::RelationConditionAttached { row }
+            | GuardOrigin::ShiftOperatorConditionAttached { row }
+            | GuardOrigin::ShiftOperatorInputTermDenominator { row }
+            | GuardOrigin::ShiftOperatorCollectedTermDenominator { row }
+            | GuardOrigin::ShiftOperatorFromRelationAdapter { row }
+            | GuardOrigin::ShiftOperatorToRelationAdapter { row } => {
+                self.write_guard_row_id("row", row)?;
+            }
+            GuardOrigin::RelationInputTermDenominator { row, shift }
+            | GuardOrigin::RelationCollectedTermDenominator { row, shift }
+            | GuardOrigin::RelationPartialSpecializationTermDenominator { row, shift } => {
+                self.write_guard_row_id("row", row)?;
+                self.write_i64_sequence("shift", shift)?;
+            }
+            GuardOrigin::RelationScaleFactorDenominator {
+                target_row,
+                source_row,
+            } => {
+                self.write_guard_row_id("target_row", target_row)?;
+                self.write_guard_row_id("source_row", source_row)?;
+            }
+            GuardOrigin::RelationTranslation {
+                source_row,
+                target_row,
+                offset,
+            } => {
+                self.write_guard_row_id("source_row", source_row)?;
+                self.write_guard_row_id("target_row", target_row)?;
+                self.write_i64_sequence("offset", offset)?;
+            }
+            GuardOrigin::RelationAffineFreeRecentering {
+                source_row,
+                target_row,
+                coefficient_offset,
+                key_center,
+            } => {
+                self.write_guard_row_id("source_row", source_row)?;
+                self.write_guard_row_id("target_row", target_row)?;
+                self.write_i64_sequence("coefficient_offset", coefficient_offset)?;
+                self.write_i64_sequence("key_center", key_center)?;
+            }
+            GuardOrigin::RelationIndexPermutation {
+                source_row,
+                target_row,
+                source_to_target,
+            } => {
+                self.write_guard_row_id("source_row", source_row)?;
+                self.write_guard_row_id("target_row", target_row)?;
+                self.write_usize_sequence("source_to_target", source_to_target)?;
+            }
+            GuardOrigin::IndexTranslation { offset } => {
+                self.write_i64_sequence("offset", offset)?;
+            }
+            GuardOrigin::IndexPermutation { source_to_target } => {
+                self.write_usize_sequence("source_to_target", source_to_target)?;
+            }
+            GuardOrigin::VerifiedSymmetryMapDomain {
+                source_to_target,
+                condition_ordinal,
+            } => {
+                self.write_usize_sequence("source_to_target", source_to_target)?;
+                self.usize("condition_ordinal", *condition_ordinal)?;
+            }
+            GuardOrigin::IndexSpecialization { assignment } => {
+                self.write_i64_sequence("assignment", assignment)?;
+            }
+            GuardOrigin::PartialIndexSpecialization { assignments } => {
+                self.begin_sequence("assignments", assignments.len())?;
+                for &(position, value) in assignments {
+                    self.begin_record("assignment", 2)?;
+                    self.usize("position", position)?;
+                    self.signed_i64("value", value)?;
+                    self.end_record()?;
+                }
+                self.end_sequence()?;
+            }
+            GuardOrigin::ResidualUnitAffineIndexSubstitution {
+                source_case,
+                predicate_ordinal,
+                bound_position,
+            }
+            | GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
+                source_case,
+                predicate_ordinal,
+                bound_position,
+            } => {
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("predicate_ordinal", *predicate_ordinal)?;
+                self.usize("bound_position", *bound_position)?;
+            }
+            GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
+                source_case,
+                source_work_item_ordinal,
+                ready_terminal_ordinal,
+                structural_locus_ordinal,
+            } => {
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("source_work_item_ordinal", *source_work_item_ordinal)?;
+                self.usize("ready_terminal_ordinal", *ready_terminal_ordinal)?;
+                self.usize("structural_locus_ordinal", *structural_locus_ordinal)?;
+            }
+            GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
+                row,
+                shift,
+                source_case,
+                predicate_ordinal,
+                bound_position,
+            } => {
+                self.write_guard_row_id("row", row)?;
+                self.write_i64_sequence("shift", shift)?;
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("predicate_ordinal", *predicate_ordinal)?;
+                self.usize("bound_position", *bound_position)?;
+            }
+            GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
+                row,
+                shift,
+                source_case,
+                source_work_item_ordinal,
+                ready_terminal_ordinal,
+            } => {
+                self.write_guard_row_id("row", row)?;
+                self.write_i64_sequence("shift", shift)?;
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("source_work_item_ordinal", *source_work_item_ordinal)?;
+                self.usize("ready_terminal_ordinal", *ready_terminal_ordinal)?;
+            }
+            GuardOrigin::RelationResidualUnitAffineSubstitution {
+                source_row,
+                target_row,
+                source_case,
+                predicate_ordinal,
+                bound_position,
+            } => {
+                self.write_guard_row_id("source_row", source_row)?;
+                self.write_guard_row_id("target_row", target_row)?;
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("predicate_ordinal", *predicate_ordinal)?;
+                self.usize("bound_position", *bound_position)?;
+            }
+            GuardOrigin::RelationResidualAffineBranchSubstitution {
+                source_row,
+                target_row,
+                source_case,
+                source_work_item_ordinal,
+                ready_terminal_ordinal,
+            } => {
+                self.write_guard_row_id("source_row", source_row)?;
+                self.write_guard_row_id("target_row", target_row)?;
+                self.unsigned_u64("source_case", *source_case)?;
+                self.usize("source_work_item_ordinal", *source_work_item_ordinal)?;
+                self.usize("ready_terminal_ordinal", *ready_terminal_ordinal)?;
+            }
+            GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot } => {
+                self.usize("pivot", *pivot)?;
+            }
+            GuardOrigin::GeneratedAffineGroupRecentering {
+                solve_group_ordinal,
+                database_epoch,
+                event_ordinal,
+            } => {
+                self.usize("solve_group_ordinal", *solve_group_ordinal)?;
+                self.usize("database_epoch", *database_epoch)?;
+                self.usize("event_ordinal", *event_ordinal)?;
+            }
+            GuardOrigin::GeneratedAffineGroupTopReductionCoefficientDenominator {
+                solve_group_ordinal,
+                database_epoch,
+                event_ordinal,
+                operation_ordinal,
+                term_ordinal,
+                pivot_normalization,
+            } => {
+                self.usize("solve_group_ordinal", *solve_group_ordinal)?;
+                self.usize("database_epoch", *database_epoch)?;
+                self.usize("event_ordinal", *event_ordinal)?;
+                self.usize("operation_ordinal", *operation_ordinal)?;
+                self.usize("term_ordinal", *term_ordinal)?;
+                self.boolean("pivot_normalization", *pivot_normalization)?;
+            }
+        }
+        self.end_record()?;
+        self.end_record()
+    }
+
+    fn write_i64_sequence(&mut self, tag: &str, values: &[i64]) -> Result<(), ExactIdentityError> {
+        self.begin_sequence(tag, values.len())?;
+        for &value in values {
+            self.signed_i64("value", value)?;
+        }
+        self.end_sequence()
+    }
+
+    fn write_usize_sequence(
+        &mut self,
+        tag: &str,
+        values: &[usize],
+    ) -> Result<(), ExactIdentityError> {
+        self.begin_sequence(tag, values.len())?;
+        for &value in values {
+            self.usize("value", value)?;
+        }
+        self.end_sequence()
+    }
+
+    fn write_guard_row_id(
+        &mut self,
+        tag: &str,
+        row: &GuardRowId,
+    ) -> Result<(), ExactIdentityError> {
+        match row {
+            GuardRowId::OrdinaryIbp {
+                contraction_momentum,
+                differentiated_loop,
+            } => {
+                self.begin_record(tag, 3)?;
+                self.variant("variant", "OrdinaryIbp")?;
+                self.usize("contraction_momentum", *contraction_momentum)?;
+                self.usize("differentiated_loop", *differentiated_loop)?;
+            }
+            GuardRowId::LorentzInvariance {
+                first_external,
+                second_external,
+            } => {
+                self.begin_record(tag, 3)?;
+                self.variant("variant", "LorentzInvariance")?;
+                self.usize("first_external", *first_external)?;
+                self.usize("second_external", *second_external)?;
+            }
+            GuardRowId::Derived { label } => {
+                self.begin_record(tag, 2)?;
+                self.variant("variant", "Derived")?;
+                self.string("label", label)?;
+            }
+        }
+        self.end_record()
+    }
+
+    pub(crate) fn coefficient_location(
+        &mut self,
+        tag: &str,
+        location: &CoefficientLocation,
+    ) -> Result<(), ExactIdentityError> {
+        match location {
+            CoefficientLocation::Dimension => {
+                self.begin_record(tag, 1)?;
+                self.variant("variant", "Dimension")?;
+            }
+            CoefficientLocation::DenominatorConstant { denominator } => {
+                self.begin_record(tag, 2)?;
+                self.variant("variant", "DenominatorConstant")?;
+                self.usize("denominator", *denominator)?;
+            }
+            CoefficientLocation::DenominatorCoefficient {
+                denominator,
+                coordinate,
+            } => {
+                self.begin_record(tag, 3)?;
+                self.variant("variant", "DenominatorCoefficient")?;
+                self.usize("denominator", *denominator)?;
+                self.usize("coordinate", *coordinate)?;
+            }
+            CoefficientLocation::ExternalGram { row, column } => {
+                self.begin_record(tag, 3)?;
+                self.variant("variant", "ExternalGram")?;
+                self.usize("row", *row)?;
+                self.usize("column", *column)?;
+            }
+            CoefficientLocation::PowerShift { denominator } => {
+                self.begin_record(tag, 2)?;
+                self.variant("variant", "PowerShift")?;
+                self.usize("denominator", *denominator)?;
+            }
+            CoefficientLocation::BasisDeterminantNumerator => {
+                self.begin_record(tag, 1)?;
+                self.variant("variant", "BasisDeterminantNumerator")?;
+            }
+        }
+        self.end_record()
     }
 
     fn begin_container(
@@ -860,6 +1232,148 @@ impl<'a> ExactIdentityWriter<'a> {
         self.stats.identity_bytes = self.sink.bytes_written();
         validate_census_limits(self.stats, self.limits)?;
         Ok(self.stats)
+    }
+}
+
+fn guard_origin_shape(origin: &GuardOrigin) -> (&'static str, usize) {
+    match origin {
+        GuardOrigin::FamilyInputCoefficientDenominator { location: _ } => {
+            ("FamilyInputCoefficientDenominator", 1)
+        }
+        GuardOrigin::FamilyBasisDeterminantNumerator => ("FamilyBasisDeterminantNumerator", 0),
+        GuardOrigin::PowerShiftSupport { denominator: _ } => ("PowerShiftSupport", 1),
+        GuardOrigin::GuardedDivisionDividendDenominator => {
+            ("GuardedDivisionDividendDenominator", 0)
+        }
+        GuardOrigin::GuardedDivisionDivisorDenominator => ("GuardedDivisionDivisorDenominator", 0),
+        GuardOrigin::GuardedDivisionDivisorNumerator => ("GuardedDivisionDivisorNumerator", 0),
+        GuardOrigin::ExplicitRelationCondition => ("ExplicitRelationCondition", 0),
+        GuardOrigin::GeneratedAffineSealedCondition => ("GeneratedAffineSealedCondition", 0),
+        GuardOrigin::RelationConditionAttached { row: _ } => ("RelationConditionAttached", 1),
+        GuardOrigin::RelationInputTermDenominator { row: _, shift: _ } => {
+            ("RelationInputTermDenominator", 2)
+        }
+        GuardOrigin::RelationCollectedTermDenominator { row: _, shift: _ } => {
+            ("RelationCollectedTermDenominator", 2)
+        }
+        GuardOrigin::RelationScaleFactorDenominator {
+            target_row: _,
+            source_row: _,
+        } => ("RelationScaleFactorDenominator", 2),
+        GuardOrigin::RelationTranslation {
+            source_row: _,
+            target_row: _,
+            offset: _,
+        } => ("RelationTranslation", 3),
+        GuardOrigin::RelationAffineFreeRecentering {
+            source_row: _,
+            target_row: _,
+            coefficient_offset: _,
+            key_center: _,
+        } => ("RelationAffineFreeRecentering", 4),
+        GuardOrigin::RelationIndexPermutation {
+            source_row: _,
+            target_row: _,
+            source_to_target: _,
+        } => ("RelationIndexPermutation", 3),
+        GuardOrigin::IndexTranslation { offset: _ } => ("IndexTranslation", 1),
+        GuardOrigin::IndexPermutation {
+            source_to_target: _,
+        } => ("IndexPermutation", 1),
+        GuardOrigin::VerifiedSymmetryMapDomain {
+            source_to_target: _,
+            condition_ordinal: _,
+        } => ("VerifiedSymmetryMapDomain", 2),
+        GuardOrigin::IndexSpecialization { assignment: _ } => ("IndexSpecialization", 1),
+        GuardOrigin::PartialIndexSpecialization { assignments: _ } => {
+            ("PartialIndexSpecialization", 1)
+        }
+        GuardOrigin::ResidualUnitAffineIndexSubstitution {
+            source_case: _,
+            predicate_ordinal: _,
+            bound_position: _,
+        } => ("ResidualUnitAffineIndexSubstitution", 3),
+        GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
+            source_case: _,
+            source_work_item_ordinal: _,
+            ready_terminal_ordinal: _,
+            structural_locus_ordinal: _,
+        } => ("ResidualAffineBranchNonzeroGuardSubstitution", 4),
+        GuardOrigin::CoefficientSpecializationDenominator => {
+            ("CoefficientSpecializationDenominator", 0)
+        }
+        GuardOrigin::CoefficientPartialSpecializationDenominator => {
+            ("CoefficientPartialSpecializationDenominator", 0)
+        }
+        GuardOrigin::RelationPartialSpecializationTermDenominator { row: _, shift: _ } => {
+            ("RelationPartialSpecializationTermDenominator", 2)
+        }
+        GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
+            source_case: _,
+            predicate_ordinal: _,
+            bound_position: _,
+        } => ("CoefficientResidualUnitAffineSubstitutionDenominator", 3),
+        GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
+            row: _,
+            shift: _,
+            source_case: _,
+            predicate_ordinal: _,
+            bound_position: _,
+        } => ("RelationResidualUnitAffineSubstitutionTermDenominator", 5),
+        GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
+            row: _,
+            shift: _,
+            source_case: _,
+            source_work_item_ordinal: _,
+            ready_terminal_ordinal: _,
+        } => ("RelationResidualAffineBranchSubstitutionTermDenominator", 5),
+        GuardOrigin::RelationResidualUnitAffineSubstitution {
+            source_row: _,
+            target_row: _,
+            source_case: _,
+            predicate_ordinal: _,
+            bound_position: _,
+        } => ("RelationResidualUnitAffineSubstitution", 5),
+        GuardOrigin::RelationResidualAffineBranchSubstitution {
+            source_row: _,
+            target_row: _,
+            source_case: _,
+            source_work_item_ordinal: _,
+            ready_terminal_ordinal: _,
+        } => ("RelationResidualAffineBranchSubstitution", 5),
+        GuardOrigin::QuotientPivotNumerator => ("QuotientPivotNumerator", 0),
+        GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot: _ } => {
+            ("ConcreteQuotientEliminationPivotNumerator", 1)
+        }
+        GuardOrigin::ExplicitShiftOperatorCondition => ("ExplicitShiftOperatorCondition", 0),
+        GuardOrigin::ShiftOperatorConditionAttached { row: _ } => {
+            ("ShiftOperatorConditionAttached", 1)
+        }
+        GuardOrigin::ShiftOperatorInputTermDenominator { row: _ } => {
+            ("ShiftOperatorInputTermDenominator", 1)
+        }
+        GuardOrigin::ShiftOperatorCollectedTermDenominator { row: _ } => {
+            ("ShiftOperatorCollectedTermDenominator", 1)
+        }
+        GuardOrigin::ShiftOperatorFromRelationAdapter { row: _ } => {
+            ("ShiftOperatorFromRelationAdapter", 1)
+        }
+        GuardOrigin::ShiftOperatorToRelationAdapter { row: _ } => {
+            ("ShiftOperatorToRelationAdapter", 1)
+        }
+        GuardOrigin::GeneratedAffineGroupRecentering {
+            solve_group_ordinal: _,
+            database_epoch: _,
+            event_ordinal: _,
+        } => ("GeneratedAffineGroupRecentering", 3),
+        GuardOrigin::GeneratedAffineGroupTopReductionCoefficientDenominator {
+            solve_group_ordinal: _,
+            database_epoch: _,
+            event_ordinal: _,
+            operation_ordinal: _,
+            term_ordinal: _,
+            pivot_normalization: _,
+        } => ("GeneratedAffineGroupTopReductionCoefficientDenominator", 6),
     }
 }
 
@@ -2598,6 +3112,78 @@ mod tests {
                 },
             ),
         ]
+    }
+
+    struct GuardOriginPayload {
+        origin: GuardOrigin,
+    }
+
+    impl ExactIdentityPayload for GuardOriginPayload {
+        const SCHEMA: &'static str = "rustred-test-direct-guard-origin-identity-v1";
+
+        fn write_exact_identity(
+            &self,
+            writer: &mut ExactIdentityWriter<'_>,
+        ) -> Result<(), ExactIdentityError> {
+            writer.guard_origin("origin", &self.origin)
+        }
+    }
+
+    #[test]
+    fn direct_guard_origin_writer_is_exhaustive_injective_and_exactly_bounded() {
+        let representatives = guard_origin_representatives();
+        assert_eq!(representatives.len(), 40);
+        let mut identities = BTreeSet::new();
+        for (name, origin) in representatives {
+            let identity = encode_exact_identity(
+                &GuardOriginPayload { origin },
+                ExactIdentityLimits::default(),
+            )
+            .unwrap();
+            assert!(identities.insert(identity.as_str().to_owned()), "{name}");
+        }
+
+        let payload = GuardOriginPayload {
+            origin: GuardOrigin::GeneratedAffineGroupTopReductionCoefficientDenominator {
+                solve_group_ordinal: 1,
+                database_epoch: 2,
+                event_ordinal: 3,
+                operation_ordinal: 4,
+                term_ordinal: 5,
+                pivot_normalization: true,
+            },
+        };
+        let baseline = encode_exact_identity(&payload, ExactIdentityLimits::default()).unwrap();
+        let exact = exact_limits(baseline.stats());
+        assert_eq!(
+            encode_exact_identity(&payload, exact).unwrap().as_str(),
+            baseline.as_str()
+        );
+
+        let mut one_below = exact;
+        one_below.max_fields -= 1;
+        assert_one_below(
+            &payload,
+            one_below,
+            IDENTITY_FIELDS_RESOURCE,
+            baseline.stats().fields(),
+        );
+        let mut one_below = exact;
+        one_below.max_integers -= 1;
+        assert_one_below(
+            &payload,
+            one_below,
+            IDENTITY_INTEGERS_RESOURCE,
+            baseline.stats().integers(),
+        );
+        let mut one_below = exact;
+        one_below.max_integer_bits -= 1;
+        assert_one_below(
+            &payload,
+            one_below,
+            IDENTITY_INTEGER_BITS_RESOURCE,
+            baseline.stats().integer_bits(),
+        );
     }
 
     #[test]

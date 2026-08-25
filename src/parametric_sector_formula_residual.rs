@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::direct_bad_formula::{
     DirectBadFormulaClause, DirectBadFormulaRoute, DirectBadFormulaTruth, route_direct_bad_formula,
 };
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::parametric_sector_formula_ir::{
     NormalizedBadFormulaBody, NormalizedBadLiteral, NormalizedBadLiteralPolarity,
     NormalizedCoverageAttempt, NormalizedCoverageIr, PARAMETRIC_SECTOR_FORMULA_IR_V1_SCHEMA,
@@ -26,6 +27,8 @@ pub(crate) const PARAMETRIC_SECTOR_FORMULA_RESIDUAL_CURSOR_V1_SCHEMA: &str =
     "rustred-parametric-sector-formula-residual-cursor-v1";
 pub(crate) const PARAMETRIC_SECTOR_FORMULA_RESIDUAL_PATH_V1_SCHEMA: &str =
     "rustred-parametric-sector-formula-residual-path-v1";
+pub(crate) const PARAMETRIC_SECTOR_FORMULA_RESIDUAL_PATH_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-parametric-sector-formula-residual-path-stable-value-identity-v1";
 pub(crate) const PARAMETRIC_SECTOR_FORMULA_RESIDUAL_BRANCH_ORDER_V1: &str = "rustred-parametric-sector-formula-residual-earliest-attempt-clause-left-literal-nonzero-before-equal-zero-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -511,6 +514,137 @@ impl ParametricSectorFormulaResidualPathCertificate {
             && self.limits == other.limits
             && self.stats == other.stats
     }
+
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 10)?;
+        writer.string(
+            "identity_schema",
+            PARAMETRIC_SECTOR_FORMULA_RESIDUAL_PATH_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("schema", self.schema)?;
+        writer.string("branch_order_schema", self.branch_order_schema)?;
+        self.source.write_stable_value_identity(writer, "source")?;
+        writer.variant(
+            "request",
+            match self.request {
+                ParametricSectorFormulaResidualRequest::AnyResidual => "AnyResidual",
+                ParametricSectorFormulaResidualRequest::Uncovered => "Uncovered",
+                ParametricSectorFormulaResidualRequest::Unsupported => "Unsupported",
+            },
+        )?;
+        writer.usize("yield_ordinal", self.yield_ordinal)?;
+        writer.begin_sequence("decisions", self.decisions.len())?;
+        for (ordinal, decision) in self.decisions.iter().copied().enumerate() {
+            write_residual_decision_identity(writer, "decision", ordinal, decision)?;
+        }
+        writer.end_sequence()?;
+        writer.variant(
+            "terminal_kind",
+            match self.terminal_kind {
+                ParametricSectorFormulaResidualKind::Uncovered => "Uncovered",
+                ParametricSectorFormulaResidualKind::Unsupported => "Unsupported",
+            },
+        )?;
+        write_residual_limits_identity(writer, "limits", self.limits)?;
+        write_path_stats_identity(writer, "stats", self.stats)?;
+        writer.end_record()
+    }
+}
+
+macro_rules! write_path_usize_record_identity {
+    ($writer:expr, $tag:expr, $value:expr; $($field:ident),+ $(,)?) => {{
+        const FIELD_COUNT: usize = <[()]>::len(&[$({ let _ = stringify!($field); }),+]);
+        $writer.begin_record($tag, FIELD_COUNT)?;
+        $(
+            $writer.usize(stringify!($field), ($value).$field)?;
+        )+
+        $writer.end_record()
+    }};
+}
+
+fn write_residual_decision_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    ordinal: usize,
+    decision: ParametricSectorFormulaResidualDecision,
+) -> Result<(), ExactIdentityError> {
+    let split = decision.split;
+    writer.begin_record(tag, 7)?;
+    writer.usize("ordinal", ordinal)?;
+    writer.usize("source_attempt_ordinal", split.source_attempt_ordinal)?;
+    writer.usize("clause_ordinal", split.clause_ordinal)?;
+    writer.usize("literal_position", usize::from(split.literal_position))?;
+    writer.usize("structural_locus_ordinal", split.structural_locus_ordinal)?;
+    writer.variant(
+        "bad_literal_polarity",
+        match split.bad_literal_polarity {
+            NormalizedBadLiteralPolarity::EqualZero => "EqualZero",
+            NormalizedBadLiteralPolarity::NonZero => "NonZero",
+        },
+    )?;
+    writer.variant(
+        "branch_polarity",
+        match decision.polarity {
+            ParametricSectorFormulaResidualPolarity::NonZero => "NonZero",
+            ParametricSectorFormulaResidualPolarity::EqualZero => "EqualZero",
+        },
+    )?;
+    writer.end_record()
+}
+
+fn write_residual_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricSectorFormulaResidualLimits,
+) -> Result<(), ExactIdentityError> {
+    write_path_usize_record_identity!(writer, tag, limits;
+        max_base_structural_loci,
+        max_attempts,
+        max_certified_attempts,
+        max_unsupported_candidate_references,
+        max_assignment_capacity_entries,
+        max_state_classifications,
+        max_attempt_visits,
+        max_formula_evaluations,
+        max_formula_clause_charges,
+        max_literal_query_charges,
+        max_good_routes,
+        max_bad_routes,
+        max_split_routes,
+        max_later_good_prunes,
+        max_covered_prunes,
+        max_residual_terminal_visits,
+        max_filtered_residual_terminals,
+        max_branch_traversals,
+        max_backtracks,
+        max_depth,
+        max_frontier_capacity_entries,
+        max_cursor_retained_bytes,
+        max_paths_yielded,
+        max_total_path_decisions_copied,
+        max_path_decisions,
+        max_path_capacity_entries,
+        max_path_retained_bytes,
+    )
+}
+
+fn write_path_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorFormulaResidualPathStats,
+) -> Result<(), ExactIdentityError> {
+    // Vector capacity and `size_of`-derived retained bytes are replay
+    // diagnostics, not allocation-independent stable value.
+    write_path_usize_record_identity!(writer, tag, stats;
+        decisions,
+        nonzero_decisions,
+        equal_zero_decisions,
+        unsupported_candidate_references,
+    )
 }
 
 #[repr(u8)]

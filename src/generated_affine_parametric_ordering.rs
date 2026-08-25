@@ -25,18 +25,32 @@ use crate::affine_parametric_ordering::{
 };
 use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
-    GeneratedAffineResidualInventoryCaseSourceRecordView,
-    GeneratedAffineResidualInventoryGroupSourceView,
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceLocator,
+    GeneratedAffineResidualCaseSourceRecordView, GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::{
-    IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext,
-    ResidualAffineIntegerMap, SectorMask,
+    IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, SectorMask,
 };
 
 pub(crate) const GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA: &str =
     "rustred-generated-affine-parametric-ordering-v2";
+pub(crate) const GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA: &str =
+    "rustred-generated-affine-parametric-ordering-v3";
 
 const CONSTRUCTION_CASE_GROUP_MEMBERSHIP_CHECKS: usize = 8;
+
+const fn ordering_schema_for_source(
+    source: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA
+        }
+    }
+}
 
 /// Prospective construction envelope for one generated affine ordering.
 ///
@@ -352,8 +366,8 @@ impl GeneratedAffineParametricOrderingCertificate {
         // admitted above, before the authority can invoke an allocating
         // inventory replay under its own independently authenticated limits.
         authority.replay(family, context)?;
-        let case = authority.authenticated_case_view(context)?;
-        let group = authority.authenticated_group_view(context)?;
+        let case = authority.authenticated_source_neutral_case_view(context)?;
+        let group = authority.authenticated_source_neutral_group_view(context)?;
         let group_case_references = group.case_ordinals().len();
         check_limit(
             "group case references",
@@ -364,14 +378,22 @@ impl GeneratedAffineParametricOrderingCertificate {
 
         let geometry = GeneratedCaseOrderingGeometry { case };
         let preflight = preflight_geometry(authority.as_ref(), &geometry, group, limits.ordering)?;
+        let schema = ordering_schema_for_source(authority.source_kind());
         let source_identity_bytes = count_source_identity(authority.as_ref(), case, group)?;
         check_limit(
             "source identity bytes",
             source_identity_bytes,
             limits.ordering.max_map_identity_bytes,
         )?;
-        let manifest_bytes =
-            count_manifest(case, group, limits, &preflight, source_identity_bytes)?;
+        let manifest_bytes = count_manifest(
+            schema,
+            authority.as_ref(),
+            case,
+            group,
+            limits,
+            &preflight,
+            source_identity_bytes,
+        )?;
         check_limit(
             "manifest bytes",
             manifest_bytes,
@@ -406,6 +428,7 @@ impl GeneratedAffineParametricOrderingCertificate {
         }
         let stable_manifest = render_manifest(
             authority.as_ref(),
+            schema,
             case,
             group,
             limits,
@@ -432,7 +455,7 @@ impl GeneratedAffineParametricOrderingCertificate {
             manifest_bytes,
         };
         Ok(Self {
-            schema: GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA,
+            schema,
             key_schema: RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
             case_ordinal: case.ordinal(),
             group_ordinal: group.ordinal(),
@@ -515,7 +538,7 @@ impl GeneratedAffineParametricOrderingCertificate {
         authority: &Arc<GeneratedAffineResidualCaseAuthority>,
     ) -> Result<(), GeneratedAffineParametricOrderingError> {
         catch_unwind(AssertUnwindSafe(|| {
-            if self.schema != GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA
+            if self.schema != ordering_schema_for_source(authority.source_kind())
                 || self.key_schema != RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA
             {
                 return Err(GeneratedAffineParametricOrderingError::SchemaMismatch);
@@ -616,10 +639,12 @@ impl GeneratedAffineParametricOrderingCertificate {
         &'ordering self,
         context: &ParametricCoefficientContext,
     ) -> Result<
-        GeneratedAffineResidualInventoryCaseSourceRecordView<'ordering>,
+        GeneratedAffineResidualCaseSourceRecordView<'ordering>,
         GeneratedAffineParametricOrderingError,
     > {
-        let case = self.authority.authenticated_case_view(context)?;
+        let case = self
+            .authority
+            .authenticated_source_neutral_case_view(context)?;
         if case.ordinal() != self.case_ordinal {
             return Err(GeneratedAffineParametricOrderingError::CaseBindingMismatch);
         }
@@ -689,22 +714,22 @@ fn arc_string_owned_byte_bound(value: &Arc<String>) -> Option<usize> {
 
 #[derive(Clone, Copy)]
 struct GeneratedCaseOrderingGeometry<'source> {
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'source>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'source>,
 }
 
 impl<'source> GeneratedCaseOrderingGeometry<'source> {
-    fn map(self) -> &'source ResidualAffineIntegerMap {
-        self.case.source().affine_map()
+    fn geometry(self) -> crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseGeometryView<'source>{
+        self.case.source().geometry()
     }
 }
 
 impl<'source> AffineParametricOrderingGeometry<'source> for GeneratedCaseOrderingGeometry<'source> {
     fn ambient_arity(&self) -> usize {
-        self.map().ambient_arity()
+        self.geometry().ambient_arity()
     }
 
     fn free_positions(&self) -> &'source [usize] {
-        self.map().free_positions()
+        self.geometry().free_positions()
     }
 
     fn constant(&self, position: usize) -> Option<&'source Integer> {
@@ -712,8 +737,8 @@ impl<'source> AffineParametricOrderingGeometry<'source> for GeneratedCaseOrderin
     }
 
     fn linear_coefficient(&self, position: usize, free_ordinal: usize) -> Option<&'source Integer> {
-        let &ambient_column = self.map().free_positions().get(free_ordinal)?;
-        self.map().linear_coefficient(position, ambient_column)
+        self.geometry()
+            .compact_linear_coefficient(position, free_ordinal)
     }
 }
 
@@ -728,7 +753,7 @@ struct GeometryPreflight {
 
 fn validate_case_group_binding(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<(), GeneratedAffineParametricOrderingError> {
     if case.ordinal() != authority.case_ordinal() {
@@ -806,7 +831,7 @@ fn preflight_geometry(
         let constant = geometry
             .constant(position)
             .ok_or(GeneratedAffineParametricOrderingError::GeometryBindingMismatch)?;
-        if geometry.map().constant(position) != Some(constant) {
+        if geometry.geometry().constant(position) != Some(constant) {
             return Err(GeneratedAffineParametricOrderingError::GeometryBindingMismatch);
         }
         let constant_bits = integer_magnitude_bits(constant)
@@ -923,9 +948,18 @@ fn fill_classified_positions(
 
 fn count_source_identity(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<usize, GeneratedAffineParametricOrderingError> {
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+    {
+        return authority
+            .stable_value_identity()
+            .filter(|identity| identity.kind() == authority.source_kind())
+            .map(|identity| identity.bytes().len())
+            .ok_or(GeneratedAffineParametricOrderingError::CaseBindingMismatch);
+    }
     let mut output = ByteCounter::default();
     write_source_identity_with(&mut output, authority, case, group, |output, value| {
         let exact_bytes = identity_integer_bytes(value).map_err(|_| fmt::Error)?;
@@ -940,9 +974,20 @@ fn count_source_identity(
 fn write_source_identity(
     output: &mut impl fmt::Write,
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> fmt::Result {
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+    {
+        return output.write_str(
+            authority
+                .stable_value_identity()
+                .filter(|identity| identity.kind() == authority.source_kind())
+                .map(|identity| identity.bytes())
+                .ok_or(fmt::Error)?,
+        );
+    }
     write_source_identity_with(output, authority, case, group, |output, value| {
         write_identity_integer(output, value)
     })
@@ -957,7 +1002,7 @@ fn write_source_identity(
 fn write_source_identity_with<O, F>(
     output: &mut O,
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     write_integer: F,
 ) -> fmt::Result
@@ -1077,17 +1122,19 @@ fn write_identity_integer(output: &mut impl fmt::Write, value: &Integer) -> fmt:
 }
 
 fn count_manifest(
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    schema: &'static str,
+    authority: &GeneratedAffineResidualCaseAuthority,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineParametricOrderingLimits,
     preflight: &GeometryPreflight,
     source_identity_bytes: usize,
 ) -> Result<usize, GeneratedAffineParametricOrderingError> {
     let mut output = ByteCounter::default();
-    write_manifest_prefix(&mut output, source_identity_bytes)
+    write_manifest_prefix(&mut output, schema, authority, source_identity_bytes)
         .map_err(|_| output.error("manifest bytes"))?;
     output.add_exact(source_identity_bytes, "manifest bytes")?;
-    write_manifest_suffix(&mut output, case, group, limits)
+    write_manifest_suffix(&mut output, authority, case, group, limits)
         .map_err(|_| output.error("manifest bytes"))?;
     output.add_exact(
         position_payload_bytes(
@@ -1114,7 +1161,8 @@ fn count_manifest(
 
 fn render_manifest(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    schema: &'static str,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineParametricOrderingLimits,
     constant_positions: &[usize],
@@ -1129,7 +1177,7 @@ fn render_manifest(
             requested: exact_bytes,
         }
     })?;
-    write_manifest_prefix(&mut output, source_identity_bytes).map_err(|_| {
+    write_manifest_prefix(&mut output, schema, authority, source_identity_bytes).map_err(|_| {
         GeneratedAffineParametricOrderingError::AllocationFailure {
             resource: "manifest bytes",
             requested: exact_bytes,
@@ -1141,7 +1189,7 @@ fn render_manifest(
             requested: exact_bytes,
         }
     })?;
-    write_manifest_suffix(&mut output, case, group, limits).map_err(|_| {
+    write_manifest_suffix(&mut output, authority, case, group, limits).map_err(|_| {
         GeneratedAffineParametricOrderingError::AllocationFailure {
             resource: "manifest bytes",
             requested: exact_bytes,
@@ -1169,26 +1217,59 @@ fn render_manifest(
 
 fn write_manifest_prefix(
     output: &mut impl fmt::Write,
+    schema: &'static str,
+    authority: &GeneratedAffineResidualCaseAuthority,
     source_identity_bytes: usize,
 ) -> fmt::Result {
     write!(
         output,
-        "{GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA}|key-schema={AFFINE_START_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA}:{}|source-identity-bytes={source_identity_bytes}:",
+        "{schema}|key-schema={AFFINE_START_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA}:{}",
         RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
-    )
+    )?;
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+    {
+        let identity = authority
+            .stable_value_identity()
+            .filter(|identity| identity.kind() == authority.source_kind())
+            .ok_or(fmt::Error)?;
+        write!(
+            output,
+            "|source-identity-kind={}|source-identity-schema-bytes={}:{}",
+            identity.kind().stable_id(),
+            identity.schema().len(),
+            identity.schema(),
+        )?;
+    }
+    write!(output, "|source-identity-bytes={source_identity_bytes}:")
 }
 
 fn write_manifest_suffix(
     output: &mut impl fmt::Write,
-    case: GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
+    authority: &GeneratedAffineResidualCaseAuthority,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineParametricOrderingLimits,
 ) -> fmt::Result {
     let ordering = limits.ordering;
+    match case.locator() {
+        GeneratedAffineResidualCaseSourceLocator::Legacy(locator)
+            if authority.source_kind()
+                == GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory =>
+        {
+            write!(output, "|terminal={}", locator.boolean_record_ordinal())?;
+        }
+        GeneratedAffineResidualCaseSourceLocator::DirectFormula { .. }
+            if authority.source_kind()
+                == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton =>
+        {
+            output.write_str("|source=direct-formula-singleton")?;
+        }
+        _ => return Err(fmt::Error),
+    }
     write!(
         output,
-        "|terminal={}|case-within-group={}|group-cases={}|anchor-case={}|free=[",
-        case.terminal_ordinal(),
+        "|case-within-group={}|group-cases={}|anchor-case={}|free=[",
         case.ordinal_within_group(),
         group.case_ordinals().len(),
         group.anchor_case_ordinal(),
@@ -1216,7 +1297,7 @@ fn write_manifest_suffix(
         limits.max_group_case_references,
         limits.max_source_rows,
         limits.max_retained_authority_references,
-        GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA.len(),
+        ordering_schema_for_source(authority.source_kind()).len(),
     )
 }
 
@@ -1346,6 +1427,7 @@ mod tests {
         GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCertificate,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+        GeneratedAffineResidualInventoryCaseSourceRecordView,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{

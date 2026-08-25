@@ -733,8 +733,11 @@ fn compile_authenticated_relation(
     if context.index_count() != authority.arity() || relation.arity() != authority.arity() {
         return Err(GeneratedAffineResidualGroupExactRelationError::WrongArity);
     }
-    if !authority.same_inventory_allocation(plan.inventory())
-        || !plan.same_parent_allocations(plan.inventory(), plan.authority(), &frame)
+    let inventory = plan
+        .inventory()
+        .ok_or(GeneratedAffineResidualGroupExactRelationError::WrongParentAllocation)?;
+    if !authority.same_inventory_allocation(inventory)
+        || !plan.same_parent_allocations(inventory, plan.authority(), &frame)
         || !Arc::ptr_eq(plan.physical_frame(), &frame)
     {
         return Err(GeneratedAffineResidualGroupExactRelationError::WrongParentAllocation);
@@ -745,7 +748,7 @@ fn compile_authenticated_relation(
     plan.replay(
         family,
         context,
-        plan.inventory(),
+        inventory,
         plan.authority(),
         &frame,
         GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),

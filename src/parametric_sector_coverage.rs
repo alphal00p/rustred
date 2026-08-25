@@ -29,6 +29,7 @@ use symbolica::prelude::Integer;
 use crate::direct_bad_formula::{
     DirectBadFormulaClause, DirectBadFormulaRoute, DirectBadFormulaTruth, route_direct_bad_formula,
 };
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::generated_when_bad::GeneratedWhenBadReplayedRowSpan;
 use crate::parametric_sector_formula_ir::{
     NormalizedBadClause, NormalizedBadClauseRole, NormalizedBadClauseSource,
@@ -1809,6 +1810,8 @@ fn cached_locus_divisibility(
 
 const PARAMETRIC_SECTOR_FORMULA_NORMALIZATION_V1_SCHEMA: &str =
     "rustred-parametric-sector-formula-normalization-v1";
+pub(crate) const AUTHENTICATED_NORMALIZED_COVERAGE_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-authenticated-normalized-coverage-stable-value-identity-v1";
 
 /// Independent resource policy for the backend-neutral formula pass.
 ///
@@ -2008,6 +2011,456 @@ impl AuthenticatedNormalizedCoverage {
     pub(crate) const fn normalization_stats(&self) -> ParametricSectorFormulaNormalizationStats {
         self.normalization_stats
     }
+
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 11)?;
+        writer.string(
+            "identity_schema",
+            AUTHENTICATED_NORMALIZED_COVERAGE_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("schema", self.schema)?;
+        writer.string("family_fingerprint", &self.family_fingerprint)?;
+        writer.string("context_fingerprint", &self.context_fingerprint)?;
+        write_sector_identity(writer, "sector", &self.sector)?;
+        writer.begin_sequence("base_structural_loci", self.base_structural_loci.len())?;
+        for (ordinal, locus) in self.base_structural_loci.iter().enumerate() {
+            writer.begin_record("locus", 2)?;
+            writer.usize("ordinal", ordinal)?;
+            writer.polynomial("polynomial", locus.raw())?;
+            writer.end_record()?;
+        }
+        writer.end_sequence()?;
+        write_normalized_ir_identity(writer, "ir", &self.ir)?;
+        write_coverage_limits_identity(writer, "coverage_limits", self.coverage_limits)?;
+        write_coverage_stats_identity(writer, "coverage_stats", self.coverage_stats)?;
+        write_normalization_limits_identity(
+            writer,
+            "normalization_limits",
+            self.normalization_limits,
+        )?;
+        write_normalization_stats_identity(
+            writer,
+            "normalization_stats",
+            self.normalization_stats,
+        )?;
+        writer.end_record()
+    }
+}
+
+macro_rules! write_usize_record_identity {
+    ($writer:expr, $tag:expr, $value:expr; $($field:ident),+ $(,)?) => {{
+        const FIELD_COUNT: usize = <[()]>::len(&[$({ let _ = stringify!($field); }),+]);
+        $writer.begin_record($tag, FIELD_COUNT)?;
+        $(
+            $writer.usize(stringify!($field), ($value).$field)?;
+        )+
+        $writer.end_record()
+    }};
+}
+
+fn write_sector_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    sector: &SectorMask,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_sequence(tag, sector.arity())?;
+    for &active in sector.active_bits() {
+        writer.boolean("active", active)?;
+    }
+    writer.end_sequence()
+}
+
+fn write_normalized_ir_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    ir: &NormalizedCoverageIr,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.string("schema", ir.schema())?;
+    writer.usize(
+        "base_structural_locus_count",
+        ir.base_structural_locus_count(),
+    )?;
+    writer.begin_sequence("attempts", ir.attempts().len())?;
+    for attempt in ir.attempts() {
+        write_normalized_attempt_identity(writer, "attempt", attempt)?;
+    }
+    writer.end_sequence()?;
+    writer.end_record()
+}
+
+fn write_normalized_attempt_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    attempt: &NormalizedCoverageAttempt,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match attempt {
+        NormalizedCoverageAttempt::Certified(formula) => {
+            writer.variant("variant", "Certified")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("source_attempt_ordinal", formula.source_attempt_ordinal())?;
+            write_normalized_formula_body_identity(writer, "body", formula.body())?;
+        }
+        NormalizedCoverageAttempt::Unsupported {
+            source_attempt_ordinal,
+        } => {
+            writer.variant("variant", "Unsupported")?;
+            writer.begin_record("fields", 1)?;
+            writer.usize("source_attempt_ordinal", *source_attempt_ordinal)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_normalized_formula_body_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    body: &NormalizedBadFormulaBody,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match body {
+        NormalizedBadFormulaBody::False => {
+            writer.variant("variant", "False")?;
+            writer.begin_record("fields", 0)?;
+        }
+        NormalizedBadFormulaBody::True { sources } => {
+            writer.variant("variant", "True")?;
+            writer.begin_record("fields", 1)?;
+            writer.begin_sequence("sources", sources.len())?;
+            for source in sources.iter().copied() {
+                write_normalized_clause_source_identity(writer, "source", source)?;
+            }
+            writer.end_sequence()?;
+        }
+        NormalizedBadFormulaBody::Dnf {
+            clauses,
+            atomic_equal_zero_factors,
+        } => {
+            writer.variant("variant", "Dnf")?;
+            writer.begin_record("fields", 2)?;
+            writer.begin_sequence("clauses", clauses.len())?;
+            for clause in clauses.iter() {
+                writer.begin_record("clause", 3)?;
+                write_direct_clause_identity(writer, "body", clause.body())?;
+                writer.begin_sequence("sources", clause.sources().len())?;
+                for source in clause.sources().iter().copied() {
+                    write_normalized_clause_source_identity(writer, "source", source)?;
+                }
+                writer.end_sequence()?;
+                writer.variant(
+                    "role",
+                    match clause.role() {
+                        NormalizedBadClauseRole::Ordinary => "Ordinary",
+                        NormalizedBadClauseRole::AtomicEqualZeroFactor => "AtomicEqualZeroFactor",
+                    },
+                )?;
+                writer.end_record()?;
+            }
+            writer.end_sequence()?;
+            writer.begin_sequence("atomic_equal_zero_factors", atomic_equal_zero_factors.len())?;
+            for factor in atomic_equal_zero_factors.iter().copied() {
+                writer.begin_record("factor", 2)?;
+                writer.usize(
+                    "structural_locus_ordinal",
+                    factor.structural_locus_ordinal(),
+                )?;
+                writer.usize("source_clause_ordinal", factor.source_clause_ordinal())?;
+                writer.end_record()?;
+            }
+            writer.end_sequence()?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_direct_clause_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    clause: DirectBadFormulaClause<NormalizedBadLiteral>,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match clause {
+        DirectBadFormulaClause::Atom(literal) => {
+            writer.variant("variant", "Atom")?;
+            writer.begin_record("fields", 1)?;
+            write_normalized_literal_identity(writer, "literal", literal)?;
+        }
+        DirectBadFormulaClause::Conjunction(left, right) => {
+            writer.variant("variant", "Conjunction")?;
+            writer.begin_record("fields", 2)?;
+            write_normalized_literal_identity(writer, "left", left)?;
+            write_normalized_literal_identity(writer, "right", right)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_normalized_literal_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    literal: NormalizedBadLiteral,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    writer.usize(
+        "structural_locus_ordinal",
+        literal.structural_locus_ordinal(),
+    )?;
+    writer.variant(
+        "polarity",
+        match literal.polarity() {
+            NormalizedBadLiteralPolarity::EqualZero => "EqualZero",
+            NormalizedBadLiteralPolarity::NonZero => "NonZero",
+        },
+    )?;
+    writer.end_record()
+}
+
+fn write_normalized_clause_source_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    source: NormalizedBadClauseSource,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match source {
+        NormalizedBadClauseSource::IndexDomainGuard { condition_ordinal } => {
+            writer.variant("variant", "IndexDomainGuard")?;
+            writer.usize("ordinal", condition_ordinal)?;
+        }
+        NormalizedBadClauseSource::LeakEvent { event_ordinal } => {
+            writer.variant("variant", "LeakEvent")?;
+            writer.usize("ordinal", event_ordinal)?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_exact_algebra_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: crate::ExactAlgebraLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.unsigned_u128("max_exponent", limits.max_exponent)?;
+    writer.usize("max_polynomial_terms", limits.max_polynomial_terms)?;
+    writer.usize("max_term_operations", limits.max_term_operations)?;
+    writer.end_record()
+}
+
+pub(crate) fn write_coordinate_locus_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: CoordinateEqualityLocusLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    crate::when_bad::write_symbolic_sector_case_limits_identity(
+        writer,
+        "partition_replay",
+        limits.partition_replay,
+    )?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    write_usize_record_identity!(writer, "scalar_limits", limits;
+        max_context_fingerprint_bytes,
+        max_predicates,
+        max_polynomial_terms_inspected,
+        max_exponent_entries_inspected,
+        max_recognition_operations,
+        max_integer_coefficient_bits,
+        max_recognized_predicates,
+        max_unresolved_predicates,
+        max_assignments,
+        max_total_witness_ordinals,
+        max_retained_polynomial_terms,
+        max_retained_polynomial_bytes,
+    )?;
+    writer.end_record()
+}
+
+pub(crate) fn write_coverage_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricSectorCoverageLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 4)?;
+    crate::generated_when_bad::write_generated_when_bad_limits_identity(
+        writer,
+        "generated_when_bad",
+        limits.generated_when_bad,
+    )?;
+    crate::when_bad::write_symbolic_sector_case_limits_identity(
+        writer,
+        "sector_cases",
+        limits.sector_cases,
+    )?;
+    write_coordinate_locus_limits_identity(writer, "coordinate_loci", limits.coordinate_loci)?;
+    write_usize_record_identity!(writer, "scalar_limits", limits;
+        max_candidates,
+        max_unique_predicates,
+        max_candidate_partition_leaves,
+        max_candidate_predicate_instances,
+        max_candidate_bad_clauses,
+        max_candidate_bad_atoms,
+        max_direct_bad_formula_evaluations,
+        max_direct_bad_formula_atom_queries,
+        max_global_leaf_classifications,
+        max_candidate_leaf_match_attempts,
+        max_unsupported_references,
+        max_total_canonical_rows,
+        max_total_canonical_terms,
+        max_total_retained_source_rows,
+        max_total_retained_source_terms,
+        max_total_source_match_attempts,
+        max_total_candidate_binding_bytes,
+        max_total_condition_terms,
+        max_total_condition_bytes,
+        max_coordinate_pruning_checks,
+        max_locus_divisibility_checks,
+        max_retained_structural_locus_terms,
+        max_retained_structural_locus_bytes,
+        max_product_zero_decompositions,
+        max_product_zero_factor_references,
+        max_product_zero_multiplications,
+        max_materialized_product_zero_support_terms,
+        max_product_materialization_bound_factor_scans,
+        max_product_materialization_bound_exponent_entries,
+        max_factored_product_zero_disjunctions,
+        max_factored_product_zero_factor_references,
+        max_product_reconstruction_term_pairs,
+        max_product_reconstruction_native_output_term_bound,
+        max_product_reconstruction_output_terms,
+        max_product_reconstruction_output_exponent_entries,
+        max_product_reconstruction_output_coefficient_bits,
+        max_structural_locus_associate_comparisons,
+        max_structural_locus_associate_term_pairs,
+    )?;
+    writer.end_record()
+}
+
+pub(crate) fn write_coverage_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorCoverageStats,
+) -> Result<(), ExactIdentityError> {
+    // Candidate-binding capacities and Symbolica-display byte counts are
+    // omitted; the exact bindings and sparse loci are serialized above.
+    write_usize_record_identity!(writer, tag, stats;
+        shared_row_span_certificates,
+        shared_row_span_candidate_reuses,
+        candidates,
+        certified_candidates,
+        unsupported_candidates,
+        unique_predicates,
+        candidate_partition_leaves,
+        candidate_predicate_instances,
+        candidate_bad_clauses,
+        candidate_bad_atoms,
+        direct_bad_formula_evaluations,
+        direct_bad_formula_atom_queries,
+        global_leaves,
+        descending_leaves,
+        uncovered_leaves,
+        unsupported_leaves,
+        proved_empty_locus_leaves,
+        candidate_leaf_match_attempts,
+        unsupported_references,
+        canonical_rows,
+        canonical_terms,
+        retained_source_rows,
+        retained_source_terms,
+        source_match_attempts,
+        condition_terms,
+        coordinate_pruning_checks,
+        coordinate_pruned_leaves,
+        divisibility_pruned_leaves,
+        locus_divisibility_checks,
+        retained_structural_locus_terms,
+        product_zero_decompositions,
+        product_zero_factor_references,
+        product_zero_multiplications,
+        product_materialization_bound_factor_scans,
+        product_materialization_bound_exponent_entries,
+        factored_product_zero_disjunctions,
+        factored_product_zero_factor_references,
+        product_reconstruction_term_pairs,
+        product_reconstruction_output_terms,
+        product_reconstruction_output_exponent_entries,
+        product_reconstruction_output_coefficient_bits,
+        structural_locus_associate_comparisons,
+        structural_locus_associate_term_pairs,
+    )
+}
+
+pub(crate) fn write_normalization_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<(), ExactIdentityError> {
+    write_usize_record_identity!(writer, tag, limits;
+        max_family_fingerprint_bytes,
+        max_context_fingerprint_bytes,
+        max_attempts,
+        max_predicate_occurrences,
+        max_dependency_checks,
+        max_raw_clause_sources,
+        max_raw_literal_occurrences,
+        max_canonical_sort_scratch_entries,
+        max_canonical_sort_copy_entries,
+        max_canonical_sort_move_entries,
+        max_canonical_order_comparisons,
+        max_merged_clauses,
+        max_merged_source_references,
+        max_normalized_literals,
+        max_factor_lists,
+        max_factor_references,
+        max_base_structural_loci,
+        max_retained_base_locus_terms,
+        max_retained_base_locus_bytes,
+        max_base_locus_associate_comparisons,
+        max_base_locus_associate_term_pairs,
+    )
+}
+
+pub(crate) fn write_normalization_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorFormulaNormalizationStats,
+) -> Result<(), ExactIdentityError> {
+    // The retained base-locus display-byte counter is formatter-dependent;
+    // exact sparse base loci are already part of the normalized payload.
+    write_usize_record_identity!(writer, tag, stats;
+        family_fingerprint_bytes,
+        context_fingerprint_bytes,
+        attempts,
+        certified_attempts,
+        unsupported_attempts,
+        predicate_occurrences,
+        dependency_checks,
+        identically_zero_predicates,
+        coefficient_field_nonzero_predicates,
+        index_dependent_predicates,
+        raw_clause_sources,
+        raw_literal_occurrences,
+        canonical_sort_scratch_entries,
+        canonical_sort_copy_entries,
+        canonical_sort_move_entries,
+        canonical_order_comparisons,
+        merged_clauses,
+        merged_source_references,
+        normalized_literals,
+        factor_lists,
+        factor_references,
+        base_structural_loci,
+        retained_base_locus_terms,
+        base_locus_associate_comparisons,
+        base_locus_associate_term_pairs,
+    )
 }
 
 #[derive(Clone, Copy)]

@@ -1358,10 +1358,13 @@ impl GeneratedAffineResidualGroupExactDatabase {
             if !Arc::ptr_eq(plan.physical_frame(), &frame) {
                 return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongFrameAllocation);
             }
+            let inventory = plan
+                .inventory()
+                .ok_or(GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
             plan.replay(
                 family,
                 context,
-                plan.inventory(),
+                inventory,
                 plan.authority(),
                 &frame,
                 limits.solve_plan_replay,
@@ -3847,7 +3850,7 @@ mod tests {
                 GeneratedAffineResidualCaseAuthority::try_new(
                     family,
                     context,
-                    Arc::clone(plan.inventory()),
+                    Arc::clone(plan.inventory().unwrap()),
                     case_ordinal,
                     GeneratedAffineResidualCaseAuthorityLimits::default(),
                 )
@@ -4594,7 +4597,7 @@ mod tests {
         let baseline_parent_counts = (
             Arc::strong_count(&plan),
             Arc::strong_count(&frame),
-            Arc::strong_count(plan.inventory()),
+            Arc::strong_count(plan.inventory().unwrap()),
             Arc::strong_count(plan.authority()),
         );
 
@@ -4616,7 +4619,7 @@ mod tests {
             (
                 Arc::strong_count(&plan),
                 Arc::strong_count(&frame),
-                Arc::strong_count(plan.inventory()),
+                Arc::strong_count(plan.inventory().unwrap()),
                 Arc::strong_count(plan.authority()),
             ),
             baseline_parent_counts
@@ -4658,7 +4661,7 @@ mod tests {
                 (
                     Arc::strong_count(&plan),
                     Arc::strong_count(&frame),
-                    Arc::strong_count(plan.inventory()),
+                    Arc::strong_count(plan.inventory().unwrap()),
                     Arc::strong_count(plan.authority()),
                 ),
                 baseline_parent_counts,

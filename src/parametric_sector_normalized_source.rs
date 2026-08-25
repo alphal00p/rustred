@@ -9,6 +9,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::generated_when_bad::GeneratedWhenBadCompilation;
 use crate::parametric_sector_coverage::{
     AuthenticatedNormalizedCoverage, ParametricSectorCoverageError, ParametricSectorCoverageLimits,
@@ -27,6 +28,8 @@ use crate::{
 
 pub(crate) const PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA: &str =
     "rustred-parametric-sector-normalized-coverage-source-v2";
+pub(crate) const PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_STABLE_VALUE_IDENTITY_V1_SCHEMA:
+    &str = "rustred-parametric-sector-normalized-coverage-source-stable-value-identity-v1";
 
 /// Complete persisted resource envelope for backend-neutral normalization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -322,6 +325,92 @@ impl ParametricSectorNormalizedCoverageSource {
             equal
         }
     }
+
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 12)?;
+        writer.string(
+            "identity_schema",
+            PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("schema", self.schema)?;
+        writer.string("family_fingerprint", &self.family_fingerprint)?;
+        writer.string("context_fingerprint", &self.context_fingerprint)?;
+        writer.begin_sequence("sector", self.sector.arity())?;
+        for &active in self.sector.active_bits() {
+            writer.boolean("active", active)?;
+        }
+        writer.end_sequence()?;
+        writer.variant("ordering_policy", self.ordering_policy.stable_id())?;
+        self.row_span
+            .write_stable_value_identity(writer, "row_span")?;
+        writer.begin_sequence("attempts", self.attempts.len())?;
+        for attempt in &self.attempts {
+            writer.begin_record("attempt", 2)?;
+            writer.usize("ordinal", attempt.ordinal())?;
+            attempt
+                .compilation()
+                .write_stable_value_identity_with_shared_row_span(writer, "compilation", 0)?;
+            writer.end_record()?;
+        }
+        writer.end_sequence()?;
+        self.normalized
+            .write_stable_value_identity(writer, "normalized")?;
+        write_source_limits_identity(writer, "limits", self.limits)?;
+        write_source_stats_identity(writer, "stats", self.stats)?;
+        writer.boolean("test_ordering_policy_binding_valid", {
+            #[cfg(test)]
+            {
+                self.ordering_policy_binding_valid_for_test
+            }
+            #[cfg(not(test))]
+            {
+                true
+            }
+        })?;
+        writer.end_record()
+    }
+}
+
+fn write_source_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricSectorNormalizedCoverageSourceLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    crate::parametric_sector_coverage::write_coverage_limits_identity(
+        writer,
+        "coverage",
+        limits.coverage,
+    )?;
+    crate::parametric_sector_coverage::write_normalization_limits_identity(
+        writer,
+        "normalization",
+        limits.normalization,
+    )?;
+    writer.end_record()
+}
+
+fn write_source_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ParametricSectorNormalizedCoverageSourceStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    crate::parametric_sector_coverage::write_coverage_stats_identity(
+        writer,
+        "coverage",
+        stats.coverage,
+    )?;
+    crate::parametric_sector_coverage::write_normalization_stats_identity(
+        writer,
+        "normalization",
+        stats.normalization,
+    )?;
+    writer.end_record()
 }
 
 pub(crate) struct ParametricSectorNormalizedCoverageSourceCompiler;

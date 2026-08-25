@@ -23,8 +23,8 @@ all of LiteRed.
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
-| Bridge a direct actionable residual into case authority and sealed premises | Implemented internally for a singleton case; physical-frame/solve-plan/Ready integration is pending |
-| Chronologically replay committed generated-affine exact-session transitions | Available for the current exact-session slice |
+| Bridge a direct actionable residual through case authority, ordering, physical frame, and solve plan | Implemented internally for a singleton case with allocation-independent stable identity; exact-session Ready ingress is pending |
+| Chronologically replay committed generated-affine exact-session transitions | Available for the current legacy-inventory exact-session slice; Direct solve-plan ingress is pending and fails closed |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
 | Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
@@ -256,17 +256,21 @@ The repository currently includes tests for:
   pushed internal checkpoint, not a Ready result, reduction, or physical
   topology calculation;
 - the generic direct formula-path coordinate-affine terminal and its
-  direct-singleton case-authority/premise bridge. The terminal replays the
-  selected path, delegates compact affine guard substitution to Symbolica,
-  and returns typed `ProvedEmpty`, `Unsupported`, or `Actionable` outcomes.
-  An actionable terminal retains exact source/path ancestry, borrows its
-  authenticated source rows, exposes ordered guard loci, and compiles sealed
-  premises without fabricating V4/V5, Boolean/DPLL, or integer-system
-  certificates. The bridge's independent default-GMP run
-  `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused tests; broader
-  affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes 36/36.
-  It has not yet entered physical-frame/solve-plan handling,
-  `ReadyForConditions`, reduction, or publication; and
+  direct-singleton authority path. The terminal now has a complete,
+  allocation-independent stable-value identity from the authenticated
+  normalized source through the terminal proof. The row span is serialized
+  once and subsequent occurrences use typed identity references. Direct
+  authority carries that identity through generated ordering V3, physical
+  frame V2, and solve-plan V2 without fabricating a legacy inventory. Stable
+  value equality does not replace proof ancestry: replay still authenticates
+  the exact retained terminal, authority, and frame `Arc` allocations. Exact
+  relation, target, database, and session entry points that require a legacy
+  inventory reject Direct plans rather than manufacturing compatibility state.
+  Licensed GMP Nextest runs passed 3/3 durable-identity tests, 4/4 focused Direct
+  authority/ordering/frame tests, and 7/7 solve-plan tests; an independent
+  audit re-ran the two Direct solve-plan tests successfully. This milestone is
+  not `ReadyForConditions`, `WhenBad` closure, rule publication, reduction, or
+  six-loop topology support; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -338,16 +342,17 @@ path.
 Alongside that staged algebra migration, pushed checkpoint `c593865` binds one
 explicit `IntegralOrderingPolicy` into every normalized source, including an
 empty-attempt source, and authenticates every present candidate's policy. The
-current checkpoint carries an `Actionable` direct formula-path terminal into
-direct-singleton case authority and sealed premises while retaining exact
-source/path ancestry, authenticated source rows, coordinate geometry, and
-ordered guard loci. It still fabricates no V4/V5, Boolean/DPLL, or
-integer-system certificate; legacy-only ordering/frame paths fail closed. The
-remaining generic LiteRed-style solver work is to:
+current checkpoint additionally completes the allocation-independent terminal
+stable-value identity chain and carries an `Actionable` Direct singleton
+through ordering V3, physical frame V2, and solve-plan V2. The row span is
+emitted once through typed identity references; the Direct path fabricates no
+V4/V5, Boolean/DPLL, integer-system, or legacy inventory certificate. Stable
+identity remains separate from exact retained-`Arc` authority, and legacy-only
+exact-session stages fail closed. The remaining generic LiteRed-style solver
+work is to:
 
-1. define stable source-neutral identity for the direct singleton and carry
-   it through physical frame, solve plan, session staging,
-   recentering, and the existing `ReadyForConditions` boundary;
+1. admit the Direct solve plan into exact-session staging and recentering up
+   to, but not past, the existing `ReadyForConditions` boundary;
 2. compile and close `WhenBad` exceptional branches, then atomically publish
    guarded rules and residual work;
 3. feed solved subsectors into supersectors and iterate residual cases; and
@@ -378,12 +383,14 @@ direct cursor remains millisecond-scale. The 18.51-second source replay and
 validation and are not production direct-search phases. Normalized-source V2
 now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
 14/14 suites, independent 30/30 audit/validation, and policy-bound K21 1/1 run
-listed above passed. This checkpoint's coordinate-affine terminal now enters
-direct-singleton case authority and sealed premise replay. The immediate gate
-is stable source-neutral identity plus physical-frame and solve-plan handling
-into the existing exact-session `ReadyForConditions` path. No arity-21 case
-has reached Ready, no guarded rule has been published, no physical topology was
-reduced, and no complete reduction is claimed.
+listed above passed. This checkpoint's coordinate-affine terminal now has an
+allocation-independent stable-value identity and reaches a Direct solve-plan
+V2 through ordering V3 and physical frame V2, with exact `Arc` ancestry kept
+separate and no fake inventory. The immediate gate is Direct solve-plan ingress
+into the existing exact-session `ReadyForConditions` path, followed by
+`WhenBad` closure and publication. No arity-21 case has reached Ready, no
+guarded rule has been published, no physical topology was reduced, and no
+complete reduction is claimed.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent

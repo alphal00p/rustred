@@ -402,10 +402,13 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
     ) -> Result<Self, GeneratedAffineResidualGroupExactTargetError> {
         preflight_catalog_counts(plan.targets().len(), limits)?;
+        let inventory = plan
+            .inventory()
+            .ok_or(GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
         plan.replay(
             family,
             context,
-            plan.inventory(),
+            inventory,
             plan.authority(),
             plan.physical_frame(),
             limits.solve_plan_replay,
@@ -490,7 +493,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
                 GeneratedAffineResidualCaseAuthority::try_new(
                     family,
                     context,
-                    Arc::clone(plan.inventory()),
+                    Arc::clone(inventory),
                     locator.case_ordinal(),
                     limits.target_authority,
                 )
@@ -641,10 +644,13 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             return Err(GeneratedAffineResidualGroupExactTargetError::WrongGroup);
         }
         preflight_catalog_counts(self.targets.len(), self.limits)?;
+        let inventory = plan
+            .inventory()
+            .ok_or(GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
         plan.replay(
             family,
             context,
-            plan.inventory(),
+            inventory,
             plan.authority(),
             plan.physical_frame(),
             self.limits.solve_plan_replay,
@@ -2642,7 +2648,7 @@ mod tests {
                 GeneratedAffineResidualCaseAuthority::try_new(
                     family,
                     context,
-                    Arc::clone(plan.inventory()),
+                    Arc::clone(plan.inventory().unwrap()),
                     case_ordinal,
                     GeneratedAffineResidualCaseAuthorityLimits::default(),
                 )

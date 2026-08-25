@@ -27,6 +27,7 @@ use std::fmt::Write as _;
 use std::mem::size_of;
 use std::sync::Arc;
 
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::generated_cylindrical_candidate_authority::{
     GeneratedCylindricalReplaySession, ReplayedGeneratedCylindricalGlobalCandidate,
 };
@@ -42,6 +43,10 @@ use crate::{
 
 pub const WHEN_BAD_COMPILER_V1_SCHEMA: &str = "rustred-when-bad-compiler-v1";
 pub const WHEN_BAD_COMPILER_V2_SCHEMA: &str = "rustred-when-bad-compiler-v2";
+pub(crate) const WHEN_BAD_CERTIFIED_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-when-bad-certified-stable-value-identity-v1";
+pub(crate) const WHEN_BAD_UNSUPPORTED_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-when-bad-unsupported-stable-value-identity-v1";
 
 #[cfg(test)]
 thread_local! {
@@ -748,6 +753,23 @@ impl WhenBadUnsupported {
         self.core.payload_eq(&other.core)
     }
 
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 4)?;
+        writer.string(
+            "identity_schema",
+            WHEN_BAD_UNSUPPORTED_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        write_candidate_binding_identity(writer, "binding", &self.core.binding)?;
+        write_unsupported_reason_identity(writer, "reason", &self.core.reason)?;
+        write_when_bad_limits_identity(writer, "limits", self.core.limits)?;
+        // Capacity/ABI-dependent retained bytes remain replay diagnostics.
+        writer.end_record()
+    }
+
     #[cfg(test)]
     pub(crate) fn invalidate_retained_core_bytes_for_test(&mut self) {
         self.core.retained_core_bytes = 0;
@@ -957,6 +979,648 @@ impl WhenBadCertificate {
     pub(crate) fn payload_eq(&self, other: &Self) -> bool {
         self.core.payload_eq(&other.core)
     }
+
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        let core = &self.core;
+        writer.begin_record(tag, 12)?;
+        writer.string(
+            "identity_schema",
+            WHEN_BAD_CERTIFIED_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("certificate_schema", core.schema)?;
+        write_candidate_binding_identity(writer, "binding", &core.binding)?;
+        writer.begin_sequence("domain_conditions", core.domain_conditions.len())?;
+        for condition in &core.domain_conditions {
+            write_domain_condition_identity(writer, "condition", condition)?;
+        }
+        writer.end_sequence()?;
+        write_usize_sequence_identity(writer, "base_domain_guards", &core.base_domain_guards)?;
+        write_usize_sequence_identity(writer, "index_domain_guards", &core.index_domain_guards)?;
+        writer.begin_sequence("leak_events", core.leak_events.len())?;
+        for event in &core.leak_events {
+            write_leak_event_identity(writer, "event", event)?;
+        }
+        writer.end_sequence()?;
+        writer.begin_sequence("descent_witnesses", core.descent_witnesses.len())?;
+        for witness in &core.descent_witnesses {
+            write_descent_witness_identity(writer, "witness", witness)?;
+        }
+        writer.end_sequence()?;
+        write_partition_identity(writer, "partition", &core.partition)?;
+        writer.begin_sequence("classifications", core.classifications.len())?;
+        for classification in &core.classifications {
+            write_leaf_classification_identity(writer, "classification", classification)?;
+        }
+        writer.end_sequence()?;
+        write_when_bad_limits_identity(writer, "limits", core.limits)?;
+        write_when_bad_stats_identity(writer, "stats", core.stats)?;
+        writer.end_record()
+    }
+}
+
+fn write_sector_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    sector: &SectorMask,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_sequence(tag, sector.arity())?;
+    for &active in sector.active_bits() {
+        writer.boolean("active", active)?;
+    }
+    writer.end_sequence()
+}
+
+fn write_i64_sequence_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    values: &[i64],
+) -> Result<(), ExactIdentityError> {
+    writer.begin_sequence(tag, values.len())?;
+    for &value in values {
+        writer.signed_i64("value", value)?;
+    }
+    writer.end_sequence()
+}
+
+fn write_usize_sequence_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    values: &[usize],
+) -> Result<(), ExactIdentityError> {
+    writer.begin_sequence(tag, values.len())?;
+    for &value in values {
+        writer.usize("value", value)?;
+    }
+    writer.end_sequence()
+}
+
+fn write_candidate_binding_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    binding: &WhenBadCandidateBinding,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 9)?;
+    writer.variant(
+        "source_authentication",
+        match binding.source_authentication {
+            WhenBadSourceAuthentication::AlgebraicOnly => "AlgebraicOnly",
+            WhenBadSourceAuthentication::GeneratedCylindricalPersistentEliminationV2 => {
+                "GeneratedCylindricalPersistentEliminationV2"
+            }
+        },
+    )?;
+    writer.string("family_fingerprint", &binding.family_fingerprint)?;
+    writer.string("context_fingerprint", &binding.context_fingerprint)?;
+    write_sector_identity(writer, "sector", &binding.sector)?;
+    write_ordering_authority_identity(writer, "ordering_authority", &binding.ordering_authority)?;
+    write_candidate_source_authority_identity(
+        writer,
+        "source_authority",
+        &binding.source_authority,
+    )?;
+    writer.usize("pivot_ordinal", binding.pivot_ordinal)?;
+    write_i64_sequence_identity(writer, "original_pivot", binding.original_pivot.values())?;
+    writer.string(
+        "centered_relation_manifest",
+        &binding.centered_relation_manifest,
+    )?;
+    // `retained_bytes` is allocator/ABI dependent and is a replay admission
+    // diagnostic, not part of the allocation-independent mathematical value.
+    writer.end_record()
+}
+
+fn write_ordering_authority_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    authority: &WhenBadOrderingAuthority,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match authority {
+        WhenBadOrderingAuthority::AnchoredV1 {
+            policy,
+            manifest,
+            discovery_anchor,
+        } => {
+            writer.variant("variant", "AnchoredV1")?;
+            writer.begin_record("fields", 3)?;
+            writer.variant("policy", policy.stable_id())?;
+            writer.string("manifest", manifest)?;
+            write_i64_sequence_identity(writer, "discovery_anchor", discovery_anchor)?;
+        }
+        WhenBadOrderingAuthority::CylindricalV1 { policy, manifest } => {
+            writer.variant("variant", "CylindricalV1")?;
+            writer.begin_record("fields", 2)?;
+            writer.variant("policy", policy.stable_id())?;
+            writer.string("manifest", manifest)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_candidate_source_authority_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    authority: &WhenBadCandidateSourceAuthority,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match authority {
+        WhenBadCandidateSourceAuthority::AnchoredEliminationV1 {
+            source_manifest,
+            source_row_count,
+            trace_manifest,
+            rule_limits,
+        } => {
+            writer.variant("variant", "AnchoredEliminationV1")?;
+            writer.begin_record("fields", 4)?;
+            writer.string("source_manifest", source_manifest)?;
+            writer.usize("source_row_count", *source_row_count)?;
+            writer.string("trace_manifest", trace_manifest)?;
+            write_parametric_rule_limits_identity(writer, "rule_limits", *rule_limits)?;
+        }
+        WhenBadCandidateSourceAuthority::GeneratedCylindricalPersistentV2 {
+            local_candidate_identity,
+            source_row_count,
+        } => {
+            writer.variant("variant", "GeneratedCylindricalPersistentV2")?;
+            writer.begin_record("fields", 2)?;
+            writer.string("local_candidate_identity", local_candidate_identity)?;
+            writer.usize("source_row_count", *source_row_count)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_domain_condition_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    condition: &WhenBadDomainCondition,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.polynomial("polynomial", condition.polynomial().raw())?;
+    writer.begin_sequence("sources", condition.sources().len())?;
+    for source in condition.sources() {
+        write_domain_condition_source_identity(writer, "source", source)?;
+    }
+    writer.end_sequence()?;
+    writer.boolean("index_dependent", condition.is_index_dependent())?;
+    writer.end_record()
+}
+
+fn write_domain_condition_source_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    source: &WhenBadDomainConditionSource,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match source {
+        WhenBadDomainConditionSource::PersistedGuard { ordinal, origins } => {
+            writer.variant("variant", "PersistedGuard")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("ordinal", *ordinal)?;
+            writer.begin_sequence("origins", origins.len())?;
+            for origin in origins {
+                writer.guard_origin("origin", origin)?;
+            }
+            writer.end_sequence()?;
+        }
+        WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
+            witness_ordinal,
+            origins,
+        } => {
+            writer.variant("variant", "GeneratedCylindricalBaseAssumption")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("witness_ordinal", *witness_ordinal)?;
+            writer.begin_sequence("origins", origins.len())?;
+            for origin in origins {
+                writer.guard_origin("origin", origin)?;
+            }
+            writer.end_sequence()?;
+        }
+        WhenBadDomainConditionSource::CoefficientDenominator { shift } => {
+            writer.variant("variant", "CoefficientDenominator")?;
+            writer.begin_record("fields", 1)?;
+            write_i64_sequence_identity(writer, "shift", shift.values())?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_leak_event_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    event: &WhenBadLeakEvent,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 8)?;
+    writer.usize("ordinal", event.ordinal)?;
+    writer.usize("rhs_ordinal", event.rhs_ordinal)?;
+    write_i64_sequence_identity(writer, "rhs_shift", event.rhs_shift.values())?;
+    writer.variant(
+        "kind",
+        match event.kind {
+            WhenBadBoundaryHazardKind::InactiveSectorActivation => "InactiveSectorActivation",
+            WhenBadBoundaryHazardKind::ConcreteIndexOverflow => "ConcreteIndexOverflow",
+        },
+    )?;
+    writer.usize("coordinate", event.coordinate)?;
+    writer.signed_i64("boundary_value", event.boundary_value)?;
+    writer.polynomial("boundary_polynomial", event.boundary_polynomial.raw())?;
+    writer.begin_record("numerator_gate", 2)?;
+    match &event.numerator_gate {
+        WhenBadLeakNumeratorGate::CoefficientFieldNonzero(polynomial) => {
+            writer.variant("variant", "CoefficientFieldNonzero")?;
+            writer.polynomial("polynomial", polynomial.raw())?;
+        }
+        WhenBadLeakNumeratorGate::Symbolic(polynomial) => {
+            writer.variant("variant", "Symbolic")?;
+            writer.polynomial("polynomial", polynomial.raw())?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_descent_witness_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    witness: &WhenBadUniformDescentWitness,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 8)?;
+    writer.variant("policy", witness.policy.stable_id())?;
+    writer.usize("rhs_ordinal", witness.rhs_ordinal)?;
+    write_i64_sequence_identity(writer, "rhs_shift", witness.rhs_shift.values())?;
+    writer.signed_i128("corner_delta", witness.corner_delta)?;
+    writer.signed_i128("dot_delta", witness.dot_delta)?;
+    writer.signed_i128("numerator_delta", witness.numerator_delta)?;
+    writer.begin_sequence("index_excess_deltas", witness.index_excess_deltas.len())?;
+    for &delta in &witness.index_excess_deltas {
+        writer.signed_i128("delta", delta)?;
+    }
+    writer.end_sequence()?;
+    write_descent_component_identity(writer, "decisive_component", witness.decisive_component)?;
+    writer.end_record()
+}
+
+fn write_descent_component_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    component: WhenBadDescentComponent,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match component {
+        WhenBadDescentComponent::CornerDistance => {
+            writer.variant("variant", "CornerDistance")?;
+            writer.begin_record("fields", 0)?;
+        }
+        WhenBadDescentComponent::DotPower => {
+            writer.variant("variant", "DotPower")?;
+            writer.begin_record("fields", 0)?;
+        }
+        WhenBadDescentComponent::NumeratorPower => {
+            writer.variant("variant", "NumeratorPower")?;
+            writer.begin_record("fields", 0)?;
+        }
+        WhenBadDescentComponent::IndexExcess { position } => {
+            writer.variant("variant", "IndexExcess")?;
+            writer.begin_record("fields", 1)?;
+            writer.usize("position", position)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_partition_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    partition: &SymbolicSectorCasePartitionCertificate,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 6)?;
+    writer.string("schema", partition.schema())?;
+    writer.string("context_fingerprint", partition.context_fingerprint())?;
+    writer.begin_record("orthant", 2)?;
+    write_sector_identity(writer, "sector", partition.orthant().sector())?;
+    writer.begin_sequence("constraints", partition.orthant().constraints().len())?;
+    for constraint in partition.orthant().constraints() {
+        writer.begin_record("constraint", 2)?;
+        writer.usize("index", constraint.index())?;
+        writer.variant(
+            "side",
+            match constraint.side() {
+                crate::SectorOrthantSide::AtLeastOne => "AtLeastOne",
+                crate::SectorOrthantSide::AtMostZero => "AtMostZero",
+            },
+        )?;
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    writer.end_record()?;
+    writer.begin_sequence("splits", partition.splits().len())?;
+    for split in partition.splits() {
+        writer.begin_record("split", 5)?;
+        writer.usize("ordinal", split.ordinal())?;
+        writer.unsigned_u64("parent", split.parent().value())?;
+        writer.polynomial("bad_polynomial", split.bad_polynomial().raw())?;
+        writer.unsigned_u64(
+            "equal_zero_child",
+            split.children().equal_zero_case().value(),
+        )?;
+        writer.unsigned_u64("nonzero_child", split.children().nonzero_case().value())?;
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("cases", partition.cases().len())?;
+    for case in partition.cases() {
+        writer.begin_record("case", 2)?;
+        writer.unsigned_u64("id", case.id().value())?;
+        writer.begin_sequence("predicates", case.predicates().len())?;
+        for predicate in case.predicates() {
+            writer.begin_record("predicate", 2)?;
+            writer.variant(
+                "kind",
+                match predicate.kind() {
+                    SymbolicPolynomialPredicateKind::EqualZero => "EqualZero",
+                    SymbolicPolynomialPredicateKind::NonZero => "NonZero",
+                },
+            )?;
+            writer.polynomial("polynomial", predicate.polynomial().raw())?;
+            writer.end_record()?;
+        }
+        writer.end_sequence()?;
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    // `source_identity` contains a legacy Symbolica integer rendering. The
+    // exact typed orthant/split/case payload above is authoritative and avoids
+    // importing formatter stability into this identity schema.
+    let stats = partition.stats();
+    writer.begin_record("stats", 5)?;
+    writer.usize("split_count", stats.split_count())?;
+    writer.usize("leaf_count", stats.leaf_count())?;
+    writer.usize("max_depth", stats.max_depth())?;
+    writer.usize("total_leaf_predicates", stats.total_leaf_predicates())?;
+    writer.usize(
+        "retained_polynomial_terms",
+        stats.retained_polynomial_terms(),
+    )?;
+    // Display-derived retained polynomial bytes are deliberately excluded.
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_leaf_classification_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    classification: &WhenBadLeafClassification,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    writer.unsigned_u64("case", classification.case.value())?;
+    writer.begin_record("disposition", 2)?;
+    match &classification.disposition {
+        WhenBadLeafDisposition::CoveredByCandidate => {
+            writer.variant("variant", "CoveredByCandidate")?;
+            writer.begin_record("fields", 0)?;
+        }
+        WhenBadLeafDisposition::ExceptionalDomain { condition } => {
+            writer.variant("variant", "ExceptionalDomain")?;
+            writer.begin_record("fields", 1)?;
+            writer.usize("condition", *condition)?;
+        }
+        WhenBadLeafDisposition::ExceptionalSectorLeak { event } => {
+            writer.variant("variant", "ExceptionalSectorLeak")?;
+            writer.begin_record("fields", 1)?;
+            writer.usize("event", *event)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_unsupported_reason_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    reason: &WhenBadUnsupportedReason,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match reason {
+        WhenBadUnsupportedReason::NonUniformSameSectorDescent {
+            rhs_ordinal,
+            rhs_shift,
+            first_nonzero_component,
+            delta,
+        } => {
+            writer.variant("variant", "NonUniformSameSectorDescent")?;
+            writer.begin_record("fields", 4)?;
+            writer.usize("rhs_ordinal", *rhs_ordinal)?;
+            write_i64_sequence_identity(writer, "rhs_shift", rhs_shift.values())?;
+            write_descent_component_identity(
+                writer,
+                "first_nonzero_component",
+                *first_nonzero_component,
+            )?;
+            writer.signed_i128("delta", *delta)?;
+        }
+        WhenBadUnsupportedReason::ZeroSameSectorComplexityDelta {
+            rhs_ordinal,
+            rhs_shift,
+        } => {
+            writer.variant("variant", "ZeroSameSectorComplexityDelta")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("rhs_ordinal", *rhs_ordinal)?;
+            write_i64_sequence_identity(writer, "rhs_shift", rhs_shift.values())?;
+        }
+        WhenBadUnsupportedReason::UnboundedIndexAddition {
+            rhs_ordinal,
+            rhs_shift,
+            coordinate,
+            delta,
+        } => {
+            writer.variant("variant", "UnboundedIndexAddition")?;
+            writer.begin_record("fields", 4)?;
+            writer.usize("rhs_ordinal", *rhs_ordinal)?;
+            write_i64_sequence_identity(writer, "rhs_shift", rhs_shift.values())?;
+            writer.usize("coordinate", *coordinate)?;
+            writer.signed_i64("delta", *delta)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_parametric_rule_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricRuleLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    write_parametric_arithmetic_limits_identity(writer, "arithmetic", limits.arithmetic)?;
+    writer.usize("max_rhs_terms", limits.max_rhs_terms)?;
+    writer.usize(
+        "max_source_rows_for_replay",
+        limits.max_source_rows_for_replay,
+    )?;
+    writer.end_record()
+}
+
+fn write_parametric_arithmetic_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ParametricArithmeticLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 6)?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    writer.usize("max_source_terms", limits.max_source_terms)?;
+    writer.usize("max_output_terms", limits.max_output_terms)?;
+    writer.usize(
+        "max_specialization_power_operations",
+        limits.max_specialization_power_operations,
+    )?;
+    writer.usize(
+        "max_specialization_integer_bits",
+        limits.max_specialization_integer_bits,
+    )?;
+    writer.usize("max_guard_origins", limits.max_guard_origins)?;
+    writer.end_record()
+}
+
+fn write_exact_algebra_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: crate::ExactAlgebraLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.unsigned_u128("max_exponent", limits.max_exponent)?;
+    writer.usize("max_polynomial_terms", limits.max_polynomial_terms)?;
+    writer.usize("max_term_operations", limits.max_term_operations)?;
+    writer.end_record()
+}
+
+pub(crate) fn write_symbolic_sector_case_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: SymbolicSectorCaseLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 10)?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    writer.usize("max_indices", limits.max_indices)?;
+    writer.usize(
+        "max_context_fingerprint_bytes",
+        limits.max_context_fingerprint_bytes,
+    )?;
+    writer.usize("max_splits", limits.max_splits)?;
+    writer.usize("max_live_cases", limits.max_live_cases)?;
+    writer.usize("max_predicates_per_case", limits.max_predicates_per_case)?;
+    writer.usize(
+        "max_total_leaf_predicates",
+        limits.max_total_leaf_predicates,
+    )?;
+    writer.usize(
+        "max_retained_polynomial_terms",
+        limits.max_retained_polynomial_terms,
+    )?;
+    writer.usize(
+        "max_retained_polynomial_bytes",
+        limits.max_retained_polynomial_bytes,
+    )?;
+    writer.usize(
+        "max_source_identity_bytes",
+        limits.max_source_identity_bytes,
+    )?;
+    writer.end_record()
+}
+
+pub(crate) fn write_when_bad_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: WhenBadCompilerLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 18)?;
+    write_parametric_arithmetic_limits_identity(writer, "arithmetic", limits.arithmetic)?;
+    write_symbolic_sector_case_limits_identity(writer, "sector_cases", limits.sector_cases)?;
+    writer.usize("max_rhs_terms", limits.max_rhs_terms)?;
+    writer.usize("max_domain_conditions", limits.max_domain_conditions)?;
+    writer.usize(
+        "max_domain_condition_sources",
+        limits.max_domain_condition_sources,
+    )?;
+    writer.usize("max_guard_origins", limits.max_guard_origins)?;
+    writer.usize(
+        "max_guard_origin_retained_bytes",
+        limits.max_guard_origin_retained_bytes,
+    )?;
+    writer.usize(
+        "max_boundary_values_per_rhs",
+        limits.max_boundary_values_per_rhs,
+    )?;
+    writer.usize("max_boundary_values", limits.max_boundary_values)?;
+    writer.usize("max_leak_events", limits.max_leak_events)?;
+    writer.usize(
+        "max_leak_event_shift_components",
+        limits.max_leak_event_shift_components,
+    )?;
+    writer.usize(
+        "max_leak_event_retained_bytes",
+        limits.max_leak_event_retained_bytes,
+    )?;
+    writer.usize("max_descent_witnesses", limits.max_descent_witnesses)?;
+    writer.usize(
+        "max_descent_witness_components",
+        limits.max_descent_witness_components,
+    )?;
+    writer.usize("max_leaf_classifications", limits.max_leaf_classifications)?;
+    writer.usize(
+        "max_candidate_binding_bytes",
+        limits.max_candidate_binding_bytes,
+    )?;
+    writer.usize(
+        "max_retained_condition_terms",
+        limits.max_retained_condition_terms,
+    )?;
+    writer.usize(
+        "max_retained_condition_bytes",
+        limits.max_retained_condition_bytes,
+    )?;
+    writer.end_record()
+}
+
+fn write_when_bad_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: WhenBadCompilerStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 13)?;
+    writer.usize("rhs_terms", stats.rhs_terms())?;
+    writer.usize("domain_conditions", stats.domain_conditions())?;
+    writer.usize("base_domain_guards", stats.base_domain_guards())?;
+    writer.usize("domain_condition_sources", stats.domain_condition_sources())?;
+    writer.usize("guard_origins", stats.guard_origins())?;
+    writer.usize("retained_condition_terms", stats.retained_condition_terms())?;
+    writer.usize("index_domain_guards", stats.index_domain_guards())?;
+    writer.usize("boundary_values_examined", stats.boundary_values_examined())?;
+    writer.usize("leak_events", stats.leak_events())?;
+    writer.usize(
+        "leak_event_shift_components",
+        stats.leak_event_shift_components(),
+    )?;
+    // Origin/event retained bytes are capacity/`size_of` diagnostics and
+    // condition display bytes depend on Symbolica's formatter. Exact origins,
+    // shifts, and sparse polynomials above already bind their stable content.
+    writer.usize("descent_witnesses", stats.descent_witnesses())?;
+    writer.usize(
+        "descent_witness_components",
+        stats.descent_witness_components(),
+    )?;
+    writer.usize("leaf_classifications", stats.leaf_classifications())?;
+    // `retained_core_bytes` is capacity/`size_of` derived and intentionally
+    // excluded from the durable value.
+    writer.end_record()
 }
 
 impl WhenBadCertifiedCore {

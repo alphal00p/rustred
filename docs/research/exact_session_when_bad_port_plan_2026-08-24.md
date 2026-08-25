@@ -5,8 +5,10 @@ the scoped independent-cylinder Ready geometry/descent/hazard checkpoint are
 implemented; upstream sealed normalization, direct formula-residual search,
 one-pass sealed candidate ingress/replay, normalized-source V2 ordering-policy
 binding, and the K21 evidence are implemented at pushed checkpoint `c593865`;
-the direct formula-path coordinate-affine terminal now enters authenticated
-direct-singleton case authority and sealed premise replay; updated 2026-08-25.
+the current working checkpoint completes the allocation-independent terminal
+stable-value identity chain and carries Direct singleton authority through
+ordering V3, physical frame V2, and solve-plan V2 without a fake inventory;
+updated 2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -179,25 +181,28 @@ The policy-bound all-36 `L=6`, `K=21` run
 authentications, the unchanged 15 Certified/21 Unsupported semantics, and a
 1.405-millisecond first-residual search.
 
-This checkpoint carries the generic direct formula-path coordinate-affine
-terminal into direct-singleton case authority and sealed premise replay. It
-retains exact source/path ancestry, borrows authenticated source rows, exposes
-coordinate geometry and ordered guard loci, and rechecks source/term, anchor,
-and replay budgets. It fabricates no V4/V5, Boolean/DPLL, or integer-system
-certificate. Independent default-GMP run
-`6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
-broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes
-36/36.
+This checkpoint completes the generic Direct singleton authority hand-off.
+The terminal stable-value identity is allocation-independent across the whole
+authenticated source/path/terminal chain; it emits the authenticated row span
+once and represents subsequent occurrences with typed identity references.
+Direct authority carries that identity through generated ordering V3,
+physical frame V2, and solve-plan V2 without fabricating V4/V5,
+Boolean/DPLL, integer-system, or legacy inventory certificates. Mathematical
+stable-value identity remains distinct from proof ownership: replay separately
+requires the exact retained terminal, authority, and frame `Arc` allocations.
+Legacy-inventory-only exact relation, target, database, and session stages fail
+closed on a Direct plan.
 
-The next upstream-to-session seam is stable source-neutral identity plus
-physical-frame and solve-plan support for that direct singleton. It must carry
-the already authenticated singleton group through the physical frame,
-`GeneratedAffineResidualGroupExactSession` staging, and recentering into the
-existing `ReadyForConditions` boundary without reconstructing V4, V5, the
-live-leaf queue, or Boolean/DPLL certificates. No arity-21 input has reached
-Ready. The successful direct
-`K=21` fixture is not a physical topology and has not produced a published
-guarded rule or reduction.
+Licensed GMP Nextest runs passed 3/3 terminal durable-identity tests, 4/4
+focused Direct authority/ordering/frame tests, and 7/7 solve-plan tests; an
+independent audit re-ran the two Direct solve-plan tests successfully. The next
+upstream-to-session seam is therefore Direct solve-plan ingress through
+`GeneratedAffineResidualGroupExactSession` staging and recentering to the
+existing `ReadyForConditions` boundary, followed by the `WhenBad` closure and
+publication phases described below. It must not reconstruct V4, V5, the
+live-leaf queue, or Boolean/DPLL certificates. No Direct input, including the
+successful `K=21` cursor fixture, has reached Ready, produced a published
+guarded rule, reduced a physical topology, or established six-loop support.
 
 Not yet implemented are the Ready-native condition transcript and relative
 partition, the terminal current-lineage exact `WhenBad` compiler,
@@ -944,18 +949,17 @@ Implement in this order:
    `6a5267d1-fe75-4854-8b98-9a03b1bb2370` (14/14), independent run
    `430af297-b806-431e-a169-bd0f19a9f9c8` (30/30), and policy-bound K21 run
    `88a73ec1-52c2-4771-8a21-75e1b2a848b6` (1/1) passed;
-6. add the generic direct-backed singleton affine inventory/adapter —
-   completed in this checkpoint. `Actionable` terminals retain exact
-   source/path ancestry and authenticated rows, expose typed geometry and
-   ordered guards, and compile sealed premises without fabricating V4/V5,
-   Boolean/DPLL, or integer-system certificates. Independent default-GMP run
-   `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
-   broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3`
-   passes 36/36.
-   Next add stable source-neutral identity and carry the singleton through
-   physical frame, solve plan, exact-session staging, and recentering into the
-   existing `ReadyForConditions` boundary. It has not yet reached that
-   boundary, reduction, or publication;
+6. add the generic direct-backed singleton affine adapter — completed through
+   the Direct solve-plan boundary in this checkpoint. The complete terminal
+   stable-value identity emits the row span once through typed references;
+   ordering V3, physical frame V2, and solve-plan V2 retain it without a fake
+   inventory, while exact terminal/authority/frame `Arc` ancestry remains a
+   separate replay condition. Legacy-only exact-session stages fail closed.
+   Focused and independent licensed GMP tests are green.
+   Next carry the Direct solve plan through exact-session staging and
+   recentering into the existing `ReadyForConditions` boundary, then implement
+   `WhenBad` closure and publication. It has not yet reached that boundary,
+   reduction, publication, or six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;

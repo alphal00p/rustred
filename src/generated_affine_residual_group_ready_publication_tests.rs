@@ -300,7 +300,7 @@ fn production_rows(
             GeneratedAffineResidualCaseAuthority::try_new(
                 family,
                 context,
-                Arc::clone(plan.inventory()),
+                Arc::clone(plan.inventory().unwrap()),
                 case_ordinal,
                 GeneratedAffineResidualCaseAuthorityLimits::default(),
             )

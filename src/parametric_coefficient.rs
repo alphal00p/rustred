@@ -24,6 +24,7 @@ use crate::coefficient::{
     checked_coefficient_sub_on_map, checked_polynomial_mul_on_map, validate_coefficient_on_map,
     validate_polynomial_on_map,
 };
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::residual_affine_integer_system::ResidualAffineIntegerSystemFreshPlanAuthorization;
 use crate::{
     Coefficient, CoefficientContext, IndexShift, ResidualAffineIntegerMap,
@@ -33,6 +34,8 @@ use crate::{
 };
 
 pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
+pub(crate) const RESIDUAL_AFFINE_COMPACT_PLAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-residual-affine-compact-plan-stable-value-identity-v1";
 
 /// Symbolica-native coefficient vector used only inside strict `K*`
 /// associate proofs. Widening is essential: two authenticated `u16` base
@@ -2574,6 +2577,331 @@ impl ResidualAffineCompactCompositionPlan {
     ) -> Result<(), ResidualUnitAffineCompositionError> {
         context.replay_residual_affine_compact_composition_plan(self, geometry)
     }
+
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 8)?;
+        writer.string(
+            "identity_schema",
+            RESIDUAL_AFFINE_COMPACT_PLAN_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("schema", self.schema)?;
+        writer.string("context_fingerprint", &self.context_fingerprint)?;
+        writer.unsigned_u64("geometry_checksum", self.geometry_checksum)?;
+        write_compact_core_identity(writer, "core", &self.core)?;
+        write_compact_plan_limits_identity(writer, "limits", self.limits)?;
+        write_compact_plan_stats_identity(writer, "stats", self.stats)?;
+        write_compact_manifest_identity(writer, "manifest", self.manifest)?;
+        writer.end_record()
+    }
+}
+
+fn write_compact_core_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    core: &ResidualAffineCompositionCorePlan,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 11)?;
+    writer.string("schema", core.schema)?;
+    writer.string("context_fingerprint", &core.context_fingerprint)?;
+    writer.usize("ambient_arity", core.ambient_arity)?;
+    writer.begin_sequence("free_positions", core.free_positions.len())?;
+    for &position in &core.free_positions {
+        writer.usize("position", position)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("nonfree_positions", core.nonfree_positions.len())?;
+    for &position in &core.nonfree_positions {
+        writer.usize("position", position)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("linear_support", core.linear_support.len())?;
+    for &nonzero in &core.linear_support {
+        writer.boolean("nonzero", nonzero)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("full_images", core.full_images.len())?;
+    for image in &core.full_images {
+        writer.polynomial("image", image)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("image_term_counts", core.image_term_counts.len())?;
+    for &count in &core.image_term_counts {
+        writer.usize("count", count)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence(
+        "image_coefficient_growth_bits",
+        core.image_coefficient_growth_bits.len(),
+    )?;
+    for &bits in &core.image_coefficient_growth_bits {
+        writer.usize("bits", bits)?;
+    }
+    writer.end_sequence()?;
+    write_composition_plan_limits_identity(writer, "limits", core.limits)?;
+    write_composition_plan_stats_identity(writer, "stats", core.stats)?;
+    writer.end_record()
+}
+
+fn write_exact_algebra_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ExactAlgebraLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.unsigned_u128("max_exponent", limits.max_exponent)?;
+    writer.usize("max_polynomial_terms", limits.max_polynomial_terms)?;
+    writer.usize("max_term_operations", limits.max_term_operations)?;
+    writer.end_record()
+}
+
+pub(crate) fn write_residual_unit_affine_polynomial_composition_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ResidualUnitAffinePolynomialCompositionLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 16)?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    writer.usize("max_source_terms", limits.max_source_terms)?;
+    writer.usize(
+        "max_source_exponent_entries",
+        limits.max_source_exponent_entries,
+    )?;
+    writer.usize(
+        "max_expanded_contributions",
+        limits.max_expanded_contributions,
+    )?;
+    writer.usize("max_output_terms", limits.max_output_terms)?;
+    writer.usize(
+        "max_output_exponent_entries",
+        limits.max_output_exponent_entries,
+    )?;
+    writer.usize("max_power_calls", limits.max_power_calls)?;
+    writer.usize(
+        "max_native_power_heap_pairs",
+        limits.max_native_power_heap_pairs,
+    )?;
+    writer.usize(
+        "max_multiplication_term_pairs",
+        limits.max_multiplication_term_pairs,
+    )?;
+    writer.usize("max_addition_term_visits", limits.max_addition_term_visits)?;
+    writer.usize(
+        "max_kronecker_exponent_bits",
+        limits.max_kronecker_exponent_bits,
+    )?;
+    writer.usize(
+        "max_integer_coefficient_bits",
+        limits.max_integer_coefficient_bits,
+    )?;
+    writer.usize("max_integer_bit_work", limits.max_integer_bit_work)?;
+    writer.usize(
+        "max_normalization_input_term_pairs",
+        limits.max_normalization_input_term_pairs,
+    )?;
+    writer.usize("max_guard_origins", limits.max_guard_origins)?;
+    writer.usize(
+        "max_guard_origin_retained_bytes",
+        limits.max_guard_origin_retained_bytes,
+    )?;
+    writer.end_record()
+}
+
+pub(crate) fn write_residual_unit_affine_polynomial_composition_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ResidualUnitAffinePolynomialCompositionStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 14)?;
+    writer.usize("source_terms", stats.source_terms())?;
+    writer.usize("source_exponent_entries", stats.source_exponent_entries())?;
+    writer.usize(
+        "expanded_contribution_bound",
+        stats.expanded_contribution_bound(),
+    )?;
+    writer.usize("output_terms", stats.output_terms())?;
+    writer.usize(
+        "output_exponent_entry_bound",
+        stats.output_exponent_entry_bound(),
+    )?;
+    writer.usize("output_exponent_entries", stats.output_exponent_entries())?;
+    writer.usize("power_calls", stats.power_calls())?;
+    writer.usize(
+        "native_power_heap_pair_bound",
+        stats.native_power_heap_pair_bound(),
+    )?;
+    writer.usize(
+        "multiplication_term_pair_bound",
+        stats.multiplication_term_pair_bound(),
+    )?;
+    writer.usize(
+        "addition_term_visit_bound",
+        stats.addition_term_visit_bound(),
+    )?;
+    writer.usize(
+        "largest_kronecker_exponent_bits",
+        stats.largest_kronecker_exponent_bits(),
+    )?;
+    writer.usize(
+        "largest_integer_coefficient_bit_bound",
+        stats.largest_integer_coefficient_bit_bound(),
+    )?;
+    writer.usize(
+        "native_integer_bit_work_bound",
+        stats.native_integer_bit_work_bound(),
+    )?;
+    writer.usize("integer_bit_work_bound", stats.integer_bit_work_bound())?;
+    writer.end_record()
+}
+
+fn write_composition_plan_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ResidualUnitAffineCompositionPlanLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 9)?;
+    writer.usize("max_variables", limits.max_variables)?;
+    writer.usize("max_full_images", limits.max_full_images)?;
+    writer.usize(
+        "max_geometry_entries_inspected",
+        limits.max_geometry_entries_inspected,
+    )?;
+    writer.usize(
+        "max_geometry_entries_retained",
+        limits.max_geometry_entries_retained,
+    )?;
+    writer.usize(
+        "max_support_entries_retained",
+        limits.max_support_entries_retained,
+    )?;
+    writer.usize("max_total_image_terms", limits.max_total_image_terms)?;
+    writer.usize(
+        "max_total_image_exponent_entries",
+        limits.max_total_image_exponent_entries,
+    )?;
+    writer.usize("max_image_integer_bits", limits.max_image_integer_bits)?;
+    writer.usize(
+        "max_total_image_integer_bits",
+        limits.max_total_image_integer_bits,
+    )?;
+    writer.end_record()
+}
+
+fn write_composition_plan_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ResidualAffineCompositionPlanStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 9)?;
+    writer.usize("variables", stats.variables())?;
+    writer.usize("full_images", stats.full_images())?;
+    writer.usize(
+        "geometry_entries_inspected",
+        stats.geometry_entries_inspected(),
+    )?;
+    writer.usize(
+        "geometry_entries_retained",
+        stats.geometry_entries_retained(),
+    )?;
+    writer.usize("support_entries_retained", stats.support_entries_retained())?;
+    writer.usize("total_image_terms", stats.total_image_terms())?;
+    writer.usize(
+        "total_image_exponent_entries",
+        stats.total_image_exponent_entries(),
+    )?;
+    writer.usize(
+        "largest_image_integer_bits",
+        stats.largest_image_integer_bits(),
+    )?;
+    writer.usize("total_image_integer_bits", stats.total_image_integer_bits())?;
+    writer.end_record()
+}
+
+pub(crate) fn write_compact_plan_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: ResidualAffineCompactCompositionPlanLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 8)?;
+    write_composition_plan_limits_identity(writer, "composition", limits.composition)?;
+    writer.usize(
+        "max_context_fingerprint_bytes",
+        limits.max_context_fingerprint_bytes,
+    )?;
+    writer.usize(
+        "max_geometry_integer_bit_work",
+        limits.max_geometry_integer_bit_work,
+    )?;
+    writer.usize(
+        "max_geometry_replay_comparison_work",
+        limits.max_geometry_replay_comparison_work,
+    )?;
+    writer.usize(
+        "max_geometry_replay_integer_bit_work",
+        limits.max_geometry_replay_integer_bit_work,
+    )?;
+    writer.usize(
+        "max_geometry_replay_scratch_logical_bytes",
+        limits.max_geometry_replay_scratch_logical_bytes,
+    )?;
+    writer.usize(
+        "max_retained_owned_logical_bytes",
+        limits.max_retained_owned_logical_bytes,
+    )?;
+    writer.usize(
+        "max_compilation_owned_logical_peak_upper_bound",
+        limits.max_compilation_owned_logical_peak_upper_bound,
+    )?;
+    writer.end_record()
+}
+
+fn write_compact_plan_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: ResidualAffineCompactCompositionPlanStats,
+) -> Result<(), ExactIdentityError> {
+    // Scratch/retained/peak logical-byte fields are `size_of`/ABI dependent
+    // replay diagnostics and do not enter the stable mathematical value.
+    writer.begin_record(tag, 6)?;
+    write_composition_plan_stats_identity(writer, "composition", stats.composition)?;
+    writer.usize("context_fingerprint_bytes", stats.context_fingerprint_bytes)?;
+    writer.usize(
+        "geometry_integer_entries_inspected",
+        stats.geometry_integer_entries_inspected,
+    )?;
+    writer.usize("geometry_integer_bit_work", stats.geometry_integer_bit_work)?;
+    writer.usize(
+        "geometry_replay_comparison_work",
+        stats.geometry_replay_comparison_work,
+    )?;
+    writer.usize(
+        "geometry_replay_integer_bit_work",
+        stats.geometry_replay_integer_bit_work,
+    )?;
+    writer.end_record()
+}
+
+fn write_compact_manifest_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    manifest: ResidualAffineCompactCompositionManifest,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 8)?;
+    writer.string("schema", manifest.schema)?;
+    writer.usize(
+        "context_fingerprint_bytes",
+        manifest.context_fingerprint_bytes,
+    )?;
+    writer.unsigned_u64("context_checksum", manifest.context_checksum)?;
+    writer.usize("ambient_arity", manifest.ambient_arity)?;
+    writer.usize("free_count", manifest.free_count)?;
+    writer.unsigned_u64("geometry_checksum", manifest.geometry_checksum)?;
+    write_compact_plan_limits_identity(writer, "limits", manifest.limits)?;
+    write_compact_plan_stats_identity(writer, "stats", manifest.stats)?;
+    writer.end_record()
 }
 
 /// Allocation-independent logical memory owned by one source-neutral affine

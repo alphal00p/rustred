@@ -20,6 +20,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::cell::Cell;
 
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
     GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
     GeneratedSymbolicRowSpanConfig, GeneratedSymbolicRowSpanError, GeneratedSymbolicRowSpanLineage,
@@ -36,6 +37,10 @@ pub const GENERATED_SOURCE_AUTHENTICATION_V2_SCHEMA: &str =
     "rustred-generated-source-authentication-v2";
 pub const GENERATED_WHEN_BAD_V1_SCHEMA: &str = "rustred-generated-when-bad-v1";
 pub const GENERATED_WHEN_BAD_V2_SCHEMA: &str = "rustred-generated-when-bad-v2";
+pub(crate) const GENERATED_SOURCE_AUTHENTICATION_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-generated-source-authentication-stable-value-identity-v1";
+pub(crate) const GENERATED_WHEN_BAD_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-generated-when-bad-stable-value-identity-v1";
 
 #[cfg(test)]
 thread_local! {
@@ -409,6 +414,51 @@ impl GeneratedSourceAuthenticationCertificate {
             && self.witnesses == other.witnesses
             && self.stats == other.stats
             && self.limits == other.limits
+    }
+
+    fn write_stable_value_identity_with_shared_row_span(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+        shared_parent_ordinal: usize,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 10)?;
+        writer.string(
+            "identity_schema",
+            GENERATED_SOURCE_AUTHENTICATION_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("certificate_schema", self.schema)?;
+        writer.variant(
+            "source_authentication",
+            match self.source_authentication {
+                GeneratedWhenBadSourceAuthentication::CanonicalIbpLiAndExactTranslations => {
+                    "CanonicalIbpLiAndExactTranslations"
+                }
+                GeneratedWhenBadSourceAuthentication::CanonicalIbpLiExactTranslationsAndVerifiedWholeRowSymmetryTransports => {
+                    "CanonicalIbpLiExactTranslationsAndVerifiedWholeRowSymmetryTransports"
+                }
+            },
+        )?;
+        writer.string("family_fingerprint", &self.family_fingerprint)?;
+        writer.string("context_fingerprint", &self.context_fingerprint)?;
+        writer.string("candidate_source_manifest", &self.candidate_source_manifest)?;
+        writer.begin_record("shared_parent_row_span", 4)?;
+        writer.variant("kind", "NormalizedSourceOwnedRowSpan")?;
+        writer.usize("ordinal", shared_parent_ordinal)?;
+        writer.string(
+            "stable_value_schema",
+            crate::generated_symbolic_row_span::GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("certificate_schema", self.row_span.schema())?;
+        writer.end_record()?;
+        writer.begin_sequence("witnesses", self.witnesses.len())?;
+        for witness in &self.witnesses {
+            write_generated_source_witness_identity(writer, "witness", witness)?;
+        }
+        writer.end_sequence()?;
+        write_generated_source_stats_identity(writer, "stats", self.stats)?;
+        write_generated_when_bad_limits_identity(writer, "limits", self.limits)?;
+        writer.end_record()
     }
 }
 
@@ -931,6 +981,57 @@ impl GeneratedWhenBadCompilation {
         }
     }
 
+    /// Write one generated attempt below a source-owned shared row span. The
+    /// parent emits that potentially six-loop-sized value once; this payload
+    /// keeps a typed ordinal reference while retaining every other proof
+    /// field exactly.
+    pub(crate) fn write_stable_value_identity_with_shared_row_span(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+        shared_parent_ordinal: usize,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 3)?;
+        writer.string(
+            "identity_schema",
+            GENERATED_WHEN_BAD_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        match self {
+            Self::Certified(certificate) => {
+                writer.variant("variant", "Certified")?;
+                writer.begin_record("fields", 3)?;
+                writer.string("schema", certificate.schema)?;
+                certificate
+                    .source
+                    .write_stable_value_identity_with_shared_row_span(
+                        writer,
+                        "source_authentication",
+                        shared_parent_ordinal,
+                    )?;
+                certificate
+                    .admissibility
+                    .write_stable_value_identity(writer, "admissibility")?;
+            }
+            Self::Unsupported(unsupported) => {
+                writer.variant("variant", "Unsupported")?;
+                writer.begin_record("fields", 3)?;
+                writer.string("schema", unsupported.schema)?;
+                unsupported
+                    .source
+                    .write_stable_value_identity_with_shared_row_span(
+                        writer,
+                        "source_authentication",
+                        shared_parent_ordinal,
+                    )?;
+                unsupported
+                    .admissibility
+                    .write_stable_value_identity(writer, "admissibility")?;
+            }
+        }
+        writer.end_record()?;
+        writer.end_record()
+    }
+
     #[cfg(test)]
     pub(crate) fn invalidate_unsupported_retained_core_bytes_for_test(&mut self) -> bool {
         match self {
@@ -972,6 +1073,163 @@ impl GeneratedWhenBadCompilation {
             }
         }
     }
+}
+
+fn write_generated_source_witness_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    witness: &GeneratedSourceRowWitness,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 10)?;
+    writer.usize("retained_ordinal", witness.retained_ordinal)?;
+    writer.usize("basis_ordinal", witness.basis_ordinal)?;
+    writer.usize("canonical_ordinal", witness.canonical_ordinal)?;
+    writer.begin_record("symmetry_ordinal", 2)?;
+    match witness.symmetry_ordinal {
+        Some(ordinal) => {
+            writer.variant("variant", "Some")?;
+            writer.usize("value", ordinal)?;
+        }
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("value", 0)?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()?;
+    writer.begin_sequence("symmetry_permutation", witness.symmetry_permutation.len())?;
+    for &target in witness.symmetry_permutation.iter() {
+        writer.usize("target", target)?;
+    }
+    writer.end_sequence()?;
+    writer.variant(
+        "mode",
+        match witness.mode {
+            GeneratedSourceRowMode::CanonicalOriginal => "CanonicalOriginal",
+            GeneratedSourceRowMode::ExactTranslation => "ExactTranslation",
+            GeneratedSourceRowMode::VerifiedWholeRowSymmetryTransport => {
+                "VerifiedWholeRowSymmetryTransport"
+            }
+            GeneratedSourceRowMode::ExactTranslationOfVerifiedWholeRowSymmetryTransport => {
+                "ExactTranslationOfVerifiedWholeRowSymmetryTransport"
+            }
+        },
+    )?;
+    write_i64_sequence_identity(writer, "translation", witness.translation.values())?;
+    write_row_id_identity(writer, "retained_row_id", &witness.retained_row_id)?;
+    write_row_id_identity(writer, "basis_row_id", &witness.basis_row_id)?;
+    write_row_id_identity(writer, "canonical_row_id", &witness.canonical_row_id)?;
+    writer.end_record()
+}
+
+fn write_row_id_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    row: &ParametricRowId,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match row {
+        ParametricRowId::OrdinaryIbp {
+            contraction_momentum,
+            differentiated_loop,
+        } => {
+            writer.variant("variant", "OrdinaryIbp")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("contraction_momentum", *contraction_momentum)?;
+            writer.usize("differentiated_loop", *differentiated_loop)?;
+        }
+        ParametricRowId::LorentzInvariance {
+            first_external,
+            second_external,
+        } => {
+            writer.variant("variant", "LorentzInvariance")?;
+            writer.begin_record("fields", 2)?;
+            writer.usize("first_external", *first_external)?;
+            writer.usize("second_external", *second_external)?;
+        }
+        ParametricRowId::Derived { label } => {
+            writer.variant("variant", "Derived")?;
+            writer.begin_record("fields", 1)?;
+            writer.string("label", label)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_i64_sequence_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    values: &[i64],
+) -> Result<(), ExactIdentityError> {
+    writer.begin_sequence(tag, values.len())?;
+    for &value in values {
+        writer.signed_i64("value", value)?;
+    }
+    writer.end_sequence()
+}
+
+fn write_generated_source_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: GeneratedSourceAuthenticationStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 15)?;
+    writer.usize("canonical_rows", stats.canonical_rows())?;
+    writer.usize("authenticated_basis_rows", stats.authenticated_basis_rows())?;
+    writer.usize("verified_symmetries", stats.verified_symmetries())?;
+    writer.usize("transported_basis_rows", stats.transported_basis_rows())?;
+    writer.usize("retained_rows", stats.retained_rows())?;
+    writer.usize("match_attempts", stats.match_attempts())?;
+    writer.usize("original_rows", stats.original_rows())?;
+    writer.usize("translated_rows", stats.translated_rows())?;
+    writer.usize("transported_rows", stats.transported_rows())?;
+    writer.usize(
+        "translated_transported_rows",
+        stats.translated_transported_rows(),
+    )?;
+    writer.usize("translation_components", stats.translation_components())?;
+    writer.usize(
+        "symmetry_witness_components",
+        stats.symmetry_witness_components(),
+    )?;
+    writer.usize("canonical_terms", stats.canonical_terms())?;
+    writer.usize("retained_terms", stats.retained_terms())?;
+    writer.usize("source_manifest_bytes", stats.source_manifest_bytes())?;
+    writer.end_record()
+}
+
+pub(crate) fn write_generated_when_bad_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: GeneratedWhenBadLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 11)?;
+    crate::generated_symbolic_row_span::write_ibp_config_identity(writer, "ibp", limits.ibp)?;
+    crate::generated_symbolic_row_span::write_row_span_config_identity(
+        writer,
+        "row_span",
+        limits.row_span,
+    )?;
+    crate::when_bad::write_when_bad_limits_identity(writer, "when_bad", limits.when_bad)?;
+    writer.usize("max_canonical_rows", limits.max_canonical_rows)?;
+    writer.usize("max_retained_rows", limits.max_retained_rows)?;
+    writer.usize("max_canonical_terms", limits.max_canonical_terms)?;
+    writer.usize("max_retained_terms", limits.max_retained_terms)?;
+    writer.usize("max_match_attempts", limits.max_match_attempts)?;
+    writer.usize(
+        "max_translation_components",
+        limits.max_translation_components,
+    )?;
+    writer.usize(
+        "max_symmetry_witness_components",
+        limits.max_symmetry_witness_components,
+    )?;
+    writer.usize(
+        "max_source_manifest_bytes",
+        limits.max_source_manifest_bytes,
+    )?;
+    writer.end_record()
 }
 
 pub struct GeneratedWhenBadCompiler;

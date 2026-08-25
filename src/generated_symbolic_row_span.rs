@@ -17,6 +17,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
     IntegralFamily, InternalSymmetrySearchCompletion, InternalSymmetrySearchError,
     InternalSymmetrySearchLimits, ParametricCoefficientContext, ParametricIbpConfig,
@@ -28,6 +29,13 @@ use crate::{
 };
 
 pub const GENERATED_SYMBOLIC_ROW_SPAN_V1_SCHEMA: &str = "rustred-generated-symbolic-row-span-v1";
+// This stable identity is scoped to the V1 construction schemas encoded
+// below. In particular, the bounded-search domain fingerprint carries
+// `BOUNDED_INTEGER_VACUUM_SYMMETRY_SEARCH_V1_SCHEMA`; changing its current
+// Debug-sized admission algorithm requires a construction-schema and durable-
+// identity schema bump.
+pub(crate) const GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-generated-symbolic-row-span-stable-value-identity-v1";
 
 /// How verified symmetries are supplied to the row-span compiler.
 ///
@@ -321,6 +329,460 @@ impl GeneratedSymbolicRowSpanCertificate {
                 .zip(&other.lineages)
                 .all(lineage_payload_eq)
     }
+
+    /// Write the allocation-independent stable value of this replayable row
+    /// span. Process-local `Arc` identity is intentionally excluded; all
+    /// schemas, policies, resource envelopes, proofs, rows, and lineage are
+    /// represented structurally.
+    pub(crate) fn write_stable_value_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+        tag: &str,
+    ) -> Result<(), ExactIdentityError> {
+        writer.begin_record(tag, 11)?;
+        writer.string(
+            "identity_schema",
+            GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+        )?;
+        writer.string("certificate_schema", self.schema)?;
+        writer.string("family_fingerprint", &self.family_fingerprint)?;
+        writer.string("context_fingerprint", &self.context_fingerprint)?;
+        write_ibp_config_identity(writer, "ibp_config", self.ibp)?;
+        write_row_span_config_identity(writer, "config", self.config)?;
+        write_search_completion_identity(
+            writer,
+            "search_completion",
+            self.search_completion.as_ref(),
+        )?;
+        writer.begin_sequence("symmetries", self.symmetries.len())?;
+        for (ordinal, symmetry) in self.symmetries.iter().enumerate() {
+            writer.begin_record("symmetry", 2)?;
+            writer.usize("ordinal", ordinal)?;
+            symmetry.write_stable_value_identity(writer, "certificate")?;
+            writer.end_record()?;
+        }
+        writer.end_sequence()?;
+        writer.begin_sequence("rows", self.rows.len())?;
+        for (ordinal, row) in self.rows.iter().enumerate() {
+            writer.begin_record("row", 2)?;
+            writer.usize("ordinal", ordinal)?;
+            writer.parametric_relation("relation", row)?;
+            writer.end_record()?;
+        }
+        writer.end_sequence()?;
+        writer.begin_sequence("lineages", self.lineages.len())?;
+        for (ordinal, lineage) in self.lineages.iter().enumerate() {
+            write_lineage_identity(writer, ordinal, lineage, &self.rows, &self.symmetries)?;
+        }
+        writer.end_sequence()?;
+        write_row_span_stats_identity(writer, "stats", self.stats)?;
+        writer.end_record()
+    }
+}
+
+pub(crate) fn write_ibp_config_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    config: ParametricIbpConfig,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 1)?;
+    write_parametric_arithmetic_limits_identity(
+        writer,
+        "arithmetic_limits",
+        config.arithmetic_limits,
+    )?;
+    writer.end_record()
+}
+
+pub(crate) fn write_row_span_config_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    config: GeneratedSymbolicRowSpanConfig,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    write_row_span_strategy_identity(writer, "strategy", config.strategy)?;
+    write_row_span_limits_identity(writer, "limits", config.limits)?;
+    writer.end_record()
+}
+
+fn write_row_span_strategy_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    strategy: GeneratedSymbolicRowSpanStrategy,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match strategy {
+        GeneratedSymbolicRowSpanStrategy::Disabled => {
+            writer.variant("variant", "Disabled")?;
+            writer.begin_record("fields", 0)?;
+        }
+        GeneratedSymbolicRowSpanStrategy::BoundedVacuumInternal {
+            search,
+            require_exhaustive,
+        } => {
+            writer.variant("variant", "BoundedVacuumInternal")?;
+            writer.begin_record("fields", 2)?;
+            write_internal_symmetry_search_limits_identity(writer, "search", search)?;
+            writer.boolean("require_exhaustive", require_exhaustive)?;
+        }
+        GeneratedSymbolicRowSpanStrategy::VerifiedInputs => {
+            writer.variant("variant", "VerifiedInputs")?;
+            writer.begin_record("fields", 0)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_row_span_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: GeneratedSymbolicRowSpanLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 9)?;
+    write_transport_limits_identity(writer, "transport", limits.transport)?;
+    writer.usize("max_canonical_rows", limits.max_canonical_rows)?;
+    writer.usize("max_canonical_terms", limits.max_canonical_terms)?;
+    writer.usize("max_verified_symmetries", limits.max_verified_symmetries)?;
+    writer.usize("max_transport_attempts", limits.max_transport_attempts)?;
+    writer.usize("max_augmented_rows", limits.max_augmented_rows)?;
+    writer.usize("max_augmented_terms", limits.max_augmented_terms)?;
+    writer.usize(
+        "max_exact_dedup_comparisons",
+        limits.max_exact_dedup_comparisons,
+    )?;
+    writer.usize(
+        "max_aggregate_manifest_bytes",
+        limits.max_aggregate_manifest_bytes,
+    )?;
+    writer.end_record()
+}
+
+fn write_internal_symmetry_search_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: InternalSymmetrySearchLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 10)?;
+    writer.unsigned_u64("coefficient_radius", u64::from(limits.coefficient_radius))?;
+    writer.usize("max_loop_map_entries", limits.max_loop_map_entries)?;
+    writer.usize("max_enumerated_matrices", limits.max_enumerated_matrices)?;
+    writer.usize(
+        "max_integer_determinant_operations",
+        limits.max_integer_determinant_operations,
+    )?;
+    writer.usize("max_integer_bits", limits.max_integer_bits)?;
+    writer.usize("max_verifier_calls", limits.max_verifier_calls)?;
+    writer.usize("max_retained_symmetries", limits.max_retained_symmetries)?;
+    writer.usize(
+        "max_retained_certificate_entries",
+        limits.max_retained_certificate_entries,
+    )?;
+    writer.usize(
+        "max_retained_certificate_bytes",
+        limits.max_retained_certificate_bytes,
+    )?;
+    write_symmetry_verification_limits_identity(writer, "verification", limits.verification)?;
+    writer.end_record()
+}
+
+fn write_transport_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: SymbolicSymmetryRowTransportLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 8)?;
+    write_parametric_arithmetic_limits_identity(writer, "arithmetic", limits.arithmetic)?;
+    write_symmetry_verification_limits_identity(writer, "symmetry", limits.symmetry)?;
+    writer.usize("max_source_terms", limits.max_source_terms)?;
+    writer.usize("max_source_guards", limits.max_source_guards)?;
+    writer.usize(
+        "max_symmetry_domain_conditions",
+        limits.max_symmetry_domain_conditions,
+    )?;
+    writer.usize("max_output_terms", limits.max_output_terms)?;
+    writer.usize("max_output_guards", limits.max_output_guards)?;
+    writer.usize("max_manifest_bytes", limits.max_manifest_bytes)?;
+    writer.end_record()
+}
+
+fn write_parametric_arithmetic_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: crate::ParametricArithmeticLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 6)?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    writer.usize("max_source_terms", limits.max_source_terms)?;
+    writer.usize("max_output_terms", limits.max_output_terms)?;
+    writer.usize(
+        "max_specialization_power_operations",
+        limits.max_specialization_power_operations,
+    )?;
+    writer.usize(
+        "max_specialization_integer_bits",
+        limits.max_specialization_integer_bits,
+    )?;
+    writer.usize("max_guard_origins", limits.max_guard_origins)?;
+    writer.end_record()
+}
+
+fn write_exact_algebra_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: crate::ExactAlgebraLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.unsigned_u128("max_exponent", limits.max_exponent)?;
+    writer.usize("max_polynomial_terms", limits.max_polynomial_terms)?;
+    writer.usize("max_term_operations", limits.max_term_operations)?;
+    writer.end_record()
+}
+
+fn write_symmetry_verification_limits_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    limits: crate::SymmetryVerificationLimits,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 10)?;
+    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
+    writer.usize("max_matrix_entries", limits.max_matrix_entries)?;
+    writer.usize("max_exact_operations", limits.max_exact_operations)?;
+    writer.usize("max_determinant_states", limits.max_determinant_states)?;
+    writer.usize(
+        "max_symbolica_single_matrix_entries",
+        limits.max_symbolica_single_matrix_entries,
+    )?;
+    writer.usize(
+        "max_symbolica_live_matrix_entries",
+        limits.max_symbolica_live_matrix_entries,
+    )?;
+    writer.usize(
+        "max_symbolica_input_retained_bytes",
+        limits.max_symbolica_input_retained_bytes,
+    )?;
+    writer.usize(
+        "max_symbolica_output_retained_bytes",
+        limits.max_symbolica_output_retained_bytes,
+    )?;
+    writer.usize("max_guard_polynomials", limits.max_guard_polynomials)?;
+    writer.usize("max_guard_origins", limits.max_guard_origins)?;
+    writer.end_record()
+}
+
+fn write_search_completion_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    completion: Option<&InternalSymmetrySearchCompletion>,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 2)?;
+    match completion {
+        None => {
+            writer.variant("variant", "None")?;
+            writer.begin_record("fields", 0)?;
+        }
+        Some(InternalSymmetrySearchCompletion::ExhaustiveWithinBounds { domain_fingerprint }) => {
+            writer.variant("variant", "ExhaustiveWithinBounds")?;
+            writer.begin_record("fields", 1)?;
+            writer.string("domain_fingerprint", domain_fingerprint)?;
+        }
+        Some(InternalSymmetrySearchCompletion::ResourceLimited {
+            domain_fingerprint,
+            resource,
+            requested,
+            limit,
+        }) => {
+            writer.variant("variant", "ResourceLimited")?;
+            writer.begin_record("fields", 4)?;
+            writer.string("domain_fingerprint", domain_fingerprint)?;
+            writer.string("resource", resource)?;
+            writer.usize("requested", *requested)?;
+            writer.usize("limit", *limit)?;
+        }
+    }
+    writer.end_record()?;
+    writer.end_record()
+}
+
+fn write_lineage_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    ordinal: usize,
+    lineage: &GeneratedSymbolicRowSpanLineage,
+    rows: &[ParametricRelation],
+    symmetries: &[VerifiedInternalFamilyPermutationSymmetry],
+) -> Result<(), ExactIdentityError> {
+    match lineage {
+        GeneratedSymbolicRowSpanLineage::Canonical { canonical_ordinal } => {
+            writer.begin_record("lineage", 3)?;
+            writer.usize("ordinal", ordinal)?;
+            writer.variant("variant", "Canonical")?;
+            writer.usize("canonical_ordinal", *canonical_ordinal)?;
+        }
+        GeneratedSymbolicRowSpanLineage::VerifiedWholeRowSymmetryTransport {
+            canonical_ordinal,
+            symmetry_ordinal,
+            symmetry_permutation,
+            transport,
+        } => {
+            let source = rows.get(*canonical_ordinal).ok_or(
+                ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "row-span canonical transport source",
+                    ordinal: *canonical_ordinal,
+                },
+            )?;
+            let transported =
+                rows.get(ordinal)
+                    .ok_or(ExactIdentityError::ReferenceBindingMismatch {
+                        reference: "row-span transported output",
+                        ordinal,
+                    })?;
+            let symmetry = symmetries.get(*symmetry_ordinal).ok_or(
+                ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "row-span transport symmetry",
+                    ordinal: *symmetry_ordinal,
+                },
+            )?;
+            if !transport.source().has_identical_guard_provenance(source) {
+                return Err(ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "row-span canonical transport source",
+                    ordinal: *canonical_ordinal,
+                });
+            }
+            if !transport
+                .transported_relation()
+                .has_identical_guard_provenance(transported)
+            {
+                return Err(ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "row-span transported output",
+                    ordinal,
+                });
+            }
+            if !transport.symmetry().stable_value_eq(symmetry)
+                || symmetry_permutation.as_ref() != symmetry.denominator_permutation()
+                || transport.symmetry_permutation() != symmetry_permutation.as_ref()
+            {
+                return Err(ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "row-span transport symmetry",
+                    ordinal: *symmetry_ordinal,
+                });
+            }
+
+            writer.begin_record("lineage", 15)?;
+            writer.usize("ordinal", ordinal)?;
+            writer.variant("variant", "VerifiedWholeRowSymmetryTransport")?;
+            writer.usize("canonical_ordinal", *canonical_ordinal)?;
+            writer.usize("symmetry_ordinal", *symmetry_ordinal)?;
+            writer.begin_sequence("symmetry_permutation", symmetry_permutation.len())?;
+            for &position in symmetry_permutation.iter() {
+                writer.usize("position", position)?;
+            }
+            writer.end_sequence()?;
+            writer.string("transport_schema", transport.schema())?;
+            writer.string("transport_family", transport.family_fingerprint())?;
+            writer.string("transport_context", transport.context_fingerprint())?;
+            write_relation_reference_identity(
+                writer,
+                "transport_source_reference",
+                "CanonicalRow",
+                *canonical_ordinal,
+            )?;
+            write_symmetry_reference_identity(
+                writer,
+                "transport_symmetry_reference",
+                *symmetry_ordinal,
+            )?;
+            writer.begin_sequence(
+                "transport_symmetry_permutation",
+                transport.symmetry_permutation().len(),
+            )?;
+            for &position in transport.symmetry_permutation() {
+                writer.usize("position", position)?;
+            }
+            writer.end_sequence()?;
+            writer.begin_sequence(
+                "transport_symmetry_map_guard_polynomials",
+                transport.symmetry_map_guard_polynomials().len(),
+            )?;
+            for polynomial in transport.symmetry_map_guard_polynomials() {
+                writer.polynomial("polynomial", polynomial)?;
+            }
+            writer.end_sequence()?;
+            write_relation_reference_identity(
+                writer,
+                "transported_relation_reference",
+                "AugmentedRow",
+                ordinal,
+            )?;
+            write_transport_limits_identity(writer, "transport_limits", transport.limits())?;
+            let stats = transport.stats();
+            writer.begin_record("transport_stats", 6)?;
+            writer.usize("source_terms", stats.source_terms())?;
+            writer.usize("source_guards", stats.source_guards())?;
+            writer.usize(
+                "symmetry_domain_conditions",
+                stats.symmetry_domain_conditions(),
+            )?;
+            writer.usize("output_terms", stats.output_terms())?;
+            writer.usize("output_guards", stats.output_guards())?;
+            writer.usize("output_manifest_bytes", stats.output_manifest_bytes())?;
+            writer.end_record()?;
+        }
+    }
+    writer.end_record()
+}
+
+fn write_relation_reference_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    kind: &str,
+    ordinal: usize,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.variant("kind", kind)?;
+    writer.usize("ordinal", ordinal)?;
+    writer.string(
+        "relation_schema",
+        crate::parametric_relation::PARAMETRIC_RELATION_MANIFEST_V2_SCHEMA,
+    )?;
+    writer.end_record()
+}
+
+fn write_symmetry_reference_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    ordinal: usize,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 3)?;
+    writer.variant("kind", "RowSpanSymmetry")?;
+    writer.usize("ordinal", ordinal)?;
+    writer.string(
+        "symmetry_identity_schema",
+        crate::symmetry_discovery::INTERNAL_FAMILY_PERMUTATION_SYMMETRY_STABLE_VALUE_IDENTITY_V1_SCHEMA,
+    )?;
+    writer.end_record()
+}
+
+fn write_row_span_stats_identity(
+    writer: &mut ExactIdentityWriter<'_>,
+    tag: &str,
+    stats: GeneratedSymbolicRowSpanStats,
+) -> Result<(), ExactIdentityError> {
+    writer.begin_record(tag, 11)?;
+    writer.usize("canonical_rows", stats.canonical_rows())?;
+    writer.usize("canonical_terms", stats.canonical_terms())?;
+    writer.usize("verified_symmetries", stats.verified_symmetries())?;
+    writer.usize("nonidentity_symmetries", stats.nonidentity_symmetries())?;
+    writer.usize("transport_attempts", stats.transport_attempts())?;
+    writer.usize("retained_transports", stats.retained_transports())?;
+    writer.usize(
+        "exact_duplicate_transports",
+        stats.exact_duplicate_transports(),
+    )?;
+    writer.usize("augmented_rows", stats.augmented_rows())?;
+    writer.usize("augmented_terms", stats.augmented_terms())?;
+    writer.usize("exact_dedup_comparisons", stats.exact_dedup_comparisons())?;
+    writer.usize("aggregate_manifest_bytes", stats.aggregate_manifest_bytes())?;
+    writer.end_record()
 }
 
 fn lineage_payload_eq(
@@ -909,5 +1371,140 @@ impl From<SymbolicSymmetryRowTransportError> for GeneratedSymbolicRowSpanError {
 impl From<SectorFoundationError> for GeneratedSymbolicRowSpanError {
     fn from(value: SectorFoundationError) -> Self {
         Self::Sector(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exact_identity::{
+        ExactIdentityLimits, ExactIdentityPayload, ExactStructuralIdentity, encode_exact_identity,
+    };
+    use crate::{AffineDenominator, CoefficientContext};
+
+    struct RowSpanPayload<'a>(&'a GeneratedSymbolicRowSpanCertificate);
+
+    impl ExactIdentityPayload for RowSpanPayload<'_> {
+        const SCHEMA: &'static str = GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA;
+
+        fn write_exact_identity(
+            &self,
+            writer: &mut ExactIdentityWriter<'_>,
+        ) -> Result<(), ExactIdentityError> {
+            self.0.write_stable_value_identity(writer, "row_span")
+        }
+    }
+
+    fn equal_mass_sunset(name: &str) -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "m2"]);
+        let zero = coefficients.zero();
+        let one = coefficients.one();
+        let minus_m2 = coefficients.parse("-m2").unwrap();
+        IntegralFamily::new(
+            name,
+            vec!["k1".into(), "k2".into()],
+            Vec::new(),
+            coefficients.clone(),
+            coefficients.parameter("d").unwrap(),
+            vec![
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![one.clone(), zero.clone(), zero.clone()],
+                ),
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![zero.clone(), zero.clone(), one.clone()],
+                ),
+                AffineDenominator::new(minus_m2, vec![one.clone(), coefficients.integer(2), one]),
+            ],
+            Vec::new(),
+            vec![zero.clone(), zero.clone(), zero],
+        )
+        .unwrap()
+    }
+
+    fn bounded_certificate(
+        name: &str,
+        extra_dedup_budget: usize,
+    ) -> GeneratedSymbolicRowSpanCertificate {
+        let family = equal_mass_sunset(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let mut config = GeneratedSymbolicRowSpanConfig::default();
+        config.strategy = GeneratedSymbolicRowSpanStrategy::BoundedVacuumInternal {
+            search: InternalSymmetrySearchLimits::default(),
+            require_exhaustive: true,
+        };
+        config.limits.max_exact_dedup_comparisons += extra_dedup_budget;
+        GeneratedSymbolicRowSpanCompiler::compile(
+            &family,
+            &context,
+            ParametricIbpConfig::default(),
+            config,
+        )
+        .unwrap()
+    }
+
+    fn identity(
+        certificate: &GeneratedSymbolicRowSpanCertificate,
+        limits: ExactIdentityLimits,
+    ) -> Result<ExactStructuralIdentity, ExactIdentityError> {
+        encode_exact_identity(&RowSpanPayload(certificate), limits)
+    }
+
+    #[test]
+    fn stable_identity_binds_transport_references_without_relation_duplication() {
+        let left = bounded_certificate("row-span-stable-value", 0);
+        let right = bounded_certificate("row-span-stable-value", 0);
+        assert!(left.stats().retained_transports() > 0);
+        let left_identity = identity(&left, ExactIdentityLimits::default()).unwrap();
+        let right_identity = identity(&right, ExactIdentityLimits::default()).unwrap();
+        assert_eq!(left_identity.as_str(), right_identity.as_str());
+        assert!(
+            left_identity
+                .as_str()
+                .contains("transport_source_reference")
+        );
+        assert!(!left_identity.as_str().contains("transport_source="));
+
+        let changed_limits = bounded_certificate("row-span-stable-value", 1);
+        assert_ne!(
+            left_identity.as_str(),
+            identity(&changed_limits, ExactIdentityLimits::default())
+                .unwrap()
+                .as_str()
+        );
+
+        let stats = left_identity.stats();
+        let exact = ExactIdentityLimits {
+            max_identity_bytes: stats.identity_bytes(),
+            max_fields: stats.fields(),
+            max_tag_bytes: stats.tag_bytes(),
+            max_string_values: stats.string_values(),
+            max_string_bytes: stats.string_bytes(),
+            max_nesting_depth: stats.maximum_nesting_depth(),
+            max_polynomials: stats.polynomials(),
+            max_polynomial_variables: stats.polynomial_variables(),
+            max_polynomial_terms: stats.polynomial_terms(),
+            max_exponent_entries: stats.exponent_entries(),
+            max_integers: stats.integers(),
+            max_integer_bits: stats.integer_bits(),
+        };
+        assert_eq!(
+            identity(&left, exact).unwrap().as_str(),
+            left_identity.as_str()
+        );
+        let mut one_below = exact;
+        one_below.max_fields -= 1;
+        assert!(matches!(
+            identity(&left, one_below),
+            Err(ExactIdentityError::ResourceLimit {
+                resource: "exact structural identity fields",
+                requested,
+                limit,
+            }) if requested <= stats.fields() && requested > limit && limit + 1 == stats.fields()
+        ));
     }
 }

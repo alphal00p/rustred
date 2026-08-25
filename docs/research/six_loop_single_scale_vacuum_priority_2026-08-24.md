@@ -5,8 +5,8 @@ Status: governing deployment priority and implementation plan, adopted
 normative LiteRed scope.  Production algorithms remain topology- and
 loop-count independent; concrete four-, five-, and six-loop graphs are test,
 campaign, and benchmark inputs only. Implementation status below is reconciled
-with pushed checkpoint `c593865` and the direct-singleton authority/premise
-checkpoint on 2026-08-25.
+with pushed checkpoint `c593865` and the Direct singleton stable-identity/
+solve-plan checkpoint on 2026-08-25.
 
 ## 1. Deployment objective
 
@@ -247,22 +247,17 @@ deliberate reauthentication checks are not part of production direct-search
 cost. The production direct path invokes no MTBDD compiler and constructs no
 MTBDD owner or DAG.
 
-This checkpoint carries the generic direct formula-path coordinate-affine
-terminal into direct-singleton case authority and sealed premise replay. It
-retains exact source/path ancestry, borrows authenticated source rows, exposes
-coordinate geometry and ordered guard loci, and rechecks source/term, anchor,
-and replay budgets. It fabricates no V4/V5, Boolean/DPLL, or integer-system
-certificate. Independent default-GMP run
-`6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
-broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3` passes
-36/36.
-
-The next implementation slice is stable source-neutral identity plus
-physical-frame and solve-plan support for that direct singleton, followed by
-`GeneratedAffineResidualGroupExactSession` staging and recentering into the
-existing `ReadyForConditions` boundary before attempting the declared `K=21`
-gate. The bypass must remain direct: it may not manufacture V4, V5, the legacy
-live-leaf queue, source authority, or Boolean/DPLL certificates.
+This checkpoint completes the allocation-independent terminal stable-value
+identity (emitting the authenticated row span once through typed references)
+and carries Direct singleton authority through ordering V3, physical frame V2,
+and solve-plan V2 without a fake inventory. Stable value remains distinct from
+exact terminal/authority/frame `Arc` ancestry, and legacy-only exact-session
+stages fail closed. Focused licensed GMP runs passed 3/3 identity, 4/4 Direct
+authority/order/frame, and 7/7 solve-plan tests; an independent audit re-ran
+both Direct solve-plan tests successfully. Next is Direct solve-plan ingress
+through exact-session recentering to `ReadyForConditions`, then `WhenBad`
+closure and publication. No Direct input has reached Ready, reduction,
+publication, or six-loop topology support.
 
 The successful `K=21` fixture stops at the first formula-residual path. It is
 not a Ready result, published guarded rule, reduction, or calculation on a
@@ -519,19 +514,11 @@ or physical-topology calculation.
    and authenticates all present candidate policies. Focused 21/21 and 14/14
    suites, an independent 30/30 audit/validation run, and the policy-bound
    all-36 K21 1/1 gate pass.
-8. **Completed in this checkpoint:** the generic direct formula-path terminal
-   enters direct-singleton case authority and sealed premise replay while
-   retaining exact source/path ancestry, authenticated source rows, geometry,
-   and ordered guards, without fabricating V4/V5, Boolean/DPLL, or
-   integer-system certificates. Independent default-GMP run
-   `6be496c1-db37-4db1-8a29-f0c3f47b304a` passes 4/4 focused bridge tests;
-   broader affected-module run `176a3c9a-40e6-416e-931a-a8cce6b2b9e3`
-   passes 36/36.
-   **Next:** add stable source-neutral identity and carry the singleton through
-   physical frame, solve plan, exact-session staging, and recentering into the
-   existing `ReadyForConditions` boundary. It has not yet reached that
-   boundary, reduction, or publication. Then validate one declared arity-21
-   sector; this remains a scaling gate, not a rule or reduction claim.
+8. **Completed in this checkpoint:** terminal stable identity through Direct
+   ordering V3, frame V2, and solve-plan V2, with no fake inventory and exact
+   `Arc` ancestry separately authenticated. **Next:** Direct solve-plan ingress
+   to `ReadyForConditions`, then `WhenBad` closure and publication. It has not
+   reached Ready, reduction, publication, or six-loop topology support.
 9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
    path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
    subsector feedback, atomic publication, durable artifacts, and a 36-source
