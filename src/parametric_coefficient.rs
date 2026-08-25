@@ -14,7 +14,6 @@ use std::mem::{align_of, size_of};
 use std::sync::Arc;
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
-use symbolica::domains::backend::integer::write_lsf_bytes;
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
@@ -34,6 +33,14 @@ use crate::{
 };
 
 pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
+
+/// Symbolica-native coefficient vector used only inside strict `K*`
+/// associate proofs. Widening is essential: two authenticated `u16` base
+/// exponents can add to `2*u16::MAX` during a projective cross product.
+type AssociateBaseCoefficient = RationalPolynomial<IntegerRing, u32>;
+type AssociateIntegerPolynomial = MultivariatePolynomial<IntegerRing, u32>;
+type AssociateIndexProjection =
+    MultivariatePolynomial<RationalPolynomialField<IntegerRing, u32>, u32>;
 
 /// One component of a pure index translation `n_i -> n_i + a_i`.
 ///
@@ -218,9 +225,10 @@ impl ParametricPolynomialValidationPayloadCensus {
 
 /// Aggregate limits for one instrumented coefficient-field associate proof.
 ///
-/// The proof compares the coefficient vectors over `Z[theta]` directly.  It
-/// never constructs a rational function and never enters Symbolica's
-/// polynomial normalization or GCD machinery.
+/// Symbolica projects each authenticated input into a polynomial in the index
+/// variables over `Q(theta)`, then performs every projective cross product in
+/// that native coefficient field. RustRed owns only authentication, resource
+/// admission, support routing, and deterministic anchor selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ParametricPolynomialAssociateLimits {
     pub exact_algebra: ExactAlgebraLimits,
@@ -229,26 +237,31 @@ pub(crate) struct ParametricPolynomialAssociateLimits {
     pub max_validation_terms: usize,
     pub max_validation_exponent_entries: usize,
     pub max_validation_integer_bits: usize,
-    pub max_magnitude_copy_terms: usize,
-    pub max_magnitude_copy_bytes: usize,
-    pub max_term_order_entries: usize,
+    pub max_projection_exponent_entries: usize,
+    pub max_projection_coefficient_capacity_bytes: usize,
+    pub max_projection_group_bound: usize,
+    pub max_projection_variable_mask_comparison_bound: usize,
+    pub max_projection_hash_key_exponent_entry_bound: usize,
+    pub max_projection_coefficient_append_comparison_bound: usize,
+    pub max_projection_sorted_insert_comparison_bound: usize,
+    pub max_projection_sorted_insert_move_exponent_entry_bound: usize,
     pub max_index_groups: usize,
-    pub max_ordering_comparison_bound: usize,
-    pub max_index_coordinate_inspection_bound: usize,
-    pub max_base_sum_coordinate_inspection_bound: usize,
-    pub max_base_exponent_addition_bound: usize,
+    pub max_index_support_comparison_entries: usize,
     pub max_anchor_cost_operations: usize,
-    pub max_cross_terms: usize,
-    pub max_peak_cross_terms: usize,
-    pub max_integer_preflight_pairs: usize,
-    pub max_integer_multiplication_bit_work_bound: usize,
-    pub max_integer_accumulation_bit_work_bound: usize,
-    pub max_integer_multiply_limb_operation_bound: usize,
-    pub max_integer_accumulate_limb_operation_bound: usize,
-    pub max_scratch_limb_write_bound: usize,
-    pub max_product_scratch_limbs: usize,
-    pub max_accumulator_scratch_limbs: usize,
-    pub max_visible_temporary_byte_envelope: usize,
+    pub max_native_cross_term_pairs: usize,
+    pub max_peak_native_cross_term_pairs: usize,
+    pub max_native_base_exponent_additions: usize,
+    pub max_native_metadata_exponent_entry_inspection_bound: usize,
+    pub max_native_metadata_integer_entry_inspection_bound: usize,
+    pub max_native_integer_multiplication_bit_work_bound: usize,
+    pub max_native_integer_collection_bit_work_bound: usize,
+    pub max_native_output_term_bound: usize,
+    pub max_native_output_exponent_entry_bound: usize,
+    pub max_native_output_integer_bit_bound: usize,
+    pub max_native_dense_workspace_entries: usize,
+    pub max_native_heap_workspace_pair_bound: usize,
+    pub max_native_workspace_byte_envelope: usize,
+    pub max_rustred_visible_temporary_byte_envelope: usize,
 }
 
 impl Default for ParametricPolynomialAssociateLimits {
@@ -260,26 +273,31 @@ impl Default for ParametricPolynomialAssociateLimits {
             max_validation_terms: usize::MAX,
             max_validation_exponent_entries: usize::MAX,
             max_validation_integer_bits: usize::MAX,
-            max_magnitude_copy_terms: usize::MAX,
-            max_magnitude_copy_bytes: usize::MAX,
-            max_term_order_entries: usize::MAX,
+            max_projection_exponent_entries: usize::MAX,
+            max_projection_coefficient_capacity_bytes: usize::MAX,
+            max_projection_group_bound: usize::MAX,
+            max_projection_variable_mask_comparison_bound: usize::MAX,
+            max_projection_hash_key_exponent_entry_bound: usize::MAX,
+            max_projection_coefficient_append_comparison_bound: usize::MAX,
+            max_projection_sorted_insert_comparison_bound: usize::MAX,
+            max_projection_sorted_insert_move_exponent_entry_bound: usize::MAX,
             max_index_groups: usize::MAX,
-            max_ordering_comparison_bound: usize::MAX,
-            max_index_coordinate_inspection_bound: usize::MAX,
-            max_base_sum_coordinate_inspection_bound: usize::MAX,
-            max_base_exponent_addition_bound: usize::MAX,
+            max_index_support_comparison_entries: usize::MAX,
             max_anchor_cost_operations: usize::MAX,
-            max_cross_terms: usize::MAX,
-            max_peak_cross_terms: usize::MAX,
-            max_integer_preflight_pairs: usize::MAX,
-            max_integer_multiplication_bit_work_bound: usize::MAX,
-            max_integer_accumulation_bit_work_bound: usize::MAX,
-            max_integer_multiply_limb_operation_bound: usize::MAX,
-            max_integer_accumulate_limb_operation_bound: usize::MAX,
-            max_scratch_limb_write_bound: usize::MAX,
-            max_product_scratch_limbs: usize::MAX,
-            max_accumulator_scratch_limbs: usize::MAX,
-            max_visible_temporary_byte_envelope: usize::MAX,
+            max_native_cross_term_pairs: usize::MAX,
+            max_peak_native_cross_term_pairs: usize::MAX,
+            max_native_base_exponent_additions: usize::MAX,
+            max_native_metadata_exponent_entry_inspection_bound: usize::MAX,
+            max_native_metadata_integer_entry_inspection_bound: usize::MAX,
+            max_native_integer_multiplication_bit_work_bound: usize::MAX,
+            max_native_integer_collection_bit_work_bound: usize::MAX,
+            max_native_output_term_bound: usize::MAX,
+            max_native_output_exponent_entry_bound: usize::MAX,
+            max_native_output_integer_bit_bound: usize::MAX,
+            max_native_dense_workspace_entries: usize::MAX,
+            max_native_heap_workspace_pair_bound: usize::MAX,
+            max_native_workspace_byte_envelope: usize::MAX,
+            max_rustred_visible_temporary_byte_envelope: usize::MAX,
         }
     }
 }
@@ -292,27 +310,31 @@ pub(crate) struct ParametricPolynomialAssociateStats {
     validation_terms: usize,
     validation_exponent_entries: usize,
     validation_integer_bits: usize,
-    magnitude_copy_terms: usize,
-    magnitude_copy_bytes: usize,
-    term_order_entries: usize,
+    projection_exponent_entries: usize,
+    projection_coefficient_capacity_bytes: usize,
+    projection_group_bound: usize,
+    projection_variable_mask_comparison_bound: usize,
+    projection_hash_key_exponent_entry_bound: usize,
+    projection_coefficient_append_comparison_bound: usize,
+    projection_sorted_insert_comparison_bound: usize,
+    projection_sorted_insert_move_exponent_entry_bound: usize,
     index_groups: usize,
-    ordering_comparison_bound: usize,
-    index_coordinate_inspection_bound: usize,
-    base_sum_coordinate_inspection_bound: usize,
-    base_exponent_addition_bound: usize,
+    index_support_comparison_entries: usize,
     anchor_cost_operations: usize,
-    cross_terms: usize,
-    peak_cross_terms: usize,
-    integer_preflight_pairs: usize,
-    integer_multiplication_bit_work_bound: usize,
-    integer_accumulation_bit_work_bound: usize,
-    integer_multiply_limb_operation_bound: usize,
-    integer_accumulate_limb_operation_bound: usize,
-    scratch_limb_write_bound: usize,
-    product_scratch_limbs: usize,
-    accumulator_scratch_limbs: usize,
-    visible_temporary_byte_envelope: usize,
-    visible_temporary_bytes: usize,
+    native_cross_term_pairs: usize,
+    peak_native_cross_term_pairs: usize,
+    native_base_exponent_additions: usize,
+    native_metadata_exponent_entry_inspection_bound: usize,
+    native_metadata_integer_entry_inspection_bound: usize,
+    native_integer_multiplication_bit_work_bound: usize,
+    native_integer_collection_bit_work_bound: usize,
+    native_output_term_bound: usize,
+    native_output_exponent_entry_bound: usize,
+    native_output_integer_bit_bound: usize,
+    native_dense_workspace_entries: usize,
+    native_heap_workspace_pair_bound: usize,
+    native_workspace_byte_envelope: usize,
+    rustred_visible_temporary_byte_envelope: usize,
 }
 
 macro_rules! parametric_polynomial_associate_stats_getters {
@@ -328,27 +350,31 @@ impl ParametricPolynomialAssociateStats {
         validation_terms,
         validation_exponent_entries,
         validation_integer_bits,
-        magnitude_copy_terms,
-        magnitude_copy_bytes,
-        term_order_entries,
+        projection_exponent_entries,
+        projection_coefficient_capacity_bytes,
+        projection_group_bound,
+        projection_variable_mask_comparison_bound,
+        projection_hash_key_exponent_entry_bound,
+        projection_coefficient_append_comparison_bound,
+        projection_sorted_insert_comparison_bound,
+        projection_sorted_insert_move_exponent_entry_bound,
         index_groups,
-        ordering_comparison_bound,
-        index_coordinate_inspection_bound,
-        base_sum_coordinate_inspection_bound,
-        base_exponent_addition_bound,
+        index_support_comparison_entries,
         anchor_cost_operations,
-        cross_terms,
-        peak_cross_terms,
-        integer_preflight_pairs,
-        integer_multiplication_bit_work_bound,
-        integer_accumulation_bit_work_bound,
-        integer_multiply_limb_operation_bound,
-        integer_accumulate_limb_operation_bound,
-        scratch_limb_write_bound,
-        product_scratch_limbs,
-        accumulator_scratch_limbs,
-        visible_temporary_byte_envelope,
-        visible_temporary_bytes,
+        native_cross_term_pairs,
+        peak_native_cross_term_pairs,
+        native_base_exponent_additions,
+        native_metadata_exponent_entry_inspection_bound,
+        native_metadata_integer_entry_inspection_bound,
+        native_integer_multiplication_bit_work_bound,
+        native_integer_collection_bit_work_bound,
+        native_output_term_bound,
+        native_output_exponent_entry_bound,
+        native_output_integer_bit_bound,
+        native_dense_workspace_entries,
+        native_heap_workspace_pair_bound,
+        native_workspace_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
     );
 }
 
@@ -856,19 +882,44 @@ fn check_associate_stats(
             limits.max_validation_integer_bits,
         ),
         (
-            "polynomial-associate magnitude copy terms",
-            stats.magnitude_copy_terms,
-            limits.max_magnitude_copy_terms,
+            "polynomial-associate projection exponent entries",
+            stats.projection_exponent_entries,
+            limits.max_projection_exponent_entries,
         ),
         (
-            "polynomial-associate magnitude copy bytes",
-            stats.magnitude_copy_bytes,
-            limits.max_magnitude_copy_bytes,
+            "polynomial-associate projection coefficient-capacity bytes",
+            stats.projection_coefficient_capacity_bytes,
+            limits.max_projection_coefficient_capacity_bytes,
         ),
         (
-            "polynomial-associate term-order entries",
-            stats.term_order_entries,
-            limits.max_term_order_entries,
+            "polynomial-associate projection group bound",
+            stats.projection_group_bound,
+            limits.max_projection_group_bound,
+        ),
+        (
+            "polynomial-associate projection variable-mask comparison bound",
+            stats.projection_variable_mask_comparison_bound,
+            limits.max_projection_variable_mask_comparison_bound,
+        ),
+        (
+            "polynomial-associate projection hash-key exponent-entry bound",
+            stats.projection_hash_key_exponent_entry_bound,
+            limits.max_projection_hash_key_exponent_entry_bound,
+        ),
+        (
+            "polynomial-associate projection coefficient append comparison bound",
+            stats.projection_coefficient_append_comparison_bound,
+            limits.max_projection_coefficient_append_comparison_bound,
+        ),
+        (
+            "polynomial-associate projection sorted-insert comparison bound",
+            stats.projection_sorted_insert_comparison_bound,
+            limits.max_projection_sorted_insert_comparison_bound,
+        ),
+        (
+            "polynomial-associate projection sorted-insert move exponent-entry bound",
+            stats.projection_sorted_insert_move_exponent_entry_bound,
+            limits.max_projection_sorted_insert_move_exponent_entry_bound,
         ),
         (
             "polynomial-associate index groups",
@@ -876,24 +927,9 @@ fn check_associate_stats(
             limits.max_index_groups,
         ),
         (
-            "polynomial-associate ordering comparison bound",
-            stats.ordering_comparison_bound,
-            limits.max_ordering_comparison_bound,
-        ),
-        (
-            "polynomial-associate index-coordinate inspection bound",
-            stats.index_coordinate_inspection_bound,
-            limits.max_index_coordinate_inspection_bound,
-        ),
-        (
-            "polynomial-associate base-sum coordinate inspection bound",
-            stats.base_sum_coordinate_inspection_bound,
-            limits.max_base_sum_coordinate_inspection_bound,
-        ),
-        (
-            "polynomial-associate base-exponent addition bound",
-            stats.base_exponent_addition_bound,
-            limits.max_base_exponent_addition_bound,
+            "polynomial-associate index support comparison entries",
+            stats.index_support_comparison_entries,
+            limits.max_index_support_comparison_entries,
         ),
         (
             "polynomial-associate anchor cost operations",
@@ -901,370 +937,79 @@ fn check_associate_stats(
             limits.max_anchor_cost_operations,
         ),
         (
-            "polynomial-associate cross terms",
-            stats.cross_terms,
-            limits.max_cross_terms,
+            "polynomial-associate native cross term pairs",
+            stats.native_cross_term_pairs,
+            limits.max_native_cross_term_pairs,
         ),
         (
-            "polynomial-associate peak cross terms",
-            stats.peak_cross_terms,
-            limits.max_peak_cross_terms,
+            "polynomial-associate peak native cross term pairs",
+            stats.peak_native_cross_term_pairs,
+            limits.max_peak_native_cross_term_pairs,
         ),
         (
-            "polynomial-associate integer preflight pairs",
-            stats.integer_preflight_pairs,
-            limits.max_integer_preflight_pairs,
+            "polynomial-associate native base exponent additions",
+            stats.native_base_exponent_additions,
+            limits.max_native_base_exponent_additions,
         ),
         (
-            "polynomial-associate integer multiplication bit-work bound",
-            stats.integer_multiplication_bit_work_bound,
-            limits.max_integer_multiplication_bit_work_bound,
+            "polynomial-associate native metadata exponent-entry inspection bound",
+            stats.native_metadata_exponent_entry_inspection_bound,
+            limits.max_native_metadata_exponent_entry_inspection_bound,
         ),
         (
-            "polynomial-associate integer accumulation bit-work bound",
-            stats.integer_accumulation_bit_work_bound,
-            limits.max_integer_accumulation_bit_work_bound,
+            "polynomial-associate native metadata integer-entry inspection bound",
+            stats.native_metadata_integer_entry_inspection_bound,
+            limits.max_native_metadata_integer_entry_inspection_bound,
         ),
         (
-            "polynomial-associate integer multiply limb-operation bound",
-            stats.integer_multiply_limb_operation_bound,
-            limits.max_integer_multiply_limb_operation_bound,
+            "polynomial-associate native integer multiplication bit-work bound",
+            stats.native_integer_multiplication_bit_work_bound,
+            limits.max_native_integer_multiplication_bit_work_bound,
         ),
         (
-            "polynomial-associate integer accumulation limb-operation bound",
-            stats.integer_accumulate_limb_operation_bound,
-            limits.max_integer_accumulate_limb_operation_bound,
+            "polynomial-associate native integer collection bit-work bound",
+            stats.native_integer_collection_bit_work_bound,
+            limits.max_native_integer_collection_bit_work_bound,
         ),
         (
-            "polynomial-associate scratch limb-write bound",
-            stats.scratch_limb_write_bound,
-            limits.max_scratch_limb_write_bound,
+            "polynomial-associate native output term bound",
+            stats.native_output_term_bound,
+            limits.max_native_output_term_bound,
         ),
         (
-            "polynomial-associate product scratch limbs",
-            stats.product_scratch_limbs,
-            limits.max_product_scratch_limbs,
+            "polynomial-associate native output exponent entry bound",
+            stats.native_output_exponent_entry_bound,
+            limits.max_native_output_exponent_entry_bound,
         ),
         (
-            "polynomial-associate accumulator scratch limbs",
-            stats.accumulator_scratch_limbs,
-            limits.max_accumulator_scratch_limbs,
+            "polynomial-associate native output integer bit bound",
+            stats.native_output_integer_bit_bound,
+            limits.max_native_output_integer_bit_bound,
         ),
         (
-            "polynomial-associate visible temporary byte envelope",
-            stats.visible_temporary_byte_envelope,
-            limits.max_visible_temporary_byte_envelope,
+            "polynomial-associate native dense workspace entries",
+            stats.native_dense_workspace_entries,
+            limits.max_native_dense_workspace_entries,
+        ),
+        (
+            "polynomial-associate native heap workspace pair bound",
+            stats.native_heap_workspace_pair_bound,
+            limits.max_native_heap_workspace_pair_bound,
+        ),
+        (
+            "polynomial-associate native workspace byte envelope",
+            stats.native_workspace_byte_envelope,
+            limits.max_native_workspace_byte_envelope,
+        ),
+        (
+            "polynomial-associate RustRed-visible temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            limits.max_rustred_visible_temporary_byte_envelope,
         ),
     ] {
         check_limit(resource, requested, limit)?;
     }
     Ok(())
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct AssociateIndexGroup {
-    begin: usize,
-    end: usize,
-}
-
-impl AssociateIndexGroup {
-    fn len(self) -> usize {
-        self.end - self.begin
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct AssociateMagnitudeSpan {
-    offset: usize,
-    byte_len: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct AssociateCrossRef {
-    p_term: usize,
-    q_term: usize,
-    rhs: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct AssociateObservedWork {
-    ordering_comparisons: usize,
-    integer_multiply_limb_operations: usize,
-    integer_accumulate_limb_operations: usize,
-    scratch_limb_writes: usize,
-}
-
-fn associate_heap_comparison_bound(terms: usize) -> Result<usize, ParametricCoefficientError> {
-    if terms < 2 {
-        return Ok(0);
-    }
-    checked_parametric_mul(
-        "polynomial-associate ordering comparison bound",
-        checked_parametric_mul("polynomial-associate ordering comparison bound", 4, terms)?,
-        checked_parametric_add(
-            "polynomial-associate ordering comparison bound",
-            parametric_ceil_log2(terms),
-            1,
-        )?,
-    )
-}
-
-fn associate_heap_sort_by<T>(
-    values: &mut [T],
-    mut compare: impl FnMut(&T, &T) -> Ordering,
-    comparison_bound: usize,
-) -> Result<usize, ParametricCoefficientError> {
-    fn sift_down<T>(
-        values: &mut [T],
-        mut root: usize,
-        end: usize,
-        compare: &mut impl FnMut(&T, &T) -> Ordering,
-        comparisons: &mut usize,
-        comparison_bound: usize,
-    ) -> Result<(), ParametricCoefficientError> {
-        loop {
-            let Some(mut child) = root.checked_mul(2).and_then(|value| value.checked_add(1)) else {
-                return Err(ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "polynomial-associate heap child",
-                });
-            };
-            if child >= end {
-                break;
-            }
-            if child + 1 < end {
-                *comparisons = checked_parametric_add(
-                    "polynomial-associate observed ordering comparisons",
-                    *comparisons,
-                    1,
-                )?;
-                if *comparisons > comparison_bound {
-                    return Err(ParametricCoefficientError::ResourceLimit {
-                        resource: "polynomial-associate observed ordering comparisons",
-                        requested: *comparisons,
-                        limit: comparison_bound,
-                    });
-                }
-                if compare(&values[child], &values[child + 1]) == Ordering::Less {
-                    child += 1;
-                }
-            }
-            *comparisons = checked_parametric_add(
-                "polynomial-associate observed ordering comparisons",
-                *comparisons,
-                1,
-            )?;
-            if *comparisons > comparison_bound {
-                return Err(ParametricCoefficientError::ResourceLimit {
-                    resource: "polynomial-associate observed ordering comparisons",
-                    requested: *comparisons,
-                    limit: comparison_bound,
-                });
-            }
-            if compare(&values[root], &values[child]) != Ordering::Less {
-                break;
-            }
-            values.swap(root, child);
-            root = child;
-        }
-        Ok(())
-    }
-
-    let mut comparisons = 0usize;
-    let len = values.len();
-    for root in (0..len / 2).rev() {
-        sift_down(
-            values,
-            root,
-            len,
-            &mut compare,
-            &mut comparisons,
-            comparison_bound,
-        )?;
-    }
-    for end in (1..len).rev() {
-        values.swap(0, end);
-        sift_down(
-            values,
-            0,
-            end,
-            &mut compare,
-            &mut comparisons,
-            comparison_bound,
-        )?;
-    }
-    Ok(comparisons)
-}
-
-fn associate_term_index_cmp(
-    polynomial: &CoefficientPolynomial,
-    left: usize,
-    right: usize,
-    first_index: usize,
-) -> Ordering {
-    polynomial.exponents(left)[first_index..]
-        .cmp(&polynomial.exponents(right)[first_index..])
-        .then_with(|| left.cmp(&right))
-}
-
-fn associate_same_index_key(
-    left: &CoefficientPolynomial,
-    left_term: usize,
-    right: &CoefficientPolynomial,
-    right_term: usize,
-    first_index: usize,
-) -> bool {
-    left.exponents(left_term)[first_index..] == right.exponents(right_term)[first_index..]
-}
-
-fn associate_count_groups(
-    polynomial: &CoefficientPolynomial,
-    order: &[usize],
-    first_index: usize,
-) -> usize {
-    if order.is_empty() {
-        return 0;
-    }
-    1 + order
-        .windows(2)
-        .filter(|pair| {
-            !associate_same_index_key(polynomial, pair[0], polynomial, pair[1], first_index)
-        })
-        .count()
-}
-
-fn associate_build_groups(
-    polynomial: &CoefficientPolynomial,
-    order: &[usize],
-    first_index: usize,
-    expected_groups: usize,
-) -> Result<Vec<AssociateIndexGroup>, ParametricCoefficientError> {
-    let mut groups = Vec::new();
-    groups.try_reserve_exact(expected_groups).map_err(|_| {
-        ParametricCoefficientError::Symbolica(
-            "allocation failed for polynomial-associate index groups".to_owned(),
-        )
-    })?;
-    if order.is_empty() {
-        return Ok(groups);
-    }
-    let mut begin = 0usize;
-    for end in 1..order.len() {
-        if !associate_same_index_key(
-            polynomial,
-            order[end - 1],
-            polynomial,
-            order[end],
-            first_index,
-        ) {
-            if groups.len() >= expected_groups {
-                return Err(ParametricCoefficientError::Symbolica(
-                    "internal polynomial-associate group capacity exhausted".to_owned(),
-                ));
-            }
-            groups.push(AssociateIndexGroup { begin, end });
-            begin = end;
-        }
-    }
-    if groups.len() >= expected_groups {
-        return Err(ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate group capacity exhausted".to_owned(),
-        ));
-    }
-    groups.push(AssociateIndexGroup {
-        begin,
-        end: order.len(),
-    });
-    if groups.len() != expected_groups {
-        return Err(ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate group census mismatch".to_owned(),
-        ));
-    }
-    Ok(groups)
-}
-
-fn associate_cross_term_count(
-    p_group: AssociateIndexGroup,
-    q_group: AssociateIndexGroup,
-    p_anchor: AssociateIndexGroup,
-    q_anchor: AssociateIndexGroup,
-) -> Result<usize, ParametricCoefficientError> {
-    checked_parametric_add(
-        "polynomial-associate cross terms",
-        checked_parametric_mul(
-            "polynomial-associate cross terms",
-            p_group.len(),
-            q_anchor.len(),
-        )?,
-        checked_parametric_mul(
-            "polynomial-associate cross terms",
-            p_anchor.len(),
-            q_group.len(),
-        )?,
-    )
-}
-
-fn associate_visit_cross_pairs(
-    p_order: &[usize],
-    q_order: &[usize],
-    p_group: AssociateIndexGroup,
-    q_group: AssociateIndexGroup,
-    p_anchor: AssociateIndexGroup,
-    q_anchor: AssociateIndexGroup,
-    mut visitor: impl FnMut(usize, usize, bool) -> Result<(), ParametricCoefficientError>,
-) -> Result<(), ParametricCoefficientError> {
-    for &p_term in &p_order[p_group.begin..p_group.end] {
-        for &q_term in &q_order[q_anchor.begin..q_anchor.end] {
-            visitor(p_term, q_term, false)?;
-        }
-    }
-    for &p_term in &p_order[p_anchor.begin..p_anchor.end] {
-        for &q_term in &q_order[q_group.begin..q_group.end] {
-            visitor(p_term, q_term, true)?;
-        }
-    }
-    Ok(())
-}
-
-fn associate_cross_ref_cmp(
-    p: &CoefficientPolynomial,
-    q: &CoefficientPolynomial,
-    left: &AssociateCrossRef,
-    right: &AssociateCrossRef,
-    base_variables: usize,
-) -> Ordering {
-    let p_left = p.exponents(left.p_term);
-    let q_left = q.exponents(left.q_term);
-    let p_right = p.exponents(right.p_term);
-    let q_right = q.exponents(right.q_term);
-    for variable in 0..base_variables {
-        let left_sum = u32::from(p_left[variable]) + u32::from(q_left[variable]);
-        let right_sum = u32::from(p_right[variable]) + u32::from(q_right[variable]);
-        match left_sum.cmp(&right_sum) {
-            Ordering::Equal => {}
-            ordering => return ordering,
-        }
-    }
-    left.rhs
-        .cmp(&right.rhs)
-        .then_with(|| left.p_term.cmp(&right.p_term))
-        .then_with(|| left.q_term.cmp(&right.q_term))
-}
-
-fn associate_same_cross_key(
-    p: &CoefficientPolynomial,
-    q: &CoefficientPolynomial,
-    left: &AssociateCrossRef,
-    right: &AssociateCrossRef,
-    base_variables: usize,
-) -> bool {
-    let p_left = p.exponents(left.p_term);
-    let q_left = q.exponents(left.q_term);
-    let p_right = p.exponents(right.p_term);
-    let q_right = q.exponents(right.q_term);
-    (0..base_variables).all(|variable| {
-        u32::from(p_left[variable]) + u32::from(q_left[variable])
-            == u32::from(p_right[variable]) + u32::from(q_right[variable])
-    })
 }
 
 fn associate_integer_bit_count(value: &Integer) -> Result<usize, ParametricCoefficientError> {
@@ -1275,396 +1020,465 @@ fn associate_integer_bit_count(value: &Integer) -> Result<usize, ParametricCoeff
     })
 }
 
-fn associate_bits_to_units(
+fn associate_sum_counts<const N: usize>(
     resource: &'static str,
-    bits: usize,
-    unit_bits: usize,
+    values: [usize; N],
 ) -> Result<usize, ParametricCoefficientError> {
-    if bits == 0 {
-        return Ok(0);
-    }
-    bits.checked_add(unit_bits - 1)
-        .ok_or(ParametricCoefficientError::ResourceCountOverflow { resource })
-        .map(|value| value / unit_bits)
-}
-
-fn associate_capacity_byte_envelope(
-    entries: usize,
-    entry_size: usize,
-) -> Result<usize, ParametricCoefficientError> {
-    checked_parametric_mul(
-        "polynomial-associate visible temporary byte envelope",
-        checked_parametric_mul(
-            "polynomial-associate visible temporary byte envelope",
-            entries,
-            2,
-        )?,
-        entry_size,
-    )
-}
-
-fn associate_check_capacity(
-    capacity: usize,
-    requested: usize,
-    resource: &'static str,
-) -> Result<(), ParametricCoefficientError> {
-    let limit = requested
-        .checked_mul(2)
-        .ok_or(ParametricCoefficientError::ResourceCountOverflow { resource })?;
-    if capacity > limit {
-        Err(ParametricCoefficientError::ResourceLimit {
-            resource,
-            requested: capacity,
-            limit,
-        })
-    } else {
-        Ok(())
-    }
-}
-
-fn associate_sum_counts(
-    resource: &'static str,
-    values: impl IntoIterator<Item = usize>,
-) -> Result<usize, ParametricCoefficientError> {
-    values.into_iter().try_fold(0usize, |sum, value| {
-        checked_parametric_add(resource, sum, value)
+    values.into_iter().try_fold(0usize, |total, value| {
+        checked_parametric_add(resource, total, value)
     })
 }
 
-fn associate_append_magnitude(
-    value: &Integer,
-    arena: &mut Vec<u8>,
-) -> Result<AssociateMagnitudeSpan, ParametricCoefficientError> {
-    let bits = associate_integer_bit_count(value)?;
-    let byte_len = associate_bits_to_units("polynomial-associate magnitude copy bytes", bits, 8)?;
-    let offset = arena.len();
-    let available_capacity = arena.capacity().checked_sub(offset).ok_or(
-        ParametricCoefficientError::ResourceCountOverflow {
-            resource: "polynomial-associate magnitude copy bytes",
-        },
-    )?;
-    if byte_len > available_capacity {
-        return Err(ParametricCoefficientError::ResourceLimit {
-            resource: "polynomial-associate magnitude copy bytes",
-            requested: byte_len,
-            limit: available_capacity,
-        });
-    }
-    match value {
-        Integer::Single(value) => {
-            let bytes = value.unsigned_abs().to_le_bytes();
-            arena.extend_from_slice(&bytes[..byte_len]);
-        }
-        Integer::Double(value) => {
-            let bytes = value.unsigned_abs().to_le_bytes();
-            arena.extend_from_slice(&bytes[..byte_len]);
-        }
-        Integer::Large(value) => {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                write_lsf_bytes(value, arena);
-            }))
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "Symbolica panicked while exporting polynomial-associate magnitude bytes"
-                        .to_owned(),
-                )
-            })?;
-        }
-    }
-    let observed = arena.len().checked_sub(offset).ok_or(
-        ParametricCoefficientError::ResourceCountOverflow {
-            resource: "polynomial-associate magnitude copy bytes",
-        },
-    )?;
-    if observed != byte_len {
-        return Err(ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate magnitude length mismatch".to_owned(),
-        ));
-    }
-    Ok(AssociateMagnitudeSpan { offset, byte_len })
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct AssociateNativeProductPreflight {
+    cross_term_pairs: usize,
+    base_exponent_additions: usize,
+    metadata_exponent_entry_inspection_bound: usize,
+    metadata_integer_entry_inspection_bound: usize,
+    output_term_bound: usize,
+    output_term_capacity_bound: usize,
+    output_exponent_entry_bound: usize,
+    integer_multiplication_bit_work_bound: usize,
+    integer_collection_bit_work_bound: usize,
+    output_integer_bit_bound: usize,
+    dense_workspace_entries: usize,
+    heap_workspace_pair_bound: usize,
+    workspace_byte_envelope: usize,
 }
 
-fn associate_magnitude_limb(
-    arena: &[u8],
-    span: AssociateMagnitudeSpan,
-    limb: usize,
-) -> Result<u64, ParametricCoefficientError> {
-    let relative =
-        limb.checked_mul(8)
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "polynomial-associate magnitude limb offset",
-            })?;
-    if relative >= span.byte_len {
-        return Ok(0);
-    }
-    let start = span.offset.checked_add(relative).ok_or(
-        ParametricCoefficientError::ResourceCountOverflow {
-            resource: "polynomial-associate magnitude limb offset",
-        },
+/// Census one public Symbolica base-polynomial multiplication without doing
+/// algebra. The dispatch formula mirrors the vendored sparse multiplier: its
+/// constant/monomial short-circuits, univariate dense kernel, capped
+/// multivariate degree box, and heap fallback.
+fn preflight_associate_native_product(
+    left: &AssociateBaseCoefficient,
+    right: &AssociateBaseCoefficient,
+    base_variable_count: usize,
+) -> Result<AssociateNativeProductPreflight, ParametricCoefficientError> {
+    const NATIVE_DENSE_BOX_LIMIT: usize = 1 << 24;
+    const NATIVE_UNIVARIATE_DENSE_SUM_LIMIT: usize = 10_000;
+    let resource = "polynomial-associate native workspace byte envelope";
+    let left_count = left.numerator.nterms();
+    let right_count = right.numerator.nterms();
+    let pairs = checked_parametric_mul(
+        "polynomial-associate native cross term pairs",
+        left_count,
+        right_count,
     )?;
-    let available = (span.byte_len - relative).min(8);
-    let end =
-        start
-            .checked_add(available)
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "polynomial-associate magnitude limb offset",
-            })?;
-    let bytes = arena.get(start..end).ok_or_else(|| {
-        ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate magnitude span mismatch".to_owned(),
-        )
-    })?;
-    let mut packed = [0u8; 8];
-    packed[..available].copy_from_slice(bytes);
-    Ok(u64::from_le_bytes(packed))
-}
 
-fn associate_multiply_magnitudes(
-    arena: &[u8],
-    left: AssociateMagnitudeSpan,
-    right: AssociateMagnitudeSpan,
-    product: &mut [u64],
-    observed: &mut AssociateObservedWork,
-) -> Result<usize, ParametricCoefficientError> {
-    let left_limbs = associate_bits_to_units(
-        "polynomial-associate product scratch limbs",
-        left.byte_len
-            .checked_mul(8)
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "polynomial-associate product scratch limbs",
-            })?,
-        64,
-    )?;
-    let right_limbs = associate_bits_to_units(
-        "polynomial-associate product scratch limbs",
-        right
-            .byte_len
-            .checked_mul(8)
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "polynomial-associate product scratch limbs",
-            })?,
-        64,
-    )?;
-    let needed = checked_parametric_add(
-        "polynomial-associate product scratch limbs",
-        left_limbs,
-        right_limbs,
-    )?;
-    if needed > product.len() {
-        return Err(ParametricCoefficientError::ResourceLimit {
-            resource: "polynomial-associate product scratch limbs",
-            requested: needed,
-            limit: product.len(),
-        });
-    }
-    product[..needed].fill(0);
-    observed.scratch_limb_writes = checked_parametric_add(
-        "polynomial-associate observed scratch limb writes",
-        observed.scratch_limb_writes,
-        needed,
-    )?;
-    for left_limb in 0..left_limbs {
-        let a = u128::from(associate_magnitude_limb(arena, left, left_limb)?);
-        let mut carry = 0u128;
-        for right_limb in 0..right_limbs {
-            let index = left_limb + right_limb;
-            let b = u128::from(associate_magnitude_limb(arena, right, right_limb)?);
-            let wide = a * b + u128::from(product[index]) + carry;
-            product[index] = wide as u64;
-            carry = wide >> 64;
-            observed.integer_multiply_limb_operations = checked_parametric_add(
-                "polynomial-associate observed integer multiply limb operations",
-                observed.integer_multiply_limb_operations,
-                1,
-            )?;
-            observed.scratch_limb_writes = checked_parametric_add(
-                "polynomial-associate observed scratch limb writes",
-                observed.scratch_limb_writes,
-                1,
-            )?;
+    let mut degree_box = Some(1usize);
+    let mut width_sum = 0usize;
+    let mut active_variables = 0usize;
+    let mut active_width = 1usize;
+    let mut every_width_fits_dense = true;
+    for variable in 0..base_variable_count {
+        let requested = u64::from(left.numerator.degree(variable))
+            + u64::from(right.numerator.degree(variable));
+        if requested > i32::MAX as u64 {
+            return Err(ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate Symbolica native base degree",
+                requested: usize::try_from(requested).unwrap_or(usize::MAX),
+                limit: i32::MAX as usize,
+            });
         }
-        product[left_limb + right_limbs] = carry as u64;
-        observed.scratch_limb_writes = checked_parametric_add(
-            "polynomial-associate observed scratch limb writes",
-            observed.scratch_limb_writes,
-            1,
-        )?;
-    }
-    let mut len = needed;
-    while len > 0 && product[len - 1] == 0 {
-        len -= 1;
-    }
-    if len == 0 {
-        return Err(ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate nonzero product vanished".to_owned(),
-        ));
-    }
-    Ok(len)
-}
-
-fn associate_magnitude_cmp(
-    left: &[u64],
-    left_len: usize,
-    right: &[u64],
-    right_len: usize,
-) -> Ordering {
-    match left_len.cmp(&right_len) {
-        Ordering::Equal => {}
-        ordering => return ordering,
-    }
-    for index in (0..left_len).rev() {
-        match left[index].cmp(&right[index]) {
-            Ordering::Equal => {}
-            ordering => return ordering,
-        }
-    }
-    Ordering::Equal
-}
-
-fn associate_accumulate_product(
-    accumulator: &mut [u64],
-    accumulator_len: &mut usize,
-    accumulator_negative: &mut bool,
-    product: &[u64],
-    product_len: usize,
-    product_negative: bool,
-    observed: &mut AssociateObservedWork,
-) -> Result<(), ParametricCoefficientError> {
-    if *accumulator_len == 0 {
-        accumulator[..product_len].copy_from_slice(&product[..product_len]);
-        *accumulator_len = product_len;
-        *accumulator_negative = product_negative;
-        observed.scratch_limb_writes = checked_parametric_add(
-            "polynomial-associate observed scratch limb writes",
-            observed.scratch_limb_writes,
-            product_len,
-        )?;
-        return Ok(());
-    }
-
-    if *accumulator_negative == product_negative {
-        let previous_len = *accumulator_len;
-        let common_len = previous_len.max(product_len);
-        let mut carry = 0u128;
-        for index in 0..common_len {
-            let left = if index < previous_len {
-                accumulator[index]
-            } else {
-                0
-            };
-            let right = if index < product_len {
-                product[index]
-            } else {
-                0
-            };
-            let wide = u128::from(left) + u128::from(right) + carry;
-            accumulator[index] = wide as u64;
-            carry = wide >> 64;
-            observed.integer_accumulate_limb_operations = checked_parametric_add(
-                "polynomial-associate observed integer accumulation limb operations",
-                observed.integer_accumulate_limb_operations,
-                1,
-            )?;
-            observed.scratch_limb_writes = checked_parametric_add(
-                "polynomial-associate observed scratch limb writes",
-                observed.scratch_limb_writes,
-                1,
-            )?;
-        }
-        *accumulator_len = common_len;
-        if carry != 0 {
-            let accumulator_capacity = accumulator.len();
-            let requested = checked_parametric_add(
-                "polynomial-associate accumulator scratch limbs",
-                *accumulator_len,
-                1,
-            )?;
-            let slot = accumulator.get_mut(*accumulator_len).ok_or(
-                ParametricCoefficientError::ResourceLimit {
-                    resource: "polynomial-associate accumulator scratch limbs",
-                    requested,
-                    limit: accumulator_capacity,
+        let width = usize::try_from(requested + 1).map_err(|_| {
+            ParametricCoefficientError::ResourceCountOverflow {
+                resource: "polynomial-associate native degree box",
+            }
+        })?;
+        width_sum =
+            checked_parametric_add("polynomial-associate native degree box", width_sum, width)?;
+        degree_box = degree_box.and_then(|box_size| box_size.checked_mul(width));
+        every_width_fits_dense &= width <= NATIVE_DENSE_BOX_LIMIT;
+        if width > 1 {
+            active_variables = active_variables.checked_add(1).ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: "polynomial-associate active base variables",
                 },
             )?;
-            *slot = carry as u64;
-            *accumulator_len += 1;
-            observed.scratch_limb_writes = checked_parametric_add(
-                "polynomial-associate observed scratch limb writes",
-                observed.scratch_limb_writes,
-                1,
-            )?;
+            active_width = width;
         }
-        return Ok(());
     }
+    let output_term_bound = degree_box.map_or(pairs, |box_size| pairs.min(box_size));
 
-    let ordering = associate_magnitude_cmp(accumulator, *accumulator_len, product, product_len);
-    observed.integer_accumulate_limb_operations = checked_parametric_add(
-        "polynomial-associate observed integer accumulation limb operations",
-        observed.integer_accumulate_limb_operations,
-        (*accumulator_len).max(product_len),
+    let mut left_bit_sum = 0usize;
+    let mut left_max_bits = 0usize;
+    for value in &left.numerator.coefficients {
+        let bits = associate_integer_bit_count(value)?;
+        left_bit_sum = checked_parametric_add(
+            "polynomial-associate native integer multiplication bit-work bound",
+            left_bit_sum,
+            bits,
+        )?;
+        left_max_bits = left_max_bits.max(bits);
+    }
+    let mut right_bit_sum = 0usize;
+    let mut right_max_bits = 0usize;
+    for value in &right.numerator.coefficients {
+        let bits = associate_integer_bit_count(value)?;
+        right_bit_sum = checked_parametric_add(
+            "polynomial-associate native integer multiplication bit-work bound",
+            right_bit_sum,
+            bits,
+        )?;
+        right_max_bits = right_max_bits.max(bits);
+    }
+    let output_integer_bit_bound = checked_parametric_add(
+        "polynomial-associate native output integer bit bound",
+        checked_parametric_add(
+            "polynomial-associate native output integer bit bound",
+            left_max_bits,
+            right_max_bits,
+        )?,
+        parametric_ceil_log2(pairs),
     )?;
-    if ordering == Ordering::Equal {
-        *accumulator_len = 0;
-        *accumulator_negative = false;
-        return Ok(());
-    }
+    let integer_collection_bit_work_bound = checked_parametric_mul(
+        "polynomial-associate native integer collection bit-work bound",
+        pairs,
+        output_integer_bit_bound,
+    )?;
 
-    let result_negative = if ordering == Ordering::Greater {
-        *accumulator_negative
+    let uses_general_kernel = left_count > 1
+        && right_count > 1
+        && !left.numerator.is_constant()
+        && !right.numerator.is_constant();
+    let dense_workspace_entries = if uses_general_kernel && active_variables == 1 {
+        usize::from(width_sum < NATIVE_UNIVARIATE_DENSE_SUM_LIMIT) * active_width
+    } else if uses_general_kernel && active_variables != 1 && every_width_fits_dense {
+        degree_box
+            .filter(|box_size| *box_size <= NATIVE_DENSE_BOX_LIMIT)
+            .unwrap_or(0)
     } else {
-        product_negative
+        0
     };
-    let result_len = (*accumulator_len).max(product_len);
-    let mut borrow = false;
-    for index in 0..result_len {
-        let accumulator_value = if index < *accumulator_len {
-            accumulator[index]
-        } else {
-            0
-        };
-        let product_value = if index < product_len {
-            product[index]
-        } else {
-            0
-        };
-        let (larger, smaller) = if ordering == Ordering::Greater {
-            (accumulator_value, product_value)
-        } else {
-            (product_value, accumulator_value)
-        };
-        let (difference, first_borrow) = larger.overflowing_sub(smaller);
-        let borrow_limb = if borrow { 1 } else { 0 };
-        let (difference, second_borrow) = difference.overflowing_sub(borrow_limb);
-        accumulator[index] = difference;
-        borrow = first_borrow || second_borrow;
-        observed.integer_accumulate_limb_operations = checked_parametric_add(
-            "polynomial-associate observed integer accumulation limb operations",
-            observed.integer_accumulate_limb_operations,
-            1,
-        )?;
-        observed.scratch_limb_writes = checked_parametric_add(
-            "polynomial-associate observed scratch limb writes",
-            observed.scratch_limb_writes,
-            1,
-        )?;
-    }
-    if borrow {
-        return Err(ParametricCoefficientError::Symbolica(
-            "internal polynomial-associate magnitude subtraction underflow".to_owned(),
-        ));
-    }
-    *accumulator_len = result_len;
-    while *accumulator_len > 0 && accumulator[*accumulator_len - 1] == 0 {
-        *accumulator_len -= 1;
-    }
-    *accumulator_negative = if *accumulator_len == 0 {
-        false
+    let heap_workspace_pair_bound = if uses_general_kernel && dense_workspace_entries == 0 {
+        pairs
     } else {
-        result_negative
+        0
     };
+
+    let per_output_term_bytes = associate_sum_counts(
+        resource,
+        [
+            size_of::<Integer>(),
+            checked_parametric_mul(resource, base_variable_count, size_of::<u32>())?,
+            integer_limb_payload_byte_bound(output_integer_bit_bound, resource)?,
+        ],
+    )?;
+    let doubled_output_term_bound = checked_parametric_mul(resource, 2, output_term_bound)?;
+    // Symbolica's univariate dense kernel retains a full degree-width result
+    // allocation even when the sparse support is tiny. Other general kernels
+    // seed the result with max(L,R) capacity and may then geometrically grow;
+    // simple constant/monomial paths clone a projected operand whose capacity
+    // is bounded by twice its live support.
+    let output_term_capacity_bound =
+        if uses_general_kernel && active_variables == 1 && dense_workspace_entries != 0 {
+            active_width
+        } else if uses_general_kernel {
+            left_count.max(right_count).max(doubled_output_term_bound)
+        } else {
+            doubled_output_term_bound
+        };
+    let output_capacity_bytes = associate_sum_counts(
+        resource,
+        [
+            checked_parametric_mul(
+                resource,
+                output_term_capacity_bound,
+                associate_sum_counts(
+                    resource,
+                    [
+                        size_of::<Integer>(),
+                        checked_parametric_mul(resource, base_variable_count, size_of::<u32>())?,
+                    ],
+                )?,
+            )?,
+            checked_parametric_mul(
+                resource,
+                output_term_bound,
+                integer_limb_payload_byte_bound(output_integer_bit_bound, resource)?,
+            )?,
+        ],
+    )?;
+    let dispatch_workspace_bytes = if !uses_general_kernel {
+        0
+    } else if dense_workspace_entries != 0 {
+        let common = associate_sum_counts(
+            resource,
+            [
+                checked_parametric_mul(
+                    resource,
+                    checked_parametric_add(resource, left_count, right_count)?,
+                    size_of::<u32>(),
+                )?,
+                checked_parametric_mul(resource, base_variable_count, size_of::<u32>())?,
+                // `mul_dense` retains its reversed degree-width vector for
+                // the duration of the native multiplication.
+                checked_parametric_mul(resource, base_variable_count, size_of::<usize>())?,
+            ],
+        )?;
+        let dense_payload = if active_variables == 1 || dense_workspace_entries < 1_000 {
+            checked_parametric_mul(resource, dense_workspace_entries, per_output_term_bytes)?
+        } else {
+            associate_sum_counts(
+                resource,
+                [
+                    // Symbolica returns this branch's `coeff_index` Vec to a
+                    // thread-local cache. A previous admitted dense product
+                    // can leave capacity at the dense-box ceiling, and one
+                    // final Vec growth can retain twice that many entries.
+                    checked_parametric_mul(
+                        resource,
+                        checked_parametric_mul(resource, 2, NATIVE_DENSE_BOX_LIMIT)?,
+                        size_of::<u32>(),
+                    )?,
+                    checked_parametric_mul(
+                        resource,
+                        checked_parametric_mul(resource, 2, pairs.min(dense_workspace_entries))?,
+                        per_output_term_bytes,
+                    )?,
+                ],
+            )?
+        };
+        checked_parametric_add(resource, common, dense_payload)?
+    } else {
+        let support_capacity = checked_parametric_mul(resource, 2, output_term_bound)?;
+        let pair_capacity = checked_parametric_mul(resource, 4, pairs)?;
+        let max_side = left_count.max(right_count);
+        associate_sum_counts(
+            resource,
+            [
+                // Heap dispatch retains the degree-sum vector. Charge packed
+                // exponent arrays as well; this also safely covers the
+                // generic path, which instead uses the larger arena below.
+                checked_parametric_mul(resource, base_variable_count, size_of::<i64>())?,
+                checked_parametric_mul(
+                    resource,
+                    checked_parametric_add(resource, left_count, right_count)?,
+                    size_of::<u64>(),
+                )?,
+                checked_parametric_mul(
+                    resource,
+                    checked_parametric_mul(
+                        resource,
+                        checked_parametric_mul(resource, 2, pairs)?,
+                        base_variable_count,
+                    )?,
+                    size_of::<u32>(),
+                )?,
+                checked_parametric_mul(resource, pair_capacity, size_of::<(usize, usize)>())?,
+                checked_parametric_mul(
+                    resource,
+                    support_capacity,
+                    associate_sum_counts(
+                        resource,
+                        [
+                            checked_parametric_mul(resource, 2, size_of::<usize>())?,
+                            size_of::<Vec<(usize, usize)>>(),
+                            checked_parametric_mul(resource, 4, size_of::<usize>())?,
+                        ],
+                    )?,
+                )?,
+                checked_parametric_mul(
+                    resource,
+                    support_capacity,
+                    checked_parametric_mul(resource, 2, size_of::<usize>())?,
+                )?,
+                checked_parametric_mul(
+                    resource,
+                    support_capacity,
+                    size_of::<Vec<(usize, usize)>>(),
+                )?,
+                checked_parametric_mul(
+                    resource,
+                    checked_parametric_mul(resource, 2, max_side)?,
+                    checked_parametric_add(resource, size_of::<usize>(), size_of::<bool>())?,
+                )?,
+            ],
+        )?
+    };
+    let rational_field_scaffolding_bytes = associate_sum_counts(
+        resource,
+        [
+            checked_parametric_mul(resource, 16, size_of::<AssociateIntegerPolynomial>())?,
+            checked_parametric_mul(
+                resource,
+                checked_parametric_mul(resource, 32, base_variable_count)?,
+                size_of::<u32>(),
+            )?,
+            checked_parametric_mul(resource, 16, size_of::<Integer>())?,
+            // Symbolica's constant-polynomial multiplication fast path
+            // clones the scalar before growing the cloned result in place.
+            // rug/GMP clone allocation follows the scalar's used limbs, so
+            // one magnitude-derived payload covers that simultaneous clone.
+            integer_limb_payload_byte_bound(output_integer_bit_bound, resource)?,
+        ],
+    )?;
+
+    Ok(AssociateNativeProductPreflight {
+        cross_term_pairs: pairs,
+        base_exponent_additions: checked_parametric_mul(
+            "polynomial-associate native base exponent additions",
+            pairs,
+            base_variable_count,
+        )?,
+        metadata_exponent_entry_inspection_bound: checked_parametric_add(
+            "polynomial-associate native metadata exponent-entry inspection bound",
+            checked_parametric_mul(
+                "polynomial-associate native metadata exponent-entry inspection bound",
+                checked_parametric_mul(
+                    "polynomial-associate native metadata exponent-entry inspection bound",
+                    6,
+                    checked_parametric_add(
+                        "polynomial-associate native metadata exponent-entry inspection bound",
+                        left_count,
+                        right_count,
+                    )?,
+                )?,
+                base_variable_count,
+            )?,
+            checked_parametric_mul(
+                "polynomial-associate native metadata exponent-entry inspection bound",
+                output_term_bound,
+                base_variable_count,
+            )?,
+        )?,
+        metadata_integer_entry_inspection_bound: checked_parametric_add(
+            "polynomial-associate native metadata integer-entry inspection bound",
+            checked_parametric_mul(
+                "polynomial-associate native metadata integer-entry inspection bound",
+                2,
+                checked_parametric_add(
+                    "polynomial-associate native metadata integer-entry inspection bound",
+                    left_count,
+                    right_count,
+                )?,
+            )?,
+            output_term_bound,
+        )?,
+        output_term_bound,
+        output_term_capacity_bound,
+        output_exponent_entry_bound: checked_parametric_mul(
+            "polynomial-associate native output exponent entry bound",
+            output_term_bound,
+            base_variable_count,
+        )?,
+        integer_multiplication_bit_work_bound: checked_parametric_mul(
+            "polynomial-associate native integer multiplication bit-work bound",
+            left_bit_sum,
+            right_bit_sum,
+        )?,
+        integer_collection_bit_work_bound,
+        output_integer_bit_bound,
+        dense_workspace_entries,
+        heap_workspace_pair_bound,
+        workspace_byte_envelope: checked_parametric_add(
+            resource,
+            rational_field_scaffolding_bytes,
+            checked_parametric_add(resource, dispatch_workspace_bytes, output_capacity_bytes)?,
+        )?,
+    })
+}
+
+fn authenticate_associate_native_product(
+    value: &AssociateBaseCoefficient,
+    left: &AssociateBaseCoefficient,
+    right: &AssociateBaseCoefficient,
+    base_variables: &Arc<Vec<PolyVariable>>,
+    preflight: &AssociateNativeProductPreflight,
+) -> Result<(), ParametricCoefficientError> {
+    let malformed = || {
+        ParametricCoefficientError::Symbolica(
+            "Symbolica returned an unauthenticated polynomial-associate cross product".to_owned(),
+        )
+    };
+    let variable_count = base_variables.len();
+    let expected_exponents = value
+        .numerator
+        .nterms()
+        .checked_mul(variable_count)
+        .ok_or_else(malformed)?;
+    let admitted_exponent_capacity = preflight
+        .output_term_capacity_bound
+        .checked_mul(variable_count)
+        .ok_or_else(malformed)?;
+    let admitted_denominator_exponent_capacity =
+        2usize.checked_mul(variable_count).ok_or_else(malformed)?;
+    if value.numerator.variables.as_ref() != base_variables.as_ref()
+        || value.denominator.variables.as_ref() != base_variables.as_ref()
+        || value.numerator.ring != Z
+        || value.denominator.ring != Z
+        || value.denominator.nterms() != 1
+        || value.denominator.coefficients.len() != 1
+        || value.denominator.coefficients.capacity() > 2
+        || value.denominator.exponents.len() != variable_count
+        || value.denominator.exponents.capacity() > admitted_denominator_exponent_capacity
+        || value.denominator.coefficients[0].cmp(&Integer::Single(1)) != Ordering::Equal
+        || value
+            .denominator
+            .exponents
+            .iter()
+            .any(|exponent| *exponent != 0)
+        || value.numerator.is_zero()
+        || value.numerator.nterms() > preflight.output_term_bound
+        || value.numerator.coefficients.capacity() > preflight.output_term_capacity_bound
+        || value.numerator.exponents.len() != expected_exponents
+        || value.numerator.exponents.capacity() > admitted_exponent_capacity
+        || value.numerator.exponents.len() > preflight.output_exponent_entry_bound
+    {
+        return Err(malformed());
+    }
+    // Cache each admitted degree sum in the loop scalar while scanning all
+    // output terms for that coordinate.  Calling `degree` inside the output
+    // term loop would rescan both inputs once per output monomial and violate
+    // the preflighted metadata-inspection bound.
+    for variable in 0..variable_count {
+        let admitted = u64::from(left.numerator.degree(variable))
+            + u64::from(right.numerator.degree(variable));
+        if value.numerator.exponents_iter().any(|exponents| {
+            u64::from(exponents[variable]) > admitted || exponents[variable] > i32::MAX as u32
+        }) {
+            return Err(malformed());
+        }
+    }
+    for coefficient in &value.numerator.coefficients {
+        if coefficient.cmp(&Integer::Single(0)) == Ordering::Equal
+            || associate_integer_bit_count(coefficient)? > preflight.output_integer_bit_bound
+        {
+            return Err(malformed());
+        }
+    }
+    if variable_count != 0
+        && value
+            .numerator
+            .exponents_iter()
+            .zip(value.numerator.exponents_iter().skip(1))
+            .any(|(left, right)| left >= right)
+    {
+        return Err(malformed());
+    }
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    static POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_PANIC_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn inject_polynomial_associate_native_boundary_panic_for_test() {
+    POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn maybe_inject_polynomial_associate_native_boundary_panic_for_test() {
+    POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected Symbolica polynomial-associate boundary panic");
+        }
+    });
+}
 /// Explicit upper bounds around Symbolica operations whose output can expand
 /// under an affine index translation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4297,9 +4111,10 @@ impl ParametricCoefficientContext {
     /// Regard each input as a coefficient vector over the index monomials,
     /// with entries in `Z[theta]`.  Two nonzero vectors are associates over
     /// `K = Q(theta)` exactly when their index supports agree and every entry
-    /// is proportional to one deterministic anchor entry.  Cross products are
-    /// compared with bounded reference sorts and fixed-size integer scratch;
-    /// no rational normalization, polynomial GCD, or FORM call is involved.
+    /// is proportional to one deterministic anchor entry. Symbolica performs
+    /// the index projection and every coefficient-field cross product through
+    /// its public rational-polynomial API; RustRed performs no coefficient
+    /// multiplication, collection, polynomial division, or FORM call here.
     /// Indeed, if `P_a Q_0 = Q_a P_0` for every index monomial `a`, then
     /// `left = (P_0/Q_0) right`; the converse follows by clearing the same
     /// nonzero coefficient-field unit.
@@ -4310,8 +4125,8 @@ impl ParametricCoefficientContext {
         limits: ParametricPolynomialAssociateLimits,
     ) -> Result<ParametricPolynomialAssociateResult, ParametricCoefficientError> {
         let variable_count = self.variables.len();
-        let base_variables = self.base.variables().len();
-        let index_variables = variable_count.checked_sub(base_variables).ok_or(
+        let base_variable_count = self.base.variables().len();
+        let index_variable_count = variable_count.checked_sub(base_variable_count).ok_or(
             ParametricCoefficientError::ResourceCountOverflow {
                 resource: "polynomial-associate index variables",
             },
@@ -4350,17 +4165,42 @@ impl ParametricCoefficientContext {
             ..ParametricPolynomialAssociateStats::default()
         };
 
-        // Structural counts and comparison envelopes are admitted before an
-        // input coefficient or exponent payload is scanned.
+        // Admission and authentication precede every Symbolica-native
+        // projection. In particular, a forged same-fingerprint value cannot
+        // reach `map_exp` or consume the test boundary hook.
         check_associate_stats(&stats, limits)?;
         self.validate_polynomial_with_limits(left, limits.exact_algebra)?;
         self.validate_polynomial_with_limits(right, limits.exact_algebra)?;
 
+        let mut source_coefficient_retained_bytes = 0usize;
         for coefficient in left.raw.coefficients.iter().chain(&right.raw.coefficients) {
             stats.validation_integer_bits = checked_parametric_add(
                 "polynomial-associate validation integer bits",
                 stats.validation_integer_bits,
                 associate_integer_bit_count(coefficient)?,
+            )?;
+            let large_capacity_bytes = match coefficient {
+                Integer::Large(value) => {
+                    usize::try_from(value.capacity())
+                        .map_err(|_| ParametricCoefficientError::ResourceCountOverflow {
+                            resource: "polynomial-associate source GMP capacity bytes",
+                        })?
+                        .checked_add(7)
+                        .ok_or(ParametricCoefficientError::ResourceCountOverflow {
+                            resource: "polynomial-associate source GMP capacity bytes",
+                        })?
+                        / 8
+                }
+                Integer::Single(_) | Integer::Double(_) => 0,
+            };
+            source_coefficient_retained_bytes = checked_parametric_add(
+                "polynomial-associate source coefficient-capacity bytes",
+                source_coefficient_retained_bytes,
+                checked_parametric_add(
+                    "polynomial-associate source coefficient-capacity bytes",
+                    size_of::<Integer>(),
+                    large_capacity_bytes,
+                )?,
             )?;
             check_limit(
                 "polynomial-associate validation integer bits",
@@ -4368,206 +4208,469 @@ impl ParametricCoefficientContext {
                 limits.max_validation_integer_bits,
             )?;
         }
+
+        // Zero has no projective point. It is rejected before allocating a
+        // widened polynomial or entering any native backend call.
         if left.is_zero() || right.is_zero() {
             return Ok(ParametricPolynomialAssociateResult {
                 associated: false,
                 stats,
             });
         }
+        // With no index variables every nonzero polynomial is a unit of the
+        // coefficient field. This also avoids asking Symbolica's sparse
+        // exponent iterator to chunk a zero-variable polynomial.
+        if index_variable_count == 0 {
+            return Ok(ParametricPolynomialAssociateResult {
+                associated: true,
+                stats,
+            });
+        }
 
-        let p_terms = left.raw.nterms();
-        let q_terms = right.raw.nterms();
-        stats.term_order_entries =
-            checked_parametric_add("polynomial-associate term-order entries", p_terms, q_terms)?;
-        let p_order_bound = associate_heap_comparison_bound(p_terms)?;
-        let q_order_bound = associate_heap_comparison_bound(q_terms)?;
-        stats.ordering_comparison_bound = checked_parametric_add(
-            "polynomial-associate ordering comparison bound",
-            p_order_bound,
-            q_order_bound,
-        )?;
-        let adjacent_scans = checked_parametric_mul(
-            "polynomial-associate index-coordinate inspection bound",
+        let left_term_bound = left.raw.nterms();
+        let right_term_bound = right.raw.nterms();
+        stats.projection_exponent_entries = validation_exponent_entries;
+        stats.projection_group_bound = validation_terms;
+        stats.projection_variable_mask_comparison_bound = checked_parametric_mul(
+            "polynomial-associate projection variable-mask comparison bound",
             2,
-            checked_parametric_add(
-                "polynomial-associate index-coordinate inspection bound",
-                p_terms.saturating_sub(1),
-                q_terms.saturating_sub(1),
+            checked_parametric_mul(
+                "polynomial-associate projection variable-mask comparison bound",
+                variable_count,
+                index_variable_count,
             )?,
         )?;
-        stats.index_coordinate_inspection_bound = checked_parametric_mul(
-            "polynomial-associate index-coordinate inspection bound",
-            index_variables,
-            checked_parametric_add(
-                "polynomial-associate index-coordinate inspection bound",
-                stats.ordering_comparison_bound,
-                adjacent_scans,
+        stats.projection_hash_key_exponent_entry_bound = checked_parametric_mul(
+            "polynomial-associate projection hash-key exponent-entry bound",
+            2,
+            checked_parametric_mul(
+                "polynomial-associate projection hash-key exponent-entry bound",
+                validation_terms,
+                index_variable_count,
             )?,
         )?;
-        let fixed_headers = checked_parametric_mul(
-            "polynomial-associate visible temporary byte envelope",
-            9,
-            size_of::<Vec<usize>>(),
+        // Source monomials are canonical. Within each fixed index support,
+        // their surviving base monomials therefore reach `append_monomial`
+        // in canonical order and need at most one tail comparison each.
+        stats.projection_coefficient_append_comparison_bound = checked_parametric_mul(
+            "polynomial-associate projection coefficient append comparison bound",
+            validation_terms,
+            base_variable_count,
         )?;
-        let order_envelope =
-            associate_capacity_byte_envelope(stats.term_order_entries, size_of::<usize>())?;
-        stats.visible_temporary_byte_envelope = checked_parametric_add(
-            "polynomial-associate visible temporary byte envelope",
-            fixed_headers,
-            order_envelope,
-        )?;
-        check_associate_stats(&stats, limits)?;
-
-        let mut p_order = Vec::new();
-        p_order.try_reserve_exact(p_terms).map_err(|_| {
-            ParametricCoefficientError::Symbolica(
-                "allocation failed for polynomial-associate left term order".to_owned(),
+        let sorted_insert_comparison_bound = |terms: usize| {
+            checked_parametric_mul(
+                "polynomial-associate projection sorted-insert comparison bound",
+                terms,
+                checked_parametric_add(
+                    "polynomial-associate projection sorted-insert comparison bound",
+                    2,
+                    parametric_ceil_log2(terms.saturating_add(1)),
+                )?,
             )
-        })?;
-        p_order.extend(0..p_terms);
-        associate_check_capacity(
-            p_order.capacity(),
-            p_terms,
-            "polynomial-associate left term-order capacity",
+        };
+        stats.projection_sorted_insert_comparison_bound = checked_parametric_add(
+            "polynomial-associate projection sorted-insert comparison bound",
+            checked_parametric_mul(
+                "polynomial-associate projection sorted-insert comparison bound",
+                sorted_insert_comparison_bound(left_term_bound)?,
+                index_variable_count,
+            )?,
+            checked_parametric_mul(
+                "polynomial-associate projection sorted-insert comparison bound",
+                sorted_insert_comparison_bound(right_term_bound)?,
+                index_variable_count,
+            )?,
         )?;
-        let mut q_order = Vec::new();
-        q_order.try_reserve_exact(q_terms).map_err(|_| {
-            ParametricCoefficientError::Symbolica(
-                "allocation failed for polynomial-associate right term order".to_owned(),
+        let sorted_insert_move_bound = |terms: usize| {
+            let predecessor = terms.saturating_sub(1);
+            let (left_factor, right_factor) = if terms % 2 == 0 {
+                (terms / 2, predecessor)
+            } else {
+                (terms, predecessor / 2)
+            };
+            let pairs = checked_parametric_mul(
+                "polynomial-associate projection sorted-insert move exponent-entry bound",
+                left_factor,
+                right_factor,
+            )?;
+            checked_parametric_mul(
+                "polynomial-associate projection sorted-insert move exponent-entry bound",
+                pairs,
+                index_variable_count,
             )
-        })?;
-        q_order.extend(0..q_terms);
-        associate_check_capacity(
-            q_order.capacity(),
-            q_terms,
-            "polynomial-associate right term-order capacity",
+        };
+        stats.projection_sorted_insert_move_exponent_entry_bound = checked_parametric_add(
+            "polynomial-associate projection sorted-insert move exponent-entry bound",
+            sorted_insert_move_bound(left_term_bound)?,
+            sorted_insert_move_bound(right_term_bound)?,
         )?;
-
-        let mut observed = AssociateObservedWork::default();
-        observed.ordering_comparisons = checked_parametric_add(
-            "polynomial-associate observed ordering comparisons",
-            associate_heap_sort_by(
-                &mut p_order,
-                |left_term, right_term| {
-                    associate_term_index_cmp(&left.raw, *left_term, *right_term, base_variables)
-                },
-                p_order_bound,
+        // `map_exp` clones each source integer once and `to_polynomial` clones
+        // it once more into a coefficient polynomial while the widened input
+        // remains live. Charge the actual public GMP capacities, not merely
+        // the mathematical magnitudes. A newly grouped numerator starts from
+        // empty Vecs, whose first Integer push retains capacity four; charging
+        // three additional headers per source term covers the all-singleton
+        // worst case as well as later geometric growth.
+        stats.projection_coefficient_capacity_bytes = checked_parametric_add(
+            "polynomial-associate projection coefficient-capacity bytes",
+            checked_parametric_mul(
+                "polynomial-associate projection coefficient-capacity bytes",
+                source_coefficient_retained_bytes,
+                2,
             )?,
-            associate_heap_sort_by(
-                &mut q_order,
-                |left_term, right_term| {
-                    associate_term_index_cmp(&right.raw, *left_term, *right_term, base_variables)
-                },
-                q_order_bound,
+            checked_parametric_mul(
+                "polynomial-associate projection coefficient-capacity bytes",
+                checked_parametric_mul(
+                    "polynomial-associate projection coefficient-capacity bytes",
+                    3,
+                    validation_terms,
+                )?,
+                size_of::<Integer>(),
             )?,
         )?;
 
-        // Count once so the group vectors can be admitted and reserved at
-        // their exact requested lengths, then scan a second time to populate.
-        let p_group_count = associate_count_groups(&left.raw, &p_order, base_variables);
-        let q_group_count = associate_count_groups(&right.raw, &q_order, base_variables);
-        stats.index_groups = checked_parametric_add(
-            "polynomial-associate index groups",
-            p_group_count,
-            q_group_count,
+        let projected_outer_exponent_bound = checked_parametric_mul(
+            "polynomial-associate projected outer exponent-entry bound",
+            stats.projection_group_bound,
+            index_variable_count,
         )?;
-        let group_envelope =
-            associate_capacity_byte_envelope(stats.index_groups, size_of::<AssociateIndexGroup>())?;
-        stats.visible_temporary_byte_envelope = associate_sum_counts(
-            "polynomial-associate visible temporary byte envelope",
-            [fixed_headers, order_envelope, group_envelope],
+        // Every projected coefficient numerator starts with an empty exponent
+        // Vec. Its first `extend_from_slice` may retain four u32 slots even for
+        // a one-entry base exponent. The outer factor of two below then gives
+        // a conservative aggregate capacity of 4 * terms * base variables.
+        let projected_numerator_exponent_bound = checked_parametric_mul(
+            "polynomial-associate projected numerator exponent-entry bound",
+            2,
+            checked_parametric_mul(
+                "polynomial-associate projected numerator exponent-entry bound",
+                validation_terms,
+                base_variable_count,
+            )?,
         )?;
-        check_associate_stats(&stats, limits)?;
-        let p_groups = associate_build_groups(&left.raw, &p_order, base_variables, p_group_count)?;
-        let q_groups = associate_build_groups(&right.raw, &q_order, base_variables, q_group_count)?;
-        associate_check_capacity(
-            p_groups.capacity(),
-            p_group_count,
-            "polynomial-associate left index-group capacity",
+        let projected_denominator_exponent_bound = checked_parametric_mul(
+            "polynomial-associate projected denominator exponent-entry bound",
+            stats.projection_group_bound,
+            base_variable_count,
         )?;
-        associate_check_capacity(
-            q_groups.capacity(),
-            q_group_count,
-            "polynomial-associate right index-group capacity",
+        let widened_denominator_exponent_bound = checked_parametric_mul(
+            "polynomial-associate widened denominator exponent-entry bound",
+            2,
+            variable_count,
         )?;
-
-        if p_group_count != q_group_count {
-            stats.visible_temporary_bytes = associate_sum_counts(
-                "polynomial-associate visible temporary bytes",
+        let projection_u32_capacity_bound = checked_parametric_mul(
+            "polynomial-associate RustRed-visible temporary byte envelope",
+            2,
+            associate_sum_counts(
+                "polynomial-associate RustRed-visible temporary byte envelope",
                 [
-                    fixed_headers,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        p_order.capacity(),
-                        size_of::<usize>(),
+                    validation_exponent_entries,
+                    widened_denominator_exponent_bound,
+                    projected_outer_exponent_bound,
+                    projected_numerator_exponent_bound,
+                    projected_denominator_exponent_bound,
+                ],
+            )?,
+        )?;
+        let visible_resource = "polynomial-associate RustRed-visible temporary byte envelope";
+        // `to_polynomial` retains fresh coefficient- and outer-variable maps
+        // in each returned projection. Account for both sides, including Arc
+        // control blocks, Vec headers, and conservatively grown backing maps.
+        let projection_variable_map_bytes = checked_parametric_mul(
+            visible_resource,
+            2,
+            associate_sum_counts(
+                visible_resource,
+                [
+                    arc_payload_control_and_padding_byte_bound::<Vec<PolyVariable>>().ok_or(
+                        ParametricCoefficientError::ResourceCountOverflow {
+                            resource: visible_resource,
+                        },
                     )?,
                     checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        q_order.capacity(),
-                        size_of::<usize>(),
+                        visible_resource,
+                        checked_parametric_mul(visible_resource, 4, base_variable_count)?,
+                        size_of::<PolyVariable>(),
+                    )?,
+                    arc_payload_control_and_padding_byte_bound::<Vec<PolyVariable>>().ok_or(
+                        ParametricCoefficientError::ResourceCountOverflow {
+                            resource: visible_resource,
+                        },
                     )?,
                     checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        p_groups.capacity(),
-                        size_of::<AssociateIndexGroup>(),
-                    )?,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        q_groups.capacity(),
-                        size_of::<AssociateIndexGroup>(),
+                        visible_resource,
+                        parametric_vec_capacity_bound(index_variable_count, visible_resource)?,
+                        size_of::<PolyVariable>(),
                     )?,
                 ],
+            )?,
+        )?;
+        stats.rustred_visible_temporary_byte_envelope = associate_sum_counts(
+            visible_resource,
+            [
+                checked_parametric_mul(
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    2,
+                    size_of::<AssociateBaseCoefficient>(),
+                )?,
+                checked_parametric_mul(
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    2,
+                    size_of::<AssociateIndexProjection>(),
+                )?,
+                checked_parametric_mul(
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    checked_parametric_mul(
+                        "polynomial-associate RustRed-visible temporary byte envelope",
+                        2,
+                        stats.projection_group_bound,
+                    )?,
+                    size_of::<AssociateBaseCoefficient>(),
+                )?,
+                checked_parametric_mul(
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    projection_u32_capacity_bound,
+                    size_of::<u32>(),
+                )?,
+                stats.projection_coefficient_capacity_bytes,
+                projection_variable_map_bytes,
+                checked_parametric_mul(
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    checked_parametric_add(
+                        "polynomial-associate RustRed-visible temporary byte envelope",
+                        stats.projection_group_bound,
+                        2,
+                    )?,
+                    size_of::<Integer>(),
+                )?,
+            ],
+        )?;
+        let hash_key_bytes = checked_parametric_mul(
+            "polynomial-associate native workspace byte envelope",
+            stats.projection_hash_key_exponent_entry_bound,
+            size_of::<u32>(),
+        )?;
+        // Hashbrown may retain substantially more buckets than live groups
+        // near a capacity transition. Four buckets per admitted source term
+        // safely covers its power-of-two/load-factor growth, while the fixed
+        // header covers the native table object itself.
+        let native_workspace_resource = "polynomial-associate native workspace byte envelope";
+        let hash_entry_bytes = checked_parametric_add(
+            native_workspace_resource,
+            checked_parametric_mul(
+                native_workspace_resource,
+                checked_parametric_mul(native_workspace_resource, 4, stats.projection_group_bound)?,
+                associate_sum_counts(
+                    native_workspace_resource,
+                    [
+                        size_of::<Vec<u32>>(),
+                        size_of::<AssociateBaseCoefficient>(),
+                        checked_parametric_mul(native_workspace_resource, 8, size_of::<usize>())?,
+                    ],
+                )?,
+            )?,
+            checked_parametric_mul(native_workspace_resource, 8, size_of::<usize>())?,
+        )?;
+        stats.native_workspace_byte_envelope = associate_sum_counts(
+            "polynomial-associate native workspace byte envelope",
+            [
+                hash_key_bytes,
+                hash_entry_bytes,
+                associate_sum_counts(
+                    "polynomial-associate native workspace byte envelope",
+                    [
+                        size_of::<Vec<Option<usize>>>(),
+                        checked_parametric_mul(
+                            "polynomial-associate native workspace byte envelope",
+                            parametric_vec_capacity_bound(
+                                variable_count,
+                                "polynomial-associate native workspace byte envelope",
+                            )?,
+                            size_of::<Option<usize>>(),
+                        )?,
+                    ],
+                )?,
+                checked_parametric_mul(
+                    "polynomial-associate native workspace byte envelope",
+                    checked_parametric_add(
+                        "polynomial-associate native workspace byte envelope",
+                        index_variable_count,
+                        base_variable_count,
+                    )?,
+                    size_of::<u32>(),
+                )?,
+            ],
+        )?;
+        check_associate_stats(&stats, limits)?;
+
+        let (left_projection, right_projection) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                #[cfg(test)]
+                maybe_inject_polynomial_associate_native_boundary_panic_for_test();
+
+                let left_wide: AssociateBaseCoefficient =
+                    left.raw.map_exp(|exponent| u32::from(*exponent)).into();
+                let right_wide: AssociateBaseCoefficient =
+                    right.raw.map_exp(|exponent| u32::from(*exponent)).into();
+                let left_projection = left_wide.to_polynomial(&self.index_variables, true)?;
+                let right_projection = right_wide.to_polynomial(&self.index_variables, true)?;
+                Ok::<_, &'static str>((left_projection, right_projection))
+            }))
+            .map_err(|_| {
+                ParametricCoefficientError::Symbolica(
+                    "Symbolica panicked during polynomial-associate native projection".to_owned(),
+                )
+            })?
+            .map_err(|_| {
+                ParametricCoefficientError::Symbolica(
+                    "Symbolica rejected an authenticated polynomial-associate projection"
+                        .to_owned(),
+                )
+            })?;
+
+        let authenticate_projection = |projection: &AssociateIndexProjection,
+                                       source_terms: usize,
+                                       source_exponent_entries: usize|
+         -> Result<(), ParametricCoefficientError> {
+            let malformed = || {
+                ParametricCoefficientError::Symbolica(
+                    "Symbolica returned an unauthenticated polynomial-associate projection"
+                        .to_owned(),
+                )
+            };
+            if projection.variables.as_ref() != self.index_variables.as_ref()
+                || projection.ring != RationalPolynomialField::new(Z)
+                || projection.exponents.len()
+                    != projection
+                        .coefficients
+                        .len()
+                        .checked_mul(index_variable_count)
+                        .ok_or_else(malformed)?
+                || projection
+                    .exponents
+                    .iter()
+                    .any(|exponent| *exponent > u32::from(u16::MAX))
+                || (index_variable_count != 0
+                    && projection
+                        .exponents_iter()
+                        .zip(projection.exponents_iter().skip(1))
+                        .any(|(left, right)| left >= right))
+            {
+                return Err(malformed());
+            }
+
+            let mut projected_source_terms = 0usize;
+            for coefficient in &projection.coefficients {
+                if coefficient.numerator.variables.as_ref() != self.base.variables().as_ref()
+                    || coefficient.denominator.variables.as_ref() != self.base.variables().as_ref()
+                    || coefficient.numerator.ring != Z
+                    || coefficient.denominator.ring != Z
+                    || coefficient.denominator.nterms() != 1
+                    || coefficient.denominator.coefficients.len() != 1
+                    || coefficient.denominator.exponents.len() != base_variable_count
+                    || coefficient.denominator.coefficients[0].cmp(&Integer::Single(1))
+                        != Ordering::Equal
+                    || coefficient
+                        .denominator
+                        .exponents
+                        .iter()
+                        .any(|exponent| *exponent != 0)
+                    || coefficient.numerator.is_zero()
+                    || coefficient.numerator.exponents.len()
+                        != coefficient
+                            .numerator
+                            .coefficients
+                            .len()
+                            .checked_mul(base_variable_count)
+                            .ok_or_else(malformed)?
+                    || coefficient
+                        .numerator
+                        .exponents
+                        .iter()
+                        .any(|exponent| *exponent > u32::from(u16::MAX))
+                    || (base_variable_count != 0
+                        && coefficient
+                            .numerator
+                            .exponents_iter()
+                            .zip(coefficient.numerator.exponents_iter().skip(1))
+                            .any(|(left, right)| left >= right))
+                    || coefficient
+                        .numerator
+                        .coefficients
+                        .iter()
+                        .any(|value| value.cmp(&Integer::Single(0)) == Ordering::Equal)
+                {
+                    return Err(malformed());
+                }
+                projected_source_terms = projected_source_terms
+                    .checked_add(coefficient.numerator.nterms())
+                    .ok_or_else(malformed)?;
+            }
+            if projected_source_terms != source_terms {
+                return Err(malformed());
+            }
+            let retained_projection_exponents = checked_parametric_add(
+                "polynomial-associate authenticated projection exponent entries",
+                projection.exponents.len(),
+                projection
+                    .coefficients
+                    .iter()
+                    .try_fold(0usize, |total, coefficient| {
+                        checked_parametric_add(
+                            "polynomial-associate authenticated projection exponent entries",
+                            total,
+                            coefficient.numerator.exponents.len(),
+                        )
+                    })?,
             )?;
+            if retained_projection_exponents > source_exponent_entries {
+                return Err(malformed());
+            }
+            Ok(())
+        };
+        authenticate_projection(
+            &left_projection,
+            left.raw.nterms(),
+            left.raw.exponents.len(),
+        )?;
+        authenticate_projection(
+            &right_projection,
+            right.raw.nterms(),
+            right.raw.exponents.len(),
+        )?;
+
+        let left_group_count = left_projection.nterms();
+        let right_group_count = right_projection.nterms();
+        stats.index_groups = checked_parametric_add(
+            "polynomial-associate index groups",
+            left_group_count,
+            right_group_count,
+        )?;
+        if stats.index_groups > stats.projection_group_bound {
+            return Err(ParametricCoefficientError::Symbolica(
+                "Symbolica exceeded the admitted polynomial-associate projection group bound"
+                    .to_owned(),
+            ));
+        }
+        check_associate_stats(&stats, limits)?;
+
+        if left_group_count != right_group_count {
             return Ok(ParametricPolynomialAssociateResult {
                 associated: false,
                 stats,
             });
         }
 
-        stats.index_coordinate_inspection_bound = checked_parametric_add(
-            "polynomial-associate index-coordinate inspection bound",
-            stats.index_coordinate_inspection_bound,
-            checked_parametric_mul(
-                "polynomial-associate index-coordinate inspection bound",
-                index_variables,
-                p_group_count,
-            )?,
+        stats.index_support_comparison_entries = checked_parametric_mul(
+            "polynomial-associate index support comparison entries",
+            left_group_count,
+            index_variable_count,
         )?;
         check_associate_stats(&stats, limits)?;
-        let mut support_equal = true;
-        for ordinal in 0..p_group_count {
-            let p_term = p_order[p_groups[ordinal].begin];
-            let q_term = q_order[q_groups[ordinal].begin];
-            support_equal &=
-                associate_same_index_key(&left.raw, p_term, &right.raw, q_term, base_variables);
-        }
-        if !support_equal || p_group_count == 1 {
-            stats.visible_temporary_bytes = associate_sum_counts(
-                "polynomial-associate visible temporary bytes",
-                [
-                    fixed_headers,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        p_order.capacity(),
-                        size_of::<usize>(),
-                    )?,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        q_order.capacity(),
-                        size_of::<usize>(),
-                    )?,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        p_groups.capacity(),
-                        size_of::<AssociateIndexGroup>(),
-                    )?,
-                    checked_parametric_mul(
-                        "polynomial-associate visible temporary bytes",
-                        q_groups.capacity(),
-                        size_of::<AssociateIndexGroup>(),
-                    )?,
-                ],
-            )?;
+        let support_equal = left_projection
+            .exponents_iter()
+            .zip(right_projection.exponents_iter())
+            .all(|(left_support, right_support)| left_support == right_support);
+        if !support_equal || left_group_count == 1 {
             return Ok(ParametricPolynomialAssociateResult {
                 associated: support_equal,
                 stats,
@@ -4576,38 +4679,34 @@ impl ParametricCoefficientContext {
 
         stats.anchor_cost_operations = checked_parametric_mul(
             "polynomial-associate anchor cost operations",
-            p_group_count,
+            left_group_count,
             5,
         )?;
-        // The anchor scan is linear in the number of source index groups.
-        // Admit that source-structural work before entering the scan.
-        check_limit(
-            "polynomial-associate anchor cost operations",
-            stats.anchor_cost_operations,
-            limits.max_anchor_cost_operations,
-        )?;
+        check_associate_stats(&stats, limits)?;
+        let left_terms = left.raw.nterms();
+        let right_terms = right.raw.nterms();
         let mut anchor = 0usize;
         let mut anchor_cost = usize::MAX;
-        for ordinal in 0..p_group_count {
-            let p_len = p_groups[ordinal].len();
-            let q_len = q_groups[ordinal].len();
+        for ordinal in 0..left_group_count {
+            let left_length = left_projection.coefficients[ordinal].numerator.nterms();
+            let right_length = right_projection.coefficients[ordinal].numerator.nterms();
             let cost = checked_parametric_add(
-                "polynomial-associate cross terms",
+                "polynomial-associate native cross term pairs",
                 checked_parametric_mul(
-                    "polynomial-associate cross terms",
-                    q_len,
-                    p_terms.checked_sub(p_len).ok_or(
+                    "polynomial-associate native cross term pairs",
+                    right_length,
+                    left_terms.checked_sub(left_length).ok_or(
                         ParametricCoefficientError::ResourceCountOverflow {
-                            resource: "polynomial-associate cross terms",
+                            resource: "polynomial-associate native cross term pairs",
                         },
                     )?,
                 )?,
                 checked_parametric_mul(
-                    "polynomial-associate cross terms",
-                    p_len,
-                    q_terms.checked_sub(q_len).ok_or(
+                    "polynomial-associate native cross term pairs",
+                    left_length,
+                    right_terms.checked_sub(right_length).ok_or(
                         ParametricCoefficientError::ResourceCountOverflow {
-                            resource: "polynomial-associate cross terms",
+                            resource: "polynomial-associate native cross term pairs",
                         },
                     )?,
                 )?,
@@ -4617,606 +4716,235 @@ impl ParametricCoefficientContext {
                 anchor_cost = cost;
             }
         }
-        stats.cross_terms = anchor_cost;
-        stats.integer_preflight_pairs = anchor_cost;
-        check_limit(
-            "polynomial-associate cross terms",
-            stats.cross_terms,
-            limits.max_cross_terms,
+
+        let projection_workspace_byte_envelope = stats.native_workspace_byte_envelope;
+        let mut peak_native_product_workspace_byte_envelope = 0usize;
+        let mut native_output_term_capacity_bound = 0usize;
+        let mut charge_native_product = |left_coefficient: &AssociateBaseCoefficient,
+                                         right_coefficient: &AssociateBaseCoefficient,
+                                         group_pairs: &mut usize,
+                                         group_workspace_bytes: &mut usize|
+         -> Result<(), ParametricCoefficientError> {
+            let product = preflight_associate_native_product(
+                left_coefficient,
+                right_coefficient,
+                base_variable_count,
+            )?;
+            check_limit(
+                "polynomial-associate native output term bound",
+                product.output_term_bound,
+                limits.exact_algebra.max_polynomial_terms,
+            )?;
+            *group_pairs = checked_parametric_add(
+                "polynomial-associate peak native cross term pairs",
+                *group_pairs,
+                product.cross_term_pairs,
+            )?;
+            stats.native_cross_term_pairs = checked_parametric_add(
+                "polynomial-associate native cross term pairs",
+                stats.native_cross_term_pairs,
+                product.cross_term_pairs,
+            )?;
+            stats.native_base_exponent_additions = checked_parametric_add(
+                "polynomial-associate native base exponent additions",
+                stats.native_base_exponent_additions,
+                product.base_exponent_additions,
+            )?;
+            stats.native_metadata_exponent_entry_inspection_bound = checked_parametric_add(
+                "polynomial-associate native metadata exponent-entry inspection bound",
+                stats.native_metadata_exponent_entry_inspection_bound,
+                product.metadata_exponent_entry_inspection_bound,
+            )?;
+            stats.native_metadata_integer_entry_inspection_bound = checked_parametric_add(
+                "polynomial-associate native metadata integer-entry inspection bound",
+                stats.native_metadata_integer_entry_inspection_bound,
+                product.metadata_integer_entry_inspection_bound,
+            )?;
+            stats.native_output_term_bound = checked_parametric_add(
+                "polynomial-associate native output term bound",
+                stats.native_output_term_bound,
+                product.output_term_bound,
+            )?;
+            native_output_term_capacity_bound = checked_parametric_add(
+                "polynomial-associate RustRed-visible temporary byte envelope",
+                native_output_term_capacity_bound,
+                product.output_term_capacity_bound,
+            )?;
+            stats.native_output_exponent_entry_bound = checked_parametric_add(
+                "polynomial-associate native output exponent entry bound",
+                stats.native_output_exponent_entry_bound,
+                product.output_exponent_entry_bound,
+            )?;
+            stats.native_integer_multiplication_bit_work_bound = checked_parametric_add(
+                "polynomial-associate native integer multiplication bit-work bound",
+                stats.native_integer_multiplication_bit_work_bound,
+                product.integer_multiplication_bit_work_bound,
+            )?;
+            stats.native_integer_collection_bit_work_bound = checked_parametric_add(
+                "polynomial-associate native integer collection bit-work bound",
+                stats.native_integer_collection_bit_work_bound,
+                product.integer_collection_bit_work_bound,
+            )?;
+            stats.native_output_integer_bit_bound = stats
+                .native_output_integer_bit_bound
+                .max(product.output_integer_bit_bound);
+            stats.native_dense_workspace_entries = stats
+                .native_dense_workspace_entries
+                .max(product.dense_workspace_entries);
+            stats.native_heap_workspace_pair_bound = stats
+                .native_heap_workspace_pair_bound
+                .max(product.heap_workspace_pair_bound);
+            *group_workspace_bytes = checked_parametric_add(
+                "polynomial-associate native workspace byte envelope",
+                *group_workspace_bytes,
+                product.workspace_byte_envelope,
+            )?;
+            Ok(())
+        };
+
+        for ordinal in 0..left_group_count {
+            if ordinal == anchor {
+                continue;
+            }
+            let mut group_pairs = 0usize;
+            let mut group_workspace_bytes = 0usize;
+            charge_native_product(
+                &left_projection.coefficients[ordinal],
+                &right_projection.coefficients[anchor],
+                &mut group_pairs,
+                &mut group_workspace_bytes,
+            )?;
+            charge_native_product(
+                &right_projection.coefficients[ordinal],
+                &left_projection.coefficients[anchor],
+                &mut group_pairs,
+                &mut group_workspace_bytes,
+            )?;
+            stats.peak_native_cross_term_pairs =
+                stats.peak_native_cross_term_pairs.max(group_pairs);
+            peak_native_product_workspace_byte_envelope =
+                peak_native_product_workspace_byte_envelope.max(group_workspace_bytes);
+        }
+        stats.native_workspace_byte_envelope = checked_parametric_add(
+            "polynomial-associate native workspace byte envelope",
+            projection_workspace_byte_envelope,
+            peak_native_product_workspace_byte_envelope,
         )?;
+        if stats.native_cross_term_pairs != anchor_cost {
+            return Err(ParametricCoefficientError::Symbolica(
+                "internal polynomial-associate native cross census mismatch".to_owned(),
+            ));
+        }
         check_limit(
-            "polynomial-associate integer preflight pairs",
-            stats.integer_preflight_pairs,
-            limits.max_integer_preflight_pairs,
-        )?;
-        check_limit(
-            "polynomial-associate cross terms",
-            stats.cross_terms,
+            "polynomial-associate native cross term pairs",
+            stats.native_cross_term_pairs,
             limits.exact_algebra.max_term_operations,
         )?;
 
-        stats.magnitude_copy_terms = stats.term_order_entries;
-        check_associate_stats(&stats, limits)?;
-        for coefficient in left.raw.coefficients.iter().chain(&right.raw.coefficients) {
-            stats.magnitude_copy_bytes = checked_parametric_add(
-                "polynomial-associate magnitude copy bytes",
-                stats.magnitude_copy_bytes,
-                associate_bits_to_units(
-                    "polynomial-associate magnitude copy bytes",
-                    associate_integer_bit_count(coefficient)?,
-                    8,
-                )?,
-            )?;
-            check_limit(
-                "polynomial-associate magnitude copy bytes",
-                stats.magnitude_copy_bytes,
-                limits.max_magnitude_copy_bytes,
-            )?;
-        }
-
-        let p_anchor = p_groups[anchor];
-        let q_anchor = q_groups[anchor];
-        let mut counted_cross_terms = 0usize;
-
-        // Complete the source-structural group census first.  In particular,
-        // no Cartesian coefficient pair is inspected until the peak cross
-        // width and every cross-key ordering/coordinate envelope have been
-        // admitted.
-        for ordinal in 0..p_group_count {
-            if ordinal == anchor {
-                continue;
-            }
-            let p_group = p_groups[ordinal];
-            let q_group = q_groups[ordinal];
-            let cross_terms = associate_cross_term_count(p_group, q_group, p_anchor, q_anchor)?;
-            counted_cross_terms = checked_parametric_add(
-                "polynomial-associate cross terms",
-                counted_cross_terms,
-                cross_terms,
-            )?;
-            stats.peak_cross_terms = stats.peak_cross_terms.max(cross_terms);
-            check_limit(
-                "polynomial-associate peak cross terms",
-                stats.peak_cross_terms,
-                limits.max_peak_cross_terms,
-            )?;
-            let cross_order_bound = associate_heap_comparison_bound(cross_terms)?;
-            stats.ordering_comparison_bound = checked_parametric_add(
-                "polynomial-associate ordering comparison bound",
-                stats.ordering_comparison_bound,
-                cross_order_bound,
-            )?;
-            check_limit(
-                "polynomial-associate ordering comparison bound",
-                stats.ordering_comparison_bound,
-                limits.max_ordering_comparison_bound,
-            )?;
-            let cross_key_checks = checked_parametric_add(
-                "polynomial-associate base-sum coordinate inspection bound",
-                cross_order_bound,
-                cross_terms.saturating_sub(1),
-            )?;
-            let group_base_sum_coordinate_inspections = checked_parametric_mul(
-                "polynomial-associate base-sum coordinate inspection bound",
-                base_variables,
-                cross_key_checks,
-            )?;
-            stats.base_sum_coordinate_inspection_bound = checked_parametric_add(
-                "polynomial-associate base-sum coordinate inspection bound",
-                stats.base_sum_coordinate_inspection_bound,
-                group_base_sum_coordinate_inspections,
-            )?;
-            check_limit(
-                "polynomial-associate base-sum coordinate inspection bound",
-                stats.base_sum_coordinate_inspection_bound,
-                limits.max_base_sum_coordinate_inspection_bound,
-            )?;
-            stats.base_exponent_addition_bound = checked_parametric_add(
-                "polynomial-associate base-exponent addition bound",
-                stats.base_exponent_addition_bound,
-                checked_parametric_mul(
-                    "polynomial-associate base-exponent addition bound",
-                    group_base_sum_coordinate_inspections,
-                    2,
-                )?,
-            )?;
-            check_limit(
-                "polynomial-associate base-exponent addition bound",
-                stats.base_exponent_addition_bound,
-                limits.max_base_exponent_addition_bound,
-            )?;
-        }
-        if counted_cross_terms != stats.cross_terms {
-            return Err(ParametricCoefficientError::Symbolica(
-                "internal polynomial-associate anchor cost mismatch".to_owned(),
-            ));
-        }
-
-        // Only after the full source-structural pass has been admitted do we
-        // revisit the Cartesian pairs to census integer work.  Each
-        // independently configurable integer/scratch limit is checked at the
-        // update that first makes its new value visible, before the next pair
-        // or derived-work calculation is entered.
-        let mut visited_preflight_pairs = 0usize;
-        for ordinal in 0..p_group_count {
-            if ordinal == anchor {
-                continue;
-            }
-            let p_group = p_groups[ordinal];
-            let q_group = q_groups[ordinal];
-            let cross_terms = associate_cross_term_count(p_group, q_group, p_anchor, q_anchor)?;
-            let mut max_product_bits = 0usize;
-            associate_visit_cross_pairs(
-                &p_order,
-                &q_order,
-                p_group,
-                q_group,
-                p_anchor,
-                q_anchor,
-                |p_term, q_term, _| {
-                    visited_preflight_pairs = checked_parametric_add(
-                        "polynomial-associate integer preflight pairs",
-                        visited_preflight_pairs,
-                        1,
-                    )?;
-                    let p_bits = associate_integer_bit_count(&left.raw.coefficients[p_term])?;
-                    let q_bits = associate_integer_bit_count(&right.raw.coefficients[q_term])?;
-                    let p_limbs = associate_bits_to_units(
-                        "polynomial-associate product scratch limbs",
-                        p_bits,
-                        64,
-                    )?;
-                    let q_limbs = associate_bits_to_units(
-                        "polynomial-associate product scratch limbs",
-                        q_bits,
-                        64,
-                    )?;
-                    let product_bits = checked_parametric_add(
-                        "polynomial-associate product bit bound",
-                        p_bits,
-                        q_bits,
-                    )?;
-                    max_product_bits = max_product_bits.max(product_bits);
-                    let product_limbs = checked_parametric_add(
-                        "polynomial-associate product scratch limbs",
-                        p_limbs,
-                        q_limbs,
-                    )?;
-                    stats.product_scratch_limbs = stats.product_scratch_limbs.max(product_limbs);
-                    check_limit(
-                        "polynomial-associate product scratch limbs",
-                        stats.product_scratch_limbs,
-                        limits.max_product_scratch_limbs,
-                    )?;
-                    let multiply_limb_operations = checked_parametric_mul(
-                        "polynomial-associate integer multiply limb-operation bound",
-                        p_limbs,
-                        q_limbs,
-                    )?;
-                    stats.integer_multiply_limb_operation_bound = checked_parametric_add(
-                        "polynomial-associate integer multiply limb-operation bound",
-                        stats.integer_multiply_limb_operation_bound,
-                        multiply_limb_operations,
-                    )?;
-                    check_limit(
-                        "polynomial-associate integer multiply limb-operation bound",
-                        stats.integer_multiply_limb_operation_bound,
-                        limits.max_integer_multiply_limb_operation_bound,
-                    )?;
-                    stats.integer_multiplication_bit_work_bound = checked_parametric_add(
-                        "polynomial-associate integer multiplication bit-work bound",
-                        stats.integer_multiplication_bit_work_bound,
-                        checked_parametric_mul(
-                            "polynomial-associate integer multiplication bit-work bound",
-                            p_bits,
-                            q_bits,
-                        )?,
-                    )?;
-                    check_limit(
-                        "polynomial-associate integer multiplication bit-work bound",
-                        stats.integer_multiplication_bit_work_bound,
-                        limits.max_integer_multiplication_bit_work_bound,
-                    )?;
-                    stats.scratch_limb_write_bound = checked_parametric_add(
-                        "polynomial-associate scratch limb-write bound",
-                        stats.scratch_limb_write_bound,
-                        associate_sum_counts(
-                            "polynomial-associate scratch limb-write bound",
-                            [product_limbs, multiply_limb_operations, p_limbs],
-                        )?,
-                    )?;
-                    check_limit(
-                        "polynomial-associate scratch limb-write bound",
-                        stats.scratch_limb_write_bound,
-                        limits.max_scratch_limb_write_bound,
-                    )?;
-                    Ok(())
-                },
-            )?;
-            let accumulator_bits = checked_parametric_add(
-                "polynomial-associate accumulator bit bound",
-                max_product_bits,
-                parametric_ceil_log2(cross_terms),
-            )?;
-            let accumulator_limbs = associate_bits_to_units(
-                "polynomial-associate accumulator scratch limbs",
-                accumulator_bits,
-                64,
-            )?;
-            stats.accumulator_scratch_limbs =
-                stats.accumulator_scratch_limbs.max(accumulator_limbs);
-            check_limit(
-                "polynomial-associate accumulator scratch limbs",
-                stats.accumulator_scratch_limbs,
-                limits.max_accumulator_scratch_limbs,
-            )?;
-            let accumulation_bit_work = checked_parametric_mul(
-                "polynomial-associate integer accumulation bit-work bound",
-                2,
-                checked_parametric_mul(
-                    "polynomial-associate integer accumulation bit-work bound",
-                    cross_terms,
-                    accumulator_bits,
-                )?,
-            )?;
-            stats.integer_accumulation_bit_work_bound = checked_parametric_add(
-                "polynomial-associate integer accumulation bit-work bound",
-                stats.integer_accumulation_bit_work_bound,
-                accumulation_bit_work,
-            )?;
-            check_limit(
-                "polynomial-associate integer accumulation bit-work bound",
-                stats.integer_accumulation_bit_work_bound,
-                limits.max_integer_accumulation_bit_work_bound,
-            )?;
-            let accumulation_limb_bound = checked_parametric_mul(
-                "polynomial-associate integer accumulation limb-operation bound",
-                checked_parametric_mul(
-                    "polynomial-associate integer accumulation limb-operation bound",
-                    2,
-                    cross_terms,
-                )?,
-                accumulator_limbs,
-            )?;
-            stats.integer_accumulate_limb_operation_bound = checked_parametric_add(
-                "polynomial-associate integer accumulation limb-operation bound",
-                stats.integer_accumulate_limb_operation_bound,
-                accumulation_limb_bound,
-            )?;
-            check_limit(
-                "polynomial-associate integer accumulation limb-operation bound",
-                stats.integer_accumulate_limb_operation_bound,
-                limits.max_integer_accumulate_limb_operation_bound,
-            )?;
-            stats.scratch_limb_write_bound = checked_parametric_add(
-                "polynomial-associate scratch limb-write bound",
-                stats.scratch_limb_write_bound,
-                accumulation_limb_bound,
-            )?;
-            check_limit(
-                "polynomial-associate scratch limb-write bound",
-                stats.scratch_limb_write_bound,
-                limits.max_scratch_limb_write_bound,
-            )?;
-        }
-        if visited_preflight_pairs != stats.integer_preflight_pairs {
-            return Err(ParametricCoefficientError::Symbolica(
-                "internal polynomial-associate integer preflight census mismatch".to_owned(),
-            ));
-        }
-
-        let span_envelope = associate_capacity_byte_envelope(
-            stats.magnitude_copy_terms,
-            size_of::<AssociateMagnitudeSpan>(),
+        let native_output_limb_bytes = integer_limb_payload_byte_bound(
+            stats.native_output_integer_bit_bound,
+            "polynomial-associate RustRed-visible temporary byte envelope",
         )?;
-        let magnitude_envelope = associate_capacity_byte_envelope(stats.magnitude_copy_bytes, 1)?;
-        let cross_envelope = associate_capacity_byte_envelope(
-            stats.peak_cross_terms,
-            size_of::<AssociateCrossRef>(),
-        )?;
-        let scratch_entries = checked_parametric_add(
-            "polynomial-associate visible temporary byte envelope",
-            stats.product_scratch_limbs,
-            stats.accumulator_scratch_limbs,
-        )?;
-        stats.scratch_limb_write_bound = checked_parametric_add(
-            "polynomial-associate scratch limb-write bound",
-            stats.scratch_limb_write_bound,
-            scratch_entries,
-        )?;
-        check_limit(
-            "polynomial-associate scratch limb-write bound",
-            stats.scratch_limb_write_bound,
-            limits.max_scratch_limb_write_bound,
-        )?;
-        let scratch_envelope = associate_capacity_byte_envelope(scratch_entries, size_of::<u64>())?;
-        stats.visible_temporary_byte_envelope = associate_sum_counts(
-            "polynomial-associate visible temporary byte envelope",
+        let native_output_capacity_bytes = associate_sum_counts(
+            "polynomial-associate RustRed-visible temporary byte envelope",
             [
-                fixed_headers,
-                order_envelope,
-                group_envelope,
-                span_envelope,
-                magnitude_envelope,
-                cross_envelope,
-                scratch_envelope,
-            ],
-        )?;
-        check_associate_stats(&stats, limits)?;
-
-        let mut spans = Vec::new();
-        spans
-            .try_reserve_exact(stats.magnitude_copy_terms)
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "allocation failed for polynomial-associate magnitude spans".to_owned(),
-                )
-            })?;
-        let mut magnitude_arena = Vec::new();
-        magnitude_arena
-            .try_reserve_exact(stats.magnitude_copy_bytes)
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "allocation failed for polynomial-associate magnitude bytes".to_owned(),
-                )
-            })?;
-        for coefficient in left.raw.coefficients.iter().chain(&right.raw.coefficients) {
-            if spans.len() >= stats.magnitude_copy_terms {
-                return Err(ParametricCoefficientError::Symbolica(
-                    "internal polynomial-associate magnitude-span capacity exhausted".to_owned(),
-                ));
-            }
-            spans.push(associate_append_magnitude(
-                coefficient,
-                &mut magnitude_arena,
-            )?);
-        }
-        if spans.len() != stats.magnitude_copy_terms
-            || magnitude_arena.len() != stats.magnitude_copy_bytes
-        {
-            return Err(ParametricCoefficientError::Symbolica(
-                "internal polynomial-associate magnitude census mismatch".to_owned(),
-            ));
-        }
-        associate_check_capacity(
-            spans.capacity(),
-            stats.magnitude_copy_terms,
-            "polynomial-associate magnitude-span capacity",
-        )?;
-        associate_check_capacity(
-            magnitude_arena.capacity(),
-            stats.magnitude_copy_bytes,
-            "polynomial-associate magnitude-byte capacity",
-        )?;
-
-        let mut cross_refs = Vec::new();
-        cross_refs
-            .try_reserve_exact(stats.peak_cross_terms)
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "allocation failed for polynomial-associate cross references".to_owned(),
-                )
-            })?;
-        let mut product = Vec::new();
-        product
-            .try_reserve_exact(stats.product_scratch_limbs)
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "allocation failed for polynomial-associate product scratch".to_owned(),
-                )
-            })?;
-        product.resize(stats.product_scratch_limbs, 0u64);
-        let mut accumulator = Vec::new();
-        accumulator
-            .try_reserve_exact(stats.accumulator_scratch_limbs)
-            .map_err(|_| {
-                ParametricCoefficientError::Symbolica(
-                    "allocation failed for polynomial-associate accumulator scratch".to_owned(),
-                )
-            })?;
-        accumulator.resize(stats.accumulator_scratch_limbs, 0u64);
-        observed.scratch_limb_writes = checked_parametric_add(
-            "polynomial-associate observed scratch limb writes",
-            observed.scratch_limb_writes,
-            scratch_entries,
-        )?;
-        associate_check_capacity(
-            cross_refs.capacity(),
-            stats.peak_cross_terms,
-            "polynomial-associate cross-reference capacity",
-        )?;
-        associate_check_capacity(
-            product.capacity(),
-            stats.product_scratch_limbs,
-            "polynomial-associate product-scratch capacity",
-        )?;
-        associate_check_capacity(
-            accumulator.capacity(),
-            stats.accumulator_scratch_limbs,
-            "polynomial-associate accumulator-scratch capacity",
-        )?;
-        stats.visible_temporary_bytes = associate_sum_counts(
-            "polynomial-associate visible temporary bytes",
-            [
-                fixed_headers,
                 checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    p_order.capacity(),
-                    size_of::<usize>(),
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    2,
+                    size_of::<AssociateBaseCoefficient>(),
                 )?,
                 checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    q_order.capacity(),
-                    size_of::<usize>(),
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    native_output_term_capacity_bound,
+                    size_of::<Integer>(),
                 )?,
                 checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    p_groups.capacity(),
-                    size_of::<AssociateIndexGroup>(),
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    checked_parametric_mul(
+                        "polynomial-associate RustRed-visible temporary byte envelope",
+                        native_output_term_capacity_bound,
+                        base_variable_count,
+                    )?,
+                    size_of::<u32>(),
                 )?,
                 checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    q_groups.capacity(),
-                    size_of::<AssociateIndexGroup>(),
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    stats.native_output_term_bound,
+                    native_output_limb_bytes,
                 )?,
                 checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    spans.capacity(),
-                    size_of::<AssociateMagnitudeSpan>(),
-                )?,
-                magnitude_arena.capacity(),
-                checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    cross_refs.capacity(),
-                    size_of::<AssociateCrossRef>(),
-                )?,
-                checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    product.capacity(),
-                    size_of::<u64>(),
-                )?,
-                checked_parametric_mul(
-                    "polynomial-associate visible temporary bytes",
-                    accumulator.capacity(),
-                    size_of::<u64>(),
+                    "polynomial-associate RustRed-visible temporary byte envelope",
+                    4,
+                    associate_sum_counts(
+                        "polynomial-associate RustRed-visible temporary byte envelope",
+                        [
+                            size_of::<Integer>(),
+                            checked_parametric_mul(
+                                "polynomial-associate RustRed-visible temporary byte envelope",
+                                base_variable_count,
+                                size_of::<u32>(),
+                            )?,
+                        ],
+                    )?,
                 )?,
             ],
         )?;
-        if stats.visible_temporary_bytes > stats.visible_temporary_byte_envelope {
-            return Err(ParametricCoefficientError::ResourceLimit {
-                resource: "polynomial-associate visible temporary bytes",
-                requested: stats.visible_temporary_bytes,
-                limit: stats.visible_temporary_byte_envelope,
-            });
-        }
+        stats.rustred_visible_temporary_byte_envelope = checked_parametric_add(
+            "polynomial-associate RustRed-visible temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            native_output_capacity_bytes,
+        )?;
+        check_associate_stats(&stats, limits)?;
 
-        let mut associated = true;
-        for ordinal in 0..p_group_count {
-            if ordinal == anchor {
-                continue;
-            }
-            let p_group = p_groups[ordinal];
-            let q_group = q_groups[ordinal];
-            let expected_cross_terms =
-                associate_cross_term_count(p_group, q_group, p_anchor, q_anchor)?;
-            cross_refs.clear();
-            associate_visit_cross_pairs(
-                &p_order,
-                &q_order,
-                p_group,
-                q_group,
-                p_anchor,
-                q_anchor,
-                |p_term, q_term, rhs| {
-                    if cross_refs.len() >= stats.peak_cross_terms {
-                        return Err(ParametricCoefficientError::Symbolica(
-                            "internal polynomial-associate cross-reference capacity exhausted"
-                                .to_owned(),
-                        ));
-                    }
-                    cross_refs.push(AssociateCrossRef {
-                        p_term,
-                        q_term,
-                        rhs,
-                    });
-                    Ok(())
-                },
-            )?;
-            if cross_refs.len() != expected_cross_terms {
-                return Err(ParametricCoefficientError::Symbolica(
-                    "internal polynomial-associate cross-term census mismatch".to_owned(),
-                ));
-            }
-            let group_order_bound = associate_heap_comparison_bound(cross_refs.len())?;
-            observed.ordering_comparisons = checked_parametric_add(
-                "polynomial-associate observed ordering comparisons",
-                observed.ordering_comparisons,
-                associate_heap_sort_by(
-                    &mut cross_refs,
-                    |left_ref, right_ref| {
-                        associate_cross_ref_cmp(
-                            &left.raw,
-                            &right.raw,
-                            left_ref,
-                            right_ref,
-                            base_variables,
-                        )
-                    },
-                    group_order_bound,
-                )?,
-            )?;
-
-            let mut accumulator_len = 0usize;
-            let mut accumulator_negative = false;
-            for cross_ordinal in 0..cross_refs.len() {
-                if cross_ordinal > 0
-                    && !associate_same_cross_key(
-                        &left.raw,
-                        &right.raw,
-                        &cross_refs[cross_ordinal - 1],
-                        &cross_refs[cross_ordinal],
-                        base_variables,
-                    )
-                {
-                    associated &= accumulator_len == 0;
-                    accumulator_len = 0;
-                    accumulator_negative = false;
+        let associated = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for ordinal in 0..left_group_count {
+                if ordinal == anchor {
+                    continue;
                 }
-                let cross_ref = cross_refs[cross_ordinal];
-                let p_span = spans[cross_ref.p_term];
-                let q_span = spans[p_terms + cross_ref.q_term];
-                let product_len = associate_multiply_magnitudes(
-                    &magnitude_arena,
-                    p_span,
-                    q_span,
-                    &mut product,
-                    &mut observed,
+                let left_product_preflight = preflight_associate_native_product(
+                    &left_projection.coefficients[ordinal],
+                    &right_projection.coefficients[anchor],
+                    base_variable_count,
                 )?;
-                let product_negative = left.raw.coefficients[cross_ref.p_term].is_negative()
-                    ^ right.raw.coefficients[cross_ref.q_term].is_negative()
-                    ^ cross_ref.rhs;
-                associate_accumulate_product(
-                    &mut accumulator,
-                    &mut accumulator_len,
-                    &mut accumulator_negative,
-                    &product,
-                    product_len,
-                    product_negative,
-                    &mut observed,
+                let left_cross = left_projection.ring.mul(
+                    &left_projection.coefficients[ordinal],
+                    &right_projection.coefficients[anchor],
+                );
+                authenticate_associate_native_product(
+                    &left_cross,
+                    &left_projection.coefficients[ordinal],
+                    &right_projection.coefficients[anchor],
+                    self.base.variables(),
+                    &left_product_preflight,
                 )?;
+                let right_product_preflight = preflight_associate_native_product(
+                    &right_projection.coefficients[ordinal],
+                    &left_projection.coefficients[anchor],
+                    base_variable_count,
+                )?;
+                let right_cross = right_projection.ring.mul(
+                    &right_projection.coefficients[ordinal],
+                    &left_projection.coefficients[anchor],
+                );
+                authenticate_associate_native_product(
+                    &right_cross,
+                    &right_projection.coefficients[ordinal],
+                    &left_projection.coefficients[anchor],
+                    self.base.variables(),
+                    &right_product_preflight,
+                )?;
+                if left_cross != right_cross {
+                    return Ok::<bool, ParametricCoefficientError>(false);
+                }
             }
-            associated &= accumulator_len == 0;
-        }
+            Ok::<bool, ParametricCoefficientError>(true)
+        }))
+        .map_err(|_| {
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during polynomial-associate native cross products".to_owned(),
+            )
+        })??;
 
-        if observed.ordering_comparisons > stats.ordering_comparison_bound {
-            return Err(ParametricCoefficientError::ResourceLimit {
-                resource: "polynomial-associate observed ordering comparisons",
-                requested: observed.ordering_comparisons,
-                limit: stats.ordering_comparison_bound,
-            });
-        }
-        if observed.integer_multiply_limb_operations != stats.integer_multiply_limb_operation_bound
-        {
-            return Err(ParametricCoefficientError::Symbolica(
-                "internal polynomial-associate multiply work mismatch".to_owned(),
-            ));
-        }
-        if observed.integer_accumulate_limb_operations
-            > stats.integer_accumulate_limb_operation_bound
-        {
-            return Err(ParametricCoefficientError::ResourceLimit {
-                resource: "polynomial-associate observed integer accumulation limb operations",
-                requested: observed.integer_accumulate_limb_operations,
-                limit: stats.integer_accumulate_limb_operation_bound,
-            });
-        }
-        if observed.scratch_limb_writes > stats.scratch_limb_write_bound {
-            return Err(ParametricCoefficientError::ResourceLimit {
-                resource: "polynomial-associate observed scratch limb writes",
-                requested: observed.scratch_limb_writes,
-                limit: stats.scratch_limb_write_bound,
-            });
-        }
         Ok(ParametricPolynomialAssociateResult { associated, stats })
     }
 
@@ -16651,6 +16379,22 @@ mod tests {
         (context, left, right)
     }
 
+    fn assert_no_native_associate_product_work(stats: ParametricPolynomialAssociateStats) {
+        assert_eq!(stats.anchor_cost_operations(), 0);
+        assert_eq!(stats.native_cross_term_pairs(), 0);
+        assert_eq!(stats.peak_native_cross_term_pairs(), 0);
+        assert_eq!(stats.native_base_exponent_additions(), 0);
+        assert_eq!(stats.native_metadata_exponent_entry_inspection_bound(), 0);
+        assert_eq!(stats.native_metadata_integer_entry_inspection_bound(), 0);
+        assert_eq!(stats.native_integer_multiplication_bit_work_bound(), 0);
+        assert_eq!(stats.native_integer_collection_bit_work_bound(), 0);
+        assert_eq!(stats.native_output_term_bound(), 0);
+        assert_eq!(stats.native_output_exponent_entry_bound(), 0);
+        assert_eq!(stats.native_output_integer_bit_bound(), 0);
+        assert_eq!(stats.native_dense_workspace_entries(), 0);
+        assert_eq!(stats.native_heap_workspace_pair_bound(), 0);
+    }
+
     #[test]
     fn bounded_associate_accepts_projective_base_field_units() {
         let (context, left, right) =
@@ -16671,12 +16415,9 @@ mod tests {
             .unwrap();
         assert!(forward.associated());
         assert!(reverse.associated());
-        assert!(forward.stats().cross_terms() > 0);
-        assert!(forward.stats().visible_temporary_bytes() > 0);
-        assert!(
-            forward.stats().visible_temporary_bytes()
-                <= forward.stats().visible_temporary_byte_envelope()
-        );
+        assert!(forward.stats().native_cross_term_pairs() > 0);
+        assert!(forward.stats().native_workspace_byte_envelope() > 0);
+        assert!(forward.stats().rustred_visible_temporary_byte_envelope() > 0);
 
         let supports = [vec![0, 0], vec![2, 0], vec![0, 3]];
         let negative_right = bounded_associate_projective_polynomial(
@@ -16711,16 +16452,20 @@ mod tests {
             bounded_associate_projective_polynomial(&context, &supports, &[1, -2, 3], &factor);
         let right =
             bounded_associate_projective_polynomial(&context, &supports, &[1, -2, 4], &factor);
-        assert!(
-            !context
-                .polynomial_loci_are_associates_with_census(
-                    &left,
-                    &right,
-                    ParametricPolynomialAssociateLimits::default(),
-                )
-                .unwrap()
-                .associated()
-        );
+        let result = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(!result.associated());
+        assert!(result.stats().index_support_comparison_entries() > 0);
+        // Equal projected support cannot establish non-association by routing
+        // alone: Symbolica must compare coefficient-field cross products.
+        assert!(result.stats().anchor_cost_operations() > 0);
+        assert!(result.stats().native_cross_term_pairs() > 0);
+        assert!(result.stats().peak_native_cross_term_pairs() > 0);
     }
 
     #[test]
@@ -16787,12 +16532,10 @@ mod tests {
             let stats = result.stats();
             assert!(!result.associated());
             assert_eq!(stats.index_groups(), 5);
-            assert_eq!(stats.anchor_cost_operations(), 0);
-            assert_eq!(stats.cross_terms(), 0);
-            assert_eq!(stats.integer_preflight_pairs(), 0);
-            assert_eq!(stats.integer_multiplication_bit_work_bound(), 0);
-            assert_eq!(stats.integer_accumulation_bit_work_bound(), 0);
-            assert!(stats.visible_temporary_bytes() <= stats.visible_temporary_byte_envelope());
+            assert_eq!(stats.index_support_comparison_entries(), 0);
+            assert_no_native_associate_product_work(stats);
+            assert!(stats.native_workspace_byte_envelope() > 0);
+            assert!(stats.rustred_visible_temporary_byte_envelope() > 0);
         }
     }
 
@@ -16813,16 +16556,19 @@ mod tests {
         );
         let zero = context.numerator_condition(&context.zero()).unwrap();
         for (left, right) in [(&zero, &nonzero), (&nonzero, &zero), (&zero, &zero)] {
-            assert!(
-                !context
-                    .polynomial_loci_are_associates_with_census(
-                        left,
-                        right,
-                        ParametricPolynomialAssociateLimits::default(),
-                    )
-                    .unwrap()
-                    .associated()
-            );
+            let result = context
+                .polynomial_loci_are_associates_with_census(
+                    left,
+                    right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap();
+            assert!(!result.associated());
+            assert_eq!(result.stats().projection_exponent_entries(), 0);
+            assert_eq!(result.stats().projection_group_bound(), 0);
+            assert_eq!(result.stats().native_workspace_byte_envelope(), 0);
+            assert_eq!(result.stats().rustred_visible_temporary_byte_envelope(), 0);
+            assert_no_native_associate_product_work(result.stats());
         }
     }
 
@@ -16855,7 +16601,7 @@ mod tests {
             .unwrap();
         assert!(result.associated());
         assert_eq!(result.stats().index_groups(), 2);
-        assert_eq!(result.stats().cross_terms(), 0);
+        assert_no_native_associate_product_work(result.stats());
     }
 
     #[test]
@@ -16879,16 +16625,15 @@ mod tests {
             &[1],
             &[(3, vec![2]), (-4, vec![4]), (5, vec![0])],
         );
-        assert!(
-            context
-                .polynomial_loci_are_associates_with_census(
-                    &left,
-                    &right,
-                    ParametricPolynomialAssociateLimits::default(),
-                )
-                .unwrap()
-                .associated()
-        );
+        let result = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(result.associated());
+        assert_no_native_associate_product_work(result.stats());
     }
 
     #[test]
@@ -16965,7 +16710,13 @@ mod tests {
             )
             .unwrap();
         assert!(result.associated());
-        assert!(result.stats().product_scratch_limbs() >= 4);
+        assert!(result.stats().native_output_integer_bit_bound() >= 128);
+        assert!(
+            result
+                .stats()
+                .native_integer_multiplication_bit_work_bound()
+                > 0
+        );
     }
 
     #[test]
@@ -16998,11 +16749,17 @@ mod tests {
             )
             .unwrap();
         assert!(result.associated());
-        assert!(result.stats().product_scratch_limbs() >= 6);
+        assert!(result.stats().native_output_integer_bit_bound() >= 250);
+        assert!(
+            result
+                .stats()
+                .native_integer_multiplication_bit_work_bound()
+                > 0
+        );
     }
 
     #[test]
-    fn bounded_associate_accumulation_bit_bound_charges_both_signed_passes() {
+    fn bounded_associate_native_collection_bound_charges_both_cross_products() {
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
             "bounded-associate-accumulation-factor-two",
@@ -17025,10 +16782,9 @@ mod tests {
             )
             .unwrap();
         assert!(result.associated());
-        assert_eq!(result.stats().cross_terms(), 2);
-        // Two products, a three-bit conservative accumulator, and the
-        // comparison/update two-pass factor: 2 * 2 * 3.
-        assert_eq!(result.stats().integer_accumulation_bit_work_bound(), 12);
+        assert_eq!(result.stats().native_cross_term_pairs(), 2);
+        assert_eq!(result.stats().native_output_term_bound(), 2);
+        assert_eq!(result.stats().native_integer_collection_bit_work_bound(), 4);
     }
 
     #[test]
@@ -17060,12 +16816,170 @@ mod tests {
             )
             .unwrap();
         assert!(result.associated());
-        assert!(result.stats().product_scratch_limbs() >= 80);
-        assert!(result.stats().integer_multiply_limb_operation_bound() > 1_000);
+        assert!(result.stats().native_output_integer_bit_bound() >= 5_120);
+        assert!(
+            result
+                .stats()
+                .native_integer_multiplication_bit_work_bound()
+                > 1_000_000
+        );
+
+        // With no base variables every native cross product takes
+        // Symbolica's constant-polynomial fast path.  Its cloned Large scalar
+        // must be admitted at the exact native-workspace boundary.
+        let requested = result.stats().native_workspace_byte_envelope();
+        assert!(requested > 0);
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_native_workspace_byte_envelope = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_native_workspace_byte_envelope = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate native workspace byte envelope",
+                requested,
+                limit: requested - 1,
+            }
+        );
     }
 
     #[test]
-    fn bounded_associate_sums_u16_max_base_exponents_without_polynomial_multiplication() {
+    fn bounded_associate_projection_capacity_charges_spare_gmp_capacity_before_native_boundary() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(Vec::<String>::new()),
+            "bounded-associate-gmp-capacity",
+            1,
+        )
+        .unwrap();
+        let mut reserved = MultiPrecisionInteger::with_capacity(8_192);
+        reserved += 1;
+        reserved <<= 64_u32;
+        reserved += 3;
+        assert!(reserved.capacity() >= 8_192);
+        let large = Integer::Large(reserved);
+        let scaled = large.clone() * Integer::from(5);
+        let left =
+            bounded_associate_integer_vector_polynomial(&context, vec![large, Integer::from(7)]);
+        let right =
+            bounded_associate_integer_vector_polynomial(&context, vec![scaled, Integer::from(35)]);
+        let retained_gmp_capacity_bytes = left
+            .raw
+            .coefficients
+            .iter()
+            .chain(&right.raw.coefficients)
+            .filter_map(|coefficient| match coefficient {
+                Integer::Large(value) => Some((value.capacity() + 7) / 8),
+                Integer::Single(_) | Integer::Double(_) => None,
+            })
+            .sum::<usize>();
+        assert!(retained_gmp_capacity_bytes >= 1_024);
+
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(baseline.associated());
+        let requested = baseline.stats().projection_coefficient_capacity_bytes();
+        assert!(requested >= 2 * retained_gmp_capacity_bytes);
+
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_projection_coefficient_capacity_bytes = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_projection_coefficient_capacity_bytes = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate projection coefficient-capacity bytes",
+                requested,
+                limit: requested - 1,
+            }
+        );
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &left,
+                    &right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during polynomial-associate native projection".to_owned(),
+            )
+        );
+    }
+
+    #[test]
+    fn bounded_associate_projection_capacity_covers_singleton_group_vec_minimum() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["x"]),
+            "bounded-associate-singleton-group-capacity",
+            1,
+        )
+        .unwrap();
+        let supports = [vec![0], vec![1], vec![2], vec![3], vec![4]];
+        let scales = [1, -2, 3, -4, 5];
+        let left =
+            bounded_associate_projective_polynomial(&context, &supports, &scales, &[(1, vec![0])]);
+        let right =
+            bounded_associate_projective_polynomial(&context, &supports, &scales, &[(7, vec![2])]);
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(baseline.associated());
+        let source_terms = left.term_count() + right.term_count();
+        let requested = baseline.stats().projection_coefficient_capacity_bytes();
+        assert_eq!(requested, 5 * source_terms * size_of::<Integer>());
+
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_projection_coefficient_capacity_bytes = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_projection_coefficient_capacity_bytes = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate projection coefficient-capacity bytes",
+                requested,
+                limit: requested - 1,
+            }
+        );
+    }
+
+    #[test]
+    fn bounded_associate_sums_u16_max_base_exponents_through_native_u32_multiplication() {
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(["x"]),
             "bounded-associate-u16-max",
@@ -17095,7 +17009,7 @@ mod tests {
             )
             .unwrap();
         assert!(result.associated());
-        assert!(result.stats().base_exponent_addition_bound() > 0);
+        assert!(result.stats().native_base_exponent_additions() > 0);
         assert_eq!(left.raw.degree(0), u16::MAX);
         assert_eq!(right.raw.degree(0), u16::MAX);
     }
@@ -17186,11 +17100,16 @@ mod tests {
             .unwrap();
         assert!(!result.associated());
         assert_eq!(result.stats().anchor_cost_operations(), 15);
-        assert_eq!(result.stats().cross_terms(), 11);
-        assert_eq!(result.stats().peak_cross_terms(), 6);
+        assert_eq!(result.stats().native_cross_term_pairs(), 11);
+        assert_eq!(result.stats().peak_native_cross_term_pairs(), 6);
         // Groups zero and one tie at cost 11.  Retaining group zero as the
         // anchor pairs its 65-bit coefficient three times: 3*65 + 8 = 203.
-        assert_eq!(result.stats().integer_multiplication_bit_work_bound(), 203);
+        assert_eq!(
+            result
+                .stats()
+                .native_integer_multiplication_bit_work_bound(),
+            203
+        );
     }
 
     #[test]
@@ -17221,6 +17140,168 @@ mod tests {
                 ParametricPolynomialAssociateLimits::default(),
             ),
             Err(ParametricCoefficientError::WrongContext)
+        );
+    }
+
+    #[test]
+    fn bounded_associate_authenticates_same_fingerprint_variable_map_before_native_boundary() {
+        let (context, left, right) =
+            bounded_associate_resource_fixture("bounded-associate-map-before-native");
+        let foreign = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["foreign_x", "foreign_y"]),
+            "bounded-associate-foreign-map",
+            2,
+        )
+        .unwrap();
+        let mut forged = left.clone();
+        forged.raw.variables = foreign.variables.clone();
+
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &forged,
+                    &right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::VariableMapMismatch {
+                part: crate::CoefficientPolynomialPart::Numerator,
+            })
+        );
+
+        // Authentication did not consume the native hook. The next valid
+        // projection reaches the boundary and is translated to a stable,
+        // payload-free error; a third call proves the hook is one-shot.
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &left,
+                    &right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during polynomial-associate native projection".to_owned(),
+            )
+        );
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &left,
+                    &right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap()
+                .associated()
+        );
+    }
+
+    #[test]
+    fn bounded_associate_zero_exits_before_and_does_not_consume_native_boundary() {
+        let (context, left, right) =
+            bounded_associate_resource_fixture("bounded-associate-zero-before-native");
+        let zero = context.numerator_condition(&context.zero()).unwrap();
+
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        let zero_result = context
+            .polynomial_loci_are_associates_with_census(
+                &zero,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(!zero_result.associated());
+        assert_eq!(zero_result.stats().projection_exponent_entries(), 0);
+        assert_no_native_associate_product_work(zero_result.stats());
+
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &left,
+                    &right,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during polynomial-associate native projection".to_owned(),
+            )
+        );
+    }
+
+    #[test]
+    fn bounded_associate_rejects_p_against_p_squared_and_matches_quotient_oracle() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["theta"]),
+            "bounded-associate-p-versus-p2",
+            1,
+        )
+        .unwrap();
+        let n = context.index(0).unwrap();
+        let p_value = context.add(&n, &context.one()).unwrap();
+        let p = context.numerator_condition(&p_value).unwrap();
+        let p_squared_value = context.mul(&p_value, &p_value).unwrap();
+        let p_squared = context.numerator_condition(&p_squared_value).unwrap();
+
+        assert!(
+            !context
+                .polynomial_loci_are_associates_with_limits(
+                    &p,
+                    &p_squared,
+                    ExactAlgebraLimits::default(),
+                )
+                .unwrap()
+        );
+        assert!(
+            context
+                .polynomial_divides_with_limits(&p, &p_squared, ExactAlgebraLimits::default())
+                .unwrap()
+        );
+        assert!(
+            !context
+                .polynomial_divides_with_limits(&p_squared, &p, ExactAlgebraLimits::default())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn bounded_associate_distinguishes_common_from_one_sided_index_factor() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["theta"]),
+            "bounded-associate-index-factor",
+            1,
+        )
+        .unwrap();
+        let n = context.index(0).unwrap();
+        let p = context.add(&n, &context.one()).unwrap();
+        let q = context.mul(&context.integer(2), &p).unwrap();
+        let n_p = context.mul(&n, &p).unwrap();
+        let n_q = context.mul(&n, &q).unwrap();
+        let p = context.numerator_condition(&p).unwrap();
+        let q = context.numerator_condition(&q).unwrap();
+        let n_p = context.numerator_condition(&n_p).unwrap();
+        let n_q = context.numerator_condition(&n_q).unwrap();
+
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_limits(
+                    &n_p,
+                    &n_q,
+                    ExactAlgebraLimits::default(),
+                )
+                .unwrap()
+        );
+        assert!(!context
+            .polynomial_loci_are_associates_with_limits(
+                &n_p,
+                &q,
+                ExactAlgebraLimits::default(),
+            )
+            .unwrap());
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_limits(&p, &q, ExactAlgebraLimits::default(),)
+                .unwrap()
         );
     }
 
@@ -17587,22 +17668,52 @@ mod tests {
         "polynomial-associate validation integer bits"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_magnitude_copy_terms,
-        max_magnitude_copy_terms,
-        magnitude_copy_terms,
-        "polynomial-associate magnitude copy terms"
+        bounded_associate_limit_projection_exponent_entries,
+        max_projection_exponent_entries,
+        projection_exponent_entries,
+        "polynomial-associate projection exponent entries"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_magnitude_copy_bytes,
-        max_magnitude_copy_bytes,
-        magnitude_copy_bytes,
-        "polynomial-associate magnitude copy bytes"
+        bounded_associate_limit_projection_coefficient_capacity_bytes,
+        max_projection_coefficient_capacity_bytes,
+        projection_coefficient_capacity_bytes,
+        "polynomial-associate projection coefficient-capacity bytes"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_term_order_entries,
-        max_term_order_entries,
-        term_order_entries,
-        "polynomial-associate term-order entries"
+        bounded_associate_limit_projection_group_bound,
+        max_projection_group_bound,
+        projection_group_bound,
+        "polynomial-associate projection group bound"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_projection_variable_mask_comparisons,
+        max_projection_variable_mask_comparison_bound,
+        projection_variable_mask_comparison_bound,
+        "polynomial-associate projection variable-mask comparison bound"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_projection_hash_key_entries,
+        max_projection_hash_key_exponent_entry_bound,
+        projection_hash_key_exponent_entry_bound,
+        "polynomial-associate projection hash-key exponent-entry bound"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_projection_coefficient_append_comparisons,
+        max_projection_coefficient_append_comparison_bound,
+        projection_coefficient_append_comparison_bound,
+        "polynomial-associate projection coefficient append comparison bound"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_projection_sorted_insert_comparisons,
+        max_projection_sorted_insert_comparison_bound,
+        projection_sorted_insert_comparison_bound,
+        "polynomial-associate projection sorted-insert comparison bound"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_projection_sorted_insert_moves,
+        max_projection_sorted_insert_move_exponent_entry_bound,
+        projection_sorted_insert_move_exponent_entry_bound,
+        "polynomial-associate projection sorted-insert move exponent-entry bound"
     );
     bounded_associate_limit_case!(
         bounded_associate_limit_index_groups,
@@ -17611,28 +17722,10 @@ mod tests {
         "polynomial-associate index groups"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_ordering_comparisons,
-        max_ordering_comparison_bound,
-        ordering_comparison_bound,
-        "polynomial-associate ordering comparison bound"
-    );
-    bounded_associate_limit_case!(
-        bounded_associate_limit_index_coordinate_inspections,
-        max_index_coordinate_inspection_bound,
-        index_coordinate_inspection_bound,
-        "polynomial-associate index-coordinate inspection bound"
-    );
-    bounded_associate_limit_case!(
-        bounded_associate_limit_base_sum_coordinate_inspections,
-        max_base_sum_coordinate_inspection_bound,
-        base_sum_coordinate_inspection_bound,
-        "polynomial-associate base-sum coordinate inspection bound"
-    );
-    bounded_associate_limit_case!(
-        bounded_associate_limit_base_exponent_additions,
-        max_base_exponent_addition_bound,
-        base_exponent_addition_bound,
-        "polynomial-associate base-exponent addition bound"
+        bounded_associate_limit_index_support_comparisons,
+        max_index_support_comparison_entries,
+        index_support_comparison_entries,
+        "polynomial-associate index support comparison entries"
     );
     bounded_associate_limit_case!(
         bounded_associate_limit_anchor_cost_operations,
@@ -17641,71 +17734,270 @@ mod tests {
         "polynomial-associate anchor cost operations"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_cross_terms,
-        max_cross_terms,
-        cross_terms,
-        "polynomial-associate cross terms"
+        bounded_associate_limit_native_cross_term_pairs,
+        max_native_cross_term_pairs,
+        native_cross_term_pairs,
+        "polynomial-associate native cross term pairs"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_peak_cross_terms,
-        max_peak_cross_terms,
-        peak_cross_terms,
-        "polynomial-associate peak cross terms"
+        bounded_associate_limit_peak_native_cross_term_pairs,
+        max_peak_native_cross_term_pairs,
+        peak_native_cross_term_pairs,
+        "polynomial-associate peak native cross term pairs"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_integer_preflight_pairs,
-        max_integer_preflight_pairs,
-        integer_preflight_pairs,
-        "polynomial-associate integer preflight pairs"
+        bounded_associate_limit_native_base_exponent_additions,
+        max_native_base_exponent_additions,
+        native_base_exponent_additions,
+        "polynomial-associate native base exponent additions"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_integer_multiplication_bit_work,
-        max_integer_multiplication_bit_work_bound,
-        integer_multiplication_bit_work_bound,
-        "polynomial-associate integer multiplication bit-work bound"
+        bounded_associate_limit_native_metadata_exponent_inspections,
+        max_native_metadata_exponent_entry_inspection_bound,
+        native_metadata_exponent_entry_inspection_bound,
+        "polynomial-associate native metadata exponent-entry inspection bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_integer_accumulation_bit_work,
-        max_integer_accumulation_bit_work_bound,
-        integer_accumulation_bit_work_bound,
-        "polynomial-associate integer accumulation bit-work bound"
+        bounded_associate_limit_native_metadata_integer_inspections,
+        max_native_metadata_integer_entry_inspection_bound,
+        native_metadata_integer_entry_inspection_bound,
+        "polynomial-associate native metadata integer-entry inspection bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_integer_multiply_limb_operations,
-        max_integer_multiply_limb_operation_bound,
-        integer_multiply_limb_operation_bound,
-        "polynomial-associate integer multiply limb-operation bound"
+        bounded_associate_limit_native_integer_multiplication_bit_work,
+        max_native_integer_multiplication_bit_work_bound,
+        native_integer_multiplication_bit_work_bound,
+        "polynomial-associate native integer multiplication bit-work bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_integer_accumulate_limb_operations,
-        max_integer_accumulate_limb_operation_bound,
-        integer_accumulate_limb_operation_bound,
-        "polynomial-associate integer accumulation limb-operation bound"
+        bounded_associate_limit_native_integer_collection_bit_work,
+        max_native_integer_collection_bit_work_bound,
+        native_integer_collection_bit_work_bound,
+        "polynomial-associate native integer collection bit-work bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_scratch_limb_writes,
-        max_scratch_limb_write_bound,
-        scratch_limb_write_bound,
-        "polynomial-associate scratch limb-write bound"
+        bounded_associate_limit_native_output_terms,
+        max_native_output_term_bound,
+        native_output_term_bound,
+        "polynomial-associate native output term bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_product_scratch_limbs,
-        max_product_scratch_limbs,
-        product_scratch_limbs,
-        "polynomial-associate product scratch limbs"
+        bounded_associate_limit_native_output_exponents,
+        max_native_output_exponent_entry_bound,
+        native_output_exponent_entry_bound,
+        "polynomial-associate native output exponent entry bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_accumulator_scratch_limbs,
-        max_accumulator_scratch_limbs,
-        accumulator_scratch_limbs,
-        "polynomial-associate accumulator scratch limbs"
+        bounded_associate_limit_native_output_integer_bits,
+        max_native_output_integer_bit_bound,
+        native_output_integer_bit_bound,
+        "polynomial-associate native output integer bit bound"
     );
     bounded_associate_limit_case!(
-        bounded_associate_limit_visible_temporary_byte_envelope,
-        max_visible_temporary_byte_envelope,
-        visible_temporary_byte_envelope,
-        "polynomial-associate visible temporary byte envelope"
+        bounded_associate_limit_native_dense_workspace_entries,
+        max_native_dense_workspace_entries,
+        native_dense_workspace_entries,
+        "polynomial-associate native dense workspace entries"
     );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_native_workspace_byte_envelope,
+        max_native_workspace_byte_envelope,
+        native_workspace_byte_envelope,
+        "polynomial-associate native workspace byte envelope"
+    );
+    bounded_associate_limit_case!(
+        bounded_associate_limit_rustred_visible_temporary_byte_envelope,
+        max_rustred_visible_temporary_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
+        "polynomial-associate RustRed-visible temporary byte envelope"
+    );
+
+    #[test]
+    fn bounded_associate_multivariate_dense_tls_capacity_is_fully_admitted() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["x", "y"]),
+            "bounded-associate-multivariate-dense-tls",
+            1,
+        )
+        .unwrap();
+        let supports = [vec![0], vec![2]];
+        let scales = [1, -3];
+        let factor = [(1, vec![0, 0]), (2, vec![16, 0]), (-3, vec![0, 16])];
+        let left = bounded_associate_projective_polynomial(&context, &supports, &scales, &factor);
+        let right = bounded_associate_projective_polynomial(&context, &supports, &scales, &factor);
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(baseline.associated());
+        assert_eq!(baseline.stats().native_dense_workspace_entries(), 33 * 33);
+        // Two cross products are simultaneously charged at the peak. Each
+        // may reuse Symbolica's process-lifetime TLS Vec at twice the native
+        // dense-box ceiling after prior geometric growth.
+        assert!(
+            baseline.stats().native_workspace_byte_envelope()
+                >= 4 * (1usize << 24) * size_of::<u32>()
+        );
+
+        let requested = baseline.stats().native_workspace_byte_envelope();
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_native_workspace_byte_envelope = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_native_workspace_byte_envelope = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate native workspace byte envelope",
+                requested,
+                limit: requested - 1,
+            }
+        );
+    }
+
+    #[test]
+    fn bounded_associate_sparse_wide_univariate_dense_capacity_is_fully_admitted() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["x"]),
+            "bounded-associate-wide-univariate-dense",
+            1,
+        )
+        .unwrap();
+        let supports = [vec![0], vec![2]];
+        let left = bounded_associate_projective_polynomial(
+            &context,
+            &supports,
+            &[1, -3],
+            &[(1, vec![0]), (1, vec![9_000])],
+        );
+        let right = bounded_associate_projective_polynomial(
+            &context,
+            &supports,
+            &[1, -3],
+            &[(1, vec![0]), (1, vec![1])],
+        );
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(baseline.associated());
+        assert_eq!(baseline.stats().native_dense_workspace_entries(), 9_002);
+        assert_eq!(baseline.stats().native_output_term_bound(), 8);
+        assert!(
+            baseline.stats().native_workspace_byte_envelope() >= 2 * 9_002 * size_of::<Integer>()
+        );
+        assert!(
+            baseline.stats().rustred_visible_temporary_byte_envelope()
+                >= 2 * 9_002 * (size_of::<Integer>() + size_of::<u32>())
+        );
+
+        macro_rules! wide_capacity_boundary {
+            ($field:ident, $getter:ident, $resource:literal) => {{
+                let requested = baseline.stats().$getter();
+                let mut exact = ParametricPolynomialAssociateLimits::default();
+                exact.$field = requested;
+                assert!(
+                    context
+                        .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                        .unwrap()
+                        .associated()
+                );
+
+                let mut one_below = ParametricPolynomialAssociateLimits::default();
+                one_below.$field = requested - 1;
+                assert_eq!(
+                    context
+                        .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                        .unwrap_err(),
+                    ParametricCoefficientError::ResourceLimit {
+                        resource: $resource,
+                        requested,
+                        limit: requested - 1,
+                    }
+                );
+            }};
+        }
+        wide_capacity_boundary!(
+            max_native_workspace_byte_envelope,
+            native_workspace_byte_envelope,
+            "polynomial-associate native workspace byte envelope"
+        );
+        wide_capacity_boundary!(
+            max_rustred_visible_temporary_byte_envelope,
+            rustred_visible_temporary_byte_envelope,
+            "polynomial-associate RustRed-visible temporary byte envelope"
+        );
+    }
+
+    #[test]
+    fn bounded_associate_native_heap_workspace_limit_has_strict_boundary() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["x"]),
+            "bounded-associate-native-heap-boundary",
+            1,
+        )
+        .unwrap();
+        let supports = [vec![0], vec![3]];
+        let left = bounded_associate_projective_polynomial(
+            &context,
+            &supports,
+            &[1, -2],
+            &[(1, vec![0]), (3, vec![6_000])],
+        );
+        let right = bounded_associate_projective_polynomial(
+            &context,
+            &supports,
+            &[1, -2],
+            &[(5, vec![0]), (-7, vec![5_000])],
+        );
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(baseline.associated());
+        assert_eq!(baseline.stats().native_dense_workspace_entries(), 0);
+        let requested = baseline.stats().native_heap_workspace_pair_bound();
+        assert!(requested > 0);
+
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_native_heap_workspace_pair_bound = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_native_heap_workspace_pair_bound = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate native heap workspace pair bound",
+                requested,
+                limit: requested - 1,
+            }
+        );
+    }
 
     #[test]
     fn bounded_associate_resource_limit_error_does_not_expose_private_payloads() {
@@ -17739,18 +18031,18 @@ mod tests {
             )
             .unwrap();
         assert!(baseline.associated());
-        let requested = baseline.stats().cross_terms();
+        let requested = baseline.stats().native_cross_term_pairs();
         assert!(requested > 0);
 
         let mut one_below = ParametricPolynomialAssociateLimits::default();
-        one_below.max_cross_terms = requested - 1;
+        one_below.max_native_cross_term_pairs = requested - 1;
         let error = context
             .polynomial_loci_are_associates_with_census(&left, &right, one_below)
             .unwrap_err();
         assert_eq!(
             error,
             ParametricCoefficientError::ResourceLimit {
-                resource: "polynomial-associate cross terms",
+                resource: "polynomial-associate native cross term pairs",
                 requested,
                 limit: requested - 1,
             }

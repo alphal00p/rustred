@@ -544,8 +544,13 @@ fn q_theta_associates_merge_without_replacing_the_first_representative() {
     assert_first_representative(&certificate.rows()[0], &fixture.first_index_representative);
     assert_eq!(certificate.rows()[0].source_input_ordinals(), &[0, 1]);
     assert_eq!(certificate.stats().associate_checks(), 1);
-    assert!(certificate.stats().associate_cross_terms() > 0);
-    assert!(certificate.stats().associate_integer_preflight_pairs() > 0);
+    assert!(certificate.stats().associate_native_cross_term_pairs() > 0);
+    assert!(
+        certificate
+            .stats()
+            .associate_native_metadata_integer_entry_inspection_bound()
+            > 0
+    );
 }
 
 #[test]
@@ -1134,17 +1139,17 @@ fn sparse_high_degree_projective_units_merge_but_same_support_near_miss_does_not
     );
     assert_eq!(certificate.stats().associate_checks(), 3);
     assert!(certificate.stats().associate_index_groups() >= 6);
-    assert!(certificate.stats().associate_cross_terms() > 0);
+    assert!(certificate.stats().associate_native_cross_term_pairs() > 0);
     assert!(
         certificate
             .stats()
-            .associate_base_sum_coordinate_inspection_bound()
+            .associate_native_metadata_exponent_entry_inspection_bound()
             > 0
     );
     assert!(
         certificate
             .stats()
-            .associate_integer_multiplication_bit_work_bound()
+            .associate_native_integer_multiplication_bit_work_bound()
             > 0
     );
 }
@@ -1500,26 +1505,66 @@ fn aggregate_associate_structural_limits_have_strict_boundaries() {
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_magnitude_copy_terms,
-        max_associate_magnitude_copy_terms,
+        associate_projection_exponent_entries,
+        max_associate_projection_exponent_entries,
         ParametricCoefficient,
-        "polynomial-associate magnitude copy terms"
+        "polynomial-associate projection exponent entries"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_magnitude_copy_bytes,
-        max_associate_magnitude_copy_bytes,
+        associate_projection_coefficient_capacity_bytes,
+        max_associate_projection_coefficient_capacity_bytes,
         ParametricCoefficient,
-        "polynomial-associate magnitude copy bytes"
+        "polynomial-associate projection coefficient-capacity bytes"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_term_order_entries,
-        max_associate_term_order_entries,
+        associate_projection_group_bound,
+        max_associate_projection_group_bound,
         ParametricCoefficient,
-        "polynomial-associate term-order entries"
+        "polynomial-associate projection group bound"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_projection_variable_mask_comparison_bound,
+        max_associate_projection_variable_mask_comparison_bound,
+        ParametricCoefficient,
+        "polynomial-associate projection variable-mask comparison bound"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_projection_hash_key_exponent_entry_bound,
+        max_associate_projection_hash_key_exponent_entry_bound,
+        ParametricCoefficient,
+        "polynomial-associate projection hash-key exponent-entry bound"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_projection_coefficient_append_comparison_bound,
+        max_associate_projection_coefficient_append_comparison_bound,
+        ParametricCoefficient,
+        "polynomial-associate projection coefficient append comparison bound"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_projection_sorted_insert_comparison_bound,
+        max_associate_projection_sorted_insert_comparison_bound,
+        ParametricCoefficient,
+        "polynomial-associate projection sorted-insert comparison bound"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_projection_sorted_insert_move_exponent_entry_bound,
+        max_associate_projection_sorted_insert_move_exponent_entry_bound,
+        ParametricCoefficient,
+        "polynomial-associate projection sorted-insert move exponent-entry bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
@@ -1532,34 +1577,10 @@ fn aggregate_associate_structural_limits_have_strict_boundaries() {
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_ordering_comparison_bound,
-        max_associate_ordering_comparison_bound,
+        associate_index_support_comparison_entries,
+        max_associate_index_support_comparison_entries,
         ParametricCoefficient,
-        "polynomial-associate ordering comparison bound"
-    );
-    boundary!(
-        |limits| fixture.accumulate_associate_pair(limits),
-        stats,
-        associate_index_coordinate_inspection_bound,
-        max_associate_index_coordinate_inspection_bound,
-        ParametricCoefficient,
-        "polynomial-associate index-coordinate inspection bound"
-    );
-    boundary!(
-        |limits| fixture.accumulate_associate_pair(limits),
-        stats,
-        associate_base_sum_coordinate_inspection_bound,
-        max_associate_base_sum_coordinate_inspection_bound,
-        ParametricCoefficient,
-        "polynomial-associate base-sum coordinate inspection bound"
-    );
-    boundary!(
-        |limits| fixture.accumulate_associate_pair(limits),
-        stats,
-        associate_base_exponent_addition_bound,
-        max_associate_base_exponent_addition_bound,
-        ParametricCoefficient,
-        "polynomial-associate base-exponent addition bound"
+        "polynomial-associate index support comparison entries"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
@@ -1572,31 +1593,31 @@ fn aggregate_associate_structural_limits_have_strict_boundaries() {
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_cross_terms,
-        max_associate_cross_terms,
+        associate_native_cross_term_pairs,
+        max_associate_native_cross_term_pairs,
         ParametricCoefficient,
-        "polynomial-associate cross terms"
+        "polynomial-associate native cross term pairs"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_peak_cross_terms,
-        max_associate_peak_cross_terms,
+        associate_peak_native_cross_term_pairs,
+        max_associate_peak_native_cross_term_pairs,
         ParametricCoefficient,
-        "polynomial-associate peak cross terms"
+        "polynomial-associate peak native cross term pairs"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_integer_preflight_pairs,
-        max_associate_integer_preflight_pairs,
+        associate_native_base_exponent_additions,
+        max_associate_native_base_exponent_additions,
         ParametricCoefficient,
-        "polynomial-associate integer preflight pairs"
+        "polynomial-associate native base exponent additions"
     );
 }
 
 #[test]
-fn aggregate_associate_integer_and_scratch_limits_have_strict_boundaries() {
+fn aggregate_associate_native_work_and_workspace_limits_have_strict_boundaries() {
     let fixture = SourceNeutralFixture::new("condition-associate-integer-boundaries");
     let baseline = fixture
         .accumulate_associate_pair(GeneratedResidualAffineConditionAccumulatorLimits::default())
@@ -1606,72 +1627,74 @@ fn aggregate_associate_integer_and_scratch_limits_have_strict_boundaries() {
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_integer_multiplication_bit_work_bound,
-        max_associate_integer_multiplication_bit_work_bound,
+        associate_native_metadata_exponent_entry_inspection_bound,
+        max_associate_native_metadata_exponent_entry_inspection_bound,
         ParametricCoefficient,
-        "polynomial-associate integer multiplication bit-work bound"
+        "polynomial-associate native metadata exponent-entry inspection bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_integer_accumulation_bit_work_bound,
-        max_associate_integer_accumulation_bit_work_bound,
+        associate_native_metadata_integer_entry_inspection_bound,
+        max_associate_native_metadata_integer_entry_inspection_bound,
         ParametricCoefficient,
-        "polynomial-associate integer accumulation bit-work bound"
+        "polynomial-associate native metadata integer-entry inspection bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_integer_multiply_limb_operation_bound,
-        max_associate_integer_multiply_limb_operation_bound,
+        associate_native_integer_multiplication_bit_work_bound,
+        max_associate_native_integer_multiplication_bit_work_bound,
         ParametricCoefficient,
-        "polynomial-associate integer multiply limb-operation bound"
+        "polynomial-associate native integer multiplication bit-work bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_integer_accumulate_limb_operation_bound,
-        max_associate_integer_accumulate_limb_operation_bound,
+        associate_native_integer_collection_bit_work_bound,
+        max_associate_native_integer_collection_bit_work_bound,
         ParametricCoefficient,
-        "polynomial-associate integer accumulation limb-operation bound"
+        "polynomial-associate native integer collection bit-work bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_scratch_limb_write_bound,
-        max_associate_scratch_limb_write_bound,
+        associate_native_output_term_bound,
+        max_associate_native_output_term_bound,
         ParametricCoefficient,
-        "polynomial-associate scratch limb-write bound"
+        "polynomial-associate native output term bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_product_scratch_limbs,
-        max_associate_product_scratch_limbs,
+        associate_native_output_exponent_entry_bound,
+        max_associate_native_output_exponent_entry_bound,
         ParametricCoefficient,
-        "polynomial-associate product scratch limbs"
+        "polynomial-associate native output exponent entry bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_accumulator_scratch_limbs,
-        max_associate_accumulator_scratch_limbs,
+        associate_native_output_integer_bit_bound,
+        max_associate_native_output_integer_bit_bound,
         ParametricCoefficient,
-        "polynomial-associate accumulator scratch limbs"
+        "polynomial-associate native output integer bit bound"
     );
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
         stats,
-        associate_visible_temporary_byte_envelope,
-        max_associate_visible_temporary_byte_envelope,
+        associate_native_workspace_byte_envelope,
+        max_associate_native_workspace_byte_envelope,
         ParametricCoefficient,
-        "polynomial-associate visible temporary byte envelope"
+        "polynomial-associate native workspace byte envelope"
     );
-
-    assert!(stats.associate_visible_temporary_bytes() > 0);
-    assert!(
-        stats.associate_visible_temporary_bytes()
-            <= stats.associate_visible_temporary_byte_envelope()
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_rustred_visible_temporary_byte_envelope,
+        max_associate_rustred_visible_temporary_byte_envelope,
+        ParametricCoefficient,
+        "polynomial-associate RustRed-visible temporary byte envelope"
     );
 }
 

@@ -142,8 +142,8 @@ impl fmt::Debug for GeneratedResidualAffineConditionInput<'_> {
 /// `exact_algebra` is never reset blindly for an associate proof.  Before
 /// every call the accumulator intersects it with the still-unspent aggregate
 /// associate allowance. Every `max_associate_*` field is stream-aggregate:
-/// even child fields named `peak_*` or `*_scratch_limbs` are summed across
-/// calls here so certificate replay has one exact addition law per counter.
+/// even child fields named `peak_*` or `*_envelope` are summed across calls
+/// here so certificate replay has one exact addition law per counter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedResidualAffineConditionAccumulatorLimits {
     pub exact_algebra: ExactAlgebraLimits,
@@ -175,26 +175,31 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorLimits {
     pub max_associate_validation_terms: usize,
     pub max_associate_validation_exponent_entries: usize,
     pub max_associate_validation_integer_bits: usize,
-    pub max_associate_magnitude_copy_terms: usize,
-    pub max_associate_magnitude_copy_bytes: usize,
-    pub max_associate_term_order_entries: usize,
+    pub max_associate_projection_exponent_entries: usize,
+    pub max_associate_projection_coefficient_capacity_bytes: usize,
+    pub max_associate_projection_group_bound: usize,
+    pub max_associate_projection_variable_mask_comparison_bound: usize,
+    pub max_associate_projection_hash_key_exponent_entry_bound: usize,
+    pub max_associate_projection_coefficient_append_comparison_bound: usize,
+    pub max_associate_projection_sorted_insert_comparison_bound: usize,
+    pub max_associate_projection_sorted_insert_move_exponent_entry_bound: usize,
     pub max_associate_index_groups: usize,
-    pub max_associate_ordering_comparison_bound: usize,
-    pub max_associate_index_coordinate_inspection_bound: usize,
-    pub max_associate_base_sum_coordinate_inspection_bound: usize,
-    pub max_associate_base_exponent_addition_bound: usize,
+    pub max_associate_index_support_comparison_entries: usize,
     pub max_associate_anchor_cost_operations: usize,
-    pub max_associate_cross_terms: usize,
-    pub max_associate_peak_cross_terms: usize,
-    pub max_associate_integer_preflight_pairs: usize,
-    pub max_associate_integer_multiplication_bit_work_bound: usize,
-    pub max_associate_integer_accumulation_bit_work_bound: usize,
-    pub max_associate_integer_multiply_limb_operation_bound: usize,
-    pub max_associate_integer_accumulate_limb_operation_bound: usize,
-    pub max_associate_scratch_limb_write_bound: usize,
-    pub max_associate_product_scratch_limbs: usize,
-    pub max_associate_accumulator_scratch_limbs: usize,
-    pub max_associate_visible_temporary_byte_envelope: usize,
+    pub max_associate_native_cross_term_pairs: usize,
+    pub max_associate_peak_native_cross_term_pairs: usize,
+    pub max_associate_native_base_exponent_additions: usize,
+    pub max_associate_native_metadata_exponent_entry_inspection_bound: usize,
+    pub max_associate_native_metadata_integer_entry_inspection_bound: usize,
+    pub max_associate_native_integer_multiplication_bit_work_bound: usize,
+    pub max_associate_native_integer_collection_bit_work_bound: usize,
+    pub max_associate_native_output_term_bound: usize,
+    pub max_associate_native_output_exponent_entry_bound: usize,
+    pub max_associate_native_output_integer_bit_bound: usize,
+    pub max_associate_native_dense_workspace_entries: usize,
+    pub max_associate_native_heap_workspace_pair_bound: usize,
+    pub max_associate_native_workspace_byte_envelope: usize,
+    pub max_associate_rustred_visible_temporary_byte_envelope: usize,
     pub max_retained_polynomial_terms: usize,
     pub max_retained_polynomial_exponent_entries: usize,
     pub max_retained_polynomial_integer_bits: usize,
@@ -236,36 +241,53 @@ impl Default for GeneratedResidualAffineConditionAccumulatorLimits {
             max_associate_validation_terms: portable_usize(64_000_000_000),
             max_associate_validation_exponent_entries: portable_usize(256_000_000_000),
             max_associate_validation_integer_bits: portable_usize(64_000_000_000_000_000),
-            max_associate_magnitude_copy_terms: portable_usize(64_000_000_000),
-            max_associate_magnitude_copy_bytes: portable_usize(64_000_000_000_000),
-            max_associate_term_order_entries: portable_usize(64_000_000_000),
-            max_associate_index_groups: portable_usize(64_000_000_000),
-            max_associate_ordering_comparison_bound: portable_usize(256_000_000_000),
-            max_associate_index_coordinate_inspection_bound: portable_usize(64_000_000_000_000_000),
-            max_associate_base_sum_coordinate_inspection_bound: portable_usize(
+            max_associate_projection_exponent_entries: portable_usize(256_000_000_000),
+            max_associate_projection_coefficient_capacity_bytes: portable_usize(64_000_000_000_000),
+            max_associate_projection_group_bound: portable_usize(64_000_000_000),
+            max_associate_projection_variable_mask_comparison_bound: portable_usize(
                 64_000_000_000_000_000,
             ),
-            max_associate_base_exponent_addition_bound: portable_usize(128_000_000_000_000_000),
+            max_associate_projection_hash_key_exponent_entry_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_associate_projection_coefficient_append_comparison_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_associate_projection_sorted_insert_comparison_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_associate_projection_sorted_insert_move_exponent_entry_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_associate_index_groups: portable_usize(64_000_000_000),
+            max_associate_index_support_comparison_entries: portable_usize(64_000_000_000_000_000),
             max_associate_anchor_cost_operations: portable_usize(320_000_000_000),
-            max_associate_cross_terms: portable_usize(16_000_000_000),
-            max_associate_peak_cross_terms: portable_usize(16_000_000_000),
-            max_associate_integer_preflight_pairs: portable_usize(16_000_000_000),
-            max_associate_integer_multiplication_bit_work_bound: portable_usize(
+            max_associate_native_cross_term_pairs: portable_usize(16_000_000_000),
+            max_associate_peak_native_cross_term_pairs: portable_usize(16_000_000_000),
+            max_associate_native_base_exponent_additions: portable_usize(128_000_000_000_000_000),
+            max_associate_native_metadata_exponent_entry_inspection_bound: portable_usize(
+                128_000_000_000_000_000,
+            ),
+            max_associate_native_metadata_integer_entry_inspection_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_associate_native_integer_multiplication_bit_work_bound: portable_usize(
                 16_000_000_000_000_000,
             ),
-            max_associate_integer_accumulation_bit_work_bound: portable_usize(
+            max_associate_native_integer_collection_bit_work_bound: portable_usize(
                 16_000_000_000_000_000,
             ),
-            max_associate_integer_multiply_limb_operation_bound: portable_usize(
+            max_associate_native_output_term_bound: portable_usize(16_000_000_000),
+            max_associate_native_output_exponent_entry_bound: portable_usize(
                 16_000_000_000_000_000,
             ),
-            max_associate_integer_accumulate_limb_operation_bound: portable_usize(
-                16_000_000_000_000_000,
+            max_associate_native_output_integer_bit_bound: portable_usize(16_000_000_000_000_000),
+            max_associate_native_dense_workspace_entries: portable_usize(64_000_000_000),
+            max_associate_native_heap_workspace_pair_bound: portable_usize(64_000_000_000),
+            max_associate_native_workspace_byte_envelope: portable_usize(64_000_000_000_000),
+            max_associate_rustred_visible_temporary_byte_envelope: portable_usize(
+                64_000_000_000_000,
             ),
-            max_associate_scratch_limb_write_bound: portable_usize(16_000_000_000_000_000),
-            max_associate_product_scratch_limbs: portable_usize(64_000_000_000),
-            max_associate_accumulator_scratch_limbs: portable_usize(64_000_000_000),
-            max_associate_visible_temporary_byte_envelope: portable_usize(64 * 1024 * 1024 * 1024),
             max_retained_polynomial_terms: 2_000_000_000,
             max_retained_polynomial_exponent_entries: portable_usize(64_000_000_000),
             max_retained_polynomial_integer_bits: portable_usize(16_000_000_000_000_000),
@@ -315,27 +337,31 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorStats {
     associate_validation_terms: usize,
     associate_validation_exponent_entries: usize,
     associate_validation_integer_bits: usize,
-    associate_magnitude_copy_terms: usize,
-    associate_magnitude_copy_bytes: usize,
-    associate_term_order_entries: usize,
+    associate_projection_exponent_entries: usize,
+    associate_projection_coefficient_capacity_bytes: usize,
+    associate_projection_group_bound: usize,
+    associate_projection_variable_mask_comparison_bound: usize,
+    associate_projection_hash_key_exponent_entry_bound: usize,
+    associate_projection_coefficient_append_comparison_bound: usize,
+    associate_projection_sorted_insert_comparison_bound: usize,
+    associate_projection_sorted_insert_move_exponent_entry_bound: usize,
     associate_index_groups: usize,
-    associate_ordering_comparison_bound: usize,
-    associate_index_coordinate_inspection_bound: usize,
-    associate_base_sum_coordinate_inspection_bound: usize,
-    associate_base_exponent_addition_bound: usize,
+    associate_index_support_comparison_entries: usize,
     associate_anchor_cost_operations: usize,
-    associate_cross_terms: usize,
-    associate_peak_cross_terms: usize,
-    associate_integer_preflight_pairs: usize,
-    associate_integer_multiplication_bit_work_bound: usize,
-    associate_integer_accumulation_bit_work_bound: usize,
-    associate_integer_multiply_limb_operation_bound: usize,
-    associate_integer_accumulate_limb_operation_bound: usize,
-    associate_scratch_limb_write_bound: usize,
-    associate_product_scratch_limbs: usize,
-    associate_accumulator_scratch_limbs: usize,
-    associate_visible_temporary_byte_envelope: usize,
-    associate_visible_temporary_bytes: usize,
+    associate_native_cross_term_pairs: usize,
+    associate_peak_native_cross_term_pairs: usize,
+    associate_native_base_exponent_additions: usize,
+    associate_native_metadata_exponent_entry_inspection_bound: usize,
+    associate_native_metadata_integer_entry_inspection_bound: usize,
+    associate_native_integer_multiplication_bit_work_bound: usize,
+    associate_native_integer_collection_bit_work_bound: usize,
+    associate_native_output_term_bound: usize,
+    associate_native_output_exponent_entry_bound: usize,
+    associate_native_output_integer_bit_bound: usize,
+    associate_native_dense_workspace_entries: usize,
+    associate_native_heap_workspace_pair_bound: usize,
+    associate_native_workspace_byte_envelope: usize,
+    associate_rustred_visible_temporary_byte_envelope: usize,
     retained_polynomial_terms: usize,
     retained_polynomial_exponent_entries: usize,
     retained_polynomial_integer_bits: usize,
@@ -394,27 +420,31 @@ impl GeneratedResidualAffineConditionAccumulatorStats {
         associate_validation_terms,
         associate_validation_exponent_entries,
         associate_validation_integer_bits,
-        associate_magnitude_copy_terms,
-        associate_magnitude_copy_bytes,
-        associate_term_order_entries,
+        associate_projection_exponent_entries,
+        associate_projection_coefficient_capacity_bytes,
+        associate_projection_group_bound,
+        associate_projection_variable_mask_comparison_bound,
+        associate_projection_hash_key_exponent_entry_bound,
+        associate_projection_coefficient_append_comparison_bound,
+        associate_projection_sorted_insert_comparison_bound,
+        associate_projection_sorted_insert_move_exponent_entry_bound,
         associate_index_groups,
-        associate_ordering_comparison_bound,
-        associate_index_coordinate_inspection_bound,
-        associate_base_sum_coordinate_inspection_bound,
-        associate_base_exponent_addition_bound,
+        associate_index_support_comparison_entries,
         associate_anchor_cost_operations,
-        associate_cross_terms,
-        associate_peak_cross_terms,
-        associate_integer_preflight_pairs,
-        associate_integer_multiplication_bit_work_bound,
-        associate_integer_accumulation_bit_work_bound,
-        associate_integer_multiply_limb_operation_bound,
-        associate_integer_accumulate_limb_operation_bound,
-        associate_scratch_limb_write_bound,
-        associate_product_scratch_limbs,
-        associate_accumulator_scratch_limbs,
-        associate_visible_temporary_byte_envelope,
-        associate_visible_temporary_bytes,
+        associate_native_cross_term_pairs,
+        associate_peak_native_cross_term_pairs,
+        associate_native_base_exponent_additions,
+        associate_native_metadata_exponent_entry_inspection_bound,
+        associate_native_metadata_integer_entry_inspection_bound,
+        associate_native_integer_multiplication_bit_work_bound,
+        associate_native_integer_collection_bit_work_bound,
+        associate_native_output_term_bound,
+        associate_native_output_exponent_entry_bound,
+        associate_native_output_integer_bit_bound,
+        associate_native_dense_workspace_entries,
+        associate_native_heap_workspace_pair_bound,
+        associate_native_workspace_byte_envelope,
+        associate_rustred_visible_temporary_byte_envelope,
         retained_polynomial_terms,
         retained_polynomial_exponent_entries,
         retained_polynomial_integer_bits,
@@ -1801,219 +1831,22 @@ fn precharge_associate_comparison(
         limits.max_associate_integer_bits,
     )?;
 
-    // The pair has already been admitted against the aggregate allowance.
-    // Every child counter receives only its exact unspent aggregate budget.
-    // Pair-derived caps use saturating arithmetic, so an enormous structural
-    // bound becomes the finite remaining budget instead of a false usize
-    // overflow before the child can report `ResourceLimit`.
     let cross_remaining = remaining(
-        "affine condition associate cross terms",
-        limits.max_associate_cross_terms,
-        stats.associate_cross_terms,
+        "affine condition associate native cross term pairs",
+        limits.max_associate_native_cross_term_pairs,
+        stats.associate_native_cross_term_pairs,
     )?;
-    let cross_cap = capped_saturating_product(cross_remaining, [2usize, left.terms, right.terms]);
     let exact_algebra = ExactAlgebraLimits {
         max_exponent: limits.exact_algebra.max_exponent,
         max_polynomial_terms: limits
             .exact_algebra
             .max_polynomial_terms
             .min(remaining_term_units),
-        max_term_operations: limits.exact_algebra.max_term_operations.min(cross_cap),
+        max_term_operations: limits
+            .exact_algebra
+            .max_term_operations
+            .min(cross_remaining),
     };
-
-    let magnitude_copy_terms_remaining = remaining(
-        "affine condition associate magnitude-copy terms",
-        limits.max_associate_magnitude_copy_terms,
-        stats.associate_magnitude_copy_terms,
-    )?;
-    let magnitude_copy_bytes_remaining = remaining(
-        "affine condition associate magnitude-copy bytes",
-        limits.max_associate_magnitude_copy_bytes,
-        stats.associate_magnitude_copy_bytes,
-    )?;
-    let magnitude_copy_byte_cap = capped_saturating_sum(
-        magnitude_copy_bytes_remaining,
-        [pair.integer_bits / 8, pair.terms],
-    );
-    let term_order_remaining = remaining(
-        "affine condition associate term-order entries",
-        limits.max_associate_term_order_entries,
-        stats.associate_term_order_entries,
-    )?;
-    let index_groups_remaining = remaining(
-        "affine condition associate index groups",
-        limits.max_associate_index_groups,
-        stats.associate_index_groups,
-    )?;
-    let ordering_remaining = remaining(
-        "affine condition associate ordering-comparison bound",
-        limits.max_associate_ordering_comparison_bound,
-        stats.associate_ordering_comparison_bound,
-    )?;
-    let initial_order_cap = capped_saturating_product(
-        ordering_remaining,
-        [
-            4,
-            pair.terms,
-            accumulator_ceil_log2(pair.terms).saturating_add(1),
-        ],
-    );
-    let cross_order_cap = capped_saturating_product(
-        ordering_remaining,
-        [
-            4,
-            cross_cap,
-            accumulator_ceil_log2(cross_cap).saturating_add(1),
-        ],
-    );
-    let ordering_cap =
-        capped_saturating_sum(ordering_remaining, [initial_order_cap, cross_order_cap]);
-
-    let index_coordinate_remaining = remaining(
-        "affine condition associate index-coordinate inspection bound",
-        limits.max_associate_index_coordinate_inspection_bound,
-        stats.associate_index_coordinate_inspection_bound,
-    )?;
-    let index_coordinate_inner = capped_saturating_sum(
-        index_coordinate_remaining,
-        [
-            initial_order_cap,
-            capped_saturating_product(index_coordinate_remaining, [3, pair.terms]),
-        ],
-    );
-    let index_coordinate_cap = capped_saturating_product(
-        index_coordinate_remaining,
-        [stats.ambient_variables, index_coordinate_inner],
-    );
-    let base_sum_coordinate_remaining = remaining(
-        "affine condition associate base-sum coordinate inspection bound",
-        limits.max_associate_base_sum_coordinate_inspection_bound,
-        stats.associate_base_sum_coordinate_inspection_bound,
-    )?;
-    let base_sum_coordinate_cap = capped_saturating_product(
-        base_sum_coordinate_remaining,
-        [
-            stats.ambient_variables,
-            capped_saturating_sum(base_sum_coordinate_remaining, [cross_order_cap, cross_cap]),
-        ],
-    );
-    let base_exponent_addition_remaining = remaining(
-        "affine condition associate base-exponent addition bound",
-        limits.max_associate_base_exponent_addition_bound,
-        stats.associate_base_exponent_addition_bound,
-    )?;
-    let base_exponent_addition_cap = capped_saturating_product(
-        base_exponent_addition_remaining,
-        [2, base_sum_coordinate_cap],
-    );
-    let anchor_cost_remaining = remaining(
-        "affine condition associate anchor-cost operations",
-        limits.max_associate_anchor_cost_operations,
-        stats.associate_anchor_cost_operations,
-    )?;
-    let anchor_cost_cap = capped_saturating_product(anchor_cost_remaining, [5, pair.terms]);
-
-    let peak_cross_remaining = remaining(
-        "affine condition associate peak cross terms",
-        limits.max_associate_peak_cross_terms,
-        stats.associate_peak_cross_terms,
-    )?;
-    let integer_preflight_remaining = remaining(
-        "affine condition associate integer preflight pairs",
-        limits.max_associate_integer_preflight_pairs,
-        stats.associate_integer_preflight_pairs,
-    )?;
-    let magnitude_limb_bound = accumulator_ceil_units(pair.integer_bits, 64);
-    let product_scratch_remaining = remaining(
-        "affine condition associate product scratch limbs",
-        limits.max_associate_product_scratch_limbs,
-        stats.associate_product_scratch_limbs,
-    )?;
-    let product_scratch_cap =
-        capped_saturating_product(product_scratch_remaining, [2, magnitude_limb_bound]);
-    let accumulator_limb_bound = capped_saturating_sum(
-        usize::MAX,
-        [
-            magnitude_limb_bound,
-            accumulator_ceil_units(accumulator_ceil_log2(cross_cap), 64),
-        ],
-    );
-    let accumulator_scratch_remaining = remaining(
-        "affine condition associate accumulator scratch limbs",
-        limits.max_associate_accumulator_scratch_limbs,
-        stats.associate_accumulator_scratch_limbs,
-    )?;
-    let accumulator_scratch_cap = accumulator_limb_bound.min(accumulator_scratch_remaining);
-
-    let multiplication_bit_work_remaining = remaining(
-        "affine condition associate integer multiplication bit-work bound",
-        limits.max_associate_integer_multiplication_bit_work_bound,
-        stats.associate_integer_multiplication_bit_work_bound,
-    )?;
-    let multiplication_bit_work_cap = capped_saturating_product(
-        multiplication_bit_work_remaining,
-        [cross_cap, pair.integer_bits, pair.integer_bits],
-    );
-    let accumulation_bit_work_remaining = remaining(
-        "affine condition associate integer accumulation bit-work bound",
-        limits.max_associate_integer_accumulation_bit_work_bound,
-        stats.associate_integer_accumulation_bit_work_bound,
-    )?;
-    let accumulation_bit_work_cap = capped_saturating_product(
-        accumulation_bit_work_remaining,
-        [
-            2,
-            cross_cap,
-            pair.integer_bits
-                .saturating_add(accumulator_ceil_log2(cross_cap)),
-        ],
-    );
-    let multiply_limb_operation_remaining = remaining(
-        "affine condition associate integer multiply limb-operation bound",
-        limits.max_associate_integer_multiply_limb_operation_bound,
-        stats.associate_integer_multiply_limb_operation_bound,
-    )?;
-    let multiply_limb_operation_cap = capped_saturating_product(
-        multiply_limb_operation_remaining,
-        [cross_cap, magnitude_limb_bound, magnitude_limb_bound],
-    );
-    let accumulate_limb_operation_remaining = remaining(
-        "affine condition associate integer accumulation limb-operation bound",
-        limits.max_associate_integer_accumulate_limb_operation_bound,
-        stats.associate_integer_accumulate_limb_operation_bound,
-    )?;
-    let accumulate_limb_operation_cap = capped_saturating_product(
-        accumulate_limb_operation_remaining,
-        [2, cross_cap, accumulator_limb_bound],
-    );
-    let scratch_limb_write_remaining = remaining(
-        "affine condition associate scratch limb-write bound",
-        limits.max_associate_scratch_limb_write_bound,
-        stats.associate_scratch_limb_write_bound,
-    )?;
-    let per_pair_scratch_cap = capped_saturating_sum(
-        scratch_limb_write_remaining,
-        [
-            capped_saturating_product(
-                scratch_limb_write_remaining,
-                [magnitude_limb_bound, magnitude_limb_bound],
-            ),
-            capped_saturating_product(scratch_limb_write_remaining, [3, magnitude_limb_bound]),
-        ],
-    );
-    let scratch_limb_write_cap = capped_saturating_sum(
-        scratch_limb_write_remaining,
-        [
-            capped_saturating_product(
-                scratch_limb_write_remaining,
-                [cross_cap, per_pair_scratch_cap],
-            ),
-            accumulate_limb_operation_cap,
-            product_scratch_cap,
-            accumulator_scratch_cap,
-        ],
-    );
-
     let child_limits = ParametricPolynomialAssociateLimits {
         exact_algebra,
         max_context_fingerprint_comparison_bytes: remaining(
@@ -2044,29 +1877,126 @@ fn precharge_associate_comparison(
             stats.associate_validation_integer_bits,
         )?
         .min(pair.integer_bits),
-        max_magnitude_copy_terms: magnitude_copy_terms_remaining.min(pair.terms),
-        max_magnitude_copy_bytes: magnitude_copy_byte_cap,
-        max_term_order_entries: term_order_remaining.min(pair.terms),
-        max_index_groups: index_groups_remaining.min(pair.terms),
-        max_ordering_comparison_bound: ordering_cap,
-        max_index_coordinate_inspection_bound: index_coordinate_cap,
-        max_base_sum_coordinate_inspection_bound: base_sum_coordinate_cap,
-        max_base_exponent_addition_bound: base_exponent_addition_cap,
-        max_anchor_cost_operations: anchor_cost_cap,
-        max_cross_terms: cross_cap,
-        max_peak_cross_terms: peak_cross_remaining.min(cross_cap),
-        max_integer_preflight_pairs: integer_preflight_remaining.min(cross_cap),
-        max_integer_multiplication_bit_work_bound: multiplication_bit_work_cap,
-        max_integer_accumulation_bit_work_bound: accumulation_bit_work_cap,
-        max_integer_multiply_limb_operation_bound: multiply_limb_operation_cap,
-        max_integer_accumulate_limb_operation_bound: accumulate_limb_operation_cap,
-        max_scratch_limb_write_bound: scratch_limb_write_cap,
-        max_product_scratch_limbs: product_scratch_cap,
-        max_accumulator_scratch_limbs: accumulator_scratch_cap,
-        max_visible_temporary_byte_envelope: remaining(
-            "affine condition associate visible temporary byte envelope",
-            limits.max_associate_visible_temporary_byte_envelope,
-            stats.associate_visible_temporary_byte_envelope,
+        max_projection_exponent_entries: remaining(
+            "affine condition associate projection exponent entries",
+            limits.max_associate_projection_exponent_entries,
+            stats.associate_projection_exponent_entries,
+        )?,
+        max_projection_coefficient_capacity_bytes: remaining(
+            "affine condition associate projection coefficient-capacity bytes",
+            limits.max_associate_projection_coefficient_capacity_bytes,
+            stats.associate_projection_coefficient_capacity_bytes,
+        )?,
+        max_projection_group_bound: remaining(
+            "affine condition associate projection group bound",
+            limits.max_associate_projection_group_bound,
+            stats.associate_projection_group_bound,
+        )?,
+        max_projection_variable_mask_comparison_bound: remaining(
+            "affine condition associate projection variable-mask comparison bound",
+            limits.max_associate_projection_variable_mask_comparison_bound,
+            stats.associate_projection_variable_mask_comparison_bound,
+        )?,
+        max_projection_hash_key_exponent_entry_bound: remaining(
+            "affine condition associate projection hash-key exponent-entry bound",
+            limits.max_associate_projection_hash_key_exponent_entry_bound,
+            stats.associate_projection_hash_key_exponent_entry_bound,
+        )?,
+        max_projection_coefficient_append_comparison_bound: remaining(
+            "affine condition associate projection coefficient append comparison bound",
+            limits.max_associate_projection_coefficient_append_comparison_bound,
+            stats.associate_projection_coefficient_append_comparison_bound,
+        )?,
+        max_projection_sorted_insert_comparison_bound: remaining(
+            "affine condition associate projection sorted-insert comparison bound",
+            limits.max_associate_projection_sorted_insert_comparison_bound,
+            stats.associate_projection_sorted_insert_comparison_bound,
+        )?,
+        max_projection_sorted_insert_move_exponent_entry_bound: remaining(
+            "affine condition associate projection sorted-insert move exponent-entry bound",
+            limits.max_associate_projection_sorted_insert_move_exponent_entry_bound,
+            stats.associate_projection_sorted_insert_move_exponent_entry_bound,
+        )?,
+        max_index_groups: remaining(
+            "affine condition associate index groups",
+            limits.max_associate_index_groups,
+            stats.associate_index_groups,
+        )?,
+        max_index_support_comparison_entries: remaining(
+            "affine condition associate index support comparison entries",
+            limits.max_associate_index_support_comparison_entries,
+            stats.associate_index_support_comparison_entries,
+        )?,
+        max_anchor_cost_operations: remaining(
+            "affine condition associate anchor-cost operations",
+            limits.max_associate_anchor_cost_operations,
+            stats.associate_anchor_cost_operations,
+        )?,
+        max_native_cross_term_pairs: cross_remaining,
+        max_peak_native_cross_term_pairs: remaining(
+            "affine condition associate peak native cross term pairs",
+            limits.max_associate_peak_native_cross_term_pairs,
+            stats.associate_peak_native_cross_term_pairs,
+        )?,
+        max_native_base_exponent_additions: remaining(
+            "affine condition associate native base exponent additions",
+            limits.max_associate_native_base_exponent_additions,
+            stats.associate_native_base_exponent_additions,
+        )?,
+        max_native_metadata_exponent_entry_inspection_bound: remaining(
+            "affine condition associate native metadata exponent-entry inspection bound",
+            limits.max_associate_native_metadata_exponent_entry_inspection_bound,
+            stats.associate_native_metadata_exponent_entry_inspection_bound,
+        )?,
+        max_native_metadata_integer_entry_inspection_bound: remaining(
+            "affine condition associate native metadata integer-entry inspection bound",
+            limits.max_associate_native_metadata_integer_entry_inspection_bound,
+            stats.associate_native_metadata_integer_entry_inspection_bound,
+        )?,
+        max_native_integer_multiplication_bit_work_bound: remaining(
+            "affine condition associate native integer multiplication bit-work bound",
+            limits.max_associate_native_integer_multiplication_bit_work_bound,
+            stats.associate_native_integer_multiplication_bit_work_bound,
+        )?,
+        max_native_integer_collection_bit_work_bound: remaining(
+            "affine condition associate native integer collection bit-work bound",
+            limits.max_associate_native_integer_collection_bit_work_bound,
+            stats.associate_native_integer_collection_bit_work_bound,
+        )?,
+        max_native_output_term_bound: remaining(
+            "affine condition associate native output term bound",
+            limits.max_associate_native_output_term_bound,
+            stats.associate_native_output_term_bound,
+        )?,
+        max_native_output_exponent_entry_bound: remaining(
+            "affine condition associate native output exponent entry bound",
+            limits.max_associate_native_output_exponent_entry_bound,
+            stats.associate_native_output_exponent_entry_bound,
+        )?,
+        max_native_output_integer_bit_bound: remaining(
+            "affine condition associate native output integer bit bound",
+            limits.max_associate_native_output_integer_bit_bound,
+            stats.associate_native_output_integer_bit_bound,
+        )?,
+        max_native_dense_workspace_entries: remaining(
+            "affine condition associate native dense workspace entries",
+            limits.max_associate_native_dense_workspace_entries,
+            stats.associate_native_dense_workspace_entries,
+        )?,
+        max_native_heap_workspace_pair_bound: remaining(
+            "affine condition associate native heap workspace pair bound",
+            limits.max_associate_native_heap_workspace_pair_bound,
+            stats.associate_native_heap_workspace_pair_bound,
+        )?,
+        max_native_workspace_byte_envelope: remaining(
+            "affine condition associate native workspace byte envelope",
+            limits.max_associate_native_workspace_byte_envelope,
+            stats.associate_native_workspace_byte_envelope,
+        )?,
+        max_rustred_visible_temporary_byte_envelope: remaining(
+            "affine condition associate RustRed-visible temporary byte envelope",
+            limits.max_associate_rustred_visible_temporary_byte_envelope,
+            stats.associate_rustred_visible_temporary_byte_envelope,
         )?,
     };
     stats.associate_checks = prospective_checks;
@@ -2117,22 +2047,52 @@ fn consume_associate_stats(
         max_associate_validation_integer_bits
     );
     consume!(
-        associate_magnitude_copy_terms,
-        magnitude_copy_terms,
-        "affine condition associate magnitude-copy terms",
-        max_associate_magnitude_copy_terms
+        associate_projection_exponent_entries,
+        projection_exponent_entries,
+        "affine condition associate projection exponent entries",
+        max_associate_projection_exponent_entries
     );
     consume!(
-        associate_magnitude_copy_bytes,
-        magnitude_copy_bytes,
-        "affine condition associate magnitude-copy bytes",
-        max_associate_magnitude_copy_bytes
+        associate_projection_coefficient_capacity_bytes,
+        projection_coefficient_capacity_bytes,
+        "affine condition associate projection coefficient-capacity bytes",
+        max_associate_projection_coefficient_capacity_bytes
     );
     consume!(
-        associate_term_order_entries,
-        term_order_entries,
-        "affine condition associate term-order entries",
-        max_associate_term_order_entries
+        associate_projection_group_bound,
+        projection_group_bound,
+        "affine condition associate projection group bound",
+        max_associate_projection_group_bound
+    );
+    consume!(
+        associate_projection_variable_mask_comparison_bound,
+        projection_variable_mask_comparison_bound,
+        "affine condition associate projection variable-mask comparison bound",
+        max_associate_projection_variable_mask_comparison_bound
+    );
+    consume!(
+        associate_projection_hash_key_exponent_entry_bound,
+        projection_hash_key_exponent_entry_bound,
+        "affine condition associate projection hash-key exponent-entry bound",
+        max_associate_projection_hash_key_exponent_entry_bound
+    );
+    consume!(
+        associate_projection_coefficient_append_comparison_bound,
+        projection_coefficient_append_comparison_bound,
+        "affine condition associate projection coefficient append comparison bound",
+        max_associate_projection_coefficient_append_comparison_bound
+    );
+    consume!(
+        associate_projection_sorted_insert_comparison_bound,
+        projection_sorted_insert_comparison_bound,
+        "affine condition associate projection sorted-insert comparison bound",
+        max_associate_projection_sorted_insert_comparison_bound
+    );
+    consume!(
+        associate_projection_sorted_insert_move_exponent_entry_bound,
+        projection_sorted_insert_move_exponent_entry_bound,
+        "affine condition associate projection sorted-insert move exponent-entry bound",
+        max_associate_projection_sorted_insert_move_exponent_entry_bound
     );
     consume!(
         associate_index_groups,
@@ -2141,28 +2101,10 @@ fn consume_associate_stats(
         max_associate_index_groups
     );
     consume!(
-        associate_ordering_comparison_bound,
-        ordering_comparison_bound,
-        "affine condition associate ordering-comparison bound",
-        max_associate_ordering_comparison_bound
-    );
-    consume!(
-        associate_index_coordinate_inspection_bound,
-        index_coordinate_inspection_bound,
-        "affine condition associate index-coordinate inspection bound",
-        max_associate_index_coordinate_inspection_bound
-    );
-    consume!(
-        associate_base_sum_coordinate_inspection_bound,
-        base_sum_coordinate_inspection_bound,
-        "affine condition associate base-sum coordinate inspection bound",
-        max_associate_base_sum_coordinate_inspection_bound
-    );
-    consume!(
-        associate_base_exponent_addition_bound,
-        base_exponent_addition_bound,
-        "affine condition associate base-exponent addition bound",
-        max_associate_base_exponent_addition_bound
+        associate_index_support_comparison_entries,
+        index_support_comparison_entries,
+        "affine condition associate index support comparison entries",
+        max_associate_index_support_comparison_entries
     );
     consume!(
         associate_anchor_cost_operations,
@@ -2171,85 +2113,89 @@ fn consume_associate_stats(
         max_associate_anchor_cost_operations
     );
     consume!(
-        associate_cross_terms,
-        cross_terms,
-        "affine condition associate cross terms",
-        max_associate_cross_terms
+        associate_native_cross_term_pairs,
+        native_cross_term_pairs,
+        "affine condition associate native cross term pairs",
+        max_associate_native_cross_term_pairs
     );
     consume!(
-        associate_peak_cross_terms,
-        peak_cross_terms,
-        "affine condition associate peak cross terms",
-        max_associate_peak_cross_terms
+        associate_peak_native_cross_term_pairs,
+        peak_native_cross_term_pairs,
+        "affine condition associate peak native cross term pairs",
+        max_associate_peak_native_cross_term_pairs
     );
     consume!(
-        associate_integer_preflight_pairs,
-        integer_preflight_pairs,
-        "affine condition associate integer preflight pairs",
-        max_associate_integer_preflight_pairs
+        associate_native_base_exponent_additions,
+        native_base_exponent_additions,
+        "affine condition associate native base exponent additions",
+        max_associate_native_base_exponent_additions
     );
     consume!(
-        associate_integer_multiplication_bit_work_bound,
-        integer_multiplication_bit_work_bound,
-        "affine condition associate integer multiplication bit-work bound",
-        max_associate_integer_multiplication_bit_work_bound
+        associate_native_metadata_exponent_entry_inspection_bound,
+        native_metadata_exponent_entry_inspection_bound,
+        "affine condition associate native metadata exponent-entry inspection bound",
+        max_associate_native_metadata_exponent_entry_inspection_bound
     );
     consume!(
-        associate_integer_accumulation_bit_work_bound,
-        integer_accumulation_bit_work_bound,
-        "affine condition associate integer accumulation bit-work bound",
-        max_associate_integer_accumulation_bit_work_bound
+        associate_native_metadata_integer_entry_inspection_bound,
+        native_metadata_integer_entry_inspection_bound,
+        "affine condition associate native metadata integer-entry inspection bound",
+        max_associate_native_metadata_integer_entry_inspection_bound
     );
     consume!(
-        associate_integer_multiply_limb_operation_bound,
-        integer_multiply_limb_operation_bound,
-        "affine condition associate integer multiply limb-operation bound",
-        max_associate_integer_multiply_limb_operation_bound
+        associate_native_integer_multiplication_bit_work_bound,
+        native_integer_multiplication_bit_work_bound,
+        "affine condition associate native integer multiplication bit-work bound",
+        max_associate_native_integer_multiplication_bit_work_bound
     );
     consume!(
-        associate_integer_accumulate_limb_operation_bound,
-        integer_accumulate_limb_operation_bound,
-        "affine condition associate integer accumulation limb-operation bound",
-        max_associate_integer_accumulate_limb_operation_bound
+        associate_native_integer_collection_bit_work_bound,
+        native_integer_collection_bit_work_bound,
+        "affine condition associate native integer collection bit-work bound",
+        max_associate_native_integer_collection_bit_work_bound
     );
     consume!(
-        associate_scratch_limb_write_bound,
-        scratch_limb_write_bound,
-        "affine condition associate scratch limb-write bound",
-        max_associate_scratch_limb_write_bound
+        associate_native_output_term_bound,
+        native_output_term_bound,
+        "affine condition associate native output term bound",
+        max_associate_native_output_term_bound
     );
     consume!(
-        associate_product_scratch_limbs,
-        product_scratch_limbs,
-        "affine condition associate product scratch limbs",
-        max_associate_product_scratch_limbs
+        associate_native_output_exponent_entry_bound,
+        native_output_exponent_entry_bound,
+        "affine condition associate native output exponent entry bound",
+        max_associate_native_output_exponent_entry_bound
     );
     consume!(
-        associate_accumulator_scratch_limbs,
-        accumulator_scratch_limbs,
-        "affine condition associate accumulator scratch limbs",
-        max_associate_accumulator_scratch_limbs
+        associate_native_output_integer_bit_bound,
+        native_output_integer_bit_bound,
+        "affine condition associate native output integer bit bound",
+        max_associate_native_output_integer_bit_bound
     );
     consume!(
-        associate_visible_temporary_byte_envelope,
-        visible_temporary_byte_envelope,
-        "affine condition associate visible temporary byte envelope",
-        max_associate_visible_temporary_byte_envelope
+        associate_native_dense_workspace_entries,
+        native_dense_workspace_entries,
+        "affine condition associate native dense workspace entries",
+        max_associate_native_dense_workspace_entries
     );
-    stats.associate_visible_temporary_bytes = checked_add(
-        "affine condition associate visible temporary bytes",
-        stats.associate_visible_temporary_bytes,
-        child.visible_temporary_bytes(),
-    )?;
-    if stats.associate_visible_temporary_bytes > stats.associate_visible_temporary_byte_envelope {
-        return Err(
-            GeneratedResidualAffineConditionAccumulatorError::ResourceLimit {
-                resource: "affine condition associate visible temporary bytes",
-                requested: stats.associate_visible_temporary_bytes,
-                limit: stats.associate_visible_temporary_byte_envelope,
-            },
-        );
-    }
+    consume!(
+        associate_native_heap_workspace_pair_bound,
+        native_heap_workspace_pair_bound,
+        "affine condition associate native heap workspace pair bound",
+        max_associate_native_heap_workspace_pair_bound
+    );
+    consume!(
+        associate_native_workspace_byte_envelope,
+        native_workspace_byte_envelope,
+        "affine condition associate native workspace byte envelope",
+        max_associate_native_workspace_byte_envelope
+    );
+    consume!(
+        associate_rustred_visible_temporary_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
+        "affine condition associate RustRed-visible temporary byte envelope",
+        max_associate_rustred_visible_temporary_byte_envelope
+    );
     Ok(())
 }
 
@@ -3446,34 +3392,6 @@ fn bounded_product_add(
     // The quotient check above proves both operations fit inside `available`,
     // hence inside usize, without first evaluating an overflowing product.
     Ok(current + left * right)
-}
-
-fn capped_saturating_sum(cap: usize, values: impl IntoIterator<Item = usize>) -> usize {
-    values
-        .into_iter()
-        .fold(0usize, |sum, value| sum.saturating_add(value).min(cap))
-}
-
-fn capped_saturating_product(cap: usize, values: impl IntoIterator<Item = usize>) -> usize {
-    values.into_iter().fold(1usize.min(cap), |product, value| {
-        product.saturating_mul(value).min(cap)
-    })
-}
-
-fn accumulator_ceil_log2(value: usize) -> usize {
-    if value <= 1 {
-        0
-    } else {
-        usize::BITS as usize - (value - 1).leading_zeros() as usize
-    }
-}
-
-fn accumulator_ceil_units(value: usize, unit_bits: usize) -> usize {
-    if value == 0 {
-        0
-    } else {
-        1 + (value - 1) / unit_bits
-    }
 }
 
 fn check_limit(

@@ -392,32 +392,79 @@ Do not use `FactorizedRationalPolynomial` as the authoritative coefficient/guard
 
 If factorization is used to optimize guard evaluation, store the expanded polynomial as truth and verify that the multiplied factors with powers reproduce it exactly.
 
-### 8.1 Verified GMP boundary and bounded projective associates
+### 8.1 Verified GMP boundary and native projective associates
 
-RustRed's supported integer backend is Symbolica's default `gmp` feature. GMP is mandatory; the alternative `no_gmp` feature is unsupported and must not be exposed as a RustRed build mode. `Integer` publicly distinguishes `Single(i64)`, `Double(i128)` and `Large(MultiPrecisionInteger)` (`vendor/symbolica/lib/numerica/src/domains/integer.rs:81-94`). The backend module is public, and the GMP implementation publicly provides `domains::backend::integer::{lsf_byte_size, write_lsf_bytes}` (`vendor/symbolica/lib/numerica/src/domains/backend/mod.rs:1-2` and `backend/integer.rs:20-38`). Both functions operate on the absolute magnitude of a `Large` integer; the sign must be retained separately.
+RustRed's supported integer backend is Symbolica's default `gmp` feature. GMP
+is mandatory; the alternative `no_gmp` feature is unsupported and must not be
+exposed as a RustRed build mode. `Integer` publicly distinguishes
+`Single(i64)`, `Double(i128)` and `Large(MultiPrecisionInteger)`
+(`vendor/symbolica/lib/numerica/src/domains/integer.rs:81-94`). Exact
+coefficient arithmetic, including arbitrary-precision multiplication and
+collection, stays inside Symbolica. RustRed does not export magnitudes, pack
+private limbs, or maintain a second integer-arithmetic engine.
 
-For a bounded coefficient copy, handle `Single` and `Double` with `unsigned_abs().to_le_bytes()`. For `Large`, obtain the exact magnitude length with `lsf_byte_size`, reserve the aggregate arena before writing, then call `write_lsf_bytes` and verify that the appended length equals the admitted length. The writer appends to `Vec<u8>` rather than accepting an arbitrary slice, so the safe fixed-buffer convention is: preflight the total byte count, `try_reserve_exact` once, reject insufficient or unexpectedly excessive capacity, append without permitting growth beyond the admitted envelope, and check final offsets and lengths. Pack the resulting least-significant-first bytes into fixed `u64` scratch limbs; never clone a GMP value inside the Cartesian-product loop.
-
-The polynomial-locus associate test should be projective over `K = Q(theta)`, not a rational-quotient calculation. Regard each nonzero input in `Z[theta,n]` as a vector over index monomials with entries `P_a,Q_a in Z[theta]`. After proving the index supports equal, choose a deterministic nonzero anchor `0`. Then
+The polynomial-associate relation is strict association over
+`K = Q(theta)`. For nonzero `P,Q in Z[theta,n]`,
 
 ```text
-P and Q are associates over K  iff  P_a Q_0 - Q_a P_0 = 0
-for every index-monomial group a.
+P ~ Q  iff  P = u Q for some nonzero u in Q(theta).
 ```
 
-This identity is exact in the integral domain `Z[theta]`. It avoids constructing `P/Q`, rational normalization, polynomial GCD, and the opaque temporary allocation and cancellation behavior those operations introduce. It also proves exactly the equivalence RustRed needs: equality of zero loci up to a nonzero base-field unit. It does not infer radical-ideal equivalence or silently discard an exceptional locus.
+Writing the inputs as `P = sum_a P_a(theta) n^a` and
+`Q = sum_a Q_a(theta) n^a`, equal index support is necessary. After choosing
+a deterministic nonzero anchor `0`, the exact projective criterion is
 
-The implementation pattern is deterministic and allocation-bounded:
+```text
+P_a Q_0 = Q_a P_0 for every index-monomial group a.
+```
 
-1. Authenticate both context fingerprints and the complete ordered variable maps; validate sparse term, exponent and integer payloads.
-2. Sort arrays of source-term indices by their index-exponent tuples, group adjacent equal tuples, compare group supports, and return early for zero, unequal support or a single index group.
-3. Choose the anchor that minimizes the exact cross-term cost. For every other group, enumerate references for both sides of `P_a Q_0 - Q_a P_0`, sort them by the summed base-exponent tuple, and combine equal keys.
-4. Multiply unsigned coefficient magnitudes with preallocated `u64` product limbs and accumulate with a separate sign into preallocated accumulator limbs. A group vanishes exactly when every signed coefficient accumulator returns to zero.
-5. Reconcile observed comparisons, limb operations and scratch writes with the admitted preflight census before returning the result.
+This proves association by a base-field unit. It is deliberately stricter
+than equality of radicals or vanishing sets: for example, `p` and `p^2` are
+not associates. Zero has no projective class, so either zero input returns
+`false` before any native projection or multiplication. At every integer
+boundary, numerical comparison with canonical zero is required; the
+representation-sensitive Symbolica zero predicates do not by themselves
+reject noncanonical `Double(0)` or `Large(0)` coefficients.
 
-Resource staging is part of correctness. Structural validation and sorting/group/cross bounds are admitted before scanning Cartesian integer pairs; integer bit-work, limb-operation, scratch-write, peak-cross and visible-temporary envelopes are admitted before allocation. Use checked arithmetic for exact counts and cap-aware saturating products only for safe upper caps, for example `cross_terms <= 2 * p_terms * q_terms`. Allocate term-order, group, magnitude-span, magnitude-byte, cross-reference, product-limb and accumulator-limb buffers only after those checks. Resource failures must retain the exact `resource`, `requested` and `limit` attribution.
+The implemented algebra route uses public Symbolica APIs end to end:
 
-An outer condition accumulator treats every associate statistic as a stream aggregate. Before each child call it passes the exact unspent budget, intersected with safe structural caps. After success it bounded-adds every child counter. In particular, child quantities named `peak_cross_terms`, `product_scratch_limbs` and `accumulator_scratch_limbs` are still **summed across calls**, not globally maximized; this gives certificate replay one addition law for every counter. Aggregate visible temporary bytes must remain below the aggregate admitted envelope, and final replay must reconstruct the counters and the post-promotion inherited/candidate row categories independently.
+1. Authenticate both context fingerprints, complete ordered variable maps,
+   sparse shapes, canonical monomial order, exponent ranges, and integer
+   payloads.
+2. Widen every authenticated exponent from `u16` to `u32` with
+   `MultivariatePolynomial::map_exp`. Convert the widened polynomial through
+   `RationalPolynomial::from`; widening is required because a native cross
+   product can contain a base exponent as large as `2 * u16::MAX`.
+3. Call `RationalPolynomial::to_polynomial(index_variables, true)` to obtain a
+   polynomial in the index variables over `Q(theta)`. The `true` denominator
+   mode is safe here only because the input was constructed from an
+   authenticated polynomial and therefore has denominator one.
+4. Authenticate the returned outer/index map, every coefficient's ordered
+   base map and unit denominator, source-term conservation, canonical support,
+   exponent bounds, and integer payload before using the projection.
+5. Compare index support, choose the exact minimum-cost anchor, and form each
+   pair of projective cross products with `RationalPolynomialField::mul`.
+   Authenticate each native product against its prospective output envelope,
+   then use exact Symbolica equality.
+
+RustRed owns only the associate semantics, deterministic support/anchor
+routing, admission, authentication, panic containment, provenance, and
+transactional census propagation. Symbolica owns projection, polynomial
+multiplication, integer arithmetic, collection, and equality. No private
+cross-product implementation is retained as a production or test oracle.
+
+Resource staging is part of the boundary contract. Before `map_exp`,
+`to_polynomial`, or `mul`, RustRed admits validation payloads, widened and
+projected exponent storage, actual GMP capacities, projection grouping and
+sorting work, native cross-term and integer-bit work, native dense/heap
+dispatch workspace, output envelopes, and RustRed-visible temporary storage.
+After each native call it reauthenticates maps, denominators, term counts,
+exponents, integer bits, and canonical ordering against those bounds.
+Resource failures retain exact `resource`, `requested`, and `limit`
+attribution. Outer condition compilation passes only the remaining allowance
+to each child and transactionally accumulates the new projection/native
+counters; the obsolete magnitude-copy, limb-operation, and product/accumulator
+scratch counters no longer exist.
 
 ## 9. GCD, factorization, Groebner bases, finite fields and reconstruction
 

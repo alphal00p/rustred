@@ -548,7 +548,11 @@ pub(crate) fn validate_polynomial_on_map(
         limits.max_polynomial_terms,
     )?;
     for (term, coefficient) in polynomial.coefficients.iter().enumerate() {
-        if polynomial.ring.is_zero(coefficient) {
+        // Symbolica's public `Integer` representation can retain a numeric zero
+        // in a noncanonical backend variant, whereas `IntegerRing::is_zero`
+        // recognizes only the canonical small zero.  Authentication is a
+        // numeric boundary, so reject every representation of exact zero.
+        if coefficient.cmp(&Integer::Single(0)) == Ordering::Equal {
             return Err(ExactAlgebraError::ZeroCoefficient { part, term });
         }
     }
@@ -1633,6 +1637,38 @@ mod tests {
                 term: 1,
             })
         ));
+    }
+
+    #[test]
+    fn exact_authentication_rejects_every_backend_representation_of_numeric_zero() {
+        let context = CoefficientContext::new(["x"]);
+        for (part, zero) in [
+            (CoefficientPolynomialPart::Numerator, Integer::Double(0)),
+            (
+                CoefficientPolynomialPart::Numerator,
+                Integer::Large(0.into()),
+            ),
+            (CoefficientPolynomialPart::Denominator, Integer::Double(0)),
+            (
+                CoefficientPolynomialPart::Denominator,
+                Integer::Large(0.into()),
+            ),
+        ] {
+            let mut malformed = context.one();
+            match part {
+                CoefficientPolynomialPart::Numerator => {
+                    malformed.numerator.coefficients[0] = zero;
+                }
+                CoefficientPolynomialPart::Denominator => {
+                    malformed.denominator.coefficients[0] = zero;
+                }
+            }
+            assert_eq!(
+                context.validate(&malformed),
+                Err(ExactAlgebraError::ZeroCoefficient { part, term: 0 })
+            );
+            assert!(!context.contains(&malformed));
+        }
     }
 
     #[test]

@@ -1,9 +1,10 @@
 # Symbolica-first algebra migration audit
 
-Status: production-code audit and B0 implementation record, 2026-08-24. This
-document records the migration required by RustRed's public-Symbolica-first
-policy and the completed first implementation slice. Later priorities remain
-an audit plan rather than a claim that all production algebra has migrated.
+Status: production-code audit and implementation record, begun 2026-08-24 and
+updated 2026-08-25. This document records the migration required by RustRed's
+public-Symbolica-first policy and the completed exact-matrix, affine-composition,
+and strict polynomial-associate slices. Later priorities remain an audit plan
+rather than a claim that all production algebra has migrated.
 
 The companion API inventory is
 [`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md).
@@ -44,10 +45,19 @@ The exact replacement surface in the vendored revision is:
   and [`rational.rs:698`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L698);
 - `RationalPolynomialField::{new, from_poly}` at
   [`rational_polynomial.rs:45`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L45);
+- the public `From<MultivariatePolynomial>` conversion for
+  `RationalPolynomial` at
+  [`rational_polynomial.rs:144`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L144)
+  and `RationalPolynomialField`'s native `Ring::mul` at
+  [`rational_polynomial.rs:817`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L817);
 - `RationalPolynomial::to_polynomial` at
   [`rational_polynomial.rs:572`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L572),
   which splits selected variables into native polynomial indeterminates with
   rational-polynomial coefficients;
+- `MultivariatePolynomial::map_exp` at
+  [`polynomial.rs:1661`](../../vendor/symbolica/src/poly/polynomial.rs#L1661),
+  which widens authenticated exponent storage without changing coefficient
+  arithmetic;
 - `PolynomialRing::{new, from_poly}` at
   [`polynomial.rs:69`](../../vendor/symbolica/src/poly/polynomial.rs#L69);
 - `Matrix::{from_linear, from_nested_vec, transpose}` at
@@ -104,7 +114,7 @@ both sides of that call.
 | P2 | [`coefficient.rs:1260-1331`](../../src/coefficient.rs#L1260): manual exponent-row reconstruction after dropping a parameter | Must replace now | After the existing proof that every dropped exponent is zero, use `evaluate_with_coeff_map` into the target `PolynomialRing<Z,u16>`; map retained variables to target generators and the dropped variable to zero | Preserve malformed-layout, dependence and exponent-range diagnostics. There is no need for a private term copier once absence has been authenticated. |
 | P2 | [`ParametricCoefficientContext::extend_base_polynomial`](../../src/parametric_coefficient.rs): manual extension of every exponent row from the base map to the parametric map | Must replace now | Clone the authenticated base polynomial and call `MultivariatePolynomial::add_variables` with the index variables | Preserve exact variable-order/context validation and retained-memory admission. |
 | B0 (complete) | [`parametric_coefficient.rs`](../../src/parametric_coefficient.rs): affine polynomial composition | Migrated | `MultivariatePolynomial::evaluate_with_coeff_map` on safe mixed-radix inputs; simultaneous `AtomCore::replace_multiple`, direct `expand`, and polynomial conversion otherwise | Production and tests use Symbolica algebra exclusively. The former RustRed weak-composition, Cartesian enumeration, radix sorting, collection, workspace types, and reference entry points were deleted rather than retained as an oracle. |
-| P1 | [`ParametricCoefficientContext::polynomial_loci_are_associates_with_census`](../../src/parametric_coefficient.rs) and its private magnitude helpers: polynomial-associate proof with private arbitrary-precision limb multiplication and signed accumulation | Must replace arithmetic now | Use `RationalPolynomial::to_polynomial(index_variables, false)`, then native rational-polynomial division and polynomial scaling, subtraction, and equality | Delete all private limb arithmetic. Preserve index-support grouping, strict-associate semantics, anchor provenance, bounded grouping and zero handling. |
+| P1 (complete) | [`ParametricCoefficientContext::polynomial_loci_are_associates_with_census`](../../src/parametric_coefficient.rs): strict polynomial-associate proof over `K = Q(theta)` | Migrated | Public `map_exp(u16 -> u32)`, `RationalPolynomial::from`, `to_polynomial(index_variables, true)`, `RationalPolynomialField::mul`, and authenticated exact equality | Symbolica owns projection, arbitrary-precision arithmetic, collection, and comparison. RustRed retains only strict associate semantics, deterministic support/anchor routing, resource admission, authentication, panic containment, provenance, and transactional census propagation. The former private magnitude/limb engine and its counters were deleted. |
 | P2 | [`ParametricCoefficientContext::permute_polynomial_raw` and `execute_specialize_polynomial_raw`](../../src/parametric_coefficient.rs): manual permutation and full specialization/collection | Must replace now | Simultaneous `evaluate_with_coeff_map` into `PolynomialRing<Z,u16>` | Keep context-map validation and prospective/observed envelopes. Translation and partial specialization already use native `replace_with_poly`/`replace`. |
 | P2 | [`symbolica_tensor_numerator.rs:1044-1180`](../../src/symbolica_tensor_numerator.rs#L1044): tensor-head-aware distributive expansion of `Atom` addition, multiplication and powers | Native-first API-gap migration | Use `AtomCore::expand` or `expand_via_poly` on the smallest authenticated tensor-containing subtree, or a public Symbolica transformer that preserves selective expansion | RustRed deliberately leaves scalar-only powers as opaque weights and enforces limits before allocation, so whole-expression `expand` is not a drop-in. Retain tensor grammar/preflight/decoding. If public composition cannot preserve those semantics, keep only the selective syntax wrapper, document the exact gap locally, and differentially test every admitted input against native expansion. |
 | P1 (next/high) | [`vakint_adapter.rs:652-713`](../../src/vakint_adapter.rs#L652): private `controlled_distribute` Cartesian Atom distribution | Pending native-first migration; not part of the affine-composition milestone | Prefer public `AtomCore::expand_in` for authenticated tensor/topology symbols; alternatively mask Pow/Fun leaves with collision-rejected simultaneous replacements around `AtomCore::expand` | A naked whole-expression `expand` is not semantics-preserving: it expands additive power bases and normalizes/collects terms that the current decoder treats as opaque or distinct. Preserve the admitted Vakint numerator grammar, typed preflight, source provenance, and spectator opacity; differential tests must authenticate the chosen native route before deleting the private distributor. |
@@ -184,6 +194,38 @@ parallel workers.
   now records `peak_charged_bytes = 1_070_904` under the documented logical
   payload metric.
 
+### Polynomial-associate migration and validation evidence
+
+The strict `K = Q(theta)` associate proof now widens authenticated exponents
+to `u32`, projects the index variables with public Symbolica APIs, and asks
+`RationalPolynomialField::mul` for every projective cross product. Both
+projections and products are authenticated before exact equality is trusted.
+Zero inputs return `false`, and numeric zero validation also covers
+noncanonical `Integer::Double(0)` and `Integer::Large(0)` representations.
+The old magnitude extraction, limb multiplication/accumulation, and scratch
+workspace implementation was deleted. Its resource fields were replaced by
+projection, native multiplication/output/bit-work, native dense-or-heap
+workspace, and RustRed-visible temporary envelopes.
+
+All licensed commands received `SYMBOLICA_LICENSE` only in their process
+environment; the key is not stored in this repository or documentation. The
+final frozen tree passed:
+
+- `cargo check --lib` and `cargo test --lib --no-run` with default
+  GMP-backed Symbolica;
+- `cargo check --all-features --all-targets -j4`;
+- nextest `3f7f5d42-f882-47e0-83c0-22b2218ba5a7`: 58/58 focused strict
+  associate, authentication, native-dispatch, and exact/one-below resource
+  tests;
+- nextest `4b2dcb72-2c7b-4892-ab80-b72f2a181354`: 11/11 generated-condition
+  and aggregate-census consumers;
+- release nextest `d4f5db37-0cda-408b-b78f-ad8129a1043a`: 69/69 associate
+  and numeric-zero tests; and
+- a complete optimized `cargo nextest run --release --lib -j4
+  --no-fail-fast`: 945/945 library tests passed, with no skipped or failed
+  tests. The suite ran independent test processes concurrently, and nextest
+  used four workers throughout.
+
 ## RustRed-owned semantic wrappers that remain justified
 
 These components are not generic replacements for Symbolica algebra. They
@@ -253,7 +295,7 @@ must not be needed by the default generic path.
 | Feynman polynomials | Differentially compare `U`, `F`, `G`, all gradients and every tested sector face for one- and two-loop generic families. Verify homogeneity, adjugate identity `A adj(A) = det(A) I`, and native matrix contraction. |
 | Base specialization and polynomial substitution | Compare native evaluation with the old path on zero, constants, sparse multivariate values, rational images and denominator-zero points. Test parameter projection after an authenticated zero-exponent proof, rejection of genuine dropped-parameter dependence, base-map extension, simultaneous permutations with nontrivial cycles and full specializations into a smaller base map. |
 | Affine composition | For V1 and V2 plans, compare the selected Symbolica compositor with independent exact fixtures on constants, translations, mixed affine images and cancellation-heavy inputs. Include differently written equal inputs, the polynomial-evaluator/Atom-fallback stride boundary, GMP cancellation, exact and one-below resource gates, and typed panic boundaries. |
-| Polynomial associates | Test equality up to nonzero base-field rational factors, different index support, zero input, cancellation, large GMP coefficients and multiple base/index variables. Compare each grouped cross-product with native polynomial arithmetic. |
+| Polynomial associates | Test strict equality up to a nonzero `Q(theta)` factor, different index support, zero input, cancellation, large GMP coefficients, multiple base/index variables, noncanonical integer-zero variants, and the `u16::MAX` cross-product boundary after `u32` widening. Require `p` versus `p^2` to be false, authenticate every native projection/product, exercise exact and one-below resource gates and the typed panic boundary, and compare with an independent public-Symbolica quotient oracle in tests. |
 | Tensor `Atom` expansion | Compile factored, expanded, reordered and differently parenthesized but equal tensor expressions to the same structured numerator. Include opaque scalar weights, reserved heads, powers, malformed inputs and exact/one-below expansion limits. |
 | Symmetry | Compare native determinants and standard matrix products with the previous result; replay external Gram preservation, scalar-product maps and every source denominator independently. Test singular maps and parameter-specialization guard failures. |
 | Integer affine solvers | Differentially compare native and old gcd/Bezout outputs after convention normalization. Replay every row operation, verify all returned lattice basis vectors, and exhaust small integer boxes for completeness. Compare rational rank and satisfiability with `Matrix<Q>`. |
@@ -270,8 +312,9 @@ introduce loop-count or topology dispatch into production rule derivation.
    `Q`/`Matrix<Q>`. **B0 complete.**
 3. Move generated-affine production composition to the selected dual-Symbolica
    polynomial-evaluator/Atom-expansion backends. **Composition complete.**
-   Replace the private limb-based associate proof through
-   `RationalPolynomial::to_polynomial` plus native operations.
+   Move the strict associate proof through public exponent widening,
+   `RationalPolynomial::to_polynomial`, and native coefficient-field
+   multiplication/equality. **Associate migration complete.**
 4. Migrate direct matrix consumers: generic family, automatic ISP, tensor
    projectors, symmetry, symmetry discovery, and Feynman determinants.
 5. Build the `SparseRowReducer` transcript-equivalence spike; move row algebra

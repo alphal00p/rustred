@@ -4015,8 +4015,10 @@ impl GeneratedAffineRelativeProblemAssembly {
                 child.exact_algebra,
                 limits.arithmetic.exact_algebra,
             );
-            child.max_cross_terms = child.max_cross_terms.min(remaining_pairs);
-            child.max_peak_cross_terms = child.max_peak_cross_terms.min(remaining_pairs);
+            child.max_native_cross_term_pairs =
+                child.max_native_cross_term_pairs.min(remaining_pairs);
+            child.max_peak_native_cross_term_pairs =
+                child.max_peak_native_cross_term_pairs.min(remaining_pairs);
             child.max_context_fingerprint_comparison_bytes = child
                 .max_context_fingerprint_comparison_bytes
                 .min(remaining_payload_bytes);
@@ -4043,7 +4045,7 @@ impl GeneratedAffineRelativeProblemAssembly {
             self.stats.comparison_term_pairs = checked_add(
                 "generated affine WhenBad associate term pairs",
                 self.stats.comparison_term_pairs,
-                stats.cross_terms(),
+                stats.native_cross_term_pairs(),
             )?;
             self.stats.comparison_exponent_entries = checked_add(
                 "generated affine WhenBad associate exponent entries",
