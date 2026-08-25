@@ -1054,10 +1054,10 @@ pub use symbolica_tensor_numerator::{
     SymbolicaWeightedCovariantTensorMonomial,
 };
 pub use symmetry::{
-    AFFINE_FAMILY_MAP_V1_SCHEMA, AffineDenominatorMap, AffineScalarProductMap,
-    DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap, SymmetryVerificationError,
-    SymmetryVerificationLimits, SymmetryVerificationStats, VerifiedAffineFamilyMap,
-    verify_affine_family_map,
+    AFFINE_FAMILY_MAP_V1_SCHEMA, AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap,
+    AffineScalarProductMap, DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap,
+    SymmetryVerificationError, SymmetryVerificationLimits, SymmetryVerificationStats,
+    VerifiedAffineFamilyMap, verify_affine_family_map,
 };
 pub use symmetry_discovery::{
     BOUNDED_INTEGER_VACUUM_SYMMETRY_SEARCH_V1_SCHEMA,

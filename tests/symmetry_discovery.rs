@@ -362,7 +362,19 @@ fn zero_execution_limits_are_typed_partial_reports_and_never_panics() {
     assert_limited(limits);
 
     let mut limits = InternalSymmetrySearchLimits::default();
-    limits.verification.max_determinant_states = 0;
+    limits.verification.max_symbolica_single_matrix_entries = 0;
+    assert_limited(limits);
+
+    let mut limits = InternalSymmetrySearchLimits::default();
+    limits.verification.max_symbolica_live_matrix_entries = 0;
+    assert_limited(limits);
+
+    let mut limits = InternalSymmetrySearchLimits::default();
+    limits.verification.max_symbolica_input_retained_bytes = 0;
+    assert_limited(limits);
+
+    let mut limits = InternalSymmetrySearchLimits::default();
+    limits.verification.max_symbolica_output_retained_bytes = 0;
     assert_limited(limits);
 
     let mut limits = InternalSymmetrySearchLimits::default();

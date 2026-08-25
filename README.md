@@ -248,13 +248,16 @@ and the independent singularity guard remain RustRed-owned boundaries.
 
 B0 is not the end of the Symbolica-first cleanup. Generated-affine composition,
 strict polynomial-associate checks, generic-family matrices, automatic ISP
-rank, and tensor-projector matrices have since crossed public Symbolica APIs.
-The active slice moves affine-family/symmetry determinants, transpose, Gram
-congruence, and denominator-coordinate products to the authenticated
-Symbolica boundary. Vacuum-critical follow-up includes graph-lifted symmetry
-discovery and the `SparseRowReducer` transcript-equivalence path; unrelated
-Feynman/non-vacuum algebra migrations stay required but no longer displace the
-six-loop vacuum critical path.
+rank, tensor-projector matrices, and the affine-family/symmetry verifier have
+since crossed public Symbolica APIs. The latter now delegates determinants,
+transpose, Gram congruence, and denominator-coordinate products through an
+authenticated V2 boundary while retaining an independent physics replay.
+The next vacuum-critical solver milestone is the topology-neutral
+`Ready -> WhenBad/descent -> atomic guarded-rule/residual publication ->
+replay-certified closure` slice. Graph-lifted symmetry discovery and the
+`SparseRowReducer` transcript-equivalence path follow on the scaling route;
+unrelated Feynman/non-vacuum algebra migrations stay required but no longer
+displace the six-loop vacuum critical path.
 
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:

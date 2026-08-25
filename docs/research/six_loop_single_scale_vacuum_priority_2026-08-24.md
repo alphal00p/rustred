@@ -305,6 +305,10 @@ throughput.
 
 ## 8. Revised implementation order
 
+Checkpoint update: item 1 is complete in the affine-family-map V2 milestone;
+item 2 is now the active implementation slice.  This status does not claim a
+complete family reduction or any six-loop result.
+
 1. Finish the Symbolica-native affine-family/symmetry verifier and independent
    matrix oracle; push it as a standalone milestone.
 2. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication

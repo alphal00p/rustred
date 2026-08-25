@@ -3,7 +3,8 @@
 Status: production-code audit and implementation record, begun 2026-08-24 and
 updated 2026-08-25. This document records the migration required by RustRed's
 public-Symbolica-first policy and the completed exact-matrix, affine-composition,
-strict polynomial-associate, and generic-family coefficient-matrix slices.
+strict polynomial-associate, generic-family coefficient-matrix, and
+affine-family symmetry slices.
 Later priorities remain an audit plan rather than a claim that all production
 algebra or all matrix consumers have migrated.
 
@@ -29,11 +30,12 @@ gcd, normalization, Gaussian elimination, rank, multiplication, transpose,
 and determinant code has been deleted. Checked adapters now call
 `Matrix<Q>::{inv,rank,det,transpose}` and native matrix multiplication.
 
-The generic-family, automatic-ISP-rank, and tensor-projector P1 matrix slices
-are complete. Their determinant, rank, inverse, coefficient-power, and matrix
-verification operations now run through Symbolica's public APIs over a checked
-contextual coefficient field. The remaining P1 matrix rows in this audit are
-still pending unless their table row explicitly says otherwise.
+The generic-family, automatic-ISP-rank, tensor-projector, and affine-family
+symmetry P1 matrix slices are complete. Their determinant, rank, inverse,
+coefficient-power, transpose, and matrix-product operations now run through
+Symbolica's public APIs over a checked contextual coefficient field. The
+remaining P1 matrix rows in this audit are still pending unless their table
+row explicitly says otherwise.
 
 RustRed may continue to own LiteRed semantics around Symbolica operations:
 integral ordering, pivot-condition guards, `WhenBad` branches, source-row
@@ -114,9 +116,9 @@ both sides of that call.
 | P1 (complete) | [`generic_family.rs:1888-1919`](../../src/generic_family.rs#L1888): symbolic inverse, determinant and inverse verification | Migrated | `Matrix<CheckedCoefficientField>::det`, `inv`, and native matrix multiplication in [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns the determinant, inverse, and both products. RustRed retains the authenticated ordered coefficient context, determinant nonzero condition, resource admission, typed errors, and entrywise two-sided replay. |
 | P1 (complete) | [`automatic_isps.rs`](../../src/automatic_isps.rs): formerly hand-written Gaussian rank | Migrated | Authenticated `Matrix<CheckedCoefficientField>::partial_row_reduce` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every pivot, inverse, multiplication, subtraction, and row reduction. RustRed retains deterministic candidate order, native-operation/resource admission, the rank-progression certificate, and replay. New certificates use the V2 schema because their exact work census describes Symbolica's schedule. |
 | P1 (complete) | [`tensor.rs`](../../src/tensor.rs) and [`generic_tensor_projector.rs`](../../src/generic_tensor_projector.rs): formerly handwritten Gram inversion and binary coefficient exponentiation | Migrated | Authenticated `Matrix<CheckedCoefficientField>::inv` plus determinant/two-sided replay; public `RationalPolynomialField::pow` | Symbolica owns every Gram inverse, verification product, and coefficient power. RustRed retains pairing enumeration, contraction connectivity, determinant/inverse-denominator guards, typed resource admission, and replay. V2 projector schemas replace pivot-schedule provenance with the basis-independent Gram determinant. |
-| P1 | [`symmetry.rs:1384-1440`](../../src/symmetry.rs#L1384): subset-DP determinant | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::det` | Keep determinant nonzero guards and panic/resource boundaries. |
+| P1 (complete) | [`symmetry.rs`](../../src/symmetry.rs): formerly a subset-DP coefficient determinant | Migrated | Authenticated `Matrix<CheckedCoefficientField>::det` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every nonempty determinant; RustRed retains nonzero guards, typed admission/panic boundaries, and the structural vacuum convention `det(0x0)=1`. V2 certificates report native calls and admitted versus actual work; the legacy subset-state census is always zero. |
 | P1 | [`symmetry_discovery.rs:1209-1275`](../../src/symmetry_discovery.rs#L1209): private integer Bareiss determinant | Must replace now | `Matrix<Z>::det` | Keep candidate enumeration and conservative integer-bit/work admission. Symbolica's matrix determinant is already fraction-free/Bareiss. |
-| P1 | [`symmetry.rs:907-938`](../../src/symmetry.rs#L907) and [`symmetry.rs:1087-1127`](../../src/symmetry.rs#L1087): recognizable `C G C^T`, `R T`, and product-with-inverse kernels | Must move native matrix kernels | Symbolica matrix multiplication and transpose | Keep the independently derived scalar-product map and denominator replay as semantic verification; use native matrices for ordinary products. |
+| P1 (complete) | [`symmetry.rs`](../../src/symmetry.rs): formerly handwritten `C G C^T`, `R_s h`, `R_s T R_t^-1`, and `P c_t` kernels | Migrated | Authenticated public Symbolica transpose and matrix multiplication through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every ordinary matrix operation. RustRed retains scalar-product-coordinate construction, affine sign/placement semantics, complete guard provenance, and a fresh direct denominator replay that does not consume the retained scalar-product map. |
 | P1 | [`feynman_polynomials.rs:969-1080`](../../src/feynman_polynomials.rs#L969): subset-DP determinants for `U` and every adjugate minor | Must replace now | `Matrix<PolynomialRing<RationalPolynomialField<Z,u16>,u16>>::det` | Minor selection/adjugate placement remains structural bookkeeping. The determinant of each selected matrix is native. |
 | P2 | [`feynman_polynomials.rs:294-380`](../../src/feynman_polynomials.rs#L294) and [`feynman_polynomials.rs:491-717`](../../src/feynman_polynomials.rs#L491): derivative, face restriction, add/subtract/multiply/scale and collection over a native polynomial type | Must replace now | `derivative`, `replace(..., 0)`, native `+`, `-`, `*`, coefficient-ring operations | Keep prospective exponent/term limits, context authentication and panic containment. |
 | P2 | [`feynman_polynomials.rs:887-924`](../../src/feynman_polynomials.rs#L887): standard adjugate/Gram quadratic contraction | Must move native matrix kernels | Matrix multiplication/transpose over `PolynomialRing<RPF,u16>` | Preserve the Feynman-polynomial construction formula and homogeneity checks. |
@@ -363,6 +365,50 @@ and release run `6c67dc52-c12d-4132-aa51-f907d3b00457`; and optimized run
 closure, and Vakint-oracle binaries with four workers. A final
 `cargo check --all-features --all-targets -j4` also passed.
 
+### Affine-family symmetry migration and validation evidence
+
+The generic verifier now sends every nonempty loop/external determinant,
+external-Gram congruence, denominator-basis product, and affine matrix-vector
+product through the checked public Symbolica matrix boundary.  The former
+subset-state determinant implementation has been deleted.  A vacuum external
+map is the one structural exception: the vendored `Matrix::det` reports a
+`0x0` matrix as singular, so RustRed returns the mathematical empty
+determinant one before entering Symbolica.
+
+The V2 certificate retains both the conservative admitted native-operation
+envelope and the actual checked-field operation count.  Its enforceable
+aggregate exact-operation cap is the admitted envelope, which can be replayed
+exactly even when Bareiss exits early; actual native work remains separately
+observable.  Single-matrix entries, simultaneously live entries, authenticated
+input/output bytes, determinant/product/transpose call counts, and exact
+one-below boundaries are all reported.  The V1 subset-state field remains in
+the public limits structure only for source compatibility and is ignored by
+V2.
+
+RustRed still constructs upper-triangular scalar-product coordinates and
+affine constants because those are family semantics.  It also independently
+re-expands every source denominator directly from the momentum witness rather
+than trusting the retained scalar-product map.  The external oracle goes in
+the other direction: it uses bare public Symbolica matrices to form the full
+momentum congruence, scalar-coordinate response matrices,
+`R_s T R_t^-1`, and affine shifts, then compares every production entry.  It
+covers rational four-by-four maps, singular rejection, the vacuum `0x0`
+boundary, non-vacuum external shifts, and simultaneous denominator-basis
+shears.
+
+Final licensed GMP validation used four nextest workers:
+
+- checked coefficient-matrix run
+  `5923f3c1-4ad3-43f0-844a-fb463f548ab7`: 29/29 passed;
+- debug symmetry/discovery/provider/transport/oracle run
+  `c5b6a94c-5233-4231-96c3-df75a205da9c`: 36/36 passed;
+- optimized repeat
+  `f6cb622a-1c8d-4a77-83e4-2ac2dae5dc91`: 36/36 passed; and
+- `cargo check --all-features --all-targets -j4` passed.
+
+The license was supplied only to each process environment.  No FORM process,
+`no_gmp` feature, topology-specific verifier, or authored recurrence took part.
+
 ### Polynomial-associate migration and validation evidence
 
 The strict `K = Q(theta)` associate proof now widens authenticated exponents
@@ -408,7 +454,7 @@ encode semantics that the public matrix API does not expose.
 | [`residual_affine_integer_lattice_kernel.rs:970-1213`](../../src/residual_affine_integer_lattice_kernel.rs#L970) and [`residual_affine_integer_lattice_kernel.rs:1545-1660`](../../src/residual_affine_integer_lattice_kernel.rs#L1545) | Produces the complete integral affine solution lattice and a unimodular transform transcript. Public `Matrix<Z>::solve_fraction_free` returns one determined solution, not a Smith/Hermite-style lattice parameterization. | Check the rational affine span with `Matrix<Q>` and bounded integer-point enumeration; use native gcd inside the wrapper. |
 | [`residual_affine_integer_system.rs:2273-2865`](../../src/residual_affine_integer_system.rs#L2273) and [`residual_affine_integer_system.rs:3293-3379`](../../src/residual_affine_integer_system.rs#L3293) | Implements LiteRed's original-coordinate unit-pivot cylinder search, unsupported-congruence boundary, affine projection and row-operation replay. | Compare satisfiability/rational rank with `Matrix<Q>` and exhaust small bounded integer boxes. Use native gcd/extended gcd. |
 | [`zero_sectors.rs:774-776`](../../src/zero_sectors.rs#L774) and [`zero_sectors.rs:1047-1154`](../../src/zero_sectors.rs#L1047) | This is already the desired composition: native `Matrix<Q>::row_reduce`, followed by deterministic kernel-vector choice and primitive-integer certificate formatting. | Existing replay plus independent matrix-kernel checks. |
-| [`symmetry.rs:941-1066`](../../src/symmetry.rs#L941) and [`symmetry.rs:1167-1360`](../../src/symmetry.rs#L1167) | Upper-triangular scalar-product coordinates, off-diagonal folding, affine denominator semantics and an independently derived replay are domain-specific tensor-map logic. Scalar coefficient operations remain native. | Native ordinary matrix products for the standard sub-kernels, plus direct denominator substitution/replay. |
+| [`symmetry.rs`](../../src/symmetry.rs) | Upper-triangular scalar-product coordinates, off-diagonal folding, affine denominator semantics and an independently derived replay are domain-specific tensor-map logic. Scalar coefficient operations and all ordinary matrix kernels are native. | The V2 verifier uses native determinant/transpose/products, then directly substitutes and replays every denominator without consuming the retained scalar-product map. |
 | [`symbolica_affine_denominator.rs:1511-1765`](../../src/symbolica_affine_denominator.rs#L1511) | Recognizing and contracting the declared scalar-product function into loop/external coordinates is expression-language and family semantics. Only that grammar and contraction remain justified; manual polynomial projection/lifting must migrate to `RationalPolynomial::to_polynomial`. | Recompile the retained `Atom`, compare native momentum-polynomial decomposition, explicit bilinear expansions, and differently parenthesized inputs. |
 | [`tensor_family.rs:183-246`](../../src/tensor_family.rs#L183) and [`generic_tensor_family.rs:677-750`](../../src/generic_tensor_family.rs#L677) | Mapping final monomials to denominator-power shifts and retaining per-input origin/resource semantics are RustRed responsibilities. Polynomial multiplication, exponentiation, and collection are not; they must migrate to Symbolica even though the current key representation admits `u64`. | Differentially compare the native polynomial result with every old coefficient/key. Define a checked policy for exponents outside Symbolica's public exponent domain instead of retaining a private algebra engine. |
 | [`residual_unit_affine_index_map.rs:686-825`](../../src/residual_unit_affine_index_map.rs#L686) and [`coordinate_equality_loci.rs:798-888`](../../src/coordinate_equality_loci.rs#L798) | These routines recognize and certify restricted affine forms/associates used for branching; they are not general polynomial solvers. Exact division already delegates to `Z.quot_rem`. | Compare accepted forms with native polynomial/rational-polynomial equality, and reject perturbed coefficients, supports and constants. |
@@ -485,8 +531,9 @@ introduce loop-count or topology dispatch into production rule derivation.
    `RationalPolynomial::to_polynomial`, and native coefficient-field
    multiplication/equality. **Associate migration complete.**
 4. Migrate direct matrix consumers. **The generic-family coefficient-matrix,
-   automatic-ISP rank, and tensor-projector slices are complete.** Symmetry,
-   symmetry discovery, and Feynman determinants remain pending.
+   automatic-ISP rank, tensor-projector, and affine-family symmetry-verifier
+   slices are complete.** Integer symmetry-discovery and Feynman determinants
+   remain pending.
 5. Build the `SparseRowReducer` transcript-equivalence spike; move row algebra
    native wherever column reindexing and full `L` preserve RustRed's ordering,
    provenance, guard, and replay semantics.

@@ -657,8 +657,9 @@ Parallel, licensed GMP validation for this milestone recorded:
   workers and no failures; and
 - a passing `cargo check --all-features --all-targets -j4`.
 
-The generic-family coefficient-matrix, automatic-ISP rank, and tensor-projector
-P1 rows are complete at this checkpoint. The automatic-ISP slice passed 23/23 adapter
+The generic-family coefficient-matrix, automatic-ISP rank, tensor-projector,
+and affine-family symmetry-verifier P1 rows are complete at this checkpoint.
+The automatic-ISP slice passed 23/23 adapter
 tests (`9b7572e7-ef39-4e21-bd15-5165c714985b`), 30/30 combined internal tests
 (`b7a94288-7f4c-470c-ae60-461e633c5fe0`), 8/8 public completion tests
 (`5699bda7-d1a3-480b-803e-0ab0dbcf7c30`), and 3/3 independent maximal-minor
@@ -670,9 +671,12 @@ four- and five-loop factorized reductions. The tensor-projector oracle solves
 all 15 rank-six inverse columns independently with `Matrix::solve` and passed
 in both debug and release. Optimized parallel run
 `fb9a0cda-1b7a-4494-8032-d7cbc8ea1422` then passed 28/28 selected tensor,
-closure, and Vakint-oracle tests. The all-feature/all-target compile check
-passed as well. Symmetry matrices, symmetry-discovery determinants, and
-Feynman-polynomial matrix consumers remain separate migration work.
+closure, and Vakint-oracle tests. The affine-family verifier delegates every
+nonempty determinant, transpose, congruence, triple product, and matrix-vector
+product through the same authenticated boundary; debug and optimized
+symmetry/transport/oracle runs each passed 36/36 tests. The all-feature/all-
+target compile check passed as well. Integer symmetry-discovery determinants
+and Feynman-polynomial matrix consumers remain separate migration work.
 
 ### 10.2 Sparse matrices and row reduction
 
@@ -844,7 +848,7 @@ does not preserve its opaque scalar-weight semantics, and no suitable public
 selective-expansion API has yet been verified. That exact gap remains in the
 migration table and requires a native differential route before the private
 distributor can be deleted. Other open policy gaps include tensor-family
-shift-polynomial arithmetic, remaining symmetry/Feynman matrix consumers, no
+shift-polynomial arithmetic, symmetry-discovery/Feynman matrix consumers, no
 generic finite-field `K(n)` sampling/reconstruction engine, and no complete
 durable parametric-rule artifact. These gaps block a complete LiteRed/Vakint
 parity claim; they do not make the generic IBP identity generator

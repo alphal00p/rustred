@@ -17,12 +17,20 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::generic_family::BasePolynomial;
+use crate::symbolica_coefficient_matrix::{
+    DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
+    SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
+    SymbolicaCoefficientMatrixStats, congruence_of_coefficient_matrix,
+    determinant_of_coefficient_matrix, multiply_coefficient_matrices,
+    multiply_three_coefficient_matrices,
+};
 use crate::{
     Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits, FamilyDomain,
     GenericFamilyError, GuardOrigin, IntegralFamily, ScalarProductCoordinate,
 };
 
 pub const AFFINE_FAMILY_MAP_V1_SCHEMA: &str = "rustred-affine-family-map-v1";
+pub const AFFINE_FAMILY_MAP_V2_SCHEMA: &str = "rustred-affine-family-map-v2";
 pub const DEFAULT_MAX_EXACT_MATRIX_ENTRIES: usize = 16_000_000;
 
 /// A checked row-major matrix.  Empty dimensions are supported because a
@@ -243,8 +251,26 @@ impl SymmetryNonZeroCondition {
 pub struct SymmetryVerificationLimits {
     pub exact_algebra: ExactAlgebraLimits,
     pub max_matrix_entries: usize,
+    /// Aggregate replayable admission envelope for checked scalar calls and
+    /// native Symbolica schedules.  Actual native calls are retained
+    /// separately in [`SymmetryVerificationStats::symbolica_exact_operations`].
     pub max_exact_operations: usize,
+    /// Legacy V1 subset-DP ceiling retained for source compatibility.  V2
+    /// delegates determinants to Symbolica and does not allocate or charge
+    /// subset states, so this field is intentionally ignored.
     pub max_determinant_states: usize,
+    /// Largest individual matrix admitted inside one authenticated Symbolica
+    /// determinant or product session.
+    pub max_symbolica_single_matrix_entries: usize,
+    /// Largest conservative simultaneously-live native matrix payload in one
+    /// authenticated Symbolica session.
+    pub max_symbolica_live_matrix_entries: usize,
+    /// Aggregate clone-owned bytes copied into authenticated Symbolica matrix
+    /// inputs across one complete derivation/replay pass.
+    pub max_symbolica_input_retained_bytes: usize,
+    /// Aggregate clone-owned bytes authenticated in native determinant and
+    /// product outputs across one complete derivation/replay pass.
+    pub max_symbolica_output_retained_bytes: usize,
     pub max_guard_polynomials: usize,
     pub max_guard_origins: usize,
 }
@@ -256,6 +282,10 @@ impl Default for SymmetryVerificationLimits {
             max_matrix_entries: 16_000_000,
             max_exact_operations: 100_000_000,
             max_determinant_states: 16_000_000,
+            max_symbolica_single_matrix_entries: 16_000_000,
+            max_symbolica_live_matrix_entries: 32_000_000,
+            max_symbolica_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
+            max_symbolica_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
             max_guard_polynomials: 1_000_000,
             max_guard_origins: 4_000_000,
         }
@@ -265,8 +295,21 @@ impl Default for SymmetryVerificationLimits {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SymmetryVerificationStats {
     matrix_entries: usize,
+    /// Aggregate admitted exact-operation envelope.  Native sessions retain
+    /// their public Symbolica preflight bound so this value is replayable as
+    /// an exact limit even when a determinant's actual schedule is smaller.
     exact_operations: usize,
+    /// Legacy V1 subset-DP state census.  Always zero for V2 certificates.
     determinant_states: usize,
+    symbolica_exact_operations: usize,
+    symbolica_admitted_exact_operations: usize,
+    symbolica_largest_matrix_entries: usize,
+    symbolica_peak_live_matrix_entries: usize,
+    symbolica_input_retained_bytes: usize,
+    symbolica_output_retained_bytes: usize,
+    symbolica_determinant_calls: usize,
+    symbolica_product_calls: usize,
+    symbolica_transpose_calls: usize,
     guard_polynomials: usize,
     guard_origins: usize,
 }
@@ -282,6 +325,47 @@ impl SymmetryVerificationStats {
 
     pub const fn determinant_states(self) -> usize {
         self.determinant_states
+    }
+
+    /// Exact arithmetic calls actually observed inside native Symbolica
+    /// determinant and product sessions.
+    pub const fn symbolica_exact_operations(self) -> usize {
+        self.symbolica_exact_operations
+    }
+
+    /// Aggregate public-Symbolica operation envelope admitted before native
+    /// execution.  This may exceed `symbolica_exact_operations` for a
+    /// data-dependent determinant schedule.
+    pub const fn symbolica_admitted_exact_operations(self) -> usize {
+        self.symbolica_admitted_exact_operations
+    }
+
+    pub const fn symbolica_largest_matrix_entries(self) -> usize {
+        self.symbolica_largest_matrix_entries
+    }
+
+    pub const fn symbolica_peak_live_matrix_entries(self) -> usize {
+        self.symbolica_peak_live_matrix_entries
+    }
+
+    pub const fn symbolica_input_retained_bytes(self) -> usize {
+        self.symbolica_input_retained_bytes
+    }
+
+    pub const fn symbolica_output_retained_bytes(self) -> usize {
+        self.symbolica_output_retained_bytes
+    }
+
+    pub const fn symbolica_determinant_calls(self) -> usize {
+        self.symbolica_determinant_calls
+    }
+
+    pub const fn symbolica_product_calls(self) -> usize {
+        self.symbolica_product_calls
+    }
+
+    pub const fn symbolica_transpose_calls(self) -> usize {
+        self.symbolica_transpose_calls
     }
 
     pub const fn guard_polynomials(self) -> usize {
@@ -314,7 +398,7 @@ pub struct VerifiedAffineFamilyMap {
 }
 
 impl VerifiedAffineFamilyMap {
-    pub const SCHEMA: &'static str = AFFINE_FAMILY_MAP_V1_SCHEMA;
+    pub const SCHEMA: &'static str = AFFINE_FAMILY_MAP_V2_SCHEMA;
 
     pub fn source_family_fingerprint(&self) -> &str {
         &self.source_family_fingerprint
@@ -467,6 +551,9 @@ pub enum SymmetryVerificationError {
         requested: usize,
         limit: usize,
     },
+    InternalSymbolicaAlgebra {
+        detail: String,
+    },
     ExactAlgebra(ExactAlgebraError),
     Family(GenericFamilyError),
 }
@@ -564,6 +651,12 @@ impl fmt::Display for SymmetryVerificationError {
                 formatter,
                 "symmetry {resource} requested {requested}, configured limit is {limit}"
             ),
+            Self::InternalSymbolicaAlgebra { detail } => {
+                write!(
+                    formatter,
+                    "native Symbolica symmetry algebra failed: {detail}"
+                )
+            }
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Family(error) => error.fmt(formatter),
         }
@@ -737,6 +830,135 @@ impl<'a> ReplayAlgebra<'a> {
         )
     }
 
+    fn remaining_symbolica_limits(
+        &self,
+    ) -> Result<SymbolicaCoefficientMatrixLimits, SymmetryVerificationError> {
+        let max_exact_operations = self
+            .limits
+            .max_exact_operations
+            .checked_sub(self.stats.exact_operations)
+            .ok_or(SymmetryVerificationError::ResourceLimit {
+                resource: "exact operations",
+                requested: self.stats.exact_operations,
+                limit: self.limits.max_exact_operations,
+            })?;
+        let max_input_retained_bytes = self
+            .limits
+            .max_symbolica_input_retained_bytes
+            .checked_sub(self.stats.symbolica_input_retained_bytes)
+            .ok_or(SymmetryVerificationError::ResourceLimit {
+                resource: "Symbolica input retained bytes",
+                requested: self.stats.symbolica_input_retained_bytes,
+                limit: self.limits.max_symbolica_input_retained_bytes,
+            })?;
+        let max_output_retained_bytes = self
+            .limits
+            .max_symbolica_output_retained_bytes
+            .checked_sub(self.stats.symbolica_output_retained_bytes)
+            .ok_or(SymmetryVerificationError::ResourceLimit {
+                resource: "Symbolica output retained bytes",
+                requested: self.stats.symbolica_output_retained_bytes,
+                limit: self.limits.max_symbolica_output_retained_bytes,
+            })?;
+        Ok(SymbolicaCoefficientMatrixLimits {
+            exact_algebra: self.limits.exact_algebra,
+            max_single_matrix_entries: self.limits.max_symbolica_single_matrix_entries,
+            max_live_matrix_entries: self.limits.max_symbolica_live_matrix_entries,
+            max_exact_operations,
+            max_input_retained_bytes,
+            max_output_retained_bytes,
+        })
+    }
+
+    fn absorb_symbolica_stats(
+        &mut self,
+        stats: SymbolicaCoefficientMatrixStats,
+    ) -> Result<(), SymmetryVerificationError> {
+        // Symbolica preflights its complete native schedule.  Retaining that
+        // admitted count, rather than a data-dependent prefix, makes the
+        // aggregate limit replayable exactly at its reported boundary.
+        let exact_operations = checked_add(
+            self.stats.exact_operations,
+            stats.admitted_exact_operations(),
+            "exact symmetry operations",
+        )?;
+        check_limit(
+            "exact operations",
+            exact_operations,
+            self.limits.max_exact_operations,
+        )?;
+        let symbolica_exact_operations = checked_add(
+            self.stats.symbolica_exact_operations,
+            stats.exact_operations(),
+            "Symbolica exact operations",
+        )?;
+        let symbolica_admitted_exact_operations = checked_add(
+            self.stats.symbolica_admitted_exact_operations,
+            stats.admitted_exact_operations(),
+            "admitted Symbolica exact operations",
+        )?;
+        let symbolica_input_retained_bytes = checked_add(
+            self.stats.symbolica_input_retained_bytes,
+            stats.input_retained_bytes(),
+            "Symbolica input retained bytes",
+        )?;
+        check_limit(
+            "Symbolica input retained bytes",
+            symbolica_input_retained_bytes,
+            self.limits.max_symbolica_input_retained_bytes,
+        )?;
+        let symbolica_output_retained_bytes = checked_add(
+            self.stats.symbolica_output_retained_bytes,
+            stats.output_retained_bytes(),
+            "Symbolica output retained bytes",
+        )?;
+        check_limit(
+            "Symbolica output retained bytes",
+            symbolica_output_retained_bytes,
+            self.limits.max_symbolica_output_retained_bytes,
+        )?;
+        let symbolica_determinant_calls = checked_add(
+            self.stats.symbolica_determinant_calls,
+            stats.determinant_calls(),
+            "Symbolica determinant calls",
+        )?;
+        let symbolica_product_calls = checked_add(
+            self.stats.symbolica_product_calls,
+            stats.product_calls(),
+            "Symbolica product calls",
+        )?;
+        let symbolica_transpose_calls = checked_add(
+            self.stats.symbolica_transpose_calls,
+            stats.transpose_calls(),
+            "Symbolica transpose calls",
+        )?;
+
+        self.stats.exact_operations = exact_operations;
+        self.stats.symbolica_exact_operations = symbolica_exact_operations;
+        self.stats.symbolica_admitted_exact_operations = symbolica_admitted_exact_operations;
+        self.stats.symbolica_largest_matrix_entries = self
+            .stats
+            .symbolica_largest_matrix_entries
+            .max(stats.admitted_single_matrix_entries());
+        self.stats.symbolica_peak_live_matrix_entries = self
+            .stats
+            .symbolica_peak_live_matrix_entries
+            .max(stats.admitted_peak_live_entries());
+        self.stats.symbolica_input_retained_bytes = symbolica_input_retained_bytes;
+        self.stats.symbolica_output_retained_bytes = symbolica_output_retained_bytes;
+        self.stats.symbolica_determinant_calls = symbolica_determinant_calls;
+        self.stats.symbolica_product_calls = symbolica_product_calls;
+        self.stats.symbolica_transpose_calls = symbolica_transpose_calls;
+        Ok(())
+    }
+
+    fn map_symbolica_matrix_error(
+        &self,
+        error: SymbolicaCoefficientMatrixError,
+    ) -> SymmetryVerificationError {
+        map_symbolica_matrix_error(error, self.limits, self.stats)
+    }
+
     fn retain_matrix(
         &mut self,
         matrix: &ExactMatrix<Coefficient>,
@@ -796,11 +1018,6 @@ impl<'a> ReplayAlgebra<'a> {
         Ok(self
             .context
             .try_mul(left, right, self.limits.exact_algebra)?)
-    }
-
-    fn neg(&mut self, value: &Coefficient) -> Result<Coefficient, SymmetryVerificationError> {
-        self.charge_operation()?;
-        Ok(self.context.try_neg(value, self.limits.exact_algebra)?)
     }
 
     fn add_product(
@@ -911,23 +1128,39 @@ fn verify_external_gram(
     algebra: &mut ReplayAlgebra<'_>,
 ) -> Result<(), SymmetryVerificationError> {
     let externals = source.external_count();
+    if externals == 0 {
+        return Ok(());
+    }
+
+    let transform = clone_exact_matrix_rows(
+        &momentum.external_linear,
+        algebra,
+        "external Gram transform rows",
+    )?;
+    algebra.charge_entries(externals.checked_mul(externals).ok_or(
+        SymmetryVerificationError::ResourceCountOverflow {
+            resource: "mapped external Gram entries",
+        },
+    )?)?;
+    let native_limits = algebra.remaining_symbolica_limits()?;
+    let (mapped, stats) = match congruence_of_coefficient_matrix(
+        algebra.context,
+        &transform,
+        target.external_gram(),
+        native_limits,
+    ) {
+        Ok(result) => result,
+        Err(error) => return Err(algebra.map_symbolica_matrix_error(error)),
+    };
+    algebra.absorb_symbolica_stats(stats)?;
+    if mapped.len() != externals || mapped.iter().any(|row| row.len() != externals) {
+        return Err(SymmetryVerificationError::InternalSymbolicaAlgebra {
+            detail: "external Gram congruence returned the wrong shape".to_owned(),
+        });
+    }
     for mu in 0..externals {
         for nu in 0..externals {
-            let mut mapped = algebra.context.zero();
-            for alpha in 0..externals {
-                for beta in 0..externals {
-                    let left = algebra.mul(
-                        momentum.external_linear.at(mu, alpha),
-                        &target.external_gram()[alpha][beta],
-                    )?;
-                    mapped = algebra.add_product(
-                        mapped,
-                        &left,
-                        momentum.external_linear.at(nu, beta),
-                    )?;
-                }
-            }
-            if !algebra.equal(&mapped, &source.external_gram()[mu][nu])? {
+            if !algebra.equal(&mapped[mu][nu], &source.external_gram()[mu][nu])? {
                 return Err(SymmetryVerificationError::ExternalGramMismatch {
                     row: mu,
                     column: nu,
@@ -1084,59 +1317,91 @@ fn derive_denominator_map(
         "affine denominator map entries",
     )?)?;
 
-    // First form R_source * T and c_source + R_source * h.
-    let mut scalar_linear = vec![algebra.context.zero(); entries];
-    let mut transformed_constant = vec![algebra.context.zero(); source_count];
+    if source_count == 0 {
+        return Ok(AffineDenominatorMap {
+            constant: Box::new([]),
+            linear: ExactMatrix::try_new_with_max_entries(
+                0,
+                0,
+                std::iter::empty(),
+                algebra.limits.max_matrix_entries,
+            )?,
+        });
+    }
+
+    let source_rows =
+        clone_denominator_coefficient_rows(source, algebra, "source denominator coefficient rows")?;
+    let scalar_rows = clone_exact_matrix_rows(
+        &scalar_products.linear,
+        algebra,
+        "scalar-product linear rows",
+    )?;
+
+    // c_source + R_source h.  The matrix-vector product is native; only the
+    // affine translation by c_source remains coefficient-level bookkeeping.
+    let scalar_constant_column = clone_coefficient_column(
+        &scalar_products.constant,
+        algebra,
+        "scalar-product constant column",
+    )?;
+    algebra.charge_entries(source_count)?;
+    let transformed_shift = native_matrix_product(algebra, &source_rows, &scalar_constant_column)?;
+    let mut transformed_constant = Vec::new();
+    transformed_constant
+        .try_reserve_exact(source_count)
+        .map_err(|_| SymmetryVerificationError::AllocationFailure {
+            resource: "transformed denominator constants",
+            requested: source_count,
+        })?;
     for denominator in 0..source_count {
-        transformed_constant[denominator] = source.denominators()[denominator].constant().clone();
-        for source_coordinate in 0..source_count {
-            let source_coefficient =
-                &source.denominators()[denominator].coefficients()[source_coordinate];
-            transformed_constant[denominator] = algebra.add_product(
-                transformed_constant[denominator].clone(),
-                source_coefficient,
-                &scalar_products.constant[source_coordinate],
-            )?;
-            for target_coordinate in 0..target_count {
-                let offset = denominator * target_count + target_coordinate;
-                scalar_linear[offset] = algebra.add_product(
-                    scalar_linear[offset].clone(),
-                    source_coefficient,
-                    scalar_products
-                        .linear
-                        .at(source_coordinate, target_coordinate),
-                )?;
-            }
-        }
+        transformed_constant.push(algebra.add(
+            source.denominators()[denominator].constant(),
+            &transformed_shift[denominator][0],
+        )?);
     }
 
-    // P = (R_source T) R_target^-1.
-    let mut denominator_linear = vec![algebra.context.zero(); entries];
-    for source_denominator in 0..source_count {
-        for target_denominator in 0..target_count {
-            let mut value = algebra.context.zero();
-            for coordinate in 0..target_count {
-                value = algebra.add_product(
-                    value,
-                    &scalar_linear[source_denominator * target_count + coordinate],
-                    &target.inverse_basis()[coordinate][target_denominator],
-                )?;
-            }
-            denominator_linear[source_denominator * target_count + target_denominator] = value;
-        }
+    // P = R_source T R_target^-1.  Both ordinary products are owned by one
+    // authenticated Symbolica session; RustRed retains only family semantics.
+    let native_limits = algebra.remaining_symbolica_limits()?;
+    let (denominator_linear, stats) = match multiply_three_coefficient_matrices(
+        algebra.context,
+        &source_rows,
+        &scalar_rows,
+        target.inverse_basis(),
+        native_limits,
+    ) {
+        Ok(result) => result,
+        Err(error) => return Err(algebra.map_symbolica_matrix_error(error)),
+    };
+    algebra.absorb_symbolica_stats(stats)?;
+    if denominator_linear.len() != source_count
+        || denominator_linear
+            .iter()
+            .any(|row| row.len() != target_count)
+    {
+        return Err(SymmetryVerificationError::InternalSymbolicaAlgebra {
+            detail: "denominator linear map product returned the wrong shape".to_owned(),
+        });
     }
 
-    // b = transformed_constant - P c_target.
-    let mut constant = transformed_constant;
-    for source_denominator in 0..source_count {
-        for target_denominator in 0..target_count {
-            let contribution = algebra.mul(
-                &denominator_linear[source_denominator * target_count + target_denominator],
-                target.denominators()[target_denominator].constant(),
-            )?;
-            constant[source_denominator] =
-                algebra.sub(&constant[source_denominator], &contribution)?;
+    // b = transformed_constant - P c_target.  This matvec is native too.
+    let target_constant_column =
+        clone_denominator_constant_column(target, algebra, "target denominator constant column")?;
+    algebra.charge_entries(source_count)?;
+    let target_shift =
+        native_matrix_product(algebra, &denominator_linear, &target_constant_column)?;
+    let mut constant = Vec::new();
+    constant.try_reserve_exact(source_count).map_err(|_| {
+        SymmetryVerificationError::AllocationFailure {
+            resource: "affine denominator constants",
+            requested: source_count,
         }
+    })?;
+    for source_denominator in 0..source_count {
+        constant.push(algebra.sub(
+            &transformed_constant[source_denominator],
+            &target_shift[source_denominator][0],
+        )?);
     }
 
     Ok(AffineDenominatorMap {
@@ -1144,7 +1409,7 @@ fn derive_denominator_map(
         linear: ExactMatrix::try_new_with_max_entries(
             source_count,
             target_count,
-            denominator_linear,
+            denominator_linear.into_iter().flatten(),
             algebra.limits.max_matrix_entries,
         )?,
     })
@@ -1381,62 +1646,275 @@ fn classify_jacobian(
     })
 }
 
-/// Division-free subset dynamic program for an exact determinant.  It avoids
-/// silently assuming nonzero Gaussian pivots and charges one aggregate state
-/// budget across the complete determinant.
+/// Compute an exact determinant through Symbolica's public matrix API.
+///
+/// Symbolica 2.2.0 reports a `0 x 0` determinant as singular, while the empty
+/// external-momentum map of a vacuum family has determinant one.  That unique
+/// structural case is handled before entering the native boundary.
 fn checked_determinant(
     matrix: &ExactMatrix<Coefficient>,
     algebra: &mut ReplayAlgebra<'_>,
 ) -> Result<Coefficient, SymmetryVerificationError> {
     debug_assert_eq!(matrix.rows, matrix.columns);
-    let size = matrix.rows;
-    if size >= usize::BITS as usize {
-        return Err(SymmetryVerificationError::ResourceLimit {
-            resource: "determinant dimension",
-            requested: size,
-            limit: usize::BITS as usize - 1,
+    if matrix.rows == 0 {
+        return Ok(algebra.context.one());
+    }
+
+    let rows = clone_exact_matrix_rows(matrix, algebra, "determinant input rows")?;
+    let limits = algebra.remaining_symbolica_limits()?;
+    let (determinant, stats) =
+        match determinant_of_coefficient_matrix(algebra.context, &rows, limits) {
+            Ok(result) => result,
+            Err(error) => return Err(algebra.map_symbolica_matrix_error(error)),
+        };
+    algebra.absorb_symbolica_stats(stats)?;
+    Ok(determinant)
+}
+
+fn clone_exact_matrix_rows(
+    matrix: &ExactMatrix<Coefficient>,
+    algebra: &mut ReplayAlgebra<'_>,
+    resource: &'static str,
+) -> Result<Vec<Vec<Coefficient>>, SymmetryVerificationError> {
+    algebra.charge_entries(matrix.entries().len())?;
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(matrix.rows).map_err(|_| {
+        SymmetryVerificationError::AllocationFailure {
+            resource,
+            requested: matrix.rows,
+        }
+    })?;
+    for row in 0..matrix.rows {
+        let mut values = Vec::new();
+        values.try_reserve_exact(matrix.columns).map_err(|_| {
+            SymmetryVerificationError::AllocationFailure {
+                resource,
+                requested: matrix.columns,
+            }
+        })?;
+        values.extend((0..matrix.columns).map(|column| matrix.at(row, column).clone()));
+        rows.push(values);
+    }
+    Ok(rows)
+}
+
+fn clone_denominator_coefficient_rows(
+    family: &IntegralFamily,
+    algebra: &mut ReplayAlgebra<'_>,
+    resource: &'static str,
+) -> Result<Vec<Vec<Coefficient>>, SymmetryVerificationError> {
+    let rows = family.denominator_count();
+    let entries = rows
+        .checked_mul(rows)
+        .ok_or(SymmetryVerificationError::ResourceCountOverflow { resource })?;
+    algebra.charge_entries(entries)?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(rows)
+        .map_err(|_| SymmetryVerificationError::AllocationFailure {
+            resource,
+            requested: rows,
+        })?;
+    for denominator in family.denominators() {
+        let mut row = Vec::new();
+        row.try_reserve_exact(rows)
+            .map_err(|_| SymmetryVerificationError::AllocationFailure {
+                resource,
+                requested: rows,
+            })?;
+        row.extend(denominator.coefficients().iter().cloned());
+        output.push(row);
+    }
+    Ok(output)
+}
+
+fn clone_coefficient_column(
+    values: &[Coefficient],
+    algebra: &mut ReplayAlgebra<'_>,
+    resource: &'static str,
+) -> Result<Vec<Vec<Coefficient>>, SymmetryVerificationError> {
+    algebra.charge_entries(values.len())?;
+    let mut output = Vec::new();
+    output.try_reserve_exact(values.len()).map_err(|_| {
+        SymmetryVerificationError::AllocationFailure {
+            resource,
+            requested: values.len(),
+        }
+    })?;
+    for value in values {
+        let mut row = Vec::new();
+        row.try_reserve_exact(1)
+            .map_err(|_| SymmetryVerificationError::AllocationFailure {
+                resource,
+                requested: 1,
+            })?;
+        row.push(value.clone());
+        output.push(row);
+    }
+    Ok(output)
+}
+
+fn clone_denominator_constant_column(
+    family: &IntegralFamily,
+    algebra: &mut ReplayAlgebra<'_>,
+    resource: &'static str,
+) -> Result<Vec<Vec<Coefficient>>, SymmetryVerificationError> {
+    let rows = family.denominator_count();
+    algebra.charge_entries(rows)?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(rows)
+        .map_err(|_| SymmetryVerificationError::AllocationFailure {
+            resource,
+            requested: rows,
+        })?;
+    for denominator in family.denominators() {
+        let mut row = Vec::new();
+        row.try_reserve_exact(1)
+            .map_err(|_| SymmetryVerificationError::AllocationFailure {
+                resource,
+                requested: 1,
+            })?;
+        row.push(denominator.constant().clone());
+        output.push(row);
+    }
+    Ok(output)
+}
+
+fn native_matrix_product(
+    algebra: &mut ReplayAlgebra<'_>,
+    left: &[Vec<Coefficient>],
+    right: &[Vec<Coefficient>],
+) -> Result<Vec<Vec<Coefficient>>, SymmetryVerificationError> {
+    let expected_rows = left.len();
+    let expected_columns = right.first().map_or(0, Vec::len);
+    let limits = algebra.remaining_symbolica_limits()?;
+    let (product, stats) = match multiply_coefficient_matrices(algebra.context, left, right, limits)
+    {
+        Ok(result) => result,
+        Err(error) => return Err(algebra.map_symbolica_matrix_error(error)),
+    };
+    algebra.absorb_symbolica_stats(stats)?;
+    if product.len() != expected_rows || product.iter().any(|row| row.len() != expected_columns) {
+        return Err(SymmetryVerificationError::InternalSymbolicaAlgebra {
+            detail: "matrix product returned the wrong shape".to_owned(),
         });
     }
-    let states = 1usize.checked_shl(size as u32).ok_or(
-        SymmetryVerificationError::ResourceCountOverflow {
-            resource: "determinant states",
+    Ok(product)
+}
+
+fn map_symbolica_matrix_error(
+    error: SymbolicaCoefficientMatrixError,
+    limits: SymmetryVerificationLimits,
+    stats: SymmetryVerificationStats,
+) -> SymmetryVerificationError {
+    match error {
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "Symbolica coefficient matrix exact operations",
+            requested,
+            ..
+        }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(ExactAlgebraError::ResourceLimit {
+            resource: "Symbolica coefficient matrix exact operations",
+            requested,
+            ..
+        }) => aggregate_symbolica_resource_limit(
+            "exact operations",
+            stats.exact_operations,
+            requested,
+            limits.max_exact_operations,
+        ),
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "coefficient matrix input retained bytes",
+            requested,
+            ..
+        } => aggregate_symbolica_resource_limit(
+            "Symbolica input retained bytes",
+            stats.symbolica_input_retained_bytes,
+            requested,
+            limits.max_symbolica_input_retained_bytes,
+        ),
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "coefficient matrix output retained bytes",
+            requested,
+            ..
+        } => aggregate_symbolica_resource_limit(
+            "Symbolica output retained bytes",
+            stats.symbolica_output_retained_bytes,
+            requested,
+            limits.max_symbolica_output_retained_bytes,
+        ),
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "single Symbolica matrix entries",
+            requested,
+            ..
+        } => SymmetryVerificationError::ResourceLimit {
+            resource: "Symbolica single matrix entries",
+            requested,
+            limit: limits.max_symbolica_single_matrix_entries,
         },
-    )?;
-    let aggregate_states = checked_add(
-        algebra.stats.determinant_states,
-        states,
-        "determinant states",
-    )?;
-    check_limit(
-        "determinant states",
-        aggregate_states,
-        algebra.limits.max_determinant_states,
-    )?;
-    algebra.stats.determinant_states = aggregate_states;
-    algebra.charge_entries(states)?;
-    let mut partial = vec![algebra.context.zero(); states];
-    partial[0] = algebra.context.one();
-    for mask in 0..states {
-        let row = mask.count_ones() as usize;
-        if row == size || partial[mask].is_zero() {
-            continue;
-        }
-        let base = partial[mask].clone();
-        for column in 0..size {
-            let bit = 1usize << column;
-            if mask & bit != 0 {
-                continue;
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "live Symbolica matrix entries",
+            requested,
+            ..
+        } => SymmetryVerificationError::ResourceLimit {
+            resource: "Symbolica live matrix entries",
+            requested,
+            limit: limits.max_symbolica_live_matrix_entries,
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => SymmetryVerificationError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceCountOverflow { resource }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(
+            ExactAlgebraError::ResourceCountOverflow { resource },
+        )
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient {
+            error: ExactAlgebraError::ResourceCountOverflow { resource },
+            ..
+        } => SymmetryVerificationError::ResourceCountOverflow { resource },
+        SymbolicaCoefficientMatrixError::AllocationFailure {
+            resource,
+            requested,
+        } => SymmetryVerificationError::AllocationFailure {
+            resource,
+            requested,
+        },
+        SymbolicaCoefficientMatrixError::DimensionOverflow { .. } => {
+            SymmetryVerificationError::ResourceCountOverflow {
+                resource: "Symbolica matrix dimensions",
             }
-            let mut term = algebra.mul(&base, matrix.at(row, column))?;
-            let selected_after = (mask >> (column + 1)).count_ones();
-            if selected_after % 2 == 1 {
-                term = algebra.neg(&term)?;
-            }
-            let next = mask | bit;
-            partial[next] = algebra.add(&partial[next], &term)?;
         }
+        SymbolicaCoefficientMatrixError::ExactAlgebra(error)
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient { error, .. } => {
+            SymmetryVerificationError::ExactAlgebra(error)
+        }
+        internal => SymmetryVerificationError::InternalSymbolicaAlgebra {
+            detail: internal.to_string(),
+        },
     }
-    Ok(partial[states - 1].clone())
+}
+
+fn aggregate_symbolica_resource_limit(
+    resource: &'static str,
+    current: usize,
+    local_requested: usize,
+    limit: usize,
+) -> SymmetryVerificationError {
+    match current.checked_add(local_requested) {
+        Some(requested) => SymmetryVerificationError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        None => SymmetryVerificationError::ResourceCountOverflow { resource },
+    }
 }
 
 fn collect_candidate_denominators<'a>(

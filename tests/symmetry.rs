@@ -1,8 +1,9 @@
 use rustred::symmetry::SymmetryGuardOrigin;
 use rustred::{
-    AffineDenominator, Coefficient, CoefficientContext, DenominatorRowAction, ExactAlgebraError,
-    ExactAlgebraLimits, ExactMatrix, GuardOrigin, IntegralFamily, JacobianWitness, MomentumMap,
-    ScalarProductCoordinate, SymmetryVerificationError, SymmetryVerificationLimits,
+    AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominator, Coefficient, CoefficientContext,
+    DenominatorRowAction, ExactAlgebraError, ExactAlgebraLimits, ExactMatrix, GuardOrigin,
+    IntegralFamily, JacobianWitness, MomentumMap, ScalarProductCoordinate,
+    SymmetryVerificationError, SymmetryVerificationLimits, VerifiedAffineFamilyMap,
     verify_affine_family_map,
 };
 
@@ -42,6 +43,41 @@ fn vacuum_two_loop_family() -> IntegralFamily {
         ],
         Vec::new(),
         vec![coefficients.zero(); 3],
+    )
+    .unwrap()
+}
+
+fn vacuum_identity_family(
+    name: &str,
+    context: &CoefficientContext,
+    loops: usize,
+) -> IntegralFamily {
+    let scalar_products = loops * (loops + 1) / 2;
+    let denominators = (0..scalar_products)
+        .map(|row| {
+            affine(
+                context.zero(),
+                (0..scalar_products).map(|column| {
+                    if row == column {
+                        context.one()
+                    } else {
+                        context.zero()
+                    }
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    IntegralFamily::new(
+        name,
+        (0..loops)
+            .map(|loop_index| format!("k{loop_index}"))
+            .collect(),
+        Vec::new(),
+        context.clone(),
+        context.parameter("d").unwrap(),
+        denominators,
+        Vec::new(),
+        vec![context.zero(); scalar_products],
     )
     .unwrap()
 }
@@ -592,6 +628,53 @@ fn dense_transport_matches_an_independent_bilinear_oracle() {
             determinant_sign: -1,
         }
     );
+    assert_eq!(VerifiedAffineFamilyMap::SCHEMA, AFFINE_FAMILY_MAP_V2_SCHEMA);
+    assert_eq!(verified.stats().symbolica_determinant_calls(), 2);
+    assert_eq!(verified.stats().symbolica_product_calls(), 6);
+    assert_eq!(verified.stats().symbolica_transpose_calls(), 1);
+    assert_eq!(verified.stats().determinant_states(), 0);
+}
+
+#[test]
+fn native_four_by_four_determinant_has_no_subset_state_gate() {
+    let context = CoefficientContext::new(["d", "x"]);
+    let family = vacuum_identity_family("native-four-loop-determinant", &context, 4);
+    let x = context.parameter("x").unwrap();
+    let momentum = MomentumMap::new(
+        ExactMatrix::try_new(
+            4,
+            4,
+            [
+                x,
+                context.one(),
+                context.zero(),
+                context.zero(),
+                context.zero(),
+                context.integer(2),
+                context.one(),
+                context.zero(),
+                context.zero(),
+                context.zero(),
+                context.integer(3),
+                context.one(),
+                context.zero(),
+                context.zero(),
+                context.zero(),
+                context.integer(4),
+            ],
+        )
+        .unwrap(),
+        ExactMatrix::try_new(4, 0, []).unwrap(),
+        ExactMatrix::try_new(0, 0, []).unwrap(),
+    );
+    let mut limits = SymmetryVerificationLimits::default();
+    limits.max_determinant_states = 0;
+    let verified = verify_affine_family_map(&family, &family, momentum, limits).unwrap();
+    assert_eq!(verified.loop_determinant(), &context.parse("24*x").unwrap());
+    assert_eq!(verified.external_determinant(), &context.one());
+    assert_eq!(verified.stats().determinant_states(), 0);
+    assert_eq!(verified.stats().symbolica_determinant_calls(), 1);
+    verified.replay(&family, &family, limits).unwrap();
 }
 
 #[test]
@@ -641,7 +724,11 @@ fn aggregate_limits_pass_exactly_at_and_fail_one_below() {
     let mut exact = SymmetryVerificationLimits::default();
     exact.max_matrix_entries = stats.matrix_entries();
     exact.max_exact_operations = stats.exact_operations();
-    exact.max_determinant_states = stats.determinant_states();
+    exact.max_determinant_states = 0;
+    exact.max_symbolica_single_matrix_entries = stats.symbolica_largest_matrix_entries();
+    exact.max_symbolica_live_matrix_entries = stats.symbolica_peak_live_matrix_entries();
+    exact.max_symbolica_input_retained_bytes = stats.symbolica_input_retained_bytes();
+    exact.max_symbolica_output_retained_bytes = stats.symbolica_output_retained_bytes();
     exact.max_guard_polynomials = stats.guard_polynomials();
     exact.max_guard_origins = stats.guard_origins();
     let replayed =
@@ -668,12 +755,53 @@ fn aggregate_limits_pass_exactly_at_and_fail_one_below() {
         })
     ));
 
+    assert_eq!(stats.determinant_states(), 0);
+    assert!(stats.symbolica_exact_operations() > 0);
+    assert!(stats.symbolica_admitted_exact_operations() > 0);
+    assert_eq!(
+        stats.symbolica_exact_operations(),
+        stats.symbolica_admitted_exact_operations(),
+        "this 1x1-determinant/product fixture pins an actual-operation one-below boundary",
+    );
+    assert!(stats.symbolica_determinant_calls() > 0);
+    assert!(stats.symbolica_product_calls() > 0);
+
     let mut one_below = SymmetryVerificationLimits::default();
-    one_below.max_determinant_states = stats.determinant_states() - 1;
+    one_below.max_symbolica_single_matrix_entries = stats.symbolica_largest_matrix_entries() - 1;
     assert!(matches!(
         verify_affine_family_map(&family, &family, baseline.momentum().clone(), one_below,),
         Err(SymmetryVerificationError::ResourceLimit {
-            resource: "determinant states",
+            resource: "Symbolica single matrix entries",
+            ..
+        })
+    ));
+
+    let mut one_below = SymmetryVerificationLimits::default();
+    one_below.max_symbolica_live_matrix_entries = stats.symbolica_peak_live_matrix_entries() - 1;
+    assert!(matches!(
+        verify_affine_family_map(&family, &family, baseline.momentum().clone(), one_below,),
+        Err(SymmetryVerificationError::ResourceLimit {
+            resource: "Symbolica live matrix entries",
+            ..
+        })
+    ));
+
+    let mut one_below = SymmetryVerificationLimits::default();
+    one_below.max_symbolica_input_retained_bytes = stats.symbolica_input_retained_bytes() - 1;
+    assert!(matches!(
+        verify_affine_family_map(&family, &family, baseline.momentum().clone(), one_below,),
+        Err(SymmetryVerificationError::ResourceLimit {
+            resource: "Symbolica input retained bytes",
+            ..
+        })
+    ));
+
+    let mut one_below = SymmetryVerificationLimits::default();
+    one_below.max_symbolica_output_retained_bytes = stats.symbolica_output_retained_bytes() - 1;
+    assert!(matches!(
+        verify_affine_family_map(&family, &family, baseline.momentum().clone(), one_below,),
+        Err(SymmetryVerificationError::ResourceLimit {
+            resource: "Symbolica output retained bytes",
             ..
         })
     ));
