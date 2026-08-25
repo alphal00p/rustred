@@ -19,9 +19,13 @@ mod direct_bad_formula;
 mod exact_identity;
 mod parametric_sector_formula_ir;
 mod parametric_sector_formula_residual;
+#[cfg(test)]
+mod parametric_sector_k21_test_support;
 mod parametric_sector_mtbdd;
 mod parametric_sector_mtbdd_certificate;
 mod parametric_sector_normalized_source;
+#[cfg(test)]
+mod parametric_sector_one_pass_tests;
 mod parametric_sector_residual_path;
 pub(crate) mod symbolica_coefficient_matrix;
 

@@ -4,7 +4,9 @@ Status: governing deployment priority and implementation plan, adopted
 2026-08-24.  This note refines the order of work without narrowing RustRed's
 normative LiteRed scope.  Production algorithms remain topology- and
 loop-count independent; concrete four-, five-, and six-loop graphs are test,
-campaign, and benchmark inputs only.
+campaign, and benchmark inputs only. Implementation status below is reconciled
+with pushed HEAD `03921b8` and the current independently validated worktree on
+2026-08-25.
 
 ## 1. Deployment objective
 
@@ -182,51 +184,102 @@ solve for every graph numerator.  Finite sector solves remain important for
 candidate discovery, fallback coverage, and independent validation.
 
 The normalized coverage IR, rather than any one Boolean representation, is the
-scalable source authority. [`coverage_decision_dag.rs`](../../src/coverage_decision_dag.rs)
-already provides reduced shared nodes, ITE/apply, deterministic export, and
-rebuild. [`parametric_sector_mtbdd.rs`](../../src/parametric_sector_mtbdd.rs)
-and its authenticated certificate compile normalized coverage into that DAG.
-The implemented `O(depth)` cursor now traverses one requested residual path
-without flattening terminal paths, but it starts only after the complete MTBDD
-has been constructed and authenticated.
+scalable source authority. The sealed normalized-source compiler owns and
+replays one exact row-span allocation, every ordered attempt (including dead
+suffixes), the normalized IR/locus table, original pre-intersection limits,
+and coverage/normalization phase censuses. Common same-allocation row-span
+checks are O(1), with exact deep comparison retained for independently
+allocated payload-equal proofs. Within normalized-source construction, fresh
+normalization rebinds and authenticates the candidate batch once rather than
+rebuilding it through each backend.
 
-The genuine all-inactive all-36 `K=21` diagnostic has 49 normalized
-structural loci/atoms, 268,427 rooted nodes, and 18 terminals. Fifteen attempts
-are certified descending and 21 remain Unsupported. The cursor reaches the
-first Unsupported terminal in 43 decisions, but the global owner was already
-built. Thus the cursor solves terminal-path retention, not high-loop owner
-construction. The MTBDD remains a compact-case oracle and an optional
-repeated-query classifier under an explicit node/time/memory budget.
+The current independently validated worktree closes the end-to-end ingress
+gap with a one-pass candidate-to-normalized-source API and a safe sealed replay
+token. It performs `N` construction authentications for `N` candidates rather
+than the legacy `2N`. Focused run
+`b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests, and independent
+affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44. This
+is current worktree evidence, not a pushed-HEAD claim.
 
-The replayable shared normalized-source owner is now implemented and shared by
-the MTBDD backend. The remaining implementation must therefore:
+That worktree now also uses normalized-source V2 to persist one explicit
+`IntegralOrderingPolicy` for every source, including an empty-attempt source,
+and authenticate every present candidate's policy. Owner-focused run
+`8ad499a3-339e-4e0b-a04f-ccf754406516` passed 21/21 tests, formula/residual
+run `6a5267d1-fe75-4854-8b98-9a03b1bb2370` passed 14/14, and independent
+audit/validation run `430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30.
+The policy-bound all-36 `L=6`, `K=21` run
+`88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with 36 construction
+authentications, unchanged 15 Certified/21 Unsupported semantics, and a
+1.405-millisecond first-residual search. This remains current-worktree
+evidence, not a pushed-HEAD, Ready, reduction, or physical-topology claim.
 
-1. add a bounded deterministic residual cursor directly over the normalized
-   candidate bad-formulas, pruning as soon as any certified candidate is
-   necessarily applicable and branching nonzero before equal-zero on an
-   authenticated structural-locus ordinal;
-2. run the existing coordinate/orthant contradiction recognizer on the one
-   selected path, without inventing a general polynomial satisfiability
-   engine;
-3. carry that path, its exact Unsupported-candidate list when present, and one
-   affine group into a narrow target-frontier owner; and
-4. drive one declared `K=21` sector through Ready without manufacturing the
-   legacy partition, queue, or Boolean-cover certificates.
+Two residual backends now consume that authority. The V5 MTBDD remains a
+compact-case oracle and optional repeated-query classifier under an explicit
+node/time/memory budget. Its genuine all-inactive all-36 `K=21` diagnostic has
+49 normalized structural loci/atoms, 268,427 rooted nodes, and 18 terminals;
+its MTBDD cursor reaches the first Unsupported terminal in 43 decisions only
+after that global owner has been built. This is historical scaling evidence,
+not the production six-loop route.
 
-The shared source preserves the exact row-span allocation, all ordered
-attempts including dead suffixes, original pre-intersection limits, normalized
-IR/loci, and replayed coverage/normalization phase censuses. Common
-same-allocation row-span checks are O(1), with exact deep comparison retained
-for independently allocated payload-equal proofs. One performance follow-up
-remains before production-size foundry runs: a sealed fresh-compilation
-normalization seam should remove the current roughly three authentication
-passes per candidate during construction and two during replay.
+At pushed HEAD `03921b8`, the formula-residual cursor instead walks the
+authenticated normalized candidate formulas directly. It keeps one dense
+three-valued assignment table and a resumable nonzero-first DFS frontier,
+prunes a partial assignment as soon as a later certified formula proves it
+covered, and constructs no V4 partition, V5 MTBDD, visited set, or materialized
+residual-cube inventory. Its focused parallel GMP audit passed 9/9 tests.
 
-The direct Boolean control layer performs no algebra. Polynomial projection,
-monic normalization, GCD/divisibility, matrix work, finite fields, and
-reconstruction continue through public Symbolica APIs. The existing complete
-product-locus DPLL remains useful for expanding one selected local path; it is
-not the global six-loop search owner.
+The one-pass worktree was then exercised by honest all-36 `L=6`, `K=21`
+primary run `37d85ddb-c356-4c79-a6f4-d428828db039`, which passed 1/1 in
+58.109 seconds. It performed 36 construction authentications and preserved the
+same census: 49 loci, 36 attempts, 15 Certified outcomes, 21 Unsupported
+outcomes, 30 decisions, 19 free loci, and a 1,841-byte peak cursor.
+Candidate-to-source construction took 17.4507 seconds, direct cursor
+initialization 16.756 microseconds, and first-residual search 832.37
+microseconds. The independent semantic oracle exhaustively checked all
+524,288 completions. Independent K21 rerun
+`e00cdbea-6312-4fb3-9856-0c2f3bf2ef25` also passed in 56.359 seconds.
+
+For comparison, the prior two-stage K21 run
+`e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935 seconds, spent 17.29 +
+16.21 seconds in its two construction phases, and performed 72 construction
+authentications. The new fixture also performs explicit source and path
+stress-validation replays, taking 18.51 and 17.57 seconds respectively. Those
+deliberate reauthentication checks are not part of production direct-search
+cost. The production direct path invokes no MTBDD compiler and constructs no
+MTBDD owner or DAG.
+
+The next implementation slice is the direct singleton affine adapter
+`NormalizedSource -> FormulaResidualPath -> ReadyForConditions`; it must
+preserve that bypass end to end:
+
+1. adapt one direct formula-residual path behind the existing affine
+   inventory/case-authority boundary without manufacturing V4, V5, the legacy
+   live-leaf queue, source authority, or Boolean/DPLL certificates;
+2. prune exact coordinate contradictions incrementally: inactive-orthant
+   violations, conflicting fixed-coordinate values, and equality/nonzero
+   conflicts; use equal-zero coordinate loci to derive the compact affine map
+   and retain nonzero decisions as ordered premises/guards; and
+3. create a generic singleton affine group, then pass it through the physical
+   frame, solve plan, `GeneratedAffineResidualGroupExactSession` staging, and
+   recentering into the existing `ReadyForConditions` boundary before
+   attempting the declared `K=21` gate.
+
+The successful `K=21` fixture stops at the first formula-residual path. It is
+not a Ready result, published guarded rule, reduction, or calculation on a
+physical vacuum topology.
+
+The direct control layer performs no algebra. Polynomial projection, monic
+normalization, GCD/divisibility, matrix work, finite fields, reconstruction,
+and affine-map arithmetic continue through public Symbolica APIs. The old
+complete product-locus DPLL may remain a differential/fallback oracle, but the
+direct high-loop entry and affine adapter must not invoke it.
+
+Native Symbolica dense and sparse solves must also replace the older custom
+`exact_sparse_elimination` wherever the public API is applicable. The pinned
+sparse solve has a validation caveat, so the scaling path must use public
+`SparseRowReducer` with independent rank/residual and transcript checks. That
+boundary is a validation wrapper around Symbolica, not permission to grow a
+RustRed CAS or matrix implementation.
 
 The topology-wide canonical sector DAG is a separate foundry layer. It is not
 the eager `family_sector_inventory` enumeration, and it need not block the
@@ -395,14 +448,14 @@ Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
 limit. The cap was intentionally not raised. A fast separate generator gate
 checks the generic `L=6` formula produces 36 parametric IBPs. The subsequent
 global-MTBDD experiment avoided the explicit orthant partition, and the new
-cursor reaches its first residual without flattening paths, but the all-36
+MTBDD cursor reaches its first residual without flattening paths, but the all-36
 source still retains 49 atoms and 268,427 nodes. Arity-21 Ready and condition
-stress therefore remain gated on direct normalized-formula frontier search,
-not larger caps. The generator gate and all 11 tests in the
+stress therefore required direct normalized-formula frontier search rather
+than larger caps. The generator gate and all 11 tests in the
 independent Ready/publication validation module passed licensed `--lib -j4`
 Nextest run `a06d5558-e404-4048-a2e9-5407277a95d6`.
 
-The new cursor's five compact replay/filter/resource tests passed independent
+The MTBDD cursor's five compact replay/filter/resource tests passed independent
 licensed parallel Nextest run `6fa17e71-f9ec-4fdb-9be0-434e8119977f` (5/5,
 998 skipped). The final post-audit licensed parallel run
 `d1b3d6f2-70fe-4da2-ba36-9a671f48080a` included those five tests plus the
@@ -418,6 +471,30 @@ MTBDD-certificate, and polarity tests) and residual-compatibility run
 The stable normalized-source SHA-256 was
 `f74ccd89ce1755d7672393a169dbd0e2586a2675c9643f77196697154ad3629e`.
 
+The sealed fresh-normalization seam and direct formula-residual cursor are now
+implemented at pushed HEAD `03921b8`. The direct cursor's focused parallel GMP
+audit passed 9/9 tests, including exhaustive small-IR differential comparison,
+source-backed MTBDD comparison, routing/filtering, tamper rejection, and exact
+resource boundaries.
+
+The current validated worktree additionally implements one-pass sealed
+candidate ingress/replay. Focused run
+`b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 and independent affected
+run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44. Primary honest
+all-36 `K=21` run `37d85ddb-c356-4c79-a6f4-d428828db039` passed 1/1 in
+58.109 seconds with 36, rather than 72, construction authentications. Its
+candidate-to-source/direct-initialization/first-residual timings were 17.4507
+seconds, 16.756 microseconds, and 832.37 microseconds. It retained the same
+49/36/15/21 locus/attempt/Certified/Unsupported census, used 30 decisions with
+19 free loci and a 1,841-byte cursor, and exhaustively checked 524,288
+completions. Independent run `e00cdbea-6312-4fb3-9856-0c2f3bf2ef25` also
+passed in 56.359 seconds. Its explicit 17.95/17.26-second source/path stress
+replays are validation checks rather than production search phases. The direct
+path constructs no MTBDD compiler, owner, or DAG. This checkpoint stops at a
+certified formula-residual path; it has not produced an arity-21 affine
+inventory, exact Ready outcome, published guarded rule, complete reduction,
+or physical-topology calculation.
+
 1. **Completed:** Symbolica-native affine-family/symmetry verifier and
    independent matrix oracle, pushed as a standalone milestone.
 2. **Completed generation-only checkpoint:** topology-neutral `L=6`, `K=21`
@@ -428,26 +505,40 @@ The stable normalized-source SHA-256 was
    cursor over the rooted MTBDD, including compact replay/resource tests and
    an ignored honest all-36 `K=21` scaling oracle. This does not solve global
    MTBDD construction and has not reached Ready.
-5. **In progress:** the replayable authenticated normalized-source owner is
-   implemented and the MTBDD now consumes that shared authority. Add direct
-   target-frontier formula search plus a narrow one-path solve owner, remove
-   duplicate candidate authentication through a sealed fresh-normalization
-   seam, and validate one declared arity-21 sector through Ready. Use the MTBDD
-   only when its separately measured construction budget is acceptable.
-6. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
+5. **Completed direct-search checkpoint:** the replayable authenticated
+   normalized-source owner, sealed fresh-normalization seam, and bounded direct
+   formula-residual cursor are implemented. The direct cursor bypasses V4, V5,
+   and the residual Boolean/DPLL owner; the 10/10 audit includes a successful
+   direct all-36 `K=21` formula-residual search without an MTBDD owner or DAG.
+6. **Completed in the current validated worktree:** one-pass
+   candidate-to-normalized-source construction ahead of V4 plus a safe sealed
+   replay token. Focused and independent affected suites pass; the all-36
+   `K=21` comparison reduces construction authentication from 72 to 36.
+7. **Completed in the current validated worktree:** normalized-source V2 binds
+   `IntegralOrderingPolicy` for every source, including empty-attempt sources,
+   and authenticates all present candidate policies. Focused 21/21 and 14/14
+   suites, an independent 30/30 audit/validation run, and the policy-bound
+   all-36 K21 1/1 gate pass.
+8. **Next:** build the generic direct-backed singleton affine
+   inventory/adapter. Prune coordinate contradictions, map equal-zero loci
+   into affine coordinates, retain nonzero premises, and carry the group
+   through physical frame, solve plan, exact-session staging, and recentering
+   into the existing `ReadyForConditions` boundary. Then validate one declared
+   arity-21 sector; this remains a scaling gate, not a rule or reduction claim.
+9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
    path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
    subsector feedback, atomic publication, durable artifacts, and a 36-source
    session batch.
-7. Add unit-mass `Q(d)` family specialization and modular/reconstruction
+10. Add unit-mass `Q(d)` family specialization and modular/reconstruction
    services through public Symbolica finite-field and polynomial APIs.
-8. Add topology-generic graph ingestion, deterministic ISP completion,
+11. Add topology-generic graph ingestion, deterministic ISP completion,
    factorization, graph-lifted symmetry candidates, and the canonical lazy
    physical-sector dependency DAG; validate through the complete Vakint
    four-loop corpus.
-9. Implement the separate batch rule-application runtime and GammaLoop
+12. Implement the separate batch rule-application runtime and GammaLoop
    `VacuumIntegralEngine`-style adapter at the existing normalized-integrand
    seam.
-10. Expand to general five-loop families, then execute and profile the declared
+13. Expand to general five-loop families, then execute and profile the declared
    six-loop QCD vacuum campaign.
 
 Broad non-vacuum tensor bases, arbitrary one-loop pentagons, and

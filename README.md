@@ -21,6 +21,8 @@ all of LiteRed.
 | Derive generic ordinary parametric IBPs | Available through `rustred derive` and the library |
 | Derive generic Lorentz-invariance identities | Available through `rustred derive` and the library |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
+| Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
+| Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 in the current worktree; public library/CLI integration is pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for the current exact-session slice |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
@@ -212,7 +214,46 @@ The repository currently includes tests for:
   MTBDD, with compact replay/resource tests and an ignored all-36 `K=21`
   stress oracle; the latter measures 49 normalized atoms, 268,427 retained
   nodes, and an exact 43-decision first Unsupported path, and is not a Ready or
-  reduction result; and
+  reduction result;
+- a sealed, replayable normalized-coverage source and a second bounded cursor
+  that walks its authenticated candidate bad-formulas directly, retaining only
+  one three-valued assignment table and DFS frontier and constructing neither
+  the V4 materialized partition nor the V5 MTBDD;
+- a current validated-worktree one-pass candidate-to-normalized-source ingress
+  with a safe sealed replay token. It performs `N` construction
+  authentications for `N` candidates rather than the legacy `2N`; focused run
+  `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests and independent
+  affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44. The
+  honest all-36 `L=6`, `K=21` primary run
+  `37d85ddb-c356-4c79-a6f4-d428828db039` passed 1/1 in 58.109 seconds with 36
+  construction authentications, 49 loci, 36 attempts, 15 Certified and 21
+  Unsupported outcomes. Candidate-to-source construction took 17.4507
+  seconds, direct-cursor initialization 16.756 microseconds, and first-residual
+  search 832.37 microseconds; the path used 30 decisions with 19 loci free and
+  a 1,841-byte peak cursor, and all 524,288 completions were checked. An
+  independent rerun, `e00cdbea-6312-4fb3-9856-0c2f3bf2ef25`, also passed in
+  56.359 seconds.
+  Explicit source and path stress-validation replays took 18.51 and 17.57
+  seconds; those replays are not part of production direct-search cost. The
+  earlier two-stage run `e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935
+  seconds, split 17.29 + 16.21 seconds across its two construction phases and
+  performed 72 construction authentications. This worktree checkpoint invokes
+  no MTBDD compiler and constructs no MTBDD owner or DAG; it is not an
+  arity-21 Ready result, published rule, reduction, or physical-topology
+  calculation;
+- normalized-source V2 ordering-policy binding in the current validated
+  worktree. Every source owns one explicit `IntegralOrderingPolicy`, including
+  an empty-attempt source, and every present candidate's policy is
+  authenticated. Owner-focused run
+  `8ad499a3-339e-4e0b-a04f-ccf754406516` passed 21/21 tests, the
+  formula/residual suite `6a5267d1-fe75-4854-8b98-9a03b1bb2370` passed 14/14,
+  and independent audit/validation run
+  `430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30. Policy-bound all-36
+  `L=6`, `K=21` run `88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with
+  36 construction authentications, the unchanged 15 Certified/21 Unsupported
+  semantics, and a 1.405-millisecond first-residual search. This remains an
+  internal worktree checkpoint, not a Ready result, reduction, or physical
+  topology calculation; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -265,6 +306,12 @@ rank, tensor-projector matrices, and the affine-family/symmetry verifier have
 since crossed public Symbolica APIs. The latter now delegates determinants,
 transpose, Gram congruence, and denominator-coordinate products through an
 authenticated V2 boundary while retaining an independent physics replay.
+Native Symbolica dense and sparse solves must likewise replace the older
+custom `exact_sparse_elimination` wherever the public API applies. The pinned
+sparse solve has a documented validation caveat, so the production migration
+must use public `SparseRowReducer` together with independent rank/residual and
+transcript checks; RustRed does not extend this into a parallel CAS or matrix
+implementation.
 The next vacuum-critical solver milestone is the topology-neutral
 `Ready -> condition/WhenBad partition -> atomic guarded-rule/residual
 publication -> replay-certified closure` slice. Exact descent and lazy hazard
@@ -275,15 +322,20 @@ path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
 
-Alongside that staged algebra migration, the remaining generic LiteRed-style
-solver work is to:
+Alongside that staged algebra migration, normalized-source V2 now binds one
+explicit `IntegralOrderingPolicy` into every source, including an empty-attempt
+source, and authenticates every present candidate's policy. The remaining
+generic LiteRed-style solver work is to:
 
-1. use the implemented shared, replayable normalized-coverage owner as the
-   high-loop source authority and add direct search for only a requested
-   residual frontier; use the full MTBDD only when a measured construction
-   budget makes it appropriate;
-2. compile and close `WhenBad` exceptional branches;
-3. atomically publish guarded rules and residual work;
+1. adapt one direct formula-residual path into the existing affine exact-session
+   boundary without constructing V4, the V5 MTBDD, or the legacy Boolean/DPLL
+   owners: prune exact coordinate contradictions, derive the affine map from
+   equal-zero decisions, preserve nonzero decisions as premises, and create a
+   generic singleton group;
+2. carry that singleton through physical frame, solve plan, session staging,
+   recentering, and the existing `ReadyForConditions` boundary;
+3. compile and close `WhenBad` exceptional branches, then atomically publish
+   guarded rules and residual work;
 4. feed solved subsectors into supersectors and iterate residual cases; and
 5. expose a replay-certified complete reduction result.
 
@@ -300,12 +352,22 @@ at split 65,537 of 65,536. The replacement MTBDD avoids that explicit
 the real all-36 source still constructs 49 atoms and 268,427 nodes before the
 cursor can return its first residual. The cap is not being raised. The
 backend-neutral normalized source is now a separate replayable owner shared by
-the MTBDD backend, with exact source-Arc fast paths on the common case. The next
-high-loop gate is a direct, bounded search over those authenticated normalized
-formulas, followed by the existing exact Ready analysis. No arity-21 case has
-reached Ready yet. Before production-size foundry runs, the remaining duplicate
-candidate-authentication passes will be collapsed behind a sealed
-fresh-normalization token.
+the MTBDD backend, with exact source-Arc fast paths on the common case. Sealed
+fresh normalization and the bounded direct formula cursor are implemented at
+pushed HEAD `03921b8`; the current validated worktree adds the safe one-pass
+candidate ingress and sealed replay token. The all-36 comparison above reduces
+construction authentications from 72 to 36 and replaces the old 17.29 + 16.21
+second two-stage ingress with one 17.4507-second candidate-to-source phase. The
+direct cursor remains millisecond-scale. The 18.51-second source replay and
+17.57-second path replay in the fixture deliberately reauthenticate for stress
+validation and are not production direct-search phases. Normalized-source V2
+now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
+14/14 suites, independent 30/30 audit/validation, and policy-bound K21 1/1 run
+listed above passed. The immediate gate is therefore the generic direct
+singleton affine adapter from `NormalizedSource` through `FormulaResidualPath`
+into the existing exact-session `ReadyForConditions` path. No arity-21 case
+has reached Ready, no guarded rule has been published, no physical topology was
+reduced, and no complete reduction is claimed.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent

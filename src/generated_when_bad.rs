@@ -190,6 +190,44 @@ pub struct GeneratedSourceAuthenticationStats {
     source_manifest_bytes: usize,
 }
 
+/// Allocation-free census available before a generated-source
+/// authentication starts replaying a candidate.
+///
+/// The match-attempt value is the exact unavoidable lower bound: every
+/// retained row must inspect at least the first nonempty generated basis row.
+/// The final authentication may consume more attempts while locating the
+/// matching basis member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedWhenBadCandidatePreflight {
+    canonical_rows: usize,
+    canonical_terms: usize,
+    retained_rows: usize,
+    retained_terms: usize,
+    minimum_match_attempts: usize,
+}
+
+impl GeneratedWhenBadCandidatePreflight {
+    pub(crate) const fn canonical_rows(self) -> usize {
+        self.canonical_rows
+    }
+
+    pub(crate) const fn canonical_terms(self) -> usize {
+        self.canonical_terms
+    }
+
+    pub(crate) const fn retained_rows(self) -> usize {
+        self.retained_rows
+    }
+
+    pub(crate) const fn retained_terms(self) -> usize {
+        self.retained_terms
+    }
+
+    pub(crate) const fn minimum_match_attempts(self) -> usize {
+        self.minimum_match_attempts
+    }
+}
+
 impl GeneratedSourceAuthenticationStats {
     pub const fn canonical_rows(self) -> usize {
         self.canonical_rows
@@ -448,85 +486,22 @@ impl GeneratedSourceAuthenticator {
         #[cfg(test)]
         note_replayed_row_span_authentication_call();
 
-        if !limits.row_span.strategy.is_disabled()
-            && limits.row_span.limits.transport.arithmetic != limits.ibp.arithmetic_limits
-        {
-            return Err(GeneratedWhenBadError::IncoherentLimits {
-                detail: "IBP generation and whole-row symmetry transport arithmetic policies differ",
-            });
-        }
-        if candidate.family_fingerprint() != family.fingerprint() {
-            return Err(GeneratedWhenBadError::WrongFamily);
-        }
-        if candidate.context_fingerprint() != context.fingerprint() {
-            return Err(GeneratedWhenBadError::WrongContext);
-        }
-        let retained = candidate.derivation().source_rows();
-        check_limit(
-            "retained parametric source rows",
-            retained.len(),
-            limits.max_retained_rows,
-        )?;
-        let retained_terms = aggregate_terms(
-            "retained parametric source terms",
-            retained.iter(),
-            limits.max_retained_terms,
-        )?;
-        check_limit(
-            "candidate source manifest bytes",
-            candidate.source_manifest().len(),
-            limits.max_source_manifest_bytes,
-        )?;
-        let expected_canonical_rows = generated_row_count(family)?;
-        check_limit(
-            "canonical generated IBP/LI rows",
-            expected_canonical_rows,
-            limits.max_canonical_rows,
-        )?;
-
-        // Every accepted source row carries one arity-sized translation
-        // witness, including the all-zero witness for an original row. Bound
-        // the aggregate transcript before any translation replay allocates.
-        let translation_components = retained.len().checked_mul(context.index_count()).ok_or(
-            GeneratedWhenBadError::ResourceCountOverflow {
-                resource: "generated-source translation components",
-            },
-        )?;
-        check_limit(
-            "generated-source translation components",
-            translation_components,
-            limits.max_translation_components,
-        )?;
-        // Every retained row must be compared with at least the first basis
-        // row.  Enforce that unavoidable lower bound before replaying a
-        // potentially large elimination or rebuilding the generated span.
-        check_limit(
-            "generated-source match attempts",
-            if expected_canonical_rows == 0 {
-                0
-            } else {
-                retained.len()
-            },
-            limits.max_match_attempts,
+        let preflight = Self::shallow_preflight_against_bound_row_span(
+            family, context, candidate, &row_span, limits,
         )?;
         // Cheap caller-controlled bounds have now been checked. Replaying the
         // retained elimination can be substantial, so it intentionally comes
         // after those preflights.
         candidate.replay_retained(context)?;
 
-        validate_shared_row_span(family, context, &row_span, limits)?;
+        let retained = candidate.derivation().source_rows();
         let basis = row_span.rows();
         let row_span_stats = row_span.stats();
-        if row_span_stats.canonical_rows() != expected_canonical_rows {
-            return Err(GeneratedWhenBadError::GeneratedRowCountMismatch {
-                expected: expected_canonical_rows,
-                actual: row_span_stats.canonical_rows(),
-            });
-        }
-        check_limit(
-            "canonical generated IBP/LI terms",
-            row_span_stats.canonical_terms(),
-            limits.max_canonical_terms,
+        let retained_terms = preflight.retained_terms;
+        let translation_components = retained.len().checked_mul(context.index_count()).ok_or(
+            GeneratedWhenBadError::ResourceCountOverflow {
+                resource: "generated-source translation components",
+            },
         )?;
 
         let mut attempts = 0usize;
@@ -670,6 +645,100 @@ impl GeneratedSourceAuthenticator {
             witnesses: witnesses.into_boxed_slice(),
             stats,
             limits,
+        })
+    }
+
+    fn shallow_preflight_against_bound_row_span(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: &ParametricReductionRuleCandidate,
+        row_span: &GeneratedSymbolicRowSpanCertificate,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<GeneratedWhenBadCandidatePreflight, GeneratedWhenBadError> {
+        if !limits.row_span.strategy.is_disabled()
+            && limits.row_span.limits.transport.arithmetic != limits.ibp.arithmetic_limits
+        {
+            return Err(GeneratedWhenBadError::IncoherentLimits {
+                detail: "IBP generation and whole-row symmetry transport arithmetic policies differ",
+            });
+        }
+        if candidate.family_fingerprint() != family.fingerprint() {
+            return Err(GeneratedWhenBadError::WrongFamily);
+        }
+        if candidate.context_fingerprint() != context.fingerprint() {
+            return Err(GeneratedWhenBadError::WrongContext);
+        }
+        let retained = candidate.derivation().source_rows();
+        check_limit(
+            "retained parametric source rows",
+            retained.len(),
+            limits.max_retained_rows,
+        )?;
+        let retained_terms = aggregate_terms(
+            "retained parametric source terms",
+            retained.iter(),
+            limits.max_retained_terms,
+        )?;
+        check_limit(
+            "candidate source manifest bytes",
+            candidate.source_manifest().len(),
+            limits.max_source_manifest_bytes,
+        )?;
+        let expected_canonical_rows = generated_row_count(family)?;
+        check_limit(
+            "canonical generated IBP/LI rows",
+            expected_canonical_rows,
+            limits.max_canonical_rows,
+        )?;
+
+        // Every accepted source row carries one arity-sized translation
+        // witness, including the all-zero witness for an original row. Bound
+        // the aggregate transcript before any translation replay allocates.
+        let translation_components = retained.len().checked_mul(context.index_count()).ok_or(
+            GeneratedWhenBadError::ResourceCountOverflow {
+                resource: "generated-source translation components",
+            },
+        )?;
+        check_limit(
+            "generated-source translation components",
+            translation_components,
+            limits.max_translation_components,
+        )?;
+        // Every retained row must be compared with at least the first basis
+        // row.  Enforce that unavoidable lower bound before replaying a
+        // potentially large elimination or rebuilding the generated span.
+        check_limit(
+            "generated-source match attempts",
+            if expected_canonical_rows == 0 {
+                0
+            } else {
+                retained.len()
+            },
+            limits.max_match_attempts,
+        )?;
+        validate_shared_row_span(family, context, row_span, limits)?;
+        let row_span_stats = row_span.stats();
+        if row_span_stats.canonical_rows() != expected_canonical_rows {
+            return Err(GeneratedWhenBadError::GeneratedRowCountMismatch {
+                expected: expected_canonical_rows,
+                actual: row_span_stats.canonical_rows(),
+            });
+        }
+        check_limit(
+            "canonical generated IBP/LI terms",
+            row_span_stats.canonical_terms(),
+            limits.max_canonical_terms,
+        )?;
+        Ok(GeneratedWhenBadCandidatePreflight {
+            canonical_rows: row_span_stats.canonical_rows(),
+            canonical_terms: row_span_stats.canonical_terms(),
+            retained_rows: retained.len(),
+            retained_terms,
+            minimum_match_attempts: if expected_canonical_rows == 0 {
+                0
+            } else {
+                retained.len()
+            },
         })
     }
 }
@@ -907,6 +976,16 @@ impl GeneratedWhenBadCompilation {
 
 pub struct GeneratedWhenBadCompiler;
 
+/// Unforgeable proof that one generated row-span certificate has completed
+/// its full replay for the current in-process batch.
+///
+/// The owned candidate compiler accepts this authority instead of a raw Arc,
+/// preventing a caller from entering the no-row-span-replay path by naming
+/// the convention alone.
+pub(crate) struct GeneratedWhenBadReplayedRowSpan {
+    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+}
+
 impl GeneratedWhenBadCompiler {
     pub fn compile(
         family: &IntegralFamily,
@@ -959,18 +1038,85 @@ impl GeneratedWhenBadCompiler {
         Self::compile_authenticated(context, candidate, source, limits)
     }
 
+    /// Compile and retain one owned candidate against an already replayed
+    /// shared row span without deep-cloning the candidate.
+    pub(crate) fn compile_owned_with_replayed_row_span(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: ParametricReductionRuleCandidate,
+        replayed_row_span: &GeneratedWhenBadReplayedRowSpan,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<GeneratedWhenBadCompilation, GeneratedWhenBadError> {
+        let candidate = Arc::new(candidate);
+        let source = GeneratedSourceAuthenticator::authenticate_with_replayed_row_span(
+            family,
+            context,
+            candidate.as_ref(),
+            Arc::clone(&replayed_row_span.row_span),
+            limits,
+        )?;
+        Self::compile_authenticated_arc(context, candidate, source, limits)
+    }
+
+    /// Replay one shared row span exactly once and return the only authority
+    /// accepted by the owned no-replay candidate compiler.
+    pub(crate) fn replay_row_span_for_owned_batch(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    ) -> Result<GeneratedWhenBadReplayedRowSpan, GeneratedWhenBadError> {
+        row_span.replay(family, context)?;
+        Ok(GeneratedWhenBadReplayedRowSpan { row_span })
+    }
+
+    /// Check every allocation-free candidate/source bound used before the
+    /// generated authenticator replays a retained elimination.
+    pub(crate) fn shallow_preflight_candidate_against_bound_row_span(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: &ParametricReductionRuleCandidate,
+        row_span: &GeneratedSymbolicRowSpanCertificate,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<GeneratedWhenBadCandidatePreflight, GeneratedWhenBadError> {
+        GeneratedSourceAuthenticator::shallow_preflight_against_bound_row_span(
+            family, context, candidate, row_span, limits,
+        )
+    }
+
+    /// Candidate-independent `WhenBad` lower bounds for a nonempty batch.
+    pub(crate) fn preflight_replayed_batch_fixed_limits(
+        context: &ParametricCoefficientContext,
+        candidate_count: usize,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<(), GeneratedWhenBadError> {
+        WhenBadCompiler::preflight_replayed_cylindrical_batch_fixed_limits(
+            context,
+            candidate_count,
+            limits.when_bad,
+        )?;
+        Ok(())
+    }
+
     fn compile_authenticated(
         context: &ParametricCoefficientContext,
         candidate: &ParametricReductionRuleCandidate,
         source: GeneratedSourceAuthenticationCertificate,
         limits: GeneratedWhenBadLimits,
     ) -> Result<GeneratedWhenBadCompilation, GeneratedWhenBadError> {
+        Self::compile_authenticated_arc(context, Arc::new(candidate.clone()), source, limits)
+    }
+
+    fn compile_authenticated_arc(
+        context: &ParametricCoefficientContext,
+        candidate: Arc<ParametricReductionRuleCandidate>,
+        source: GeneratedSourceAuthenticationCertificate,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<GeneratedWhenBadCompilation, GeneratedWhenBadError> {
         let schema = generated_when_bad_schema_for_source(&source);
-        let candidate = Arc::new(candidate.clone());
         Ok(
-            match WhenBadCompiler::compile_algebraic_candidate(
+            match WhenBadCompiler::compile_algebraic_candidate_arc(
                 context,
-                &candidate,
+                Arc::clone(&candidate),
                 limits.when_bad,
             )? {
                 WhenBadCompilation::Certified(admissibility) => {

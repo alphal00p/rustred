@@ -17,7 +17,7 @@ use crate::parametric_sector_formula_ir::{
     NormalizedCoverageAttempt, NormalizedCoverageIr, PARAMETRIC_SECTOR_FORMULA_IR_V1_SCHEMA,
 };
 use crate::parametric_sector_normalized_source::{
-    PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA,
+    PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA,
     ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceError,
 };
 use crate::{IntegralFamily, ParametricCoefficientContext, ParametricPolynomial};
@@ -1027,7 +1027,7 @@ fn validate_source_header_and_limits(
     source: &ParametricSectorNormalizedCoverageSource,
     limits: ParametricSectorFormulaResidualLimits,
 ) -> Result<SourceCensus, ParametricSectorFormulaResidualError> {
-    if source.schema() != PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA {
+    if source.schema() != PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA {
         return Err(ParametricSectorFormulaResidualError::SourceSchemaMismatch);
     }
     if source.normalized().ir().schema() != PARAMETRIC_SECTOR_FORMULA_IR_V1_SCHEMA
@@ -1430,6 +1430,7 @@ mod tests {
         NormalizedBadClause, NormalizedBadClauseRole, NormalizedBadClauseSource,
         NormalizedCandidateBadFormula, NormalizedFactorZeroSource,
     };
+    use crate::parametric_sector_k21_test_support::compile_six_loop_k21_normalized_fixture;
     use crate::parametric_sector_mtbdd::{
         ParametricSectorMtbddCompiler, ParametricSectorMtbddDisposition,
         ParametricSectorMtbddLimits, reference_disposition_for_assignment,
@@ -1913,6 +1914,7 @@ mod tests {
                 &family,
                 &context,
                 discovery.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 compilations,
                 ParametricSectorNormalizedCoverageSourceLimits::default(),
             )
@@ -1967,6 +1969,7 @@ mod tests {
                 &family,
                 &context,
                 sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 vec![compilation.clone(), compilation],
                 ParametricSectorNormalizedCoverageSourceLimits::default(),
             )
@@ -2060,6 +2063,7 @@ mod tests {
                 &family,
                 &context,
                 nonempty.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 ParametricSectorNormalizedCoverageSourceLimits::default(),
             )
@@ -2298,6 +2302,252 @@ mod tests {
         cursor
             .next_path()?
             .ok_or(ParametricSectorFormulaResidualError::PathReplayMismatch)
+    }
+
+    #[test]
+    #[ignore = "honest all-36 L=6/K=21 direct normalized-formula stress"]
+    fn full_six_loop_k21_normalized_source_finds_first_residual_without_mtbdd() {
+        use std::time::Instant;
+
+        const LOCI: usize = 49;
+        const ATTEMPTS: usize = 36;
+        const CERTIFIED: usize = 15;
+        const UNSUPPORTED: usize = 21;
+        const RETAINED_BYTE_LIMIT: usize = 1024 * 1024;
+        const MAX_REFERENCE_COMPLETIONS: usize = 1 << 20;
+        const CERTIFIED_ORDINALS: [usize; CERTIFIED] =
+            [1, 2, 3, 4, 5, 8, 9, 10, 11, 15, 16, 17, 22, 23, 29];
+        const UNSUPPORTED_ORDINALS: [usize; UNSUPPORTED] = [
+            0, 6, 7, 12, 13, 14, 18, 19, 20, 21, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35,
+        ];
+
+        reset_replayed_row_span_authentication_calls();
+        let fixture =
+            compile_six_loop_k21_normalized_fixture("formula-residual-six-loop-k21-direct");
+        let fixture_authentication_calls = replayed_row_span_authentication_calls();
+        assert_eq!(fixture_authentication_calls, ATTEMPTS);
+        let family = fixture.family;
+        let context = fixture.context;
+        let source = fixture.source;
+        let build = fixture.timings;
+
+        let coverage = source.stats().coverage();
+        let normalization = source.stats().normalization();
+        assert_eq!(source.row_span().rows().len(), ATTEMPTS);
+        assert_eq!(source.attempts().len(), ATTEMPTS);
+        assert_eq!(coverage.candidates(), ATTEMPTS);
+        assert_eq!(coverage.certified_candidates(), CERTIFIED);
+        assert_eq!(coverage.unsupported_candidates(), UNSUPPORTED);
+        assert_eq!(normalization.attempts(), ATTEMPTS);
+        assert_eq!(normalization.certified_attempts(), CERTIFIED);
+        assert_eq!(normalization.unsupported_attempts(), UNSUPPORTED);
+        assert_eq!(source.normalized().ir().base_structural_locus_count(), LOCI);
+        assert_eq!(source.normalized().base_structural_loci().len(), LOCI);
+        let certified = source
+            .normalized()
+            .ir()
+            .attempts()
+            .iter()
+            .filter_map(|attempt| match attempt {
+                NormalizedCoverageAttempt::Certified(formula) => {
+                    Some(formula.source_attempt_ordinal())
+                }
+                NormalizedCoverageAttempt::Unsupported { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(certified, CERTIFIED_ORDINALS);
+        let unsupported = source
+            .normalized()
+            .ir()
+            .attempts()
+            .iter()
+            .filter_map(|attempt| match attempt {
+                NormalizedCoverageAttempt::Unsupported {
+                    source_attempt_ordinal,
+                } => Some(*source_attempt_ordinal),
+                NormalizedCoverageAttempt::Certified(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(unsupported, UNSUPPORTED_ORDINALS);
+
+        reset_replayed_row_span_authentication_calls();
+        let started = Instant::now();
+        source.replay(&family, &context).unwrap();
+        let source_replay = started.elapsed();
+        let source_replay_authentication_calls = replayed_row_span_authentication_calls();
+        assert_eq!(source_replay_authentication_calls, ATTEMPTS);
+
+        let mut limits = ParametricSectorFormulaResidualLimits::default();
+        limits.max_base_structural_loci = LOCI;
+        limits.max_attempts = ATTEMPTS;
+        limits.max_certified_attempts = CERTIFIED;
+        limits.max_unsupported_candidate_references = UNSUPPORTED;
+        limits.max_assignment_capacity_entries = 128;
+        limits.max_depth = LOCI;
+        limits.max_frontier_capacity_entries = 128;
+        limits.max_cursor_retained_bytes = RETAINED_BYTE_LIMIT;
+        limits.max_paths_yielded = 1;
+        limits.max_path_decisions = LOCI;
+        limits.max_path_capacity_entries = 128;
+        limits.max_path_retained_bytes = RETAINED_BYTE_LIMIT;
+
+        let started = Instant::now();
+        let mut cursor = ParametricSectorFormulaResidualCursor::from_replayed_source(
+            Arc::clone(&source),
+            ParametricSectorFormulaResidualRequest::AnyResidual,
+            limits,
+        )
+        .unwrap();
+        let cursor_initialization = started.elapsed();
+        let started = Instant::now();
+        let path = cursor
+            .next_path()
+            .unwrap()
+            .expect("the honest all-36 source must retain a residual cube");
+        let direct_first_residual = started.elapsed();
+
+        // No MTBDD compiler, owner, or decision DAG is constructed in this
+        // direct stress.  The later backend-free assignment evaluator is an
+        // independent semantic oracle for the residual cube.
+        assert!(cursor.same_source_allocation(&source));
+        assert!(path.same_source_allocation(&source));
+        assert_eq!(
+            cursor.branch_order_schema(),
+            PARAMETRIC_SECTOR_FORMULA_RESIDUAL_BRANCH_ORDER_V1
+        );
+        assert_eq!(
+            path.branch_order_schema(),
+            PARAMETRIC_SECTOR_FORMULA_RESIDUAL_BRANCH_ORDER_V1
+        );
+        assert_eq!(path.yield_ordinal(), 1);
+        assert_eq!(
+            path.terminal_kind(),
+            ParametricSectorFormulaResidualKind::Unsupported
+        );
+        assert_eq!(
+            path.unsupported_candidate_ordinals().collect::<Vec<_>>(),
+            UNSUPPORTED_ORDINALS
+        );
+        assert!(path.decisions().len() <= LOCI);
+        let mut seen = [false; LOCI];
+        for decision in path.decisions() {
+            let locus = decision.structural_locus_ordinal();
+            assert!(locus < LOCI);
+            assert!(!seen[locus], "structural locus {locus} was split twice");
+            seen[locus] = true;
+        }
+        assert!(cursor.stats().maximum_depth() <= LOCI);
+        assert!(cursor.stats().peak_cursor_retained_bytes() <= RETAINED_BYTE_LIMIT);
+        assert!(path.stats().retained_path_bytes() <= RETAINED_BYTE_LIMIT);
+        let free_locus_count = LOCI - path.decisions().len();
+        eprintln!(
+            "K21 direct core: family/context={:?}, row-span-compile={:?}, adaptive-candidates={:?}, candidate-to-normalized-source={:?} (authentications={fixture_authentication_calls}), source-replay={:?} (authentications={source_replay_authentication_calls}), cursor-init={:?}, first-residual={:?}, decisions={}, free-loci={free_locus_count}; cursor-stats={:?}; path-stats={:?}",
+            build.family_and_context,
+            build.row_span,
+            build.adaptive_candidates,
+            build.candidate_to_normalized_source,
+            source_replay,
+            cursor_initialization,
+            direct_first_residual,
+            path.decisions().len(),
+            cursor.stats(),
+            path.stats(),
+        );
+
+        let started = Instant::now();
+        let mut zero_by_locus = vec![false; LOCI];
+        for decision in path.decisions() {
+            zero_by_locus[decision.structural_locus_ordinal()] = matches!(
+                decision.polarity(),
+                ParametricSectorFormulaResidualPolarity::EqualZero
+            );
+        }
+        let free_loci = seen
+            .iter()
+            .enumerate()
+            .filter_map(|(ordinal, assigned)| (!assigned).then_some(ordinal))
+            .collect::<Vec<_>>();
+        let completions = 1usize
+            .checked_shl(u32::try_from(free_loci.len()).unwrap())
+            .filter(|count| *count <= MAX_REFERENCE_COMPLETIONS)
+            .unwrap_or_else(|| {
+                panic!(
+                    "direct residual leaves {} free loci, exceeding the explicit semantic-oracle cap of {MAX_REFERENCE_COMPLETIONS} completions",
+                    free_loci.len()
+                )
+            });
+        for mask in 0..completions {
+            for (bit, locus) in free_loci.iter().copied().enumerate() {
+                zero_by_locus[locus] = mask & (1usize << bit) != 0;
+            }
+            assert!(matches!(
+                reference_disposition_for_assignment(source.normalized().ir(), &zero_by_locus)
+                    .unwrap(),
+                ParametricSectorMtbddDisposition::Unsupported { candidate_ordinals }
+                    if candidate_ordinals.as_ref() == UNSUPPORTED_ORDINALS
+            ));
+        }
+        let semantic_reference_completions = started.elapsed();
+
+        let started = Instant::now();
+        path.replay(&family, &context).unwrap();
+        let path_replay = started.elapsed();
+
+        let exact = exact_limits(cursor.stats(), path.stats());
+        let started = Instant::now();
+        let mut exact_cursor = ParametricSectorFormulaResidualCursor::from_replayed_source(
+            Arc::clone(&source),
+            ParametricSectorFormulaResidualRequest::AnyResidual,
+            exact,
+        )
+        .unwrap();
+        let exact_path = exact_cursor.next_path().unwrap().unwrap();
+        assert_eq!(exact_path.decisions(), path.decisions());
+        assert_eq!(exact_path.terminal_kind(), path.terminal_kind());
+        assert_eq!(exact_path.stats(), path.stats());
+        let exact_first_residual = started.elapsed();
+
+        let mut one_below_checked = false;
+        let started = Instant::now();
+        if cursor.stats().maximum_depth() > 0 {
+            let mut one_below = exact;
+            one_below.max_depth = cursor.stats().maximum_depth() - 1;
+            let mut rejected = ParametricSectorFormulaResidualCursor::from_replayed_source(
+                Arc::clone(&source),
+                ParametricSectorFormulaResidualRequest::AnyResidual,
+                one_below,
+            )
+            .unwrap();
+            assert!(matches!(
+                rejected.next_path(),
+                Err(ParametricSectorFormulaResidualError::ResourceLimit {
+                    resource: "formula-residual depth",
+                    requested,
+                    limit,
+                }) if requested == cursor.stats().maximum_depth()
+                    && limit + 1 == requested
+            ));
+            assert!(rejected.is_poisoned());
+            one_below_checked = true;
+        }
+        let one_below_depth = started.elapsed();
+
+        eprintln!(
+            "K21 direct phases: family/context={:?}, row-span-compile={:?}, adaptive-candidates={:?}, candidate-to-normalized-source={:?} (authentications={fixture_authentication_calls}), source-replay={:?} (authentications={source_replay_authentication_calls}), cursor-init={:?}, first-residual={:?}, semantic-completions({completions})={:?}, path-replay={:?}, exact-first-residual={:?}, one-below-depth({one_below_checked})={:?}; cursor-stats={:?}; path-stats={:?}",
+            build.family_and_context,
+            build.row_span,
+            build.adaptive_candidates,
+            build.candidate_to_normalized_source,
+            source_replay,
+            cursor_initialization,
+            direct_first_residual,
+            semantic_reference_completions,
+            path_replay,
+            exact_first_residual,
+            one_below_depth,
+            cursor.stats(),
+            path.stats(),
+        );
     }
 
     #[test]

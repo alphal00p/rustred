@@ -2,7 +2,8 @@
 
 Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
 on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
-on 2026-08-24.
+on 2026-08-24. Implementation status was reconciled with pushed HEAD
+`03921b8` and the current independently validated worktree on 2026-08-25.
 
 ## Reading status
 
@@ -156,6 +157,12 @@ independent validation layer, not the proof of a rule.
   checked resource budget.
 - Exceptional parameter or index loci are preserved as typed guards rather
   than silently assumed away.
+- Exact dense and sparse linear solves use public Symbolica APIs wherever they
+  apply; older custom `exact_sparse_elimination` code is migration debt, not a
+  production algebra authority. Because the pinned sparse solve has a known
+  validation caveat, RustRed must use public `SparseRowReducer` with independent
+  rank/residual and transcript checks rather than implementing another CAS or
+  matrix package.
 
 ## Current implementation gate and next generic slice
 
@@ -185,23 +192,80 @@ five-class master selection.  It therefore validates the generated algebra
 at three loops but does not claim a reusable three-loop parametric
 `SolvejSector` database.
 
-The immediate high-loop entry milestone is a topology-neutral, replayable
-normalized-source owner plus a bounded direct search over its authenticated
-candidate bad-formulas.  It must carry only the requested residual frontier
-into the exact session, without first constructing the legacy explicit V4
-partition or the complete V5 MTBDD.  V4 remains a small-fixture differential
-oracle, and V5 remains an optional repeated-query classifier only when its
-separately measured construction budget is acceptable.  The first scaling gate
-is one declared arity-21 sector reaching exact Ready through this direct path;
-it is not a six-loop reduction claim.
+The topology-neutral normalized-source owner, sealed fresh-normalization seam,
+and bounded direct formula-residual cursor are implemented at pushed HEAD
+`03921b8`. The source owns and replays one exact row-span allocation, every
+ordered attempt, the normalized IR/locus table, and the original resource
+envelope. The direct cursor searches authenticated candidate bad-formulas with
+one three-valued assignment table and one resumable DFS frontier.
 
-The normalized-source half of this milestone is implemented: it owns and
-replays one exact row-span allocation, every ordered attempt, the normalized
-IR/locus table, and the original resource envelope, and the MTBDD backend now
-shares it by `Arc`. The direct formula cursor and arity-21 Ready hand-off are
-still pending. A sealed freshly authenticated normalization seam must also
-remove the remaining repeated candidate-authentication passes before
-production-size high-loop runs.
+The current independently validated worktree adds a safe sealed replay token
+and a one-pass candidate-to-normalized-source ingress. It performs `N`
+construction authentications for `N` candidates instead of the legacy `2N`.
+Focused run `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests, and
+independent affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed
+44/44. Honest all-36 `L=6`, `K=21` primary run
+`37d85ddb-c356-4c79-a6f4-d428828db039` passed 1/1 in 58.109 seconds. It
+performed 36 construction authentications, constructed the same 49 loci over
+36 attempts with 15 Certified and 21 Unsupported outcomes, and reached the
+first residual after 30 decisions with 19 loci free and a 1,841-byte peak
+cursor. Candidate-to-source construction took 17.4507 seconds, cursor
+initialization 16.756 microseconds, and first-residual search 832.37
+microseconds. The independent semantic oracle exhaustively checked all
+524,288 completions. Independent K21 rerun
+`e00cdbea-6312-4fb3-9856-0c2f3bf2ef25` also passed in 56.359 seconds.
+
+The same worktree advances the persisted authority to normalized-source V2.
+Every source now owns one explicit `IntegralOrderingPolicy`, including an
+empty-attempt source, and replay authenticates every present candidate's
+policy. Owner-focused run `8ad499a3-339e-4e0b-a04f-ccf754406516` passed
+21/21 tests, formula/residual run `6a5267d1-fe75-4854-8b98-9a03b1bb2370`
+passed 14/14, and independent audit/validation run
+`430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30. The policy-bound all-36
+`L=6`, `K=21` run `88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with
+36 construction authentications, the same 15 Certified/21 Unsupported
+semantics, and a 1.405-millisecond first-residual search. These are worktree
+results; public library and CLI integration remain pending.
+
+For comparison, the earlier two-stage run
+`e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935 seconds, spent 17.29 +
+16.21 seconds in its two construction phases, and performed 72 construction
+authentications. The new fixture's 18.51-second source replay and 17.57-second
+path replay are deliberate stress-validation replays, not production
+direct-search cost. Neither path invokes an MTBDD compiler or constructs an
+MTBDD owner or DAG.
+
+The direct backend itself constructs neither the legacy explicit V4 partition
+nor the complete V5 MTBDD and does not invoke the residual Boolean/DPLL owner.
+That bypass is a production requirement, not merely a performance preference.
+V4 remains a small-fixture differential oracle, and V5 remains an optional
+repeated-query classifier only when its separately measured construction
+budget is acceptable. The currently published generated-sector discovery
+entry still eagerly creates V4, but the new worktree ingress is the intended
+production source API ahead of that materialization and preserves exact
+binding/replay guarantees through its sealed token. Public library and CLI
+integration of that API remain pending.
+
+The immediate generic semantic slice is a direct-backed singleton affine
+inventory/adapter from `NormalizedSource` through `FormulaResidualPath` into
+the existing exact-session `ReadyForConditions` path. At the existing
+case-authority boundary it must replay the selected path and
+incrementally reject exact coordinate contradictions: inactive-orthant
+violations, conflicting fixed-coordinate values, and equal-zero/nonzero
+conflicts. The equal-zero coordinate loci define the compact affine target
+map; nonzero decisions remain ordered premises/guards. The first bounded
+hand-off creates a singleton group and carries it through the physical frame,
+solve plan, `GeneratedAffineResidualGroupExactSession` staging, and
+recentering into the existing `ReadyForConditions` boundary. It must not
+reconstruct V4, V5, the live-leaf queue, or the old Boolean/DPLL certificates
+along the way.
+
+The first scaling gate remains one declared arity-21 sector reaching exact
+Ready through that direct hand-off. The successful `K=21` cursor fixture stops
+at its first certified formula-residual path: it creates no affine inventory,
+does not enter Ready, publishes no guarded rule, and is not a physical vacuum
+topology. Neither that milestone nor the existing lower-arity fixtures
+establishes a complete reduction.
 
 The following publication milestone remains the topology-neutral
 `GeneratedFamilySymbolicResidualSolveV1`.  It will connect the authenticated
@@ -218,6 +282,12 @@ The exact first-mode pipeline is:
 ```text
 generated IBP/LI rows
 -> proved-zero and self-symmetry canonicalized prepare-point rows
+-> ordered candidate attempts plus one authenticated row span
+-> one-pass sealed normalized-source ingress/replay token          [worktree]
+-> sealed normalized-source V2 + ordering-policy binding          [worktree]
+-> bounded direct formula-residual cursor                        [implemented]
+-> coordinate-pruned direct-backed affine inventory              [next]
+-> singleton group -> physical frame -> solve plan -> exact session
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering
 -> generated WhenBad with coefficient-pole and RHS-boundary loci

@@ -2,7 +2,10 @@
 
 Status: authoritative implementation plan; Phase A event-ledger foundation and
 the scoped independent-cylinder Ready geometry/descent/hazard checkpoint are
-implemented; updated 2026-08-25.
+implemented; upstream sealed normalization and direct formula-residual search
+are implemented at pushed HEAD `03921b8`; one-pass sealed candidate ingress is
+implemented in the current independently validated worktree; updated
+2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -128,17 +131,66 @@ the physical-key comparison witness. The latter shares the authoritative
 comparison implementation used by `Ord`; successful descent transcripts keep
 only the first decisive component rather than retaining every RHS key. A fast
 test-only `L=6`, `K=21` family validates all 36 generic ordinary-IBP rows and
-stable regeneration. A genuine all-inactive arity-21 Ready probe is currently
-blocked earlier by eager Boolean-cover split 65,537 exceeding the 65,536 cap;
+stable regeneration. A genuine all-inactive arity-21 Ready probe was blocked
+earlier by eager Boolean-cover split 65,537 exceeding the 65,536 cap;
 the cap was not raised.  A later complete-MTBDD experiment avoided that
 explicit partition but retained 49 atoms and 268,427 rooted nodes before its
-cursor could return the first residual.  The high-loop path therefore requires
-a shared authenticated normalized-source owner and bounded direct
-normalized-formula frontier search.  The MTBDD remains an optional compact-case
-backend under a separately measured construction budget, not the primary
-arity-21 entry path.  This supersedes this plan's earlier "lazy
-MTBDD/sector-DAG" entry wording without invalidating the V5 representation or
-its replay contract.
+cursor could return the first residual.
+
+The replacement source owner, sealed fresh-normalization seam, and bounded
+direct formula-residual cursor are implemented at pushed HEAD `03921b8`. The
+direct cursor searches the authenticated normalized formulas with one
+three-valued assignment table and one resumable DFS frontier; it constructs no
+V4 partition or V5 MTBDD and invokes no residual Boolean/DPLL owner. Its
+focused parallel GMP audit passed 9/9 tests. The MTBDD remains an optional
+compact-case backend under a separately measured construction budget, not the
+primary arity-21 entry path.
+
+The current independently validated worktree adds a safe sealed replay token
+and one-pass candidate-to-normalized-source ingress, performing `N`
+construction authentications rather than the legacy `2N`. Focused run
+`b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests and independent
+affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44.
+Primary honest all-36 `L=6`, `K=21` run
+`37d85ddb-c356-4c79-a6f4-d428828db039` passed 1/1 in 58.109 seconds with 36
+construction authentications. Candidate-to-source construction took 17.4507
+seconds, cursor initialization 16.756 microseconds, and first-residual search
+832.37 microseconds. The census remained 49 loci, 36 attempts, 15 Certified,
+21 Unsupported, 30 decisions, 19 free loci, and a 1,841-byte peak cursor; all
+524,288 completions were checked. Independent K21 run
+`e00cdbea-6312-4fb3-9856-0c2f3bf2ef25` also passed in 56.359 seconds.
+
+The old two-stage run `e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935
+seconds, spent 17.29 + 16.21 seconds in its two construction phases, and
+performed 72 construction authentications. The new fixture's explicit source
+and path stress-validation replays took 18.51 and 17.57 seconds; these are
+deliberate authentication checks, not production direct-search cost.
+
+The same worktree now advances the authority to normalized-source V2. It binds
+one explicit `IntegralOrderingPolicy` into every source, even an empty-attempt
+source, and authenticates every present candidate policy. Owner-focused run
+`8ad499a3-339e-4e0b-a04f-ccf754406516` passed 21/21 tests, formula/residual
+run `6a5267d1-fe75-4854-8b98-9a03b1bb2370` passed 14/14, and independent
+audit/validation run `430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30.
+The policy-bound all-36 `L=6`, `K=21` run
+`88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with 36 construction
+authentications, the unchanged 15 Certified/21 Unsupported semantics, and a
+1.405-millisecond first-residual search.
+
+The next upstream-to-session seam is therefore the generic direct-backed
+singleton affine inventory/adapter from `NormalizedSource` through
+`FormulaResidualPath` into the existing exact-session `ReadyForConditions`
+path. It must incrementally reject
+inactive-orthant violations, conflicting fixed coordinates, and
+equal-zero/nonzero coordinate contradictions. Equal-zero coordinate loci
+derive the compact affine map; nonzero decisions remain ordered premises. The
+first bounded owner should form one singleton group and carry it through the
+physical frame, solve plan, `GeneratedAffineResidualGroupExactSession`
+staging, and recentering into the existing `ReadyForConditions` boundary
+without reconstructing V4, V5, the live-leaf queue, or Boolean/DPLL
+certificates. No arity-21 input has reached Ready. The successful direct
+`K=21` fixture is not a physical topology and has not produced a published
+guarded rule or reduction.
 
 Not yet implemented are the Ready-native condition transcript and relative
 partition, the terminal current-lineage exact `WhenBad` compiler,
@@ -158,7 +210,11 @@ Phase B/C work must keep applying the same Symbolica-first rule. See the
 [`Symbolica exact-linear-algebra API inventory`](symbolica_exact_linear_algebra_api_inventory.md)
 and the
 [`Symbolica-first algebra migration audit`](symbolica_first_algebra_migration_audit_2026-08-24.md).
-RustRed must not build a second CAS or matrix layer.
+Native dense and sparse solves must replace the older custom
+`exact_sparse_elimination` wherever the public API applies. The pinned sparse
+solve has a validation caveat, so use public `SparseRowReducer` with
+independent rank/residual and transcript checks. RustRed must not build a
+second CAS or matrix layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -861,20 +917,42 @@ Implement in this order:
 2. extend the common fully prepared tail with the minimal chronological event
    ledger and owner-wide replacement preparation — completed for Dependent,
    NoTarget, and equality-refinement dispositions;
-3. replace the upstream eager all-orthant case inventory with a replayable
-   shared normalized-source owner and bounded direct normalized-formula
-   target-frontier search so `K=21` families can enter the exact session
-   without first materializing either `2^K` cases or a complete MTBDD; retain
-   the MTBDD only as a compact-case/repeated-query backend under its own
-   measured construction budget;
-4. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
+3. establish the replayable shared normalized-source owner, sealed fresh
+   normalization, and bounded direct normalized-formula target-frontier search
+   without materializing V4, V5, or the Boolean/DPLL owners — completed at
+   pushed HEAD `03921b8`; licensed run
+   `e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` passed 10/10 including direct
+   all-36 `K=21` residual search, but no Ready/reduction result;
+4. one-pass candidate-to-normalized-source construction ahead of V4 with a
+   safe sealed replay token — completed in the current validated worktree;
+   focused run `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6,
+   independent affected run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed
+   44/44, and primary K21 run `37d85ddb-c356-4c79-a6f4-d428828db039`
+   passed 1/1 with 36 rather than 72 construction authentications;
+5. bind one explicit `IntegralOrderingPolicy` into the normalized source,
+   including the empty-attempt case, and authenticate all present candidate
+   policies — completed in normalized-source V2 in the current validated
+   worktree; focused runs
+   `8ad499a3-339e-4e0b-a04f-ccf754406516` (21/21) and
+   `6a5267d1-fe75-4854-8b98-9a03b1bb2370` (14/14), independent run
+   `430af297-b806-431e-a169-bd0f19a9f9c8` (30/30), and policy-bound K21 run
+   `88a73ec1-52c2-4771-8a21-75e1b2a848b6` (1/1) passed;
+6. add the generic direct-backed singleton affine inventory/adapter — next:
+   incrementally prune
+   coordinate contradictions, derive affine coordinates from equal-zero loci,
+   preserve nonzero premises, and carry a singleton group through physical
+   frame, solve plan, exact-session staging, and recentering into the existing
+   `ReadyForConditions` boundary; retain the MTBDD only as a
+   compact-case/repeated-query backend under its own measured construction
+   budget;
+7. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
    independent-cylinder descent/lazy hazards implemented; general compact-
    affine geometry plus conditions and pullbacks active;
-5. owning current-lineage exact `WhenBad` terminal compiler;
-6. atomic Certified/rejected disposition, sealed rules, and exceptional work;
-7. extend the implemented chronological replay with durable rule/residual
+8. owning current-lineage exact `WhenBad` terminal compiler;
+9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
+10. extend the implemented chronological replay with durable rule/residual
    manifest validation, concrete application, and provider integration;
-8. topology-based validation from one loop upward.
+11. topology-based validation from one loop upward.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, replay path, source-surface seal, exact/one-below tests, and

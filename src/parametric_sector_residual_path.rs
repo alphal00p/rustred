@@ -1117,14 +1117,13 @@ fn checked_mul(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adaptive_rules::{AdaptiveParametricRuleProvider, AdaptiveRuleSearchLimits};
+    use crate::parametric_sector_k21_test_support::compile_six_loop_k21_normalized_fixture;
     use crate::parametric_sector_mtbdd_certificate::{
         ParametricSectorMtbddCoverageCompiler, ParametricSectorMtbddCoverageLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, ConcreteIntegralKey,
-        GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
-        GeneratedSymbolicRowSpanCompiler, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
+        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
+        GeneratedSectorDiscoveryLimits, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
         GeneratedWhenBadLimits, IntegralOrderingPolicy, ParametricElimination,
         ParametricEliminationLimits, ParametricEliminationOrdering, ParametricIbpGenerator,
         ParametricReductionRuleCandidate, ParametricRuleLimits, SectorMask,
@@ -1212,6 +1211,7 @@ mod tests {
                 &family,
                 &context,
                 discovery.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 compilations,
                 ParametricSectorMtbddCoverageLimits::default(),
             )
@@ -1253,6 +1253,7 @@ mod tests {
                 &family,
                 &context,
                 discovery.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 compilations,
                 ParametricSectorMtbddCoverageLimits::default(),
             )
@@ -1308,6 +1309,7 @@ mod tests {
                 &family,
                 &context,
                 sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 vec![compilation],
                 ParametricSectorMtbddCoverageLimits::default(),
             )
@@ -1390,6 +1392,7 @@ mod tests {
                 &family,
                 &context,
                 nonempty.sector().clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 ParametricSectorMtbddCoverageLimits::default(),
             )
@@ -1730,109 +1733,24 @@ mod tests {
         run_one_loop_path(&family, &context, &source, exact).unwrap();
     }
 
-    fn six_loop_unit_mass_coordinate_basis(name: &str) -> IntegralFamily {
-        const LOOPS: usize = 6;
-        const ARITY: usize = LOOPS * (LOOPS + 1) / 2;
-        let coefficients = CoefficientContext::new(["d"]);
-        let zero = coefficients.zero();
-        let one = coefficients.one();
-        let denominators = (0..ARITY)
-            .map(|row| {
-                AffineDenominator::new(
-                    coefficients.integer(-1),
-                    (0..ARITY)
-                        .map(|column| {
-                            if row == column {
-                                one.clone()
-                            } else {
-                                zero.clone()
-                            }
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
-        IntegralFamily::new(
-            name,
-            (0..LOOPS).map(|loop_| format!("k{}", loop_ + 1)).collect(),
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parameter("d").unwrap(),
-            denominators,
-            Vec::new(),
-            vec![zero; ARITY],
-        )
-        .unwrap()
-    }
-
-    /// This fixture enters through generation, adaptive candidate derivation,
-    /// GeneratedWhenBad authentication, normalization, and the existing MTBDD
-    /// compiler. It deliberately never invokes legacy V4 coverage.
-    fn six_loop_k21_source() -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<ParametricSectorMtbddCoverageCertificate>,
-    ) {
-        const ARITY: usize = 21;
-        let family = six_loop_unit_mass_coordinate_basis("residual-path-six-loop-k21");
-        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
-        let context = generator.context().clone();
-        let coverage_limits = ParametricSectorMtbddCoverageLimits::default();
-        let row_span = Arc::new(
-            GeneratedSymbolicRowSpanCompiler::compile(
-                &family,
-                &context,
-                coverage_limits.coverage.generated_when_bad.ibp,
-                coverage_limits.coverage.generated_when_bad.row_span,
-            )
-            .unwrap(),
-        );
-        row_span.replay(&family, &context).unwrap();
-        assert_eq!(row_span.rows().len(), 36);
-        let mut adaptive_limits = AdaptiveRuleSearchLimits::default();
-        adaptive_limits.max_search_depth = 0;
-        let mut adaptive = AdaptiveParametricRuleProvider::try_new(
-            &context,
-            row_span.rows(),
-            IntegralOrderingPolicy::RustRedUnshiftedV1,
-            adaptive_limits,
-        )
-        .unwrap();
-        let corner = ConcreteIntegralKey::try_new(vec![0; ARITY]).unwrap();
-        let candidates = adaptive.candidates_for_quotient(&corner).unwrap();
-        assert_eq!(candidates.len(), 36);
-        let compilations = candidates
-            .iter()
-            .map(|candidate| {
-                GeneratedWhenBadCompiler::compile_with_replayed_row_span(
-                    &family,
-                    &context,
-                    candidate,
-                    Arc::clone(&row_span),
-                    coverage_limits.coverage.generated_when_bad,
-                )
-                .unwrap()
-            })
-            .collect();
-        let source = Arc::new(
-            ParametricSectorMtbddCoverageCompiler::compile_authenticated(
-                &family,
-                &context,
-                SectorMask::try_new([false; ARITY]).unwrap(),
-                compilations,
-                coverage_limits,
-            )
-            .unwrap(),
-        );
-        (family, context, source)
-    }
-
     #[test]
     #[ignore = "full all-36 L=6/K=21 MTBDD construction is an explicit scaling stress"]
     fn full_six_loop_k21_source_finds_first_residual_with_bounded_cursor_memory() {
         const PATH_DEPTH: usize = 43;
         const EXPLICIT_ATOM_ASSIGNMENTS: usize = 1 << 49;
-        let (family, context, source) = six_loop_k21_source();
+        let fixture =
+            compile_six_loop_k21_normalized_fixture("residual-path-six-loop-k21-mtbdd-oracle");
+        let family = fixture.family;
+        let context = fixture.context;
+        let normalized_source = fixture.source;
+        let source = Arc::new(
+            ParametricSectorMtbddCoverageCompiler::compile_from_source(
+                Arc::clone(&normalized_source),
+                ParametricSectorMtbddCoverageLimits::default().mtbdd,
+            )
+            .unwrap(),
+        );
+        assert!(Arc::ptr_eq(source.source_arc(), &normalized_source));
 
         // This census is intentionally the real all-36 generated source, not
         // a manufactured 21-rule chain. It is expensive enough to stay out of

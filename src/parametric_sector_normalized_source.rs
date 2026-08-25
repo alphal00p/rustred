@@ -14,19 +14,19 @@ use crate::parametric_sector_coverage::{
     AuthenticatedNormalizedCoverage, ParametricSectorCoverageError, ParametricSectorCoverageLimits,
     ParametricSectorCoverageStats, ParametricSectorFormulaNormalizationLimits,
     ParametricSectorFormulaNormalizationStats, SectorCoverageCandidateAttempt,
-    charge_formula_normalization_source_census,
+    charge_formula_normalization_source_census, normalize_fresh_candidates_with_row_span,
     normalize_freshly_rebound_compilations_with_replayed_row_span,
     normalize_freshly_verified_attempts_with_replayed_row_span,
     preflight_formula_normalization_scope, validate_row_span_binding,
 };
 use crate::{
     GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
-    GeneratedSymbolicRowSpanError, GeneratedWhenBadError, IntegralFamily,
-    ParametricCoefficientContext, SectorMask,
+    GeneratedSymbolicRowSpanError, GeneratedWhenBadError, IntegralFamily, IntegralOrderingPolicy,
+    ParametricCoefficientContext, ParametricReductionRuleCandidate, SectorMask,
 };
 
-pub(crate) const PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA: &str =
-    "rustred-parametric-sector-normalized-coverage-source-v1";
+pub(crate) const PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA: &str =
+    "rustred-parametric-sector-normalized-coverage-source-v2";
 
 /// Complete persisted resource envelope for backend-neutral normalization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,11 +121,14 @@ pub(crate) struct ParametricSectorNormalizedCoverageSource {
     family_fingerprint: String,
     context_fingerprint: String,
     sector: SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
     row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
     attempts: Vec<SectorCoverageCandidateAttempt>,
     normalized: AuthenticatedNormalizedCoverage,
     limits: ParametricSectorNormalizedCoverageSourceLimits,
     stats: ParametricSectorNormalizedCoverageSourceStats,
+    #[cfg(test)]
+    ordering_policy_binding_valid_for_test: bool,
 }
 
 impl ParametricSectorNormalizedCoverageSource {
@@ -143,6 +146,10 @@ impl ParametricSectorNormalizedCoverageSource {
 
     pub(crate) const fn sector(&self) -> &SectorMask {
         &self.sector
+    }
+
+    pub(crate) const fn ordering_policy(&self) -> IntegralOrderingPolicy {
+        self.ordering_policy
     }
 
     pub(crate) fn row_span(&self) -> &GeneratedSymbolicRowSpanCertificate {
@@ -169,6 +176,11 @@ impl ParametricSectorNormalizedCoverageSource {
         self.stats
     }
 
+    #[cfg(test)]
+    fn invalidate_ordering_policy_binding_for_test(&mut self) {
+        self.ordering_policy_binding_valid_for_test = false;
+    }
+
     /// Replay generated proofs and reconstruct the complete normalization from
     /// the ordered attempts under the exact persisted resource envelope.
     pub(crate) fn replay(
@@ -177,6 +189,10 @@ impl ParametricSectorNormalizedCoverageSource {
         context: &ParametricCoefficientContext,
     ) -> Result<(), ParametricSectorNormalizedCoverageSourceError> {
         self.validate_scope(family, context)?;
+        #[cfg(test)]
+        if !self.ordering_policy_binding_valid_for_test {
+            return Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch);
+        }
         if self.normalized.family_fingerprint() != self.family_fingerprint()
             || self.normalized.context_fingerprint() != self.context_fingerprint()
             || self.normalized.sector() != self.sector()
@@ -197,6 +213,16 @@ impl ParametricSectorNormalizedCoverageSource {
                     ParametricSectorCoverageError::CandidateOrdinalMismatch {
                         expected: position,
                         actual: attempt.ordinal(),
+                    },
+                ));
+            }
+            let actual = attempt.compilation().candidate().ordering().policy();
+            if actual != self.ordering_policy {
+                return Err(ParametricSectorNormalizedCoverageSourceError::Coverage(
+                    ParametricSectorCoverageError::CandidateWrongOrderingPolicy {
+                        ordinal: position,
+                        expected: self.ordering_policy,
+                        actual,
                     },
                 ));
             }
@@ -234,6 +260,7 @@ impl ParametricSectorNormalizedCoverageSource {
             family,
             context,
             &self.sector,
+            self.ordering_policy,
             &self.attempts,
             Arc::clone(&self.row_span),
             self.limits.coverage,
@@ -255,7 +282,7 @@ impl ParametricSectorNormalizedCoverageSource {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
     ) -> Result<(), ParametricSectorNormalizedCoverageSourceError> {
-        if self.schema != PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA {
+        if self.schema != PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA {
             return Err(ParametricSectorNormalizedCoverageSourceError::SchemaMismatch);
         }
         if self.family_fingerprint() != family.fingerprint() {
@@ -268,10 +295,11 @@ impl ParametricSectorNormalizedCoverageSource {
     }
 
     pub(crate) fn payload_eq(&self, other: &Self) -> bool {
-        self.schema == other.schema
+        let equal = self.schema == other.schema
             && self.family_fingerprint == other.family_fingerprint
             && self.context_fingerprint == other.context_fingerprint
             && self.sector == other.sector
+            && self.ordering_policy == other.ordering_policy
             && (Arc::ptr_eq(&self.row_span, &other.row_span)
                 || self.row_span.payload_eq(&other.row_span))
             && self.normalized == other.normalized
@@ -282,13 +310,66 @@ impl ParametricSectorNormalizedCoverageSource {
                 .attempts
                 .iter()
                 .zip(other.attempts.iter())
-                .all(|(left, right)| left.payload_eq(right))
+                .all(|(left, right)| left.payload_eq(right));
+        #[cfg(test)]
+        {
+            equal
+                && self.ordering_policy_binding_valid_for_test
+                    == other.ordering_policy_binding_valid_for_test
+        }
+        #[cfg(not(test))]
+        {
+            equal
+        }
     }
 }
 
 pub(crate) struct ParametricSectorNormalizedCoverageSourceCompiler;
 
 impl ParametricSectorNormalizedCoverageSourceCompiler {
+    /// Authenticate an owned raw candidate batch directly into the
+    /// backend-neutral source under one shared row-span allocation.
+    ///
+    /// This is the high-throughput candidate-to-formula seam: it constructs
+    /// no V4 coverage certificate and no MTBDD. It completes all shallow batch
+    /// preflights, replays `row_span` exactly once, and compiles each candidate
+    /// exactly once under the resulting sealed replay authority.
+    pub(crate) fn compile_candidates_with_row_span(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
+        candidates: Vec<ParametricReductionRuleCandidate>,
+        row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+        limits: ParametricSectorNormalizedCoverageSourceLimits,
+    ) -> Result<
+        ParametricSectorNormalizedCoverageSource,
+        ParametricSectorNormalizedCoverageSourceError,
+    > {
+        let fresh_parts = normalize_fresh_candidates_with_row_span(
+            family,
+            context,
+            &sector,
+            ordering_policy,
+            candidates,
+            Arc::clone(&row_span),
+            limits.coverage,
+            limits.normalization,
+        )
+        .map_err(map_fresh_normalization_error)?;
+        let (attempts, normalized) = fresh_parts.into_parts();
+        Self::finish_source(
+            family,
+            context,
+            sector,
+            ordering_policy,
+            attempts,
+            normalized,
+            row_span,
+            limits,
+        )
+    }
+
     /// Authenticate arbitrary generated attempts, replay them, and freshly
     /// rebind every retained attempt onto one exact shared row-span Arc before
     /// constructing the backend-neutral normalized formula.
@@ -296,6 +377,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
         compilations: Vec<GeneratedWhenBadCompilation>,
         limits: ParametricSectorNormalizedCoverageSourceLimits,
     ) -> Result<
@@ -317,6 +399,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
             family,
             context,
             sector,
+            ordering_policy,
             compilations,
             row_span,
             limits,
@@ -330,6 +413,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
         compilations: Vec<GeneratedWhenBadCompilation>,
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
         limits: ParametricSectorNormalizedCoverageSourceLimits,
@@ -342,6 +426,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
             family,
             context,
             sector,
+            ordering_policy,
             compilations,
             row_span,
             limits,
@@ -352,6 +437,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
         compilations: Vec<GeneratedWhenBadCompilation>,
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
         limits: ParametricSectorNormalizedCoverageSourceLimits,
@@ -390,6 +476,16 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
                     ParametricSectorCoverageError::CandidateWrongSector { ordinal },
                 ));
             }
+            let actual = candidate.ordering().policy();
+            if actual != ordering_policy {
+                return Err(ParametricSectorNormalizedCoverageSourceError::Coverage(
+                    ParametricSectorCoverageError::CandidateWrongOrderingPolicy {
+                        ordinal,
+                        expected: ordering_policy,
+                        actual,
+                    },
+                ));
+            }
         }
 
         // Preflight cumulative generated-source retention before replay and
@@ -401,6 +497,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
             family,
             context,
             &sector,
+            ordering_policy,
             compilations,
             Arc::clone(&row_span),
             limits.coverage,
@@ -409,7 +506,14 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         .map_err(map_fresh_normalization_error)?;
         let (attempts, normalized) = fresh_parts.into_parts();
         Self::finish_source(
-            family, context, sector, attempts, normalized, row_span, limits,
+            family,
+            context,
+            sector,
+            ordering_policy,
+            attempts,
+            normalized,
+            row_span,
+            limits,
         )
     }
 
@@ -417,6 +521,7 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
         attempts: Vec<SectorCoverageCandidateAttempt>,
         normalized: AuthenticatedNormalizedCoverage,
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
@@ -439,15 +544,18 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
             normalization: normalized.normalization_stats(),
         };
         Ok(ParametricSectorNormalizedCoverageSource {
-            schema: PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA,
+            schema: PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA,
             family_fingerprint,
             context_fingerprint,
             sector,
+            ordering_policy,
             row_span,
             attempts,
             normalized,
             limits,
             stats,
+            #[cfg(test)]
+            ordering_policy_binding_valid_for_test: true,
         })
     }
 }
@@ -610,6 +718,7 @@ mod tests {
             &family,
             &context,
             sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             compilations,
             limits,
         )
@@ -627,7 +736,11 @@ mod tests {
         source.replay(&family, &context).unwrap();
         assert_eq!(
             source.schema(),
-            PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V1_SCHEMA
+            PARAMETRIC_SECTOR_NORMALIZED_COVERAGE_SOURCE_V2_SCHEMA
+        );
+        assert_eq!(
+            source.ordering_policy(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1
         );
         assert_eq!(source.family_fingerprint(), family.fingerprint());
         assert_eq!(source.context_fingerprint(), context.fingerprint());
@@ -679,6 +792,7 @@ mod tests {
             &family,
             &context,
             sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             compilations,
             limits,
         )
@@ -756,17 +870,22 @@ mod tests {
             )
             .unwrap(),
         );
-        let source =
+        let mut source =
             ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated_with_row_span(
                 &family,
                 &context,
-                sector,
+                sector.clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 Arc::clone(&row_span),
                 limits,
             )
             .unwrap();
         assert!(Arc::ptr_eq(source.row_span_arc(), &row_span));
+        assert_eq!(
+            source.ordering_policy(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1
+        );
         assert!(source.attempts().is_empty());
         assert!(source.normalized().base_structural_loci().is_empty());
         assert!(source.normalized().ir().attempts().is_empty());
@@ -788,6 +907,30 @@ mod tests {
             context.fingerprint().len()
         );
         source.replay(&family, &context).unwrap();
+
+        let equivalent =
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated_with_row_span(
+                &family,
+                &context,
+                sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                Vec::new(),
+                Arc::clone(&row_span),
+                limits,
+            )
+            .unwrap();
+        assert!(source.payload_eq(&equivalent));
+
+        // RustRedUnshiftedV1 is currently the sole production enum variant,
+        // so a genuinely mixed-policy batch cannot be constructed safely yet.
+        // This fault-injection flag exercises the persisted-policy replay and
+        // payload gates without inventing a fake production ordering policy.
+        source.invalidate_ordering_policy_binding_for_test();
+        assert!(!source.payload_eq(&equivalent));
+        assert_eq!(
+            source.replay(&family, &context),
+            Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch)
+        );
     }
 
     #[test]
@@ -812,6 +955,7 @@ mod tests {
                 &family,
                 &context,
                 sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 row_span,
                 limits,
@@ -848,6 +992,7 @@ mod tests {
                 &family,
                 &context,
                 sector.clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 Arc::clone(&row_span),
                 family_limited,
@@ -870,6 +1015,7 @@ mod tests {
                 &family,
                 &context,
                 sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 Vec::new(),
                 row_span,
                 context_limited,
@@ -899,6 +1045,7 @@ mod tests {
             &left_family,
             &left_context,
             left_sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             left_compilations,
             limits,
         )
@@ -907,6 +1054,7 @@ mod tests {
             &right_family,
             &right_context,
             right_sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             right_compilations,
             limits,
         )
@@ -948,6 +1096,7 @@ mod tests {
             &family,
             &context,
             sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             selected,
             ParametricSectorNormalizedCoverageSourceLimits::default(),
         )
@@ -1094,6 +1243,7 @@ mod tests {
             &empty_family,
             &empty_context,
             empty_sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             Vec::new(),
             ParametricSectorNormalizedCoverageSourceLimits::default(),
         )
@@ -1120,6 +1270,7 @@ mod tests {
             &family,
             &context,
             sector.clone(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             compilations.clone(),
             exact,
         )
@@ -1133,6 +1284,7 @@ mod tests {
                 &family,
                 &context,
                 sector.clone(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 compilations.clone(),
                 coverage_one_below,
             ),
@@ -1154,6 +1306,7 @@ mod tests {
                 &family,
                 &context,
                 sector,
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
                 compilations,
                 normalization_one_below,
             ),
@@ -1181,6 +1334,7 @@ mod tests {
             &family,
             &context,
             sector,
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
             compilations,
             limits,
         )

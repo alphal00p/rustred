@@ -22,7 +22,7 @@ use crate::parametric_sector_normalized_source::{
 };
 use crate::{
     GeneratedSymbolicRowSpanCertificate, GeneratedWhenBadCompilation, IntegralFamily,
-    ParametricCoefficientContext, SectorMask,
+    IntegralOrderingPolicy, ParametricCoefficientContext, SectorMask,
 };
 use std::fmt;
 use std::sync::Arc;
@@ -135,6 +135,10 @@ impl ParametricSectorMtbddCoverageCertificate {
         self.source.sector()
     }
 
+    pub(crate) fn ordering_policy(&self) -> IntegralOrderingPolicy {
+        self.source.ordering_policy()
+    }
+
     pub(crate) fn attempts(&self) -> &[SectorCoverageCandidateAttempt] {
         self.source.attempts()
     }
@@ -217,6 +221,7 @@ impl ParametricSectorMtbddCoverageCompiler {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
+        ordering_policy: IntegralOrderingPolicy,
         compilations: Vec<GeneratedWhenBadCompilation>,
         limits: ParametricSectorMtbddCoverageLimits,
     ) -> Result<ParametricSectorMtbddCoverageCertificate, ParametricSectorMtbddCoverageError> {
@@ -224,6 +229,7 @@ impl ParametricSectorMtbddCoverageCompiler {
             family,
             context,
             sector,
+            ordering_policy,
             compilations,
             ParametricSectorNormalizedCoverageSourceLimits {
                 coverage: limits.coverage,
@@ -259,6 +265,8 @@ mod tests {
         GeneratedSectorDiscoveryLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
         ParametricSectorLeafDisposition,
     };
+
+    const ORDERING: IntegralOrderingPolicy = IntegralOrderingPolicy::RustRedUnshiftedV1;
 
     fn sunset_family(name: &str) -> IntegralFamily {
         let coefficients = CoefficientContext::new(["d", "m2"]);
@@ -331,6 +339,7 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             compilations(&legacy),
             ParametricSectorMtbddCoverageLimits::default(),
         )
@@ -342,6 +351,7 @@ mod tests {
         );
         assert_eq!(certificate.family_fingerprint(), family.fingerprint());
         assert_eq!(certificate.context_fingerprint(), context.fingerprint());
+        assert_eq!(certificate.ordering_policy(), ORDERING);
         assert_eq!(certificate.sector(), legacy.sector());
         assert_eq!(
             certificate.normalized().base_structural_loci().len(),
@@ -448,6 +458,7 @@ mod tests {
                 &family,
                 &context,
                 legacy.sector().clone(),
+                ORDERING,
                 compilations(&legacy),
                 ParametricSectorMtbddCoverageLimits::default(),
             )
@@ -486,10 +497,12 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             Vec::new(),
             ParametricSectorMtbddCoverageLimits::default(),
         )
         .unwrap();
+        assert_eq!(empty.ordering_policy(), ORDERING);
         let mut normalized = make();
         normalized.source = empty.source;
         assert_eq!(
@@ -500,6 +513,7 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             Vec::new(),
             ParametricSectorMtbddCoverageLimits::default(),
         )
@@ -526,6 +540,7 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             compilations(&legacy),
             ParametricSectorMtbddCoverageLimits::default(),
         )
@@ -569,6 +584,7 @@ mod tests {
                 &family,
                 &context,
                 legacy.sector().clone(),
+                ORDERING,
                 compilations(&legacy),
                 coverage_limited,
             ),
@@ -589,6 +605,7 @@ mod tests {
                 &family,
                 &context,
                 legacy.sector().clone(),
+                ORDERING,
                 compilations(&legacy),
                 normalization_limited,
             ),
@@ -609,6 +626,7 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             compilations(&legacy),
             ParametricSectorMtbddCoverageLimits::default(),
         )
@@ -640,6 +658,7 @@ mod tests {
             &family,
             &context,
             legacy.sector().clone(),
+            ORDERING,
             compilations(&legacy),
             exact,
         )
@@ -655,6 +674,7 @@ mod tests {
                     &family,
                     &context,
                     legacy.sector().clone(),
+                    ORDERING,
                     compilations(&legacy),
                     limits,
                 )

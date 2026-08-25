@@ -29,6 +29,7 @@ use symbolica::prelude::Integer;
 use crate::direct_bad_formula::{
     DirectBadFormulaClause, DirectBadFormulaRoute, DirectBadFormulaTruth, route_direct_bad_formula,
 };
+use crate::generated_when_bad::GeneratedWhenBadReplayedRowSpan;
 use crate::parametric_sector_formula_ir::{
     NormalizedBadClause, NormalizedBadClauseRole, NormalizedBadClauseSource,
     NormalizedBadFormulaBody, NormalizedBadLiteral, NormalizedBadLiteralPolarity,
@@ -39,12 +40,12 @@ use crate::{
     CoordinateEqualityLocusError, CoordinateEqualityLocusLimits,
     GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
     GeneratedSymbolicRowSpanError, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
-    GeneratedWhenBadError, GeneratedWhenBadLimits, IntegralFamily, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricPolynomial, ParametricReductionRuleCandidate, SectorMask,
-    SymbolicPolynomialPredicateKind, SymbolicSectorCaseError, SymbolicSectorCaseId,
-    SymbolicSectorCaseLimits, SymbolicSectorCasePartitionBuilder,
-    SymbolicSectorCasePartitionCertificate, WhenBadDomainCondition, WhenBadLeakEvent,
-    WhenBadLeakNumeratorGate,
+    GeneratedWhenBadError, GeneratedWhenBadLimits, IntegralFamily, IntegralOrderingPolicy,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    ParametricReductionRuleCandidate, SectorMask, SymbolicPolynomialPredicateKind,
+    SymbolicSectorCaseError, SymbolicSectorCaseId, SymbolicSectorCaseLimits,
+    SymbolicSectorCasePartitionBuilder, SymbolicSectorCasePartitionCertificate,
+    WhenBadDomainCondition, WhenBadLeakEvent, WhenBadLeakNumeratorGate,
 };
 
 /// Stable schema for exact finite candidate-domain composition.
@@ -823,6 +824,24 @@ impl FreshGeneratedWhenBadCompilation {
         Ok(Self(
             GeneratedWhenBadCompiler::compile_with_replayed_row_span(
                 family, context, candidate, row_span, limits,
+            )?,
+        ))
+    }
+
+    fn compile_owned_with_replayed_row_span(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: ParametricReductionRuleCandidate,
+        replayed_row_span: &GeneratedWhenBadReplayedRowSpan,
+        limits: GeneratedWhenBadLimits,
+    ) -> Result<Self, GeneratedWhenBadError> {
+        Ok(Self(
+            GeneratedWhenBadCompiler::compile_owned_with_replayed_row_span(
+                family,
+                context,
+                candidate,
+                replayed_row_span,
+                limits,
             )?,
         ))
     }
@@ -2065,6 +2084,7 @@ pub(crate) fn normalize_freshly_rebound_compilations_with_replayed_row_span(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
     compilations: Vec<GeneratedWhenBadCompilation>,
     row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
     coverage_limits: ParametricSectorCoverageLimits,
@@ -2079,7 +2099,14 @@ pub(crate) fn normalize_freshly_rebound_compilations_with_replayed_row_span(
         normalization_limits,
     )?;
     validate_row_span_binding(family, context, &row_span, coverage_limits)?;
-    preflight_generated_compilation_batch(family, context, sector, &compilations, &row_span)?;
+    preflight_generated_compilation_batch(
+        family,
+        context,
+        sector,
+        ordering_policy,
+        &compilations,
+        &row_span,
+    )?;
     preflight_compilation_source_census(&compilations, coverage_limits)?;
 
     let mut attempts = Vec::new();
@@ -2104,7 +2131,134 @@ pub(crate) fn normalize_freshly_rebound_compilations_with_replayed_row_span(
             fresh.into_inner(),
         ));
     }
-    preflight_authenticated_attempt_batch(family, context, sector, &attempts, &row_span)?;
+    preflight_authenticated_attempt_batch(
+        family,
+        context,
+        sector,
+        Some(ordering_policy),
+        &attempts,
+        &row_span,
+    )?;
+    let normalized = normalize_attempt_batch_with_replayed_row_span(
+        family,
+        context,
+        sector,
+        NormalizationAttemptBatch::Fresh(FreshAuthenticatedAttemptBatch::new(
+            &attempts,
+            &row_span,
+            coverage_limits,
+        )),
+        coverage_limits,
+        normalization_limits,
+    )?;
+    Ok(FreshNormalizedCoverageSourceParts {
+        attempts,
+        normalized,
+    })
+}
+
+/// Authenticate an owned raw candidate batch exactly once per member and
+/// normalize it directly under one shared generated row span.
+///
+/// Every scope and predictable resource check is completed for the full batch
+/// before the row span is replayed exactly once. The resulting unforgeable
+/// replay authority is shared by every fresh candidate compilation; no
+/// public/persisted compilation and no V4/MTBDD owner exists on this path.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn normalize_fresh_candidates_with_row_span(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
+    candidates: Vec<ParametricReductionRuleCandidate>,
+    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    coverage_limits: ParametricSectorCoverageLimits,
+    normalization_limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<FreshNormalizedCoverageSourceParts, ParametricSectorCoverageError> {
+    preflight_formula_normalization_scope(
+        family,
+        context,
+        sector,
+        candidates.len(),
+        coverage_limits,
+        normalization_limits,
+    )?;
+    validate_row_span_binding(family, context, &row_span, coverage_limits)?;
+    preflight_fresh_candidate_batch(
+        family,
+        context,
+        sector,
+        ordering_policy,
+        &candidates,
+        &row_span,
+        coverage_limits,
+    )?;
+    let replayed_row_span = GeneratedWhenBadCompiler::replay_row_span_for_owned_batch(
+        family,
+        context,
+        Arc::clone(&row_span),
+    )?;
+    normalize_preflighted_fresh_candidates_with_replayed_row_span(
+        family,
+        context,
+        sector,
+        ordering_policy,
+        candidates,
+        row_span,
+        &replayed_row_span,
+        coverage_limits,
+        normalization_limits,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn normalize_preflighted_fresh_candidates_with_replayed_row_span(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
+    candidates: Vec<ParametricReductionRuleCandidate>,
+    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    replayed_row_span: &GeneratedWhenBadReplayedRowSpan,
+    coverage_limits: ParametricSectorCoverageLimits,
+    normalization_limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<FreshNormalizedCoverageSourceParts, ParametricSectorCoverageError> {
+    let mut attempts = Vec::new();
+    try_reserve_exact(
+        "fresh normalized sector-coverage attempts",
+        &mut attempts,
+        candidates.len(),
+    )?;
+    let mut exact_source_census = ParametricSectorCoverageStats::default();
+    for (ordinal, candidate) in candidates.into_iter().enumerate() {
+        let fresh = FreshGeneratedWhenBadCompilation::compile_owned_with_replayed_row_span(
+            family,
+            context,
+            candidate,
+            replayed_row_span,
+            coverage_limits.generated_when_bad,
+        )?;
+        if !Arc::ptr_eq(fresh.0.source_authentication().row_span_arc(), &row_span) {
+            return Err(ParametricSectorCoverageError::SharedRowSpanAllocationMismatch { ordinal });
+        }
+        charge_formula_normalization_source_census(
+            &fresh.0,
+            &mut exact_source_census,
+            coverage_limits,
+        )?;
+        attempts.push(SectorCoverageCandidateAttempt::from_compilation(
+            ordinal,
+            fresh.into_inner(),
+        ));
+    }
+    preflight_authenticated_attempt_batch(
+        family,
+        context,
+        sector,
+        Some(ordering_policy),
+        &attempts,
+        &row_span,
+    )?;
     let normalized = normalize_attempt_batch_with_replayed_row_span(
         family,
         context,
@@ -2134,6 +2288,7 @@ pub(crate) fn normalize_freshly_verified_attempts_with_replayed_row_span(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
     attempts: &[SectorCoverageCandidateAttempt],
     row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
     coverage_limits: ParametricSectorCoverageLimits,
@@ -2148,7 +2303,14 @@ pub(crate) fn normalize_freshly_verified_attempts_with_replayed_row_span(
         normalization_limits,
     )?;
     validate_row_span_binding(family, context, &row_span, coverage_limits)?;
-    preflight_authenticated_attempt_batch(family, context, sector, attempts, &row_span)?;
+    preflight_authenticated_attempt_batch(
+        family,
+        context,
+        sector,
+        Some(ordering_policy),
+        attempts,
+        &row_span,
+    )?;
     preflight_attempt_source_census(attempts, coverage_limits)?;
 
     for attempt in attempts {
@@ -2268,7 +2430,7 @@ fn normalize_attempt_batch_with_replayed_row_span(
         normalization_limits,
     )?;
     validate_row_span_binding(family, context, &row_span, coverage_limits)?;
-    preflight_authenticated_attempt_batch(family, context, sector, attempts, &row_span)?;
+    preflight_authenticated_attempt_batch(family, context, sector, None, attempts, &row_span)?;
     let source_census = formula_normalization_source_census(
         attempts.iter().map(|attempt| attempt.compilation()),
         attempts.len(),
@@ -2410,6 +2572,7 @@ fn preflight_generated_compilation_batch(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
     compilations: &[GeneratedWhenBadCompilation],
     row_span: &Arc<GeneratedSymbolicRowSpanCertificate>,
 ) -> Result<(), ParametricSectorCoverageError> {
@@ -2424,12 +2587,110 @@ fn preflight_generated_compilation_batch(
         if candidate.sector() != sector {
             return Err(ParametricSectorCoverageError::CandidateWrongSector { ordinal });
         }
+        let actual = candidate.ordering().policy();
+        if actual != ordering_policy {
+            return Err(
+                ParametricSectorCoverageError::CandidateWrongOrderingPolicy {
+                    ordinal,
+                    expected: ordering_policy,
+                    actual,
+                },
+            );
+        }
         let compilation_row_span = compilation.source_authentication().row_span_arc();
         if !Arc::ptr_eq(compilation_row_span, row_span)
             && !compilation_row_span.payload_eq(row_span)
         {
             return Err(ParametricSectorCoverageError::SharedRowSpanCertificateMismatch);
         }
+    }
+    Ok(())
+}
+
+fn preflight_fresh_candidate_batch(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    ordering_policy: IntegralOrderingPolicy,
+    candidates: &[ParametricReductionRuleCandidate],
+    row_span: &Arc<GeneratedSymbolicRowSpanCertificate>,
+    limits: ParametricSectorCoverageLimits,
+) -> Result<(), ParametricSectorCoverageError> {
+    // Scan the complete caller-controlled scope first. A bad late member must
+    // not permit an earlier member to acquire fresh authentication authority.
+    for (ordinal, candidate) in candidates.iter().enumerate() {
+        if candidate.family_fingerprint() != family.fingerprint() {
+            return Err(ParametricSectorCoverageError::CandidateWrongFamily { ordinal });
+        }
+        if candidate.context_fingerprint() != context.fingerprint() {
+            return Err(ParametricSectorCoverageError::CandidateWrongContext { ordinal });
+        }
+        if candidate.sector() != sector {
+            return Err(ParametricSectorCoverageError::CandidateWrongSector { ordinal });
+        }
+        let actual = candidate.ordering().policy();
+        if actual != ordering_policy {
+            return Err(
+                ParametricSectorCoverageError::CandidateWrongOrderingPolicy {
+                    ordinal,
+                    expected: ordering_policy,
+                    actual,
+                },
+            );
+        }
+    }
+    GeneratedWhenBadCompiler::preflight_replayed_batch_fixed_limits(
+        context,
+        candidates.len(),
+        limits.generated_when_bad,
+    )?;
+
+    let mut canonical_rows = 0usize;
+    let mut canonical_terms = 0usize;
+    let mut retained_rows = 0usize;
+    let mut retained_terms = 0usize;
+    let mut minimum_match_attempts = 0usize;
+    for candidate in candidates {
+        // This is a shallow census, not replay authority. The candidate and
+        // row-span proofs are still authenticated exactly once below.
+        let preflight =
+            GeneratedWhenBadCompiler::shallow_preflight_candidate_against_bound_row_span(
+                family,
+                context,
+                candidate,
+                row_span.as_ref(),
+                limits.generated_when_bad,
+            )?;
+        canonical_rows = checked_bounded_add(
+            "sector-coverage canonical rows",
+            canonical_rows,
+            preflight.canonical_rows(),
+            limits.max_total_canonical_rows,
+        )?;
+        canonical_terms = checked_bounded_add(
+            "sector-coverage canonical terms",
+            canonical_terms,
+            preflight.canonical_terms(),
+            limits.max_total_canonical_terms,
+        )?;
+        retained_rows = checked_bounded_add(
+            "sector-coverage retained source rows",
+            retained_rows,
+            preflight.retained_rows(),
+            limits.max_total_retained_source_rows,
+        )?;
+        retained_terms = checked_bounded_add(
+            "sector-coverage retained source terms",
+            retained_terms,
+            preflight.retained_terms(),
+            limits.max_total_retained_source_terms,
+        )?;
+        minimum_match_attempts = checked_bounded_add(
+            "sector-coverage source match attempts",
+            minimum_match_attempts,
+            preflight.minimum_match_attempts(),
+            limits.max_total_source_match_attempts,
+        )?;
     }
     Ok(())
 }
@@ -2474,6 +2735,7 @@ fn preflight_authenticated_attempt_batch(
     family: &IntegralFamily,
     context: &ParametricCoefficientContext,
     sector: &SectorMask,
+    expected_ordering_policy: Option<IntegralOrderingPolicy>,
     attempts: &[SectorCoverageCandidateAttempt],
     row_span: &Arc<GeneratedSymbolicRowSpanCertificate>,
 ) -> Result<(), ParametricSectorCoverageError> {
@@ -2499,6 +2761,18 @@ fn preflight_authenticated_attempt_batch(
             return Err(ParametricSectorCoverageError::CandidateWrongSector {
                 ordinal: attempt.ordinal,
             });
+        }
+        if let Some(expected) = expected_ordering_policy {
+            let actual = candidate.ordering().policy();
+            if actual != expected {
+                return Err(
+                    ParametricSectorCoverageError::CandidateWrongOrderingPolicy {
+                        ordinal: attempt.ordinal,
+                        expected,
+                        actual,
+                    },
+                );
+            }
         }
         let attempt_row_span = attempt.compilation.source_authentication().row_span_arc();
         if !Arc::ptr_eq(attempt_row_span, row_span) && !attempt_row_span.payload_eq(row_span) {
@@ -4769,6 +5043,11 @@ pub enum ParametricSectorCoverageError {
     CandidateWrongSector {
         ordinal: usize,
     },
+    CandidateWrongOrderingPolicy {
+        ordinal: usize,
+        expected: IntegralOrderingPolicy,
+        actual: IntegralOrderingPolicy,
+    },
     CandidateOrdinalMismatch {
         expected: usize,
         actual: usize,
@@ -4833,6 +5112,16 @@ impl fmt::Display for ParametricSectorCoverageError {
                     "sector-coverage candidate {ordinal} belongs to another sector"
                 )
             }
+            Self::CandidateWrongOrderingPolicy {
+                ordinal,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "sector-coverage candidate {ordinal} uses ordering policy {}, expected {}",
+                actual.stable_id(),
+                expected.stable_id()
+            ),
             Self::CandidateOrdinalMismatch { expected, actual } => write!(
                 formatter,
                 "sector-coverage attempt ordinal is {actual}, expected {expected}"
