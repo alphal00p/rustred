@@ -6,7 +6,10 @@
 //! ordinal schedule.  It deliberately does not map a coefficient, construct a
 //! Boolean condition, partition a domain, consume a target, or publish a rule.
 //! Its limits bound each newly retained component and the resulting logical
-//! payload.  The compact child compiler performs its own preflight; because
+//! payload. Schedule payloads are retained as fixed-size boxed slices after an
+//! exact-capacity fallible allocation, so their successful-path byte census is
+//! independent of `Vec` growth policy. The compact child compiler performs its
+//! own preflight; because
 //! that child is allocated before its exact logical census is available, this
 //! V1 foundation is transactionally recoverable but is not an owner-wide
 //! pre-allocation ledger.  The consuming condition/materialization phase must
@@ -225,8 +228,8 @@ pub(crate) struct GeneratedAffineResidualGroupExactConditionPlan {
     schema: &'static str,
     ready: GeneratedAffineResidualGroupReadyForConditions,
     target_transform: GeneratedAffineResidualGroupExactConditionTargetTransform,
-    source_schedule: Vec<GeneratedAffineResidualGroupExactConditionSourceLocator>,
-    hazard_schedule: Vec<GeneratedAffineResidualGroupExactConditionHazardLocator>,
+    source_schedule: Box<[GeneratedAffineResidualGroupExactConditionSourceLocator]>,
+    hazard_schedule: Box<[GeneratedAffineResidualGroupExactConditionHazardLocator]>,
     limits: GeneratedAffineResidualGroupExactConditionPlanLimits,
     stats: GeneratedAffineResidualGroupExactConditionPlanStats,
 }
@@ -508,8 +511,8 @@ impl GeneratedAffineResidualGroupExactConditionPlanCompiler {
 
 struct PreparedConditionPlan {
     target_transform: GeneratedAffineResidualGroupExactConditionTargetTransform,
-    source_schedule: Vec<GeneratedAffineResidualGroupExactConditionSourceLocator>,
-    hazard_schedule: Vec<GeneratedAffineResidualGroupExactConditionHazardLocator>,
+    source_schedule: Box<[GeneratedAffineResidualGroupExactConditionSourceLocator]>,
+    hazard_schedule: Box<[GeneratedAffineResidualGroupExactConditionHazardLocator]>,
     stats: GeneratedAffineResidualGroupExactConditionPlanStats,
 }
 
@@ -666,7 +669,7 @@ fn prepare_condition_plan(
     )?;
 
     let mut source_schedule =
-        try_vec_with_capacity("exact condition source schedule", source_schedule_entries)?;
+        try_vec_with_exact_capacity("exact condition source schedule", source_schedule_entries)?;
     for premise_ordinal in 0..premise_sources {
         source_schedule.push(
             GeneratedAffineResidualGroupExactConditionSourceLocator::TargetPremise {
@@ -697,9 +700,10 @@ fn prepare_condition_plan(
     if source_schedule.len() != source_schedule_entries {
         return Err(GeneratedAffineResidualGroupExactConditionPlanError::MalformedReady);
     }
+    let source_schedule = source_schedule.into_boxed_slice();
 
     let mut hazard_schedule =
-        try_vec_with_capacity("exact condition hazard schedule", hazard_locators)?;
+        try_vec_with_exact_capacity("exact condition hazard schedule", hazard_locators)?;
     for (hazard_ordinal, hazard) in ready.hazards().iter().enumerate() {
         hazard_schedule.push(GeneratedAffineResidualGroupExactConditionHazardLocator {
             hazard_ordinal,
@@ -708,10 +712,14 @@ fn prepare_condition_plan(
             coordinate: hazard.coordinate(),
         });
     }
+    if hazard_schedule.len() != hazard_locators {
+        return Err(GeneratedAffineResidualGroupExactConditionPlanError::MalformedReady);
+    }
+    let hazard_schedule = hazard_schedule.into_boxed_slice();
 
     let source_schedule_retained_bytes = checked_mul(
         "exact condition source schedule retained bytes",
-        source_schedule.capacity(),
+        source_schedule.len(),
         size_of::<GeneratedAffineResidualGroupExactConditionSourceLocator>(),
     )?;
     check_limit(
@@ -721,7 +729,7 @@ fn prepare_condition_plan(
     )?;
     let hazard_schedule_retained_bytes = checked_mul(
         "exact condition hazard schedule retained bytes",
-        hazard_schedule.capacity(),
+        hazard_schedule.len(),
         size_of::<GeneratedAffineResidualGroupExactConditionHazardLocator>(),
     )?;
     check_limit(
@@ -975,7 +983,12 @@ fn validate_stats(
     Ok(())
 }
 
-fn try_vec_with_capacity<T>(
+/// Request one exact-capacity staging allocation for a fixed-size retained
+/// schedule. Rust permits `try_reserve_exact` to return excess capacity, so an
+/// allocator that does so is rejected before any element is initialized. With
+/// `capacity == requested`, `into_boxed_slice` transfers the allocation without
+/// a shrink allocation and the retained payload is exactly `len * size_of<T>()`.
+fn try_vec_with_exact_capacity<T>(
     resource: &'static str,
     capacity: usize,
 ) -> Result<Vec<T>, GeneratedAffineResidualGroupExactConditionPlanError> {
@@ -986,6 +999,14 @@ fn try_vec_with_capacity<T>(
             requested: capacity,
         }
     })?;
+    if values.capacity() != capacity {
+        return Err(
+            GeneratedAffineResidualGroupExactConditionPlanError::AllocationFailure {
+                resource,
+                requested: capacity,
+            },
+        );
+    }
     Ok(values)
 }
 
@@ -1147,6 +1168,25 @@ mod tests {
         )
         .unwrap();
         let stats = baseline_plan.stats();
+        assert_eq!(
+            stats.source_schedule_entries(),
+            baseline_plan.source_schedule().len(),
+        );
+        assert_eq!(
+            stats.source_schedule_retained_bytes(),
+            stats.source_schedule_entries()
+                * size_of::<GeneratedAffineResidualGroupExactConditionSourceLocator>(),
+        );
+        assert_eq!(
+            stats.hazard_locators(),
+            baseline_plan.hazard_schedule().len()
+        );
+        assert_eq!(
+            stats.hazard_schedule_retained_bytes(),
+            stats.hazard_locators()
+                * size_of::<GeneratedAffineResidualGroupExactConditionHazardLocator>(),
+        );
+        assert!(stats.source_schedule_retained_bytes() > 0);
 
         let mut exact = GeneratedAffineResidualGroupExactConditionPlanLimits::default();
         exact.max_target_geometry_entries_inspected = stats.target_geometry_entries_inspected();
@@ -1281,5 +1321,59 @@ mod tests {
         assert_eq!(locator.rhs_ordinal(), usize::MAX - 1);
         assert_eq!(locator.term_ordinal(), usize::MAX - 2);
         assert_eq!(locator.coordinate(), usize::MAX - 3);
+    }
+
+    #[test]
+    fn fixed_size_schedule_storage_has_exact_and_one_below_byte_boundaries() {
+        let source_entries = [
+            GeneratedAffineResidualGroupExactConditionSourceLocator::TargetPremise {
+                premise_ordinal: 0,
+            },
+            GeneratedAffineResidualGroupExactConditionSourceLocator::PivotCoefficient {
+                term_ordinal: 1,
+            },
+            GeneratedAffineResidualGroupExactConditionSourceLocator::RhsCoefficient {
+                rhs_ordinal: 0,
+                term_ordinal: 2,
+            },
+        ];
+        let mut source_schedule =
+            try_vec_with_exact_capacity("test exact source schedule", source_entries.len())
+                .unwrap();
+        source_schedule.extend_from_slice(&source_entries);
+        let source_schedule = source_schedule.into_boxed_slice();
+        let source_bytes = source_schedule.len()
+            * size_of::<GeneratedAffineResidualGroupExactConditionSourceLocator>();
+        check_limit("test exact source schedule", source_bytes, source_bytes).unwrap();
+        assert!(matches!(
+            check_limit("test exact source schedule", source_bytes, source_bytes - 1),
+            Err(GeneratedAffineResidualGroupExactConditionPlanError::ResourceLimit {
+                requested,
+                limit,
+                ..
+            }) if requested == source_bytes && limit + 1 == source_bytes
+        ));
+
+        let hazard_entry = GeneratedAffineResidualGroupExactConditionHazardLocator {
+            hazard_ordinal: 0,
+            rhs_ordinal: 1,
+            term_ordinal: 2,
+            coordinate: 3,
+        };
+        let mut hazard_schedule =
+            try_vec_with_exact_capacity("test exact hazard schedule", 1).unwrap();
+        hazard_schedule.push(hazard_entry);
+        let hazard_schedule = hazard_schedule.into_boxed_slice();
+        let hazard_bytes = hazard_schedule.len()
+            * size_of::<GeneratedAffineResidualGroupExactConditionHazardLocator>();
+        check_limit("test exact hazard schedule", hazard_bytes, hazard_bytes).unwrap();
+        assert!(matches!(
+            check_limit("test exact hazard schedule", hazard_bytes, hazard_bytes - 1),
+            Err(GeneratedAffineResidualGroupExactConditionPlanError::ResourceLimit {
+                requested,
+                limit,
+                ..
+            }) if requested == hazard_bytes && limit + 1 == hazard_bytes
+        ));
     }
 }

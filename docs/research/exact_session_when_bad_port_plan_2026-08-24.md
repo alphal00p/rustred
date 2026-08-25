@@ -219,7 +219,7 @@ six descent witnesses; an additional test preserves the comparison under a
 4096-bit common free-coordinate translation. Independent licensed default-GMP
 run `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests with four
 workers, and `cargo check --tests -j4` passed. The condition-plan foundation
-subsequently passed 5/5 focused tests with four Nextest workers; the independent
+subsequently passed 6/6 focused tests with four Nextest workers; the independent
 parameter-identity projector passed 6/6 focused tests with four Rust test
 threads. Independent combined run
 `f6c4a9e7-fcc1-4c48-ae3c-5f2c0d781e42` passed 22/22 tests with four Nextest

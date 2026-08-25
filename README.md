@@ -280,7 +280,7 @@ The repository currently includes tests for:
   source and lazy-hazard schedule for identity and compact-affine target maps,
   and uses Symbolica polynomial projection to classify a coefficient as
   identically zero, never identically zero, or conditional in arbitrary-width
-  integral indices. Its focused licensed default-GMP gates passed 5/5
+  integral indices. Its focused licensed default-GMP gates passed 6/6
   condition-plan tests with four Nextest workers and 6/6 projector tests with
   four Rust test threads. Independent combined run
   `f6c4a9e7-fcc1-4c48-ae3c-5f2c0d781e42` passed 22/22 tests with four Nextest
