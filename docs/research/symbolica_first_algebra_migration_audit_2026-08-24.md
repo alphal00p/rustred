@@ -3,8 +3,9 @@
 Status: production-code audit and implementation record, begun 2026-08-24 and
 updated 2026-08-25. This document records the migration required by RustRed's
 public-Symbolica-first policy and the completed exact-matrix, affine-composition,
-and strict polynomial-associate slices. Later priorities remain an audit plan
-rather than a claim that all production algebra has migrated.
+strict polynomial-associate, and generic-family coefficient-matrix slices.
+Later priorities remain an audit plan rather than a claim that all production
+algebra or all matrix consumers have migrated.
 
 The companion API inventory is
 [`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md).
@@ -25,6 +26,12 @@ gcd, normalization, Gaussian elimination, rank, multiplication, transpose,
 and determinant code has been deleted. Checked adapters now call
 `Matrix<Q>::{inv,rank,det,transpose}` and native matrix multiplication.
 
+The generic-family P1 matrix slice is also complete. Its denominator-basis
+determinant, inverse, and both verification products now run through
+Symbolica's public dense-matrix API over a checked contextual coefficient
+field. The remaining P1 matrix rows in this audit are still pending unless
+their table row explicitly says otherwise.
+
 RustRed may continue to own LiteRed semantics around Symbolica operations:
 integral ordering, pivot-condition guards, `WhenBad` branches, source-row
 provenance, chronological replay, resource admission, panic containment, and
@@ -32,7 +39,7 @@ transactional commit. Those wrappers are not permission to reimplement the
 underlying arithmetic.
 
 The current dependency configuration is correct:
-[`Cargo.toml:35`](../../Cargo.toml#L35) enables Symbolica's `gmp` feature and
+[`Cargo.toml:36`](../../Cargo.toml#L36) enables Symbolica's `gmp` feature and
 does not enable `no_gmp`. Every migration and validation build must preserve
 that configuration.
 
@@ -101,7 +108,7 @@ both sides of that call.
 | Priority | Current production code | Classification | Exact Symbolica replacement | Required outcome |
 |---|---|---|---|---|
 | B0 (complete) | [`exact.rs`](../../src/exact.rs): formerly fixed-width rational normalization, gcd, inverse, rank, multiply, transpose, determinant | Migrated | `Rational`/`Q`; `Matrix<Q>::inv`, `rank`, `det`, multiplication and `transpose` | The compatibility `ExactRational` wrapper owns only a Symbolica `Rational`; its operators are forwarding adapters, not an arithmetic implementation. |
-| P1 | [`generic_family.rs:1861-1994`](../../src/generic_family.rs#L1861): symbolic inverse, determinant and inverse verification | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::inv`, `det`, and matrix multiplication | Preserve the family-domain determinant condition and validation wrappers; replace only the algebra core. |
+| P1 (complete) | [`generic_family.rs:1888-1919`](../../src/generic_family.rs#L1888): symbolic inverse, determinant and inverse verification | Migrated | `Matrix<CheckedCoefficientField>::det`, `inv`, and native matrix multiplication in [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns the determinant, inverse, and both products. RustRed retains the authenticated ordered coefficient context, determinant nonzero condition, resource admission, typed errors, and entrywise two-sided replay. |
 | P1 | [`automatic_isps.rs:684-746`](../../src/automatic_isps.rs#L684): hand-written Gaussian rank | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::rank` or `row_reduce` | Retain deterministic candidate order and rank-progression certificate. No custom pivot transcript is currently retained, so there is no semantic gap. |
 | P1 | [`tensor.rs:1364-1486`](../../src/tensor.rs#L1364) and [`generic_tensor_projector.rs:2501-2763`](../../src/generic_tensor_projector.rs#L2501): Gram inversion and coefficient exponentiation | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::inv`; `Ring::pow` | Retain pairing enumeration, Gram construction, determinant/inverse-denominator guards and resource wrappers. Per-Gaussian-pivot provenance alone does not justify a private inverse. |
 | P1 | [`symmetry.rs:1384-1440`](../../src/symmetry.rs#L1384): subset-DP determinant | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::det` | Keep determinant nonzero guards and panic/resource boundaries. |
@@ -193,6 +200,100 @@ parallel workers.
   cumulative-overflow behavior is frozen. The authenticated full inventory
   now records `peak_charged_bytes = 1_070_904` under the documented logical
   payload metric.
+
+### Generic-family coefficient-matrix migration and validation evidence
+
+[`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs)
+is the narrow adapter for this completed P1 slice. `CheckedCoefficientField`
+implements Symbolica's public `Set`, `RingOps`, `Ring`, `EuclideanDomain`, and
+`Field` traits for RustRed's existing `Coefficient` element. The matrix-used
+add, subtract, multiply, divide, negate, zero, one, and zero/one-test operations
+delegate to checked `CoefficientContext` operations; the adapter does not
+implement a second rational-function or matrix algebra. Symbolica owns
+`Matrix::det`, `Matrix::inv`, and the native products `A A^-1` and `A^-1 A`.
+The generic family converts only its authenticated denominator-basis rows into
+that boundary and retains the returned row orientation and determinant-domain
+condition.
+
+No better public context-carrying field API exists in the vendored Symbolica
+2.2.0 revision. `Matrix<F>` receives one `F: Ring`/`Field`, but the public
+`RationalPolynomialField` stores only its coefficient ring, not RustRed's
+ordered variable map, and its `zero`, `one`, and `nth` construct elements with
+an empty map
+([`rational_polynomial.rs:38-58`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L38),
+[`rational_polynomial.rs:847-872`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L847)).
+Its ordinary element arithmetic can also unify differing maps. Symbolica's
+`RingOps` and `Field` arithmetic methods have infallible return types, while
+only `Ring::{try_inv,try_div}` return `Option`, so the native matrix calls have
+no public channel for RustRed's typed context or resource errors
+([`domains.rs:111-182`](../../vendor/symbolica/lib/numerica/src/domains.rs#L111),
+[`domains.rs:250-254`](../../vendor/symbolica/lib/numerica/src/domains.rs#L250)).
+The factorized rational-polynomial field changes the element representation
+and retains audited gaps including a `todo!()` ordering and an `is_one` that
+does not test `numer_coeff`; `AtomField` would discard the strict polynomial
+map and coefficient-resource contract. A private contextual trait adapter is
+therefore the smallest public-API composition that lets Symbolica remain the
+algebra engine.
+
+The adapter closes two audited dense-matrix boundary defects without replacing
+the native algorithms. First, the generic `Matrix::inv` implementation can let
+the identity half of `[A|I]` provide pivots for a singular `A`. RustRed calls
+the independent native determinant first and rejects a zero determinant before
+calling the native inverse
+([`symbolica_coefficient_matrix.rs:1387-1454`](../../src/symbolica_coefficient_matrix.rs#L1387)).
+Second, `Matrix`'s public `SelfRing::is_one` accepts a zero diagonal entry
+([`matrix.rs:1128-1134`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1128)).
+RustRed therefore authenticates both native products and explicitly requires
+one on every diagonal entry and zero everywhere else
+([`symbolica_coefficient_matrix.rs:1313-1347`](../../src/symbolica_coefficient_matrix.rs#L1313)).
+
+Admission is explicit at four levels: exact scalar-operation count, individual
+and simultaneously live matrix-entry counts, clone-owned retained bytes of all
+authenticated inputs, and aggregate clone-owned retained bytes of the
+determinant, inverse, and both verification products. Every produced
+coefficient is reauthenticated against the ordered context and its exact
+algebra limits. This is not a complete native-memory proof: Symbolica's public
+API exposes no bound for all temporary polynomial GCD, quotient, or dense
+multiplication scratch, so that scratch limitation is documented at the module
+boundary rather than hidden behind the retained-byte census.
+
+Because Symbolica's required `RingOps`/`Field` methods cannot return the typed
+checked-algebra errors, the adapter transports its private error payload only
+across the immediately enclosing native call with `resume_unwind` and
+`catch_unwind`. The boundary consequently requires `panic = "unwind"` and has a
+compile-time rejection for `panic = "abort"`. The direct `rand = "0.9"`
+dependency exists only because an implementation of Symbolica's public
+`Ring::sample` must name the matching `rand::RngCore` type; sampling delegates
+to Symbolica's integer ring and is not a RustRed matrix or CAS algorithm.
+
+The black-box parametric-IBP oracle was made independent of the migrated
+production inverse. It reconstructs each inverse column with public
+`Matrix::solve(A, e_j)`, without reading `IntegralFamily::inverse_basis`, and
+uses native products for two-sided replay. Concrete analytic inverses for the
+one-, two-, three-, and five-loop fixtures are test-only, independently checked
+oracle data; a deliberately perturbed fixture is rejected. They do not enter
+production derivation. Production `IntegralFamily` construction and
+parametric-IBP generation remain topology- and loop-count-generic.
+
+All milestone lanes were licensed GMP builds and ran in parallel. The key was
+provided only through the process environment and is not stored here.
+
+- focused checked-adapter nextest: 17/17 passed in
+  `111ef62d-3de6-4957-b6b4-b2e04820375f`;
+- combined debug nextest: 42/42 passed in
+  `3197a8d5-70a9-49de-9d78-5415374f46bc`;
+- downstream nextest: 71/71 passed in
+  `1820a2af-baa8-4f82-a103-b70b81c52b4d`;
+- combined release nextest: 42/42 passed in
+  `dfe1042d-2509-4bad-87b6-87df1281cf6c`;
+- final hardening reruns passed 43/43 debug tests in
+  `d1519c8d-05c4-44e3-aefc-88ea68be936f`, 35/35 selected release library tests in
+  `053604e4-0ec6-4dad-9c4f-90aee31af8c2`, and 8/8 release independent-oracle
+  tests in `99fff53c-0fbf-46a9-9fc7-b63c8bd9795b`;
+- the complete optimized default-feature library suite passed 969/969 tests
+  under `cargo nextest run --release --lib -j4 --no-fail-fast`, with four
+  workers and no failures; and
+- `cargo check --all-features --all-targets -j4` passed.
 
 ### Polynomial-associate migration and validation evidence
 
@@ -315,8 +416,9 @@ introduce loop-count or topology dispatch into production rule derivation.
    Move the strict associate proof through public exponent widening,
    `RationalPolynomial::to_polynomial`, and native coefficient-field
    multiplication/equality. **Associate migration complete.**
-4. Migrate direct matrix consumers: generic family, automatic ISP, tensor
-   projectors, symmetry, symmetry discovery, and Feynman determinants.
+4. Migrate direct matrix consumers. **The generic-family coefficient-matrix
+   slice is complete.** Automatic ISP, tensor projectors, symmetry, symmetry
+   discovery, and Feynman determinants remain pending.
 5. Build the `SparseRowReducer` transcript-equivalence spike; move row algebra
    native wherever column reindexing and full `L` preserve RustRed's ordering,
    provenance, guard, and replay semantics.

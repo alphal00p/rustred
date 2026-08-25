@@ -5,8 +5,8 @@
 //! `inverse_basis`, and it does not reproduce `ParametricIbpGenerator`'s
 //! parametric relation-building code.  Instead it:
 //!
-//! 1. inverts the input denominator matrix with a tiny test-local exact
-//!    Gauss--Jordan solver;
+//! 1. solves every column of the input denominator system through Symbolica's
+//!    public exact matrix API, independently of RustRed's cached inverse;
 //! 2. differentiates the public scalar-product coordinates directly;
 //! 3. builds concrete IBP equations at integer powers; and
 //! 4. builds LI equations from independently generated concrete external
@@ -22,8 +22,14 @@ use rustred::{
     AffineDenominator, Coefficient, CoefficientContext, ContractionMomentum, IntegralFamily,
     ParametricArithmeticLimits, ParametricIbpGenerator, ParametricRowId, ScalarProductCoordinate,
 };
+use symbolica::{
+    domains::rational_polynomial::RationalPolynomialField,
+    prelude::{IntegerRing, Matrix, Vector, Z},
+};
 
 type OracleRelation = BTreeMap<Vec<i64>, Coefficient>;
+type OracleField = RationalPolynomialField<IntegerRing, u16>;
+type OracleMatrix = Matrix<OracleField>;
 
 fn add_coefficient(context: &CoefficientContext, target: &mut Coefficient, value: &Coefficient) {
     *target = &*target + value;
@@ -64,77 +70,143 @@ fn add_scaled_relation(
     }
 }
 
-/// Test-local exact matrix inversion.  This only sees the public denominator
-/// rows and deliberately does not inspect the inverse cached by RustRed.
-fn invert_denominator_matrix(family: &IntegralFamily) -> Vec<Vec<Coefficient>> {
+fn oracle_matrix(data: Vec<Coefficient>, rows: usize, columns: usize, label: &str) -> OracleMatrix {
+    let rows_u32 = u32::try_from(rows).expect("small oracle row count fits in u32");
+    let columns_u32 = u32::try_from(columns).expect("small oracle column count fits in u32");
+    rows_u32
+        .checked_mul(columns_u32)
+        .expect("small oracle matrix entry count fits in u32");
+    Matrix::from_linear(data, rows_u32, columns_u32, RationalPolynomialField::new(Z))
+        .unwrap_or_else(|error| panic!("could not construct {label}: {error}"))
+}
+
+fn denominator_matrix(family: &IntegralFamily) -> OracleMatrix {
+    oracle_matrix(
+        family
+            .denominators()
+            .iter()
+            .flat_map(|denominator| denominator.coefficients().iter().cloned())
+            .collect(),
+        family.denominator_count(),
+        family.denominator_count(),
+        "oracle denominator matrix",
+    )
+}
+
+fn coefficient_matrices_are_equal(
+    context: &CoefficientContext,
+    left: &[Vec<Coefficient>],
+    right: &[Vec<Coefficient>],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.len() == right.len()
+                && left.iter().zip(right).all(|(left, right)| {
+                    context.contains(left) && context.contains(right) && (left - right).is_zero()
+                })
+        })
+}
+
+fn matrix_is_declared_identity(context: &CoefficientContext, matrix: &OracleMatrix) -> bool {
+    matrix.nrows() == matrix.ncols()
+        && matrix.row_iter().enumerate().all(|(row, values)| {
+            values.iter().enumerate().all(|(column, value)| {
+                let expected = if row == column {
+                    context.one()
+                } else {
+                    context.zero()
+                };
+                context.contains(value) && (value - &expected).is_zero()
+            })
+        })
+}
+
+fn inverse_replays(family: &IntegralFamily, inverse: &[Vec<Coefficient>]) -> bool {
+    let size = family.denominator_count();
+    if inverse.len() != size || inverse.iter().any(|row| row.len() != size) {
+        return false;
+    }
+    let basis = denominator_matrix(family);
+    let inverse = oracle_matrix(
+        inverse.iter().flatten().cloned().collect(),
+        size,
+        size,
+        "authored oracle inverse",
+    );
+    matrix_is_declared_identity(family.coefficient_context(), &(&basis * &inverse))
+        && matrix_is_declared_identity(family.coefficient_context(), &(&inverse * &basis))
+}
+
+/// Solve `A x=e_j` for every inverse column through Symbolica's public matrix
+/// solver.  This test path sees only public denominator rows, deliberately does
+/// not inspect RustRed's cached inverse, and does not implement elimination.
+fn solve_denominator_matrix(family: &IntegralFamily) -> Vec<Vec<Coefficient>> {
     let context = family.coefficient_context();
     let size = family.denominator_count();
-    let mut augmented = Vec::with_capacity(size);
-    for row in 0..size {
-        let mut values = Vec::with_capacity(size * 2);
-        values.extend(family.denominators()[row].coefficients().iter().cloned());
-        values.extend((0..size).map(|column| {
-            if row == column {
-                context.one()
-            } else {
-                context.zero()
-            }
-        }));
-        augmented.push(values);
-    }
-
-    for pivot_column in 0..size {
-        let pivot_row = (pivot_column..size)
-            .find(|&row| !augmented[row][pivot_column].is_zero())
-            .expect("test family denominator matrix must be invertible");
-        augmented.swap(pivot_column, pivot_row);
-
-        let pivot = augmented[pivot_column][pivot_column].clone();
-        for entry in &mut augmented[pivot_column] {
-            *entry = &*entry / &pivot;
-            assert!(context.contains(entry));
-        }
-
-        let normalized_pivot_row = augmented[pivot_column].clone();
-        for row in 0..size {
-            if row == pivot_column {
-                continue;
-            }
-            let factor = augmented[row][pivot_column].clone();
-            if factor.is_zero() {
-                continue;
-            }
-            for column in 0..size * 2 {
-                let subtraction = &factor * &normalized_pivot_row[column];
-                augmented[row][column] = &augmented[row][column] - &subtraction;
-                assert!(context.contains(&augmented[row][column]));
-            }
+    let matrix = denominator_matrix(family);
+    let mut inverse = vec![vec![context.zero(); size]; size];
+    for column in 0..size {
+        let right_hand_side = oracle_matrix(
+            (0..size)
+                .map(|row| {
+                    if row == column {
+                        context.one()
+                    } else {
+                        context.zero()
+                    }
+                })
+                .collect(),
+            size,
+            1,
+            "oracle identity column",
+        );
+        let solution = matrix.solve(&right_hand_side).unwrap_or_else(|error| {
+            panic!("Symbolica could not solve inverse column {column}: {error}")
+        });
+        assert_eq!((solution.nrows(), solution.ncols()), (size, 1));
+        for (row, value) in solution.into_vec().into_iter().enumerate() {
+            assert!(context.contains(&value));
+            inverse[row][column] = value;
         }
     }
-
-    // Verify both products.  Besides checking the tiny solver, this fixes the
-    // orientation used below: S_s = sum_t inverse[s][t] (D_t-c_t).
-    let inverse = augmented
-        .into_iter()
-        .map(|row| row.into_iter().skip(size).collect::<Vec<_>>())
-        .collect::<Vec<_>>();
-    for left in 0..size {
-        for right in 0..size {
-            let mut product = context.zero();
-            for middle in 0..size {
-                let contribution =
-                    &family.denominators()[left].coefficients()[middle] * &inverse[middle][right];
-                add_coefficient(context, &mut product, &contribution);
-            }
-            let expected = if left == right {
-                context.one()
-            } else {
-                context.zero()
-            };
-            assert!((&product - &expected).is_zero());
-        }
-    }
+    assert!(inverse_replays(family, &inverse));
     inverse
+}
+
+#[derive(Clone)]
+struct OracleBasis {
+    inverse: Vec<Vec<Coefficient>>,
+    native_inverse: OracleMatrix,
+}
+
+impl OracleBasis {
+    fn solved(family: &IntegralFamily) -> Self {
+        Self::from_inverse(family, solve_denominator_matrix(family))
+    }
+
+    fn authored(family: &IntegralFamily, inverse: Vec<Vec<Coefficient>>) -> Self {
+        let solved = solve_denominator_matrix(family);
+        assert!(
+            coefficient_matrices_are_equal(family.coefficient_context(), &solved, &inverse),
+            "authored inverse differs from independent Symbolica solves"
+        );
+        Self::from_inverse(family, inverse)
+    }
+
+    fn from_inverse(family: &IntegralFamily, inverse: Vec<Vec<Coefficient>>) -> Self {
+        assert!(inverse_replays(family, &inverse));
+        let size = family.denominator_count();
+        let native_inverse = oracle_matrix(
+            inverse.iter().flatten().cloned().collect(),
+            size,
+            size,
+            "oracle inverse matrix",
+        );
+        Self {
+            inverse,
+            native_inverse,
+        }
+    }
 }
 
 fn coordinate_position(family: &IntegralFamily, wanted: ScalarProductCoordinate) -> usize {
@@ -275,29 +347,43 @@ fn differentiate_denominator(
 /// the independently solved inverse.
 fn rewrite_in_denominators(
     family: &IntegralFamily,
-    inverse: &[Vec<Coefficient>],
+    basis: &OracleBasis,
     direct_constant: Coefficient,
     scalar_coefficients: &[Coefficient],
 ) -> (Coefficient, Vec<Coefficient>) {
     let context = family.coefficient_context();
     let size = family.denominator_count();
-    let mut denominator_coefficients = vec![context.zero(); size];
-    for scalar in 0..size {
-        for target in 0..size {
-            let contribution = &scalar_coefficients[scalar] * &inverse[scalar][target];
-            add_coefficient(
-                context,
-                &mut denominator_coefficients[target],
-                &contribution,
-            );
-        }
-    }
-    let mut constant = direct_constant;
-    for target in 0..size {
-        let subtraction =
-            &denominator_coefficients[target] * family.denominators()[target].constant();
-        constant = &constant - &subtraction;
-    }
+    assert_eq!(scalar_coefficients.len(), size);
+    let scalar_row = oracle_matrix(
+        scalar_coefficients.to_vec(),
+        1,
+        size,
+        "direct scalar-product row",
+    );
+    let denominator_coefficients = (&scalar_row * &basis.native_inverse).into_vec();
+    assert_eq!(denominator_coefficients.len(), size);
+    assert!(
+        denominator_coefficients
+            .iter()
+            .all(|coefficient| context.contains(coefficient))
+    );
+
+    let coefficient_vector = Vector::new(
+        denominator_coefficients.clone(),
+        RationalPolynomialField::new(Z),
+    );
+    let constant_vector = Vector::new(
+        family
+            .denominators()
+            .iter()
+            .map(|denominator| denominator.constant().clone())
+            .collect(),
+        RationalPolynomialField::new(Z),
+    );
+    let subtraction = coefficient_vector.dot(&constant_vector);
+    assert!(context.contains(&subtraction));
+    let constant = &direct_constant - &subtraction;
+    assert!(context.contains(&constant));
     (constant, denominator_coefficients)
 }
 
@@ -312,7 +398,7 @@ fn contraction_at(family: &IntegralFamily, position: usize) -> ContractionMoment
 /// Direct concrete form of one ordinary IBP row.
 fn ordinary_oracle(
     family: &IntegralFamily,
-    inverse: &[Vec<Coefficient>],
+    basis: &OracleBasis,
     powers: &[i64],
     contraction_position: usize,
     differentiated_loop: usize,
@@ -334,7 +420,7 @@ fn ordinary_oracle(
         let (direct_constant, direct_scalars) =
             differentiate_denominator(family, denominator, differentiated_loop, contraction);
         let (constant, denominator_coefficients) =
-            rewrite_in_denominators(family, inverse, direct_constant, &direct_scalars);
+            rewrite_in_denominators(family, basis, direct_constant, &direct_scalars);
 
         let mut raised = powers.to_vec();
         raised[denominator] = raised[denominator]
@@ -368,7 +454,7 @@ fn ordinary_oracle(
 /// parametric relation.
 fn li_oracle(
     family: &IntegralFamily,
-    inverse: &[Vec<Coefficient>],
+    basis: &OracleBasis,
     powers: &[i64],
     first_external: usize,
     second_external: usize,
@@ -379,7 +465,7 @@ fn li_oracle(
         // M_ba = X_{i b} B_{a i}
         add_weighted_external_oracle(
             family,
-            inverse,
+            basis,
             powers,
             first_external,
             differentiated_loop,
@@ -390,7 +476,7 @@ fn li_oracle(
         // -M_ab = -X_{i a} B_{b i}
         add_weighted_external_oracle(
             family,
-            inverse,
+            basis,
             powers,
             second_external,
             differentiated_loop,
@@ -405,7 +491,7 @@ fn li_oracle(
 #[allow(clippy::too_many_arguments)]
 fn add_weighted_external_oracle(
     family: &IntegralFamily,
-    inverse: &[Vec<Coefficient>],
+    basis: &OracleBasis,
     powers: &[i64],
     ordinary_external: usize,
     differentiated_loop: usize,
@@ -415,18 +501,26 @@ fn add_weighted_external_oracle(
 ) {
     let context = family.coefficient_context();
     let coordinate = loop_external_position(family, differentiated_loop, multiplier_external);
-    let denominator_coefficients = &inverse[coordinate];
-    let mut constant = context.zero();
-    for denominator in 0..family.denominator_count() {
-        let subtraction =
-            &denominator_coefficients[denominator] * family.denominators()[denominator].constant();
-        constant = &constant - &subtraction;
-    }
+    let denominator_coefficients = &basis.inverse[coordinate];
+    let coefficient_vector = Vector::new(
+        denominator_coefficients.clone(),
+        RationalPolynomialField::new(Z),
+    );
+    let constant_vector = Vector::new(
+        family
+            .denominators()
+            .iter()
+            .map(|denominator| denominator.constant().clone())
+            .collect(),
+        RationalPolynomialField::new(Z),
+    );
+    let constant = -coefficient_vector.dot(&constant_vector);
+    assert!(context.contains(&constant));
 
     if !constant.is_zero() {
         let ordinary = ordinary_oracle(
             family,
-            inverse,
+            basis,
             powers,
             family.loop_count() + ordinary_external,
             differentiated_loop,
@@ -444,7 +538,7 @@ fn add_weighted_external_oracle(
             .expect("small oracle power does not overflow");
         let ordinary = ordinary_oracle(
             family,
-            inverse,
+            basis,
             &translated_powers,
             family.loop_count() + ordinary_external,
             differentiated_loop,
@@ -503,7 +597,22 @@ fn assert_family_guards_survive(
 }
 
 fn validate_all_rows(family: &IntegralFamily, assignments: &[Vec<i64>]) {
-    let inverse = invert_denominator_matrix(family);
+    validate_all_rows_with_basis(family, OracleBasis::solved(family), assignments);
+}
+
+fn validate_all_rows_with_authored_inverse(
+    family: &IntegralFamily,
+    inverse: Vec<Vec<Coefficient>>,
+    assignments: &[Vec<i64>],
+) {
+    validate_all_rows_with_basis(family, OracleBasis::authored(family, inverse), assignments);
+}
+
+fn validate_all_rows_with_basis(
+    family: &IntegralFamily,
+    basis: OracleBasis,
+    assignments: &[Vec<i64>],
+) {
     let generated = ParametricIbpGenerator::try_new(family)
         .expect("generator construction")
         .generate()
@@ -535,7 +644,7 @@ fn validate_all_rows(family: &IntegralFamily, assignments: &[Vec<i64>]) {
                     .expect("ordinary row specialization");
                 let expected = ordinary_oracle(
                     family,
-                    &inverse,
+                    &basis,
                     powers,
                     contraction_position,
                     differentiated_loop,
@@ -563,7 +672,7 @@ fn validate_all_rows(family: &IntegralFamily, assignments: &[Vec<i64>]) {
                 let actual = row
                     .specialize(generated.context(), powers, limits)
                     .expect("LI row specialization");
-                let expected = li_oracle(family, &inverse, powers, first_external, second_external);
+                let expected = li_oracle(family, &basis, powers, first_external, second_external);
                 let label = format!(
                     "{} LI ({first_external},{second_external}), n={powers:?}",
                     family.name()
@@ -601,6 +710,72 @@ fn vacuum_coordinate_position(loops: usize, left: usize, right: usize) -> usize 
     panic!("vacuum coordinate is outside the loop basis")
 }
 
+fn authored_matrix(context: &CoefficientContext, rows: &[&[&str]]) -> Vec<Vec<Coefficient>> {
+    let columns = rows.first().map_or(0, |row| row.len());
+    assert!(rows.iter().all(|row| row.len() == columns));
+    rows.iter()
+        .map(|row| {
+            row.iter()
+                .map(|expression| {
+                    context.parse(expression).unwrap_or_else(|error| {
+                        panic!("invalid authored coefficient {expression}: {error}")
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Analytic inverse of the physical vacuum basis consisting of every `k_i^2`
+/// followed by the supplied ordering of `(k_i-k_j)^2` rows.  This is an
+/// authored routing identity, not a generic matrix algorithm.
+fn massive_vacuum_authored_inverse(
+    context: &CoefficientContext,
+    loops: usize,
+    pair_order: &[(usize, usize)],
+) -> Vec<Vec<Coefficient>> {
+    let size = loops * (loops + 1) / 2;
+    assert_eq!(pair_order.len(), size - loops);
+    let half = context.parse("1/2").unwrap();
+    let minus_half = context.parse("-1/2").unwrap();
+    let mut inverse = vec![vec![context.zero(); size]; size];
+    for loop_index in 0..loops {
+        inverse[vacuum_coordinate_position(loops, loop_index, loop_index)][loop_index] =
+            context.one();
+    }
+    let mut seen = BTreeMap::new();
+    for (pair_position, &(left, right)) in pair_order.iter().enumerate() {
+        let pair = if left <= right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        assert!(pair.0 < pair.1 && pair.1 < loops);
+        assert!(seen.insert(pair, pair_position).is_none());
+        let coordinate = vacuum_coordinate_position(loops, pair.0, pair.1);
+        inverse[coordinate][pair.0] = half.clone();
+        inverse[coordinate][pair.1] = half.clone();
+        inverse[coordinate][loops + pair_position] = minus_half.clone();
+    }
+    assert_eq!(seen.len(), size - loops);
+    inverse
+}
+
+fn assert_inverse_perturbation_is_detected(
+    family: &IntegralFamily,
+    inverse: &[Vec<Coefficient>],
+    row: usize,
+    column: usize,
+) {
+    assert!(inverse_replays(family, inverse));
+    let mut perturbed = inverse.to_vec();
+    perturbed[row][column] = &perturbed[row][column] + &family.coefficient_context().one();
+    assert!(
+        !inverse_replays(family, &perturbed),
+        "the native replay accepted a deliberately corrupted authored inverse"
+    );
+}
+
 #[test]
 fn oracle_one_loop_vacuum_affine_rational_basis_and_power_shift() {
     let context = CoefficientContext::new(["d", "a", "h", "m", "nu"]);
@@ -618,7 +793,11 @@ fn oracle_one_loop_vacuum_affine_rational_basis_and_power_shift() {
     .unwrap();
 
     // Includes n=0: the nonzero PowerShift contribution must not disappear.
-    validate_all_rows(&family, &[vec![-2], vec![0], vec![1], vec![4]]);
+    validate_all_rows_with_authored_inverse(
+        &family,
+        authored_matrix(&context, &[&["h/a"]]),
+        &[vec![-2], vec![0], vec![1], vec![4]],
+    );
 }
 
 #[test]
@@ -655,7 +834,19 @@ fn oracle_one_loop_one_external_nonsymmetric_symbolic_basis() {
             .polynomial()
             .is_constant()
     );
-    validate_all_rows(&family, &[vec![0, 0], vec![2, -1], vec![-2, 3], vec![4, 5]]);
+    let authored_inverse = authored_matrix(
+        &context,
+        &[
+            &["b*h/(a*b-6*h)", "-2*h/(a*b-6*h)"],
+            &["-3*h/(a*b-6*h)", "a/(a*b-6*h)"],
+        ],
+    );
+    assert_inverse_perturbation_is_detected(&family, &authored_inverse, 0, 1);
+    validate_all_rows_with_authored_inverse(
+        &family,
+        authored_inverse,
+        &[vec![0, 0], vec![2, -1], vec![-2, 3], vec![4, 5]],
+    );
 }
 
 #[test]
@@ -701,8 +892,16 @@ fn oracle_one_loop_two_external_affine_rows_and_li() {
     )
     .unwrap();
 
-    validate_all_rows(
+    validate_all_rows_with_authored_inverse(
         &family,
+        authored_matrix(
+            &context,
+            &[
+                &["1/13", "-2/13", "6/13"],
+                &["6/13", "1/13", "-3/13"],
+                &["-2/13", "4/13", "1/13"],
+            ],
+        ),
         &[vec![0, 1, 2], vec![3, -1, 2], vec![-2, 0, 4], vec![2, 3, 4]],
     );
 }
@@ -739,8 +938,16 @@ fn oracle_two_loop_vacuum_all_contractions_and_derivatives() {
     )
     .unwrap();
 
-    validate_all_rows(
+    validate_all_rows_with_authored_inverse(
         &family,
+        authored_matrix(
+            &context,
+            &[
+                &["1/5", "-2/5", "2/5"],
+                &["2/5", "1/5", "-1/5"],
+                &["-2/5", "4/5", "1/5"],
+            ],
+        ),
         &[vec![0, 0, 0], vec![1, 2, 3], vec![-1, 3, 0], vec![4, -2, 2]],
     );
 }
@@ -812,8 +1019,18 @@ fn oracle_two_loop_one_external_complete_affine_family() {
     )
     .unwrap();
 
-    validate_all_rows(
+    validate_all_rows_with_authored_inverse(
         &family,
+        authored_matrix(
+            &context,
+            &[
+                &["1", "0", "0", "0", "0"],
+                &["-1/2", "-1/2", "1/2", "0", "0"],
+                &["0", "1", "0", "0", "0"],
+                &["-1/2", "0", "0", "1/2", "0"],
+                &["0", "-1/2", "0", "0", "1/2"],
+            ],
+        ),
         &[
             vec![0, 0, 0, 0, 0],
             vec![1, 2, 3, 4, 5],
@@ -1053,8 +1270,9 @@ fn oracle_three_loop_tetrahedron_all_nine_ibps() {
     )
     .unwrap();
 
-    validate_all_rows(
+    validate_all_rows_with_authored_inverse(
         &family,
+        massive_vacuum_authored_inverse(&context, 3, &[(0, 2), (0, 1), (1, 2)]),
         &[
             vec![0, 0, 0, 0, 0, 0],
             vec![1, 1, 1, 1, 1, 1],
@@ -1109,8 +1327,12 @@ fn oracle_five_loop_complete_massive_vacuum_all_twenty_five_ibps() {
     )
     .unwrap();
 
-    validate_all_rows(
+    let pair_order = (0..LOOPS)
+        .flat_map(|left| (left + 1..LOOPS).map(move |right| (left, right)))
+        .collect::<Vec<_>>();
+    validate_all_rows_with_authored_inverse(
         &family,
+        massive_vacuum_authored_inverse(&context, LOOPS, &pair_order),
         &[
             vec![1; DENOMINATORS],
             (0..DENOMINATORS)

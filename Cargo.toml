@@ -31,6 +31,7 @@ default = []
 legacy-authored-oracles = []
 
 [dependencies]
+rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
 toml = "1"

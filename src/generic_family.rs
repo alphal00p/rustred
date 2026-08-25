@@ -16,6 +16,12 @@ use symbolica::prelude::*;
 use crate::coefficient::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
 pub use crate::guards::CoefficientLocation;
 use crate::guards::GuardOrigin;
+use crate::symbolica_coefficient_matrix::{
+    DEFAULT_MAX_EXACT_OPERATIONS, DEFAULT_MAX_INPUT_RETAINED_BYTES,
+    DEFAULT_MAX_OUTPUT_RETAINED_BYTES, SymbolicaCoefficientMatrixError,
+    SymbolicaCoefficientMatrixLimits, determinant_of_coefficient_matrix,
+    invert_and_verify_coefficient_matrix, verify_coefficient_matrix_inverse,
+};
 
 /// A polynomial over the authenticated base-field variables.
 pub type BasePolynomial = MultivariatePolynomial<IntegerRing, u16>;
@@ -25,6 +31,15 @@ pub type BasePolynomial = MultivariatePolynomial<IntegerRing, u16>;
 pub struct IntegralFamilyLimits {
     pub exact_algebra: ExactAlgebraLimits,
     pub max_scalar_products: usize,
+    /// Aggregate checked scalar operations admitted for one native Symbolica
+    /// determinant/inverse/verification session.
+    pub max_matrix_exact_operations: usize,
+    /// Aggregate clone-owned retained bytes admitted for authenticated matrix
+    /// inputs in one native Symbolica session.
+    pub max_matrix_input_retained_bytes: usize,
+    /// Aggregate clone-owned retained bytes admitted for native determinant,
+    /// inverse, and verification outputs in one Symbolica session.
+    pub max_matrix_output_retained_bytes: usize,
     pub max_matrix_entries: usize,
     pub max_derivative_contractions: usize,
     /// Exact byte length of the stable, typed family identity.
@@ -42,6 +57,9 @@ impl Default for IntegralFamilyLimits {
         Self {
             exact_algebra: ExactAlgebraLimits::default(),
             max_scalar_products: 4_096,
+            max_matrix_exact_operations: DEFAULT_MAX_EXACT_OPERATIONS,
+            max_matrix_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
+            max_matrix_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
             max_matrix_entries: 16_000_000,
             max_derivative_contractions: 16_000_000,
             max_fingerprint_bytes: 1024 * 1024 * 1024,
@@ -661,9 +679,11 @@ impl IntegralFamily {
             .iter()
             .map(|denominator| denominator.coefficients.clone())
             .collect::<Vec<_>>();
+        // Symbolica owns the determinant, inverse, and both identity products.
+        // RustRed supplies the already-authenticated coefficient map and the
+        // family resource policy, then retains the certified row orientation.
         let (inverse_basis, basis_determinant) =
-            invert_symbolic_matrix(&coefficients, &basis, limits.exact_algebra)?;
-        verify_inverse(&coefficients, &basis, &inverse_basis, limits.exact_algebra)?;
+            invert_symbolic_matrix(&coefficients, &basis, limits)?;
         let determinant_nonzero = make_family_nonzero_condition(
             CoefficientLocation::BasisDeterminantNumerator,
             basis_determinant.numerator.clone(),
@@ -911,12 +931,19 @@ impl IntegralFamily {
             .iter()
             .map(|denominator| denominator.coefficients.clone())
             .collect::<Vec<_>>();
-        verify_inverse(
+        let (replayed_determinant, _stats) = determinant_of_coefficient_matrix(
             &self.coefficients,
             &basis,
-            &self.inverse_basis,
-            self.limits.exact_algebra,
-        )?;
+            symbolica_matrix_limits(self.limits),
+        )
+        .map_err(|error| map_symbolica_matrix_error(error, basis.len()))?;
+        if &replayed_determinant != self.domain.basis_determinant() {
+            return Err(GenericFamilyError::InternalVerificationFailure {
+                detail: "native determinant replay differs from the retained basis determinant"
+                    .to_owned(),
+            });
+        }
+        verify_inverse(&self.coefficients, &basis, &self.inverse_basis, self.limits)?;
 
         for coordinate in 0..self.coordinates.len() {
             let expansion = self.scalar_product_expansion(coordinate)?;
@@ -1861,71 +1888,13 @@ fn affine_forms_are_equal(
 fn invert_symbolic_matrix(
     context: &CoefficientContext,
     matrix: &[Vec<Coefficient>],
-    limits: ExactAlgebraLimits,
+    limits: IntegralFamilyLimits,
 ) -> Result<(Vec<Vec<Coefficient>>, Coefficient), GenericFamilyError> {
     let size = matrix.len();
-    if size == 0 || matrix.iter().any(|row| row.len() != size) {
-        return Err(GenericFamilyError::SingularDenominatorBasis);
-    }
-    let augmented_columns = size
-        .checked_mul(2)
-        .ok_or(GenericFamilyError::MatrixDimensionOverflow { size })?;
-    let _entry_count = size
-        .checked_mul(augmented_columns)
-        .ok_or(GenericFamilyError::MatrixDimensionOverflow { size })?;
-    let mut augmented = vec![vec![context.zero(); augmented_columns]; size];
-    for row in 0..size {
-        for column in 0..size {
-            augmented[row][column] = matrix[row][column].clone();
-        }
-        augmented[row][size + row] = context.one();
-    }
-
-    let mut determinant = context.one();
-    for column in 0..size {
-        let pivot = (column..size)
-            .find(|&row| !augmented[row][column].is_zero())
-            .ok_or(GenericFamilyError::SingularDenominatorBasis)?;
-        if pivot != column {
-            augmented.swap(pivot, column);
-            determinant = context.try_neg(&determinant, limits)?;
-        }
-        let pivot_value = augmented[column][column].clone();
-        determinant = context.try_mul(&determinant, &pivot_value, limits)?;
-        for entry in &mut augmented[column] {
-            *entry = context.try_div(entry, &pivot_value, limits)?;
-        }
-        for row in 0..size {
-            if row == column {
-                continue;
-            }
-            let factor = augmented[row][column].clone();
-            if factor.is_zero() {
-                continue;
-            }
-            for entry in 0..augmented_columns {
-                let contribution = context.try_mul(&factor, &augmented[column][entry], limits)?;
-                augmented[row][entry] =
-                    context.try_sub(&augmented[row][entry], &contribution, limits)?;
-            }
-        }
-    }
-    if determinant.is_zero() || context.validate_with_limits(&determinant, limits).is_err() {
-        return Err(GenericFamilyError::SingularDenominatorBasis);
-    }
-    let inverse = augmented
-        .into_iter()
-        .map(|row| row[size..].to_vec())
-        .collect::<Vec<_>>();
-    if inverse
-        .iter()
-        .flatten()
-        .any(|coefficient| context.validate_with_limits(coefficient, limits).is_err())
-    {
-        return Err(GenericFamilyError::InternalVerificationFailure {
-            detail: "matrix inversion changed the authenticated coefficient map".to_owned(),
-        });
-    }
+    let verified =
+        invert_and_verify_coefficient_matrix(context, matrix, symbolica_matrix_limits(limits))
+            .map_err(|error| map_symbolica_matrix_error(error, size))?;
+    let (inverse, determinant, _stats) = verified.into_parts();
     Ok((inverse, determinant))
 }
 
@@ -1933,64 +1902,68 @@ fn verify_inverse(
     context: &CoefficientContext,
     matrix: &[Vec<Coefficient>],
     inverse: &[Vec<Coefficient>],
-    limits: ExactAlgebraLimits,
+    limits: IntegralFamilyLimits,
 ) -> Result<(), GenericFamilyError> {
-    let left = multiply_symbolic_matrices(context, matrix, inverse, limits)?;
-    let right = multiply_symbolic_matrices(context, inverse, matrix, limits)?;
-    for (side, product) in [("A A^-1", left), ("A^-1 A", right)] {
-        for (row, values) in product.iter().enumerate() {
-            for (column, coefficient) in values.iter().enumerate() {
-                let expected = if row == column {
-                    context.one()
-                } else {
-                    context.zero()
-                };
-                if !coefficients_are_equal(context, coefficient, &expected, limits)? {
-                    return Err(GenericFamilyError::InternalVerificationFailure {
-                        detail: format!("{side} differs from identity at ({row},{column})"),
-                    });
-                }
-            }
-        }
-    }
+    verify_coefficient_matrix_inverse(context, matrix, inverse, symbolica_matrix_limits(limits))
+        .map_err(|error| map_symbolica_matrix_error(error, matrix.len()))?;
     Ok(())
 }
 
-fn multiply_symbolic_matrices(
-    context: &CoefficientContext,
-    left: &[Vec<Coefficient>],
-    right: &[Vec<Coefficient>],
-    limits: ExactAlgebraLimits,
-) -> Result<Vec<Vec<Coefficient>>, GenericFamilyError> {
-    if left.is_empty()
-        || right.is_empty()
-        || left.iter().any(|row| row.len() != right.len())
-        || right.iter().any(|row| row.len() != right[0].len())
-    {
-        return Err(GenericFamilyError::InternalVerificationFailure {
-            detail: "matrix replay received incompatible dimensions".to_owned(),
-        });
-    }
-    let mut product = vec![vec![context.zero(); right[0].len()]; left.len()];
-    for row in 0..left.len() {
-        for column in 0..right[0].len() {
-            for inner in 0..right.len() {
-                let contribution =
-                    context.try_mul(&left[row][inner], &right[inner][column], limits)?;
-                product[row][column] =
-                    context.try_add(&product[row][column], &contribution, limits)?;
-            }
-            if context
-                .validate_with_limits(&product[row][column], limits)
-                .is_err()
-            {
-                return Err(GenericFamilyError::InternalVerificationFailure {
-                    detail: "matrix replay changed the authenticated coefficient map".to_owned(),
-                });
+fn symbolica_matrix_limits(limits: IntegralFamilyLimits) -> SymbolicaCoefficientMatrixLimits {
+    SymbolicaCoefficientMatrixLimits::for_family(
+        limits.exact_algebra,
+        limits.max_matrix_entries,
+        limits.max_matrix_exact_operations,
+        limits.max_matrix_input_retained_bytes,
+        limits.max_matrix_output_retained_bytes,
+    )
+}
+
+fn map_symbolica_matrix_error(
+    error: SymbolicaCoefficientMatrixError,
+    size: usize,
+) -> GenericFamilyError {
+    match error {
+        SymbolicaCoefficientMatrixError::EmptyMatrix
+        | SymbolicaCoefficientMatrixError::RaggedMatrix { .. }
+        | SymbolicaCoefficientMatrixError::NotSquare { .. }
+        | SymbolicaCoefficientMatrixError::Singular => GenericFamilyError::SingularDenominatorBasis,
+        SymbolicaCoefficientMatrixError::DimensionOverflow { .. } => {
+            GenericFamilyError::MatrixDimensionOverflow { size }
+        }
+        SymbolicaCoefficientMatrixError::ResourceCountOverflow { resource } => {
+            GenericFamilyError::ResourceCountOverflow { resource }
+        }
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => GenericFamilyError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::AllocationFailure {
+            resource,
+            requested,
+        } => GenericFamilyError::AllocationFailure {
+            resource,
+            requested,
+        },
+        SymbolicaCoefficientMatrixError::InvalidCoefficient { error, .. }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(error) => {
+            GenericFamilyError::ExactAlgebra(error)
+        }
+        internal @ (SymbolicaCoefficientMatrixError::ShapeMismatch { .. }
+        | SymbolicaCoefficientMatrixError::NativeError { .. }
+        | SymbolicaCoefficientMatrixError::NativePanic { .. }
+        | SymbolicaCoefficientMatrixError::InverseVerificationFailure { .. }
+        | SymbolicaCoefficientMatrixError::InternalShapeFailure { .. }) => {
+            GenericFamilyError::InternalVerificationFailure {
+                detail: internal.to_string(),
             }
         }
     }
-    Ok(product)
 }
 
 #[cfg(test)]
@@ -2012,6 +1985,67 @@ mod tests {
                         })
                         .collect(),
                 )
+            })
+            .collect()
+    }
+
+    fn one_loop_family_from_basis(
+        context: &CoefficientContext,
+        name: &str,
+        basis: Vec<Vec<Coefficient>>,
+    ) -> Result<IntegralFamily, GenericFamilyError> {
+        let size = basis.len();
+        assert!(size > 0);
+        assert!(basis.iter().all(|row| row.len() == size));
+        let external_count = size - 1;
+        let external_momenta = (0..external_count)
+            .map(|external| format!("p{external}"))
+            .collect::<Vec<_>>();
+        let external_gram = (0..external_count)
+            .map(|row| {
+                (0..external_count)
+                    .map(|column| {
+                        if row == column {
+                            context.one()
+                        } else {
+                            context.zero()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let denominators = basis
+            .into_iter()
+            .map(|row| AffineDenominator::new(context.zero(), row))
+            .collect::<Vec<_>>();
+
+        IntegralFamily::new(
+            name.to_owned(),
+            vec!["k".to_owned()],
+            external_momenta,
+            context.clone(),
+            context.parameter("d").unwrap(),
+            denominators,
+            external_gram,
+            vec![context.zero(); size],
+        )
+    }
+
+    fn upper_bidiagonal_basis(context: &CoefficientContext, size: usize) -> Vec<Vec<Coefficient>> {
+        let x = context.parameter("x").unwrap();
+        (0..size)
+            .map(|row| {
+                (0..size)
+                    .map(|column| {
+                        if row == column {
+                            context.integer(i64::try_from(row + 2).unwrap())
+                        } else if column == row + 1 {
+                            x.clone()
+                        } else {
+                            context.zero()
+                        }
+                    })
+                    .collect()
             })
             .collect()
     }
@@ -2239,6 +2273,286 @@ mod tests {
                 && guard.polynomial() == &context.integer(3).numerator
         }));
         family.verify_exact_replay().unwrap();
+    }
+
+    #[test]
+    fn symbolica_matrix_backend_preserves_generic_sizes_orientation_and_replay() {
+        let context = CoefficientContext::new(["d", "x"]);
+
+        for size in 1..=6 {
+            let family = one_loop_family_from_basis(
+                &context,
+                &format!("upper-bidiagonal-{size}"),
+                upper_bidiagonal_basis(&context, size),
+            )
+            .unwrap();
+            let determinant = (2..=size + 1).product::<usize>();
+            assert_eq!(
+                family.domain().basis_determinant(),
+                &context.integer(i64::try_from(determinant).unwrap())
+            );
+            assert!(
+                family
+                    .inverse_basis()
+                    .iter()
+                    .flatten()
+                    .all(|entry| context.contains(entry))
+            );
+            if size == 2 {
+                assert_eq!(family.inverse_basis()[0][1], context.parse("-x/6").unwrap());
+                assert_eq!(family.inverse_basis()[1][0], context.zero());
+                assert_eq!(family.inverse_basis()[0][0], context.parse("1/2").unwrap());
+                assert_eq!(family.inverse_basis()[1][1], context.parse("1/3").unwrap());
+            }
+            family.verify_exact_replay().unwrap();
+        }
+    }
+
+    #[test]
+    fn exact_replay_detects_retained_determinant_and_inverse_tampering() {
+        let context = CoefficientContext::new(["d", "x"]);
+        let family = one_loop_family_from_basis(
+            &context,
+            "replay-tamper-seam",
+            upper_bidiagonal_basis(&context, 4),
+        )
+        .unwrap();
+
+        let mut determinant_tamper = family.clone();
+        determinant_tamper.domain.basis_determinant = context.integer(1);
+        assert!(matches!(
+            determinant_tamper.verify_exact_replay(),
+            Err(GenericFamilyError::InternalVerificationFailure { detail })
+                if detail.contains("native determinant replay")
+        ));
+
+        let mut inverse_tamper = family;
+        inverse_tamper.inverse_basis[0][0] = context.zero();
+        assert!(matches!(
+            inverse_tamper.verify_exact_replay(),
+            Err(GenericFamilyError::InternalVerificationFailure { detail })
+                if detail.contains("differs from identity")
+        ));
+    }
+
+    #[test]
+    fn symbolica_matrix_backend_rejects_singular_size_one_and_larger_matrices() {
+        let context = CoefficientContext::new(["d", "x"]);
+        // Cover both of Symbolica's specialized inverse branches (2x2 and
+        // 3x3) as well as the augmented-matrix branch used at size 1 and at
+        // sizes four and above.
+        for size in [1, 2, 3, 4, 6] {
+            let mut basis = upper_bidiagonal_basis(&context, size);
+            if size == 1 {
+                basis[0][0] = context.zero();
+            } else {
+                basis[size - 1] = basis[size - 2].clone();
+            }
+            assert!(matches!(
+                one_loop_family_from_basis(&context, &format!("singular-{size}"), basis),
+                Err(GenericFamilyError::SingularDenominatorBasis)
+            ));
+        }
+    }
+
+    #[test]
+    fn symbolic_size_four_tracks_pivot_sign_rational_determinant_and_guard_provenance() {
+        let context = CoefficientContext::new(["d", "x", "s", "t"]);
+        let zero = context.zero();
+        let one = context.one();
+        let basis = vec![
+            vec![
+                zero.clone(),
+                context.parse("x/s").unwrap(),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![one.clone(), zero.clone(), zero.clone(), zero.clone()],
+            vec![
+                zero.clone(),
+                zero.clone(),
+                context.parse("(x+1)/t").unwrap(),
+                one,
+            ],
+            vec![zero.clone(), zero.clone(), zero, context.integer(2)],
+        ];
+        let family = one_loop_family_from_basis(&context, "symbolic-size-four", basis).unwrap();
+        let determinant = context.parse("-2*x*(x+1)/(s*t)").unwrap();
+
+        assert_eq!(family.domain().basis_determinant(), &determinant);
+        assert_eq!(
+            family.domain().determinant_nonzero().polynomial(),
+            &determinant.numerator
+        );
+        assert_eq!(
+            family.domain().determinant_nonzero().origins(),
+            &BTreeSet::from([GuardOrigin::FamilyBasisDeterminantNumerator])
+        );
+        for (source, parameter) in [
+            (
+                CoefficientLocation::DenominatorCoefficient {
+                    denominator: 0,
+                    coordinate: 1,
+                },
+                "s",
+            ),
+            (
+                CoefficientLocation::DenominatorCoefficient {
+                    denominator: 2,
+                    coordinate: 2,
+                },
+                "t",
+            ),
+        ] {
+            let guard = family
+                .domain()
+                .input_denominators()
+                .iter()
+                .find(|guard| guard.source() == &source)
+                .unwrap();
+            assert_eq!(
+                guard.polynomial(),
+                &context.parameter(parameter).unwrap().numerator
+            );
+            assert!(
+                guard
+                    .origins()
+                    .contains(&GuardOrigin::FamilyInputCoefficientDenominator { location: source })
+            );
+        }
+        assert!(
+            family
+                .inverse_basis()
+                .iter()
+                .flatten()
+                .all(|entry| context.contains(entry))
+        );
+        family.verify_exact_replay().unwrap();
+    }
+
+    #[test]
+    fn matrix_boundary_preserves_gmp_coefficients_and_rejects_foreign_maps() {
+        let context = CoefficientContext::new(["x"]);
+        let mut huge = context.one();
+        huge.numerator.coefficients[0] = format!("1{}", "0".repeat(1_500))
+            .parse::<Integer>()
+            .unwrap();
+        let matrix = vec![
+            vec![huge.clone(), context.parameter("x").unwrap()],
+            vec![context.zero(), context.one()],
+        ];
+        let (inverse, determinant) =
+            invert_symbolic_matrix(&context, &matrix, IntegralFamilyLimits::default()).unwrap();
+        assert_eq!(determinant, huge);
+        assert!(
+            inverse
+                .iter()
+                .flatten()
+                .all(|entry| context.contains(entry))
+        );
+        verify_inverse(&context, &matrix, &inverse, IntegralFamilyLimits::default()).unwrap();
+
+        let foreign = CoefficientContext::new(["foreign"]);
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &[vec![foreign.one()]],
+                IntegralFamilyLimits::default(),
+            ),
+            Err(GenericFamilyError::ExactAlgebra(
+                ExactAlgebraError::VariableMapMismatch { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn matrix_boundary_propagates_typed_exact_algebra_limits() {
+        let context = CoefficientContext::new(["x"]);
+        let x_plus_one = context.parse("x+1").unwrap();
+        let matrix = vec![
+            vec![x_plus_one.clone(), context.one()],
+            vec![context.one(), x_plus_one],
+        ];
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &[vec![context.one()]],
+                IntegralFamilyLimits {
+                    max_matrix_exact_operations: 7,
+                    ..IntegralFamilyLimits::default()
+                },
+            ),
+            Err(GenericFamilyError::ResourceLimit {
+                resource: "Symbolica coefficient matrix exact operations",
+                requested,
+                limit: 7,
+            }) if requested > 7
+        ));
+
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &[vec![context.one()]],
+                IntegralFamilyLimits {
+                    max_matrix_input_retained_bytes: 0,
+                    ..IntegralFamilyLimits::default()
+                },
+            ),
+            Err(GenericFamilyError::ResourceLimit {
+                resource: "coefficient matrix input retained bytes",
+                requested,
+                limit: 0,
+            }) if requested > 0
+        ));
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &[vec![context.one()]],
+                IntegralFamilyLimits {
+                    max_matrix_output_retained_bytes: 0,
+                    ..IntegralFamilyLimits::default()
+                },
+            ),
+            Err(GenericFamilyError::ResourceLimit {
+                resource: "coefficient matrix output retained bytes",
+                requested,
+                limit: 0,
+            }) if requested > 0
+        ));
+
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &matrix,
+                IntegralFamilyLimits {
+                    exact_algebra: ExactAlgebraLimits {
+                        max_term_operations: 1,
+                        ..ExactAlgebraLimits::default()
+                    },
+                    ..IntegralFamilyLimits::default()
+                },
+            ),
+            Err(GenericFamilyError::ExactAlgebra(
+                ExactAlgebraError::ResourceLimit { .. }
+            ))
+        ));
+
+        assert!(matches!(
+            invert_symbolic_matrix(
+                &context,
+                &[vec![context.parameter("x").unwrap()]],
+                IntegralFamilyLimits {
+                    exact_algebra: ExactAlgebraLimits {
+                        max_exponent: 0,
+                        ..ExactAlgebraLimits::default()
+                    },
+                    ..IntegralFamilyLimits::default()
+                },
+            ),
+            Err(GenericFamilyError::ExactAlgebra(
+                ExactAlgebraError::ExponentLimit { .. }
+            ))
+        ));
     }
 
     #[test]

@@ -723,7 +723,9 @@ pub struct CoefficientContext {
     template: Coefficient,
 }
 
-fn coefficient_clone_owned_retained_byte_bound(coefficient: &Coefficient) -> Option<usize> {
+pub(crate) fn coefficient_clone_owned_retained_byte_bound(
+    coefficient: &Coefficient,
+) -> Option<usize> {
     let polynomial_bytes = |polynomial: &MultivariatePolynomial<IntegerRing, u16>| {
         let mut bytes = polynomial
             .coefficients

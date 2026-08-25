@@ -20,6 +20,7 @@ mod exact_identity;
 mod parametric_sector_formula_ir;
 mod parametric_sector_mtbdd;
 mod parametric_sector_mtbdd_certificate;
+pub(crate) mod symbolica_coefficient_matrix;
 
 pub mod adaptive_rules;
 pub mod affine_locus_bound_relation;

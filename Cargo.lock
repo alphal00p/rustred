@@ -527,6 +527,7 @@ dependencies = [
 name = "rustred"
 version = "0.1.0"
 dependencies = [
+ "rand",
  "serde",
  "symbolica",
  "toml",
