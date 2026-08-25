@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
+use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualInventoryGroupSourceView;
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
 use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
@@ -57,8 +58,8 @@ use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
 };
 use crate::generated_affine_residual_group_physical_key::{
-    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
-    GeneratedAffineResidualGroupPhysicalKeyError,
+    GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
+    GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
 };
 use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
@@ -1097,6 +1098,63 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionRecenterReady {
     source_ordinal: usize,
     pivot_ordinal: usize,
     stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+/// Allocation-free, borrow-only geometry admitted for exact Ready analysis.
+///
+/// This view can be minted only after the session has jointly reauthenticated
+/// the staged database transaction, unresolved-target state, selected target,
+/// and exact matched anchor.  It intentionally exposes neither an owning plan
+/// nor a transaction-extraction seam; a caller may only inspect the exact
+/// geometry and feed it to current-lineage analysis while the session and
+/// Ready token remain borrowed.
+pub(crate) struct GeneratedAffineResidualGroupExactSessionReadyGeometryView<'authority> {
+    frame: &'authority Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    group: GeneratedAffineResidualInventoryGroupSourceView<'authority>,
+    locator: GeneratedAffineResidualGroupSolveTargetLocator,
+    target_anchor: &'authority GeneratedAffineResidualGroupLatticeShift,
+}
+
+impl<'authority> GeneratedAffineResidualGroupExactSessionReadyGeometryView<'authority> {
+    pub(crate) const fn frame(&self) -> &'authority Arc<GeneratedAffineResidualGroupPhysicalFrame> {
+        self.frame
+    }
+
+    pub(crate) const fn locator(&self) -> GeneratedAffineResidualGroupSolveTargetLocator {
+        self.locator
+    }
+
+    pub(crate) const fn ambient_arity(&self) -> usize {
+        self.group.ambient_arity()
+    }
+
+    pub(crate) const fn free_positions(&self) -> &'authority [usize] {
+        self.group.free_positions()
+    }
+
+    /// Row-major `ambient_arity * free_positions().len()` exact matrix.
+    pub(crate) const fn compact_affine_matrix(&self) -> &'authority [Integer] {
+        self.group.compact_linear_coefficients()
+    }
+
+    pub(crate) const fn target_anchor(
+        &self,
+    ) -> &'authority GeneratedAffineResidualGroupLatticeShift {
+        self.target_anchor
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionReadyGeometryView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionReadyGeometryView")
+            .field("locator", &self.locator)
+            .field("ambient_arity", &self.group.ambient_arity())
+            .field("free_position_count", &self.group.free_positions().len())
+            .field("private_frame", &"<redacted>")
+            .field("private_geometry", &"<redacted>")
+            .finish()
+    }
 }
 
 impl GeneratedAffineResidualGroupExactSessionRecenterReady {
@@ -2686,6 +2744,74 @@ impl GeneratedAffineResidualGroupExactSession {
             staged_live_prospective_retained_bytes,
             staged_live_observed_retained_bytes,
             target_state_combined_retained_byte_envelope,
+        })
+    }
+
+    /// Reauthenticate a sealed Ready token and expose only the exact geometry
+    /// required by the current-lineage publication analysis.
+    ///
+    /// The returned view borrows both owners.  It cannot outlive this session
+    /// or the Ready token, cannot extract the staged transaction, and cannot
+    /// be used to consume a different target.
+    pub(crate) fn authenticated_ready_geometry<'authority>(
+        &'authority self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        ready: &'authority GeneratedAffineResidualGroupExactSessionRecenterReady,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionReadyGeometryView<'authority>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let joint = self.authenticate_staged_new_pivot(family, context, &ready.transaction)?;
+        let solve_ordinal = ready.target.solve_ordinal();
+        let locator = *ready.target.locator();
+        if joint.source_ordinal() != ready.source_ordinal
+            || joint.pivot_ordinal() != ready.pivot_ordinal
+            || !ready
+                .target
+                .authenticates_source_state(&ready.transaction.target_state)
+            || !joint.is_target_unresolved(solve_ordinal)?
+            || joint.target_locators().get(solve_ordinal).copied() != Some(locator)
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+
+        let group = self
+            .plan
+            .authority()
+            .authenticated_group_view(context)
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
+        let frame = self.plan.physical_frame();
+        let matrix_entries = group
+            .ambient_arity()
+            .checked_mul(group.free_positions().len())
+            .ok_or(GeneratedAffineResidualGroupExactSessionError::GeometryCountOverflow)?;
+        if group.ordinal() != self.group_ordinal()
+            || group.ambient_arity() != context.index_count()
+            || group.ambient_arity() != frame.arity()
+            || group.free_positions() != self.plan.free_positions()
+            || group.compact_linear_coefficients().len() != matrix_entries
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::MalformedGeometry);
+        }
+        let target_anchor = frame
+            .anchor_offset(locator.inventory_position(), locator.case_ordinal())
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
+        if target_anchor.values().len() != ready.target_offset.values().len()
+            || !target_anchor
+                .values()
+                .iter()
+                .zip(ready.target_offset.values())
+                .all(|(left, right)| left.cmp(right).is_eq())
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+
+        Ok(GeneratedAffineResidualGroupExactSessionReadyGeometryView {
+            frame,
+            group,
+            locator,
+            target_anchor,
         })
     }
 

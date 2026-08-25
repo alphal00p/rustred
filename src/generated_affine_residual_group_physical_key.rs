@@ -164,8 +164,8 @@ pub(crate) struct GeneratedAffineResidualGroupPhysicalKeyPreflight {
     census: GeneratedAffineResidualGroupPhysicalKeyPreflightCensus,
 }
 
-/// Allocation-free prospective census for mapping one compact case-local key
-/// into a physical key.
+/// Allocation-free prospective census for mapping one compact or exact
+/// case-local key into a physical key.
 ///
 /// Unlike [`GeneratedAffineResidualGroupPhysicalKeyPreflight`], this value is
 /// not an execution token and owns no physical shift or frame reference. It
@@ -213,6 +213,15 @@ impl GeneratedAffineResidualGroupLocalPhysicalKeyPreflightCensus {
             && physical.prospective_retained_integer_bits()
                 <= self.prospective_retained_integer_bits
             && physical.prospective_retained_bytes() <= self.prospective_retained_bytes
+    }
+
+    /// Verify that an executed exact-local key stayed within this borrowed
+    /// prospective census.  The exact local operands and frame are immutable
+    /// across the publication call, so this closes admission against the
+    /// observed owner-visible key without exporting any coordinate data.
+    pub(crate) fn authenticates_key(self, key: &GeneratedAffineResidualGroupPhysicalKey) -> bool {
+        key.retained_integer_bits() <= self.prospective_retained_integer_bits
+            && key.retained_bytes() <= self.prospective_retained_bytes
     }
 }
 
@@ -479,6 +488,58 @@ pub(crate) struct GeneratedAffineResidualGroupPhysicalKey {
     retained_bytes: usize,
 }
 
+/// First field which decides the persisted physical-key order.
+///
+/// Vector-valued fields retain the exact first differing coordinate.  The
+/// value is deliberately data-free: replay compares the two retained keys
+/// again through the same ordering authority used by [`Ord`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum GeneratedAffineResidualGroupPhysicalKeyComparisonComponent {
+    OrderingPolicy,
+    Arity,
+    PropagatorCount,
+    SectorBit { position: usize },
+    CornerDistanceOffset,
+    DotsOffset,
+    NumeratorsOffset,
+    SignedIndexExcess { position: usize },
+    PhysicalShift { position: usize },
+    Schema,
+}
+
+/// Compact replay witness for one complete physical-key comparison.
+///
+/// This is minted by the key itself rather than by a caller reconstructing the
+/// tuple order.  Consequently both ordinary ordering and proof replay have one
+/// implementation of the persisted comparison semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+    ordering: Ordering,
+    first_decisive_component: Option<GeneratedAffineResidualGroupPhysicalKeyComparisonComponent>,
+}
+
+impl GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+    pub(crate) const fn ordering(self) -> Ordering {
+        self.ordering
+    }
+
+    pub(crate) const fn first_decisive_component(
+        self,
+    ) -> Option<GeneratedAffineResidualGroupPhysicalKeyComparisonComponent> {
+        self.first_decisive_component
+    }
+
+    /// Rebuild the exact comparison through the physical key's authoritative
+    /// ordering implementation and authenticate this compact transcript.
+    pub(crate) fn replay(
+        self,
+        left: &GeneratedAffineResidualGroupPhysicalKey,
+        right: &GeneratedAffineResidualGroupPhysicalKey,
+    ) -> bool {
+        self == left.comparison_witness(right)
+    }
+}
+
 impl GeneratedAffineResidualGroupPhysicalKey {
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
@@ -503,6 +564,34 @@ impl GeneratedAffineResidualGroupPhysicalKey {
     }
     pub(crate) const fn retained_bytes(&self) -> usize {
         self.retained_bytes
+    }
+
+    /// Compare two exact physical keys and retain the first decisive field.
+    /// [`Ord`] delegates to this method, so proof production cannot drift from
+    /// database ordering.
+    pub(crate) fn comparison_witness(
+        &self,
+        other: &Self,
+    ) -> GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+        compare_physical_keys(self, other)
+    }
+
+    /// Integer-bit work contributed by this key to one complete comparison.
+    /// An outer preflight may combine an already-retained operand with the
+    /// prospective contribution of a key that has not yet been constructed.
+    pub(crate) fn comparison_operand_integer_bit_work(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupPhysicalKeyError> {
+        integer_field_comparison_bit_work(
+            self.signed_index_excess
+                .iter()
+                .chain(self.shift.values().iter())
+                .chain([
+                    self.corner_distance_offset.as_ref(),
+                    self.dots_offset.as_ref(),
+                    self.numerators_offset.as_ref(),
+                ]),
+        )
     }
 
     /// Conservative GMP comparison work for one complete physical-key `cmp`.
@@ -589,25 +678,133 @@ impl Hash for GeneratedAffineResidualGroupPhysicalKey {
 }
 impl Ord for GeneratedAffineResidualGroupPhysicalKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.policy
-            .cmp(&other.policy)
-            .then_with(|| self.arity.cmp(&other.arity))
-            .then_with(|| self.propagators.cmp(&other.propagators))
-            .then_with(|| self.formal_sector.cmp(&other.formal_sector))
-            .then_with(|| {
-                self.corner_distance_offset
-                    .cmp(&other.corner_distance_offset)
-            })
-            .then_with(|| self.dots_offset.cmp(&other.dots_offset))
-            .then_with(|| self.numerators_offset.cmp(&other.numerators_offset))
-            .then_with(|| self.signed_index_excess.cmp(&other.signed_index_excess))
-            .then_with(|| self.shift.cmp(&other.shift))
-            .then_with(|| self.schema.cmp(other.schema))
+        self.comparison_witness(other).ordering()
     }
 }
 impl PartialOrd for GeneratedAffineResidualGroupPhysicalKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+fn compare_physical_keys(
+    left: &GeneratedAffineResidualGroupPhysicalKey,
+    right: &GeneratedAffineResidualGroupPhysicalKey,
+) -> GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+    macro_rules! decisive {
+        ($ordering:expr, $component:expr) => {{
+            let ordering = $ordering;
+            if ordering != Ordering::Equal {
+                return GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+                    ordering,
+                    first_decisive_component: Some($component),
+                };
+            }
+        }};
+    }
+
+    decisive!(
+        left.policy.cmp(&right.policy),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::OrderingPolicy
+    );
+    decisive!(
+        left.arity.cmp(&right.arity),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::Arity
+    );
+    decisive!(
+        left.propagators.cmp(&right.propagators),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::PropagatorCount
+    );
+
+    let (sector_ordering, sector_position) = lexicographic_cmp_with_first_difference(
+        left.formal_sector.active_bits(),
+        right.formal_sector.active_bits(),
+    );
+    if let Some(position) = sector_position {
+        return GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+            ordering: sector_ordering,
+            first_decisive_component: Some(
+                GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::SectorBit { position },
+            ),
+        };
+    }
+
+    decisive!(
+        left.corner_distance_offset
+            .cmp(&right.corner_distance_offset),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::CornerDistanceOffset
+    );
+    decisive!(
+        left.dots_offset.cmp(&right.dots_offset),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::DotsOffset
+    );
+    decisive!(
+        left.numerators_offset.cmp(&right.numerators_offset),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::NumeratorsOffset
+    );
+
+    let (excess_ordering, excess_position) = lexicographic_cmp_with_first_difference(
+        left.signed_index_excess.as_slice(),
+        right.signed_index_excess.as_slice(),
+    );
+    if let Some(position) = excess_position {
+        return GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+            ordering: excess_ordering,
+            first_decisive_component: Some(
+                GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::SignedIndexExcess {
+                    position,
+                },
+            ),
+        };
+    }
+
+    let (shift_ordering, shift_position) =
+        lexicographic_cmp_with_first_difference(left.shift.values(), right.shift.values());
+    if let Some(position) = shift_position {
+        return GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+            ordering: shift_ordering,
+            first_decisive_component: Some(
+                GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::PhysicalShift {
+                    position,
+                },
+            ),
+        };
+    }
+
+    decisive!(
+        left.schema.cmp(right.schema),
+        GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::Schema
+    );
+    GeneratedAffineResidualGroupPhysicalKeyComparisonWitness {
+        ordering: Ordering::Equal,
+        first_decisive_component: None,
+    }
+}
+
+/// Perform one authoritative lexicographic traversal and retain the coordinate
+/// that produced its result.
+///
+/// In particular, this must use [`Ord::cmp`] for every coordinate rather than
+/// comparing a whole vector and then rescanning it with [`PartialEq`].
+/// Symbolica [`Integer`] equality is representation-sensitive while its order
+/// compares numeric value across `Single`, `Double`, and `Large` variants.
+/// One traversal therefore prevents a numerically equal noncanonical prefix
+/// from being misreported as the decisive coordinate.
+fn lexicographic_cmp_with_first_difference<T: Ord>(
+    left: &[T],
+    right: &[T],
+) -> (Ordering, Option<usize>) {
+    for (position, (left, right)) in left.iter().zip(right).enumerate() {
+        let ordering = left.cmp(right);
+        if ordering != Ordering::Equal {
+            return (ordering, Some(position));
+        }
+    }
+    let ordering = left.len().cmp(&right.len());
+    if ordering == Ordering::Equal {
+        (Ordering::Equal, None)
+    } else {
+        (ordering, Some(left.len().min(right.len())))
     }
 }
 
@@ -1325,6 +1522,217 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
         .map_err(|_| GeneratedAffineResidualGroupPhysicalKeyError::SymbolicaPanic)?
     }
 
+    /// Census `key(o_u + q)` for an arbitrary-precision centered key without
+    /// constructing `o_u + q` or cloning any GMP integer.
+    ///
+    /// This is the allocation-free admission counterpart of
+    /// [`Self::key_for_exact_local`].  Every addition is bounded from the
+    /// borrowed operand magnitudes, so an enclosing transaction can admit its
+    /// aggregate retained graph before any exact physical shift or key is
+    /// allocated.
+    pub(crate) fn preflight_key_for_exact_local(
+        &self,
+        ordinal_within_group: usize,
+        case_ordinal: usize,
+        local: &[Integer],
+    ) -> Result<
+        GeneratedAffineResidualGroupLocalPhysicalKeyPreflightCensus,
+        GeneratedAffineResidualGroupPhysicalKeyError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            if local.len() != self.arity() {
+                return Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongArity {
+                    expected: self.arity(),
+                    actual: local.len(),
+                });
+            }
+            let offset = self.anchor_offset(ordinal_within_group, case_ordinal)?;
+            let mut prospective_shift_bits = 0usize;
+            let mut prospective_shift_bytes =
+                prospective_arc_vec_bytes::<Integer>("lattice-shift retained bytes", self.arity())?;
+            let mut prospective_total_bits = 0usize;
+            let mut prospective_excess_heap_bytes = 0usize;
+            let mut largest_excess_bits = 0usize;
+            let mut integer_bit_work = 0usize;
+            let mut comparison_integer_bit_work = 0usize;
+            let mut constant_cursor = 0usize;
+            for position in 0..self.arity() {
+                let offset_bits = checked_integer_bits(
+                    "physical shift integer bits",
+                    &offset.values()[position],
+                    self.limits.max_shift_integer_bits,
+                )?;
+                let local_bits = checked_integer_bits(
+                    "physical shift integer bits",
+                    &local[position],
+                    self.limits.max_shift_integer_bits,
+                )?;
+                let shift_bits = prospective_add_bits(offset_bits, local_bits)?;
+                check_limit(
+                    "physical shift integer bits",
+                    shift_bits,
+                    self.limits.max_shift_integer_bits,
+                )?;
+                check_limit(
+                    "physical key integer bits",
+                    shift_bits,
+                    self.limits.max_key_integer_bits,
+                )?;
+                prospective_shift_bits = bounded_add(
+                    "lattice-shift total integer bits",
+                    prospective_shift_bits,
+                    shift_bits,
+                    self.limits.max_shift_total_integer_bits,
+                )?;
+                prospective_shift_bytes = bounded_add(
+                    "lattice-shift retained bytes",
+                    prospective_shift_bytes,
+                    prospective_integer_heap_bytes(shift_bits)?,
+                    self.limits.max_shift_retained_bytes,
+                )?;
+                integer_bit_work = checked_add(
+                    "exact-local physical-key integer-bit work",
+                    integer_bit_work,
+                    checked_add(
+                        "exact-local physical-key integer-bit work",
+                        offset_bits.max(1),
+                        checked_add(
+                            "exact-local physical-key integer-bit work",
+                            local_bits.max(1),
+                            shift_bits.max(1),
+                        )?,
+                    )?,
+                )?;
+                comparison_integer_bit_work = checked_add(
+                    "physical-key comparison integer-bit work",
+                    comparison_integer_bit_work,
+                    shift_bits.max(1),
+                )?;
+
+                let is_constant =
+                    self.constant_positions.get(constant_cursor).copied() == Some(position);
+                constant_cursor += usize::from(is_constant);
+                let excess_bits = if is_constant {
+                    let anchor_bits = checked_integer_bits(
+                        "physical key integer bits",
+                        &self.anchor_constants.values()[position],
+                        self.limits.max_key_integer_bits,
+                    )?;
+                    integer_bit_work = checked_add(
+                        "exact-local physical-key integer-bit work",
+                        integer_bit_work,
+                        anchor_bits.max(1),
+                    )?;
+                    checked_add(
+                        "physical key integer bits",
+                        prospective_add_bits(anchor_bits, shift_bits)?,
+                        1,
+                    )?
+                } else {
+                    shift_bits
+                };
+                check_limit(
+                    "physical key integer bits",
+                    excess_bits,
+                    self.limits.max_key_integer_bits,
+                )?;
+                integer_bit_work = checked_add(
+                    "exact-local physical-key integer-bit work",
+                    integer_bit_work,
+                    excess_bits.max(1),
+                )?;
+                comparison_integer_bit_work = checked_add(
+                    "physical-key comparison integer-bit work",
+                    comparison_integer_bit_work,
+                    excess_bits.max(1),
+                )?;
+                prospective_total_bits = bounded_add(
+                    "physical key total integer bits",
+                    prospective_total_bits,
+                    excess_bits,
+                    self.limits.max_key_total_integer_bits,
+                )?;
+                largest_excess_bits = largest_excess_bits.max(excess_bits);
+                prospective_excess_heap_bytes = checked_add(
+                    "physical key retained bytes",
+                    prospective_excess_heap_bytes,
+                    prospective_integer_heap_bytes(excess_bits)?,
+                )?;
+            }
+            prospective_total_bits = bounded_add(
+                "physical key total integer bits",
+                prospective_total_bits,
+                prospective_shift_bits,
+                self.limits.max_key_total_integer_bits,
+            )?;
+            let one_total_allowance = if largest_excess_bits == 0 {
+                0
+            } else {
+                checked_add(
+                    "physical key total integer bits",
+                    largest_excess_bits,
+                    ceil_log2(self.arity()),
+                )?
+            };
+            check_limit(
+                "physical key integer bits",
+                one_total_allowance,
+                self.limits.max_key_integer_bits,
+            )?;
+            let totals_allowance =
+                checked_mul("physical key total integer bits", 3, one_total_allowance)?;
+            let prospective_retained_integer_bits = bounded_add(
+                "physical key total integer bits",
+                prospective_total_bits,
+                totals_allowance,
+                self.limits.max_key_total_integer_bits,
+            )?;
+            integer_bit_work = checked_add(
+                "exact-local physical-key integer-bit work",
+                integer_bit_work,
+                checked_mul(
+                    "exact-local physical-key integer-bit work",
+                    self.arity(),
+                    checked_mul(
+                        "exact-local physical-key integer-bit work",
+                        4,
+                        one_total_allowance.max(1),
+                    )?,
+                )?,
+            )?;
+            comparison_integer_bit_work = checked_add(
+                "physical-key comparison integer-bit work",
+                comparison_integer_bit_work,
+                checked_mul(
+                    "physical-key comparison integer-bit work",
+                    3,
+                    one_total_allowance.max(1),
+                )?,
+            )?;
+            let prospective_retained_bytes = prospective_key_retained_bytes_from_shift_bound(
+                self.arity(),
+                prospective_excess_heap_bytes,
+                one_total_allowance,
+                prospective_shift_bytes,
+            )?;
+            check_limit(
+                "physical key retained bytes",
+                prospective_retained_bytes,
+                self.limits.max_key_retained_bytes,
+            )?;
+            Ok(
+                GeneratedAffineResidualGroupLocalPhysicalKeyPreflightCensus {
+                    component_scans: self.arity(),
+                    integer_bit_work,
+                    prospective_retained_integer_bits,
+                    prospective_retained_bytes,
+                    prospective_comparison_integer_bit_work: comparison_integer_bit_work,
+                },
+            )
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupPhysicalKeyError::SymbolicaPanic)?
+    }
+
     /// Convert one compact local generated-row key to the common physical key
     /// `o_u + q` without any `i64` arithmetic.
     pub(crate) fn physical_from_local(
@@ -1355,6 +1763,54 @@ impl GeneratedAffineResidualGroupPhysicalFrame {
             )
         }))
         .map_err(|_| GeneratedAffineResidualGroupPhysicalKeyError::SymbolicaPanic)?
+    }
+
+    /// Convert one arbitrary-precision centered key to the common physical
+    /// key `o_u + q`.
+    ///
+    /// This is the exact-current-lineage counterpart of
+    /// [`Self::physical_from_local`].  It deliberately accepts borrowed
+    /// Symbolica [`Integer`] values rather than routing them through
+    /// [`IndexShift`], so generated pivots remain arbitrary precision after
+    /// elimination and recentering.
+    pub(crate) fn physical_from_exact_local(
+        &self,
+        ordinal_within_group: usize,
+        case_ordinal: usize,
+        local: &[Integer],
+    ) -> Result<
+        GeneratedAffineResidualGroupLatticeShift,
+        GeneratedAffineResidualGroupPhysicalKeyError,
+    > {
+        catch_unwind(AssertUnwindSafe(|| {
+            let offset = self.anchor_offset(ordinal_within_group, case_ordinal)?;
+            add_borrowed_vectors(
+                offset.values(),
+                local,
+                self.arity(),
+                self.limits.max_shift_integer_bits,
+                self.limits.max_shift_total_integer_bits,
+                self.limits.max_shift_retained_bytes,
+            )
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupPhysicalKeyError::SymbolicaPanic)?
+    }
+
+    /// Construct the existing exact physical-order key for `o_u + q` from an
+    /// arbitrary-precision centered shift.
+    ///
+    /// The returned value is governed by the same frame limits and the same
+    /// [`Ord`] implementation as every database key.  This method introduces
+    /// no second ordering authority for exact `WhenBad` descent.
+    pub(crate) fn key_for_exact_local(
+        &self,
+        ordinal_within_group: usize,
+        case_ordinal: usize,
+        local: &[Integer],
+    ) -> Result<GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError>
+    {
+        let physical = self.physical_from_exact_local(ordinal_within_group, case_ordinal, local)?;
+        self.key_for_physical(&physical)
     }
 
     /// Convert one physical group pivot to its exact local coordinate
@@ -1941,6 +2397,62 @@ fn add_i64_vector(
     let mut actual_bits = 0usize;
     for (lhs, rhs) in left.iter().zip(right) {
         let value = canonical_integer(lhs + Integer::from(*rhs));
+        actual_bits = bounded_add(
+            "lattice-shift total integer bits",
+            actual_bits,
+            integer_bits(&value)?,
+            max_total_integer_bits,
+        )?;
+        values.push(value);
+    }
+    finish_owned_shift(values, actual_bits, max_retained_bytes)
+}
+
+fn add_borrowed_vectors(
+    left: &[Integer],
+    right: &[Integer],
+    expected_arity: usize,
+    max_integer_bits: usize,
+    max_total_integer_bits: usize,
+    max_retained_bytes: usize,
+) -> Result<GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalKeyError>
+{
+    if left.len() != expected_arity || right.len() != expected_arity {
+        return Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongArity {
+            expected: expected_arity,
+            // `left` is the frame-authenticated anchor offset.  Report the
+            // only caller-controlled shape on this exact-local seam.
+            actual: right.len(),
+        });
+    }
+    let mut prospective_total_bits = 0usize;
+    let mut prospective_bytes =
+        prospective_arc_vec_bytes::<Integer>("lattice-shift retained bytes", expected_arity)?;
+    for (lhs, rhs) in left.iter().zip(right) {
+        let bits = prospective_add_bits(integer_bits(lhs)?, integer_bits(rhs)?)?;
+        check_limit("lattice-shift integer bits", bits, max_integer_bits)?;
+        prospective_total_bits = bounded_add(
+            "lattice-shift total integer bits",
+            prospective_total_bits,
+            bits,
+            max_total_integer_bits,
+        )?;
+        prospective_bytes = bounded_add(
+            "lattice-shift retained bytes",
+            prospective_bytes,
+            prospective_integer_heap_bytes(bits)?,
+            max_retained_bytes,
+        )?;
+    }
+    check_limit(
+        "lattice-shift retained bytes",
+        prospective_bytes,
+        max_retained_bytes,
+    )?;
+    let mut values = try_vec_with_capacity("lattice-shift components", expected_arity)?;
+    let mut actual_bits = 0usize;
+    for (lhs, rhs) in left.iter().zip(right) {
+        let value = canonical_integer(lhs + rhs);
         actual_bits = bounded_add(
             "lattice-shift total integer bits",
             actual_bits,
@@ -2870,6 +3382,36 @@ mod tests {
         Integer::Large(MultiPrecisionInteger::from(value))
     }
 
+    /// Construct an intentionally noncanonical key for ordering-only tests.
+    /// Production key constructors canonicalize every integer; this private
+    /// fixture exercises the public Symbolica enum variants which motivated
+    /// the one-pass comparison witness.
+    fn noncanonical_comparison_key(
+        signed_index_excess: Vec<Integer>,
+        shift: Vec<Integer>,
+    ) -> GeneratedAffineResidualGroupPhysicalKey {
+        assert_eq!(signed_index_excess.len(), shift.len());
+        let arity = shift.len();
+        GeneratedAffineResidualGroupPhysicalKey {
+            schema: GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_KEY_V1_SCHEMA,
+            policy: IntegralOrderingPolicy::RustRedUnshiftedV1,
+            arity,
+            propagators: 0,
+            formal_sector: Arc::new(SectorMask::try_new(vec![false; arity]).unwrap()),
+            corner_distance_offset: Arc::new(Integer::Single(0)),
+            dots_offset: Arc::new(Integer::Single(0)),
+            numerators_offset: Arc::new(Integer::Single(0)),
+            signed_index_excess: Arc::new(signed_index_excess),
+            shift: GeneratedAffineResidualGroupLatticeShift {
+                values: Arc::new(shift),
+                retained_integer_bits: 0,
+                retained_bytes: 0,
+            },
+            retained_integer_bits: 0,
+            retained_bytes: 0,
+        }
+    }
+
     fn minimum_admitted_key_limit(
         frame: &GeneratedAffineResidualGroupPhysicalFrame,
         physical: &GeneratedAffineResidualGroupLatticeShift,
@@ -2931,6 +3473,70 @@ mod tests {
         let debug = format!("{huge:?}");
         assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("2037035976334486086268445688409378161051468393665936250636140449354381299763336706183397376"));
+    }
+
+    #[test]
+    fn comparison_witness_uses_numeric_cmp_for_noncanonical_integer_prefixes() {
+        let numeric_left = [Integer::Single(7), Integer::Double(9), raw_large(11)];
+        let numeric_right = [Integer::Double(7), raw_large(10), Integer::Single(0)];
+        assert_ne!(numeric_left[0], numeric_right[0]);
+        assert_eq!(numeric_left[0].cmp(&numeric_right[0]), Ordering::Equal);
+        assert_eq!(
+            lexicographic_cmp_with_first_difference(&numeric_left, &numeric_right),
+            (Ordering::Less, Some(1)),
+        );
+        assert_eq!(
+            lexicographic_cmp_with_first_difference(&numeric_right, &numeric_left),
+            (Ordering::Greater, Some(1)),
+        );
+        assert_eq!(
+            lexicographic_cmp_with_first_difference(
+                &[Integer::Single(7), Integer::Double(9), raw_large(11)],
+                &[Integer::Double(7), raw_large(9), Integer::Double(11)],
+            ),
+            (Ordering::Equal, None),
+        );
+
+        let left = noncanonical_comparison_key(
+            vec![Integer::Single(1), Integer::Double(2)],
+            vec![Integer::Single(5), Integer::Single(6)],
+        );
+        let excess_decides = noncanonical_comparison_key(
+            vec![Integer::Double(1), raw_large(3)],
+            vec![Integer::Double(5), Integer::Double(7)],
+        );
+        let excess_witness = left.comparison_witness(&excess_decides);
+        assert_eq!(left.cmp(&excess_decides), Ordering::Less);
+        assert_eq!(excess_witness.ordering(), Ordering::Less);
+        assert_eq!(
+            excess_witness.first_decisive_component(),
+            Some(
+                GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::SignedIndexExcess {
+                    position: 1,
+                },
+            ),
+        );
+        assert!(excess_witness.replay(&left, &excess_decides));
+
+        let shift_decides = noncanonical_comparison_key(
+            vec![Integer::Double(1), raw_large(2)],
+            vec![
+                Integer::Large(MultiPrecisionInteger::from(5)),
+                Integer::Double(7),
+            ],
+        );
+        let shift_witness = left.comparison_witness(&shift_decides);
+        assert_eq!(left.cmp(&shift_decides), Ordering::Less);
+        assert_eq!(shift_witness.ordering(), Ordering::Less);
+        assert_eq!(
+            shift_witness.first_decisive_component(),
+            Some(
+                GeneratedAffineResidualGroupPhysicalKeyComparisonComponent::PhysicalShift {
+                    position: 1,
+                },
+            ),
+        );
+        assert!(shift_witness.replay(&left, &shift_decides));
     }
 
     #[test]
@@ -3226,6 +3832,18 @@ mod tests {
             let physical = frame
                 .physical_from_local(position, case_ordinal, &local)
                 .unwrap();
+            let exact_local = local
+                .values()
+                .iter()
+                .copied()
+                .map(Integer::from)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                frame
+                    .physical_from_exact_local(position, case_ordinal, &exact_local)
+                    .unwrap(),
+                physical,
+            );
             let replayed_local = frame
                 .local_from_physical(position, case_ordinal, &physical)
                 .unwrap();
@@ -3243,7 +3861,38 @@ mod tests {
             assert!(key.retained_integer_bits() >= physical.retained_integer_bits());
             assert!(key.retained_bytes() >= physical.retained_bytes());
             frame.replay_key(&key).unwrap();
+            let exact_preflight = frame
+                .preflight_key_for_exact_local(position, case_ordinal, &exact_local)
+                .unwrap();
+            let exact_key = frame
+                .key_for_exact_local(position, case_ordinal, &exact_local)
+                .unwrap();
+            assert!(exact_preflight.authenticates_key(&exact_key));
+            assert_eq!(exact_key, key,);
         }
+
+        let mut wide_local = vec![Integer::zero(); frame.arity()];
+        wide_local[0] = (Integer::one() << 4096_u32) + Integer::from(23);
+        let wide_physical = frame
+            .physical_from_exact_local(0, frame.anchor_case_ordinal(), &wide_local)
+            .unwrap();
+        assert_eq!(
+            wide_physical.values()[0],
+            frame
+                .anchor_offset(0, frame.anchor_case_ordinal())
+                .unwrap()
+                .values()[0]
+                .clone()
+                + &wide_local[0],
+        );
+        let wide_preflight = frame
+            .preflight_key_for_exact_local(0, frame.anchor_case_ordinal(), &wide_local)
+            .unwrap();
+        let wide_key = frame
+            .key_for_exact_local(0, frame.anchor_case_ordinal(), &wide_local)
+            .unwrap();
+        assert!(wide_preflight.authenticates_key(&wide_key));
+        frame.replay_key(&wide_key).unwrap();
 
         // The same anchor integral has one exact physical representation from
         // every case, even though its local coordinates differ.

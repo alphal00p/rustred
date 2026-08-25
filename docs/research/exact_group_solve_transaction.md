@@ -12,7 +12,7 @@ The broader mathematical contract remains
 `docs/research/litered_solvej_exact_group_database.md`. This note narrows that
 contract to the APIs and invariants needed for an atomic implementation.
 
-## Implemented checkpoint (2026-08-24)
+## Implemented checkpoint (updated 2026-08-25)
 
 The topology-neutral authority and staging layers described below now exist:
 
@@ -93,6 +93,22 @@ The topology-neutral authority and staging layers described below now exist:
   matching, compares the shared evidence and exact event disposition, and then
   compares terminal database, target, event, and resource state. A sealed
   equality suspension authenticates and replays its mandatory terminal event.
+- `generated_affine_residual_group_ready_publication.rs` now implements the
+  first Ready-consuming pre-publication analysis phase without committing the
+  session. It reauthenticates the sealed transaction and selected target
+  geometry, locates
+  the unique unit zero-shift pivot, constructs every physical key from the
+  exact target anchor plus centered GMP shifts, and proves each retained RHS is
+  strictly easier under the persisted ordering. It also records every finite
+  inactive-orthant activation interval exactly as `[1-q_i, 0]`, with Symbolica
+  `Integer` bounds and counts. The successful typestate is deliberately named
+  `ReadyForConditions`: it consumes no target and publishes no rule.
+- Exact-local physical-key construction and its allocation-free prospective
+  resource preflight use arbitrary-precision Symbolica integers throughout.
+  There is no `IndexShift` or `i64` narrowing in this boundary. Unsupported
+  non-descent is a mathematical terminal candidate outcome; currently
+  unsupported non-independent-cylinder geometry is an operational, retryable
+  `Pending` outcome and cannot be mistaken for a master or zero claim.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
@@ -151,6 +167,26 @@ graph gate, 62/62). `cargo check --all-targets -j 4`, `cargo fmt --all --
 --check`, and `git diff --check` also passed. Neither FORM nor Symbolica's
 `no_gmp` feature was used.
 
+The frozen exact Ready geometry/descent/hazard phase passed independent,
+licensed GMP validation with explicit `--lib -j4`: run
+`a06d5558-e404-4048-a2e9-5407277a95d6` passed all 11 tests in the independent
+Ready/publication validation module (11/11, 985 skipped), and run
+`f74b89eb-1e59-4628-91d7-82af1f11b893`
+passed the two internal Ready units plus the physical-key comparison witness
+(3/3, 993 skipped).
+The independent gate reaches Ready through generated one-loop IBPs rather than
+injecting a recurrence, checks recoverable authentication and exact one-below
+resource failures, and exercises 4,096-bit descent and hazard coordinates. A
+separate fast `L=6`, `K=21` coordinate-family gate proves the generic generator
+emits 36 ordered ordinary IBPs with deterministic manifests; it stops before
+the currently eager Boolean-cover path and is not a six-loop reduction. A
+separate existing generic-provider oracle baseline fully reduces tadpole powers
+two through four against frozen Vakint scalar coefficients; it does not pass
+through the unpublished `ReadyForConditions` path and is not evidence that
+current-lineage publication is complete. The concrete tadpole remains
+validation data only; production contains no loop-count, topology-name, or
+hard-coded recurrence dispatch.
+
 The production recipe tests are intentionally compositional: they prove
 genuine physical-row Arc identity, survival after all staging owners drop,
 event retention, chronological fresh-shadow replay, and final release. The
@@ -158,24 +194,35 @@ complete equality transition uses the sealed synthetic test adapter because
 current physical-row construction skips equality-premise source cases. An
 end-to-end production equality row remains a future refined-epoch gate.
 
-The next missing mathematical seam is exact `WhenBad` branch closure followed
-by atomic guarded publication and exceptional residual orchestration. The event
-ledger currently records `Dependent`, `NoTarget`, and mandatory
-affine-equality-refinement transitions; it does not yet record unpublished
-future `WhenBad`/rule/residual leaves. The old raw
+The next missing mathematical seam begins after `ReadyForConditions`: compile
+the Ready-native condition transcript, build the relative applicable and
+exceptional partition, and atomically publish guarded rules/residual leaves
+with chronological replay. The event ledger currently records `Dependent`,
+`NoTarget`, and mandatory affine-equality-refinement transitions; it does not
+yet record unpublished future `WhenBad`/rule/residual leaves. The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a
 differential oracle only; it is not a production authority.
 
-Before extending that seam, existing home-grown algebra must be migrated to
-Symbolica's public APIs, beginning with `src/exact.rs`. The concrete API
-inventory is
+Condition compilation must consume the already-centered row directly. The
+recenter kernel has already applied `n_F -> n_F-r_F` to row coefficients and
+row guards, while target premises already describe the selected target affine
+domain. Applying `Ready::coefficient_translation()` a second time would be
+mathematically wrong. Stable transcript order is target premises, translated
+row guards, pivot denominator, then RHS denominators in retained descent order.
+Each denominator contributes LiteRed's parameter-polynomial identity clause:
+all Symbolica-projected parameter coefficients vanish. It must not be replaced
+by the pointwise predicate that the full denominator vanishes in
+`Q(lambda)[n]`.
+
+All algebra in that seam must continue to use Symbolica's public APIs. The
+concrete API inventory is
 [`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md),
 and the prioritized audit is
 [`symbolica_first_algebra_migration_audit_2026-08-24.md`](symbolica_first_algebra_migration_audit_2026-08-24.md).
-This migration is the immediate implementation blocker; RustRed must not grow
-a parallel CAS or matrix layer. Full LiteRed parity, arbitrary one-loop
-pentagon reduction, and the two- through five-loop reduction milestones remain
-pending behind the generic `WhenBad`/publication/residual pipeline.
+RustRed must not grow a parallel CAS or matrix layer. Full LiteRed parity,
+arbitrary one-loop pentagon reduction, and the high-throughput two- through
+six-loop single-scale vacuum milestones remain pending behind the generic
+condition/publication/residual pipeline.
 
 ## 1. Normative source seams
 
@@ -477,22 +524,31 @@ plan/frame/inventory/source objects are rejected at live authority boundaries.
    transaction-preserving failure and persisted first-match
    NoTarget/equality/Ready classification. Raw-relation compilation is not a
    production authority path.
-4. **Extend the outer owner — event-ledger foundation implemented; publication
-   next.** NoTarget now commits through a consuming typed owner and continues
-   only from its successful result. Equality commits into a sealed
-   refined-epoch suspension while leaving its target unresolved. Dependent,
-   NoTarget, and equality commits append private events under cumulative limits
-   and support chronological fresh-shadow replay. Add `WhenBad` events, rules,
-   residuals, and publication to this same database/target session boundary;
-   do not claim complete publication yet.
-5. **Adapt exact `WhenBad`.** Reuse the old polynomial/partition algorithms
-   behind new exact authority certificates, replace `IndexShift`/`i64`
-   boundaries with arbitrary-precision values, and source guards from the
-   authenticated target.
-6. **Add exact publication and extend replay.** Issue authority-bound sealed
+4. **Prove exact Ready descent and orthant geometry — implemented.** The sealed
+   Ready token is reauthenticated, every RHS is compared through the existing
+   physical-key ordering, and inactive-coordinate crossing ranges are retained
+   as arbitrary-precision Symbolica integers. Success returns
+   `ReadyForConditions`; it neither mutates the session nor consumes a target.
+5. **Replace eager case entry — next high-loop prerequisite.** Build the
+   target-frontier lazy MTBDD/sector-DAG path so `K=21` families can enter this
+   exact session without first materializing every orthant case. The existing
+   lower-arity Ready gate remains the oracle while that entry path is replaced.
+6. **Adapt exact `WhenBad` — pending after scalable case entry.** Reuse the authority-neutral
+   polynomial/partition algorithms behind new exact authority certificates,
+   replace `IndexShift`/`i64` boundaries with arbitrary-precision values, and
+   source guards from the authenticated target. Do not reapply the recentering
+   coefficient translation to the already-centered row or to target premises.
+7. **Extend the outer owner and publish atomically.** NoTarget now commits
+   through a consuming typed owner and continues only from its successful
+   result. Equality commits into a sealed refined-epoch suspension while
+   leaving its target unresolved. Dependent, NoTarget, and equality commits
+   append private events under cumulative limits and support chronological
+   fresh-shadow replay. Add `WhenBad` events, rules, residuals, and publication
+   to this same database/target session boundary; do not claim complete
+   publication yet. Issue authority-bound sealed
    rule and residual handles, then extend the implemented chronological replay
    to `WhenBad`, rule, and residual leaf manifests.
-7. **Integrate the generic scheduler.** Only after the transaction and replay
+8. **Integrate the generic scheduler.** Only after the transaction and replay
    tests pass should one-, two-, and higher-loop families exercise this path.
    Concrete topologies are validation fixtures, never implementation branches.
 

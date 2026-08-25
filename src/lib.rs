@@ -104,6 +104,9 @@ mod generated_affine_residual_group_exact_relation;
 mod generated_affine_residual_group_exact_session;
 mod generated_affine_residual_group_exact_targets;
 mod generated_affine_residual_group_physical_key;
+mod generated_affine_residual_group_ready_publication;
+#[cfg(test)]
+mod generated_affine_residual_group_ready_publication_tests;
 mod generated_affine_residual_group_solve_plan;
 pub(crate) mod generated_affine_residual_source_authority;
 pub mod generated_cylindrical_candidate_authority;

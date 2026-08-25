@@ -194,12 +194,20 @@ The repository currently includes tests for:
   session, plus shadow replay which re-stages each opaque source and re-executes
   its dependent, NoTarget, or affine-equality transition before comparing the
   resulting evidence and terminal state;
+- the first exact Ready-analysis checkpoint: for an authenticated independent
+  affine cylinder it locates the unit pivot, proves every RHS strictly descends
+  through the persisted arbitrary-precision physical-key ordering, and retains
+  finite inactive-orthant hazard intervals without narrowing to machine
+  integers; this checkpoint neither consumes a target nor publishes a rule;
 - one-loop scalar and tensor comparisons against frozen Vakint-derived oracles,
   including an independent public-Symbolica rank-six (15 by 15) projector
   reconstruction;
 - concrete two-loop sunset and three-loop tetrahedron scalar/tensor fixtures;
 - elementary factorized four- and five-loop fixtures which exercise the same
-  loop-count-neutral library stack; and
+  loop-count-neutral library stack;
+- a fast test-only `L=6`, `K=21` coordinate-family gate proving the generic
+  generator emits all 36 ordinary IBPs in deterministic row order with stable
+  replay manifests; it does not claim sector coverage or reduction; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -253,19 +261,24 @@ since crossed public Symbolica APIs. The latter now delegates determinants,
 transpose, Gram congruence, and denominator-coordinate products through an
 authenticated V2 boundary while retaining an independent physics replay.
 The next vacuum-critical solver milestone is the topology-neutral
-`Ready -> WhenBad/descent -> atomic guarded-rule/residual publication ->
-replay-certified closure` slice. Graph-lifted symmetry discovery and the
-`SparseRowReducer` transcript-equivalence path follow on the scaling route;
-unrelated Feynman/non-vacuum algebra migrations stay required but no longer
-displace the six-loop vacuum critical path.
+`Ready -> condition/WhenBad partition -> atomic guarded-rule/residual
+publication -> replay-certified closure` slice. Exact descent and lazy hazard
+geometry are implemented for independent cylinders; the active slice must
+also carry those proofs through general compact affine target maps. Graph-
+lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
+path follow on the scaling route; unrelated Feynman/non-vacuum algebra
+migrations stay required but no longer displace the six-loop vacuum critical
+path.
 
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:
 
-1. compile and close `WhenBad` exceptional branches;
-2. atomically publish guarded rules and residual work;
-3. feed solved subsectors into supersectors and iterate residual cases; and
-4. expose a replay-certified complete reduction result.
+1. replace eager all-orthant case construction with the target-frontier lazy
+   MTBDD/sector-DAG entry path needed at `K=21`;
+2. compile and close `WhenBad` exceptional branches;
+3. atomically publish guarded rules and residual work;
+4. feed solved subsectors into supersectors and iterate residual cases; and
+5. expose a replay-certified complete reduction result.
 
 This checkpoint is not a complete LiteRed port, complete `WhenBad` or rule
 publication, an arbitrary one-loop pentagon reduction, or completion of the
@@ -273,6 +286,12 @@ two- through six-loop reduction campaign. Concrete multi-loop families
 currently serve only as bounded validation fixtures. Non-vacuum pentagon work
 remains in scope but is behind the vacuum rule-foundry and batch-application
 critical path.
+
+A genuine all-inactive `K=21` probe currently stops before Ready because eager
+Boolean-cover construction requests split 65,537 beyond its 65,536 cap. The
+cap is intentionally not raised: replacing all-orthant `2^K` expansion with a
+target-frontier lazy MTBDD/sector-DAG path is now an explicit high-loop
+prerequisite.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent
@@ -302,6 +321,7 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 - [Symbolica Rust API reference](docs/research/symbolica_rust_api_for_litered.md)
 - [Symbolica exact linear-algebra API inventory](docs/research/symbolica_exact_linear_algebra_api_inventory.md)
 - [Symbolica-first algebra migration audit](docs/research/symbolica_first_algebra_migration_audit_2026-08-24.md)
+- [Symbolica upstream correctness and embedding-gap audit](docs/research/symbolica_upstream_gap_audit_2026-08-25.md)
 - [Vakint/alphaLoop tensor and IBP audit](docs/research/vakint_alphaloop_tensor_ibp_audit.md)
 - [One- and two-loop validation audit](docs/research/one_two_loop_vacuum_validation_and_legacy_quarantine_2026-08-20.md)
 - [Exact-group database design](docs/research/litered_solvej_exact_group_database.md)

@@ -1,7 +1,8 @@
 # Exact-session `WhenBad` and publication port plan
 
-Status: authoritative implementation plan; Phase A event-ledger foundation
-implemented, 2026-08-24.
+Status: authoritative implementation plan; Phase A event-ledger foundation and
+the scoped independent-cylinder Ready geometry/descent/hazard checkpoint are
+implemented; updated 2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -68,6 +69,14 @@ The current-lineage components below are implemented and tested:
   target matching; compares exact shared evidence and dispositions; and checks
   terminal database, target, event, and resource state. Equality-suspension
   replay additionally authenticates the exact terminal event.
+- `src/generated_affine_residual_group_ready_publication.rs` authenticates the
+  sealed Ready/session/target geometry without extracting the transaction. For
+  an independent cylinder it locates the unique unit zero-shift pivot, builds
+  source and RHS keys from the exact selected anchor, proves strict physical-
+  key descent, and retains finite inactive-orthant hazard intervals as
+  Symbolica `Integer` data. Its `ReadyForConditions` result is an unpublished,
+  target-preserving typestate. General compact affine target maps currently
+  return an operational `Pending` result and remain part of the active phase.
 
 Focused tests cover exact Ready translation, NoTarget beyond `i64`, a 4,096-bit
 coordinate, post-top-reduction leader selection, transaction return after
@@ -110,23 +119,39 @@ equality transition test uses its sealed synthetic test adapter. The current
 physical-row fixture skips equality-premise source cases, so an end-to-end
 production equality row remains a future refined-epoch gate.
 
-Not yet implemented are the current-lineage exact `WhenBad` compiler,
-target-consuming rule publication, exceptional residual orchestration, or
-replayable current-lineage rule/residual handles. The current event ledger is a
-complete transcript only for its implemented non-publishing dispositions; its
-schema and replay must be extended with the future `WhenBad`, publication, and
-residual manifests. The mature `GeneratedResidualAffine...` implementation is
-an oracle, not production authority for these missing pieces. Full LiteRed
-parity, arbitrary one-loop pentagon reduction, and the two- through five-loop
-milestones therefore remain pending.
+The scoped exact Ready checkpoint passed independent licensed-GMP Nextest
+gates with explicit `--lib -j4`: run
+`a06d5558-e404-4048-a2e9-5407277a95d6` passed all 11 tests in the independent
+Ready/publication validation module, and
+`f74b89eb-1e59-4628-91d7-82af1f11b893` passed the two internal Ready units plus
+the physical-key comparison witness. The latter shares the authoritative
+comparison implementation used by `Ord`; successful descent transcripts keep
+only the first decisive component rather than retaining every RHS key. A fast
+test-only `L=6`, `K=21` family validates all 36 generic ordinary-IBP rows and
+stable regeneration. A genuine all-inactive arity-21 Ready probe is currently
+blocked earlier by eager Boolean-cover split 65,537 exceeding the 65,536 cap;
+the cap was not raised because the high-loop path requires lazy target-frontier
+case construction rather than `2^K` expansion.
 
-Before Phase B/C algebra grows, existing home-grown algebra must be migrated to
-Symbolica's public APIs, beginning with `src/exact.rs`. See the
+Not yet implemented are the Ready-native condition transcript and relative
+partition, the terminal current-lineage exact `WhenBad` compiler,
+target-consuming rule publication, exceptional residual orchestration, or
+replayable current-lineage rule/residual handles. The current event ledger is
+a complete transcript only for its implemented non-publishing dispositions;
+its schema and replay must be extended with the future `WhenBad`, publication,
+and residual manifests. The mature `GeneratedResidualAffine...`
+implementation is an oracle, not production authority for these missing
+pieces. Full LiteRed parity, arbitrary one-loop pentagon reduction, and the
+high-throughput two- through six-loop vacuum milestones therefore remain
+pending.
+
+The former `src/exact.rs` blocker is complete: exact scalar and matrix algebra
+now crosses Symbolica's public GMP `Rational` and `Matrix<Q>` APIs. Continued
+Phase B/C work must keep applying the same Symbolica-first rule. See the
 [`Symbolica exact-linear-algebra API inventory`](symbolica_exact_linear_algebra_api_inventory.md)
 and the
 [`Symbolica-first algebra migration audit`](symbolica_first_algebra_migration_audit_2026-08-24.md).
-This is the immediate implementation blocker; RustRed must not build a second
-CAS or matrix layer.
+RustRed must not build a second CAS or matrix layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -206,6 +231,25 @@ With no parameters, LiteRed inserts a dummy parameter so the same operation
 is defined. It does not automatically split every physical parameter locus
 such as `d - 4 = 0`; the test is polynomial identity in the declared
 parameters (`vendor/LiteRed2/Source/LiteRed2026.m:2565-2567`).
+For example, `n+d` is never identically zero as a polynomial in parameter `d`
+because its `d` coefficient is one; treating `n+d=0` as one pointwise
+`Q(d)[n]` predicate would be an unsound over-partition. The Symbolica-native
+implementation must project the denominator into its parameter-coefficient
+vector (public `RationalPolynomial::to_polynomial(base_variables, true)` after
+the authenticated exponent/variable conversion) and form one conjunction of
+zero predicates for those index-polynomial coefficients. Factoring is useful
+for smaller clauses but is not required for correctness in the integral
+domain.
+
+Run this projection only on final Ready coefficients after exact integral-term
+collection and recentering, so cancelled terms cannot leave spurious bad
+clauses. For a future nonidentity compact-affine pullback, use the public
+Symbolica-backed `ResidualAffineCoefficientComposition::Available`: its
+normalized `value` supplies the leak numerator, while its separately retained
+pre-normalization `mapped_denominator` supplies the substitution-domain
+condition. `ZeroMappedDenominator` is an all-domain terminal
+`IdenticallyBad` candidate, not `Unsupported` or an operational failure. Never
+project an earlier raw coefficient or reapply Ready's diagnostic translation.
 
 For every RHS term, the raw inactive-coordinate leak locus is
 
@@ -334,9 +378,11 @@ differential, and resource-accounting oracles only.
 
 Reuse is restricted to mathematics with no old authority payload:
 
-1. `DirectBadFormulaClause`, `DirectBadFormulaTruth`,
-   `DirectBadFormulaRoute`, and the allocation-free
-   `route_direct_bad_formula` from `src/direct_bad_formula.rs:8-92`.
+1. The truth-routing idea in `src/direct_bad_formula.rs`, after generalizing
+   `DirectBadFormulaClause` from its current one- or two-atom shape to a
+   resource-bounded slice in a shared atom arena. A coefficient-denominator
+   identity clause can contain arbitrarily many parameter-coefficient zero
+   atoms, so the existing fixed-width clause is not a correct reusable core.
 2. The relative target-domain partition core and
    `AffineWhenBadRelativePartitionCertificate` from
    `src/generated_residual_affine_when_bad.rs:382-518,863-1638`. A new exact
@@ -345,6 +391,18 @@ Reuse is restricted to mathematics with no old authority payload:
    deterministic deduplication algorithms from
    `src/generated_residual_affine_condition_accumulator.rs`. Its existing
    input/certificate and `Option<&IndexShift>` provenance are not reusable.
+   For the new high-loop path, project each unique locus once to `K[n]`, call
+   public Symbolica `MultivariatePolynomial<Field>::make_monic`, and cache that
+   canonical representative. A hash bucket is lookup only; exact Symbolica
+   polynomial equality remains the proof. This replaces quadratic pairwise
+   associate scans with one checked normalization per unique locus while the
+   old cross-product helper remains a differential oracle. The wrapper must
+   preflight growth, catch panic, authenticate maps/bounds, and return an
+   operational resource failure rather than implementing fallback algebra.
+   Canonicalize/authenticate Symbolica rational coefficients before hashing
+   because `Integer` representation variants can be value-equal but
+   representation-distinct; preserve source insertion order for the transcript
+   and use exact monic polynomial equality to confirm every bucket hit.
 4. Compact affine polynomial-composition algorithms used by
    `src/generated_residual_affine_when_bad_pullback_gate.rs`. Its old Ready
    binding, event table, boundary values, and certificate are not reusable.
@@ -367,7 +425,9 @@ implemented foundation
 The typed NoTarget commit, consuming equality suspension, private append-only
 chronological event collection, cumulative resource accounting, and
 fresh-shadow replay described in the checkpoint are the validated foundation
-of this phase. The current private event disposition is equivalent in scope to
+of this phase. The current private event disposition implements `Dependent`,
+`NoTarget`, and `RequiresAffineEqualityRefinement` only. The target extended
+schema is
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactRunDisposition {
@@ -381,9 +441,9 @@ enum GeneratedAffineResidualGroupExactSessionEvent {
     RequiresAffineEqualityRefinement {
         /* target locator + retained refinement certificate */
     },
-    WhenBadIdenticallyBad { /* sealed candidate */ },
-    WhenBadUnsupported { /* typed representation reason */ },
-    Certified { /* publication locator/counts */ },
+    WhenBadIdenticallyBad { /* future sealed candidate */ },
+    WhenBadUnsupported { /* future typed representation reason */ },
+    Certified { /* future publication locator/counts */ },
 }
 ```
 
@@ -489,6 +549,14 @@ frame, and compare with the same private field-order routine used by `Ord`.
 The descent witness records the first decisive key component so replay cannot
 drift from the actual database order.
 
+For nonidentity target maps, expose the already-computed exact affine constants
+from `RecenterReady::target_offset` through a narrow borrowed view and combine
+them with the authenticated free positions and compact matrix in
+`ResidualAffineCompactMapView`. `execute_target_offset` has already computed
+`p-A p_F`; condition compilation must not recompute those constants from the
+physical anchor. Independent cylinders skip this composition because their
+Ready coefficients and row guards are already centered.
+
 ### Phase C: owning exact `WhenBad` compiler
 
 Introduce a non-`Clone` current-lineage terminal:
@@ -573,8 +641,9 @@ The exact condition accumulator receives sources in this stable order:
 
 1. authenticated target premises, in their persisted certificate order;
 2. exact recentered row guards, in row order;
-3. coefficient denominator conditions, in centered-term order and then
-   deterministic factor order;
+3. coefficient denominator conditions, pivot first via the retained
+   `pivot_term_ordinal`, then RHS centered-term/descent order and deterministic
+   factor order;
 4. boundary and numerator-gate loci, retaining term/coordinate/event
    provenance.
 
@@ -583,6 +652,13 @@ but the certificate records every contributing source. Equality predicates
 must not be laundered into nonzero premises. Target premises define the target
 domain and remain distinct from candidate-specific guard failures until the
 partition compiler. Candidate guard complements become exceptional work.
+
+Locus interning is separate from direct-formula clause membership. A projected
+denominator contributes one arbitrary-width bad clause
+`c_0=0 AND ... AND c_k=0`, with denominator-term and parameter-monomial
+provenance on every interned locus. It does not contribute `k+1` independent
+candidate-required guards: that would turn LiteRed's conjunction into an
+incorrect disjunction. Row guards retain their own one-atom clause semantics.
 
 An identically-zero pivot/coefficient denominator makes the candidate
 `IdenticallyBad`. Unknown canonicalization or unsupported symbolic structure
@@ -652,6 +728,15 @@ statistics and limits must cover:
 - event/rule/residual/refinement replacement capacities and control blocks;
 - owner-wide combined-live and native-scratch peaks.
 
+The implemented Ready geometry/descent/hazard checkpoint currently reports an
+incremental subphase census and explicitly excludes the pre-existing Ready
+graph. That local limit is useful for exact retry tests but is not the complete
+Phase C owner-wide contract above. The owning `WhenBad` compiler must project
+this child from a remaining aggregate budget and combine its prospective and
+observed retained/native-work census with the authenticated staged transaction,
+target state, Ready owner, and later condition/partition children before any
+publication can be admitted.
+
 Project every child compiler from the remaining aggregate budget. Never reset
 a child to default limits. Before materializing boundary events, preflight the
 complete exact cardinality, the `usize` conversion, value bit envelopes,
@@ -704,10 +789,18 @@ unchanged.
   lineage, used strictly as an oracle after erasing its authority.
 - Exact shifts, target keys, descent, and boundary values beyond `i64`,
   including a `2^4096` case, with no downcast path.
-- Zero denominator; denominator parameter identity; active-coordinate pinch;
-  inactive-coordinate activation; numerator vanishing/nonvanishing on a
-  boundary; multiple simultaneous hazards; and fail-closed unsupported
-  symbolic structure.
+- Cover zero denominator and exact parameter-identity semantics: `n+d` is never
+  identity-bad, `n(n+d)` is bad exactly at `n=0`, and multi-parameter/full
+  coefficient vectors, the zero-parameter dummy equivalent, clauses wider
+  than two atoms, and one-below atom-arena budgets. Also cover
+  active-coordinate pinch, inactive-coordinate activation, numerator
+  vanishing/nonvanishing on a boundary, and multiple simultaneous hazards.
+  Test LiteRed radical/noninteger-power fail-closed behavior separately as
+  `IdenticallyBad`; a deterministic authenticated RustRed representation limit
+  is typed `Unsupported`, while limit exhaustion or panic is operational and
+  returns the owner unchanged.
+- Empty collected RHS as a valid all-domain zero rule, not a malformed row or
+  an inferred master.
 - `CollectjList`-equivalent canonical collection: duplicate/equivalent RHS
   integrals combine before classification, including exact coefficient
   cancellation that removes a would-be denominator or leak hazard.
@@ -716,6 +809,13 @@ unchanged.
 - All-applicable, all-exceptional, and mixed applicable/exceptional partitions.
 - Exact and one-below limits for every GMP, Symbolica, retained, scratch,
   cardinality, comparison, and publication resource.
+- A topology-neutral arity-21, many-RHS, multiple-hazard Ready/condition stress
+  row, without a topology name, loop-count dispatch, or injected recurrence
+  coefficient.
+- A generic six-loop family-generation gate proving `L^2=36` independently
+  replayable IBP source rows per seed, followed by a session/scheduler batch
+  gate that consumes 36 authenticated sources. One arity-21 row is not a
+  substitute for this distinct source-batch test.
 
 ### State/publication gates
 
@@ -742,6 +842,9 @@ No test or build enables `no_gmp`; no test invokes FORM. Concrete one-loop and
 later vacuum/scattering topologies may validate the finished generic pipeline,
 including numerator/denominator cancellation closure, but cannot replace the
 topology-neutral unit, property, and replay tests above.
+Artifact tests additionally compare deterministic single-worker and
+multi-worker checksums while the surrounding test suite remains sharded and
+parallel.
 
 ## 13. Completion criteria and integration order
 
@@ -751,12 +854,17 @@ Implement in this order:
 2. extend the common fully prepared tail with the minimal chronological event
    ledger and owner-wide replacement preparation — completed for Dependent,
    NoTarget, and equality-refinement dispositions;
-3. exact-`Integer` geometry, descent, boundary, condition, and pullback cores;
-4. owning current-lineage exact `WhenBad` terminal compiler;
-5. atomic Certified/rejected disposition, sealed rules, and exceptional work;
-6. extend the implemented chronological replay with durable rule/residual
+3. replace the upstream eager all-orthant case inventory with target-frontier
+   lazy MTBDD/sector-DAG construction so `K=21` families can enter the exact
+   session without first materializing `2^K` cases;
+4. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
+   independent-cylinder descent/lazy hazards implemented; general compact-
+   affine geometry plus conditions and pullbacks active;
+5. owning current-lineage exact `WhenBad` terminal compiler;
+6. atomic Certified/rejected disposition, sealed rules, and exceptional work;
+7. extend the implemented chronological replay with durable rule/residual
    manifest validation, concrete application, and provider integration;
-7. topology-based validation from one loop upward.
+8. topology-based validation from one loop upward.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, replay path, source-surface seal, exact/one-below tests, and

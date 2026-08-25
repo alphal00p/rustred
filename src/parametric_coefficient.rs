@@ -5039,6 +5039,44 @@ impl ParametricCoefficientContext {
         )
     }
 
+    /// Lift one arbitrary-precision Symbolica integer into `K(n)` without an
+    /// intermediate machine-integer conversion.
+    ///
+    /// The magnitude is admitted before the first GMP-backed copy.  Actual
+    /// construction is delegated to Symbolica's public polynomial-constant
+    /// API, and the result crosses the same checked variable-map boundary as
+    /// every other parametric coefficient.  This crate-private seam is used
+    /// by exact affine-domain compilers when a boundary value does not fit in
+    /// `i64`.
+    pub(crate) fn integer_exact(
+        &self,
+        value: &Integer,
+        limits: ParametricArithmeticLimits,
+    ) -> Result<ParametricCoefficient, ParametricCoefficientError> {
+        let requested = usize::try_from(value.magnitude_bits()).map_err(|_| {
+            ParametricCoefficientError::ResourceCountOverflow {
+                resource: "exact integer constant bits",
+            }
+        })?;
+        check_limit(
+            "exact integer constant bits",
+            requested,
+            limits.max_specialization_integer_bits,
+        )?;
+        let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.template
+                .numerator
+                .constant(value.to_canonical_integer())
+                .into()
+        }))
+        .map_err(|_| {
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked while constructing an exact integer constant".to_owned(),
+            )
+        })?;
+        self.wrap_checked_with_limits(raw, limits.exact_algebra)
+    }
+
     pub fn index(
         &self,
         position: usize,
@@ -18234,6 +18272,69 @@ mod tests {
         assert!(
             translated.owned_retained_byte_bound().unwrap()
                 <= preflight.normalized_coefficient_byte_bound()
+        );
+    }
+
+    #[test]
+    fn exact_integer_constant_uses_symbolica_gmp_without_i64_narrowing() {
+        let base = CoefficientContext::new(Vec::<String>::new());
+        let context =
+            ParametricCoefficientContext::try_new(&base, "exact-integer-constant", 1).unwrap();
+
+        for noncanonical_zero in [
+            Integer::Double(0),
+            Integer::Large(MultiPrecisionInteger::from(0)),
+        ] {
+            assert_eq!(
+                context
+                    .integer_exact(&noncanonical_zero, ParametricArithmeticLimits::default(),)
+                    .unwrap(),
+                context.zero(),
+                "every public Symbolica zero representation must cross as canonical K(n) zero",
+            );
+        }
+
+        for exact in [
+            Integer::Double(7),
+            Integer::Large(MultiPrecisionInteger::from(-9)),
+        ] {
+            let compact = if exact.cmp(&Integer::Single(0)) == Ordering::Less {
+                -9
+            } else {
+                7
+            };
+            assert_eq!(
+                context
+                    .integer_exact(&exact, ParametricArithmeticLimits::default())
+                    .unwrap(),
+                context.integer(compact),
+            );
+        }
+
+        let huge = (Integer::one() << 4096_u32) + Integer::from(19);
+        let huge_bits = usize::try_from(integer_magnitude_bits(&huge)).unwrap();
+        assert!(huge_bits > i64::BITS as usize);
+        let mut exact = ParametricArithmeticLimits::default();
+        exact.max_specialization_integer_bits = huge_bits;
+        let lifted = context.integer_exact(&huge, exact).unwrap();
+        assert_eq!(lifted.raw.numerator.coefficients, [huge.clone()]);
+        assert!(lifted.raw.numerator.is_constant());
+        assert!(lifted.raw.denominator.is_one());
+
+        let negative_huge = -huge.clone();
+        let lifted_negative = context.integer_exact(&negative_huge, exact).unwrap();
+        assert_eq!(lifted_negative.raw.numerator.coefficients, [negative_huge],);
+        assert!(lifted_negative.raw.numerator.is_constant());
+        assert!(lifted_negative.raw.denominator.is_one());
+
+        exact.max_specialization_integer_bits = huge_bits - 1;
+        assert_eq!(
+            context.integer_exact(&huge, exact),
+            Err(ParametricCoefficientError::ResourceLimit {
+                resource: "exact integer constant bits",
+                requested: huge_bits,
+                limit: huge_bits - 1,
+            })
         );
     }
 

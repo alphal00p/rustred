@@ -83,9 +83,10 @@ the other.
 
 | Existing work | Six-loop decision | Reason |
 |---|---|---|
-| Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | This is the source of all 36 six-loop vacuum rows; it is already topology independent. |
+| Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | The completed explicit `L=6`, 36-row gate validates topology-independent generation and deterministic regeneration only; it does not validate arity-21 cover construction, solving, or reduction. |
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
 | Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
+| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. Raising the cap would pursue `2^K`; the foundry needs target-frontier lazy MTBDD/sector-DAG construction. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
 | Global eager exact Laporta prototypes and loop-authored finite closures | Oracle only | They validate identities but scale poorly and cannot define production rules. High-loop solving must be sector-local, target-driven, modular-first, and exactly replayed. |
 | Vacuum tensor/numerator parsing and scalar-product lowering | Keep on the hot path | GammaLoop supplies many numerator structures. They must be normalized once and converted to integral-key batches before rule application. |
@@ -180,6 +181,31 @@ Parametric recurrences are preferable to repeating a large finite Laporta
 solve for every graph numerator.  Finite sector solves remain important for
 candidate discovery, fallback coverage, and independent validation.
 
+The scalable Boolean entry is an integration migration, not a new decision-
+diagram implementation. [`coverage_decision_dag.rs`](../../src/coverage_decision_dag.rs)
+already provides reduced shared nodes, ITE/apply, deterministic export, and
+rebuild. [`parametric_sector_mtbdd.rs`](../../src/parametric_sector_mtbdd.rs)
+and its authenticated certificate already compile normalized coverage into
+that DAG. The current exponential path survives because sector discovery owns
+the legacy explicit V4 partition, and the live-leaf queue flattens all terminal
+paths into a vector before selecting work.
+
+The next implementation must therefore reuse the existing rooted MTBDD and:
+
+1. add an `O(depth)` residual-path cursor that skips descending-rule terminals
+   and yields one requested `Uncovered`/`Unsupported` path;
+2. translate only that path's atom ordinals back to authenticated structural
+   loci, then run the existing coordinate-locus recognizer kernel on those
+   predicates;
+3. add a versioned Queue V3 and narrow target-frontier owner carrying one
+   residual path, Boolean terminal, and affine group; and
+4. drive one declared `K=21` sector through Ready without manufacturing the
+   legacy partition, queue, or Boolean-cover certificates.
+
+The topology-wide canonical sector DAG is a separate foundry layer. It is not
+the eager `family_sector_inventory` enumeration, and it need not block the
+first one-declared-sector arity-21 Ready gate.
+
 ### 4.4 Durable compiled artifact
 
 One artifact unit should be a canonical `(family, sector, order, domain)`
@@ -250,8 +276,9 @@ cancelled before RustRed was called.
 
 The following policies are critical at five and six loops:
 
-- Do not enumerate every sector/seed globally.  Work from the requested
-  topology manifest and target frontier, bottom-up through the sector DAG.
+- Do not enumerate every sector/seed or all `2^K` orthants globally. Work from
+  the requested topology manifest and target frontier, build only reachable
+  MTBDD/case nodes, and schedule bottom-up through the sector DAG.
 - Do not enumerate bounded `GL(L,Z)` matrices as the primary symmetry search.
   Generate graph/routing candidates and certify them generically.
 - Do not use normalized exact rational-function elimination as the exploratory
@@ -259,6 +286,10 @@ The following policies are critical at five and six loops:
   reachable rules.
 - Do not rebuild lower-loop products in every parent.  Factorize once, retain
   the transformation proof, and depend on the canonical lower-loop artifact.
+- Do not perform quadratic pairwise associate tests for every repeated
+  condition locus. Project each unique locus once to Symbolica `K[n]`, use
+  Symbolica's public monic normalization as the exact associate-class
+  representative, and cache it behind authenticated bounds.
 - Do not mix discovery state with online reductions.  Persist and version the
   former; keep the latter deterministic and restartable.
 - Do not create topology-specific Rust reducers.  Concrete topology names may
@@ -278,13 +309,31 @@ the high-loop path:
    comparisons, and cancellation closure;
 2. complete two- and three-loop connected/factorized vacuum corpora with exact
    source replay;
-3. every Vakint four-loop H/X/BMW/FG contraction and numerator fixture, with
-   masters left unsubstituted;
+3. every frozen Vakint four-loop H/X/BMW/FG contraction, routing, and numerator
+   fixture as a compatibility gate, with RustRed's own raw masters kept
+   unsubstituted;
 4. multiple general five-loop families, including ISP-rich and
    duplicate-denominator cases rather than only the banana;
 5. a versioned six-loop GammaLoop/BPHZ-derived QCD vacuum corpus; and
 6. fresh graph routings, edge permutations, loop-basis changes, primes, and
    held-out numerator shells at every rung.
+
+Vakint is not a generic derivation oracle: its four-loop FMFT-backed outputs
+are frozen compatibility/end-to-end data, and it provides no five- or six-loop
+oracle. Every RustRed rule must still replay against freshly generated generic
+IBPs before publication; neither a topology name nor a frozen master-
+substituted number may authorize production behavior.
+
+Specialization closure is a campaign gate: derive/reduce with symbolic `m^2`
+and then set `m^2=1`, and compare with specializing the authenticated family
+and input before reduction. The results must agree after restoring the overall
+mass dimension by homogeneity, with the Wick/sign-convention fingerprint
+checked independently.
+
+All campaign suites run with licensed, GMP-enabled Symbolica and no `no_gmp`,
+FORM, or Mathematica. Shard in parallel by family/sector/corpus with isolated
+artifact directories, and require deterministic artifact checksums between
+one-worker and multi-worker runs.
 
 Each performance report must separate offline derivation from online
 application and record at least:
@@ -305,23 +354,50 @@ throughput.
 
 ## 8. Revised implementation order
 
-Checkpoint update: item 1 is complete in the affine-family-map V2 milestone;
-item 2 is now the active implementation slice.  This status does not claim a
-complete family reduction or any six-loop result.
+Checkpoint update: the affine-family-map V2 milestone is complete, and the
+first non-publishing slice of generic rule derivation is implemented. Its
+authenticated exact-Ready phase can prove physical-key descent and retain
+arbitrary-precision inactive-orthant hazard intervals for independent
+cylinders. A non-independent target currently returns a retryable `Pending`
+outcome. Conditions, general compact-affine geometry, and publication remain
+unfinished. This status does not claim a complete family reduction or any
+six-loop result.
 
-1. Finish the Symbolica-native affine-family/symmetry verifier and independent
-   matrix oracle; push it as a standalone milestone.
-2. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
-   path, including `WhenBad`, subsector feedback, and durable artifacts.
-3. Add unit-mass `Q(d)` family specialization and modular/reconstruction
+The first genuine arity-21 attempt exposed the eager-case blocker before
+Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
+limit. The cap was intentionally not raised. A fast separate generator gate
+checks the generic `L=6` formula produces 36 parametric IBPs; arity-21 Ready
+and condition stress remains gated on lazy target-frontier case construction.
+That makes the lazy cover/DAG replacement the next high-loop prerequisite,
+ahead of finishing publication on only small eager-cover fixtures. The
+generator gate and all 11 tests in the independent Ready/publication
+validation module passed licensed `--lib -j4` Nextest run
+`a06d5558-e404-4048-a2e9-5407277a95d6`.
+
+1. **Completed:** Symbolica-native affine-family/symmetry verifier and
+   independent matrix oracle, pushed as a standalone milestone.
+2. **Completed generation-only checkpoint:** topology-neutral `L=6`, `K=21`
+   generation of all 36 ordinary IBPs. It stops before Boolean cover and Ready.
+3. **Completed separate lower-arity checkpoint:** exact independent-cylinder
+   Ready descent/hazards. No arity-21 input has reached Ready yet.
+4. **Next:** replace legacy V4 partition/queue flattening with an `O(depth)`
+   target-frontier cursor over the existing authenticated rooted MTBDD, Queue
+   V3, and a narrow one-path solve owner; validate one declared arity-21 sector
+   through Ready without enumerating all terminal paths.
+5. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
+   path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
+   subsector feedback, atomic publication, durable artifacts, and a 36-source
+   session batch.
+6. Add unit-mass `Q(d)` family specialization and modular/reconstruction
    services through public Symbolica finite-field and polynomial APIs.
-4. Add topology-generic graph ingestion, deterministic ISP completion,
-   factorization, graph-lifted symmetry candidates, and a canonical sector
-   DAG; validate through the complete Vakint four-loop corpus.
-5. Implement the separate batch rule-application runtime and GammaLoop
+7. Add topology-generic graph ingestion, deterministic ISP completion,
+   factorization, graph-lifted symmetry candidates, and the canonical lazy
+   physical-sector dependency DAG; validate through the complete Vakint
+   four-loop corpus.
+8. Implement the separate batch rule-application runtime and GammaLoop
    `VacuumIntegralEngine`-style adapter at the existing normalized-integrand
    seam.
-6. Expand to general five-loop families, then execute and profile the declared
+9. Expand to general five-loop families, then execute and profile the declared
    six-loop QCD vacuum campaign.
 
 Broad non-vacuum tensor bases, arbitrary one-loop pentagons, and

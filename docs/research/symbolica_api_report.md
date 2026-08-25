@@ -159,6 +159,25 @@ Be aware that generic conversions automatically promote non-polynomial subexpres
 
 `RationalPolynomial<R,E>` has public `numerator` and `denominator`, each a `MultivariatePolynomial`; construction/arithmetic unifies variable maps, cancels polynomial GCDs where supported, and normalizes denominator sign/leading coefficient (`domains/rational_polynomial.rs:40-229`, `297-523`). Main APIs include `inv`, `pow`, `gcd`, `derivative`, `evaluate`, `apart`, and `to_polynomial`. Convert back with `.to_expression()` (`poly.rs:2170-2259`, `2321-2355`).
 
+For LiteRed `WhenBad`, `RationalPolynomial::to_polynomial(base_variables,
+true)` is the important parameter-coefficient projection: it returns a
+polynomial in the declared base parameters whose coefficients are rational
+polynomials in the remaining index variables. A coefficient denominator is
+identically zero in the base parameters only when every retained coefficient
+is zero. Do not replace this vector condition by the pointwise predicate that
+the complete denominator vanishes; for example `n+d` has unit coefficient in
+`d` and is never identically zero as a parameter polynomial.
+
+For canonical associate classes after projection to the exact field `K[n]`,
+public `MultivariatePolynomial<F: Field>::make_monic` supplies the canonical
+representative (`poly/polynomial.rs:4206`). Cache one checked monic form per
+unique locus and use a hash only to select candidates; exact Symbolica
+polynomial equality is the proof. This avoids quadratic pairwise cross-product
+associate tests without implementing algebra in RustRed. Projection, monic
+normalization, factorization, GCD, and division remain infallible/unbudgeted
+public calls in this vendored version, so wrappers must preflight, catch unwind,
+authenticate output bounds/maps, and return operational failure on exhaustion.
+
 ```rust
 use std::sync::Arc;
 use symbolica::prelude::*;

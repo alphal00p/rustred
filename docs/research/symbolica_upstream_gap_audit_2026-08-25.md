@@ -18,7 +18,10 @@ dense rectangular row indexing, and sparse inconsistency detection. The exact
 rational-polynomial power API is infallible, panics above `u32::MAX` or on
 coefficient-exponent overflow, and performs `e` full rational multiplications.
 A fallible, cancellable, resource-observable exact-algebra boundary would make
-these APIs substantially safer for embedding applications.
+these APIs substantially safer for embedding applications. The public
+parameter-coefficient projection needed by LiteRed is present, but projection,
+factorization, GCD, and division share the same lack of caller budgets and
+cancellation.
 
 ## Confirmed correctness defects
 
@@ -116,6 +119,28 @@ The useful upstream abstraction is not a different CAS representation. It is a
 fallible exact-algebra session/context that can carry a cancellation predicate,
 resource policy, and operation census through `Ring`/`Field`, dense/sparse
 elimination, polynomial GCD/quotient, and rational power.
+
+### LiteRed denominator projection: primitive present, budget control absent
+
+The next RustRed `WhenBad` stage does not expose a missing algebraic primitive.
+LiteRed tests whether every parameter coefficient of a denominator factor
+vanishes, and public
+`RationalPolynomial::to_polynomial(variables, ignore_denominator)` performs the
+needed projection at
+[`rational_polynomial.rs:572-640`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L572).
+RustRed can cache that Symbolica polynomial and use public exact division/GCD
+operations for later associate and implication proofs; it need not implement
+coefficient projection or polynomial algebra itself.
+
+The embedding gap is operational. Projection, polynomial division/GCD, and
+the public infallible `Factorize::factor` trait
+([`factor.rs:61-70`](../../vendor/symbolica/src/poly/factor.rs#L61)) accept no
+caller-supplied work/memory limit, cancellation predicate, or operation census,
+and their deep code paths may panic. RustRed can conservatively preflight,
+catch unwind, and use the unfactored full-denominator coefficient vector for a
+correct (though larger) clause. A fallible budgeted `try_factor`/exact-algebra
+session and a reusable prepared projection API would make high-loop clauses
+smaller and repeated associate/divisibility checks safer and cheaper.
 
 ## Reproduction snapshot
 
