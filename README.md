@@ -24,6 +24,7 @@ all of LiteRed.
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate, with boundary hazards retained for later `WhenBad` partitioning |
+| Project physical-parameter identities and schedule exact Ready condition sources | Implemented internally with Symbolica polynomial projection and an owner-bound identity/compact-affine plan; mapped condition materialization, boundary specialization, Boolean partitioning, and publication remain pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook parity | Eight LiteRed 1.x examples inventoried with staged acceptance levels; no complete notebook workflow passes yet |
@@ -275,8 +276,18 @@ The repository currently includes tests for:
   reauthenticates the exact owner allocation and rebuilds the transcript.
   Independent licensed default-GMP run
   `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed all 18 focused tests with four
-  workers. This milestone is not `WhenBad` closure, rule publication,
-  reduction, or six-loop topology support; and
+  workers. The next foundation now retains an ownership-safe deterministic
+  source and lazy-hazard schedule for identity and compact-affine target maps,
+  and uses Symbolica polynomial projection to classify a coefficient as
+  identically zero, never identically zero, or conditional in arbitrary-width
+  integral indices. Its focused licensed default-GMP gates passed 5/5
+  condition-plan tests with four Nextest workers and 6/6 projector tests with
+  four Rust test threads. Independent combined run
+  `f6c4a9e7-fcc1-4c48-ae3c-5f2c0d781e42` passed 22/22 tests with four Nextest
+  workers, including affected Ready/session regressions. This milestone does
+  not yet compose mapped
+  conditions, specialize affine boundaries, construct a relative partition,
+  publish a rule, perform a reduction, or establish six-loop support; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -339,8 +350,12 @@ The next vacuum-critical solver milestone is the topology-neutral
 `Ready -> condition/WhenBad partition -> atomic guarded-rule/residual
 publication -> replay-certified closure` slice. Exact fixed-chamber descent
 and lazy hazard geometry now cover authenticated selector-independent compact
-affine target maps. The active slice must compile those hazards and coefficient
-loci into complete `WhenBad` partitions and publish atomically. Graph-
+affine target maps. An owner-bound identity/compact transform and deterministic
+condition-source schedule now preserve the Ready lineage, while Symbolica
+projects physical-parameter identities into exact index-polynomial loci. The
+active slice must compose those sources, specialize the lazy affine boundaries
+by exact polynomial divisibility, build complete relative `WhenBad` partitions,
+and publish atomically. Graph-
 lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
@@ -357,11 +372,15 @@ the Direct path fabricates no V4/V5, Boolean/DPLL, integer-system, or legacy
 inventory certificate. Stable identity remains separate from exact retained-
 `Arc` authority. Authenticated selector-independent compact affine target maps
 reach the existing unpublished `ReadyForConditions` gate, while chamber exits
-remain explicit hazards rather than being sampled away. The remaining generic
-LiteRed-style solver work is to:
+remain explicit hazards rather than being sampled away. The current owner-bound
+condition plan authenticates identity and compact maps and schedules premises,
+row guards, pivot/RHS coefficients, and lazy hazard locators; Symbolica-backed
+projection supplies the exact physical-parameter identity clauses. The
+remaining generic LiteRed-style solver work is to:
 
-1. compile and close `WhenBad` exceptional branches, then atomically publish
-   guarded rules and residual work;
+1. compose the scheduled conditions, specialize affine boundary clauses,
+   close `WhenBad` exceptional branches, and atomically publish guarded rules
+   and residual work;
 2. feed solved subsectors into supersectors and iterate residual cases; and
 3. expose a replay-certified complete reduction result.
 
@@ -395,10 +414,13 @@ allocation-independent stable-value identity and reaches the source-profiled
 exact session through Direct solve-plan V2, ordering V3, and physical frame V2,
 with exact `Arc` ancestry kept separate and no fake inventory. Authenticated
 selector-independent compact affine maps reach the unpublished
-`ReadyForConditions` gate. The immediate gates are `WhenBad` closure and
-atomic guarded publication. No arity-21 case has reached Ready, no
-guarded rule has been published, no physical topology was reduced, and no
-complete reduction is claimed.
+`ReadyForConditions` gate, and the new owner-bound plan schedules its exact
+condition sources without consuming the target. Symbolica-backed
+physical-parameter identity projection is also implemented. The immediate
+gates are mapped condition composition, boundary specialization, relative
+`WhenBad` partitioning, and atomic guarded publication. No arity-21 case has
+reached Ready, no guarded rule has been published, no physical topology was
+reduced, and no complete reduction is claimed.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent

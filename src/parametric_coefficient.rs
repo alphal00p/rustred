@@ -45,6 +45,12 @@ type AssociateIntegerPolynomial = MultivariatePolynomial<IntegerRing, u32>;
 type AssociateIndexProjection =
     MultivariatePolynomial<RationalPolynomialField<IntegerRing, u32>, u32>;
 
+/// Symbolica's native view of an integer `K(n)` polynomial as a polynomial
+/// in the declared physical parameters with rational-polynomial coefficients
+/// in the private index variables.
+type ParameterIdentityNativeProjection =
+    MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u16>;
+
 /// One component of a pure index translation `n_i -> n_i + a_i`.
 ///
 /// The trait is private so every exact boundary remains controlled by this
@@ -457,6 +463,386 @@ impl BasePolynomial {
 pub struct ParametricPolynomial {
     raw: CoefficientPolynomial,
     context: Arc<str>,
+}
+
+/// Resource envelope for projecting one authenticated `Z[theta,n]`
+/// polynomial onto its physical-parameter monomials.
+///
+/// The prospective bounds are charged before the native Symbolica projection
+/// is entered.  They include the complete source validation payload, native
+/// grouping keys, every possible projected coefficient, exact variable-map
+/// transport, and the durable conditional-locus payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParametricParameterIdentityProjectionLimits {
+    pub exact_algebra: ExactAlgebraLimits,
+    pub max_context_fingerprint_comparison_bytes: usize,
+    pub max_variable_map_entry_comparisons: usize,
+    pub max_source_terms: usize,
+    pub max_source_exponent_entries: usize,
+    pub max_source_integer_bits: usize,
+    pub max_source_integer_capacity_bytes: usize,
+    pub max_projection_variable_mask_comparison_bound: usize,
+    pub max_projection_hash_key_exponent_entry_bound: usize,
+    pub max_native_projection_grouping_workspace_byte_envelope: usize,
+    pub max_projected_physical_monomial_bound: usize,
+    pub max_projected_outer_exponent_entry_bound: usize,
+    pub max_projected_coefficient_exponent_entry_bound: usize,
+    pub max_variable_unification_exponent_entry_bound: usize,
+    pub max_conditional_locus_bound: usize,
+    pub max_retained_physical_exponent_entry_bound: usize,
+    pub max_retained_locus_term_bound: usize,
+    pub max_retained_locus_exponent_entry_bound: usize,
+    pub max_retained_locus_integer_bit_bound: usize,
+    pub max_transport_coefficient_comparison_term_bound: usize,
+    pub max_retained_output_byte_bound: usize,
+    pub max_rustred_visible_temporary_byte_envelope: usize,
+}
+
+impl Default for ParametricParameterIdentityProjectionLimits {
+    fn default() -> Self {
+        Self {
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_context_fingerprint_comparison_bytes: usize::MAX,
+            max_variable_map_entry_comparisons: usize::MAX,
+            max_source_terms: usize::MAX,
+            max_source_exponent_entries: usize::MAX,
+            max_source_integer_bits: usize::MAX,
+            max_source_integer_capacity_bytes: usize::MAX,
+            max_projection_variable_mask_comparison_bound: usize::MAX,
+            max_projection_hash_key_exponent_entry_bound: usize::MAX,
+            max_native_projection_grouping_workspace_byte_envelope: usize::MAX,
+            max_projected_physical_monomial_bound: usize::MAX,
+            max_projected_outer_exponent_entry_bound: usize::MAX,
+            max_projected_coefficient_exponent_entry_bound: usize::MAX,
+            max_variable_unification_exponent_entry_bound: usize::MAX,
+            max_conditional_locus_bound: usize::MAX,
+            max_retained_physical_exponent_entry_bound: usize::MAX,
+            max_retained_locus_term_bound: usize::MAX,
+            max_retained_locus_exponent_entry_bound: usize::MAX,
+            max_retained_locus_integer_bit_bound: usize::MAX,
+            max_transport_coefficient_comparison_term_bound: usize::MAX,
+            max_retained_output_byte_bound: usize::MAX,
+            max_rustred_visible_temporary_byte_envelope: usize::MAX,
+        }
+    }
+}
+
+/// Prospective and measured work for one physical-parameter identity
+/// projection.  Fields ending in `_bound` are source-derived upper bounds
+/// sealed by preparation; the final two fields are filled after Symbolica's
+/// result has been authenticated.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ParametricParameterIdentityProjectionStats {
+    context_fingerprint_comparison_bytes: usize,
+    variable_map_entry_comparisons: usize,
+    source_terms: usize,
+    source_exponent_entries: usize,
+    source_integer_bits: usize,
+    source_integer_capacity_bytes: usize,
+    projection_variable_mask_comparison_bound: usize,
+    projection_hash_key_exponent_entry_bound: usize,
+    native_projection_grouping_workspace_byte_envelope: usize,
+    projected_physical_monomial_bound: usize,
+    projected_outer_exponent_entry_bound: usize,
+    projected_coefficient_exponent_entry_bound: usize,
+    variable_unification_exponent_entry_bound: usize,
+    conditional_locus_bound: usize,
+    retained_physical_exponent_entry_bound: usize,
+    retained_locus_term_bound: usize,
+    retained_locus_exponent_entry_bound: usize,
+    retained_locus_integer_bit_bound: usize,
+    transport_coefficient_comparison_term_bound: usize,
+    retained_output_byte_bound: usize,
+    rustred_visible_temporary_byte_envelope: usize,
+    projected_physical_monomials: usize,
+    conditional_loci: usize,
+}
+
+macro_rules! parameter_identity_projection_stats_getters {
+    ($($field:ident),+ $(,)?) => {$ (
+        pub(crate) const fn $field(self) -> usize { self.$field }
+    )+ };
+}
+
+impl ParametricParameterIdentityProjectionStats {
+    parameter_identity_projection_stats_getters!(
+        context_fingerprint_comparison_bytes,
+        variable_map_entry_comparisons,
+        source_terms,
+        source_exponent_entries,
+        source_integer_bits,
+        source_integer_capacity_bytes,
+        projection_variable_mask_comparison_bound,
+        projection_hash_key_exponent_entry_bound,
+        native_projection_grouping_workspace_byte_envelope,
+        projected_physical_monomial_bound,
+        projected_outer_exponent_entry_bound,
+        projected_coefficient_exponent_entry_bound,
+        variable_unification_exponent_entry_bound,
+        conditional_locus_bound,
+        retained_physical_exponent_entry_bound,
+        retained_locus_term_bound,
+        retained_locus_exponent_entry_bound,
+        retained_locus_integer_bit_bound,
+        transport_coefficient_comparison_term_bound,
+        retained_output_byte_bound,
+        rustred_visible_temporary_byte_envelope,
+        projected_physical_monomials,
+        conditional_loci,
+    );
+}
+
+/// One coefficient in
+/// `D(theta,n) = sum_alpha theta^alpha coefficient_alpha(n)`.
+///
+/// The physical exponent vector is retained in the exact declared parameter
+/// order, and the coefficient polynomial has been transported back onto this
+/// context's complete `[theta,n]` map.  Consequently it can be fed directly
+/// into the existing condition and affine-specialization machinery without a
+/// second parser or a synthetic context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ParametricParameterIdentityCoefficientLocus {
+    physical_parameter_exponents: Box<[u16]>,
+    polynomial: ParametricPolynomial,
+}
+
+impl ParametricParameterIdentityCoefficientLocus {
+    pub(crate) fn physical_parameter_exponents(&self) -> &[u16] {
+        &self.physical_parameter_exponents
+    }
+
+    pub(crate) fn polynomial(&self) -> &ParametricPolynomial {
+        &self.polynomial
+    }
+}
+
+/// Exact identity classification in the declared physical parameters.
+///
+/// `NeverIdentityZero` carries the first canonical physical monomial whose
+/// index coefficient is a nonzero integer constant.  Such a coefficient can
+/// never vanish, so the complete conjunction is unsatisfiable.  A
+/// `Conditional` result is the arbitrary-width conjunction of all returned
+/// coefficient loci; no factorization or radical inference is performed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ParametricParameterIdentityClass {
+    AlwaysIdentityZero,
+    NeverIdentityZero {
+        constant_coefficient_physical_parameter_exponents: Box<[u16]>,
+    },
+    Conditional {
+        coefficient_loci: Vec<ParametricParameterIdentityCoefficientLocus>,
+    },
+}
+
+impl ParametricParameterIdentityClass {
+    pub(crate) fn coefficient_loci(
+        &self,
+    ) -> Option<&[ParametricParameterIdentityCoefficientLocus]> {
+        match self {
+            Self::Conditional { coefficient_loci } => Some(coefficient_loci),
+            Self::AlwaysIdentityZero | Self::NeverIdentityZero { .. } => None,
+        }
+    }
+}
+
+/// Authenticated result of one Symbolica-backed parameter identity
+/// projection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ParametricParameterIdentityProjection {
+    class: ParametricParameterIdentityClass,
+    stats: ParametricParameterIdentityProjectionStats,
+}
+
+impl ParametricParameterIdentityProjection {
+    pub(crate) const fn class(&self) -> &ParametricParameterIdentityClass {
+        &self.class
+    }
+
+    pub(crate) const fn stats(&self) -> ParametricParameterIdentityProjectionStats {
+        self.stats
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        ParametricParameterIdentityClass,
+        ParametricParameterIdentityProjectionStats,
+    ) {
+        (self.class, self.stats)
+    }
+}
+
+/// Sealed execution token for one physical-parameter identity projection.
+///
+/// Preparation authenticates and admits the complete source-derived work
+/// envelope.  The token borrows the exact context and source, owns the limits
+/// and statistics by value, and is consumed exactly once at the native
+/// boundary.
+pub(crate) struct PreparedParametricParameterIdentityProjection<'prepared> {
+    context: &'prepared ParametricCoefficientContext,
+    source: &'prepared ParametricPolynomial,
+    limits: ParametricParameterIdentityProjectionLimits,
+    stats: ParametricParameterIdentityProjectionStats,
+}
+
+impl PreparedParametricParameterIdentityProjection<'_> {
+    pub(crate) const fn stats(&self) -> ParametricParameterIdentityProjectionStats {
+        self.stats
+    }
+
+    pub(crate) fn execute(
+        self,
+    ) -> Result<ParametricParameterIdentityProjection, ParametricCoefficientError> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.context
+                .execute_parameter_identity_projection_unwind_boundary(
+                    self.source,
+                    self.limits,
+                    self.stats,
+                )
+        }))
+        .map_err(|_| {
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during physical-parameter identity projection".to_owned(),
+            )
+        })?
+    }
+}
+
+fn check_parameter_identity_projection_stats(
+    stats: ParametricParameterIdentityProjectionStats,
+    limits: ParametricParameterIdentityProjectionLimits,
+) -> Result<(), ParametricCoefficientError> {
+    for (resource, requested, limit) in [
+        (
+            "parameter-identity context fingerprint comparison bytes",
+            stats.context_fingerprint_comparison_bytes,
+            limits.max_context_fingerprint_comparison_bytes,
+        ),
+        (
+            "parameter-identity variable-map entry comparisons",
+            stats.variable_map_entry_comparisons,
+            limits.max_variable_map_entry_comparisons,
+        ),
+        (
+            "parameter-identity source terms",
+            stats.source_terms,
+            limits.max_source_terms,
+        ),
+        (
+            "parameter-identity source exponent entries",
+            stats.source_exponent_entries,
+            limits.max_source_exponent_entries,
+        ),
+        (
+            "parameter-identity source integer bits",
+            stats.source_integer_bits,
+            limits.max_source_integer_bits,
+        ),
+        (
+            "parameter-identity source integer capacity bytes",
+            stats.source_integer_capacity_bytes,
+            limits.max_source_integer_capacity_bytes,
+        ),
+        (
+            "parameter-identity projection variable-mask comparison bound",
+            stats.projection_variable_mask_comparison_bound,
+            limits.max_projection_variable_mask_comparison_bound,
+        ),
+        (
+            "parameter-identity projection hash-key exponent-entry bound",
+            stats.projection_hash_key_exponent_entry_bound,
+            limits.max_projection_hash_key_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity native projection grouping workspace byte envelope",
+            stats.native_projection_grouping_workspace_byte_envelope,
+            limits.max_native_projection_grouping_workspace_byte_envelope,
+        ),
+        (
+            "parameter-identity projected physical monomial bound",
+            stats.projected_physical_monomial_bound,
+            limits.max_projected_physical_monomial_bound,
+        ),
+        (
+            "parameter-identity projected outer exponent-entry bound",
+            stats.projected_outer_exponent_entry_bound,
+            limits.max_projected_outer_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity projected coefficient exponent-entry bound",
+            stats.projected_coefficient_exponent_entry_bound,
+            limits.max_projected_coefficient_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity variable-unification exponent-entry bound",
+            stats.variable_unification_exponent_entry_bound,
+            limits.max_variable_unification_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity conditional locus bound",
+            stats.conditional_locus_bound,
+            limits.max_conditional_locus_bound,
+        ),
+        (
+            "parameter-identity retained physical exponent-entry bound",
+            stats.retained_physical_exponent_entry_bound,
+            limits.max_retained_physical_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity retained locus term bound",
+            stats.retained_locus_term_bound,
+            limits.max_retained_locus_term_bound,
+        ),
+        (
+            "parameter-identity retained locus exponent-entry bound",
+            stats.retained_locus_exponent_entry_bound,
+            limits.max_retained_locus_exponent_entry_bound,
+        ),
+        (
+            "parameter-identity retained locus integer-bit bound",
+            stats.retained_locus_integer_bit_bound,
+            limits.max_retained_locus_integer_bit_bound,
+        ),
+        (
+            "parameter-identity transport coefficient comparison term bound",
+            stats.transport_coefficient_comparison_term_bound,
+            limits.max_transport_coefficient_comparison_term_bound,
+        ),
+        (
+            "parameter-identity retained output byte bound",
+            stats.retained_output_byte_bound,
+            limits.max_retained_output_byte_bound,
+        ),
+        (
+            "parameter-identity RustRed-visible temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            limits.max_rustred_visible_temporary_byte_envelope,
+        ),
+    ] {
+        check_limit(resource, requested, limit)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static PARAMETER_IDENTITY_NATIVE_BOUNDARY_PANIC_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn inject_parameter_identity_native_boundary_panic_for_test() {
+    PARAMETER_IDENTITY_NATIVE_BOUNDARY_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn maybe_inject_parameter_identity_native_boundary_panic_for_test() {
+    PARAMETER_IDENTITY_NATIVE_BOUNDARY_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected physical-parameter identity projection boundary panic");
+        }
+    });
 }
 
 /// Canonical sparse equality locus for a partial symbolic specialization.
@@ -4410,6 +4796,628 @@ impl ParametricCoefficientContext {
         value: &ParametricPolynomial,
     ) -> Result<bool, ParametricCoefficientError> {
         self.polynomial_depends_on_indices_with_limits(value, ExactAlgebraLimits::default())
+    }
+
+    /// Preflight one exact identity projection in the declared physical
+    /// parameters and seal the authenticated source for consuming execution.
+    ///
+    /// For `D(theta,n)`, execution returns the coefficient family in
+    /// `D = sum_alpha theta^alpha c_alpha(n)`.  Thus the LiteRed-style bad
+    /// denominator condition is exactly `AND_alpha c_alpha(n)=0`; physical
+    /// parameters remain formal and are never specialized pointwise here.
+    pub(crate) fn prepare_parameter_identity_projection<'prepared>(
+        &'prepared self,
+        source: &'prepared ParametricPolynomial,
+        limits: ParametricParameterIdentityProjectionLimits,
+    ) -> Result<PreparedParametricParameterIdentityProjection<'prepared>, ParametricCoefficientError>
+    {
+        if source.authenticated_context_fingerprint() != self.fingerprint() {
+            return Err(ParametricCoefficientError::WrongContext);
+        }
+
+        let census = self.preflight_polynomial_validation_payload_with_limits(
+            source,
+            limits.exact_algebra,
+            limits.max_source_terms,
+            limits.max_source_exponent_entries,
+            limits.max_source_integer_bits,
+        )?;
+        let variable_count = self.variables.len();
+        let physical_parameter_count = self.base.variables().len();
+        let index_count = variable_count.checked_sub(physical_parameter_count).ok_or(
+            ParametricCoefficientError::ResourceCountOverflow {
+                resource: "parameter-identity index variables",
+            },
+        )?;
+
+        let mut source_integer_capacity_bytes = 0usize;
+        for coefficient in &source.raw.coefficients {
+            let limb_capacity_bytes = match coefficient {
+                Integer::Large(value) => usize::try_from(value.capacity())
+                    .map_err(|_| ParametricCoefficientError::ResourceCountOverflow {
+                        resource: "parameter-identity source integer capacity bytes",
+                    })?
+                    .checked_add(7)
+                    .and_then(|bits| bits.checked_div(8))
+                    .ok_or(ParametricCoefficientError::ResourceCountOverflow {
+                        resource: "parameter-identity source integer capacity bytes",
+                    })?,
+                Integer::Single(_) | Integer::Double(_) => 0,
+            };
+            source_integer_capacity_bytes = checked_parametric_add(
+                "parameter-identity source integer capacity bytes",
+                source_integer_capacity_bytes,
+                checked_parametric_add(
+                    "parameter-identity source integer capacity bytes",
+                    size_of::<Integer>(),
+                    limb_capacity_bytes,
+                )?,
+            )?;
+        }
+
+        let projected_physical_monomial_bound = census.source_terms();
+        let projected_outer_exponent_entry_bound = checked_parametric_mul(
+            "parameter-identity projected outer exponent-entry bound",
+            projected_physical_monomial_bound,
+            physical_parameter_count,
+        )?;
+        let projected_coefficient_exponent_entry_bound = checked_parametric_mul(
+            "parameter-identity projected coefficient exponent-entry bound",
+            census.source_terms(),
+            index_count,
+        )?;
+        let variable_unification_exponent_entry_bound = checked_parametric_mul(
+            "parameter-identity variable-unification exponent-entry bound",
+            census.source_terms(),
+            variable_count,
+        )?;
+        let retained_physical_exponent_entry_bound = projected_outer_exponent_entry_bound;
+        let retained_locus_exponent_entry_bound = checked_parametric_mul(
+            "parameter-identity retained locus exponent-entry bound",
+            census.source_terms(),
+            variable_count,
+        )?;
+
+        let visible_resource = "parameter-identity RustRed-visible temporary byte envelope";
+        let source_sparse_clone_bytes = checked_parametric_add(
+            visible_resource,
+            size_of::<CoefficientPolynomial>(),
+            polynomial_owned_retained_byte_bound(&source.raw).ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: visible_resource,
+                },
+            )?,
+        )?;
+        let projection_coefficient_slots = checked_parametric_mul(
+            visible_resource,
+            parametric_vec_capacity_bound(projected_physical_monomial_bound, visible_resource)?,
+            size_of::<Coefficient>(),
+        )?;
+        let projection_outer_exponent_slots = checked_parametric_mul(
+            visible_resource,
+            parametric_vec_capacity_bound(projected_outer_exponent_entry_bound, visible_resource)?,
+            size_of::<u16>(),
+        )?;
+        // Every projected coefficient numerator starts from an empty Vec;
+        // singleton groups can therefore retain the allocator's four-slot
+        // minimum. The additive group term covers that worst case, while the
+        // doubled live-entry term covers geometric growth for larger groups.
+        let projected_inner_exponent_capacity_bound = checked_parametric_add(
+            visible_resource,
+            parametric_vec_capacity_bound(
+                projected_coefficient_exponent_entry_bound,
+                visible_resource,
+            )?,
+            checked_parametric_mul(visible_resource, 4, projected_physical_monomial_bound)?,
+        )?;
+        let projected_inner_exponent_slots = checked_parametric_mul(
+            visible_resource,
+            projected_inner_exponent_capacity_bound,
+            size_of::<u16>(),
+        )?;
+        let projection_numerator_spare_integer_slots = checked_parametric_mul(
+            visible_resource,
+            checked_parametric_mul(visible_resource, 3, census.source_terms())?,
+            size_of::<Integer>(),
+        )?;
+        let projection_denominator_integer_slots = checked_parametric_mul(
+            visible_resource,
+            checked_parametric_mul(visible_resource, 4, projected_physical_monomial_bound)?,
+            size_of::<Integer>(),
+        )?;
+        let projection_denominator_exponent_slots = checked_parametric_mul(
+            visible_resource,
+            checked_parametric_add(
+                visible_resource,
+                checked_parametric_mul(
+                    visible_resource,
+                    2,
+                    checked_parametric_mul(
+                        visible_resource,
+                        projected_physical_monomial_bound,
+                        index_count,
+                    )?,
+                )?,
+                checked_parametric_mul(visible_resource, 4, projected_physical_monomial_bound)?,
+            )?,
+            size_of::<u16>(),
+        )?;
+        let transported_exponent_slots = checked_parametric_mul(
+            visible_resource,
+            parametric_vec_capacity_bound(
+                variable_unification_exponent_entry_bound,
+                visible_resource,
+            )?,
+            size_of::<u16>(),
+        )?;
+        let conditional_locus_slots = checked_parametric_mul(
+            visible_resource,
+            parametric_vec_capacity_bound(projected_physical_monomial_bound, visible_resource)?,
+            size_of::<ParametricParameterIdentityCoefficientLocus>(),
+        )?;
+        let retained_physical_exponent_slots = checked_parametric_mul(
+            visible_resource,
+            retained_physical_exponent_entry_bound,
+            size_of::<u16>(),
+        )?;
+        // `to_polynomial` retains one shared coefficient-variable map and an
+        // outer physical map; `unify_variables` may create one full-map Arc
+        // per conditional locus. Charging a complete full map for every
+        // prospective group is deliberately conservative.
+        let map_copy_count = projected_physical_monomial_bound.checked_add(2).ok_or(
+            ParametricCoefficientError::ResourceCountOverflow {
+                resource: visible_resource,
+            },
+        )?;
+        let full_variable_map_copy_bytes = checked_parametric_add(
+            visible_resource,
+            arc_payload_control_and_padding_byte_bound::<Vec<PolyVariable>>().ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: visible_resource,
+                },
+            )?,
+            checked_parametric_mul(
+                visible_resource,
+                parametric_vec_capacity_bound(variable_count, visible_resource)?,
+                size_of::<PolyVariable>(),
+            )?,
+        )?;
+        let variable_map_bytes = checked_parametric_mul(
+            visible_resource,
+            map_copy_count,
+            full_variable_map_copy_bytes,
+        )?;
+
+        // The vendored `to_polynomial` groups monomials in a native HashMap.
+        // Four buckets per source term covers hashbrown's power-of-two and
+        // load-factor growth. Coefficient sparse/GMP payload is charged in
+        // the RustRed-visible envelope; this ledger covers the native table,
+        // owned exponent keys, masks, and grouping scratch explicitly.
+        let native_resource =
+            "parameter-identity native projection grouping workspace byte envelope";
+        let native_hash_bucket_bound =
+            checked_parametric_mul(native_resource, 4, projected_physical_monomial_bound)?;
+        let native_key_exponent_bytes = checked_parametric_mul(
+            native_resource,
+            parametric_vec_capacity_bound(physical_parameter_count, native_resource)?,
+            size_of::<u16>(),
+        )?;
+        let native_hash_entry_bytes = checked_parametric_add(
+            native_resource,
+            size_of::<Vec<u16>>(),
+            checked_parametric_add(
+                native_resource,
+                native_key_exponent_bytes,
+                checked_parametric_add(
+                    native_resource,
+                    size_of::<Coefficient>(),
+                    checked_parametric_mul(native_resource, 8, size_of::<usize>())?,
+                )?,
+            )?,
+        )?;
+        let native_hash_table_bytes = checked_parametric_mul(
+            native_resource,
+            native_hash_bucket_bound,
+            native_hash_entry_bytes,
+        )?;
+        let native_mask_bytes = checked_parametric_mul(
+            native_resource,
+            parametric_vec_capacity_bound(variable_count, native_resource)?,
+            size_of::<Option<usize>>(),
+        )?;
+        let native_outer_scratch_bytes = checked_parametric_mul(
+            native_resource,
+            parametric_vec_capacity_bound(physical_parameter_count, native_resource)?,
+            size_of::<u16>(),
+        )?;
+        let native_coefficient_scratch_bytes = checked_parametric_mul(
+            native_resource,
+            parametric_vec_capacity_bound(index_count, native_resource)?,
+            size_of::<u16>(),
+        )?;
+        let native_projection_grouping_workspace_byte_envelope = [
+            native_hash_table_bytes,
+            native_mask_bytes,
+            native_outer_scratch_bytes,
+            native_coefficient_scratch_bytes,
+            checked_parametric_mul(native_resource, 4, size_of::<Vec<u16>>())?,
+            checked_parametric_mul(native_resource, 8, size_of::<usize>())?,
+        ]
+        .into_iter()
+        .try_fold(0usize, |total, bytes| {
+            checked_parametric_add(native_resource, total, bytes)
+        })?;
+
+        let retained_resource = "parameter-identity retained output byte bound";
+        let retained_output_byte_bound = [
+            size_of::<ParametricParameterIdentityProjection>(),
+            conditional_locus_slots,
+            retained_physical_exponent_slots,
+            transported_exponent_slots,
+            source_integer_capacity_bytes,
+            projection_numerator_spare_integer_slots,
+            checked_parametric_mul(
+                retained_resource,
+                projected_physical_monomial_bound,
+                full_variable_map_copy_bytes,
+            )?,
+        ]
+        .into_iter()
+        .try_fold(0usize, |total, bytes| {
+            checked_parametric_add(retained_resource, total, bytes)
+        })?;
+        let rustred_visible_temporary_byte_envelope = [
+            source_sparse_clone_bytes,
+            projection_coefficient_slots,
+            projection_outer_exponent_slots,
+            projected_inner_exponent_slots,
+            // One copy audits exact index-exponent transport while the
+            // unified full-map exponent vector remains live.
+            projected_inner_exponent_slots,
+            transported_exponent_slots,
+            conditional_locus_slots,
+            retained_physical_exponent_slots,
+            checked_parametric_mul(visible_resource, 2, source_integer_capacity_bytes)?,
+            projection_numerator_spare_integer_slots,
+            projection_denominator_integer_slots,
+            projection_denominator_exponent_slots,
+            variable_map_bytes,
+            size_of::<ParameterIdentityNativeProjection>(),
+        ]
+        .into_iter()
+        .try_fold(0usize, |total, bytes| {
+            checked_parametric_add(visible_resource, total, bytes)
+        })?;
+
+        let stats = ParametricParameterIdentityProjectionStats {
+            context_fingerprint_comparison_bytes: checked_parametric_add(
+                "parameter-identity context fingerprint comparison bytes",
+                source.authenticated_context_fingerprint().len(),
+                self.fingerprint().len(),
+            )?,
+            variable_map_entry_comparisons: variable_count,
+            source_terms: census.source_terms(),
+            source_exponent_entries: census.source_exponent_entries(),
+            source_integer_bits: census.source_integer_bits(),
+            source_integer_capacity_bytes,
+            projection_variable_mask_comparison_bound: checked_parametric_mul(
+                "parameter-identity projection variable-mask comparison bound",
+                variable_count,
+                physical_parameter_count,
+            )?,
+            projection_hash_key_exponent_entry_bound: checked_parametric_mul(
+                "parameter-identity projection hash-key exponent-entry bound",
+                census.source_terms(),
+                physical_parameter_count,
+            )?,
+            native_projection_grouping_workspace_byte_envelope,
+            projected_physical_monomial_bound,
+            projected_outer_exponent_entry_bound,
+            projected_coefficient_exponent_entry_bound,
+            variable_unification_exponent_entry_bound,
+            conditional_locus_bound: projected_physical_monomial_bound,
+            retained_physical_exponent_entry_bound,
+            retained_locus_term_bound: census.source_terms(),
+            retained_locus_exponent_entry_bound,
+            retained_locus_integer_bit_bound: census.source_integer_bits(),
+            transport_coefficient_comparison_term_bound: census.source_terms(),
+            retained_output_byte_bound,
+            rustred_visible_temporary_byte_envelope,
+            projected_physical_monomials: 0,
+            conditional_loci: 0,
+        };
+        check_parameter_identity_projection_stats(stats, limits)?;
+        Ok(PreparedParametricParameterIdentityProjection {
+            context: self,
+            source,
+            limits,
+            stats,
+        })
+    }
+
+    /// Convenience wrapper around the consuming prepared projection token.
+    pub(crate) fn project_parameter_identity_with_limits(
+        &self,
+        source: &ParametricPolynomial,
+        limits: ParametricParameterIdentityProjectionLimits,
+    ) -> Result<ParametricParameterIdentityProjection, ParametricCoefficientError> {
+        self.prepare_parameter_identity_projection(source, limits)?
+            .execute()
+    }
+
+    fn execute_parameter_identity_projection_unwind_boundary(
+        &self,
+        source: &ParametricPolynomial,
+        limits: ParametricParameterIdentityProjectionLimits,
+        mut stats: ParametricParameterIdentityProjectionStats,
+    ) -> Result<ParametricParameterIdentityProjection, ParametricCoefficientError> {
+        // The source is immutably borrowed for the sealed token's complete
+        // lifetime, so the admitted validation is not repeated here.
+        if source.is_zero() {
+            return Ok(ParametricParameterIdentityProjection {
+                class: ParametricParameterIdentityClass::AlwaysIdentityZero,
+                stats,
+            });
+        }
+
+        #[cfg(test)]
+        maybe_inject_parameter_identity_native_boundary_panic_for_test();
+
+        // Algebra, collection, and coefficient extraction are entirely
+        // Symbolica-native: wrap D as D/1, then select the declared physical
+        // variables as the outer polynomial map.
+        let source_rational: Coefficient =
+            try_copy_authenticated_sparse_polynomial_payload(&source.raw)
+                .map_err(|resource| {
+                    ParametricCoefficientError::Symbolica(format!(
+                        "RustRed could not allocate the admitted parameter-identity {resource}"
+                    ))
+                })?
+                .into();
+        let projection: ParameterIdentityNativeProjection = source_rational
+            .to_polynomial(self.base.variables(), true)
+            .map_err(|_| {
+                ParametricCoefficientError::Symbolica(
+                    "Symbolica rejected an authenticated physical-parameter identity projection"
+                        .to_owned(),
+                )
+            })?;
+        // The copied D/1 payload is no longer needed. Releasing it here makes
+        // the admitted two-copy GMP peak exact: projection plus transport
+        // audit, never all three simultaneously.
+        drop(source_rational);
+
+        let malformed = || {
+            ParametricCoefficientError::Symbolica(
+                "Symbolica returned an unauthenticated physical-parameter identity projection"
+                    .to_owned(),
+            )
+        };
+        let physical_parameter_count = self.base.variables().len();
+        let index_count = self.index_variables.len();
+        let projected_monomials = projection.coefficients.len();
+        if projection.variables.as_ref() != self.base.variables().as_ref()
+            || projection.ring != RationalPolynomialField::new(Z)
+            || projection.exponents.len()
+                != projected_monomials
+                    .checked_mul(physical_parameter_count)
+                    .ok_or_else(malformed)?
+            || projected_monomials > stats.projected_physical_monomial_bound
+            || projection.exponents.len() > stats.projected_outer_exponent_entry_bound
+            || projection
+                .exponents
+                .iter()
+                .any(|exponent| u128::from(*exponent) > limits.exact_algebra.max_exponent)
+            || (physical_parameter_count == 0 && projected_monomials != 1)
+            || (physical_parameter_count != 0
+                && projection
+                    .exponents_iter()
+                    .zip(projection.exponents_iter().skip(1))
+                    .any(|(left, right)| left >= right))
+        {
+            return Err(malformed());
+        }
+
+        let mut projected_source_terms = 0usize;
+        let mut projected_coefficient_exponent_entries = 0usize;
+        let mut projected_integer_bits = 0usize;
+        for coefficient in &projection.coefficients {
+            let numerator = &coefficient.numerator;
+            let denominator = &coefficient.denominator;
+            if numerator.variables.as_ref() != self.index_variables.as_ref()
+                || denominator.variables.as_ref() != self.index_variables.as_ref()
+                || numerator.ring != Z
+                || denominator.ring != Z
+                || numerator.is_zero()
+                || numerator.exponents.len()
+                    != numerator
+                        .coefficients
+                        .len()
+                        .checked_mul(index_count)
+                        .ok_or_else(malformed)?
+                || numerator
+                    .coefficients
+                    .iter()
+                    .any(|value| value.cmp(&Integer::Single(0)) == Ordering::Equal)
+                || numerator
+                    .exponents
+                    .iter()
+                    .any(|exponent| u128::from(*exponent) > limits.exact_algebra.max_exponent)
+                || (index_count != 0
+                    && numerator
+                        .exponents_iter()
+                        .zip(numerator.exponents_iter().skip(1))
+                        .any(|(left, right)| left >= right))
+                || denominator.nterms() != 1
+                || denominator.coefficients.len() != 1
+                || denominator.coefficients[0].cmp(&Integer::Single(1)) != Ordering::Equal
+                || denominator.exponents.len() != index_count
+                || denominator.exponents.iter().any(|exponent| *exponent != 0)
+            {
+                return Err(malformed());
+            }
+            projected_source_terms = projected_source_terms
+                .checked_add(numerator.nterms())
+                .ok_or_else(malformed)?;
+            projected_coefficient_exponent_entries = projected_coefficient_exponent_entries
+                .checked_add(numerator.exponents.len())
+                .ok_or_else(malformed)?;
+            for value in &numerator.coefficients {
+                projected_integer_bits = projected_integer_bits
+                    .checked_add(
+                        usize::try_from(integer_magnitude_bits(value)).map_err(|_| malformed())?,
+                    )
+                    .ok_or_else(malformed)?;
+            }
+        }
+        if projected_source_terms != stats.source_terms
+            || projected_coefficient_exponent_entries
+                > stats.projected_coefficient_exponent_entry_bound
+            || projected_integer_bits != stats.source_integer_bits
+        {
+            return Err(malformed());
+        }
+        stats.projected_physical_monomials = projected_monomials;
+
+        // A single nonzero integer coefficient makes the simultaneous
+        // coefficient-zero conjunction impossible. Preserve the first
+        // canonical physical monomial as the deterministic witness.
+        if let Some(unit_ordinal) = projection
+            .coefficients
+            .iter()
+            .position(|coefficient| coefficient.numerator.is_constant())
+        {
+            let start = unit_ordinal
+                .checked_mul(physical_parameter_count)
+                .ok_or_else(malformed)?;
+            let end = start
+                .checked_add(physical_parameter_count)
+                .ok_or_else(malformed)?;
+            let mut witness = Vec::new();
+            witness
+                .try_reserve_exact(physical_parameter_count)
+                .map_err(|_| {
+                    ParametricCoefficientError::Symbolica(
+                        "RustRed could not allocate a parameter-identity unit witness".to_owned(),
+                    )
+                })?;
+            witness.extend_from_slice(projection.exponents.get(start..end).ok_or_else(malformed)?);
+            return Ok(ParametricParameterIdentityProjection {
+                class: ParametricParameterIdentityClass::NeverIdentityZero {
+                    constant_coefficient_physical_parameter_exponents: witness.into_boxed_slice(),
+                },
+                stats,
+            });
+        }
+
+        let ParameterIdentityNativeProjection {
+            coefficients,
+            exponents,
+            ..
+        } = projection;
+        let mut coefficient_loci = Vec::new();
+        coefficient_loci
+            .try_reserve_exact(projected_monomials)
+            .map_err(|_| {
+                ParametricCoefficientError::Symbolica(
+                    "RustRed could not allocate parameter-identity coefficient loci".to_owned(),
+                )
+            })?;
+        for (ordinal, coefficient) in coefficients.into_iter().enumerate() {
+            let start = ordinal
+                .checked_mul(physical_parameter_count)
+                .ok_or_else(malformed)?;
+            let end = start
+                .checked_add(physical_parameter_count)
+                .ok_or_else(malformed)?;
+            let mut physical_exponents = Vec::new();
+            physical_exponents
+                .try_reserve_exact(physical_parameter_count)
+                .map_err(|_| {
+                    ParametricCoefficientError::Symbolica(
+                        "RustRed could not allocate parameter-identity exponent provenance"
+                            .to_owned(),
+                    )
+                })?;
+            physical_exponents.extend_from_slice(exponents.get(start..end).ok_or_else(malformed)?);
+
+            let mut index_polynomial = coefficient.numerator;
+            let index_terms = index_polynomial.nterms();
+            let mut index_exponents_before_transport = Vec::new();
+            index_exponents_before_transport
+                .try_reserve_exact(index_polynomial.exponents.len())
+                .map_err(|_| {
+                    ParametricCoefficientError::Symbolica(
+                        "RustRed could not allocate parameter-identity transport audit".to_owned(),
+                    )
+                })?;
+            index_exponents_before_transport.extend_from_slice(&index_polynomial.exponents);
+            let mut coefficients_before_transport = Vec::new();
+            coefficients_before_transport
+                .try_reserve_exact(index_polynomial.coefficients.len())
+                .map_err(|_| {
+                    ParametricCoefficientError::Symbolica(
+                        "RustRed could not allocate parameter-identity coefficient transport audit"
+                            .to_owned(),
+                    )
+                })?;
+            coefficients_before_transport.extend(index_polynomial.coefficients.iter().cloned());
+
+            // The zero template pins the exact full `[theta,n]` order.  The
+            // public Symbolica unifier performs all variable transport; the
+            // following checks authenticate that it inserted zero base
+            // exponents and preserved every index exponent and integer
+            // coefficient exactly.
+            let mut full_map_template = self.template.numerator.zero();
+            full_map_template.unify_variables(&mut index_polynomial);
+            if index_polynomial.variables.as_ref() != self.variables.as_ref()
+                || index_polynomial.ring != Z
+                || index_polynomial.nterms() != index_terms
+                || index_polynomial.coefficients != coefficients_before_transport
+                || index_polynomial.exponents.len()
+                    != index_terms
+                        .checked_mul(self.variables.len())
+                        .ok_or_else(malformed)?
+            {
+                return Err(malformed());
+            }
+            for term in 0..index_terms {
+                let full_start = term
+                    .checked_mul(self.variables.len())
+                    .ok_or_else(malformed)?;
+                let index_start = term.checked_mul(index_count).ok_or_else(malformed)?;
+                let full = index_polynomial
+                    .exponents
+                    .get(full_start..full_start + self.variables.len())
+                    .ok_or_else(malformed)?;
+                let before = index_exponents_before_transport
+                    .get(index_start..index_start + index_count)
+                    .ok_or_else(malformed)?;
+                if full[..physical_parameter_count]
+                    .iter()
+                    .any(|exponent| *exponent != 0)
+                    || &full[physical_parameter_count..] != before
+                {
+                    return Err(malformed());
+                }
+            }
+            let polynomial = ParametricPolynomial {
+                raw: index_polynomial,
+                context: self.fingerprint.clone(),
+            };
+            coefficient_loci.push(ParametricParameterIdentityCoefficientLocus {
+                physical_parameter_exponents: physical_exponents.into_boxed_slice(),
+                polynomial,
+            });
+        }
+        if coefficient_loci.len() > stats.conditional_locus_bound {
+            return Err(malformed());
+        }
+        stats.conditional_loci = coefficient_loci.len();
+        Ok(ParametricParameterIdentityProjection {
+            class: ParametricParameterIdentityClass::Conditional { coefficient_loci },
+            stats,
+        })
     }
 
     /// Prove the two polynomial zero loci equal up to a unit of the formal
@@ -12658,6 +13666,425 @@ mod tests {
     fn residual_affine_test_context(scope: &str) -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(&CoefficientContext::new(["d", "m2"]), scope, 3)
             .unwrap()
+    }
+
+    fn parameter_identity_test_context(
+        parameters: &[&str],
+        scope: &str,
+        index_count: usize,
+    ) -> ParametricCoefficientContext {
+        ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(parameters.iter().copied()),
+            scope,
+            index_count,
+        )
+        .unwrap()
+    }
+
+    fn lifted_parameter(
+        context: &ParametricCoefficientContext,
+        position: usize,
+    ) -> ParametricCoefficient {
+        context
+            .lift(&context.base().parameter_at(position))
+            .unwrap()
+    }
+
+    fn parameter_identity_source(
+        context: &ParametricCoefficientContext,
+        value: &ParametricCoefficient,
+    ) -> ParametricPolynomial {
+        context.numerator_condition(value).unwrap()
+    }
+
+    fn exact_parameter_identity_limits(
+        stats: ParametricParameterIdentityProjectionStats,
+    ) -> ParametricParameterIdentityProjectionLimits {
+        ParametricParameterIdentityProjectionLimits {
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_context_fingerprint_comparison_bytes: stats.context_fingerprint_comparison_bytes(),
+            max_variable_map_entry_comparisons: stats.variable_map_entry_comparisons(),
+            max_source_terms: stats.source_terms(),
+            max_source_exponent_entries: stats.source_exponent_entries(),
+            max_source_integer_bits: stats.source_integer_bits(),
+            max_source_integer_capacity_bytes: stats.source_integer_capacity_bytes(),
+            max_projection_variable_mask_comparison_bound: stats
+                .projection_variable_mask_comparison_bound(),
+            max_projection_hash_key_exponent_entry_bound: stats
+                .projection_hash_key_exponent_entry_bound(),
+            max_native_projection_grouping_workspace_byte_envelope: stats
+                .native_projection_grouping_workspace_byte_envelope(),
+            max_projected_physical_monomial_bound: stats.projected_physical_monomial_bound(),
+            max_projected_outer_exponent_entry_bound: stats.projected_outer_exponent_entry_bound(),
+            max_projected_coefficient_exponent_entry_bound: stats
+                .projected_coefficient_exponent_entry_bound(),
+            max_variable_unification_exponent_entry_bound: stats
+                .variable_unification_exponent_entry_bound(),
+            max_conditional_locus_bound: stats.conditional_locus_bound(),
+            max_retained_physical_exponent_entry_bound: stats
+                .retained_physical_exponent_entry_bound(),
+            max_retained_locus_term_bound: stats.retained_locus_term_bound(),
+            max_retained_locus_exponent_entry_bound: stats.retained_locus_exponent_entry_bound(),
+            max_retained_locus_integer_bit_bound: stats.retained_locus_integer_bit_bound(),
+            max_transport_coefficient_comparison_term_bound: stats
+                .transport_coefficient_comparison_term_bound(),
+            max_retained_output_byte_bound: stats.retained_output_byte_bound(),
+            max_rustred_visible_temporary_byte_envelope: stats
+                .rustred_visible_temporary_byte_envelope(),
+        }
+    }
+
+    #[test]
+    fn parameter_identity_projection_discharges_integer_and_parameter_units() {
+        let context =
+            parameter_identity_test_context(&["d"], "parameter-identity-unit-discharge", 1);
+        let one = parameter_identity_source(&context, &context.one());
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &one,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let ParametricParameterIdentityClass::NeverIdentityZero {
+            constant_coefficient_physical_parameter_exponents,
+        } = projected.class()
+        else {
+            panic!("the constant polynomial 1 must never vanish identically")
+        };
+        assert_eq!(
+            constant_coefficient_physical_parameter_exponents.as_ref(),
+            &[0]
+        );
+
+        let d = lifted_parameter(&context, 0);
+        let n = context.index(0).unwrap();
+        let d_plus_n = context.add(&d, &n).unwrap();
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &parameter_identity_source(&context, &d_plus_n),
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let ParametricParameterIdentityClass::NeverIdentityZero {
+            constant_coefficient_physical_parameter_exponents,
+        } = projected.class()
+        else {
+            panic!("d+n has the unit physical coefficient 1")
+        };
+        assert_eq!(
+            constant_coefficient_physical_parameter_exponents.as_ref(),
+            &[1]
+        );
+
+        let d_minus_four = context.sub(&d, &context.integer(4)).unwrap();
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &parameter_identity_source(&context, &d_minus_four),
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        assert!(matches!(
+            projected.class(),
+            ParametricParameterIdentityClass::NeverIdentityZero { .. }
+        ));
+    }
+
+    #[test]
+    fn parameter_identity_projection_retains_full_n_times_n_plus_d_conjunction() {
+        let context =
+            parameter_identity_test_context(&["d"], "parameter-identity-parametric-conjunction", 1);
+        let d = lifted_parameter(&context, 0);
+        let n = context.index(0).unwrap();
+        let n_times_n_plus_d = context.mul(&n, &context.add(&n, &d).unwrap()).unwrap();
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &parameter_identity_source(&context, &n_times_n_plus_d),
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let loci = projected.class().coefficient_loci().unwrap();
+        assert_eq!(loci.len(), 2);
+        assert_eq!(loci[0].physical_parameter_exponents(), &[0]);
+        assert_eq!(loci[1].physical_parameter_exponents(), &[1]);
+        let n_squared = context.mul(&n, &n).unwrap();
+        assert_eq!(
+            loci[0].polynomial(),
+            &parameter_identity_source(&context, &n_squared)
+        );
+        assert_eq!(
+            loci[1].polynomial(),
+            &parameter_identity_source(&context, &n)
+        );
+        assert!(
+            loci.iter()
+                .all(|locus| context.contains_polynomial(locus.polynomial()))
+        );
+        assert_eq!(projected.stats().projected_physical_monomials(), 2);
+        assert_eq!(projected.stats().conditional_loci(), 2);
+    }
+
+    #[test]
+    fn parameter_identity_projection_has_deterministic_arbitrary_width_order() {
+        let context =
+            parameter_identity_test_context(&["a", "b", "c"], "parameter-identity-wide-order", 2);
+        let a = lifted_parameter(&context, 0);
+        let b = lifted_parameter(&context, 1);
+        let c = lifted_parameter(&context, 2);
+        let n0 = context.index(0).unwrap();
+        let n1 = context.index(1).unwrap();
+        let n0_squared = context.mul(&n0, &n0).unwrap();
+        let c_n0_n1 = context.mul(&c, &context.mul(&n0, &n1).unwrap()).unwrap();
+        let b_n1 = context.mul(&b, &n1).unwrap();
+        let a_n0 = context.mul(&a, &n0).unwrap();
+        let value = context
+            .add(
+                &context
+                    .add(&context.add(&n0_squared, &c_n0_n1).unwrap(), &b_n1)
+                    .unwrap(),
+                &a_n0,
+            )
+            .unwrap();
+        let source = parameter_identity_source(&context, &value);
+        let first = context
+            .project_parameter_identity_with_limits(
+                &source,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let second = context
+            .project_parameter_identity_with_limits(
+                &source,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(first, second);
+        let loci = first.class().coefficient_loci().unwrap();
+        assert_eq!(loci.len(), 4);
+        assert_eq!(
+            loci.iter()
+                .map(|locus| locus.physical_parameter_exponents())
+                .collect::<Vec<_>>(),
+            vec![&[0, 0, 0][..], &[0, 0, 1], &[0, 1, 0], &[1, 0, 0]]
+        );
+    }
+
+    #[test]
+    fn parameter_identity_projection_empty_base_has_one_dummy_atom() {
+        let context =
+            parameter_identity_test_context(&[], "parameter-identity-empty-physical-base", 1);
+        let n = context.index(0).unwrap();
+        let n_minus_three = context.sub(&n, &context.integer(3)).unwrap();
+        let source = parameter_identity_source(&context, &n_minus_three);
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &source,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let loci = projected.class().coefficient_loci().unwrap();
+        assert_eq!(loci.len(), 1);
+        assert!(loci[0].physical_parameter_exponents().is_empty());
+        assert_eq!(loci[0].polynomial(), &source);
+
+        let one = parameter_identity_source(&context, &context.one());
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &one,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        let ParametricParameterIdentityClass::NeverIdentityZero {
+            constant_coefficient_physical_parameter_exponents,
+        } = projected.class()
+        else {
+            panic!("the empty-base constant 1 must discharge the sole dummy atom")
+        };
+        assert!(constant_coefficient_physical_parameter_exponents.is_empty());
+    }
+
+    #[test]
+    fn parameter_identity_projection_zero_wrong_context_and_panic_are_typed() {
+        let context =
+            parameter_identity_test_context(&["d"], "parameter-identity-boundary-primary", 1);
+        let foreign =
+            parameter_identity_test_context(&["d"], "parameter-identity-boundary-foreign", 1);
+        let zero = parameter_identity_source(&context, &context.integer(0));
+        let projected = context
+            .project_parameter_identity_with_limits(
+                &zero,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        assert!(matches!(
+            projected.class(),
+            ParametricParameterIdentityClass::AlwaysIdentityZero
+        ));
+        assert_eq!(projected.stats().projected_physical_monomials(), 0);
+
+        assert!(matches!(
+            foreign.prepare_parameter_identity_projection(
+                &zero,
+                ParametricParameterIdentityProjectionLimits::default(),
+            ),
+            Err(ParametricCoefficientError::WrongContext)
+        ));
+
+        let n = context.index(0).unwrap();
+        let source = parameter_identity_source(&context, &n);
+        let prepared = context
+            .prepare_parameter_identity_projection(
+                &source,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap();
+        inject_parameter_identity_native_boundary_panic_for_test();
+        assert_eq!(
+            prepared.execute().unwrap_err(),
+            ParametricCoefficientError::Symbolica(
+                "Symbolica panicked during physical-parameter identity projection".to_owned()
+            )
+        );
+        assert!(
+            context
+                .project_parameter_identity_with_limits(
+                    &source,
+                    ParametricParameterIdentityProjectionLimits::default(),
+                )
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn parameter_identity_projection_accepts_exact_and_rejects_every_one_below_limit() {
+        let context =
+            parameter_identity_test_context(&["a", "b", "c"], "parameter-identity-exact-limits", 2);
+        let a = lifted_parameter(&context, 0);
+        let b = lifted_parameter(&context, 1);
+        let c = lifted_parameter(&context, 2);
+        let n0 = context.index(0).unwrap();
+        let n1 = context.index(1).unwrap();
+        let value = context
+            .add(
+                &context.mul(&a, &n0).unwrap(),
+                &context
+                    .add(
+                        &context.mul(&b, &n1).unwrap(),
+                        &context
+                            .add(
+                                &context.mul(&c, &context.mul(&n0, &n1).unwrap()).unwrap(),
+                                &context.mul(&n0, &n0).unwrap(),
+                            )
+                            .unwrap(),
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+        let source = parameter_identity_source(&context, &value);
+        let stats = context
+            .prepare_parameter_identity_projection(
+                &source,
+                ParametricParameterIdentityProjectionLimits::default(),
+            )
+            .unwrap()
+            .stats();
+        let exact = exact_parameter_identity_limits(stats);
+        context
+            .prepare_parameter_identity_projection(&source, exact)
+            .unwrap()
+            .execute()
+            .unwrap();
+
+        macro_rules! reject_one_below {
+            ($field:ident, $requested:expr) => {{
+                let requested = $requested;
+                assert!(requested > 0, stringify!($field));
+                let mut one_below = exact;
+                one_below.$field = requested - 1;
+                match context.prepare_parameter_identity_projection(&source, one_below) {
+                    Err(ParametricCoefficientError::ResourceLimit {
+                        requested: actual,
+                        limit,
+                        ..
+                    }) => {
+                        assert_eq!(actual, requested, stringify!($field));
+                        assert_eq!(limit, requested - 1, stringify!($field));
+                    }
+                    _ => panic!("{} unexpectedly accepted one below", stringify!($field)),
+                }
+            }};
+        }
+        reject_one_below!(
+            max_context_fingerprint_comparison_bytes,
+            stats.context_fingerprint_comparison_bytes()
+        );
+        reject_one_below!(
+            max_variable_map_entry_comparisons,
+            stats.variable_map_entry_comparisons()
+        );
+        reject_one_below!(max_source_terms, stats.source_terms());
+        reject_one_below!(max_source_exponent_entries, stats.source_exponent_entries());
+        reject_one_below!(max_source_integer_bits, stats.source_integer_bits());
+        reject_one_below!(
+            max_source_integer_capacity_bytes,
+            stats.source_integer_capacity_bytes()
+        );
+        reject_one_below!(
+            max_projection_variable_mask_comparison_bound,
+            stats.projection_variable_mask_comparison_bound()
+        );
+        reject_one_below!(
+            max_projection_hash_key_exponent_entry_bound,
+            stats.projection_hash_key_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_native_projection_grouping_workspace_byte_envelope,
+            stats.native_projection_grouping_workspace_byte_envelope()
+        );
+        reject_one_below!(
+            max_projected_physical_monomial_bound,
+            stats.projected_physical_monomial_bound()
+        );
+        reject_one_below!(
+            max_projected_outer_exponent_entry_bound,
+            stats.projected_outer_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_projected_coefficient_exponent_entry_bound,
+            stats.projected_coefficient_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_variable_unification_exponent_entry_bound,
+            stats.variable_unification_exponent_entry_bound()
+        );
+        reject_one_below!(max_conditional_locus_bound, stats.conditional_locus_bound());
+        reject_one_below!(
+            max_retained_physical_exponent_entry_bound,
+            stats.retained_physical_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_retained_locus_term_bound,
+            stats.retained_locus_term_bound()
+        );
+        reject_one_below!(
+            max_retained_locus_exponent_entry_bound,
+            stats.retained_locus_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_retained_locus_integer_bit_bound,
+            stats.retained_locus_integer_bit_bound()
+        );
+        reject_one_below!(
+            max_transport_coefficient_comparison_term_bound,
+            stats.transport_coefficient_comparison_term_bound()
+        );
+        reject_one_below!(
+            max_retained_output_byte_bound,
+            stats.retained_output_byte_bound()
+        );
+        reject_one_below!(
+            max_rustred_visible_temporary_byte_envelope,
+            stats.rustred_visible_temporary_byte_envelope()
+        );
     }
 
     #[test]

@@ -8,8 +8,10 @@ normalized-source V2 ordering-policy binding, and the K21 evidence were pushed
 at checkpoint `c593865`; the current checkpoint carries the
 allocation-independent Direct identity through ordering V3, physical frame V2,
 solve-plan V2, and source-profiled exact-session Ready analysis without a fake
-inventory. `WhenBad` condition compilation and publication remain next;
-updated 2026-08-25.
+inventory. A non-publishing owner-bound Ready condition plan and a
+Symbolica-backed physical-parameter identity projector are now implemented;
+mapped condition composition, boundary specialization, relative partitioning,
+and publication remain next; updated 2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -85,6 +87,18 @@ The current-lineage components below are implemented and tested:
   hazard intervals as Symbolica `Integer` data. Its `ReadyForConditions` result
   is an unpublished, target-preserving typestate; condition specialization and
   publication remain part of the active phase.
+- `src/generated_affine_residual_group_exact_when_bad_conditions.rs` consumes
+  that typestate only into a recoverable, non-Clone condition plan. It
+  authenticates identity or compact-affine target geometry and retains a
+  deterministic schedule of target premises, recentered row guards, the pivot
+  and descending RHS coefficients, plus fixed-width lazy hazard locators. It
+  neither materializes a condition nor consumes a target or publishes a rule.
+- `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
+  physical-parameter identity projector. It projects through
+  `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
+  with Symbolica variable unification, and classifies coefficients as always
+  identity-zero, never identity-zero, or conditional without assuming a fixed
+  number of indices or parameters.
 
 Focused tests cover exact Ready translation, NoTarget beyond `i64`, a 4,096-bit
 coordinate, post-top-reduction leader selection, transaction return after
@@ -204,19 +218,26 @@ natural constrained production regression has six RHS terms and replays all
 six descent witnesses; an additional test preserves the comparison under a
 4096-bit common free-coordinate translation. Independent licensed default-GMP
 run `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests with four
-workers, and `cargo check --tests -j4` passed. The next seam is `WhenBad`
-closure and publication. It must not reconstruct V4, V5, the live-leaf queue,
-or Boolean/DPLL certificates. No Direct input has produced a published guarded
-rule or reduced a physical topology, and the successful `K=21` cursor fixture
-still has not reached Ready or established six-loop support.
+workers, and `cargo check --tests -j4` passed. The condition-plan foundation
+subsequently passed 5/5 focused tests with four Nextest workers; the independent
+parameter-identity projector passed 6/6 focused tests with four Rust test
+threads. Independent combined run
+`f6c4a9e7-fcc1-4c48-ae3c-5f2c0d781e42` passed 22/22 tests with four Nextest
+workers, including affected Ready/session regressions. The next seam is mapped
+condition composition, exact boundary specialization, relative `WhenBad`
+partitioning, and publication. It must not reconstruct V4, V5, the live-leaf
+queue, or Boolean/DPLL certificates. No Direct input has produced a published
+guarded rule or reduced a physical topology, and the successful `K=21` cursor
+fixture still has not reached Ready or established six-loop support.
 
-Not yet implemented are the Ready-native condition transcript and relative
-partition, the terminal current-lineage exact `WhenBad` compiler,
-target-consuming rule publication, exceptional residual orchestration, or
-replayable current-lineage rule/residual handles. The current event ledger is
-a complete transcript only for its implemented non-publishing dispositions;
-its schema and replay must be extended with the future `WhenBad`, publication,
-and residual manifests. The mature `GeneratedResidualAffine...`
+Not yet implemented are the materialized mapped-condition transcript and
+relative partition, exact affine-boundary divisibility specialization, the
+terminal current-lineage exact `WhenBad` compiler, target-consuming rule
+publication, exceptional residual orchestration, or replayable current-lineage
+rule/residual handles. The current event ledger is a complete transcript only
+for its implemented non-publishing dispositions; its schema and replay must be
+extended with the future `WhenBad`, publication, and residual manifests. The
+mature `GeneratedResidualAffine...`
 implementation is an oracle, not production authority for these missing
 pieces. Full LiteRed parity, arbitrary one-loop pentagon reduction, and the
 high-throughput two- through six-loop vacuum milestones therefore remain
@@ -964,15 +985,21 @@ Implement in this order:
    fake inventory, while exact terminal/authority/frame/plan/catalog `Arc`
    ancestry remains a separate replay condition. Constrained production rows
    now enter Ready without sampling away their compact geometry. Focused and
-   independent licensed default-GMP tests are green. Next implement `WhenBad`
-   closure and publication. This has not reached reduction, publication, or
-   six-loop topology support;
+   independent licensed default-GMP tests are green. The owner-bound
+   identity/compact condition schedule and Symbolica physical-parameter
+   identity projection are also implemented. Next compose the scheduled
+   conditions, specialize boundaries, build the relative `WhenBad` partition,
+   and publish. This has not reached reduction, publication, or six-loop
+   topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
 7. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
-   selector-independent compact-affine geometry and fixed-chamber descent/lazy
-   hazards implemented; condition specialization and pullbacks active;
+   selector-independent compact-affine geometry, fixed-chamber descent/lazy
+   hazards, an owner-bound transform/source schedule, and physical-parameter
+   identity projection are implemented; coefficient/guard composition,
+   boundary divisibility, formula construction, relative partitioning, and
+   pullback remain pending;
 8. owning current-lineage exact `WhenBad` terminal compiler;
 9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
 10. extend the implemented chronological replay with durable rule/residual

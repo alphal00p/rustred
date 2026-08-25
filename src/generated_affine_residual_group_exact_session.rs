@@ -1145,6 +1145,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionReadyGeometryView<'aut
     group: GeneratedAffineResidualInventoryGroupSourceView<'authority>,
     locator: GeneratedAffineResidualGroupSolveTargetLocator,
     target_anchor: &'authority GeneratedAffineResidualGroupLatticeShift,
+    target_offset: &'authority [Integer],
 }
 
 impl<'authority> GeneratedAffineResidualGroupExactSessionReadyGeometryView<'authority> {
@@ -1174,6 +1175,14 @@ impl<'authority> GeneratedAffineResidualGroupExactSessionReadyGeometryView<'auth
     ) -> &'authority GeneratedAffineResidualGroupLatticeShift {
         self.target_anchor
     }
+
+    /// Exact affine translation `p - A p_F` retained by the sealed Ready
+    /// token.  The session authenticates the offset's complete GMP/retained
+    /// census immediately before minting this borrow; callers never
+    /// reconstruct it from an anchor or coefficient translation.
+    pub(crate) const fn target_offset(&self) -> &'authority [Integer] {
+        self.target_offset
+    }
 }
 
 impl fmt::Debug for GeneratedAffineResidualGroupExactSessionReadyGeometryView<'_> {
@@ -1185,6 +1194,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionReadyGeometryView<'_
             .field("free_position_count", &self.group.free_positions().len())
             .field("private_frame", &"<redacted>")
             .field("private_geometry", &"<redacted>")
+            .field("private_target_offset", &"<redacted>")
             .finish()
     }
 }
@@ -2848,6 +2858,10 @@ impl GeneratedAffineResidualGroupExactSession {
         let target_anchor = frame
             .anchor_offset(locator.inventory_position(), locator.case_ordinal())
             .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
+        ready
+            .target_offset
+            .authenticate_retained_census()
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
         if target_anchor.values().len() != ready.target_offset.values().len()
             || !target_anchor
                 .values()
@@ -2863,6 +2877,7 @@ impl GeneratedAffineResidualGroupExactSession {
             group,
             locator,
             target_anchor,
+            target_offset: ready.target_offset.values(),
         })
     }
 
@@ -4467,7 +4482,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::generated_affine_parametric_ordering::{
         GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
@@ -4508,6 +4523,7 @@ mod tests {
     };
     use crate::generated_affine_residual_group_ready_publication::{
         GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
+        GeneratedAffineResidualGroupReadyForConditions,
         GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
         GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
         GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
@@ -4935,6 +4951,88 @@ mod tests {
             plan,
             rows,
         }
+    }
+
+    /// Current-lineage production fixture shared only by sibling unit tests
+    /// that exercise the post-Ready typestate.  It contains no authored row:
+    /// every source is generated through the Direct residual pipeline above.
+    pub(crate) struct ExactConditionPlanTestFixture {
+        pub(crate) family: IntegralFamily,
+        pub(crate) context: ParametricCoefficientContext,
+        pub(crate) session: GeneratedAffineResidualGroupExactSession,
+        pub(crate) ready: GeneratedAffineResidualGroupReadyForConditions,
+    }
+
+    pub(crate) fn exact_condition_plan_test_fixture(
+        name: &str,
+        constrained_compact: bool,
+    ) -> ExactConditionPlanTestFixture {
+        let coverage = if constrained_compact {
+            DirectProductionCoverage::NonemptyAttemptResidual
+        } else {
+            DirectProductionCoverage::EmptyUncovered
+        };
+        let fixture = direct_production_fixture(name, coverage);
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            211,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        for row in &fixture.rows {
+            let transaction = session
+                .stage_replayed_row(&fixture.family, &fixture.context, row)
+                .unwrap();
+            let transaction = match session.classify_dependent(transaction) {
+                Ok(classified) => {
+                    session
+                        .commit_dependent(&fixture.family, &fixture.context, classified)
+                        .unwrap();
+                    continue;
+                }
+                Err(failure) => failure.into_transaction(),
+            };
+            match session
+                .recenter_staged_new_pivot(&fixture.family, &fixture.context, transaction)
+                .unwrap()
+            {
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) => {
+                    session = session
+                        .commit_no_target(&fixture.family, &fixture.context, no_target)
+                        .unwrap()
+                        .into_session();
+                }
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+                    _,
+                ) => panic!("condition-plan fixture unexpectedly requires equality refinement"),
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) => {
+                    let analyzed =
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            ready,
+                            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                        )
+                        .unwrap();
+                    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+                        ready,
+                    ) = analyzed
+                    else {
+                        panic!("condition-plan fixture Ready row failed exact descent")
+                    };
+                    return ExactConditionPlanTestFixture {
+                        family: fixture.family,
+                        context: fixture.context,
+                        session,
+                        ready,
+                    };
+                }
+            }
+        }
+        panic!("condition-plan fixture exhausted generated rows before exact Ready")
     }
 
     fn equality_refinement_plan_fixture(
