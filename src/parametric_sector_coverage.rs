@@ -832,6 +832,86 @@ impl FreshGeneratedWhenBadCompilation {
     }
 }
 
+/// Construction result whose attempts were produced directly by the fresh
+/// generated compiler and normalized without a redundant replay pass.
+///
+/// The fields remain private to this module. Callers may consume the result,
+/// but cannot manufacture the authority that allowed normalization to skip
+/// replaying the freshly produced attempts.
+pub(crate) struct FreshNormalizedCoverageSourceParts {
+    attempts: Vec<SectorCoverageCandidateAttempt>,
+    normalized: AuthenticatedNormalizedCoverage,
+}
+
+impl FreshNormalizedCoverageSourceParts {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Vec<SectorCoverageCandidateAttempt>,
+        AuthenticatedNormalizedCoverage,
+    ) {
+        (self.attempts, self.normalized)
+    }
+}
+
+/// Unforgeable borrowing authority for one exact attempt slice whose members
+/// have just been produced by, or fully compared with, compiler-fresh
+/// generated-source authentications under the supplied shared row span.
+struct FreshAuthenticatedAttemptBatch<'a> {
+    attempts: &'a [SectorCoverageCandidateAttempt],
+    row_span: &'a Arc<GeneratedSymbolicRowSpanCertificate>,
+    coverage_limits: ParametricSectorCoverageLimits,
+}
+
+impl<'a> FreshAuthenticatedAttemptBatch<'a> {
+    fn new(
+        attempts: &'a [SectorCoverageCandidateAttempt],
+        row_span: &'a Arc<GeneratedSymbolicRowSpanCertificate>,
+        coverage_limits: ParametricSectorCoverageLimits,
+    ) -> Self {
+        Self {
+            attempts,
+            row_span,
+            coverage_limits,
+        }
+    }
+}
+
+enum NormalizationAttemptBatch<'a> {
+    ReplayRequired {
+        attempts: &'a [SectorCoverageCandidateAttempt],
+        row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    },
+    Fresh(FreshAuthenticatedAttemptBatch<'a>),
+}
+
+impl<'a> NormalizationAttemptBatch<'a> {
+    fn attempts(&self) -> &'a [SectorCoverageCandidateAttempt] {
+        match self {
+            Self::ReplayRequired { attempts, .. } => attempts,
+            Self::Fresh(authority) => authority.attempts,
+        }
+    }
+
+    fn row_span(&self) -> &Arc<GeneratedSymbolicRowSpanCertificate> {
+        match self {
+            Self::ReplayRequired { row_span, .. } => row_span,
+            Self::Fresh(authority) => authority.row_span,
+        }
+    }
+
+    const fn requires_replay(&self) -> bool {
+        matches!(self, Self::ReplayRequired { .. })
+    }
+
+    const fn fresh_coverage_limits(&self) -> Option<ParametricSectorCoverageLimits> {
+        match self {
+            Self::ReplayRequired { .. } => None,
+            Self::Fresh(authority) => Some(authority.coverage_limits),
+        }
+    }
+}
+
 impl ParametricSectorCoverageCompiler {
     /// Authenticate every raw elimination candidate against freshly generated
     /// IBP/LI identities, then compose the resulting domains.
@@ -1973,6 +2053,131 @@ impl AuthenticatedWhenBadFormula for crate::GeneratedCylindricalWhenBadCertifica
     }
 }
 
+/// Freshly rebind arbitrary persisted compilations onto one exact shared row
+/// span, compare their complete payloads, and normalize the compiler-fresh
+/// outputs without replaying those outputs a second time.
+///
+/// The only no-replay authority is the private wrapper returned directly by
+/// `FreshGeneratedWhenBadCompilation::compile_with_replayed_row_span` in this
+/// function. Raw or persisted compilations cannot enter the fresh branch.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn normalize_freshly_rebound_compilations_with_replayed_row_span(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    compilations: Vec<GeneratedWhenBadCompilation>,
+    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    coverage_limits: ParametricSectorCoverageLimits,
+    normalization_limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<FreshNormalizedCoverageSourceParts, ParametricSectorCoverageError> {
+    preflight_formula_normalization_scope(
+        family,
+        context,
+        sector,
+        compilations.len(),
+        coverage_limits,
+        normalization_limits,
+    )?;
+    validate_row_span_binding(family, context, &row_span, coverage_limits)?;
+    preflight_generated_compilation_batch(family, context, sector, &compilations, &row_span)?;
+    preflight_compilation_source_census(&compilations, coverage_limits)?;
+
+    let mut attempts = Vec::new();
+    try_reserve_exact(
+        "fresh normalized sector-coverage attempts",
+        &mut attempts,
+        compilations.len(),
+    )?;
+    for (ordinal, compilation) in compilations.into_iter().enumerate() {
+        let fresh = FreshGeneratedWhenBadCompilation::compile_with_replayed_row_span(
+            family,
+            context,
+            compilation.candidate(),
+            Arc::clone(&row_span),
+            coverage_limits.generated_when_bad,
+        )?;
+        if !compilation.payload_eq(&fresh.0) {
+            return Err(ParametricSectorCoverageError::ReplayMismatch);
+        }
+        attempts.push(SectorCoverageCandidateAttempt::from_compilation(
+            ordinal,
+            fresh.into_inner(),
+        ));
+    }
+    preflight_authenticated_attempt_batch(family, context, sector, &attempts, &row_span)?;
+    let normalized = normalize_attempt_batch_with_replayed_row_span(
+        family,
+        context,
+        sector,
+        NormalizationAttemptBatch::Fresh(FreshAuthenticatedAttemptBatch::new(
+            &attempts,
+            &row_span,
+            coverage_limits,
+        )),
+        coverage_limits,
+        normalization_limits,
+    )?;
+    Ok(FreshNormalizedCoverageSourceParts {
+        attempts,
+        normalized,
+    })
+}
+
+/// Reauthenticate a persisted ordered attempt batch exactly once per member,
+/// compare every complete payload, and use the resulting borrowing authority
+/// to normalize the original immutable batch without a second replay.
+///
+/// Fresh compilations are compared and dropped one at a time, so replay uses
+/// O(1) candidate-owner scratch rather than retaining a duplicate batch.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn normalize_freshly_verified_attempts_with_replayed_row_span(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    attempts: &[SectorCoverageCandidateAttempt],
+    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    coverage_limits: ParametricSectorCoverageLimits,
+    normalization_limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<AuthenticatedNormalizedCoverage, ParametricSectorCoverageError> {
+    preflight_formula_normalization_scope(
+        family,
+        context,
+        sector,
+        attempts.len(),
+        coverage_limits,
+        normalization_limits,
+    )?;
+    validate_row_span_binding(family, context, &row_span, coverage_limits)?;
+    preflight_authenticated_attempt_batch(family, context, sector, attempts, &row_span)?;
+    preflight_attempt_source_census(attempts, coverage_limits)?;
+
+    for attempt in attempts {
+        let fresh = FreshGeneratedWhenBadCompilation::compile_with_replayed_row_span(
+            family,
+            context,
+            attempt.compilation().candidate(),
+            Arc::clone(&row_span),
+            coverage_limits.generated_when_bad,
+        )?;
+        if !attempt.compilation().payload_eq(&fresh.0) {
+            return Err(ParametricSectorCoverageError::ReplayMismatch);
+        }
+    }
+
+    normalize_attempt_batch_with_replayed_row_span(
+        family,
+        context,
+        sector,
+        NormalizationAttemptBatch::Fresh(FreshAuthenticatedAttemptBatch::new(
+            attempts,
+            &row_span,
+            coverage_limits,
+        )),
+        coverage_limits,
+        normalization_limits,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn normalize_authenticated_attempts(
     family: &IntegralFamily,
@@ -2023,9 +2228,37 @@ pub(crate) fn normalize_authenticated_attempts_with_replayed_row_span(
     sector: &SectorMask,
     attempts: &[SectorCoverageCandidateAttempt],
     row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
+    coverage_limits: ParametricSectorCoverageLimits,
+    normalization_limits: ParametricSectorFormulaNormalizationLimits,
+) -> Result<AuthenticatedNormalizedCoverage, ParametricSectorCoverageError> {
+    normalize_attempt_batch_with_replayed_row_span(
+        family,
+        context,
+        sector,
+        NormalizationAttemptBatch::ReplayRequired { attempts, row_span },
+        coverage_limits,
+        normalization_limits,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn normalize_attempt_batch_with_replayed_row_span(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    batch: NormalizationAttemptBatch<'_>,
     mut coverage_limits: ParametricSectorCoverageLimits,
     normalization_limits: ParametricSectorFormulaNormalizationLimits,
 ) -> Result<AuthenticatedNormalizedCoverage, ParametricSectorCoverageError> {
+    let attempts = batch.attempts();
+    let row_span = Arc::clone(batch.row_span());
+    let replay_attempts = batch.requires_replay();
+    if batch
+        .fresh_coverage_limits()
+        .is_some_and(|fresh_limits| fresh_limits != coverage_limits)
+    {
+        return Err(ParametricSectorCoverageError::ReplayMismatch);
+    }
     preflight_formula_normalization_scope(
         family,
         context,
@@ -2036,19 +2269,11 @@ pub(crate) fn normalize_authenticated_attempts_with_replayed_row_span(
     )?;
     validate_row_span_binding(family, context, &row_span, coverage_limits)?;
     preflight_authenticated_attempt_batch(family, context, sector, attempts, &row_span)?;
-    let mut source_census = ParametricSectorCoverageStats {
-        shared_row_span_certificates: 1,
-        shared_row_span_candidate_reuses: attempts.len(),
-        candidates: attempts.len(),
-        ..ParametricSectorCoverageStats::default()
-    };
-    for attempt in attempts {
-        charge_formula_normalization_source_census(
-            &attempt.compilation,
-            &mut source_census,
-            coverage_limits,
-        )?;
-    }
+    let source_census = formula_normalization_source_census(
+        attempts.iter().map(|attempt| attempt.compilation()),
+        attempts.len(),
+        coverage_limits,
+    )?;
     let persisted_coverage_limits = coverage_limits;
     let family_fingerprint = try_copy_boxed_str(
         &family.fingerprint(),
@@ -2107,9 +2332,13 @@ pub(crate) fn normalize_authenticated_attempts_with_replayed_row_span(
     };
 
     for attempt in attempts {
-        attempt
-            .compilation
-            .replay_with_replayed_row_span(family, context, row_span.clone())?;
+        if replay_attempts {
+            attempt.compilation.replay_with_replayed_row_span(
+                family,
+                context,
+                Arc::clone(&row_span),
+            )?;
+        }
         match &attempt.compilation {
             GeneratedWhenBadCompilation::Unsupported(_) => {
                 algebra_stats.unsupported_candidates = checked_add(
@@ -2175,6 +2404,70 @@ pub(crate) fn normalize_authenticated_attempts_with_replayed_row_span(
         normalization_limits,
         normalization_stats: stats,
     })
+}
+
+fn preflight_generated_compilation_batch(
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    sector: &SectorMask,
+    compilations: &[GeneratedWhenBadCompilation],
+    row_span: &Arc<GeneratedSymbolicRowSpanCertificate>,
+) -> Result<(), ParametricSectorCoverageError> {
+    for (ordinal, compilation) in compilations.iter().enumerate() {
+        let candidate = compilation.candidate();
+        if candidate.family_fingerprint() != family.fingerprint() {
+            return Err(ParametricSectorCoverageError::CandidateWrongFamily { ordinal });
+        }
+        if candidate.context_fingerprint() != context.fingerprint() {
+            return Err(ParametricSectorCoverageError::CandidateWrongContext { ordinal });
+        }
+        if candidate.sector() != sector {
+            return Err(ParametricSectorCoverageError::CandidateWrongSector { ordinal });
+        }
+        let compilation_row_span = compilation.source_authentication().row_span_arc();
+        if !Arc::ptr_eq(compilation_row_span, row_span)
+            && !compilation_row_span.payload_eq(row_span)
+        {
+            return Err(ParametricSectorCoverageError::SharedRowSpanCertificateMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn preflight_compilation_source_census(
+    compilations: &[GeneratedWhenBadCompilation],
+    limits: ParametricSectorCoverageLimits,
+) -> Result<(), ParametricSectorCoverageError> {
+    formula_normalization_source_census(compilations.iter(), compilations.len(), limits).map(|_| ())
+}
+
+fn preflight_attempt_source_census(
+    attempts: &[SectorCoverageCandidateAttempt],
+    limits: ParametricSectorCoverageLimits,
+) -> Result<(), ParametricSectorCoverageError> {
+    formula_normalization_source_census(
+        attempts.iter().map(|attempt| attempt.compilation()),
+        attempts.len(),
+        limits,
+    )
+    .map(|_| ())
+}
+
+fn formula_normalization_source_census<'a>(
+    compilations: impl IntoIterator<Item = &'a GeneratedWhenBadCompilation>,
+    compilation_count: usize,
+    limits: ParametricSectorCoverageLimits,
+) -> Result<ParametricSectorCoverageStats, ParametricSectorCoverageError> {
+    let mut source_census = ParametricSectorCoverageStats {
+        shared_row_span_certificates: 1,
+        shared_row_span_candidate_reuses: compilation_count,
+        candidates: compilation_count,
+        ..ParametricSectorCoverageStats::default()
+    };
+    for compilation in compilations {
+        charge_formula_normalization_source_census(compilation, &mut source_census, limits)?;
+    }
+    Ok(source_census)
 }
 
 fn preflight_authenticated_attempt_batch(

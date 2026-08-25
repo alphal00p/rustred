@@ -15,12 +15,13 @@ use crate::parametric_sector_coverage::{
     ParametricSectorCoverageStats, ParametricSectorFormulaNormalizationLimits,
     ParametricSectorFormulaNormalizationStats, SectorCoverageCandidateAttempt,
     charge_formula_normalization_source_census,
-    normalize_authenticated_attempts_with_replayed_row_span, preflight_formula_normalization_scope,
-    validate_row_span_binding,
+    normalize_freshly_rebound_compilations_with_replayed_row_span,
+    normalize_freshly_verified_attempts_with_replayed_row_span,
+    preflight_formula_normalization_scope, validate_row_span_binding,
 };
 use crate::{
     GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
-    GeneratedSymbolicRowSpanError, GeneratedWhenBadCompiler, GeneratedWhenBadError, IntegralFamily,
+    GeneratedSymbolicRowSpanError, GeneratedWhenBadError, IntegralFamily,
     ParametricCoefficientContext, SectorMask,
 };
 
@@ -225,25 +226,11 @@ impl ParametricSectorNormalizedCoverageSource {
         )?;
         self.row_span.replay(family, context)?;
 
-        // Rebind every retained candidate under the owner's persisted source
-        // limits. Replaying a stored compilation under its own embedded
-        // limits is insufficient: a payload produced with a different
-        // non-row-span limit can otherwise normalize identically. The
-        // fresh result is compared and dropped one candidate at a time, so
-        // replay does not retain a second source-sized owner.
-        for attempt in &self.attempts {
-            let fresh = GeneratedWhenBadCompiler::compile_with_replayed_row_span(
-                family,
-                context,
-                attempt.compilation().candidate(),
-                Arc::clone(&self.row_span),
-                self.limits.coverage.generated_when_bad,
-            )?;
-            if !attempt.compilation().payload_eq(&fresh) {
-                return Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch);
-            }
-        }
-        let normalized = normalize_authenticated_attempts_with_replayed_row_span(
+        // The coverage-owned seam freshly authenticates and full-compares one
+        // stored candidate at a time. Only after every comparison succeeds
+        // does its private borrowing authority permit normalization to skip a
+        // redundant second replay. No duplicate source-sized owner is kept.
+        let normalized = normalize_freshly_verified_attempts_with_replayed_row_span(
             family,
             context,
             &self.sector,
@@ -251,7 +238,8 @@ impl ParametricSectorNormalizedCoverageSource {
             Arc::clone(&self.row_span),
             self.limits.coverage,
             self.limits.normalization,
-        )?;
+        )
+        .map_err(map_fresh_normalization_error)?;
         if normalized == self.normalized
             && normalized.coverage_stats() == self.stats.coverage
             && normalized.normalization_stats() == self.stats.normalization
@@ -409,57 +397,34 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
         preflight_aggregate_source_census(compilations.iter(), limits.coverage)?;
         row_span.replay(family, context)?;
 
-        let mut attempts = Vec::new();
-        attempts
-            .try_reserve_exact(compilations.len())
-            .map_err(
-                |_| ParametricSectorNormalizedCoverageSourceError::AllocationFailure {
-                    resource: "normalized sector-coverage source attempts",
-                    requested: compilations.len(),
-                },
-            )?;
-        for (ordinal, compilation) in compilations.into_iter().enumerate() {
-            compilation.replay_with_replayed_row_span(family, context, row_span.clone())?;
-            let fresh = GeneratedWhenBadCompiler::compile_with_replayed_row_span(
-                family,
-                context,
-                compilation.candidate(),
-                row_span.clone(),
-                limits.coverage.generated_when_bad,
-            )?;
-            if !compilation.payload_eq(&fresh) {
-                return Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch);
-            }
-            attempts.push(SectorCoverageCandidateAttempt::from_compilation(
-                ordinal, fresh,
-            ));
-        }
-
-        Self::compile_attempts_with_replayed_row_span(
-            family, context, sector, attempts, row_span, limits,
+        let fresh_parts = normalize_freshly_rebound_compilations_with_replayed_row_span(
+            family,
+            context,
+            &sector,
+            compilations,
+            Arc::clone(&row_span),
+            limits.coverage,
+            limits.normalization,
+        )
+        .map_err(map_fresh_normalization_error)?;
+        let (attempts, normalized) = fresh_parts.into_parts();
+        Self::finish_source(
+            family, context, sector, attempts, normalized, row_span, limits,
         )
     }
 
-    fn compile_attempts_with_replayed_row_span(
+    fn finish_source(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         sector: SectorMask,
         attempts: Vec<SectorCoverageCandidateAttempt>,
+        normalized: AuthenticatedNormalizedCoverage,
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
         limits: ParametricSectorNormalizedCoverageSourceLimits,
     ) -> Result<
         ParametricSectorNormalizedCoverageSource,
         ParametricSectorNormalizedCoverageSourceError,
     > {
-        let normalized = normalize_authenticated_attempts_with_replayed_row_span(
-            family,
-            context,
-            &sector,
-            &attempts,
-            row_span.clone(),
-            limits.coverage,
-            limits.normalization,
-        )?;
         let family_fingerprint_value = family.fingerprint();
         let family_fingerprint = try_copy_string(
             &family_fingerprint_value,
@@ -484,6 +449,24 @@ impl ParametricSectorNormalizedCoverageSourceCompiler {
             limits,
             stats,
         })
+    }
+}
+
+fn map_fresh_normalization_error(
+    error: ParametricSectorCoverageError,
+) -> ParametricSectorNormalizedCoverageSourceError {
+    match error {
+        ParametricSectorCoverageError::ReplayMismatch => {
+            ParametricSectorNormalizedCoverageSourceError::ReplayMismatch
+        }
+        ParametricSectorCoverageError::AllocationFailure {
+            resource,
+            requested,
+        } => ParametricSectorNormalizedCoverageSourceError::AllocationFailure {
+            resource,
+            requested,
+        },
+        error => ParametricSectorNormalizedCoverageSourceError::Coverage(error),
     }
 }
 
@@ -538,11 +521,15 @@ fn try_copy_string(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::generated_when_bad::{
+        replayed_row_span_authentication_calls, reset_replayed_row_span_authentication_calls,
+    };
+    use crate::parametric_sector_coverage::normalize_authenticated_attempts_with_replayed_row_span;
     use crate::parametric_sector_formula_ir::NormalizedCoverageAttempt;
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSymbolicRowSpanCompiler, IntegralOrderingPolicy,
-        ParametricIbpGenerator,
+        GeneratedSectorDiscoveryLimits, GeneratedSymbolicRowSpanCompiler, GeneratedWhenBadCompiler,
+        IntegralOrderingPolicy, ParametricIbpGenerator,
     };
 
     fn sunset_family(name: &str) -> IntegralFamily {
@@ -677,6 +664,81 @@ mod tests {
                 source.row_span_arc()
             ));
         }
+    }
+
+    #[test]
+    fn sealed_fresh_authority_authenticates_once_and_raw_batches_still_replay() {
+        let (family, context, sector, compilations) =
+            discovered("normalized-source-fresh-authority-sunset", "011");
+        let attempt_count = compilations.len();
+        assert!(attempt_count > 1);
+        let limits = ParametricSectorNormalizedCoverageSourceLimits::default();
+
+        reset_replayed_row_span_authentication_calls();
+        let mut source = ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+            &family,
+            &context,
+            sector,
+            compilations,
+            limits,
+        )
+        .unwrap();
+        assert_eq!(replayed_row_span_authentication_calls(), attempt_count);
+
+        reset_replayed_row_span_authentication_calls();
+        source.replay(&family, &context).unwrap();
+        assert_eq!(replayed_row_span_authentication_calls(), attempt_count);
+
+        // The ordinary raw-attempt normalization entry point has no fresh
+        // authority and must still take one full replay per attempt.
+        reset_replayed_row_span_authentication_calls();
+        let raw_replayed = normalize_authenticated_attempts_with_replayed_row_span(
+            &family,
+            &context,
+            source.sector(),
+            source.attempts(),
+            Arc::clone(source.row_span_arc()),
+            limits.coverage,
+            limits.normalization,
+        )
+        .unwrap();
+        assert_eq!(replayed_row_span_authentication_calls(), attempt_count);
+        assert_eq!(&raw_replayed, source.normalized());
+
+        // A payload authenticated under another non-row-span limit cannot
+        // acquire borrowing authority: replay freshly authenticates the first
+        // member and rejects before normalization can use the no-replay arm.
+        let mut alternate_limits = limits.coverage.generated_when_bad;
+        alternate_limits.max_retained_rows += 1;
+        let alternate = GeneratedWhenBadCompiler::compile_with_replayed_row_span(
+            &family,
+            &context,
+            source.attempts[0].compilation().candidate(),
+            Arc::clone(source.row_span_arc()),
+            alternate_limits,
+        )
+        .unwrap();
+        let original = source.attempts[0].clone();
+        source.attempts[0] = SectorCoverageCandidateAttempt::from_compilation(0, alternate);
+        reset_replayed_row_span_authentication_calls();
+        assert_eq!(
+            source.replay(&family, &context),
+            Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch)
+        );
+        assert_eq!(replayed_row_span_authentication_calls(), 1);
+        source.attempts[0] = original;
+
+        let original = source.attempts[0].clone();
+        let mut invalid_core = original.compilation().clone();
+        assert!(invalid_core.invalidate_unsupported_retained_core_bytes_for_test());
+        source.attempts[0] = SectorCoverageCandidateAttempt::from_compilation(0, invalid_core);
+        reset_replayed_row_span_authentication_calls();
+        assert_eq!(
+            source.replay(&family, &context),
+            Err(ParametricSectorNormalizedCoverageSourceError::ReplayMismatch)
+        );
+        assert_eq!(replayed_row_span_authentication_calls(), 1);
+        source.attempts[0] = original;
     }
 
     #[test]

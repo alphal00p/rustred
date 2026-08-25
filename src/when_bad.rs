@@ -744,6 +744,15 @@ impl WhenBadUnsupported {
         self.core.retained_core_bytes()
     }
 
+    pub(crate) fn payload_eq(&self, other: &Self) -> bool {
+        self.core.payload_eq(&other.core)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invalidate_retained_core_bytes_for_test(&mut self) {
+        self.core.retained_core_bytes = 0;
+    }
+
     pub fn replay(
         &self,
         context: &ParametricCoefficientContext,
@@ -945,7 +954,7 @@ impl WhenBadCertificate {
         self.core.classification_for_indices(context, indices)
     }
 
-    fn payload_eq(&self, other: &Self) -> bool {
+    pub(crate) fn payload_eq(&self, other: &Self) -> bool {
         self.core.payload_eq(&other.core)
     }
 }

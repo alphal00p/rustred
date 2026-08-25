@@ -17,6 +17,9 @@
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use crate::{
     GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
     GeneratedSymbolicRowSpanConfig, GeneratedSymbolicRowSpanError, GeneratedSymbolicRowSpanLineage,
@@ -33,6 +36,33 @@ pub const GENERATED_SOURCE_AUTHENTICATION_V2_SCHEMA: &str =
     "rustred-generated-source-authentication-v2";
 pub const GENERATED_WHEN_BAD_V1_SCHEMA: &str = "rustred-generated-when-bad-v1";
 pub const GENERATED_WHEN_BAD_V2_SCHEMA: &str = "rustred-generated-when-bad-v2";
+
+#[cfg(test)]
+thread_local! {
+    static REPLAYED_ROW_SPAN_AUTHENTICATION_CALLS: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_replayed_row_span_authentication_calls() {
+    REPLAYED_ROW_SPAN_AUTHENTICATION_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn replayed_row_span_authentication_calls() -> usize {
+    REPLAYED_ROW_SPAN_AUTHENTICATION_CALLS.with(Cell::get)
+}
+
+#[cfg(test)]
+fn note_replayed_row_span_authentication_call() {
+    REPLAYED_ROW_SPAN_AUTHENTICATION_CALLS.with(|calls| {
+        calls.set(
+            calls
+                .get()
+                .checked_add(1)
+                .expect("test authentication-call counter overflow"),
+        );
+    });
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GeneratedWhenBadSourceAuthentication {
@@ -415,6 +445,9 @@ impl GeneratedSourceAuthenticator {
         row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
         limits: GeneratedWhenBadLimits,
     ) -> Result<GeneratedSourceAuthenticationCertificate, GeneratedWhenBadError> {
+        #[cfg(test)]
+        note_replayed_row_span_authentication_call();
+
         if !limits.row_span.strategy.is_disabled()
             && limits.row_span.limits.transport.arithmetic != limits.ibp.arithmetic_limits
         {
@@ -816,34 +849,29 @@ impl GeneratedWhenBadCompilation {
     pub(crate) fn payload_eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Certified(left), Self::Certified(right)) => {
-                let left_admissibility = left.admissibility();
-                let right_admissibility = right.admissibility();
                 left.schema() == right.schema()
                     && left.source_authentication() == right.source_authentication()
-                    && left_admissibility.schema() == right_admissibility.schema()
-                    && left_admissibility.binding() == right_admissibility.binding()
-                    && left_admissibility.domain_conditions()
-                        == right_admissibility.domain_conditions()
-                    && left_admissibility
-                        .base_domain_guards()
-                        .eq(right_admissibility.base_domain_guards())
-                    && left_admissibility
-                        .index_domain_guards()
-                        .eq(right_admissibility.index_domain_guards())
-                    && left_admissibility.leak_events() == right_admissibility.leak_events()
-                    && left_admissibility.descent_witnesses()
-                        == right_admissibility.descent_witnesses()
-                    && left_admissibility.partition() == right_admissibility.partition()
-                    && left_admissibility.classifications() == right_admissibility.classifications()
-                    && left_admissibility.stats() == right_admissibility.stats()
+                    && left.admissibility().payload_eq(right.admissibility())
             }
             (Self::Unsupported(left), Self::Unsupported(right)) => {
                 left.schema() == right.schema()
                     && left.source_authentication() == right.source_authentication()
-                    && left.admissibility().binding() == right.admissibility().binding()
-                    && left.admissibility().reason() == right.admissibility().reason()
+                    && left.admissibility().payload_eq(right.admissibility())
             }
             _ => false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invalidate_unsupported_retained_core_bytes_for_test(&mut self) -> bool {
+        match self {
+            Self::Certified(_) => false,
+            Self::Unsupported(unsupported) => {
+                unsupported
+                    .admissibility
+                    .invalidate_retained_core_bytes_for_test();
+                true
+            }
         }
     }
 
