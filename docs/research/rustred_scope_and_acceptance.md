@@ -2,8 +2,8 @@
 
 Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
 on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
-on 2026-08-24. Implementation status was reconciled with pushed HEAD
-`03921b8` and the current independently validated worktree on 2026-08-25.
+on 2026-08-24. Implementation status was reconciled with pushed checkpoint
+`c593865` and the standalone direct-terminal checkpoint on 2026-08-25.
 
 ## Reading status
 
@@ -193,15 +193,17 @@ at three loops but does not claim a reusable three-loop parametric
 `SolvejSector` database.
 
 The topology-neutral normalized-source owner, sealed fresh-normalization seam,
-and bounded direct formula-residual cursor are implemented at pushed HEAD
-`03921b8`. The source owns and replays one exact row-span allocation, every
-ordered attempt, the normalized IR/locus table, and the original resource
-envelope. The direct cursor searches authenticated candidate bad-formulas with
-one three-valued assignment table and one resumable DFS frontier.
+bounded direct formula-residual cursor, one-pass sealed ingress/replay token,
+and normalized-source V2 ordering-policy binding are implemented at pushed
+checkpoint `c593865`. The source owns and replays one exact row-span
+allocation, every ordered attempt, the normalized IR/locus table, and the
+original resource envelope. The direct cursor searches authenticated candidate
+bad-formulas with one three-valued assignment table and one resumable DFS
+frontier.
 
-The current independently validated worktree adds a safe sealed replay token
-and a one-pass candidate-to-normalized-source ingress. It performs `N`
-construction authentications for `N` candidates instead of the legacy `2N`.
+That pushed checkpoint's one-pass candidate-to-normalized-source ingress
+performs `N` construction authentications for `N` candidates instead of the
+legacy `2N`.
 Focused run `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests, and
 independent affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed
 44/44. Honest all-36 `L=6`, `K=21` primary run
@@ -215,17 +217,18 @@ microseconds. The independent semantic oracle exhaustively checked all
 524,288 completions. Independent K21 rerun
 `e00cdbea-6312-4fb3-9856-0c2f3bf2ef25` also passed in 56.359 seconds.
 
-The same worktree advances the persisted authority to normalized-source V2.
-Every source now owns one explicit `IntegralOrderingPolicy`, including an
-empty-attempt source, and replay authenticates every present candidate's
-policy. Owner-focused run `8ad499a3-339e-4e0b-a04f-ccf754406516` passed
+The same pushed checkpoint advances the persisted authority to
+normalized-source V2. Every source now owns one explicit
+`IntegralOrderingPolicy`, including an empty-attempt source, and replay
+authenticates every present candidate's policy. Owner-focused run
+`8ad499a3-339e-4e0b-a04f-ccf754406516` passed
 21/21 tests, formula/residual run `6a5267d1-fe75-4854-8b98-9a03b1bb2370`
 passed 14/14, and independent audit/validation run
 `430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30. The policy-bound all-36
 `L=6`, `K=21` run `88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with
 36 construction authentications, the same 15 Certified/21 Unsupported
-semantics, and a 1.405-millisecond first-residual search. These are worktree
-results; public library and CLI integration remain pending.
+semantics, and a 1.405-millisecond first-residual search. These are pushed
+`c593865` results; public library and CLI integration remain pending.
 
 For comparison, the earlier two-stage run
 `e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935 seconds, spent 17.29 +
@@ -241,24 +244,29 @@ That bypass is a production requirement, not merely a performance preference.
 V4 remains a small-fixture differential oracle, and V5 remains an optional
 repeated-query classifier only when its separately measured construction
 budget is acceptable. The currently published generated-sector discovery
-entry still eagerly creates V4, but the new worktree ingress is the intended
+entry still eagerly creates V4, but the pushed one-pass ingress is the intended
 production source API ahead of that materialization and preserves exact
 binding/replay guarantees through its sealed token. Public library and CLI
 integration of that API remain pending.
 
-The immediate generic semantic slice is a direct-backed singleton affine
-inventory/adapter from `NormalizedSource` through `FormulaResidualPath` into
-the existing exact-session `ReadyForConditions` path. At the existing
-case-authority boundary it must replay the selected path and
-incrementally reject exact coordinate contradictions: inactive-orthant
-violations, conflicting fixed-coordinate values, and equal-zero/nonzero
-conflicts. The equal-zero coordinate loci define the compact affine target
-map; nonzero decisions remain ordered premises/guards. The first bounded
-hand-off creates a singleton group and carries it through the physical frame,
-solve plan, `GeneratedAffineResidualGroupExactSession` staging, and
-recentering into the existing `ReadyForConditions` boundary. It must not
-reconstruct V4, V5, the live-leaf queue, or the old Boolean/DPLL certificates
-along the way.
+This checkpoint adds a standalone generic direct formula-path
+coordinate-affine terminal. It replays the selected path, incrementally rejects
+exact coordinate contradictions, and delegates compact affine guard
+substitution to Symbolica. Its typed outcomes are `ProvedEmpty`, `Unsupported`,
+and `Actionable`; it fabricates no V4/V5, Boolean/DPLL, or integer-system
+certificate. Independent default-GMP run
+`ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root rerun
+`3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. This
+terminal has not yet entered case authority, `ReadyForConditions`, reduction,
+or publication.
+
+The immediate generic semantic slice is therefore the remaining direct-backed
+singleton adapter: extend case authority with the terminal's exact source/path
+ancestry and ordered guards, create a singleton group, and carry it through the
+physical frame, solve plan, `GeneratedAffineResidualGroupExactSession`
+staging, and recentering into the existing `ReadyForConditions` boundary. It
+must not reconstruct V4, V5, the live-leaf queue, or the old Boolean/DPLL
+certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -283,10 +291,11 @@ The exact first-mode pipeline is:
 generated IBP/LI rows
 -> proved-zero and self-symmetry canonicalized prepare-point rows
 -> ordered candidate attempts plus one authenticated row span
--> one-pass sealed normalized-source ingress/replay token          [worktree]
--> sealed normalized-source V2 + ordering-policy binding          [worktree]
+-> one-pass sealed normalized-source ingress/replay token          [pushed c593865]
+-> sealed normalized-source V2 + ordering-policy binding          [pushed c593865]
 -> bounded direct formula-residual cursor                        [implemented]
--> coordinate-pruned direct-backed affine inventory              [next]
+-> coordinate-affine direct formula-path terminal                [this checkpoint, standalone]
+-> direct singleton case authority/inventory                     [next]
 -> singleton group -> physical frame -> solve plan -> exact session
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering

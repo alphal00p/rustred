@@ -5,8 +5,8 @@ Status: governing deployment priority and implementation plan, adopted
 normative LiteRed scope.  Production algorithms remain topology- and
 loop-count independent; concrete four-, five-, and six-loop graphs are test,
 campaign, and benchmark inputs only. Implementation status below is reconciled
-with pushed HEAD `03921b8` and the current independently validated worktree on
-2026-08-25.
+with pushed checkpoint `c593865` and the standalone direct-terminal checkpoint
+on 2026-08-25.
 
 ## 1. Deployment objective
 
@@ -193,15 +193,14 @@ allocated payload-equal proofs. Within normalized-source construction, fresh
 normalization rebinds and authenticates the candidate batch once rather than
 rebuilding it through each backend.
 
-The current independently validated worktree closes the end-to-end ingress
-gap with a one-pass candidate-to-normalized-source API and a safe sealed replay
-token. It performs `N` construction authentications for `N` candidates rather
+Pushed checkpoint `c593865` closes the end-to-end ingress gap with a one-pass
+candidate-to-normalized-source API and a safe sealed replay token. It performs
+`N` construction authentications for `N` candidates rather
 than the legacy `2N`. Focused run
 `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests, and independent
-affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44. This
-is current worktree evidence, not a pushed-HEAD claim.
+affected-suite run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44.
 
-That worktree now also uses normalized-source V2 to persist one explicit
+That checkpoint also uses normalized-source V2 to persist one explicit
 `IntegralOrderingPolicy` for every source, including an empty-attempt source,
 and authenticate every present candidate's policy. Owner-focused run
 `8ad499a3-339e-4e0b-a04f-ccf754406516` passed 21/21 tests, formula/residual
@@ -210,8 +209,8 @@ audit/validation run `430af297-b806-431e-a169-bd0f19a9f9c8` passed 30/30.
 The policy-bound all-36 `L=6`, `K=21` run
 `88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with 36 construction
 authentications, unchanged 15 Certified/21 Unsupported semantics, and a
-1.405-millisecond first-residual search. This remains current-worktree
-evidence, not a pushed-HEAD, Ready, reduction, or physical-topology claim.
+1.405-millisecond first-residual search. This is pushed `c593865` evidence,
+not a Ready, reduction, or physical-topology claim.
 
 Two residual backends now consume that authority. The V5 MTBDD remains a
 compact-case oracle and optional repeated-query classifier under an explicit
@@ -221,14 +220,14 @@ its MTBDD cursor reaches the first Unsupported terminal in 43 decisions only
 after that global owner has been built. This is historical scaling evidence,
 not the production six-loop route.
 
-At pushed HEAD `03921b8`, the formula-residual cursor instead walks the
+At pushed checkpoint `c593865`, the formula-residual cursor instead walks the
 authenticated normalized candidate formulas directly. It keeps one dense
 three-valued assignment table and a resumable nonzero-first DFS frontier,
 prunes a partial assignment as soon as a later certified formula proves it
 covered, and constructs no V4 partition, V5 MTBDD, visited set, or materialized
 residual-cube inventory. Its focused parallel GMP audit passed 9/9 tests.
 
-The one-pass worktree was then exercised by honest all-36 `L=6`, `K=21`
+The one-pass checkpoint was exercised by honest all-36 `L=6`, `K=21`
 primary run `37d85ddb-c356-4c79-a6f4-d428828db039`, which passed 1/1 in
 58.109 seconds. It performed 36 construction authentications and preserved the
 same census: 49 loci, 36 attempts, 15 Certified outcomes, 21 Unsupported
@@ -248,18 +247,25 @@ deliberate reauthentication checks are not part of production direct-search
 cost. The production direct path invokes no MTBDD compiler and constructs no
 MTBDD owner or DAG.
 
-The next implementation slice is the direct singleton affine adapter
-`NormalizedSource -> FormulaResidualPath -> ReadyForConditions`; it must
-preserve that bypass end to end:
+This checkpoint adds a standalone generic direct formula-path
+coordinate-affine terminal. It replays the selected path, uses Symbolica
+compact substitution for ordered guards, and returns typed `ProvedEmpty`,
+`Unsupported`, or `Actionable` outcomes. It fabricates no V4/V5,
+Boolean/DPLL, or integer-system certificate. Independent default-GMP run
+`ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root rerun
+`3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. The
+terminal remains standalone: it has not entered case authority,
+`ReadyForConditions`, reduction, or publication.
 
-1. adapt one direct formula-residual path behind the existing affine
-   inventory/case-authority boundary without manufacturing V4, V5, the legacy
-   live-leaf queue, source authority, or Boolean/DPLL certificates;
-2. prune exact coordinate contradictions incrementally: inactive-orthant
-   violations, conflicting fixed-coordinate values, and equality/nonzero
-   conflicts; use equal-zero coordinate loci to derive the compact affine map
-   and retain nonzero decisions as ordered premises/guards; and
-3. create a generic singleton affine group, then pass it through the physical
+The next implementation slice is the remaining direct singleton affine
+adapter from that terminal to `ReadyForConditions`; it must preserve the
+bypass end to end:
+
+1. extend the existing affine inventory/case-authority boundary with the
+   terminal's exact source/path ancestry and ordered guards, without
+   manufacturing V4, V5, the legacy live-leaf queue, source authority, or
+   Boolean/DPLL certificates; and
+2. create a generic singleton affine group, then pass it through the physical
    frame, solve plan, `GeneratedAffineResidualGroupExactSession` staging, and
    recentering into the existing `ReadyForConditions` boundary before
    attempting the declared `K=21` gate.
@@ -472,13 +478,13 @@ The stable normalized-source SHA-256 was
 `f74ccd89ce1755d7672393a169dbd0e2586a2675c9643f77196697154ad3629e`.
 
 The sealed fresh-normalization seam and direct formula-residual cursor are now
-implemented at pushed HEAD `03921b8`. The direct cursor's focused parallel GMP
-audit passed 9/9 tests, including exhaustive small-IR differential comparison,
-source-backed MTBDD comparison, routing/filtering, tamper rejection, and exact
-resource boundaries.
+implemented at pushed checkpoint `c593865`. The direct cursor's focused
+parallel GMP audit passed 9/9 tests, including exhaustive small-IR differential
+comparison, source-backed MTBDD comparison, routing/filtering, tamper
+rejection, and exact resource boundaries.
 
-The current validated worktree additionally implements one-pass sealed
-candidate ingress/replay. Focused run
+The same pushed checkpoint additionally implements one-pass sealed candidate
+ingress/replay. Focused run
 `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 and independent affected
 run `db2a98a5-d473-4cdc-b2b7-fe2f444357e8` passed 44/44. Primary honest
 all-36 `K=21` run `37d85ddb-c356-4c79-a6f4-d428828db039` passed 1/1 in
@@ -510,21 +516,25 @@ or physical-topology calculation.
    formula-residual cursor are implemented. The direct cursor bypasses V4, V5,
    and the residual Boolean/DPLL owner; the 10/10 audit includes a successful
    direct all-36 `K=21` formula-residual search without an MTBDD owner or DAG.
-6. **Completed in the current validated worktree:** one-pass
+6. **Completed at pushed checkpoint `c593865`:** one-pass
    candidate-to-normalized-source construction ahead of V4 plus a safe sealed
    replay token. Focused and independent affected suites pass; the all-36
    `K=21` comparison reduces construction authentication from 72 to 36.
-7. **Completed in the current validated worktree:** normalized-source V2 binds
+7. **Completed at pushed checkpoint `c593865`:** normalized-source V2 binds
    `IntegralOrderingPolicy` for every source, including empty-attempt sources,
    and authenticates all present candidate policies. Focused 21/21 and 14/14
    suites, an independent 30/30 audit/validation run, and the policy-bound
    all-36 K21 1/1 gate pass.
-8. **Next:** build the generic direct-backed singleton affine
-   inventory/adapter. Prune coordinate contradictions, map equal-zero loci
-   into affine coordinates, retain nonzero premises, and carry the group
-   through physical frame, solve plan, exact-session staging, and recentering
-   into the existing `ReadyForConditions` boundary. Then validate one declared
-   arity-21 sector; this remains a scaling gate, not a rule or reduction claim.
+8. **Completed in this checkpoint:** a standalone generic direct formula-path
+   coordinate-affine terminal uses Symbolica compact substitution and returns
+   typed `ProvedEmpty`, `Unsupported`, or `Actionable` without fabricating
+   V4/V5, Boolean/DPLL, or integer-system certificates; its independently
+   repeated focused gate passes 9/9. **Next:** extend case authority with this
+   direct singleton, then carry it through physical frame, solve plan,
+   exact-session staging, and recentering into the existing
+   `ReadyForConditions` boundary. The terminal has not yet reached that
+   boundary, reduction, or publication. Then validate one declared arity-21
+   sector; this remains a scaling gate, not a rule or reduction claim.
 9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
    path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
    subsector feedback, atomic publication, durable artifacts, and a 36-source

@@ -22,7 +22,7 @@ all of LiteRed.
 | Derive generic Lorentz-invariance identities | Available through `rustred derive` and the library |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
-| Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 in the current worktree; public library/CLI integration is pending |
+| Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for the current exact-session slice |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
@@ -219,7 +219,7 @@ The repository currently includes tests for:
   that walks its authenticated candidate bad-formulas directly, retaining only
   one three-valued assignment table and DFS frontier and constructing neither
   the V4 materialized partition nor the V5 MTBDD;
-- a current validated-worktree one-pass candidate-to-normalized-source ingress
+- the pushed `c593865` one-pass candidate-to-normalized-source ingress
   with a safe sealed replay token. It performs `N` construction
   authentications for `N` candidates rather than the legacy `2N`; focused run
   `b2ba7679-e7c8-4e64-ba25-c451024843bf` passed 6/6 tests and independent
@@ -237,12 +237,12 @@ The repository currently includes tests for:
   seconds; those replays are not part of production direct-search cost. The
   earlier two-stage run `e7378e6e-5df5-47c3-8fe9-686bbaa8ef30` took 72.935
   seconds, split 17.29 + 16.21 seconds across its two construction phases and
-  performed 72 construction authentications. This worktree checkpoint invokes
+  performed 72 construction authentications. This pushed checkpoint invokes
   no MTBDD compiler and constructs no MTBDD owner or DAG; it is not an
   arity-21 Ready result, published rule, reduction, or physical-topology
   calculation;
-- normalized-source V2 ordering-policy binding in the current validated
-  worktree. Every source owns one explicit `IntegralOrderingPolicy`, including
+- normalized-source V2 ordering-policy binding at pushed checkpoint `c593865`.
+  Every source owns one explicit `IntegralOrderingPolicy`, including
   an empty-attempt source, and every present candidate's policy is
   authenticated. Owner-focused run
   `8ad499a3-339e-4e0b-a04f-ccf754406516` passed 21/21 tests, the
@@ -252,8 +252,17 @@ The repository currently includes tests for:
   `L=6`, `K=21` run `88a73ec1-52c2-4771-8a21-75e1b2a848b6` passed 1/1 with
   36 construction authentications, the unchanged 15 Certified/21 Unsupported
   semantics, and a 1.405-millisecond first-residual search. This remains an
-  internal worktree checkpoint, not a Ready result, reduction, or physical
-  topology calculation; and
+  pushed internal checkpoint, not a Ready result, reduction, or physical
+  topology calculation;
+- a standalone generic direct formula-path coordinate-affine terminal in this
+  checkpoint. It replays the selected path, delegates compact affine
+  guard substitution to Symbolica, and returns typed `ProvedEmpty`,
+  `Unsupported`, or `Actionable` outcomes. It fabricates no V4/V5,
+  Boolean/DPLL, or integer-system certificate. Independent default-GMP run
+  `ad640c18-be8e-4079-8d8e-ced0b02c1e0e` and root rerun
+  `3841b398-a30a-4045-9268-b7aed2654ff4` each pass 9/9 focused tests. The
+  terminal has not yet entered case authority, `ReadyForConditions`,
+  reduction, or publication; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -322,16 +331,20 @@ path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
 
-Alongside that staged algebra migration, normalized-source V2 now binds one
-explicit `IntegralOrderingPolicy` into every source, including an empty-attempt
-source, and authenticates every present candidate's policy. The remaining
-generic LiteRed-style solver work is to:
+Alongside that staged algebra migration, pushed checkpoint `c593865` binds one
+explicit `IntegralOrderingPolicy` into every normalized source, including an
+empty-attempt source, and authenticates every present candidate's policy. The
+current checkpoint adds a standalone generic direct formula-path
+coordinate-affine terminal. It recognizes exact coordinate loci, uses
+Symbolica compact substitution for ordered guards, and returns typed
+`ProvedEmpty`, `Unsupported`, or `Actionable` outcomes without fabricating
+V4/V5, Boolean/DPLL, or integer-system certificates. Its independently
+repeated focused gate passes 9/9. It has not yet reached case authority,
+`ReadyForConditions`, reduction, or publication. The remaining generic
+LiteRed-style solver work is to:
 
-1. adapt one direct formula-residual path into the existing affine exact-session
-   boundary without constructing V4, the V5 MTBDD, or the legacy Boolean/DPLL
-   owners: prune exact coordinate contradictions, derive the affine map from
-   equal-zero decisions, preserve nonzero decisions as premises, and create a
-   generic singleton group;
+1. extend case authority with a direct singleton source while retaining the
+   terminal's exact source/path ancestry and ordered premises;
 2. carry that singleton through physical frame, solve plan, session staging,
    recentering, and the existing `ReadyForConditions` boundary;
 3. compile and close `WhenBad` exceptional branches, then atomically publish
@@ -353,9 +366,10 @@ the real all-36 source still constructs 49 atoms and 268,427 nodes before the
 cursor can return its first residual. The cap is not being raised. The
 backend-neutral normalized source is now a separate replayable owner shared by
 the MTBDD backend, with exact source-Arc fast paths on the common case. Sealed
-fresh normalization and the bounded direct formula cursor are implemented at
-pushed HEAD `03921b8`; the current validated worktree adds the safe one-pass
-candidate ingress and sealed replay token. The all-36 comparison above reduces
+fresh normalization, the bounded direct formula cursor, the safe one-pass
+candidate ingress and sealed replay token, normalized-source V2
+ordering-policy binding, and the K21 evidence above are implemented at pushed
+checkpoint `c593865`. The all-36 comparison above reduces
 construction authentications from 72 to 36 and replaces the old 17.29 + 16.21
 second two-stage ingress with one 17.4507-second candidate-to-source phase. The
 direct cursor remains millisecond-scale. The 18.51-second source replay and
@@ -363,9 +377,10 @@ direct cursor remains millisecond-scale. The 18.51-second source replay and
 validation and are not production direct-search phases. Normalized-source V2
 now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
 14/14 suites, independent 30/30 audit/validation, and policy-bound K21 1/1 run
-listed above passed. The immediate gate is therefore the generic direct
-singleton affine adapter from `NormalizedSource` through `FormulaResidualPath`
-into the existing exact-session `ReadyForConditions` path. No arity-21 case
+listed above passed. This checkpoint's standalone coordinate-affine
+terminal is the first half of the direct singleton adapter; the immediate gate
+is to place its authenticated result behind case authority and carry it into
+the existing exact-session `ReadyForConditions` path. No arity-21 case
 has reached Ready, no guarded rule has been published, no physical topology was
 reduced, and no complete reduction is claimed.
 
