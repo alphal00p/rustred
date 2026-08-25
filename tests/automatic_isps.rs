@@ -1,7 +1,7 @@
 use rustred::{
-    AffineDenominator, AutomaticIspCompletion, AutomaticIspCompletionError,
-    AutomaticIspCompletionLimits, CoefficientContext, ExactAlgebraError, GuardOrigin,
-    ParametricIbpGenerator, ScalarProductCoordinate,
+    AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AffineDenominator, AutomaticIspCompletion,
+    AutomaticIspCompletionError, AutomaticIspCompletionLimits, CoefficientContext,
+    ExactAlgebraError, GuardOrigin, ParametricIbpGenerator, ScalarProductCoordinate,
 };
 
 fn affine(
@@ -61,7 +61,7 @@ fn rustred_order_completes_two_loop_propagators_with_loop_external_isps() {
     )
     .unwrap();
 
-    assert_eq!(completion.schema(), "rustred-automatic-isp-completion-v1");
+    assert_eq!(completion.schema(), AUTOMATIC_ISP_COMPLETION_V2_SCHEMA);
     assert_eq!(completion.input_denominator_count(), 3);
     assert_eq!(completion.appended_coordinate_ordinals(), &[3, 4]);
     assert_eq!(
@@ -178,7 +178,7 @@ fn rank_work_is_preflighted_by_typed_limits() {
 }
 
 #[test]
-fn supplied_rank_matrix_is_bounded_before_the_internal_row_clone() {
+fn supplied_rank_matrix_is_bounded_before_native_matrix_copy() {
     let context = CoefficientContext::new(["d", "m", "s"]);
     let mut limits = AutomaticIspCompletionLimits::default();
     limits.max_rank_matrix_entries = 1;

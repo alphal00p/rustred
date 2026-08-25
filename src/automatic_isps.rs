@@ -5,11 +5,11 @@
 //! denominator rows are independent and then applies its private
 //! `append[m, IdentityMatrix[Length[sps]]]`: scalar-product unit rows are
 //! scanned from left to right and retained exactly when they increase the row
-//! rank.  This module implements that algorithm over RustRed's authenticated
-//! Symbolica rational-function field using RustRed's documented coordinate
-//! order.  Mathematica's `Union` may order the scalar-product expressions
-//! differently, so the completed basis can be equivalent without having the
-//! same ISP ordinals as one LiteRed session.
+//! rank.  This module implements that algorithm using Symbolica's native exact
+//! matrix rank over RustRed's authenticated rational-function field and
+//! RustRed's documented coordinate order.  Mathematica's `Union` may order the
+//! scalar-product expressions differently, so the completed basis can be
+//! equivalent without having the same ISP ordinals as one LiteRed session.
 //!
 //! The result retains the accepted coordinate ordinals and every generic rank
 //! in a replayable transcript.  Generated ISP denominators are the scalar
@@ -21,13 +21,20 @@
 use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 
+use crate::symbolica_coefficient_matrix::{
+    DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
+    SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits, rank_of_coefficient_matrix,
+};
 use crate::{
     AffineDenominator, Coefficient, CoefficientContext, ExactAlgebraError, IntegralFamily,
     IntegralFamilyLimits, ScalarProductCoordinate,
 };
 
-/// Stable semantic schema for deterministic ISP completion proofs.
+/// Legacy schema whose work census used RustRed's former row elimination.
 pub const AUTOMATIC_ISP_COMPLETION_V1_SCHEMA: &str = "rustred-automatic-isp-completion-v1";
+
+/// Stable schema whose work census counts Symbolica's native rank operations.
+pub const AUTOMATIC_ISP_COMPLETION_V2_SCHEMA: &str = "rustred-automatic-isp-completion-v2";
 
 /// Resource policy for the generic-rank completion pass and final family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,13 +43,21 @@ pub struct AutomaticIspCompletionLimits {
     /// Largest transient rectangular matrix admitted by one rank test.
     pub max_rank_matrix_entries: usize,
     /// Aggregate numerator-plus-denominator term count admitted in one
-    /// borrowed rank matrix before it is cloned for elimination.
+    /// borrowed rank matrix before it is copied into Symbolica.
     pub max_rank_coefficient_terms: usize,
     /// Aggregate canonical-display bytes admitted in one borrowed rank matrix
-    /// before it is cloned for elimination.
+    /// before it is copied into Symbolica.
     pub max_rank_coefficient_bytes: usize,
-    /// Maximum number of exact additions, subtractions, multiplications, and
-    /// divisions performed by one construction or replay pass.
+    /// Aggregate clone-owned retained bytes admitted for one authenticated
+    /// rank-matrix input copied into Symbolica's native representation.
+    pub max_rank_input_retained_bytes: usize,
+    /// Aggregate clone-owned retained bytes admitted while authenticating the
+    /// discarded native echelon matrix after one rank computation.
+    pub max_rank_output_retained_bytes: usize,
+    /// Maximum number of checked exact arithmetic calls made by Symbolica's
+    /// native rank implementation during one complete construction or replay
+    /// pass. Zero/one construction and predicates have separate adapter
+    /// counters and are excluded from this arithmetic budget.
     pub max_rank_operations: usize,
     /// Maximum number of initial/candidate rank tests.
     pub max_rank_tests: usize,
@@ -55,6 +70,8 @@ impl Default for AutomaticIspCompletionLimits {
             max_rank_matrix_entries: 16_000_000,
             max_rank_coefficient_terms: 64_000_000,
             max_rank_coefficient_bytes: 2 * 1024 * 1024 * 1024,
+            max_rank_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
+            max_rank_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
             max_rank_operations: 64_000_000,
             max_rank_tests: 65_536,
         }
@@ -62,6 +79,12 @@ impl Default for AutomaticIspCompletionLimits {
 }
 
 /// Work census retained with a completed family.
+///
+/// Under the current V2 schema, `rank_operations` is the cumulative number of
+/// checked exact arithmetic calls performed by Symbolica's native matrix-rank
+/// implementation. Zero/one construction and predicates are excluded. The
+/// census deliberately does not preserve the operation schedule of RustRed's
+/// retired handwritten row elimination.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AutomaticIspCompletionStats {
     rank_tests: usize,
@@ -277,7 +300,7 @@ impl AutomaticIspCompletion {
     }
 
     pub const fn schema(&self) -> &'static str {
-        AUTOMATIC_ISP_COMPLETION_V1_SCHEMA
+        AUTOMATIC_ISP_COMPLETION_V2_SCHEMA
     }
 
     pub fn family(&self) -> &IntegralFamily {
@@ -462,6 +485,10 @@ pub enum AutomaticIspCompletionError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     ExactAlgebra(ExactAlgebraError),
     Family(crate::GenericFamilyError),
     InternalVerificationFailure {
@@ -530,6 +557,10 @@ impl fmt::Display for AutomaticIspCompletionError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(formatter, "failed to reserve {requested} {resource}"),
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Family(error) => error.fmt(formatter),
             Self::InternalVerificationFailure { detail } => {
@@ -667,17 +698,33 @@ impl RankBudget {
         preflight_rank_coefficients(matrix.iter().flatten(), self.limits)
     }
 
-    fn operation(&mut self) -> Result<(), AutomaticIspCompletionError> {
-        self.operations = self.operations.checked_add(1).ok_or(
+    fn remaining_operations(&self) -> Result<usize, AutomaticIspCompletionError> {
+        self.limits
+            .max_rank_operations
+            .checked_sub(self.operations)
+            .ok_or(AutomaticIspCompletionError::ResourceLimit {
+                resource: "automatic ISP rank operations",
+                requested: self.operations,
+                limit: self.limits.max_rank_operations,
+            })
+    }
+
+    fn record_native_operations(
+        &mut self,
+        operations: usize,
+    ) -> Result<(), AutomaticIspCompletionError> {
+        let requested = self.operations.checked_add(operations).ok_or(
             AutomaticIspCompletionError::ResourceCountOverflow {
                 resource: "automatic ISP rank operations",
             },
         )?;
         check_limit(
             "automatic ISP rank operations",
-            self.operations,
+            requested,
             self.limits.max_rank_operations,
-        )
+        )?;
+        self.operations = requested;
+        Ok(())
     }
 }
 
@@ -692,57 +739,125 @@ fn checked_row_rank(
             detail: "rank matrix is not rectangular".to_owned(),
         });
     }
-    // Census the borrowed input before `to_vec` duplicates every Symbolica
-    // coefficient for the destructive elimination workspace.
+    // Census the borrowed input before the authenticated matrix boundary
+    // duplicates every coefficient for Symbolica's destructive rank pass.
     budget.start_test(matrix)?;
-    let mut work = matrix.to_vec();
-    let mut pivot_row = 0;
-    for column in 0..columns {
-        let Some(found) = (pivot_row..work.len()).find(|&row| !work[row][column].is_zero()) else {
-            continue;
-        };
-        work.swap(pivot_row, found);
-        let pivot = work[pivot_row][column].clone();
-        for entry in column..columns {
-            budget.operation()?;
-            work[pivot_row][entry] = context.try_div(
-                &work[pivot_row][entry],
-                &pivot,
-                budget.limits.family.exact_algebra,
-            )?;
+    let operations_before = budget.operations;
+    let native_limits = SymbolicaCoefficientMatrixLimits {
+        exact_algebra: budget.limits.family.exact_algebra,
+        max_single_matrix_entries: budget.limits.max_rank_matrix_entries,
+        max_live_matrix_entries: budget.limits.max_rank_matrix_entries,
+        max_exact_operations: budget.remaining_operations()?,
+        max_input_retained_bytes: budget.limits.max_rank_input_retained_bytes,
+        max_output_retained_bytes: budget.limits.max_rank_output_retained_bytes,
+    };
+    let (rank, stats) =
+        rank_of_coefficient_matrix(context, matrix, native_limits).map_err(|error| {
+            map_symbolica_rank_error(error, operations_before, budget.limits.max_rank_operations)
+        })?;
+    if stats.rank_calls() != 1 {
+        return Err(AutomaticIspCompletionError::InternalVerificationFailure {
+            detail: format!(
+                "Symbolica rank boundary recorded {} native rank calls instead of one",
+                stats.rank_calls()
+            ),
+        });
+    }
+    budget.record_native_operations(stats.exact_operations())?;
+    Ok(rank)
+}
+
+fn map_symbolica_rank_error(
+    error: SymbolicaCoefficientMatrixError,
+    operations_before: usize,
+    operation_limit: usize,
+) -> AutomaticIspCompletionError {
+    match error {
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "Symbolica coefficient matrix exact operations",
+            requested,
+            ..
         }
-        if pivot_row + 1 < work.len() {
-            // The normalized row coexists with `work` during elimination.
-            // Bound the complete row payload before cloning it.
-            preflight_rank_coefficients(work[pivot_row].iter(), budget.limits)?;
-            let normalized = work[pivot_row].clone();
-            for row in pivot_row + 1..work.len() {
-                let factor = work[row][column].clone();
-                if factor.is_zero() {
-                    continue;
-                }
-                for entry in column..columns {
-                    budget.operation()?;
-                    let contribution = context.try_mul(
-                        &factor,
-                        &normalized[entry],
-                        budget.limits.family.exact_algebra,
-                    )?;
-                    budget.operation()?;
-                    work[row][entry] = context.try_sub(
-                        &work[row][entry],
-                        &contribution,
-                        budget.limits.family.exact_algebra,
-                    )?;
-                }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(ExactAlgebraError::ResourceLimit {
+            resource: "Symbolica coefficient matrix exact operations",
+            requested,
+            ..
+        }) => match operations_before.checked_add(requested) {
+            Some(requested) => AutomaticIspCompletionError::ResourceLimit {
+                resource: "automatic ISP rank operations",
+                requested,
+                limit: operation_limit,
+            },
+            None => AutomaticIspCompletionError::ResourceCountOverflow {
+                resource: "automatic ISP rank operations",
+            },
+        },
+        SymbolicaCoefficientMatrixError::ExactAlgebra(
+            ExactAlgebraError::ResourceCountOverflow {
+                resource: "Symbolica coefficient matrix exact operations",
+            },
+        ) => AutomaticIspCompletionError::ResourceCountOverflow {
+            resource: "automatic ISP rank operations",
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "single Symbolica matrix entries" | "live Symbolica matrix entries",
+            requested,
+            limit,
+        } => AutomaticIspCompletionError::ResourceLimit {
+            resource: "automatic ISP rank matrix entries",
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "coefficient matrix input retained bytes",
+            requested,
+            limit,
+        } => AutomaticIspCompletionError::ResourceLimit {
+            resource: "automatic ISP rank native input retained bytes",
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource: "coefficient matrix output retained bytes",
+            requested,
+            limit,
+        } => AutomaticIspCompletionError::ResourceLimit {
+            resource: "automatic ISP rank native output retained bytes",
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => AutomaticIspCompletionError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceCountOverflow { resource } => {
+            AutomaticIspCompletionError::ResourceCountOverflow { resource }
+        }
+        SymbolicaCoefficientMatrixError::DimensionOverflow { .. } => {
+            AutomaticIspCompletionError::ResourceCountOverflow {
+                resource: "automatic ISP native rank matrix dimensions",
             }
         }
-        pivot_row += 1;
-        if pivot_row == work.len() {
-            break;
+        SymbolicaCoefficientMatrixError::AllocationFailure {
+            resource,
+            requested,
+        } => AutomaticIspCompletionError::AllocationFailure {
+            resource,
+            requested,
+        },
+        SymbolicaCoefficientMatrixError::InvalidCoefficient { error, .. }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(error) => {
+            AutomaticIspCompletionError::ExactAlgebra(error)
         }
+        internal => AutomaticIspCompletionError::InternalVerificationFailure {
+            detail: format!("native Symbolica rank boundary failed: {internal}"),
+        },
     }
-    Ok(pivot_row)
 }
 
 fn preflight_rank_coefficients<'coefficient>(
@@ -880,7 +995,7 @@ mod coefficient_limit_tests {
     }
 
     #[test]
-    fn coefficient_byte_census_bounds_a_large_integer_before_rank_clone() {
+    fn coefficient_byte_census_bounds_a_large_integer_before_native_copy() {
         let context = CoefficientContext::new(["d"]);
         let coefficient = context
             .parse("123456789012345678901234567890123456789")
@@ -901,6 +1016,65 @@ mod coefficient_limit_tests {
                 limit,
             }) if requested > limit && limit == exact - 1
         ));
+    }
+
+    #[test]
+    fn native_rank_input_and_output_payloads_have_separate_retained_byte_limits() {
+        let context = CoefficientContext::new(["d"]);
+        let mut limits = AutomaticIspCompletionLimits::default();
+        limits.max_rank_input_retained_bytes = 0;
+        assert!(matches!(
+            one_loop_completion(context.one(), limits),
+            Err(AutomaticIspCompletionError::ResourceLimit {
+                resource: "automatic ISP rank native input retained bytes",
+                requested,
+                limit: 0,
+            }) if requested > 0
+        ));
+
+        limits.max_rank_input_retained_bytes = DEFAULT_MAX_INPUT_RETAINED_BYTES;
+        limits.max_rank_output_retained_bytes = 0;
+        assert!(matches!(
+            one_loop_completion(context.one(), limits),
+            Err(AutomaticIspCompletionError::ResourceLimit {
+                resource: "automatic ISP rank native output retained bytes",
+                requested,
+                limit: 0,
+            }) if requested > 0
+        ));
+    }
+
+    #[test]
+    fn native_rank_operation_limit_is_cumulative_across_candidate_tests() {
+        let context = CoefficientContext::new(["d", "s"]);
+        let mut limits = AutomaticIspCompletionLimits::default();
+        // The initial [1,0] rank costs one native inverse.  Scouting the
+        // dependent e0 row needs four more native scalar calls, so a cumulative
+        // limit of four must fail at requested operation five.
+        limits.max_rank_operations = 4;
+        let error = AutomaticIspCompletion::try_new_with_limits(
+            "automatic-isp-native-operation-census",
+            vec!["k".to_owned()],
+            vec!["p".to_owned()],
+            context.clone(),
+            context.parameter("d").unwrap(),
+            vec![AffineDenominator::new(
+                context.zero(),
+                vec![context.one(), context.zero()],
+            )],
+            vec![vec![context.parameter("s").unwrap()]],
+            vec![context.zero()],
+            limits,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            AutomaticIspCompletionError::ResourceLimit {
+                resource: "automatic ISP rank operations",
+                requested: 5,
+                limit: 4,
+            }
+        );
     }
 
     #[cfg(target_pointer_width = "64")]
@@ -977,6 +1151,9 @@ mod tests {
             vec![context.zero()],
         )
         .unwrap();
+        assert_eq!(completion.schema(), AUTOMATIC_ISP_COMPLETION_V2_SCHEMA);
+        assert_eq!(completion.stats.rank_tests, 1);
+        assert_eq!(completion.stats.rank_operations, 1);
         completion.stats.rank_tests += 1;
         assert!(matches!(
             completion.replay(),

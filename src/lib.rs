@@ -249,8 +249,8 @@ pub use affine_prepare_points::{
     AffinePreparePointLimits, AffinePreparePointStats,
 };
 pub use automatic_isps::{
-    AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AutomaticIspCompletion, AutomaticIspCompletionError,
-    AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
+    AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
+    AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
 };
 pub use base_specialization::{
     BaseCoefficientProvenance, BaseKinematicSpecialization, BaseParameterImage,

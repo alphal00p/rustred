@@ -109,7 +109,7 @@ both sides of that call.
 |---|---|---|---|---|
 | B0 (complete) | [`exact.rs`](../../src/exact.rs): formerly fixed-width rational normalization, gcd, inverse, rank, multiply, transpose, determinant | Migrated | `Rational`/`Q`; `Matrix<Q>::inv`, `rank`, `det`, multiplication and `transpose` | The compatibility `ExactRational` wrapper owns only a Symbolica `Rational`; its operators are forwarding adapters, not an arithmetic implementation. |
 | P1 (complete) | [`generic_family.rs:1888-1919`](../../src/generic_family.rs#L1888): symbolic inverse, determinant and inverse verification | Migrated | `Matrix<CheckedCoefficientField>::det`, `inv`, and native matrix multiplication in [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns the determinant, inverse, and both products. RustRed retains the authenticated ordered coefficient context, determinant nonzero condition, resource admission, typed errors, and entrywise two-sided replay. |
-| P1 | [`automatic_isps.rs:684-746`](../../src/automatic_isps.rs#L684): hand-written Gaussian rank | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::rank` or `row_reduce` | Retain deterministic candidate order and rank-progression certificate. No custom pivot transcript is currently retained, so there is no semantic gap. |
+| P1 (complete) | [`automatic_isps.rs`](../../src/automatic_isps.rs): formerly hand-written Gaussian rank | Migrated | Authenticated `Matrix<CheckedCoefficientField>::partial_row_reduce` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every pivot, inverse, multiplication, subtraction, and row reduction. RustRed retains deterministic candidate order, native-operation/resource admission, the rank-progression certificate, and replay. New certificates use the V2 schema because their exact work census describes Symbolica's schedule. |
 | P1 | [`tensor.rs:1364-1486`](../../src/tensor.rs#L1364) and [`generic_tensor_projector.rs:2501-2763`](../../src/generic_tensor_projector.rs#L2501): Gram inversion and coefficient exponentiation | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::inv`; `Ring::pow` | Retain pairing enumeration, Gram construction, determinant/inverse-denominator guards and resource wrappers. Per-Gaussian-pivot provenance alone does not justify a private inverse. |
 | P1 | [`symmetry.rs:1384-1440`](../../src/symmetry.rs#L1384): subset-DP determinant | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::det` | Keep determinant nonzero guards and panic/resource boundaries. |
 | P1 | [`symmetry_discovery.rs:1209-1275`](../../src/symmetry_discovery.rs#L1209): private integer Bareiss determinant | Must replace now | `Matrix<Z>::det` | Keep candidate enumeration and conservative integer-bit/work admission. Symbolica's matrix determinant is already fraction-free/Bareiss. |
@@ -295,6 +295,24 @@ provided only through the process environment and is not stored here.
   workers and no failures; and
 - `cargo check --all-features --all-targets -j4` passed.
 
+### Automatic-ISP rank migration and validation evidence
+
+The former Gaussian rank implementation was deleted.  Each nonempty
+rectangular denominator-coefficient matrix now crosses the same checked,
+map-aware field boundary and is destructively reduced by public Symbolica
+`Matrix::partial_row_reduce`.  RustRed still owns LiteRed's deterministic
+identity-row scan, coordinate order, resource admission, and replay metadata;
+it owns no pivot or row arithmetic.  Because the authenticated operation
+census now describes Symbolica's arithmetic schedule, new certificates use
+`rustred-automatic-isp-completion-v2`; V1 remains only a legacy identifier.
+
+A separate black-box oracle defines rank by maximal nonzero minors and calls
+public `Matrix::det` for every determinant.  Final parallel optimized nextest
+run `88208064-7cd3-46b4-b4f5-807953c2232f` passed 30/30 adapter and internal
+completion tests.  Run `0a0f4f11-09b0-4d0e-a9b8-f9adad877989` passed 13/13
+public/oracle/downstream tests, including complete four- and five-loop
+factorized reductions.  An all-feature/all-target compile check also passed.
+
 ### Polynomial-associate migration and validation evidence
 
 The strict `K = Q(theta)` associate proof now widens authenticated exponents
@@ -417,8 +435,8 @@ introduce loop-count or topology dispatch into production rule derivation.
    `RationalPolynomial::to_polynomial`, and native coefficient-field
    multiplication/equality. **Associate migration complete.**
 4. Migrate direct matrix consumers. **The generic-family coefficient-matrix
-   slice is complete.** Automatic ISP, tensor projectors, symmetry, symmetry
-   discovery, and Feynman determinants remain pending.
+   and automatic-ISP rank slices are complete.** Tensor projectors, symmetry,
+   symmetry discovery, and Feynman determinants remain pending.
 5. Build the `SparseRowReducer` transcript-equivalence spike; move row algebra
    native wherever column reindexing and full `L` preserve RustRed's ordering,
    provenance, guard, and replay semantics.

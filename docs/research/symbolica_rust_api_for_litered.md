@@ -539,6 +539,22 @@ its selected pivot conditions.
 
 The Atom-level `solve_linear_system`/`system_to_matrix` convenience API (`vendor/symbolica/src/atom/core.rs:757-835`) auto-extracts symbolic coefficients. It does not provide integral ordering, guard-aware pivots or proof provenance, so it should be confined to diagnostics.
 
+For automatic ISP completion, RustRed now copies each authenticated nonempty
+rectangular coefficient matrix into the checked contextual field and calls
+public `Matrix::partial_row_reduce` over all columns.  This destructive entry
+point avoids the extra clone in `Matrix::rank`; RustRed retains only the
+LiteRed identity-row scan, coordinate order, resource policy, V2 work census,
+and replay certificate.  A test-only maximal-minor oracle delegates every
+determinant to public `Matrix::det` and independently verifies one- and
+two-loop examples with external momenta.
+
+Two additional native edge cases are relevant when selecting matrix APIs.
+`Matrix::rank`/`partial_row_reduce` indexes row zero for a `0 x N` input, so the
+checked RustRed boundary rejects empty matrices before entry.  Also, the
+single-`u32` row-index implementation in the vendored dense matrix multiplies
+by `nrows` instead of `ncols`; RustRed uses tuple indexing and iterators and
+does not rely on that rectangular row-slice path.
+
 #### 10.1.1 Checked contextual field for coefficient matrices
 
 The generic-family P1 matrix slice is implemented in
@@ -627,8 +643,17 @@ Parallel, licensed GMP validation for this milestone recorded:
   workers and no failures; and
 - a passing `cargo check --all-features --all-targets -j4`.
 
-Only the generic-family coefficient-matrix P1 row is complete at this
-checkpoint. Automatic ISP rank, tensor-projector matrices, symmetry matrices,
+The generic-family coefficient-matrix and automatic-ISP rank P1 rows are
+complete at this checkpoint.  The automatic-ISP slice passed 23/23 adapter
+tests (`9b7572e7-ef39-4e21-bd15-5165c714985b`), 30/30 combined internal tests
+(`b7a94288-7f4c-470c-ae60-461e633c5fe0`), 8/8 public completion tests
+(`5699bda7-d1a3-480b-803e-0ab0dbcf7c30`), and 3/3 independent maximal-minor
+oracle tests (`2df0c433-3b73-4101-8ef2-7726bda190ac`) under parallel licensed
+nextest.  The frozen optimized gate then passed 30/30 adapter/internal tests in
+`88208064-7cd3-46b4-b4f5-807953c2232f` and 13/13 public/oracle/downstream tests
+in `0a0f4f11-09b0-4d0e-a9b8-f9adad877989`; the latter includes the existing
+four- and five-loop factorized reductions.  The all-feature/all-target compile
+check passed as well. Tensor-projector matrices, symmetry matrices,
 symmetry-discovery determinants, and Feynman-polynomial matrix consumers remain
 separate migration work.
 
