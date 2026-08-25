@@ -13,7 +13,11 @@ use std::fmt;
 
 use symbolica::prelude::*;
 
-use crate::coefficient::{Coefficient, CoefficientContext};
+use crate::coefficient::{Coefficient, CoefficientContext, ExactAlgebraError};
+use crate::symbolica_coefficient_matrix::{
+    SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
+    invert_and_verify_coefficient_matrix, power_of_coefficient,
+};
 
 /// Largest naive perfect-matching basis enabled by default (rank eight).
 ///
@@ -938,7 +942,14 @@ pub enum TensorError {
     },
     SingularProjector {
         rank: usize,
-        column: usize,
+    },
+    ExactAlgebra(ExactAlgebraError),
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
+    InternalProjectorAlgebra {
+        detail: String,
     },
 }
 
@@ -1015,9 +1026,21 @@ impl fmt::Display for TensorError {
                 "invalid metric-contraction component with {vectors} vector endpoints and \
                  {free_indices} free indices"
             ),
-            Self::SingularProjector { rank, column } => write!(
+            Self::SingularProjector { rank } => write!(
                 formatter,
-                "rank-{rank} metric Gram matrix is singular at pivot column {column}"
+                "rank-{rank} metric Gram matrix is identically singular"
+            ),
+            Self::ExactAlgebra(error) => error.fmt(formatter),
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "failed to reserve {requested} {resource} while building the tensor projector"
+            ),
+            Self::InternalProjectorAlgebra { detail } => write!(
+                formatter,
+                "Symbolica tensor-projector algebra failed internal replay: {detail}"
             ),
         }
     }
@@ -1176,7 +1199,7 @@ impl VacuumTensorProjector {
         left: &SlotPairing,
         right: &SlotPairing,
     ) -> Result<Coefficient, TensorError> {
-        Ok(self.dimension.pow(left.contraction_cycles(right)? as u64))
+        self.dimension_power(left.contraction_cycles(right)? as u64)
     }
 
     /// Eliminate dummy indices from metrics, metric chains, and vector pairs.
@@ -1275,7 +1298,7 @@ impl VacuumTensorProjector {
         vectors.sort_unstable();
 
         Ok(MetricContraction {
-            coefficient: self.dimension.pow(closed_loops),
+            coefficient: self.dimension_power(closed_loops)?,
             vectors,
             metrics: MetricPairing::new(metrics),
             scalar_products,
@@ -1377,6 +1400,17 @@ impl VacuumTensorProjector {
             inverse_gram,
         })
     }
+
+    fn dimension_power(&self, exponent: u64) -> Result<Coefficient, TensorError> {
+        power_of_coefficient(
+            &self.coefficients,
+            &self.dimension,
+            exponent,
+            SymbolicaCoefficientMatrixLimits::default(),
+        )
+        .map(|(coefficient, _stats)| coefficient)
+        .map_err(|error| map_projector_algebra_error(error, None))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1439,50 +1473,70 @@ fn invert_matrix(
     matrix: Vec<Vec<Coefficient>>,
     rank: usize,
 ) -> Result<Vec<Vec<Coefficient>>, TensorError> {
-    let size = matrix.len();
-    debug_assert!(matrix.iter().all(|row| row.len() == size));
-    let mut augmented = Vec::with_capacity(size);
-    for (row_position, mut row) in matrix.into_iter().enumerate() {
-        row.extend((0..size).map(|column| {
-            if column == row_position {
-                coefficients.one()
-            } else {
-                coefficients.zero()
-            }
-        }));
-        augmented.push(row);
-    }
+    invert_and_verify_coefficient_matrix(
+        coefficients,
+        &matrix,
+        SymbolicaCoefficientMatrixLimits::default(),
+    )
+    .map(|verified| verified.into_parts().0)
+    .map_err(|error| map_projector_algebra_error(error, Some(rank)))
+}
 
-    for column in 0..size {
-        let Some(pivot) = (column..size).find(|&row| !augmented[row][column].is_zero()) else {
-            return Err(TensorError::SingularProjector { rank, column });
-        };
-        augmented.swap(column, pivot);
-
-        let pivot = augmented[column][column].clone();
-        for entry in &mut augmented[column] {
-            *entry = &*entry / &pivot;
+fn map_projector_algebra_error(
+    error: SymbolicaCoefficientMatrixError,
+    rank: Option<usize>,
+) -> TensorError {
+    match error {
+        SymbolicaCoefficientMatrixError::Singular => match rank {
+            Some(rank) => TensorError::SingularProjector { rank },
+            None => TensorError::InternalProjectorAlgebra {
+                detail: "Symbolica reported singularity during scalar exponentiation".to_owned(),
+            },
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
         }
-        let pivot_row = augmented[column].clone();
-
-        for (row_position, row) in augmented.iter_mut().enumerate() {
-            if row_position == column {
-                continue;
-            }
-            let factor = row[column].clone();
-            if factor.is_zero() {
-                continue;
-            }
-            for (entry, pivot_entry) in row.iter_mut().zip(&pivot_row) {
-                *entry = &*entry - &(&factor * pivot_entry);
-            }
-        }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(ExactAlgebraError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        })
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient {
+            error:
+                ExactAlgebraError::ResourceLimit {
+                    resource,
+                    requested,
+                    limit,
+                },
+            ..
+        } => TensorError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        SymbolicaCoefficientMatrixError::ResourceCountOverflow { resource }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(
+            ExactAlgebraError::ResourceCountOverflow { resource },
+        )
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient {
+            error: ExactAlgebraError::ResourceCountOverflow { resource },
+            ..
+        } => TensorError::ResourceCountOverflow { resource },
+        SymbolicaCoefficientMatrixError::AllocationFailure {
+            resource,
+            requested,
+        } => TensorError::AllocationFailure {
+            resource,
+            requested,
+        },
+        SymbolicaCoefficientMatrixError::InvalidCoefficient { error, .. }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(error) => TensorError::ExactAlgebra(error),
+        internal => TensorError::InternalProjectorAlgebra {
+            detail: internal.to_string(),
+        },
     }
-
-    Ok(augmented
-        .into_iter()
-        .map(|row| row.into_iter().skip(size).collect())
-        .collect())
 }
 
 #[derive(Debug)]

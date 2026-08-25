@@ -194,17 +194,23 @@ The repository currently includes tests for:
   session, plus shadow replay which re-stages each opaque source and re-executes
   its dependent, NoTarget, or affine-equality transition before comparing the
   resulting evidence and terminal state;
-- one-loop scalar and tensor comparisons against frozen Vakint-derived oracles;
+- one-loop scalar and tensor comparisons against frozen Vakint-derived oracles,
+  including an independent public-Symbolica rank-six (15 by 15) projector
+  reconstruction;
 - concrete two-loop sunset and three-loop tetrahedron scalar/tensor fixtures;
 - elementary factorized four- and five-loop fixtures which exercise the same
   loop-count-neutral library stack; and
-- five numerator-cancellation closure pairs in
-  [`tests/symbolica_target_numerator.rs`](tests/symbolica_target_numerator.rs):
-  scalar denominator cancellation, squared cancellation, rank-two and
-  rank-four tensor cancellation, and metric-contraction cancellation.
+- seven end-to-end numerator-spelling closure pairs in
+  [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
+  scalar and squared denominator cancellation, rank-two/rank-four/rank-six
+  tensor cancellation, metric-contraction cancellation, and traced-rank-six
+  versus scalar-product spelling.
 
-Those five closure pairs pass through compact numerator parsing, the generic
-tensor projector, and scalar lowering. They currently use the direct library
+Those closure pairs independently rebuild generated parametric IBPs on both
+sides and compare unreplaced-master output. They pass through compact numerator
+parsing, the generic tensor projector, scalar lowering, and guarded rule
+application. Projector coefficient powers and Gram algebra use public
+Symbolica APIs; FORM is not invoked. They currently use the direct library
 path; `rustred derive` only retains their numerator metadata.
 
 The multi-loop fixtures demonstrate concrete validated computations. They are

@@ -31,10 +31,16 @@ use crate::{
 
 pub const GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA: &str =
     "rustred-generic-vacuum-covariant-tensor-polynomial-projection-v1";
+pub const GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V2_SCHEMA: &str =
+    "rustred-generic-vacuum-covariant-tensor-polynomial-projection-v2";
 pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-covariant-tensor-polynomial-lowering-v1";
+pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-covariant-tensor-polynomial-lowering-v2";
 pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-covariant-tensor-polynomial-parametric-reduction-v1";
+pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-covariant-tensor-polynomial-parametric-reduction-v2";
 
 /// Aggregate policy for one complete finite tensor-polynomial projection.
 ///
@@ -53,6 +59,9 @@ pub struct GenericTensorPolynomialLimits {
     pub max_family_domain_exponent_entries: usize,
     pub max_family_manifest_bytes: usize,
     pub max_projection_arithmetic_operations: u64,
+    pub max_projection_matrix_peak_live_entries: usize,
+    pub max_projection_matrix_input_retained_bytes: usize,
+    pub max_projection_matrix_output_retained_bytes: usize,
     pub max_projection_structural_operations: u64,
     pub max_projection_pairings: usize,
     pub max_projection_gram_entries: usize,
@@ -98,6 +107,9 @@ impl Default for GenericTensorPolynomialLimits {
             max_family_domain_exponent_entries: 1_000_000_000,
             max_family_manifest_bytes: 256 * 1024 * 1024,
             max_projection_arithmetic_operations: 1_000_000_000,
+            max_projection_matrix_peak_live_entries: 4_000_000,
+            max_projection_matrix_input_retained_bytes: 1024 * 1024 * 1024,
+            max_projection_matrix_output_retained_bytes: 1024 * 1024 * 1024,
             max_projection_structural_operations: 1_000_000_000,
             max_projection_pairings: 10_000_000,
             max_projection_gram_entries: 100_000_000,
@@ -241,6 +253,10 @@ pub struct GenericTensorPolynomialStats {
     pub source_structure_entries: usize,
     pub projected_terms: usize,
     pub projection_arithmetic_operations: u64,
+    pub projection_symbolica_algebra_operations: u64,
+    pub projection_matrix_peak_live_entries: usize,
+    pub projection_matrix_input_retained_bytes: usize,
+    pub projection_matrix_output_retained_bytes: usize,
     pub projection_structural_operations: u64,
     pub projection_pairings: usize,
     pub projection_gram_entries: usize,
@@ -629,7 +645,7 @@ impl GenericVacuumTensorPolynomialProjector {
             self.limits.max_collected_terms,
         )?;
         Ok(AuthenticatedVacuumCovariantTensorPolynomialProjection {
-            schema: GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA,
+            schema: GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V2_SCHEMA,
             family_fingerprint: Arc::from(family.fingerprint()),
             limits: self.limits,
             sources: retained_sources,
@@ -685,7 +701,7 @@ impl AuthenticatedVacuumCovariantTensorPolynomialLowering {
             lowering_limits,
         )?;
         Ok(Self {
-            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V1_SCHEMA,
+            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V2_SCHEMA,
             projection,
             base_integral: base_integral.clone(),
             lowering_limits,
@@ -869,7 +885,7 @@ impl<'family> TensorParametricReductionComposer<'family> {
         Ok(
             AuthenticatedVacuumCovariantTensorPolynomialParametricReduction {
                 schema:
-                    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V1_SCHEMA,
+                    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V2_SCHEMA,
                 authenticated_lowering,
                 scalar_reduction,
             },
@@ -892,6 +908,19 @@ fn remaining_projector_limits(
         limits
             .max_projection_structural_operations
             .saturating_sub(stats.projection_structural_operations),
+    );
+    child.max_matrix_input_retained_bytes = child.max_matrix_input_retained_bytes.min(
+        limits
+            .max_projection_matrix_input_retained_bytes
+            .saturating_sub(stats.projection_matrix_input_retained_bytes),
+    );
+    child.max_matrix_live_entries = child
+        .max_matrix_live_entries
+        .min(limits.max_projection_matrix_peak_live_entries);
+    child.max_matrix_output_retained_bytes = child.max_matrix_output_retained_bytes.min(
+        limits
+            .max_projection_matrix_output_retained_bytes
+            .saturating_sub(stats.projection_matrix_output_retained_bytes),
     );
     child.max_pairings = child.max_pairings.min(
         limits
@@ -987,6 +1016,19 @@ fn absorb_projection_stats(
         aggregate.projection_arithmetic_operations,
         limits.max_projection_arithmetic_operations,
     )?;
+    aggregate.projection_symbolica_algebra_operations = checked_add_u64(
+        aggregate.projection_symbolica_algebra_operations,
+        stats.symbolica_algebra_operations,
+        "tensor polynomial Symbolica algebra operations",
+    )?;
+    aggregate.projection_matrix_peak_live_entries = aggregate
+        .projection_matrix_peak_live_entries
+        .max(stats.matrix_peak_live_entries);
+    check_limit(
+        "tensor polynomial Symbolica matrix peak live entries",
+        aggregate.projection_matrix_peak_live_entries,
+        limits.max_projection_matrix_peak_live_entries,
+    )?;
     aggregate.projection_structural_operations = checked_add_u64(
         aggregate.projection_structural_operations,
         stats.structural_operations,
@@ -1003,6 +1045,18 @@ fn absorb_projection_stats(
             check_limit($resource, aggregate.$field, $limit)?;
         }};
     }
+    absorb!(
+        projection_matrix_input_retained_bytes,
+        stats.matrix_input_retained_bytes,
+        "tensor polynomial Symbolica matrix input retained bytes",
+        limits.max_projection_matrix_input_retained_bytes
+    );
+    absorb!(
+        projection_matrix_output_retained_bytes,
+        stats.matrix_output_retained_bytes,
+        "tensor polynomial Symbolica matrix output retained bytes",
+        limits.max_projection_matrix_output_retained_bytes
+    );
     absorb!(
         projection_pairings,
         stats.pairing_count,

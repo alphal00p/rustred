@@ -16,9 +16,11 @@ use symbolica::{
 
 const ORDERING: IntegralOrderingPolicy = IntegralOrderingPolicy::RustRedUnshiftedV1;
 
-type LoweringSnapshot =
-    BTreeMap<(TensorCovariantStructure, MetricPairing, ConcreteIntegralKey), Coefficient>;
-type OutputSnapshot = BTreeMap<(TensorCovariantStructure, ConcreteIntegralKey), Coefficient>;
+type LoweringSnapshot = BTreeMap<(String, MetricPairing, ConcreteIntegralKey), Coefficient>;
+type OutputSnapshot = BTreeMap<(String, ConcreteIntegralKey), Coefficient>;
+type TerminalSnapshot = BTreeMap<(String, ConcreteIntegralKey), ConcreteTerminalStatus>;
+type LeafSnapshot = BTreeSet<(String, ConcreteIntegralKey)>;
+type CertifiedLeafSnapshot = BTreeMap<(String, ConcreteIntegralKey), String>;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct SemanticGuardLoci {
@@ -31,10 +33,13 @@ struct SemanticGuardLoci {
 }
 
 struct CaseResult {
-    reduction: AuthenticatedVacuumCovariantTensorPolynomialParametricReduction,
     lowering: LoweringSnapshot,
     output: OutputSnapshot,
     guards: SemanticGuardLoci,
+    terminal_statuses: TerminalSnapshot,
+    selected_masters: LeafSnapshot,
+    certified_masters: CertifiedLeafSnapshot,
+    uncovered_leaves: LeafSnapshot,
 }
 
 fn family(name: &str) -> IntegralFamily {
@@ -73,16 +78,25 @@ fn coefficient_polynomial_locus(polynomial: &CoefficientPolynomial) -> String {
 }
 
 fn snapshot_lowering(
+    compiled: &CompiledSymbolicaTensorNumerator,
     lowering: &AuthenticatedVacuumCovariantTensorPolynomialLowering,
 ) -> LoweringSnapshot {
     let mut snapshot = BTreeMap::new();
     for (covariant, reduction) in lowering.lowerings() {
+        let rendered_covariant = compiled
+            .render_covariant(covariant)
+            .unwrap()
+            .to_canonical_string();
         for (metrics, terms) in reduction.structures() {
             for (integral, coefficient) in terms {
                 assert!(
                     snapshot
                         .insert(
-                            (covariant.clone(), metrics.clone(), integral.clone()),
+                            (
+                                rendered_covariant.clone(),
+                                metrics.clone(),
+                                integral.clone(),
+                            ),
                             coefficient.coefficient().clone(),
                         )
                         .is_none(),
@@ -94,14 +108,21 @@ fn snapshot_lowering(
     snapshot
 }
 
-fn snapshot_output(reduction: &CovariantTensorParametricReductionResult) -> OutputSnapshot {
+fn snapshot_output(
+    compiled: &CompiledSymbolicaTensorNumerator,
+    reduction: &CovariantTensorParametricReductionResult,
+) -> OutputSnapshot {
     let mut snapshot = BTreeMap::new();
     for (covariant, terms) in reduction.structures() {
+        let rendered_covariant = compiled
+            .render_covariant(covariant)
+            .unwrap()
+            .to_canonical_string();
         for (integral, coefficient) in terms {
             assert!(
                 snapshot
                     .insert(
-                        (covariant.clone(), integral.clone()),
+                        (rendered_covariant.clone(), integral.clone()),
                         coefficient.coefficient().clone(),
                     )
                     .is_none(),
@@ -110,6 +131,69 @@ fn snapshot_output(reduction: &CovariantTensorParametricReductionResult) -> Outp
         }
     }
     snapshot
+}
+
+fn render_covariant(
+    compiled: &CompiledSymbolicaTensorNumerator,
+    covariant: &TensorCovariantStructure,
+) -> String {
+    compiled
+        .render_covariant(covariant)
+        .unwrap()
+        .to_canonical_string()
+}
+
+fn snapshot_terminal_statuses(
+    compiled: &CompiledSymbolicaTensorNumerator,
+    reduction: &CovariantTensorParametricReductionResult,
+) -> TerminalSnapshot {
+    let mut snapshot = BTreeMap::new();
+    for (covariant, statuses) in reduction.terminal_statuses() {
+        let rendered = render_covariant(compiled, covariant);
+        for (integral, status) in statuses {
+            assert!(
+                snapshot
+                    .insert((rendered.clone(), integral.clone()), status.clone())
+                    .is_none(),
+                "a terminal-status snapshot key must be unique"
+            );
+        }
+    }
+    snapshot
+}
+
+fn snapshot_leaves<'a>(
+    compiled: &CompiledSymbolicaTensorNumerator,
+    leaves: impl IntoIterator<Item = &'a TensorIntegralLeaf>,
+) -> LeafSnapshot {
+    leaves
+        .into_iter()
+        .map(|leaf| {
+            (
+                render_covariant(compiled, leaf.covariant()),
+                leaf.integral().clone(),
+            )
+        })
+        .collect()
+}
+
+fn snapshot_certified_masters(
+    compiled: &CompiledSymbolicaTensorNumerator,
+    reduction: &CovariantTensorParametricReductionResult,
+) -> CertifiedLeafSnapshot {
+    reduction
+        .certified_masters()
+        .iter()
+        .map(|(leaf, fingerprint)| {
+            (
+                (
+                    render_covariant(compiled, leaf.covariant()),
+                    leaf.integral().clone(),
+                ),
+                fingerprint.to_string(),
+            )
+        })
+        .collect()
 }
 
 fn semantic_guard_loci(
@@ -183,7 +267,7 @@ fn reduce_independently(family: &IntegralFamily, source: &str, power: i64) -> Ca
     projection.verify(family).unwrap();
     let lowering = projection.lower(family, &key(power)).unwrap();
     lowering.verify(family).unwrap();
-    let lowering_snapshot = snapshot_lowering(&lowering);
+    let lowering_snapshot = snapshot_lowering(&compiled, &lowering);
 
     // This complete generator/discovery/provider stack is rebuilt for every
     // side of every metamorphic equality.
@@ -229,13 +313,21 @@ fn reduce_independently(family: &IntegralFamily, source: &str, power: i64) -> Ca
     reduction.require_complete().unwrap();
     reduction.verify(family).unwrap();
     reduction.verify_with_engine(family, &mut engine).unwrap();
-    let output = snapshot_output(reduction.scalar_reduction());
+    let scalar_reduction = reduction.scalar_reduction();
+    let output = snapshot_output(&compiled, scalar_reduction);
+    let terminal_statuses = snapshot_terminal_statuses(&compiled, scalar_reduction);
+    let selected_masters = snapshot_leaves(&compiled, scalar_reduction.selected_masters());
+    let certified_masters = snapshot_certified_masters(&compiled, scalar_reduction);
+    let uncovered_leaves = snapshot_leaves(&compiled, scalar_reduction.uncovered_leaves());
     let guards = semantic_guard_loci(family, &reduction);
     CaseResult {
-        reduction,
         lowering: lowering_snapshot,
         output,
         guards,
+        terminal_statuses,
+        selected_masters,
+        certified_masters,
+        uncovered_leaves,
     }
 }
 
@@ -250,32 +342,19 @@ fn assert_equivalent(left: &CaseResult, right: &CaseResult) {
     );
     assert_eq!(left.guards, right.guards, "semantic guard loci differ");
     assert_eq!(
-        left.reduction.scalar_reduction().terminal_statuses(),
-        right.reduction.scalar_reduction().terminal_statuses(),
+        left.terminal_statuses, right.terminal_statuses,
         "terminal classifications differ"
     );
     assert_eq!(
-        left.reduction.scalar_reduction().selected_masters(),
-        right.reduction.scalar_reduction().selected_masters(),
+        left.selected_masters, right.selected_masters,
         "selected master leaves differ"
     );
     assert_eq!(
-        left.reduction
-            .scalar_reduction()
-            .certified_masters()
-            .keys()
-            .collect::<BTreeSet<_>>(),
-        right
-            .reduction
-            .scalar_reduction()
-            .certified_masters()
-            .keys()
-            .collect::<BTreeSet<_>>(),
+        left.certified_masters, right.certified_masters,
         "certified master leaves differ"
     );
     assert_eq!(
-        left.reduction.scalar_reduction().uncovered_leaves(),
-        right.reduction.scalar_reduction().uncovered_leaves(),
+        left.uncovered_leaves, right.uncovered_leaves,
         "uncovered leaves differ"
     );
 }
@@ -362,6 +441,24 @@ fn denominator_factor_cancels_in_a_free_rank_four_numerator() {
 }
 
 #[test]
+fn denominator_factor_cancels_in_a_free_rank_six_numerator() {
+    let family = family("one-loop-cancellation-free-rank-six");
+    let tensor = "vakint::k(3,user_space::a)*vakint::k(3,user_space::b)\
+                  *vakint::k(3,user_space::c)*vakint::k(3,user_space::e)\
+                  *vakint::k(3,user_space::f)*vakint::k(3,user_space::h)";
+    let numerator = reduce_independently(
+        &family,
+        &format!("(vakint::dot(vakint::k(3),vakint::k(3))-rustred::m2)*{tensor}"),
+        4,
+    );
+    let explicit = reduce_independently(&family, tensor, 3);
+    assert_equivalent(&numerator, &explicit);
+    // The generic rank-six projector produces all 15 metric matchings.  The
+    // one-loop generated IBP reduction leaves the selected I(1) master only.
+    assert_master_coefficients(&family, &numerator, 15, "m2/(8*d)");
+}
+
+#[test]
 fn metric_contracted_denominator_spelling_matches_explicit_cancellation() {
     let family = family("one-loop-cancellation-metric-spelling");
     let numerator = reduce_independently(
@@ -374,4 +471,25 @@ fn metric_contracted_denominator_spelling_matches_explicit_cancellation() {
     let explicit = reduce_independently(&family, "1", 3);
     assert_equivalent(&numerator, &explicit);
     assert_single_master_coefficient(&family, &numerator, "(d-4)*(d-2)/(8*m2^2)");
+}
+
+#[test]
+fn traced_rank_six_spelling_matches_scalar_product_times_rank_four() {
+    let family = family("one-loop-traced-rank-six-spelling");
+    let free_rank_four = "vakint::k(3,user_space::a)*vakint::k(3,user_space::b)\
+                          *vakint::k(3,user_space::c)*vakint::k(3,user_space::e)";
+    let metric_trace = reduce_independently(
+        &family,
+        &format!(
+            "vakint::g(user_space::u,user_space::v)\
+             *vakint::k(3,user_space::u)*vakint::k(3,user_space::v)*{free_rank_four}"
+        ),
+        3,
+    );
+    let scalar_product = reduce_independently(
+        &family,
+        &format!("vakint::dot(vakint::k(3),vakint::k(3))*{free_rank_four}"),
+        3,
+    );
+    assert_equivalent(&metric_trace, &scalar_product);
 }

@@ -1,7 +1,8 @@
 # Symbolica Rust API boundary for a LiteRed-complete RustRed
 
 Status: source audit of vendored Symbolica 2.2.0, reconciled with the RustRed
-source through the generic-family coefficient-matrix milestone on 2026-08-25.
+source through the automatic-ISP-rank and tensor-projector milestones on
+2026-08-25.
 This report is implementation-oriented and covers the API boundary needed for
 generic, parametric IBP/LI generation, sector and symmetry handling, guarded
 rule solving/application, persistence, and a Vakint/FORM-inspired
@@ -16,11 +17,16 @@ IBP, Symbolica tensor-numerator, and FORM-free Vakint oracle tests passed with
 `cargo nextest run -j4`.  That checkpoint is evidence for the named exercised
 APIs, not a substitute for the still-open probes in section 17.
 
-A later parallel checkpoint migrated the generic-family denominator-basis
-determinant, inverse, and two-sided product replay to Symbolica's native matrix
-API through the checked contextual field adapter documented in section 10.1.1.
-That statement applies to this one P1 matrix consumer; it is not a claim that
-all RustRed matrix or elimination code has migrated.
+Later parallel checkpoints migrated the generic-family denominator-basis
+determinant/inverse, automatic-ISP rank, and tensor-projector Gram
+power/determinant/inverse/two-sided replay to Symbolica's public APIs through
+the checked contextual field adapter documented in section 10.1.1. This is not
+a claim that all RustRed matrix, polynomial, or elimination consumers have
+migrated.
+
+Confirmed upstream correctness defects and the fallible/resource-aware API gap
+are summarized with standalone reproductions in
+[`symbolica_upstream_gap_audit_2026-08-25.md`](symbolica_upstream_gap_audit_2026-08-25.md).
 
 ## 1. Executive decision
 
@@ -394,7 +400,15 @@ polynomial identity independently of the production replacement sequence.
 leading coefficient.  RustRed's validated constructor must keep its explicit
 zero-denominator check before entering Symbolica.
 
-`inv` panics on zero and `pow` uses repeated multiplication with a TODO for binary exponentiation (`vendor/symbolica/src/domains/rational_polynomial.rs:524-564` and `874-891`). RustRed wrappers should provide checked inversion and exponent limits.
+`inv` panics on zero and `pow` uses repeated multiplication with a TODO for
+binary exponentiation
+(`vendor/symbolica/src/domains/rational_polynomial.rs:524-564` and `874-891`).
+RustRed's checked coefficient-power boundary authenticates the map, exponent,
+degree/term envelope, operation allowance, and retained bytes before calling
+the public `RationalPolynomialField::pow`, then reauthenticates the output. It
+records the current linear native schedule rather than implementing its own
+power algorithm. Symbolica still exposes no cancellation or internal-scratch
+budget for that call.
 
 Do not use `FactorizedRationalPolynomial` as the authoritative coefficient/guard representation:
 
@@ -555,18 +569,18 @@ single-`u32` row-index implementation in the vendored dense matrix multiplies
 by `nrows` instead of `ncols`; RustRed uses tuple indexing and iterators and
 does not rely on that rectangular row-slice path.
 
-#### 10.1.1 Checked contextual field for coefficient matrices
+#### 10.1.1 Checked contextual field for coefficient matrices and powers
 
-The generic-family P1 matrix slice is implemented in
+The generic-family, automatic-ISP-rank, and tensor-projector P1 slices use
 `src/symbolica_coefficient_matrix.rs`. `CheckedCoefficientField` supplies
 Symbolica's public `Set`, `RingOps`, `Ring`, `EuclideanDomain`, and `Field`
 traits with RustRed's existing rational-polynomial `Coefficient` element and
 ordered `CoefficientContext`. Matrix-used scalar operations forward to the
 context's checked Symbolica arithmetic; constants are constructed on the
-context's map. Symbolica itself performs the determinant, inverse, and both
-native products (`src/symbolica_coefficient_matrix.rs:1387-1497`). There is no
-private determinant, inversion, elimination, multiplication, rational-function,
-or integer implementation in this boundary.
+context's map. Symbolica itself performs rank reduction, determinant, inverse,
+both native products, and coefficient powers. There is no private determinant,
+inversion, elimination, matrix multiplication, coefficient-power,
+rational-function, or integer implementation in this boundary.
 
 This adapter is required because no closer public Symbolica 2.2.0 abstraction
 satisfies the boundary contract:
@@ -614,8 +628,8 @@ a compile error for `panic = "abort"`. The adapter's `Ring::sample` method is
 also why RustRed directly depends on `rand` 0.9: its signature must use
 Symbolica's `rand::RngCore` version, and the implementation delegates to `Z`.
 
-The production integration is topology- and loop-count-generic
-(`src/generic_family.rs:682-686,1888-1919`). Its black-box test oracle does not
+The production integrations are topology- and loop-count-generic. The
+generic-family black-box test oracle does not
 read the cached production inverse: it solves every `A x=e_j` independently
 with Symbolica's public `Matrix::solve`, then replays both products. Concrete
 analytic inverses in `tests/parametric_ibp_oracle.rs` are independently checked,
@@ -643,8 +657,8 @@ Parallel, licensed GMP validation for this milestone recorded:
   workers and no failures; and
 - a passing `cargo check --all-features --all-targets -j4`.
 
-The generic-family coefficient-matrix and automatic-ISP rank P1 rows are
-complete at this checkpoint.  The automatic-ISP slice passed 23/23 adapter
+The generic-family coefficient-matrix, automatic-ISP rank, and tensor-projector
+P1 rows are complete at this checkpoint. The automatic-ISP slice passed 23/23 adapter
 tests (`9b7572e7-ef39-4e21-bd15-5165c714985b`), 30/30 combined internal tests
 (`b7a94288-7f4c-470c-ae60-461e633c5fe0`), 8/8 public completion tests
 (`5699bda7-d1a3-480b-803e-0ab0dbcf7c30`), and 3/3 independent maximal-minor
@@ -652,10 +666,13 @@ oracle tests (`2df0c433-3b73-4101-8ef2-7726bda190ac`) under parallel licensed
 nextest.  The frozen optimized gate then passed 30/30 adapter/internal tests in
 `88208064-7cd3-46b4-b4f5-807953c2232f` and 13/13 public/oracle/downstream tests
 in `0a0f4f11-09b0-4d0e-a9b8-f9adad877989`; the latter includes the existing
-four- and five-loop factorized reductions.  The all-feature/all-target compile
-check passed as well. Tensor-projector matrices, symmetry matrices,
-symmetry-discovery determinants, and Feynman-polynomial matrix consumers remain
-separate migration work.
+four- and five-loop factorized reductions. The tensor-projector oracle solves
+all 15 rank-six inverse columns independently with `Matrix::solve` and passed
+in both debug and release. Optimized parallel run
+`fb9a0cda-1b7a-4494-8032-d7cbc8ea1422` then passed 28/28 selected tensor,
+closure, and Vakint-oracle tests. The all-feature/all-target compile check
+passed as well. Symmetry matrices, symmetry-discovery determinants, and
+Feynman-polynomial matrix consumers remain separate migration work.
 
 ### 10.2 Sparse matrices and row reduction
 
@@ -811,24 +828,27 @@ Performance rules for the first implementation:
 
 ### 15.1 Current RustRed implementation boundary
 
-The generic coefficient contexts already enforce fixed ordered variable maps,
-reject zero denominators, and wrap proof-critical add/subtract/multiply/divide
-and specialization with explicit growth limits.  The newer generic tensor
-projector similarly records Gram-entry, inverse-Gram, and pivot
-numerator/denominator guards and uses checked arithmetic
-(`src/generic_tensor_projector.rs:2235-2267,2600-2675`).
+The generic coefficient contexts enforce fixed ordered variable maps, reject
+zero denominators, and wrap proof-critical arithmetic and specialization with
+explicit growth limits. Both the authenticated generic projector and the
+still-public legacy `VacuumTensorProjector` now delegate Gram determinant,
+inverse, two-sided replay, and coefficient powers to the checked Symbolica
+boundary. New authenticated projectors record determinant and inverse-output
+denominator conditions; they do not retain a private pivot transcript.
 
-The still-public legacy `VacuumTensorProjector`, however, performs raw
-rational-polynomial Gram inversion without retaining pivot guards
-(`src/tensor.rs:1437-1485`, exported by `src/lib.rs:882-885`).  It must be
-hardened or deprecated in favor of the authenticated generic projector.  Other
-remaining policy gaps are the fixed-width, overflow-panicking `ExactRational`
-(`src/exact.rs:8-82`), several legacy concrete reducers that use unchecked RP
-division, no generic finite-field `K(n)` sampling/reconstruction engine, no
-bounded durable parametric-rule/provenance artifact, and no deterministic
-library startup/registry boundary.  These gaps are not limitations of the
-generic IBP generator itself, but they block a complete LiteRed/Vakint parity
-claim.
+This completed projector algebra slice does not mean that the entire tensor
+front end is free of custom algebra. The bounded tensor-aware normalization in
+`src/symbolica_tensor_numerator.rs` still selectively distributes additions,
+products, and tensor-containing powers. Whole-expression `AtomCore::expand`
+does not preserve its opaque scalar-weight semantics, and no suitable public
+selective-expansion API has yet been verified. That exact gap remains in the
+migration table and requires a native differential route before the private
+distributor can be deleted. Other open policy gaps include tensor-family
+shift-polynomial arithmetic, remaining symmetry/Feynman matrix consumers, no
+generic finite-field `K(n)` sampling/reconstruction engine, and no complete
+durable parametric-rule artifact. These gaps block a complete LiteRed/Vakint
+parity claim; they do not make the generic IBP identity generator
+topology-specific.
 
 The same licensed checkpoint generated and checked generic one- through
 five-loop IBP/LI identities, including all 25 ordinary identities of a complete

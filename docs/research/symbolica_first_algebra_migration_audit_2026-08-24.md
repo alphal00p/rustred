@@ -9,6 +9,9 @@ algebra or all matrix consumers have migrated.
 
 The companion API inventory is
 [`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md).
+The source-line-backed author escalation for defects and missing embedding APIs
+in the pinned vendored revision is
+[`symbolica_upstream_gap_audit_2026-08-25.md`](symbolica_upstream_gap_audit_2026-08-25.md).
 
 ## Executive decision
 
@@ -26,11 +29,11 @@ gcd, normalization, Gaussian elimination, rank, multiplication, transpose,
 and determinant code has been deleted. Checked adapters now call
 `Matrix<Q>::{inv,rank,det,transpose}` and native matrix multiplication.
 
-The generic-family P1 matrix slice is also complete. Its denominator-basis
-determinant, inverse, and both verification products now run through
-Symbolica's public dense-matrix API over a checked contextual coefficient
-field. The remaining P1 matrix rows in this audit are still pending unless
-their table row explicitly says otherwise.
+The generic-family, automatic-ISP-rank, and tensor-projector P1 matrix slices
+are complete. Their determinant, rank, inverse, coefficient-power, and matrix
+verification operations now run through Symbolica's public APIs over a checked
+contextual coefficient field. The remaining P1 matrix rows in this audit are
+still pending unless their table row explicitly says otherwise.
 
 RustRed may continue to own LiteRed semantics around Symbolica operations:
 integral ordering, pivot-condition guards, `WhenBad` branches, source-row
@@ -110,7 +113,7 @@ both sides of that call.
 | B0 (complete) | [`exact.rs`](../../src/exact.rs): formerly fixed-width rational normalization, gcd, inverse, rank, multiply, transpose, determinant | Migrated | `Rational`/`Q`; `Matrix<Q>::inv`, `rank`, `det`, multiplication and `transpose` | The compatibility `ExactRational` wrapper owns only a Symbolica `Rational`; its operators are forwarding adapters, not an arithmetic implementation. |
 | P1 (complete) | [`generic_family.rs:1888-1919`](../../src/generic_family.rs#L1888): symbolic inverse, determinant and inverse verification | Migrated | `Matrix<CheckedCoefficientField>::det`, `inv`, and native matrix multiplication in [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns the determinant, inverse, and both products. RustRed retains the authenticated ordered coefficient context, determinant nonzero condition, resource admission, typed errors, and entrywise two-sided replay. |
 | P1 (complete) | [`automatic_isps.rs`](../../src/automatic_isps.rs): formerly hand-written Gaussian rank | Migrated | Authenticated `Matrix<CheckedCoefficientField>::partial_row_reduce` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every pivot, inverse, multiplication, subtraction, and row reduction. RustRed retains deterministic candidate order, native-operation/resource admission, the rank-progression certificate, and replay. New certificates use the V2 schema because their exact work census describes Symbolica's schedule. |
-| P1 | [`tensor.rs:1364-1486`](../../src/tensor.rs#L1364) and [`generic_tensor_projector.rs:2501-2763`](../../src/generic_tensor_projector.rs#L2501): Gram inversion and coefficient exponentiation | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::inv`; `Ring::pow` | Retain pairing enumeration, Gram construction, determinant/inverse-denominator guards and resource wrappers. Per-Gaussian-pivot provenance alone does not justify a private inverse. |
+| P1 (complete) | [`tensor.rs`](../../src/tensor.rs) and [`generic_tensor_projector.rs`](../../src/generic_tensor_projector.rs): formerly handwritten Gram inversion and binary coefficient exponentiation | Migrated | Authenticated `Matrix<CheckedCoefficientField>::inv` plus determinant/two-sided replay; public `RationalPolynomialField::pow` | Symbolica owns every Gram inverse, verification product, and coefficient power. RustRed retains pairing enumeration, contraction connectivity, determinant/inverse-denominator guards, typed resource admission, and replay. V2 projector schemas replace pivot-schedule provenance with the basis-independent Gram determinant. |
 | P1 | [`symmetry.rs:1384-1440`](../../src/symmetry.rs#L1384): subset-DP determinant | Must replace now | `Matrix<RationalPolynomialField<Z,u16>>::det` | Keep determinant nonzero guards and panic/resource boundaries. |
 | P1 | [`symmetry_discovery.rs:1209-1275`](../../src/symmetry_discovery.rs#L1209): private integer Bareiss determinant | Must replace now | `Matrix<Z>::det` | Keep candidate enumeration and conservative integer-bit/work admission. Symbolica's matrix determinant is already fraction-free/Bareiss. |
 | P1 | [`symmetry.rs:907-938`](../../src/symmetry.rs#L907) and [`symmetry.rs:1087-1127`](../../src/symmetry.rs#L1087): recognizable `C G C^T`, `R T`, and product-with-inverse kernels | Must move native matrix kernels | Symbolica matrix multiplication and transpose | Keep the independently derived scalar-product map and denominator replay as semantic verification; use native matrices for ordinary products. |
@@ -313,6 +316,53 @@ completion tests.  Run `0a0f4f11-09b0-4d0e-a9b8-f9adad877989` passed 13/13
 public/oracle/downstream tests, including complete four- and five-loop
 factorized reductions.  An all-feature/all-target compile check also passed.
 
+### Tensor-projector migration and validation evidence
+
+Both the legacy vacuum projector and the authenticated generic projector now
+construct their exact Gram matrices structurally and delegate coefficient
+powers and all matrix algebra to the checked Symbolica boundary. Public
+`RationalPolynomialField::pow` owns contraction powers. Public
+`Matrix::{det,inv}` owns the Gram determinant and inverse, and public matrix
+multiplication replays both `G G^-1` and `G^-1 G` entry by entry. RustRed still
+owns perfect-matching enumeration, contraction-cycle connectivity, admission,
+Lorentz-covariant bookkeeping, domain guards, and certificate replay; it owns
+no projector elimination or coefficient-power algorithm.
+
+The independent determinant check is semantically required with the vendored
+revision because bare `Matrix::inv` may miss singularity when the augmented
+identity supplies pivots. V2 projector certificates therefore retain the
+basis-independent Gram-determinant numerator and denominator provenance rather
+than V1's elimination-pivot transcript. V1 names and guard variants remain
+exported for source compatibility, but RustRed currently has no persisted V1
+decoder or schema-aware V1 replay path.
+
+The black-box projector oracle independently enumerates contraction cycles,
+constructs rank-zero, rank-two, rank-four, and rank-six Gram systems, solves
+each of the 15 rank-six inverse columns separately with public
+`Matrix::solve`, and checks every production inverse entry. It also checks the
+frozen Vakint rank-four/rank-six coefficient classes, identical-vector
+contractions, and the legacy-versus-generic orientation. Concrete dimensions
+prove that determinant guards accept a regular `d=-1` rank-four point and
+reject the singular `d=0`, `d=1`, and `d=-2` cases at the applicable ranks.
+
+One-loop end-to-end closure tests independently rebuild generated parametric
+IBPs for integrands written with an explicit denominator factor versus the
+same factor already cancelled. They cover free tensor ranks two, four, and
+six; the rank-six result contains all 15 metric pairings with coefficient
+`m2/(8*d)` multiplying the selected `I(1)` master. A traced rank-six spelling
+is also compared with the corresponding scalar-product-times-rank-four input
+at the public Symbolica covariant-rendering boundary, so private dummy-index
+allocation identities cannot create a false mismatch. No FORM process or
+topology-authored recurrence participates in these tests.
+
+Final licensed GMP validation used parallel workers throughout: the complete
+checked coefficient/matrix adapter module passed 27/27 tests; the independent
+rank-six oracle passed in debug run `a527dbcc-a3cf-46db-8a00-9c067e5956b0`
+and release run `6c67dc52-c12d-4132-aa51-f907d3b00457`; and optimized run
+`fb9a0cda-1b7a-4494-8032-d7cbc8ea1422` passed 28/28 tests across seven tensor,
+closure, and Vakint-oracle binaries with four workers. A final
+`cargo check --all-features --all-targets -j4` also passed.
+
 ### Polynomial-associate migration and validation evidence
 
 The strict `K = Q(theta)` associate proof now widens authenticated exponents
@@ -434,8 +484,8 @@ introduce loop-count or topology dispatch into production rule derivation.
    Move the strict associate proof through public exponent widening,
    `RationalPolynomial::to_polynomial`, and native coefficient-field
    multiplication/equality. **Associate migration complete.**
-4. Migrate direct matrix consumers. **The generic-family coefficient-matrix
-   and automatic-ISP rank slices are complete.** Tensor projectors, symmetry,
+4. Migrate direct matrix consumers. **The generic-family coefficient-matrix,
+   automatic-ISP rank, and tensor-projector slices are complete.** Symmetry,
    symmetry discovery, and Feynman determinants remain pending.
 5. Build the `SparseRowReducer` transcript-equivalence spike; move row algebra
    native wherever column reindexing and full `L` preserve RustRed's ordering,

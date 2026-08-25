@@ -848,11 +848,14 @@ pub use generic_tensor_family::{
 };
 pub use generic_tensor_polynomial::{
     AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V1_SCHEMA,
+    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V2_SCHEMA,
     AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V1_SCHEMA,
+    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V2_SCHEMA,
     AuthenticatedVacuumCovariantTensorPolynomialLowering,
     AuthenticatedVacuumCovariantTensorPolynomialParametricReduction,
     AuthenticatedVacuumCovariantTensorPolynomialProjection, CovariantTensorPolynomialMonomial,
-    GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA, GenericTensorPolynomialError,
+    GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA,
+    GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V2_SCHEMA, GenericTensorPolynomialError,
     GenericTensorPolynomialLimits, GenericTensorPolynomialStats,
     GenericVacuumTensorPolynomialProjector, TensorPolynomialProjectionContribution,
     TensorPolynomialProjectionOrigin, TensorPolynomialReductionEngineError,
@@ -860,17 +863,20 @@ pub use generic_tensor_polynomial::{
     WeightedCovariantTensorMonomial,
 };
 pub use generic_tensor_projector::{
-    AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA, AuthenticatedVacuumCovariantTensorProjection,
-    AuthenticatedVacuumTensorLowering, AuthenticatedVacuumTensorProjection,
-    CovariantTensorMonomial, GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA,
-    GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA, GenericCovariantTensorNumerator,
-    GenericCovariantTensorTerm, GenericTensorProjectionDomain, GenericTensorProjectionStats,
-    GenericTensorProjectorError, GenericTensorProjectorLimits, GenericVacuumTensorProjector,
-    IndexedSpectatorVector, SpectatorScalarProduct, SpectatorScalarProductMonomial,
-    SpectatorVector, TensorCovariantStructure, TensorLoopReference, TensorProjectionGuardOrigin,
-    TensorProjectionNonZeroCondition, VacuumCovariantPrecontractionWitness,
-    VacuumCovariantTensorProjectionWitness, VacuumCovariantVectorContractionWitness,
-    VacuumMetricContractionWitness, VacuumTensorProjectionWitness,
+    AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA, AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA,
+    AuthenticatedVacuumCovariantTensorProjection, AuthenticatedVacuumTensorLowering,
+    AuthenticatedVacuumTensorProjection, CovariantTensorMonomial,
+    GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA,
+    GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V2_SCHEMA,
+    GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA, GENERIC_VACUUM_TENSOR_PROJECTION_V2_SCHEMA,
+    GenericCovariantTensorNumerator, GenericCovariantTensorTerm, GenericTensorProjectionDomain,
+    GenericTensorProjectionStats, GenericTensorProjectorError, GenericTensorProjectorLimits,
+    GenericVacuumTensorProjector, IndexedSpectatorVector, SpectatorScalarProduct,
+    SpectatorScalarProductMonomial, SpectatorVector, TensorCovariantStructure, TensorLoopReference,
+    TensorProjectionGuardOrigin, TensorProjectionNonZeroCondition,
+    VacuumCovariantPrecontractionWitness, VacuumCovariantTensorProjectionWitness,
+    VacuumCovariantVectorContractionWitness, VacuumMetricContractionWitness,
+    VacuumTensorProjectionWitness,
 };
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
 pub use ibp::{IbpGenerationError, IbpGenerator, IbpIdentity};
@@ -1073,8 +1079,11 @@ pub use tensor_family::{
 };
 pub use tensor_reduction_engine::{
     AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V1_SCHEMA,
+    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V2_SCHEMA,
     AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
+    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
     AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
+    AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
     AuthenticatedVacuumCovariantTensorLowering,
     AuthenticatedVacuumCovariantTensorParametricReduction,
     AuthenticatedVacuumCovariantTensorReductionDomains,

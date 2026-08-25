@@ -37,15 +37,21 @@ pub const COVARIANT_TENSOR_PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA: &str =
 /// parametric scalar reduction as one replayable certificate.
 pub const AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-tensor-parametric-reduction-v1";
+pub const AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-tensor-parametric-reduction-v2";
 
 /// Stable semantic version of spectator-covariant projection plus generic
 /// scalar-product-to-family lowering.
 pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-covariant-tensor-lowering-v1";
+pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-covariant-tensor-lowering-v2";
 
 /// Stable semantic version of the spectator-covariant end-to-end reduction.
 pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-covariant-tensor-parametric-reduction-v1";
+pub const AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-covariant-tensor-parametric-reduction-v2";
 
 /// Aggregate limits for one tensor/scalar composition certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,7 +187,7 @@ impl AuthenticatedVacuumCovariantTensorLowering {
         let (lowerings, stats) =
             build_covariant_lowerings(&projection, family, base_integral, lowering_limits)?;
         Ok(Self {
-            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V1_SCHEMA,
+            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V2_SCHEMA,
             projection,
             base_integral: base_integral.clone(),
             lowering_limits,
@@ -1540,7 +1546,7 @@ impl<'family> TensorParametricReductionComposer<'family> {
             .map_err(TensorReductionCertificateError::from)?;
         let scalar_reduction = self.reduce(authenticated_lowering.lowering(), engine)?;
         Ok(AuthenticatedVacuumTensorParametricReduction {
-            schema: AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
+            schema: AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
             authenticated_lowering,
             scalar_reduction,
         })
@@ -1564,7 +1570,7 @@ impl<'family> TensorParametricReductionComposer<'family> {
         let scalar_reduction =
             self.reduce_covariant_lowerings(authenticated_lowering.lowerings(), engine)?;
         Ok(AuthenticatedVacuumCovariantTensorParametricReduction {
-            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
+            schema: AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
             authenticated_lowering,
             scalar_reduction,
         })

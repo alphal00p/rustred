@@ -22,6 +22,10 @@ use std::fmt::{self, Write};
 use std::sync::Arc;
 
 use crate::generic_family::BasePolynomial;
+use crate::symbolica_coefficient_matrix::{
+    SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
+    SymbolicaCoefficientMatrixStats, invert_and_verify_coefficient_matrix, power_of_coefficient,
+};
 use crate::{
     Coefficient, CoefficientContext, ConcreteIntegralKey, ExactAlgebraError, ExactAlgebraLimits,
     FamilyDomain, GenericTensorFamilyError, GenericTensorFamilyLimits, GenericTensorFamilyReducer,
@@ -34,13 +38,29 @@ use crate::{
 pub const GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA: &str =
     "rustred-generic-vacuum-tensor-projection-v1";
 
+/// Current semantic version of the authenticated vacuum projector.
+///
+/// V2 delegates the dense Gram inverse to Symbolica, authenticates it on both
+/// sides, and records the basis-independent Gram-determinant guard rather than
+/// an elimination-pivot transcript.
+pub const GENERIC_VACUUM_TENSOR_PROJECTION_V2_SCHEMA: &str =
+    "rustred-generic-vacuum-tensor-projection-v2";
+
 /// Stable semantic version of the spectator-covariant vacuum projector.
 pub const GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA: &str =
     "rustred-generic-vacuum-covariant-tensor-projection-v1";
 
+/// Current semantic version of the spectator-covariant vacuum projector.
+pub const GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V2_SCHEMA: &str =
+    "rustred-generic-vacuum-covariant-tensor-projection-v2";
+
 /// Stable semantic version of projection plus scalar-family lowering.
 pub const AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA: &str =
     "rustred-authenticated-vacuum-tensor-lowering-v1";
+
+/// Current semantic version of projection plus scalar-family lowering.
+pub const AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA: &str =
+    "rustred-authenticated-vacuum-tensor-lowering-v2";
 
 /// Resource policy for one authenticated projection.
 ///
@@ -63,6 +83,16 @@ pub struct GenericTensorProjectorLimits {
     pub max_index_endpoints: usize,
     pub max_gram_entries: usize,
     pub max_augmented_entries: usize,
+    /// Largest conservative simultaneously-live Symbolica matrix payload.
+    /// Dense inversion authenticates the source, inverse, and one replay
+    /// product while Symbolica's augmented workspace is live.
+    pub max_matrix_live_entries: usize,
+    /// Aggregate clone-owned bytes copied into authenticated Symbolica
+    /// coefficient-algebra sessions (powers and the Gram inverse).
+    pub max_matrix_input_retained_bytes: usize,
+    /// Aggregate clone-owned bytes authenticated in Symbolica coefficient
+    /// outputs, including determinant and two-sided inverse replay products.
+    pub max_matrix_output_retained_bytes: usize,
     pub max_projection_candidates: usize,
     pub max_output_terms: usize,
     pub max_output_structure_entries: usize,
@@ -99,6 +129,9 @@ impl Default for GenericTensorProjectorLimits {
             max_index_endpoints: 16_384,
             max_gram_entries: 1_000_000,
             max_augmented_entries: 2_000_000,
+            max_matrix_live_entries: 4_000_000,
+            max_matrix_input_retained_bytes: 1024 * 1024 * 1024,
+            max_matrix_output_retained_bytes: 1024 * 1024 * 1024,
             max_projection_candidates: 1_000_000,
             max_output_terms: 1_000_000,
             max_output_structure_entries: 64_000_000,
@@ -507,11 +540,35 @@ impl GenericCovariantTensorNumerator {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TensorProjectionGuardOrigin {
     MetricContractionCoefficientDenominator,
-    GramEntryDenominator { row: usize, column: usize },
-    ProjectorPivotNumerator { rank: usize, column: usize },
-    ProjectorPivotDenominator { rank: usize, column: usize },
-    InverseGramDenominator { row: usize, column: usize },
-    ProjectedCoefficientDenominator { output_term: usize },
+    GramEntryDenominator {
+        row: usize,
+        column: usize,
+    },
+    /// Legacy V1 provenance retained for schema readers. V2 projectors emit
+    /// [`Self::ProjectorGramDeterminantNumerator`] instead.
+    ProjectorPivotNumerator {
+        rank: usize,
+        column: usize,
+    },
+    /// Legacy V1 provenance retained for schema readers. V2 projectors emit
+    /// [`Self::ProjectorGramDeterminantDenominator`] instead.
+    ProjectorPivotDenominator {
+        rank: usize,
+        column: usize,
+    },
+    ProjectorGramDeterminantNumerator {
+        rank: usize,
+    },
+    ProjectorGramDeterminantDenominator {
+        rank: usize,
+    },
+    InverseGramDenominator {
+        row: usize,
+        column: usize,
+    },
+    ProjectedCoefficientDenominator {
+        output_term: usize,
+    },
 }
 
 /// One normalized polynomial condition and all projection steps requiring it.
@@ -611,6 +668,9 @@ impl VacuumTensorProjectionWitness {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GenericTensorProjectionStats {
     pub arithmetic_operations: u64,
+    /// Subset of `arithmetic_operations` performed inside authenticated
+    /// Symbolica coefficient-algebra sessions.
+    pub symbolica_algebra_operations: u64,
     pub structural_operations: u64,
     pub pairing_count: usize,
     pub gram_entries: usize,
@@ -623,6 +683,13 @@ pub struct GenericTensorProjectionStats {
     pub guard_origins: usize,
     pub family_domain_origins: usize,
     pub retained_coefficient_bytes: usize,
+    /// Aggregate clone-owned caller inputs copied into Symbolica sessions.
+    pub matrix_input_retained_bytes: usize,
+    /// Aggregate clone-owned Symbolica outputs authenticated during projection.
+    pub matrix_output_retained_bytes: usize,
+    /// Largest conservative simultaneously-live Symbolica matrix payload
+    /// admitted by any algebra session in this projection.
+    pub matrix_peak_live_entries: usize,
 }
 
 /// The complete authenticated output of projecting one original monomial.
@@ -644,7 +711,7 @@ pub struct AuthenticatedVacuumTensorProjection {
 /// scalar-product-to-integral lowering.
 ///
 /// Consumers must retain this object (or both of its children), not extract
-/// only `lowering`: projector pivot guards and the original tensor witness live
+/// only `lowering`: projector determinant guards and the original tensor witness live
 /// in `projection`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthenticatedVacuumTensorLowering {
@@ -921,7 +988,7 @@ impl AuthenticatedVacuumTensorProjection {
         let lowering = GenericTensorFamilyReducer::with_limits(family, limits)
             .lower(base_integral, &self.numerator)?;
         Ok(AuthenticatedVacuumTensorLowering {
-            schema: AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA,
+            schema: AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA,
             projection: self.clone(),
             lowering_limits: limits,
             lowering,
@@ -1062,6 +1129,7 @@ impl GenericVacuumTensorProjector {
 
         let stats = GenericTensorProjectionStats {
             arithmetic_operations: budget.arithmetic_operations,
+            symbolica_algebra_operations: budget.symbolica_algebra_operations,
             structural_operations: budget.structural_operations,
             pairing_count: pairings.len(),
             gram_entries: pairings.len().checked_mul(pairings.len()).ok_or(
@@ -1078,10 +1146,13 @@ impl GenericVacuumTensorProjector {
             guard_origins: budget.guard_origins,
             family_domain_origins,
             retained_coefficient_bytes: budget.retained_coefficient_bytes,
+            matrix_input_retained_bytes: budget.matrix_input_retained_bytes,
+            matrix_output_retained_bytes: budget.matrix_output_retained_bytes,
+            matrix_peak_live_entries: budget.matrix_peak_live_entries,
         };
 
         Ok(AuthenticatedVacuumTensorProjection {
-            schema: GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA,
+            schema: GENERIC_VACUUM_TENSOR_PROJECTION_V2_SCHEMA,
             family_fingerprint: Arc::from(fingerprint),
             loop_order: family.loop_momenta().to_vec(),
             dimension: family.dimension().clone(),
@@ -1214,6 +1285,7 @@ impl GenericVacuumTensorProjector {
         )?;
         let stats = GenericTensorProjectionStats {
             arithmetic_operations: budget.arithmetic_operations,
+            symbolica_algebra_operations: budget.symbolica_algebra_operations,
             structural_operations: budget.structural_operations,
             pairing_count: pairings.len(),
             gram_entries,
@@ -1226,10 +1298,13 @@ impl GenericVacuumTensorProjector {
             guard_origins: budget.guard_origins,
             family_domain_origins,
             retained_coefficient_bytes: budget.retained_coefficient_bytes,
+            matrix_input_retained_bytes: budget.matrix_input_retained_bytes,
+            matrix_output_retained_bytes: budget.matrix_output_retained_bytes,
+            matrix_peak_live_entries: budget.matrix_peak_live_entries,
         };
 
         Ok(AuthenticatedVacuumCovariantTensorProjection {
-            schema: GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA,
+            schema: GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V2_SCHEMA,
             family_fingerprint: Arc::from(fingerprint),
             loop_order: family.loop_momenta().to_vec(),
             dimension: family.dimension().clone(),
@@ -2385,12 +2460,16 @@ impl GenericVacuumTensorProjector {
 #[derive(Default)]
 struct ProjectionBudget {
     arithmetic_operations: u64,
+    symbolica_algebra_operations: u64,
     structural_operations: u64,
     consumed_output_structure_entries: usize,
     guard_polynomial_terms: usize,
     guard_exponent_entries: usize,
     guard_origins: usize,
     retained_coefficient_bytes: usize,
+    matrix_input_retained_bytes: usize,
+    matrix_output_retained_bytes: usize,
+    matrix_peak_live_entries: usize,
 }
 
 #[derive(Default)]
@@ -2605,94 +2684,24 @@ fn invert_checked_matrix(
     guards: &mut ProjectionGuardBuilder,
     budget: &mut ProjectionBudget,
 ) -> Result<Vec<Vec<Coefficient>>, GenericTensorProjectorError> {
-    let size = matrix.len();
-    if matrix.iter().any(|row| row.len() != size) {
-        return Err(GenericTensorProjectorError::InternalVerificationFailure {
-            detail: "projector Gram matrix is not square".to_owned(),
-        });
-    }
-    let mut augmented = Vec::with_capacity(size);
-    for (row_position, mut row) in matrix.into_iter().enumerate() {
-        row.extend((0..size).map(|column| {
-            if column == row_position {
-                context.one()
-            } else {
-                context.zero()
-            }
-        }));
-        augmented.push(row);
-    }
-
-    for column in 0..size {
-        let mut pivot = None;
-        for row in column..size {
-            charge_structural(budget, 1, limits.max_structural_operations)?;
-            if !augmented[row][column].is_zero() {
-                pivot = Some(row);
-                break;
-            }
-        }
-        let Some(pivot) = pivot else {
-            return Err(GenericTensorProjectorError::SingularProjector { rank, column });
-        };
-        augmented.swap(column, pivot);
-
-        let pivot_coefficient = augmented[column][column].clone();
-        guards.insert(
-            pivot_coefficient.numerator.clone(),
-            TensorProjectionGuardOrigin::ProjectorPivotNumerator { rank, column },
-            limits,
-            budget,
-        )?;
-        guards.insert(
-            pivot_coefficient.denominator.clone(),
-            TensorProjectionGuardOrigin::ProjectorPivotDenominator { rank, column },
-            limits,
-            budget,
-        )?;
-        for entry in &mut augmented[column] {
-            if !entry.is_zero() {
-                *entry = checked_div(context, entry, &pivot_coefficient, limits, budget)?;
-            }
-        }
-        let pivot_row = augmented[column].clone();
-
-        for row_position in 0..size {
-            if row_position == column {
-                continue;
-            }
-            let factor = augmented[row_position][column].clone();
-            if factor.is_zero() {
-                continue;
-            }
-            for (entry, pivot_entry) in augmented[row_position].iter_mut().zip(&pivot_row) {
-                if pivot_entry.is_zero() {
-                    continue;
-                }
-                let product = checked_mul(context, &factor, pivot_entry, limits, budget)?;
-                *entry = checked_sub(context, entry, &product, limits, budget)?;
-            }
-        }
-    }
-
-    let zero = context.zero();
-    let one = context.one();
-    for (row, values) in augmented.iter().enumerate() {
-        for (column, value) in values.iter().take(size).enumerate() {
-            let expected = if row == column { &one } else { &zero };
-            if value != expected {
-                return Err(GenericTensorProjectorError::InternalVerificationFailure {
-                    detail: format!(
-                        "projector inverse replay left entry ({row},{column}) unequal to identity"
-                    ),
-                });
-            }
-        }
-    }
-    Ok(augmented
-        .into_iter()
-        .map(|row| row.into_iter().skip(size).collect())
-        .collect())
+    let session_limits = remaining_symbolica_limits(limits, budget)?;
+    let verified = invert_and_verify_coefficient_matrix(context, &matrix, session_limits)
+        .map_err(|error| map_symbolica_algebra_error(error, Some(rank), limits, budget))?;
+    let (inverse, determinant, stats) = verified.into_parts();
+    absorb_symbolica_stats(stats, limits, budget)?;
+    guards.insert(
+        determinant.numerator.clone(),
+        TensorProjectionGuardOrigin::ProjectorGramDeterminantNumerator { rank },
+        limits,
+        budget,
+    )?;
+    guards.insert(
+        determinant.denominator.clone(),
+        TensorProjectionGuardOrigin::ProjectorGramDeterminantDenominator { rank },
+        limits,
+        budget,
+    )?;
+    Ok(inverse)
 }
 
 fn checked_add(
@@ -2706,17 +2715,6 @@ fn checked_add(
     Ok(context.try_add(left, right, limits.exact_algebra)?)
 }
 
-fn checked_sub(
-    context: &CoefficientContext,
-    left: &Coefficient,
-    right: &Coefficient,
-    limits: GenericTensorProjectorLimits,
-    budget: &mut ProjectionBudget,
-) -> Result<Coefficient, GenericTensorProjectorError> {
-    charge_arithmetic(budget, limits.max_arithmetic_operations)?;
-    Ok(context.try_sub(left, right, limits.exact_algebra)?)
-}
-
 fn checked_mul(
     context: &CoefficientContext,
     left: &Coefficient,
@@ -2728,46 +2726,254 @@ fn checked_mul(
     Ok(context.try_mul(left, right, limits.exact_algebra)?)
 }
 
-fn checked_div(
-    context: &CoefficientContext,
-    numerator: &Coefficient,
-    denominator: &Coefficient,
-    limits: GenericTensorProjectorLimits,
-    budget: &mut ProjectionBudget,
-) -> Result<Coefficient, GenericTensorProjectorError> {
-    charge_arithmetic(budget, limits.max_arithmetic_operations)?;
-    Ok(context.try_div(numerator, denominator, limits.exact_algebra)?)
-}
-
 fn checked_pow(
     context: &CoefficientContext,
     base: &Coefficient,
-    mut exponent: u64,
+    exponent: u64,
     limits: GenericTensorProjectorLimits,
     budget: &mut ProjectionBudget,
 ) -> Result<Coefficient, GenericTensorProjectorError> {
-    let mut result = context.one();
-    if exponent == 0 {
-        return Ok(result);
-    }
-    let mut power = base.clone();
-    while exponent != 0 {
-        if exponent & 1 == 1 {
-            result = checked_mul(context, &result, &power, limits, budget)?;
-        }
-        exponent >>= 1;
-        if exponent != 0 {
-            power = checked_mul(context, &power, &power, limits, budget)?;
-        }
-    }
+    let session_limits = remaining_symbolica_limits(limits, budget)?;
+    let (result, stats) = power_of_coefficient(context, base, exponent, session_limits)
+        .map_err(|error| map_symbolica_algebra_error(error, None, limits, budget))?;
+    absorb_symbolica_stats(stats, limits, budget)?;
     Ok(result)
+}
+
+fn remaining_symbolica_limits(
+    limits: GenericTensorProjectorLimits,
+    budget: &ProjectionBudget,
+) -> Result<SymbolicaCoefficientMatrixLimits, GenericTensorProjectorError> {
+    let remaining_arithmetic = limits
+        .max_arithmetic_operations
+        .checked_sub(budget.arithmetic_operations)
+        .ok_or(GenericTensorProjectorError::ArithmeticOperationLimit {
+            attempted: budget.arithmetic_operations,
+            limit: limits.max_arithmetic_operations,
+        })?;
+    let remaining_input = limits
+        .max_matrix_input_retained_bytes
+        .checked_sub(budget.matrix_input_retained_bytes)
+        .ok_or(GenericTensorProjectorError::ResourceLimit {
+            resource: "tensor projector Symbolica input retained bytes",
+            requested: budget.matrix_input_retained_bytes,
+            limit: limits.max_matrix_input_retained_bytes,
+        })?;
+    let remaining_output = limits
+        .max_matrix_output_retained_bytes
+        .checked_sub(budget.matrix_output_retained_bytes)
+        .ok_or(GenericTensorProjectorError::ResourceLimit {
+            resource: "tensor projector Symbolica output retained bytes",
+            requested: budget.matrix_output_retained_bytes,
+            limit: limits.max_matrix_output_retained_bytes,
+        })?;
+    Ok(SymbolicaCoefficientMatrixLimits {
+        exact_algebra: limits.exact_algebra,
+        max_single_matrix_entries: limits.max_augmented_entries,
+        max_live_matrix_entries: limits.max_matrix_live_entries,
+        max_exact_operations: usize::try_from(remaining_arithmetic).unwrap_or(usize::MAX),
+        max_input_retained_bytes: remaining_input,
+        max_output_retained_bytes: remaining_output,
+    })
+}
+
+fn absorb_symbolica_stats(
+    stats: SymbolicaCoefficientMatrixStats,
+    limits: GenericTensorProjectorLimits,
+    budget: &mut ProjectionBudget,
+) -> Result<(), GenericTensorProjectorError> {
+    let exact_operations = u64::try_from(stats.exact_operations()).map_err(|_| {
+        GenericTensorProjectorError::ResourceCountOverflow {
+            resource: "tensor projector Symbolica exact operations",
+        }
+    })?;
+    let arithmetic_operations = budget
+        .arithmetic_operations
+        .checked_add(exact_operations)
+        .ok_or(GenericTensorProjectorError::ResourceCountOverflow {
+            resource: "tensor projector arithmetic operations",
+        })?;
+    if arithmetic_operations > limits.max_arithmetic_operations {
+        return Err(GenericTensorProjectorError::ArithmeticOperationLimit {
+            attempted: arithmetic_operations,
+            limit: limits.max_arithmetic_operations,
+        });
+    }
+    let symbolica_algebra_operations = budget
+        .symbolica_algebra_operations
+        .checked_add(exact_operations)
+        .ok_or(GenericTensorProjectorError::ResourceCountOverflow {
+            resource: "tensor projector Symbolica exact operations",
+        })?;
+    let matrix_input_retained_bytes = budget
+        .matrix_input_retained_bytes
+        .checked_add(stats.input_retained_bytes())
+        .ok_or(GenericTensorProjectorError::ResourceCountOverflow {
+            resource: "tensor projector Symbolica input retained bytes",
+        })?;
+    check_usize_limit(
+        "tensor projector Symbolica input retained bytes",
+        matrix_input_retained_bytes,
+        limits.max_matrix_input_retained_bytes,
+    )?;
+    let matrix_output_retained_bytes = budget
+        .matrix_output_retained_bytes
+        .checked_add(stats.output_retained_bytes())
+        .ok_or(GenericTensorProjectorError::ResourceCountOverflow {
+            resource: "tensor projector Symbolica output retained bytes",
+        })?;
+    check_usize_limit(
+        "tensor projector Symbolica output retained bytes",
+        matrix_output_retained_bytes,
+        limits.max_matrix_output_retained_bytes,
+    )?;
+    check_usize_limit(
+        "tensor projector Symbolica matrix peak live entries",
+        stats.admitted_peak_live_entries(),
+        limits.max_matrix_live_entries,
+    )?;
+
+    budget.arithmetic_operations = arithmetic_operations;
+    budget.symbolica_algebra_operations = symbolica_algebra_operations;
+    budget.matrix_input_retained_bytes = matrix_input_retained_bytes;
+    budget.matrix_output_retained_bytes = matrix_output_retained_bytes;
+    budget.matrix_peak_live_entries = budget
+        .matrix_peak_live_entries
+        .max(stats.admitted_peak_live_entries());
+    Ok(())
+}
+
+fn map_symbolica_algebra_error(
+    error: SymbolicaCoefficientMatrixError,
+    projector_rank: Option<usize>,
+    limits: GenericTensorProjectorLimits,
+    budget: &ProjectionBudget,
+) -> GenericTensorProjectorError {
+    match error {
+        SymbolicaCoefficientMatrixError::Singular => match projector_rank {
+            Some(rank) => GenericTensorProjectorError::SingularProjector { rank },
+            None => GenericTensorProjectorError::InternalSymbolicaAlgebra {
+                detail: "Symbolica reported singularity during scalar exponentiation".to_owned(),
+            },
+        },
+        SymbolicaCoefficientMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => map_symbolica_resource_limit(resource, requested, limit, limits, budget),
+        SymbolicaCoefficientMatrixError::ResourceCountOverflow { resource }
+        | SymbolicaCoefficientMatrixError::ExactAlgebra(
+            ExactAlgebraError::ResourceCountOverflow { resource },
+        )
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient {
+            error: ExactAlgebraError::ResourceCountOverflow { resource },
+            ..
+        } => GenericTensorProjectorError::ResourceCountOverflow { resource },
+        SymbolicaCoefficientMatrixError::AllocationFailure {
+            resource,
+            requested,
+        } => GenericTensorProjectorError::AllocationFailure {
+            resource,
+            requested,
+        },
+        SymbolicaCoefficientMatrixError::ExactAlgebra(error)
+        | SymbolicaCoefficientMatrixError::InvalidCoefficient { error, .. } => {
+            map_symbolica_exact_error(error, limits, budget)
+        }
+        internal => GenericTensorProjectorError::InternalSymbolicaAlgebra {
+            detail: internal.to_string(),
+        },
+    }
+}
+
+fn map_symbolica_exact_error(
+    error: ExactAlgebraError,
+    limits: GenericTensorProjectorLimits,
+    budget: &ProjectionBudget,
+) -> GenericTensorProjectorError {
+    match error {
+        ExactAlgebraError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } if is_symbolica_operation_resource(resource) => {
+            map_symbolica_resource_limit(resource, requested, limit, limits, budget)
+        }
+        other => GenericTensorProjectorError::ExactAlgebra(other),
+    }
+}
+
+fn map_symbolica_resource_limit(
+    resource: &'static str,
+    requested: usize,
+    local_limit: usize,
+    limits: GenericTensorProjectorLimits,
+    budget: &ProjectionBudget,
+) -> GenericTensorProjectorError {
+    if is_symbolica_operation_resource(resource) {
+        let Ok(requested) = u64::try_from(requested) else {
+            return GenericTensorProjectorError::ResourceCountOverflow { resource };
+        };
+        return match budget.arithmetic_operations.checked_add(requested) {
+            Some(attempted) => GenericTensorProjectorError::ArithmeticOperationLimit {
+                attempted,
+                limit: limits.max_arithmetic_operations,
+            },
+            None => GenericTensorProjectorError::ResourceCountOverflow { resource },
+        };
+    }
+    let (current, global_limit) = if is_symbolica_input_byte_resource(resource) {
+        (
+            budget.matrix_input_retained_bytes,
+            limits.max_matrix_input_retained_bytes,
+        )
+    } else if is_symbolica_output_byte_resource(resource) {
+        (
+            budget.matrix_output_retained_bytes,
+            limits.max_matrix_output_retained_bytes,
+        )
+    } else {
+        return GenericTensorProjectorError::ResourceLimit {
+            resource,
+            requested,
+            limit: local_limit,
+        };
+    };
+    match current.checked_add(requested) {
+        Some(requested) => GenericTensorProjectorError::ResourceLimit {
+            resource,
+            requested,
+            limit: global_limit,
+        },
+        None => GenericTensorProjectorError::ResourceCountOverflow { resource },
+    }
+}
+
+fn is_symbolica_operation_resource(resource: &str) -> bool {
+    resource.starts_with("Symbolica coefficient") && resource.ends_with("exact operations")
+}
+
+fn is_symbolica_input_byte_resource(resource: &str) -> bool {
+    resource.contains("input retained bytes")
+}
+
+fn is_symbolica_output_byte_resource(resource: &str) -> bool {
+    resource.contains("output retained bytes")
 }
 
 fn charge_arithmetic(
     budget: &mut ProjectionBudget,
     limit: u64,
 ) -> Result<(), GenericTensorProjectorError> {
-    let attempted = budget.arithmetic_operations.checked_add(1).ok_or(
+    charge_arithmetic_amount(budget, 1, limit)
+}
+
+fn charge_arithmetic_amount(
+    budget: &mut ProjectionBudget,
+    amount: u64,
+    limit: u64,
+) -> Result<(), GenericTensorProjectorError> {
+    let attempted = budget.arithmetic_operations.checked_add(amount).ok_or(
         GenericTensorProjectorError::ResourceCountOverflow {
             resource: "tensor projector arithmetic operations",
         },
@@ -2992,7 +3198,6 @@ pub enum GenericTensorProjectorError {
     },
     SingularProjector {
         rank: usize,
-        column: usize,
     },
     ZeroGuardPolynomial {
         origin: TensorProjectionGuardOrigin,
@@ -3013,6 +3218,10 @@ pub enum GenericTensorProjectorError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     WrongFamilyFingerprint {
         expected: Arc<str>,
         actual: Arc<str>,
@@ -3020,6 +3229,9 @@ pub enum GenericTensorProjectorError {
     ExactAlgebra(ExactAlgebraError),
     Tensor(TensorError),
     GenericTensor(GenericTensorFamilyError),
+    InternalSymbolicaAlgebra {
+        detail: String,
+    },
     InternalVerificationFailure {
         detail: String,
     },
@@ -3088,9 +3300,9 @@ impl fmt::Display for GenericTensorProjectorError {
                 formatter,
                 "covariant tensor term {term} contains spectator vectors or scalar products and cannot use the metric-only family bridge"
             ),
-            Self::SingularProjector { rank, column } => write!(
+            Self::SingularProjector { rank } => write!(
                 formatter,
-                "rank-{rank} metric Gram matrix is identically singular at pivot column {column}"
+                "rank-{rank} metric Gram matrix is identically singular"
             ),
             Self::ZeroGuardPolynomial { origin } => write!(
                 formatter,
@@ -3115,6 +3327,13 @@ impl fmt::Display for GenericTensorProjectorError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed its representation")
             }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "failed to reserve {requested} {resource} while building the tensor projector"
+            ),
             Self::WrongFamilyFingerprint { expected, actual } => write!(
                 formatter,
                 "tensor projection belongs to family fingerprint {expected:?}, not {actual:?}"
@@ -3122,6 +3341,10 @@ impl fmt::Display for GenericTensorProjectorError {
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Tensor(error) => error.fmt(formatter),
             Self::GenericTensor(error) => error.fmt(formatter),
+            Self::InternalSymbolicaAlgebra { detail } => write!(
+                formatter,
+                "authenticated Symbolica tensor-projector algebra failed: {detail}"
+            ),
             Self::InternalVerificationFailure { detail } => {
                 write!(
                     formatter,

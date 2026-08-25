@@ -29,6 +29,36 @@ fn vacuum_family(name: &str, loops: usize) -> IntegralFamily {
     .unwrap()
 }
 
+fn vacuum_family_at_integer_dimension(name: &str, loops: usize, dimension: i64) -> IntegralFamily {
+    let context = CoefficientContext::new(["d", "m2"]);
+    let scalar_products = loops * (loops + 1) / 2;
+    let denominators = (0..scalar_products)
+        .map(|coordinate| {
+            let mut coefficients = vec![context.zero(); scalar_products];
+            coefficients[coordinate] = context.one();
+            AffineDenominator::new(
+                if coordinate == 0 {
+                    context.parse("-m2").unwrap()
+                } else {
+                    context.zero()
+                },
+                coefficients,
+            )
+        })
+        .collect();
+    IntegralFamily::new(
+        name,
+        (0..loops).map(|loop_id| format!("k{loop_id}")).collect(),
+        vec![],
+        context.clone(),
+        context.integer(dimension),
+        denominators,
+        vec![],
+        vec![context.zero(); scalar_products],
+    )
+    .unwrap()
+}
+
 fn external_family() -> IntegralFamily {
     let context = CoefficientContext::new(["d", "m2", "s"]);
     IntegralFamily::new(
@@ -70,7 +100,7 @@ fn family_authenticated_rank_two_projection_replays_and_retains_d_guard() {
         .project(&family, &source)
         .unwrap();
 
-    assert_eq!(result.schema(), GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA);
+    assert_eq!(result.schema(), GENERIC_VACUUM_TENSOR_PROJECTION_V2_SCHEMA);
     assert_eq!(result.family_fingerprint(), family.fingerprint());
     assert_eq!(result.loop_order(), &["k0".to_owned()]);
     assert_eq!(result.dimension(), family.dimension());
@@ -96,7 +126,7 @@ fn family_authenticated_rank_two_projection_replays_and_retains_d_guard() {
     assert!(
         guards[0]
             .origins()
-            .contains(&TensorProjectionGuardOrigin::ProjectorPivotNumerator { rank: 2, column: 0 })
+            .contains(&TensorProjectionGuardOrigin::ProjectorGramDeterminantNumerator { rank: 2 })
     );
     result.verify(&family).unwrap();
 }
@@ -129,6 +159,84 @@ fn loop_order_external_family_and_limits_are_typed_failures() {
             attempted: 1,
             limit: 0
         })
+    ));
+}
+
+#[test]
+fn symbolica_matrix_limits_accept_exact_projector_census_and_reject_one_below() {
+    let family = vacuum_family("projector-symbolica-matrix-resource-limits", 1);
+    let source = TensorMonomial::new([vector(0, 40), vector(0, 41), vector(0, 42), vector(0, 43)]);
+    let baseline = GenericVacuumTensorProjector::new()
+        .project(&family, &source)
+        .unwrap();
+    let stats = baseline.stats();
+    assert!(stats.matrix_peak_live_entries > 0);
+    assert!(stats.matrix_input_retained_bytes > 0);
+    assert!(stats.matrix_output_retained_bytes > 0);
+    assert!(stats.symbolica_algebra_operations > 0);
+
+    let exact = GenericTensorProjectorLimits {
+        max_matrix_live_entries: stats.matrix_peak_live_entries,
+        max_matrix_input_retained_bytes: stats.matrix_input_retained_bytes,
+        max_matrix_output_retained_bytes: stats.matrix_output_retained_bytes,
+        ..GenericTensorProjectorLimits::default()
+    };
+    let at_boundary = GenericVacuumTensorProjector::with_limits(exact)
+        .project(&family, &source)
+        .unwrap();
+    assert_eq!(
+        at_boundary.stats().matrix_peak_live_entries,
+        stats.matrix_peak_live_entries
+    );
+    assert_eq!(
+        at_boundary.stats().matrix_input_retained_bytes,
+        stats.matrix_input_retained_bytes
+    );
+    assert_eq!(
+        at_boundary.stats().matrix_output_retained_bytes,
+        stats.matrix_output_retained_bytes
+    );
+
+    let below_live = GenericTensorProjectorLimits {
+        max_matrix_live_entries: stats.matrix_peak_live_entries - 1,
+        ..GenericTensorProjectorLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorProjector::with_limits(below_live).project(&family, &source),
+        Err(GenericTensorProjectorError::ResourceLimit {
+            resource: "live Symbolica matrix entries",
+            requested,
+            limit,
+        }) if requested == stats.matrix_peak_live_entries
+            && limit == stats.matrix_peak_live_entries - 1
+    ));
+
+    let below_input = GenericTensorProjectorLimits {
+        max_matrix_input_retained_bytes: stats.matrix_input_retained_bytes - 1,
+        ..GenericTensorProjectorLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorProjector::with_limits(below_input).project(&family, &source),
+        Err(GenericTensorProjectorError::ResourceLimit {
+            resource: "coefficient matrix input retained bytes",
+            requested,
+            limit,
+        }) if requested == stats.matrix_input_retained_bytes
+            && limit == stats.matrix_input_retained_bytes - 1
+    ));
+
+    let below_output = GenericTensorProjectorLimits {
+        max_matrix_output_retained_bytes: stats.matrix_output_retained_bytes - 1,
+        ..GenericTensorProjectorLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorProjector::with_limits(below_output).project(&family, &source),
+        Err(GenericTensorProjectorError::ResourceLimit {
+            resource: "coefficient matrix output retained bytes",
+            requested,
+            limit,
+        }) if requested == stats.matrix_output_retained_bytes
+            && limit == stats.matrix_output_retained_bytes - 1
     ));
 }
 
@@ -220,6 +328,49 @@ fn rank_four_and_metric_contraction_match_frozen_vacuum_equations() {
 }
 
 #[test]
+fn determinant_guard_accepts_regular_dimension_and_rejects_singular_gram_matrices() {
+    let rank_four_source =
+        TensorMonomial::new([vector(0, 60), vector(0, 61), vector(0, 62), vector(0, 63)]);
+
+    // A pivot-order transcript can introduce the spurious locus d+1.  The
+    // determinant-based V2 domain correctly accepts d=-1.
+    let regular = vacuum_family_at_integer_dimension("rank-four-d-minus-one", 1, -1);
+    let projected = GenericVacuumTensorProjector::new()
+        .project(&regular, &rank_four_source)
+        .unwrap();
+    assert_eq!(projected.numerator().terms().len(), 3);
+    assert!(
+        projected
+            .domain()
+            .projection_nonzero_conditions()
+            .is_empty()
+    );
+    for term in projected.numerator().terms() {
+        assert_eq!(
+            term.coefficient(),
+            &regular.coefficient_context().integer(-1)
+        );
+    }
+
+    for (dimension, rank, source) in [
+        (0, 2, TensorMonomial::new([vector(0, 70), vector(0, 71)])),
+        (1, 4, rank_four_source.clone()),
+        (-2, 4, rank_four_source.clone()),
+    ] {
+        let singular = vacuum_family_at_integer_dimension(
+            &format!("rank-{rank}-singular-d-{dimension}"),
+            1,
+            dimension,
+        );
+        assert!(matches!(
+            GenericVacuumTensorProjector::new().project(&singular, &source),
+            Err(GenericTensorProjectorError::SingularProjector { rank: actual })
+                if actual == rank
+        ));
+    }
+}
+
+#[test]
 fn vakint_spectators_remain_covariants_but_not_family_external_momenta() {
     let family = vacuum_family("vakint-spectator-covariants", 2);
     let context = family.coefficient_context();
@@ -257,7 +408,7 @@ fn vakint_spectators_remain_covariants_but_not_family_external_momenta() {
     let projected = projector.project_covariant(&family, &source).unwrap();
     assert_eq!(
         projected.schema(),
-        GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA
+        GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V2_SCHEMA
     );
     assert_eq!(projected.numerator().terms().len(), 1);
     let term = &projected.numerator().terms()[0];
@@ -299,7 +450,7 @@ fn projection_bound_scalar_lowering_preserves_both_proof_domains() {
     let bound = projection.lower(&family, &base).unwrap();
     assert_eq!(
         bound.schema(),
-        AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA
+        AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA
     );
     assert_eq!(bound.projection(), &projection);
     assert_eq!(

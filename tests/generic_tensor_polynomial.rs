@@ -268,6 +268,131 @@ fn aggregate_projector_family_domain_origins_are_bounded_before_child_projection
 }
 
 #[test]
+fn aggregate_symbolica_matrix_census_sums_bytes_and_maximizes_peak_live_entries() {
+    let family = family("tensor-polynomial-symbolica-matrix-limits");
+    let context = family.coefficient_context();
+    let rank_two = source(context.one(), [k(40), k(41)], [], []);
+    let rank_four = source(context.one(), [k(50), k(51), k(52), k(53)], [], []);
+    let sources = [rank_two, rank_four];
+
+    let child_projector = GenericVacuumTensorProjector::new();
+    let child_stats = sources
+        .iter()
+        .map(|source| {
+            child_projector
+                .project_covariant(&family, source.monomial())
+                .unwrap()
+                .stats()
+        })
+        .collect::<Vec<_>>();
+    assert!(child_stats[1].matrix_peak_live_entries > child_stats[0].matrix_peak_live_entries);
+    let expected_input = child_stats
+        .iter()
+        .map(|stats| stats.matrix_input_retained_bytes)
+        .sum::<usize>();
+    let expected_output = child_stats
+        .iter()
+        .map(|stats| stats.matrix_output_retained_bytes)
+        .sum::<usize>();
+    let expected_peak = child_stats
+        .iter()
+        .map(|stats| stats.matrix_peak_live_entries)
+        .max()
+        .unwrap();
+    assert!(expected_input > 0);
+    assert!(expected_output > 0);
+    assert!(expected_peak > 0);
+
+    let baseline = GenericVacuumTensorPolynomialProjector::new()
+        .project(&family, sources.clone())
+        .unwrap();
+    assert_eq!(
+        baseline.stats().projection_matrix_input_retained_bytes,
+        expected_input
+    );
+    assert_eq!(
+        baseline.stats().projection_matrix_output_retained_bytes,
+        expected_output
+    );
+    assert_eq!(
+        baseline.stats().projection_matrix_peak_live_entries,
+        expected_peak
+    );
+
+    let exact = GenericTensorPolynomialLimits {
+        max_projection_matrix_peak_live_entries: expected_peak,
+        max_projection_matrix_input_retained_bytes: expected_input,
+        max_projection_matrix_output_retained_bytes: expected_output,
+        ..GenericTensorPolynomialLimits::default()
+    };
+    let at_boundary = GenericVacuumTensorPolynomialProjector::with_limits(exact)
+        .project(&family, sources.clone())
+        .unwrap();
+    assert_eq!(
+        at_boundary.stats().projection_matrix_input_retained_bytes,
+        expected_input
+    );
+    assert_eq!(
+        at_boundary.stats().projection_matrix_output_retained_bytes,
+        expected_output
+    );
+    assert_eq!(
+        at_boundary.stats().projection_matrix_peak_live_entries,
+        expected_peak
+    );
+
+    let below_live = GenericTensorPolynomialLimits {
+        max_projection_matrix_peak_live_entries: expected_peak - 1,
+        ..GenericTensorPolynomialLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorPolynomialProjector::with_limits(below_live)
+            .project(&family, sources.clone()),
+        Err(GenericTensorPolynomialError::Projector(
+            GenericTensorProjectorError::ResourceLimit {
+                resource: "live Symbolica matrix entries",
+                requested,
+                limit,
+            }
+        )) if requested == expected_peak && limit == expected_peak - 1
+    ));
+
+    let below_input = GenericTensorPolynomialLimits {
+        max_projection_matrix_input_retained_bytes: expected_input - 1,
+        ..GenericTensorPolynomialLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorPolynomialProjector::with_limits(below_input)
+            .project(&family, sources.clone()),
+        Err(GenericTensorPolynomialError::Projector(
+            GenericTensorProjectorError::ResourceLimit {
+                resource: "coefficient matrix input retained bytes",
+                requested,
+                limit,
+            }
+        )) if requested == child_stats[1].matrix_input_retained_bytes
+            && limit == child_stats[1].matrix_input_retained_bytes - 1
+    ));
+
+    let below_output = GenericTensorPolynomialLimits {
+        max_projection_matrix_output_retained_bytes: expected_output - 1,
+        ..GenericTensorPolynomialLimits::default()
+    };
+    assert!(matches!(
+        GenericVacuumTensorPolynomialProjector::with_limits(below_output)
+            .project(&family, sources),
+        Err(GenericTensorPolynomialError::Projector(
+            GenericTensorProjectorError::ResourceLimit {
+                resource: "coefficient matrix output retained bytes",
+                requested,
+                limit,
+            }
+        )) if requested == child_stats[1].matrix_output_retained_bytes
+            && limit == child_stats[1].matrix_output_retained_bytes - 1
+    ));
+}
+
+#[test]
 fn aggregate_covariant_lowering_and_retained_clone_limits_are_enforced() {
     let family = family("tensor-polynomial-aggregate-limits");
     let context = family.coefficient_context();
