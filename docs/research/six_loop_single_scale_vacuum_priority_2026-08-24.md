@@ -247,17 +247,17 @@ deliberate reauthentication checks are not part of production direct-search
 cost. The production direct path invokes no MTBDD compiler and constructs no
 MTBDD owner or DAG.
 
-This checkpoint completes the allocation-independent terminal stable-value
-identity (emitting the authenticated row span once through typed references)
-and carries Direct singleton authority through ordering V3, physical frame V2,
-and solve-plan V2 without a fake inventory. Stable value remains distinct from
-exact terminal/authority/frame `Arc` ancestry, and legacy-only exact-session
-stages fail closed. Focused licensed GMP runs passed 3/3 identity, 4/4 Direct
-authority/order/frame, and 7/7 solve-plan tests; an independent audit re-ran
-both Direct solve-plan tests successfully. Next is Direct solve-plan ingress
-through exact-session recentering to `ReadyForConditions`, then `WhenBad`
-closure and publication. No Direct input has reached Ready, reduction,
-publication, or six-loop topology support.
+The allocation-independent terminal stable-value identity emits the
+authenticated row span once through typed references and carries Direct
+singleton authority through ordering V3, physical frame V2, solve-plan V2, and
+source-profiled exact-session recentering without a fake inventory. Stable
+value remains distinct from exact terminal/authority/frame/session `Arc`
+ancestry. Authenticated lower-arity constrained Direct maps now reach
+`ReadyForConditions`; independent default-GMP run
+`b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. Next is
+`WhenBad` closure and publication. No arity-21 Direct input has reached Ready,
+and no Direct input has reached reduction, publication, or six-loop topology
+support.
 
 The successful `K=21` fixture stops at the first formula-residual path. It is
 not a Ready result, published guarded rule, reduction, or calculation on a
@@ -431,12 +431,11 @@ throughput.
 
 Checkpoint update: the affine-family-map V2 milestone is complete, and the
 first non-publishing slice of generic rule derivation is implemented. Its
-authenticated exact-Ready phase can prove physical-key descent and retain
-arbitrary-precision inactive-orthant hazard intervals for independent
-cylinders. A non-independent target currently returns a retryable `Pending`
-outcome. Conditions, general compact-affine geometry, and publication remain
-unfinished. This status does not claim a complete family reduction or any
-six-loop result.
+authenticated exact-Ready phase accepts selector-independent compact affine
+maps, proves physical-key descent inside the source chamber, and retains
+arbitrary-precision inactive-orthant hazard intervals for later partitioning.
+Conditions and publication remain unfinished. This status does not claim a
+complete family reduction or any six-loop result.
 
 The first genuine arity-21 attempt exposed the eager-case blocker before
 Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
@@ -494,8 +493,9 @@ or physical-topology calculation.
    independent matrix oracle, pushed as a standalone milestone.
 2. **Completed generation-only checkpoint:** topology-neutral `L=6`, `K=21`
    generation of all 36 ordinary IBPs. It stops before Boolean cover and Ready.
-3. **Completed separate lower-arity checkpoint:** exact independent-cylinder
-   Ready descent/hazards. No arity-21 input has reached Ready yet.
+3. **Completed separate lower-arity checkpoint:** exact compact-affine Ready
+   geometry, fixed-chamber descent, and lazy hazards. No arity-21 input has
+   reached Ready yet.
 4. **Completed traversal checkpoint:** an authenticated bounded `O(depth)`
    cursor over the rooted MTBDD, including compact replay/resource tests and
    an ignored honest all-36 `K=21` scaling oracle. This does not solve global
@@ -514,15 +514,15 @@ or physical-topology calculation.
    and authenticates all present candidate policies. Focused 21/21 and 14/14
    suites, an independent 30/30 audit/validation run, and the policy-bound
    all-36 K21 1/1 gate pass.
-8. **Completed in this checkpoint:** terminal stable identity through Direct
-   ordering V3, frame V2, and solve-plan V2, with no fake inventory and exact
-   `Arc` ancestry separately authenticated. **Next:** Direct solve-plan ingress
-   to `ReadyForConditions`, then `WhenBad` closure and publication. It has not
-   reached Ready, reduction, publication, or six-loop topology support.
+8. **Completed:** terminal stable identity through Direct ordering V3, frame
+   V2, solve-plan V2, and source-profiled exact-session ingress, with no fake
+   inventory and exact `Arc` ancestry separately authenticated. Authenticated
+   constrained compact maps now reach `ReadyForConditions`; the production
+   regression replays six RHS descent witnesses. This has not reached rule
+   publication, reduction, or six-loop topology support.
 9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
-   path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
-   subsector feedback, atomic publication, durable artifacts, and a 36-source
-   session batch.
+   path, including LiteRed-correct `WhenBad`, subsector feedback, atomic
+   publication, durable artifacts, and a 36-source session batch.
 10. Add unit-mass `Q(d)` family specialization and modular/reconstruction
    services through public Symbolica finite-field and polynomial APIs.
 11. Add topology-generic graph ingestion, deterministic ISP completion,

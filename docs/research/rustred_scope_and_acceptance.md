@@ -175,6 +175,14 @@ boundary, and FORM-free one-loop Vakint scalar/tensor oracles.  Those concrete
 families validate generation; they do not establish complete LiteRed
 `SolvejSector` parity.
 
+Published LiteRed examples are now a separate, explicit acceptance lane.  The
+eight LiteRed 1.x notebooks and the LiteRed2 example notebooks will be tracked
+from input normalization through identity, sector/symmetry, parametric-rule,
+target-reduction, and auxiliary-recurrence parity.  Current ingredient tests
+do not count as complete notebook passes.  The initial inventory and honest
+status baseline are recorded in
+[`litered_examples_acceptance_matrix.md`](litered_examples_acceptance_matrix.md).
+
 The post-cylindrical-elimination library checkpoint is licensed GMP nextest
 run `2d77c75d-173b-4aea-9c44-063afe03703d`: 499/499 library tests passed with
 four workers in 120.315 seconds.  This includes the anchor-free persistent
@@ -258,16 +266,18 @@ solve-plan V2, and source-profiled exact target/database/session V2 without
 fabricating V4/V5, Boolean/DPLL, integer-system, or legacy inventory
 certificates. Stable mathematical identity is not an allocation capability:
 exact terminal, authority, frame, plan, and catalog `Arc` ancestry is
-authenticated separately. A freshly generated full independent cylinder now
-reaches the existing unpublished `ReadyForConditions` boundary; a genuine
-nonempty constrained source stops before key work as typed
-`Pending(NonIndependentCylinder)`. Licensed default-GMP runs passed the four
-focused Direct ingress, constrained-boundary, resource, and V1/V2 tamper tests
-in parallel; an independent contract audit found no code blocker.
+authenticated separately. Authenticated selector-independent compact affine
+maps, including constrained maps, now reach the existing unpublished
+`ReadyForConditions` boundary. V2 checks exact selector geometry and proves
+physical-key descent inside the authenticated source chamber; inactive
+positive-shift crossings remain explicit hazards for later condition
+partitioning. Replay rebuilds the transcript only after authenticating the
+exact retained target-state allocation. This is still a pre-publication
+boundary, not a reduction result.
 
-The immediate generic semantic slice is now general compact-affine Ready
-analysis, followed by `WhenBad` closure and publication. It must not reconstruct
-V4, V5, the live-leaf queue, or old Boolean/DPLL certificates along the way.
+The immediate generic semantic slice is now `WhenBad` closure and atomic
+guarded-rule/residual publication. It must not reconstruct V4, V5, the
+live-leaf queue, or old Boolean/DPLL certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -300,11 +310,10 @@ generated IBP/LI rows
 -> terminal stable identity -> ordering V3 -> frame V2
    -> Direct solve-plan V2, no inventory                          [implemented]
 -> Direct solve-plan -> exact-session staging and recentering
-   -> full-cylinder ReadyForConditions                            [this checkpoint]
--> general compact-affine Ready analysis                          [next]
+   -> authenticated compact-affine ReadyForConditions             [implemented]
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering
--> generated WhenBad with coefficient-pole and RHS-boundary loci
+-> generated WhenBad with coefficient-pole and RHS-boundary loci  [next]
 -> exceptional-domain partition and live-queue recursion
 -> replayed coverage certificate
 -> generic provider and descending application

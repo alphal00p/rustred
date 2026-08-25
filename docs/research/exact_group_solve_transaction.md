@@ -103,18 +103,19 @@ The topology-neutral authority and staging layers described below now exist:
   inactive-orthant activation interval exactly as `[1-q_i, 0]`, with Symbolica
   `Integer` bounds and counts. The successful typestate is deliberately named
   `ReadyForConditions`: it consumes no target and publishes no rule. The same
-  production path now accepts a source-profiled Direct singleton session: a
-  freshly generated full independent cylinder reaches this boundary with the
-  exact Direct plan/authority/catalog allocations retained, while a genuine
-  constrained nonempty source returns typed
-  `Pending(NonIndependentCylinder)` before physical-key work. No legacy
+  production path now accepts a source-profiled Direct singleton session. Both
+  full cylinders and authenticated selector-independent compact affine maps
+  reach this boundary with the exact Direct plan/authority/catalog allocations
+  retained. V2 verifies the selector left inverse and complete row
+  classification, proves descent within the authenticated source chamber, and
+  retains chamber-exit hazards for later condition partitioning. No legacy
   inventory or replacement target authority is synthesized.
 - Exact-local physical-key construction and its allocation-free prospective
   resource preflight use arbitrary-precision Symbolica integers throughout.
   There is no `IndexShift` or `i64` narrowing in this boundary. Unsupported
-  non-descent is a mathematical terminal candidate outcome; currently
-  unsupported non-independent-cylinder geometry is an operational, retryable
-  `Pending` outcome and cannot be mistaken for a master or zero claim.
+  non-descent is a mathematical terminal candidate outcome. Malformed compact
+  geometry is rejected without consuming the Ready owner and cannot be
+  mistaken for a master or zero claim.
 
 Adversarial tests cover value-equal foreign plans, two databases with identical
 visible coordinates, competing transitions from one live version, attempted
@@ -207,10 +208,10 @@ complete equality transition uses the sealed synthetic test adapter because
 current physical-row construction skips equality-premise source cases. An
 end-to-end production equality row remains a future refined-epoch gate.
 
-The next missing mathematical seam begins with general compact-affine Ready
-analysis and then continues after `ReadyForConditions`: compile the Ready-native
-condition transcript, build the relative applicable and exceptional partition,
-and atomically publish guarded rules/residual leaves with chronological replay.
+The next missing mathematical seam begins after compact-affine
+`ReadyForConditions`: compile the Ready-native condition transcript, build the
+relative applicable and exceptional partition, and atomically publish guarded
+rules/residual leaves with chronological replay.
 The event ledger currently records `Dependent`,
 `NoTarget`, and mandatory affine-equality-refinement transitions; it does not
 yet record unpublished future `WhenBad`/rule/residual leaves. The old raw
@@ -543,13 +544,14 @@ plan/frame/inventory/source objects are rejected at live authority boundaries.
    physical-key ordering, and inactive-coordinate crossing ranges are retained
    as arbitrary-precision Symbolica integers. Success returns
    `ReadyForConditions`; it neither mutates the session nor consumes a target.
-5. **Replace eager case entry — next high-loop prerequisite.** Build a
-   replayable shared normalized-source owner and bounded direct
-   normalized-formula target-frontier path so `K=21` families can enter this
-   exact session without first materializing every orthant case or a complete
-   MTBDD. Retain the MTBDD as an optional compact-case/repeated-query backend
-   under a separately measured construction budget. The existing lower-arity
-   Ready gate remains the oracle while that entry path is replaced.
+5. **Scale direct case entry — partially implemented.** The replayable shared
+   normalized-source owner and bounded direct normalized-formula
+   target-frontier search already bypass eager orthant cases and the complete
+   MTBDD; lower-arity Direct plans also enter exact-session Ready. The missing
+   high-loop seam is to carry the authenticated `K=21` direct frontier into a
+   bounded exact-session batch. Retain the MTBDD only as an optional
+   compact-case/repeated-query backend under a separately measured construction
+   budget.
 6. **Adapt exact `WhenBad` — pending after scalable case entry.** Reuse the authority-neutral
    polynomial/partition algorithms behind new exact authority certificates,
    replace `IndexShift`/`i64` boundaries with arbitrary-precision values, and

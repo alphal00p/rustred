@@ -4507,10 +4507,10 @@ mod tests {
         GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::generated_affine_residual_group_ready_publication::{
+        GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
         GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
         GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
         GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
-        GeneratedAffineResidualGroupReadyPublicationPendingReason,
     };
     use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
@@ -5156,7 +5156,7 @@ mod tests {
     }
 
     #[test]
-    fn natural_direct_constrained_residual_reaches_typed_non_independent_pending() {
+    fn natural_direct_constrained_residual_reaches_v2_ready_for_conditions() {
         let fixture = direct_production_fixture(
             "exact-session-direct-production-constrained",
             DirectProductionCoverage::NonemptyAttemptResidual,
@@ -5222,23 +5222,60 @@ mod tests {
                             GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
                         )
                         .unwrap();
-                    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Pending(
-                        pending,
+                    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+                        ready_for_conditions,
                     ) = analyzed
                     else {
-                        panic!("constrained Direct cylinder must remain typed Pending")
+                        panic!("constrained Direct compact map must pass V2 Ready analysis")
                     };
                     assert_eq!(
-                        pending.reason(),
-                        GeneratedAffineResidualGroupReadyPublicationPendingReason::NonIndependentCylinder
+                        ready_for_conditions.schema(),
+                        GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
                     );
-                    assert_eq!(pending.targets_consumed(), 0);
-                    assert_eq!(pending.stats().arity(), 3);
-                    assert_eq!(pending.stats().rhs_terms(), 0);
-                    assert_eq!(pending.stats().physical_keys_constructed(), 0);
-                    assert_eq!(pending.stats().key_comparisons(), 0);
+                    let geometry = ready_for_conditions.geometry();
+                    assert_eq!(
+                        geometry.ambient_arity(),
+                        3,
+                    );
+                    assert_eq!(geometry.free_count(), 1);
+                    assert_eq!(geometry.matrix_entries_inspected(), 3);
+                    assert_eq!(geometry.selector_entries_inspected(), 1);
+                    assert_eq!(geometry.constant_rows(), 2);
+                    assert_eq!(geometry.symbolic_rows(), 1);
+                    assert_eq!(ready_for_conditions.targets_consumed(), 0);
+                    assert_eq!(ready_for_conditions.stats().arity(), 3);
+                    let rhs_terms = ready_for_conditions.stats().rhs_terms();
+                    assert_eq!(rhs_terms, 6);
+                    assert_eq!(
+                        ready_for_conditions.stats().physical_keys_constructed(),
+                        rhs_terms + 1,
+                    );
+                    assert_eq!(ready_for_conditions.stats().key_comparisons(), rhs_terms);
+                    assert_eq!(ready_for_conditions.descent().len(), rhs_terms);
+                    assert_eq!(
+                        ready_for_conditions.stats().hazard_ranges(),
+                        ready_for_conditions.hazards().len(),
+                    );
+                    for witness in ready_for_conditions.descent() {
+                        let rhs = fixture
+                            .plan
+                            .physical_frame()
+                            .key_for_exact_local(
+                                locator.inventory_position(),
+                                locator.case_ordinal(),
+                                ready_for_conditions.ready().terms()[witness.term_ordinal()]
+                                    .shift()
+                                    .values(),
+                            )
+                            .unwrap();
+                        assert!(witness.replay(&rhs, ready_for_conditions.source_key()));
+                    }
                     assert_eq!(session_state_snapshot(&session), before_analysis);
-                    let recovered = pending.into_ready();
+                    ready_for_conditions
+                        .replay(&fixture.family, &fixture.context, &session)
+                        .unwrap();
+                    assert_eq!(session_state_snapshot(&session), before_analysis);
+                    let recovered = ready_for_conditions.into_ready();
                     assert_eq!(recovered.source_ordinal(), source_ordinal);
                     assert_eq!(recovered.pivot_ordinal(), pivot_ordinal);
                     assert_eq!(recovered.target_locator(), &locator);
@@ -5249,6 +5286,133 @@ mod tests {
             }
         }
         panic!("natural constrained Direct rows produced no exact Ready token");
+    }
+
+    #[test]
+    fn constrained_direct_v2_ready_proves_nontrivial_rhs_under_free_translation() {
+        let fixture = direct_production_fixture(
+            "exact-session-direct-constrained-nontrivial-ready",
+            DirectProductionCoverage::NonemptyAttemptResidual,
+        );
+        let compact_geometry = fixture.terminal.geometry().unwrap();
+        assert_eq!(compact_geometry.ambient_arity(), 3);
+        assert_eq!(compact_geometry.free_positions(), &[1]);
+        assert_eq!(
+            compact_geometry.compact_linear_coefficients(),
+            &[Integer::zero(), Integer::one(), Integer::zero()],
+        );
+
+        let locator = fixture.plan.targets()[0];
+        let frame = fixture.plan.physical_frame();
+        let target_values = frame
+            .anchor_offset(locator.inventory_position(), locator.case_ordinal())
+            .unwrap()
+            .values()
+            .to_vec();
+        let centered_rhs_shift = [Integer::zero(), Integer::from(-1), Integer::zero()];
+        let target_key = physical_key(&fixture.plan, &target_values);
+        let rhs_key = frame
+            .key_for_exact_local(
+                locator.inventory_position(),
+                locator.case_ordinal(),
+                &centered_rhs_shift,
+            )
+            .unwrap();
+        assert!(rhs_key < target_key);
+
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            211,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let before = session_state_snapshot(&session);
+        // The Direct geometry, target, frame, solve plan, exact recentering,
+        // and V2 analysis are all production owners.  Only this deliberately
+        // minimal two-term validation row uses the authenticated test ingress.
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &fixture.context,
+                vec![
+                    (rhs_key, fixture.context.one()),
+                    (target_key, fixture.context.one()),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) = session
+            .recenter_staged_new_pivot(&fixture.family, &fixture.context, transaction)
+            .unwrap()
+        else {
+            panic!("the constrained two-term row must reach exact Ready");
+        };
+        assert_eq!(ready.terms().len(), 2);
+        assert_eq!(session_state_snapshot(&session), before);
+
+        let analyzed = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+            &fixture.family,
+            &fixture.context,
+            &session,
+            ready,
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+        )
+        .unwrap();
+        let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+            ready_for_conditions,
+        ) = analyzed
+        else {
+            panic!("the constrained two-term row must pass V2 descent analysis");
+        };
+        let geometry = ready_for_conditions.geometry();
+        assert_eq!(geometry.ambient_arity(), 3);
+        assert_eq!(geometry.free_count(), 1);
+        assert_eq!(geometry.constant_rows(), 2);
+        assert_eq!(geometry.symbolic_rows(), 1);
+        assert_eq!(ready_for_conditions.stats().terms(), 2);
+        assert_eq!(ready_for_conditions.stats().rhs_terms(), 1);
+        assert_eq!(ready_for_conditions.stats().physical_keys_constructed(), 2,);
+        assert_eq!(ready_for_conditions.stats().key_comparisons(), 1);
+        assert_eq!(ready_for_conditions.descent().len(), 1);
+        assert!(ready_for_conditions.hazards().is_empty());
+
+        let descent = &ready_for_conditions.descent()[0];
+        let rhs_term = &ready_for_conditions.ready().terms()[descent.term_ordinal()];
+        assert_eq!(rhs_term.shift().values(), &centered_rhs_shift);
+        let exact_rhs_key = frame
+            .key_for_exact_local(
+                locator.inventory_position(),
+                locator.case_ordinal(),
+                rhs_term.shift().values(),
+            )
+            .unwrap();
+        assert!(descent.replay(&exact_rhs_key, ready_for_conditions.source_key()));
+
+        // Translate both exact keys by B*z along the authenticated free row.
+        // The stored comparison transcript must remain valid throughout the
+        // source chamber, including at arbitrary precision.
+        let huge = Integer::one() << 4096_u32;
+        for free_translation in [Integer::zero(), Integer::from(7), Integer::from(13), huge] {
+            let mut translated_source = target_values.clone();
+            translated_source[1] = &translated_source[1] + &free_translation;
+            let translated_source_key = frame
+                .test_key_for_borrowed_physical_values(&translated_source)
+                .unwrap();
+            let mut translated_rhs = translated_source;
+            translated_rhs[1] = &translated_rhs[1] - Integer::one();
+            let translated_rhs_key = frame
+                .test_key_for_borrowed_physical_values(&translated_rhs)
+                .unwrap();
+            assert!(translated_rhs_key < translated_source_key);
+            assert!(descent.replay(&translated_rhs_key, &translated_source_key));
+        }
+
+        ready_for_conditions
+            .replay(&fixture.family, &fixture.context, &session)
+            .unwrap();
+        assert_eq!(session_state_snapshot(&session), before);
+        session.replay(&fixture.family, &fixture.context).unwrap();
     }
 
     #[test]
@@ -5438,12 +5602,6 @@ mod tests {
                         ) => panic!(
                             "natural full-cylinder Direct Ready candidate was unsupported: {:?}",
                             unsupported.reason()
-                        ),
-                        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Pending(
-                            pending,
-                        ) => panic!(
-                            "natural full-cylinder Direct Ready candidate remained pending: {:?}",
-                            pending.reason()
                         ),
                     }
                 }

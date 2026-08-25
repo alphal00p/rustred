@@ -1,13 +1,14 @@
 # Exact-session `WhenBad` and publication port plan
 
 Status: authoritative implementation plan; Phase A event-ledger foundation and
-the scoped independent-cylinder Ready geometry/descent/hazard checkpoint are
-implemented; upstream sealed normalization, direct formula-residual search,
-one-pass sealed candidate ingress/replay, normalized-source V2 ordering-policy
-binding, and the K21 evidence are implemented at pushed checkpoint `c593865`;
-the current working checkpoint completes the allocation-independent terminal
-stable-value identity chain and carries Direct singleton authority through
-ordering V3, physical frame V2, and solve-plan V2 without a fake inventory;
+selector-independent compact-affine Ready V2 geometry, fixed-chamber descent,
+lazy hazards, and replay are implemented. Upstream sealed normalization,
+direct formula-residual search, one-pass sealed candidate ingress/replay,
+normalized-source V2 ordering-policy binding, and the K21 evidence were pushed
+at checkpoint `c593865`; the current checkpoint carries the
+allocation-independent Direct identity through ordering V3, physical frame V2,
+solve-plan V2, and source-profiled exact-session Ready analysis without a fake
+inventory. `WhenBad` condition compilation and publication remain next;
 updated 2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
@@ -77,12 +78,13 @@ The current-lineage components below are implemented and tested:
   replay additionally authenticates the exact terminal event.
 - `src/generated_affine_residual_group_ready_publication.rs` authenticates the
   sealed Ready/session/target geometry without extracting the transaction. For
-  an independent cylinder it locates the unique unit zero-shift pivot, builds
+  an authenticated selector-independent compact affine map it locates the
+  unique unit zero-shift pivot, verifies selector and row geometry, builds
   source and RHS keys from the exact selected anchor, proves strict physical-
-  key descent, and retains finite inactive-orthant hazard intervals as
-  Symbolica `Integer` data. Its `ReadyForConditions` result is an unpublished,
-  target-preserving typestate. General compact affine target maps currently
-  return an operational `Pending` result and remain part of the active phase.
+  key descent inside the source chamber, and retains finite inactive-orthant
+  hazard intervals as Symbolica `Integer` data. Its `ReadyForConditions` result
+  is an unpublished, target-preserving typestate; condition specialization and
+  publication remain part of the active phase.
 
 Focused tests cover exact Ready translation, NoTarget beyond `i64`, a 4,096-bit
 coordinate, post-top-reduction leader selection, transaction return after
@@ -193,19 +195,20 @@ distinct from proof ownership: replay separately requires the exact retained
 terminal, authority, frame, plan, and catalog `Arc` allocations. The old exact
 relation compiler remains legacy-only; it is not the Direct production route.
 
-A freshly generated full independent-cylinder Direct source now passes through
+Freshly generated full-cylinder and constrained Direct sources now pass through
 chronological row staging and recentering to the existing unpublished
-`ReadyForConditions` boundary. A genuine nonempty constrained source instead
-stops before physical-key work as typed
-`Pending(NonIndependentCylinder)`. Licensed default-GMP Symbolica runs passed
-the four focused Direct ingress, constrained-boundary, resource, and V1/V2
-schema/kind tamper tests in parallel, and `cargo check --all-targets` passed.
-The next seam is general compact-affine Ready analysis followed by the
-`WhenBad` closure and publication phases described below. It must not
-reconstruct V4, V5, the live-leaf queue, or Boolean/DPLL certificates. No
-Direct input has produced a published guarded rule or reduced a physical
-topology, and the successful `K=21` cursor fixture still has not reached Ready
-or established six-loop support.
+`ReadyForConditions` boundary. V2 accepts authenticated selector-independent
+compact affine maps, proves exact descent inside the source chamber, retains
+inactive-orthant hazards, and provides owner-allocation-sensitive replay. The
+natural constrained production regression has six RHS terms and replays all
+six descent witnesses; an additional test preserves the comparison under a
+4096-bit common free-coordinate translation. Independent licensed default-GMP
+run `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests with four
+workers, and `cargo check --tests -j4` passed. The next seam is `WhenBad`
+closure and publication. It must not reconstruct V4, V5, the live-leaf queue,
+or Boolean/DPLL certificates. No Direct input has produced a published guarded
+rule or reduced a physical topology, and the successful `K=21` cursor fixture
+still has not reached Ready or established six-loop support.
 
 Not yet implemented are the Ready-native condition transcript and relative
 partition, the terminal current-lineage exact `WhenBad` compiler,
@@ -954,23 +957,22 @@ Implement in this order:
    `88a73ec1-52c2-4771-8a21-75e1b2a848b6` (1/1) passed;
 6. add the generic direct-backed singleton affine adapter — completed through
    source-profiled exact-session staging, chronological replay, recentering,
-   and the existing unpublished `ReadyForConditions` boundary for a full
-   independent cylinder. The terminal stable-value identity emits the row span
+   and the existing unpublished `ReadyForConditions` boundary for authenticated
+   selector-independent compact affine maps. The terminal stable-value identity emits the row span
    once through typed references; ordering V3, physical frame V2, solve-plan
    V2, database V2, catalog/state V2, and session/event V2 retain it without a
    fake inventory, while exact terminal/authority/frame/plan/catalog `Arc`
-   ancestry remains a separate replay condition. A genuine nonempty
-   constrained source is typed `Pending(NonIndependentCylinder)` before key
-   work. Focused and independent licensed default-GMP tests are green.
-   Next extend Ready analysis to general compact affine target maps, then
-   implement `WhenBad` closure and publication. This has not reached reduction,
-   publication, or six-loop topology support;
+   ancestry remains a separate replay condition. Constrained production rows
+   now enter Ready without sampling away their compact geometry. Focused and
+   independent licensed default-GMP tests are green. Next implement `WhenBad`
+   closure and publication. This has not reached reduction, publication, or
+   six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
 7. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
-   independent-cylinder descent/lazy hazards implemented; general compact-
-   affine geometry plus conditions and pullbacks active;
+   selector-independent compact-affine geometry and fixed-chamber descent/lazy
+   hazards implemented; condition specialization and pullbacks active;
 8. owning current-lineage exact `WhenBad` terminal compiler;
 9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
 10. extend the implemented chronological replay with durable rule/residual

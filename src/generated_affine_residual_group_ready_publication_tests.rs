@@ -44,7 +44,8 @@ use crate::generated_affine_residual_group_exact_physical_row::{
     GeneratedAffineResidualGroupExactPhysicalRowLimits,
 };
 use crate::generated_affine_residual_group_exact_session::{
-    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionEventStats,
+    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
+    GeneratedAffineResidualGroupExactSessionEventStats,
     GeneratedAffineResidualGroupExactSessionLimits,
     GeneratedAffineResidualGroupExactSessionRecenterOutcome,
     GeneratedAffineResidualGroupExactSessionRecenterReady,
@@ -53,6 +54,7 @@ use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
 };
 use crate::generated_affine_residual_group_ready_publication::{
+    GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
     GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
     GeneratedAffineResidualGroupReadyPublicationAnalysisError,
     GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
@@ -483,8 +485,19 @@ fn natural_generated_one_loop_row_reaches_exact_ready_without_mutation() {
         ready_for_conditions,
     ) = outcome
     else {
-        panic!("the natural independent cylinder must pass exact descent analysis");
+        panic!("the natural compact affine geometry must pass exact descent analysis");
     };
+    assert_eq!(
+        ready_for_conditions.schema(),
+        GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
+    );
+    let geometry = ready_for_conditions.geometry();
+    assert_eq!(geometry.ambient_arity(), 1);
+    assert_eq!(geometry.free_count(), 1);
+    assert_eq!(geometry.matrix_entries_inspected(), 1);
+    assert_eq!(geometry.selector_entries_inspected(), 1);
+    assert_eq!(geometry.constant_rows(), 0);
+    assert_eq!(geometry.symbolic_rows(), 1);
     assert!(
         !ready_for_conditions.descent().is_empty(),
         "a nontrivial generated Ready row must retain exact descent witnesses",
@@ -527,6 +540,13 @@ fn natural_generated_one_loop_row_reaches_exact_ready_without_mutation() {
         "the retained pivot ordinal must name the unique centered zero shift",
     );
     assert_eq!(ready_for_conditions.targets_consumed(), 0);
+    assert_eq!(
+        SessionSnapshot::capture(&fixture.session),
+        fixture.before_recenter,
+    );
+    ready_for_conditions
+        .replay(&fixture.family, &fixture.context, &fixture.session)
+        .unwrap();
     assert_eq!(
         SessionSnapshot::capture(&fixture.session),
         fixture.before_recenter,
@@ -699,6 +719,13 @@ fn aggregate_retained_cap_is_exact_recoverable_and_nonmutating() {
         SessionSnapshot::capture(&fixture.session),
         fixture.before_recenter,
     );
+    retry
+        .replay(&fixture.family, &fixture.context, &fixture.session)
+        .unwrap();
+    assert_eq!(
+        SessionSnapshot::capture(&fixture.session),
+        fixture.before_recenter,
+    );
     fixture
         .session
         .replay(&fixture.family, &fixture.context)
@@ -816,6 +843,127 @@ fn physical_key_preflight_counters_are_exact_recoverable_and_nonmutating() {
 }
 
 #[test]
+fn compact_geometry_resource_counters_are_exact_recoverable_and_nonmutating() {
+    let fixture = natural_one_loop_ready(
+        "exact-ready-publication-natural-compact-geometry-resource-counters",
+        false,
+    );
+    let baseline = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+        &fixture.family,
+        &fixture.context,
+        &fixture.session,
+        fixture.ready,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+    )
+    .unwrap();
+    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(baseline) =
+        baseline
+    else {
+        panic!("the natural compact affine geometry must pass baseline analysis");
+    };
+    let stats = baseline.stats();
+    let mut ready = baseline.into_ready();
+
+    macro_rules! exact_and_one_below {
+        ($getter:ident, $field:ident, $resource:literal) => {{
+            let exact_value = stats.$getter();
+            assert!(exact_value > 0, "{} must be exercised", $resource);
+
+            let mut one_below =
+                GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default();
+            one_below.$field = exact_value - 1;
+            let failure = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                &fixture.family,
+                &fixture.context,
+                &fixture.session,
+                ready,
+                one_below,
+            )
+            .unwrap_err();
+            assert_eq!(
+                failure.error(),
+                GeneratedAffineResidualGroupReadyPublicationAnalysisError::ResourceLimit {
+                    resource: $resource,
+                    requested: exact_value,
+                    limit: exact_value - 1,
+                }
+            );
+            ready = failure.into_parts().1;
+            assert_eq!(
+                SessionSnapshot::capture(&fixture.session),
+                fixture.before_recenter,
+            );
+            fixture
+                .session
+                .replay(&fixture.family, &fixture.context)
+                .unwrap();
+
+            let mut exact = GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default();
+            exact.$field = exact_value;
+            let outcome = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                &fixture.family,
+                &fixture.context,
+                &fixture.session,
+                ready,
+                exact,
+            )
+            .unwrap();
+            let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+                accepted,
+            ) = outcome
+            else {
+                panic!("the exact {} boundary must succeed", $resource);
+            };
+            assert_eq!(accepted.stats().$getter(), exact_value);
+            assert_eq!(
+                SessionSnapshot::capture(&fixture.session),
+                fixture.before_recenter,
+            );
+            accepted
+                .replay(&fixture.family, &fixture.context, &fixture.session)
+                .unwrap();
+            ready = accepted.into_ready();
+        }};
+    }
+
+    exact_and_one_below!(
+        free_positions_inspected,
+        max_free_positions_inspected,
+        "Ready analysis free positions inspected"
+    );
+    exact_and_one_below!(
+        matrix_entries_inspected,
+        max_matrix_entries_inspected,
+        "Ready analysis matrix entries inspected"
+    );
+    exact_and_one_below!(
+        selector_entries_inspected,
+        max_selector_entries_inspected,
+        "Ready analysis selector entries inspected"
+    );
+    exact_and_one_below!(
+        geometry_integer_bit_work,
+        max_geometry_integer_bit_work,
+        "Ready analysis geometry integer-bit work"
+    );
+    exact_and_one_below!(
+        geometry_witness_bytes,
+        max_geometry_witness_bytes,
+        "Ready analysis geometry witness bytes"
+    );
+
+    drop(ready);
+    fixture
+        .session
+        .replay(&fixture.family, &fixture.context)
+        .unwrap();
+    assert_eq!(
+        SessionSnapshot::capture(&fixture.session),
+        fixture.before_recenter,
+    );
+}
+
+#[test]
 fn six_loop_arity_21_parametric_generator_is_topology_neutral_and_replay_stable() {
     const ARITY: usize = 21;
     const ORDINARY_ROWS: usize = 36;
@@ -903,6 +1051,179 @@ fn foreign_family_binding_is_rejected_without_consuming_ready_or_session_state()
         .session
         .replay(&fixture.family, &fixture.context)
         .unwrap();
+}
+
+#[test]
+fn ready_v2_replay_rejects_value_equal_foreign_target_state_allocation() {
+    let fixture = natural_one_loop_ready(
+        "exact-ready-publication-v2-replay-foreign-allocation",
+        false,
+    );
+    let owner_outcome = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+        &fixture.family,
+        &fixture.context,
+        &fixture.session,
+        fixture.ready,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+    )
+    .unwrap();
+    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+        owner_certificate,
+    ) = owner_outcome
+    else {
+        panic!("the owner Ready must pass V2 analysis");
+    };
+
+    // Deliberately reproduce every value-level input, including the numeric
+    // session number, while allocating a fresh exact database/target state.
+    let foreign_session = GeneratedAffineResidualGroupExactSession::try_new(
+        &fixture.family,
+        &fixture.context,
+        Arc::clone(&fixture.plan),
+        211,
+        GeneratedAffineResidualGroupExactSessionLimits::default(),
+    )
+    .unwrap();
+    let foreign_before = SessionSnapshot::capture(&foreign_session);
+    let foreign_transaction = foreign_session
+        .stage_replayed_row(&fixture.family, &fixture.context, &fixture.source)
+        .unwrap();
+    let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(foreign_ready) =
+        foreign_session
+            .recenter_staged_new_pivot(&fixture.family, &fixture.context, foreign_transaction)
+            .unwrap()
+    else {
+        panic!("the value-equal foreign session must independently reach Ready");
+    };
+    let owner_ready = owner_certificate.ready();
+    assert_eq!(foreign_ready.stats(), owner_ready.stats());
+    assert_eq!(foreign_ready.source_ordinal(), owner_ready.source_ordinal(),);
+    assert_eq!(foreign_ready.pivot_ordinal(), owner_ready.pivot_ordinal(),);
+    assert_eq!(foreign_ready.target_locator(), owner_ready.target_locator());
+    assert_eq!(
+        foreign_ready.target_premises(),
+        owner_ready.target_premises()
+    );
+    assert_eq!(
+        foreign_ready.coefficient_translation(),
+        owner_ready.coefficient_translation(),
+    );
+    assert_eq!(foreign_ready.terms(), owner_ready.terms());
+    assert_eq!(foreign_ready.row_guards(), owner_ready.row_guards());
+    assert_eq!(
+        foreign_ready.targets_consumed(),
+        owner_ready.targets_consumed()
+    );
+
+    let owner_geometry = fixture
+        .session
+        .authenticated_ready_geometry(&fixture.family, &fixture.context, owner_ready)
+        .unwrap();
+    let foreign_geometry = foreign_session
+        .authenticated_ready_geometry(&fixture.family, &fixture.context, &foreign_ready)
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        owner_geometry.frame(),
+        foreign_geometry.frame()
+    ));
+    assert_eq!(owner_geometry.locator(), foreign_geometry.locator());
+    assert_eq!(
+        owner_geometry.ambient_arity(),
+        foreign_geometry.ambient_arity()
+    );
+    assert_eq!(
+        owner_geometry.free_positions(),
+        foreign_geometry.free_positions()
+    );
+    assert_eq!(
+        owner_geometry.compact_affine_matrix(),
+        foreign_geometry.compact_affine_matrix(),
+    );
+    assert_eq!(
+        owner_geometry.target_anchor(),
+        foreign_geometry.target_anchor()
+    );
+    drop(owner_geometry);
+    drop(foreign_geometry);
+    assert_eq!(SessionSnapshot::capture(&foreign_session), foreign_before);
+
+    let foreign_outcome = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+        &fixture.family,
+        &fixture.context,
+        &foreign_session,
+        foreign_ready,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+    )
+    .unwrap();
+    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+        foreign_certificate,
+    ) = foreign_outcome
+    else {
+        panic!("the value-equal foreign Ready must pass V2 analysis");
+    };
+    assert_eq!(foreign_certificate.schema(), owner_certificate.schema());
+    assert_eq!(foreign_certificate.geometry(), owner_certificate.geometry());
+    assert_eq!(
+        foreign_certificate.pivot_term_ordinal(),
+        owner_certificate.pivot_term_ordinal(),
+    );
+    assert_eq!(
+        foreign_certificate.source_key(),
+        owner_certificate.source_key()
+    );
+    assert_eq!(
+        foreign_certificate.source_key().retained_integer_bits(),
+        owner_certificate.source_key().retained_integer_bits(),
+    );
+    assert_eq!(
+        foreign_certificate.source_key().retained_bytes(),
+        owner_certificate.source_key().retained_bytes(),
+    );
+    assert_eq!(foreign_certificate.descent(), owner_certificate.descent());
+    assert_eq!(foreign_certificate.hazards(), owner_certificate.hazards());
+    assert_eq!(foreign_certificate.limits(), owner_certificate.limits());
+    assert_eq!(foreign_certificate.stats(), owner_certificate.stats());
+
+    assert_eq!(
+        owner_certificate.replay(&fixture.family, &fixture.context, &foreign_session),
+        Err(
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::Session(
+                GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation,
+            ),
+        ),
+    );
+    assert_eq!(
+        foreign_certificate.replay(&fixture.family, &fixture.context, &fixture.session),
+        Err(
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::Session(
+                GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation,
+            ),
+        ),
+    );
+    assert_eq!(SessionSnapshot::capture(&foreign_session), foreign_before);
+    assert_eq!(
+        SessionSnapshot::capture(&fixture.session),
+        fixture.before_recenter,
+    );
+    foreign_session
+        .replay(&fixture.family, &fixture.context)
+        .unwrap();
+    fixture
+        .session
+        .replay(&fixture.family, &fixture.context)
+        .unwrap();
+
+    owner_certificate
+        .replay(&fixture.family, &fixture.context, &fixture.session)
+        .unwrap();
+    foreign_certificate
+        .replay(&fixture.family, &fixture.context, &foreign_session)
+        .unwrap();
+    assert_eq!(
+        SessionSnapshot::capture(&fixture.session),
+        fixture.before_recenter,
+    );
+    assert_eq!(SessionSnapshot::capture(&foreign_session), foreign_before);
 }
 
 #[test]

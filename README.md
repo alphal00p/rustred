@@ -23,9 +23,10 @@ all of LiteRed.
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
-| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; a full independent cylinder reaches the unpublished `ReadyForConditions` gate, while general compact affine cylinders remain typed `Pending` |
+| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate, with boundary hazards retained for later `WhenBad` partitioning |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
+| Track published LiteRed notebook parity | Eight LiteRed 1.x examples inventoried with staged acceptance levels; no complete notebook workflow passes yet |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
 | Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
 
@@ -267,14 +268,15 @@ The repository currently includes tests for:
   relation entry points that require a legacy inventory reject Direct plans
   rather than manufacturing compatibility state. Source-profiled V2 target,
   database, and session owners instead retain and authenticate the exact Direct
-  plan/authority allocations. A freshly generated full independent cylinder
-  now reaches the unpublished `ReadyForConditions` gate; a constrained genuine
-  nonempty source stops without key work as typed
-  `Pending(NonIndependentCylinder)`. Licensed GMP Nextest runs passed the four
-  focused Direct ingress, constrained-boundary, resource, and V1/V2 tamper
-  tests in parallel, and `cargo check --all-targets` passed. This milestone is
-  not `WhenBad` closure, rule publication, reduction, or six-loop topology
-  support; and
+  plan/authority allocations. Authenticated selector-independent compact
+  affine maps, including constrained maps, now reach the unpublished
+  `ReadyForConditions` gate. The V2 analysis verifies exact selector geometry,
+  fixed-chamber physical-key descent, and lazy inactive-orthant hazards; replay
+  reauthenticates the exact owner allocation and rebuilds the transcript.
+  Independent licensed default-GMP run
+  `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed all 18 focused tests with four
+  workers. This milestone is not `WhenBad` closure, rule publication,
+  reduction, or six-loop topology support; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -335,9 +337,10 @@ transcript checks; RustRed does not extend this into a parallel CAS or matrix
 implementation.
 The next vacuum-critical solver milestone is the topology-neutral
 `Ready -> condition/WhenBad partition -> atomic guarded-rule/residual
-publication -> replay-certified closure` slice. Exact descent and lazy hazard
-geometry are implemented for independent cylinders; the active slice must
-also carry those proofs through general compact affine target maps. Graph-
+publication -> replay-certified closure` slice. Exact fixed-chamber descent
+and lazy hazard geometry now cover authenticated selector-independent compact
+affine target maps. The active slice must compile those hazards and coefficient
+loci into complete `WhenBad` partitions and publish atomically. Graph-
 lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
@@ -352,17 +355,15 @@ physical frame V2, solve-plan V2, and source-profiled exact-session staging and
 recentering. The row span is emitted once through typed identity references;
 the Direct path fabricates no V4/V5, Boolean/DPLL, integer-system, or legacy
 inventory certificate. Stable identity remains separate from exact retained-
-`Arc` authority. A full independent cylinder reaches the existing unpublished
-`ReadyForConditions` gate, while general compact affine target maps remain a
-typed `Pending` boundary. The remaining generic LiteRed-style solver work is
-to:
+`Arc` authority. Authenticated selector-independent compact affine target maps
+reach the existing unpublished `ReadyForConditions` gate, while chamber exits
+remain explicit hazards rather than being sampled away. The remaining generic
+LiteRed-style solver work is to:
 
-1. extend Ready analysis from the full identity cylinder to general compact
-   affine target maps;
-2. compile and close `WhenBad` exceptional branches, then atomically publish
+1. compile and close `WhenBad` exceptional branches, then atomically publish
    guarded rules and residual work;
-3. feed solved subsectors into supersectors and iterate residual cases; and
-4. expose a replay-certified complete reduction result.
+2. feed solved subsectors into supersectors and iterate residual cases; and
+3. expose a replay-certified complete reduction result.
 
 This checkpoint is not a complete LiteRed port, complete `WhenBad` or rule
 publication, an arbitrary one-loop pentagon reduction, or completion of the
@@ -392,10 +393,10 @@ now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
 listed above passed. This checkpoint's coordinate-affine terminal now has an
 allocation-independent stable-value identity and reaches the source-profiled
 exact session through Direct solve-plan V2, ordering V3, and physical frame V2,
-with exact `Arc` ancestry kept separate and no fake inventory. A full identity
-cylinder reaches the unpublished `ReadyForConditions` gate. The immediate
-gates are general compact-map Ready analysis followed by `WhenBad` closure and
-publication. No arity-21 case has reached Ready, no
+with exact `Arc` ancestry kept separate and no fake inventory. Authenticated
+selector-independent compact affine maps reach the unpublished
+`ReadyForConditions` gate. The immediate gates are `WhenBad` closure and
+atomic guarded publication. No arity-21 case has reached Ready, no
 guarded rule has been published, no physical topology was reduced, and no
 complete reduction is claimed.
 
@@ -422,6 +423,7 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 - [RustRed scope and acceptance criteria](docs/research/rustred_scope_and_acceptance.md)
 - [Six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md)
 - [Full LiteRed scope specification](docs/research/litered_full_scope_spec.md)
+- [LiteRed example parity acceptance matrix](docs/research/litered_examples_acceptance_matrix.md)
 - [LiteRed2 algorithm report](docs/research/litered2_algorithm_report.md)
 - [Generic IBP parity audit](docs/research/generic_ibp_litered_parity_audit_2026-08-13.md)
 - [Symbolica Rust API reference](docs/research/symbolica_rust_api_for_litered.md)

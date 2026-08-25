@@ -3,10 +3,11 @@
 //! This module is the topology-neutral bridge from a sealed exact-session
 //! [`Ready`](GeneratedAffineResidualGroupExactSessionRecenterReady) token to a
 //! later guarded publication transaction.  The first phase implemented here
-//! authenticates an independent-cylinder target, proves every nonpivot RHS is
-//! strictly smaller using the existing exact physical-key ordering, and
-//! retains every finite inactive-orthant activation range as Symbolica
-//! [`Integer`] data.
+//! authenticates the target's selector-independent compact affine
+//! coordinates, proves every nonpivot RHS is uniformly smaller inside the
+//! authenticated source chamber using the existing exact physical-key
+//! ordering, and retains every finite inactive-orthant activation range as
+//! Symbolica [`Integer`] data for later condition partitioning.
 //!
 //! No old matcher ordinal, [`IndexShift`](crate::IndexShift), concrete sample,
 //! or machine-integer conversion enters this boundary.  Passing this phase is
@@ -36,15 +37,19 @@ use crate::generated_affine_residual_group_physical_key::{
 };
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V1_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-ready-publication-analysis-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-ready-publication-analysis-v2";
 
 /// Aggregate resource envelope for exact geometry, descent, and orthant
 /// analysis of one Ready row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupReadyPublicationAnalysisLimits {
     pub(crate) max_arity: usize,
+    pub(crate) max_free_positions_inspected: usize,
     pub(crate) max_matrix_entries_inspected: usize,
+    pub(crate) max_selector_entries_inspected: usize,
+    pub(crate) max_geometry_integer_bit_work: usize,
+    pub(crate) max_geometry_witness_bytes: usize,
     pub(crate) max_terms: usize,
     pub(crate) max_rhs_terms: usize,
     pub(crate) max_exact_shift_components_inspected: usize,
@@ -68,9 +73,12 @@ pub(crate) struct GeneratedAffineResidualGroupReadyPublicationAnalysisLimits {
     /// Exact retained hazard-vector capacity plus owned GMP heap bytes.
     pub(crate) max_hazard_retained_bytes: usize,
     /// Conservative incremental payload admitted before each retained
-    /// allocation or GMP-producing step, excluding the pre-existing Ready
-    /// graph transferred unchanged into the output owner.  Prospective exact
-    /// arithmetic bounds can exceed the ultimately observed output payload.
+    /// allocation or GMP-producing step.  Each `analyze` or `replay`
+    /// invocation charges only the transcript it newly constructs: the
+    /// pre-existing Ready graph and, during replay, the caller-owned V2
+    /// certificate are excluded.  Prospective exact arithmetic bounds can
+    /// exceed the ultimately observed output payload.  This is not a
+    /// process-wide or combined-live-memory cap.
     pub(crate) max_retained_bytes: usize,
 }
 
@@ -81,7 +89,13 @@ impl Default for GeneratedAffineResidualGroupReadyPublicationAnalysisLimits {
         const GIB: usize = 1024 * 1024 * 1024;
         Self {
             max_arity: 1_000_000,
+            max_free_positions_inspected: 1_000_000,
             max_matrix_entries_inspected: LARGE,
+            max_selector_entries_inspected: LARGE,
+            max_geometry_integer_bit_work: VERY_LARGE,
+            max_geometry_witness_bytes: size_of::<
+                GeneratedAffineResidualGroupExactCompactGeometryWitness,
+            >(),
             max_terms: 16_000_000,
             max_rhs_terms: 16_000_000,
             max_exact_shift_components_inspected: LARGE,
@@ -109,7 +123,17 @@ impl Default for GeneratedAffineResidualGroupReadyPublicationAnalysisLimits {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupReadyPublicationAnalysisStats {
     arity: usize,
+    free_positions_inspected: usize,
     matrix_entries_inspected: usize,
+    selector_entries_inspected: usize,
+    constant_rows: usize,
+    symbolic_rows: usize,
+    geometry_integer_bit_work: usize,
+    /// Inline geometry-witness bytes produced by this attempt.  A successful
+    /// Ready wrapper retains them; Unsupported stats report the same
+    /// attempt-local census even though that terminal does not retain the
+    /// witness.
+    geometry_witness_bytes: usize,
     terms: usize,
     rhs_terms: usize,
     exact_shift_components_inspected: usize,
@@ -143,7 +167,13 @@ macro_rules! analysis_stats_getters {
 impl GeneratedAffineResidualGroupReadyPublicationAnalysisStats {
     analysis_stats_getters!(
         arity,
+        free_positions_inspected,
         matrix_entries_inspected,
+        selector_entries_inspected,
+        constant_rows,
+        symbolic_rows,
+        geometry_integer_bit_work,
+        geometry_witness_bytes,
         terms,
         rhs_terms,
         exact_shift_components_inspected,
@@ -166,8 +196,66 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisStats {
     );
 }
 
+/// Allocation-free proof transcript for the compact affine coordinates used
+/// by one exact Ready target.
+///
+/// The row-selection operator `E` defined by `S` is an integral left inverse
+/// of `B`: `(E B)[a,b] = B[S[a],b] = delta(a,b)`.  Every other matrix row is
+/// scanned in full and matched against the physical frame's
+/// already-authenticated constant/symbolic row partition.  Consequently a
+/// common `B*z` translation cancels from every source/RHS coordinate
+/// difference inside the authenticated source chamber; any inactive-orthant
+/// crossing is separately retained as a hazard for later condition
+/// partitioning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactCompactGeometryWitness {
+    ambient_arity: usize,
+    free_count: usize,
+    matrix_entries_inspected: usize,
+    selector_entries_inspected: usize,
+    constant_rows: usize,
+    symbolic_rows: usize,
+    integer_bit_work: usize,
+    retained_bytes: usize,
+}
+
+impl GeneratedAffineResidualGroupExactCompactGeometryWitness {
+    pub(crate) const fn ambient_arity(self) -> usize {
+        self.ambient_arity
+    }
+
+    pub(crate) const fn free_count(self) -> usize {
+        self.free_count
+    }
+
+    pub(crate) const fn matrix_entries_inspected(self) -> usize {
+        self.matrix_entries_inspected
+    }
+
+    pub(crate) const fn selector_entries_inspected(self) -> usize {
+        self.selector_entries_inspected
+    }
+
+    pub(crate) const fn constant_rows(self) -> usize {
+        self.constant_rows
+    }
+
+    pub(crate) const fn symbolic_rows(self) -> usize {
+        self.symbolic_rows
+    }
+
+    pub(crate) const fn integer_bit_work(self) -> usize {
+        self.integer_bit_work
+    }
+
+    pub(crate) const fn retained_bytes(self) -> usize {
+        self.retained_bytes
+    }
+}
+
 /// One exact proof that a nonpivot RHS precedes the pivot under the physical
 /// frame's already-persisted ordering.
+#[derive(PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactDescentWitness {
     rhs_ordinal: usize,
     term_ordinal: usize,
@@ -285,14 +373,6 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactOrthantHazardRange {
     }
 }
 
-/// Operational reason why the current implementation leaves a Ready target
-/// untouched.  This is not a mathematical classification and must never infer
-/// a master, zero, or unsupported recurrence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GeneratedAffineResidualGroupReadyPublicationPendingReason {
-    NonIndependentCylinder,
-}
-
 /// Mathematical terminal reason.  A later atomic session transition commits
 /// the pivot/cursor but does not consume the target or publish a rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,6 +388,7 @@ pub(crate) enum GeneratedAffineResidualGroupReadyPublicationUnsupportedReason {
 pub(crate) struct GeneratedAffineResidualGroupReadyForConditions {
     schema: &'static str,
     ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
+    geometry: GeneratedAffineResidualGroupExactCompactGeometryWitness,
     pivot_term_ordinal: usize,
     source_key: GeneratedAffineResidualGroupPhysicalKey,
     descent: Vec<GeneratedAffineResidualGroupExactDescentWitness>,
@@ -323,6 +404,10 @@ impl GeneratedAffineResidualGroupReadyForConditions {
 
     pub(crate) fn descent(&self) -> &[GeneratedAffineResidualGroupExactDescentWitness] {
         &self.descent
+    }
+
+    pub(crate) const fn geometry(&self) -> GeneratedAffineResidualGroupExactCompactGeometryWitness {
+        self.geometry
     }
 
     pub(crate) fn hazards(&self) -> &[GeneratedAffineResidualGroupExactOrthantHazardRange] {
@@ -361,6 +446,58 @@ impl GeneratedAffineResidualGroupReadyForConditions {
     pub(crate) fn into_ready(self) -> GeneratedAffineResidualGroupExactSessionRecenterReady {
         self.ready
     }
+
+    /// Reauthenticate this exact owner against its live session allocation and
+    /// rebuild the complete V2 geometry/descent/hazard transcript.
+    ///
+    /// The retained Ready token is only borrowed.  Replay cannot consume a
+    /// target, mutate the session, or launder value-equal keys from another
+    /// frame/plan allocation through the comparison-only witness API.  Its
+    /// retained-byte limit is per newly rebuilt transcript and does not
+    /// double-charge this already-live certificate.
+    pub(crate) fn replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        session: &GeneratedAffineResidualGroupExactSession,
+    ) -> Result<(), GeneratedAffineResidualGroupReadyPublicationAnalysisError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA {
+                return Err(
+                    GeneratedAffineResidualGroupReadyPublicationAnalysisError::SchemaMismatch,
+                );
+            }
+            let rebuilt = analyze_ready_inner(family, context, session, &self.ready, self.limits)?;
+            let PreparedAnalysis::Ready {
+                geometry,
+                pivot_term_ordinal,
+                source_key,
+                descent,
+                hazards,
+                stats,
+            } = rebuilt
+            else {
+                return Err(
+                    GeneratedAffineResidualGroupReadyPublicationAnalysisError::ReplayMismatch,
+                );
+            };
+            if geometry != self.geometry
+                || pivot_term_ordinal != self.pivot_term_ordinal
+                || source_key != self.source_key
+                || source_key.retained_integer_bits() != self.source_key.retained_integer_bits()
+                || source_key.retained_bytes() != self.source_key.retained_bytes()
+                || descent != self.descent
+                || hazards != self.hazards
+                || stats != self.stats
+            {
+                return Err(
+                    GeneratedAffineResidualGroupReadyPublicationAnalysisError::ReplayMismatch,
+                );
+            }
+            Ok(())
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupReadyPublicationAnalysisError::SymbolicaPanic)?
+    }
 }
 
 impl fmt::Debug for GeneratedAffineResidualGroupReadyForConditions {
@@ -368,6 +505,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupReadyForConditions {
         formatter
             .debug_struct("GeneratedAffineResidualGroupReadyForConditions")
             .field("schema", &self.schema)
+            .field("geometry", &self.geometry)
             .field("pivot_term_ordinal", &self.pivot_term_ordinal)
             .field("descent_witnesses", &self.descent.len())
             .field("orthant_hazard_ranges", &self.hazards.len())
@@ -420,46 +558,9 @@ impl fmt::Debug for GeneratedAffineResidualGroupReadyPublicationUnsupported {
     }
 }
 
-pub(crate) struct GeneratedAffineResidualGroupReadyPublicationPending {
-    ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
-    reason: GeneratedAffineResidualGroupReadyPublicationPendingReason,
-    stats: GeneratedAffineResidualGroupReadyPublicationAnalysisStats,
-}
-
-impl GeneratedAffineResidualGroupReadyPublicationPending {
-    pub(crate) const fn reason(&self) -> GeneratedAffineResidualGroupReadyPublicationPendingReason {
-        self.reason
-    }
-
-    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupReadyPublicationAnalysisStats {
-        self.stats
-    }
-
-    pub(crate) const fn targets_consumed(&self) -> usize {
-        0
-    }
-
-    pub(crate) fn into_ready(self) -> GeneratedAffineResidualGroupExactSessionRecenterReady {
-        self.ready
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualGroupReadyPublicationPending {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualGroupReadyPublicationPending")
-            .field("reason", &self.reason)
-            .field("stats", &self.stats)
-            .field("targets_consumed", &0)
-            .field("private_ready", &"<redacted>")
-            .finish()
-    }
-}
-
 pub(crate) enum GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome {
     ReadyForConditions(GeneratedAffineResidualGroupReadyForConditions),
     Unsupported(GeneratedAffineResidualGroupReadyPublicationUnsupported),
-    Pending(GeneratedAffineResidualGroupReadyPublicationPending),
 }
 
 impl GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome {
@@ -467,7 +568,6 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome {
         match self {
             Self::ReadyForConditions(outcome) => outcome.stats(),
             Self::Unsupported(outcome) => outcome.stats(),
-            Self::Pending(outcome) => outcome.stats(),
         }
     }
 
@@ -481,7 +581,6 @@ impl fmt::Debug for GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome 
         match self {
             Self::ReadyForConditions(outcome) => outcome.fmt(formatter),
             Self::Unsupported(outcome) => outcome.fmt(formatter),
-            Self::Pending(outcome) => outcome.fmt(formatter),
         }
     }
 }
@@ -490,6 +589,9 @@ impl fmt::Debug for GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome 
 pub(crate) enum GeneratedAffineResidualGroupReadyPublicationAnalysisError {
     Session(GeneratedAffineResidualGroupExactSessionError),
     PhysicalKey(GeneratedAffineResidualGroupPhysicalKeyError),
+    SchemaMismatch,
+    ReplayMismatch,
+    MalformedGeometry,
     MalformedReady,
     ResourceLimit {
         resource: &'static str,
@@ -511,6 +613,9 @@ impl fmt::Display for GeneratedAffineResidualGroupReadyPublicationAnalysisError 
         formatter.write_str(match self {
             Self::Session(_) => "exact Ready/session authentication failed",
             Self::PhysicalKey(_) => "exact physical-key construction failed",
+            Self::SchemaMismatch => "exact Ready analysis schema mismatch",
+            Self::ReplayMismatch => "exact Ready analysis replay mismatch",
+            Self::MalformedGeometry => "exact Ready compact affine geometry is malformed",
             Self::MalformedReady => "exact Ready row is malformed",
             Self::ResourceLimit { .. } => "exact Ready analysis resource limit exceeded",
             Self::ResourceCountOverflow { .. } => "exact Ready analysis resource count overflow",
@@ -597,6 +702,7 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler {
         }));
         match prepared {
             Ok(Ok(PreparedAnalysis::Ready {
+                geometry,
                 pivot_term_ordinal,
                 source_key,
                 descent,
@@ -606,8 +712,9 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler {
                 GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
                     GeneratedAffineResidualGroupReadyForConditions {
                         schema:
-                            GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V1_SCHEMA,
+                            GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
                         ready,
+                        geometry,
                         pivot_term_ordinal,
                         source_key,
                         descent,
@@ -633,15 +740,6 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler {
                     },
                 ),
             ),
-            Ok(Ok(PreparedAnalysis::Pending { reason, stats })) => Ok(
-                GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Pending(
-                    GeneratedAffineResidualGroupReadyPublicationPending {
-                        ready,
-                        reason,
-                        stats,
-                    },
-                ),
-            ),
             Ok(Err(error)) => {
                 Err(GeneratedAffineResidualGroupReadyPublicationAnalysisFailure { error, ready })
             }
@@ -658,6 +756,7 @@ impl GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler {
 
 enum PreparedAnalysis {
     Ready {
+        geometry: GeneratedAffineResidualGroupExactCompactGeometryWitness,
         pivot_term_ordinal: usize,
         source_key: GeneratedAffineResidualGroupPhysicalKey,
         descent: Vec<GeneratedAffineResidualGroupExactDescentWitness>,
@@ -668,10 +767,6 @@ enum PreparedAnalysis {
         reason: GeneratedAffineResidualGroupReadyPublicationUnsupportedReason,
         source_key: GeneratedAffineResidualGroupPhysicalKey,
         offending_rhs_key: GeneratedAffineResidualGroupPhysicalKey,
-        stats: GeneratedAffineResidualGroupReadyPublicationAnalysisStats,
-    },
-    Pending {
-        reason: GeneratedAffineResidualGroupReadyPublicationPendingReason,
         stats: GeneratedAffineResidualGroupReadyPublicationAnalysisStats,
     },
 }
@@ -686,39 +781,22 @@ fn analyze_ready_inner(
     let geometry = session.authenticated_ready_geometry(family, context, ready)?;
     let arity = geometry.ambient_arity();
     check_limit("Ready analysis arity", arity, limits.max_arity)?;
-    let matrix_entries = checked_mul(
-        "Ready analysis matrix entries",
-        arity,
-        geometry.free_positions().len(),
-    )?;
-    check_limit(
-        "Ready analysis matrix entries inspected",
-        matrix_entries,
-        limits.max_matrix_entries_inspected,
-    )?;
 
     let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats {
         arity,
-        matrix_entries_inspected: matrix_entries,
         terms: ready.terms().len(),
         ..GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default()
     };
     check_limit("Ready analysis terms", stats.terms, limits.max_terms)?;
-
-    if !is_independent_cylinder(
+    let geometry_witness = authenticate_compact_geometry(
         arity,
         geometry.free_positions(),
         geometry.compact_affine_matrix(),
-    ) {
-        stats.retained_bytes =
-            incremental_wrapper_bytes::<GeneratedAffineResidualGroupReadyPublicationPending>()?;
-        admit_aggregate_retained_bytes(stats.retained_bytes, limits, &mut stats)?;
-        return Ok(PreparedAnalysis::Pending {
-            reason:
-                GeneratedAffineResidualGroupReadyPublicationPendingReason::NonIndependentCylinder,
-            stats,
-        });
-    }
+        geometry.frame().constant_positions(),
+        geometry.frame().symbolic_positions(),
+        limits,
+        &mut stats,
+    )?;
 
     let mut pivot_ordinal = None;
     for (term_ordinal, term) in ready.terms().iter().enumerate() {
@@ -1188,8 +1266,9 @@ fn analyze_ready_inner(
     stats.retained_bytes =
         ready_incremental_retained_bytes(&descent, &source_key, stats.hazard_retained_bytes)?;
     admit_aggregate_retained_bytes(stats.retained_bytes, limits, &mut stats)?;
-    validate_conservation(stats)?;
+    validate_conservation(stats, geometry_witness)?;
     Ok(PreparedAnalysis::Ready {
+        geometry: geometry_witness,
         pivot_term_ordinal: pivot_ordinal,
         source_key,
         descent,
@@ -1198,36 +1277,156 @@ fn analyze_ready_inner(
     })
 }
 
-fn is_independent_cylinder(
+fn authenticate_compact_geometry(
     arity: usize,
     free_positions: &[usize],
     compact_affine_matrix: &[Integer],
-) -> bool {
-    if free_positions.len() != arity
-        || free_positions
-            .iter()
-            .copied()
-            .enumerate()
-            .any(|(expected, actual)| expected != actual)
-        || compact_affine_matrix.len() != arity.saturating_mul(arity)
-    {
-        return false;
+    constant_positions: &[usize],
+    symbolic_positions: &[usize],
+    limits: GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+    stats: &mut GeneratedAffineResidualGroupReadyPublicationAnalysisStats,
+) -> Result<
+    GeneratedAffineResidualGroupExactCompactGeometryWitness,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisError,
+> {
+    let free_count = free_positions.len();
+    check_limit(
+        "Ready analysis free positions inspected",
+        free_count,
+        limits.max_free_positions_inspected,
+    )?;
+    let matrix_entries = checked_mul("Ready analysis matrix entries", arity, free_count)?;
+    check_limit(
+        "Ready analysis matrix entries inspected",
+        matrix_entries,
+        limits.max_matrix_entries_inspected,
+    )?;
+    let selector_entries = checked_mul(
+        "Ready analysis selector entries inspected",
+        free_count,
+        free_count,
+    )?;
+    check_limit(
+        "Ready analysis selector entries inspected",
+        selector_entries,
+        limits.max_selector_entries_inspected,
+    )?;
+    let retained_bytes = size_of::<GeneratedAffineResidualGroupExactCompactGeometryWitness>();
+    check_limit(
+        "Ready analysis geometry witness bytes",
+        retained_bytes,
+        limits.max_geometry_witness_bytes,
+    )?;
+    if compact_affine_matrix.len() != matrix_entries {
+        return Err(GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry);
     }
-    if arity == 0 {
-        return true;
+
+    let mut malformed_geometry = false;
+    let mut previous_free = None;
+    for &position in free_positions {
+        if position >= arity || previous_free.is_some_and(|previous| previous >= position) {
+            malformed_geometry = true;
+        }
+        previous_free = Some(position);
+        stats.free_positions_inspected = bounded_add(
+            "Ready analysis free positions inspected",
+            stats.free_positions_inspected,
+            1,
+            limits.max_free_positions_inspected,
+        )?;
     }
-    compact_affine_matrix
-        .chunks_exact(arity)
-        .enumerate()
-        .all(|(row, entries)| {
-            entries.iter().enumerate().all(|(column, entry)| {
-                if row == column {
-                    entry.cmp(&Integer::one()) == Ordering::Equal
-                } else {
-                    entry.cmp(&Integer::zero()) == Ordering::Equal
+
+    let mut free_cursor = 0usize;
+    let mut constant_cursor = 0usize;
+    let mut symbolic_cursor = 0usize;
+    for row in 0..arity {
+        let selector_ordinal = if free_positions.get(free_cursor).copied() == Some(row) {
+            let ordinal = free_cursor;
+            free_cursor = checked_add("Ready analysis selector row cursor", free_cursor, 1)?;
+            Some(ordinal)
+        } else {
+            None
+        };
+        let mut row_is_zero = selector_ordinal.is_none();
+        for column in 0..free_count {
+            let offset = checked_add(
+                "Ready analysis matrix offset",
+                checked_mul("Ready analysis matrix offset", row, free_count)?,
+                column,
+            )?;
+            let entry = compact_affine_matrix.get(offset).ok_or(
+                GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry,
+            )?;
+            stats.matrix_entries_inspected = bounded_add(
+                "Ready analysis matrix entries inspected",
+                stats.matrix_entries_inspected,
+                1,
+                limits.max_matrix_entries_inspected,
+            )?;
+            let expected = Integer::from(usize::from(selector_ordinal == Some(column)));
+            stats.geometry_integer_bit_work = bounded_add(
+                "Ready analysis geometry integer-bit work",
+                stats.geometry_integer_bit_work,
+                exact_integer_bits(entry)?.max(1),
+                limits.max_geometry_integer_bit_work,
+            )?;
+            let matches = entry.cmp(&expected) == Ordering::Equal;
+            if selector_ordinal.is_some() {
+                stats.selector_entries_inspected = bounded_add(
+                    "Ready analysis selector entries inspected",
+                    stats.selector_entries_inspected,
+                    1,
+                    limits.max_selector_entries_inspected,
+                )?;
+                if !matches {
+                    malformed_geometry = true;
                 }
-            })
-        })
+            } else {
+                row_is_zero &= matches;
+            }
+        }
+
+        let frame_constant = constant_positions.get(constant_cursor).copied() == Some(row);
+        let frame_symbolic = symbolic_positions.get(symbolic_cursor).copied() == Some(row);
+        if frame_constant == frame_symbolic || frame_constant != row_is_zero {
+            malformed_geometry = true;
+        }
+        if frame_constant {
+            constant_cursor =
+                checked_add("Ready analysis constant-row cursor", constant_cursor, 1)?;
+        }
+        if frame_symbolic {
+            symbolic_cursor =
+                checked_add("Ready analysis symbolic-row cursor", symbolic_cursor, 1)?;
+        }
+        if row_is_zero {
+            stats.constant_rows =
+                checked_add("Ready analysis constant rows", stats.constant_rows, 1)?;
+        } else {
+            stats.symbolic_rows =
+                checked_add("Ready analysis symbolic rows", stats.symbolic_rows, 1)?;
+        }
+    }
+    if malformed_geometry
+        || free_cursor != free_count
+        || constant_cursor != constant_positions.len()
+        || symbolic_cursor != symbolic_positions.len()
+        || stats.matrix_entries_inspected != matrix_entries
+        || stats.selector_entries_inspected != selector_entries
+    {
+        return Err(GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry);
+    }
+    stats.geometry_witness_bytes = retained_bytes;
+    Ok(GeneratedAffineResidualGroupExactCompactGeometryWitness {
+        ambient_arity: arity,
+        free_count,
+        matrix_entries_inspected: stats.matrix_entries_inspected,
+        selector_entries_inspected: stats.selector_entries_inspected,
+        constant_rows: stats.constant_rows,
+        symbolic_rows: stats.symbolic_rows,
+        integer_bit_work: stats.geometry_integer_bit_work,
+        retained_bytes,
+    })
 }
 
 fn canonical_integer(value: Integer) -> Integer {
@@ -1416,8 +1615,23 @@ fn exact_integer_bits(
 
 fn validate_conservation(
     stats: GeneratedAffineResidualGroupReadyPublicationAnalysisStats,
+    geometry: GeneratedAffineResidualGroupExactCompactGeometryWitness,
 ) -> Result<(), GeneratedAffineResidualGroupReadyPublicationAnalysisError> {
-    if stats.physical_keys_constructed != checked_add("Ready analysis keys", stats.rhs_terms, 1)?
+    if geometry.ambient_arity() != stats.arity
+        || geometry.matrix_entries_inspected() != stats.matrix_entries_inspected
+        || geometry.selector_entries_inspected() != stats.selector_entries_inspected
+        || geometry.constant_rows() != stats.constant_rows
+        || geometry.symbolic_rows() != stats.symbolic_rows
+        || geometry.integer_bit_work() != stats.geometry_integer_bit_work
+        || geometry.retained_bytes() != stats.geometry_witness_bytes
+        || stats.free_positions_inspected != geometry.free_count()
+        || checked_add(
+            "Ready analysis classified geometry rows",
+            stats.constant_rows,
+            stats.symbolic_rows,
+        )? != stats.arity
+        || stats.physical_keys_constructed
+            != checked_add("Ready analysis keys", stats.rhs_terms, 1)?
         || stats.physical_key_component_scans
             != checked_mul(
                 "Ready analysis physical-key component scans",
@@ -1528,42 +1742,202 @@ fn checked_mul(
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_integer_from_borrowed, exact_range_integer_heap_bytes, is_independent_cylinder,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisError,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisStats, authenticate_compact_geometry,
+        canonical_integer_from_borrowed, exact_range_integer_heap_bytes,
     };
     use symbolica::domains::integer::MultiPrecisionInteger;
     use symbolica::prelude::Integer;
 
     #[test]
-    fn independent_cylinder_requires_full_identity_geometry() {
+    fn compact_geometry_accepts_identity_constrained_and_dependent_rows() {
         let identity = [
             Integer::one(),
             Integer::zero(),
             Integer::zero(),
             Integer::one(),
         ];
-        assert!(is_independent_cylinder(2, &[0, 1], &identity));
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        let witness = authenticate_compact_geometry(
+            2,
+            &[0, 1],
+            &identity,
+            &[],
+            &[0, 1],
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+            &mut stats,
+        )
+        .unwrap();
+        assert_eq!(witness.free_count(), 2);
+        assert_eq!(witness.selector_entries_inspected(), 4);
+        assert_eq!(witness.constant_rows(), 0);
+        assert_eq!(witness.symbolic_rows(), 2);
+
         let noncanonical_identity = [
             Integer::Double(1),
             Integer::Large(MultiPrecisionInteger::from(0)),
             Integer::Double(0),
             Integer::Large(MultiPrecisionInteger::from(1)),
         ];
-        assert!(is_independent_cylinder(2, &[0, 1], &noncanonical_identity,));
-        assert!(!is_independent_cylinder(
-            2,
-            &[0],
-            &[Integer::one(), Integer::zero()]
-        ));
-        assert!(!is_independent_cylinder(
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        authenticate_compact_geometry(
             2,
             &[0, 1],
-            &[
-                Integer::one(),
-                Integer::one(),
-                Integer::zero(),
-                Integer::one(),
-            ],
-        ));
+            &noncanonical_identity,
+            &[],
+            &[0, 1],
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+            &mut stats,
+        )
+        .unwrap();
+
+        let constrained = [Integer::zero(), Integer::one(), Integer::zero()];
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        let witness = authenticate_compact_geometry(
+            3,
+            &[1],
+            &constrained,
+            &[0, 2],
+            &[1],
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+            &mut stats,
+        )
+        .unwrap();
+        assert_eq!(witness.matrix_entries_inspected(), 3);
+        assert_eq!(witness.selector_entries_inspected(), 1);
+        assert_eq!(witness.constant_rows(), 2);
+        assert_eq!(witness.symbolic_rows(), 1);
+
+        let dependent = [Integer::from(2), Integer::one(), Integer::from(-3)];
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        let witness = authenticate_compact_geometry(
+            3,
+            &[1],
+            &dependent,
+            &[],
+            &[0, 1, 2],
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+            &mut stats,
+        )
+        .unwrap();
+        assert_eq!(witness.constant_rows(), 0);
+        assert_eq!(witness.symbolic_rows(), 3);
+    }
+
+    #[test]
+    fn compact_geometry_rejects_bad_selector_and_honors_exact_resource_boundaries() {
+        let constrained = [Integer::zero(), Integer::one(), Integer::zero()];
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        assert_eq!(
+            authenticate_compact_geometry(
+                3,
+                &[1],
+                &[Integer::zero(), Integer::zero(), Integer::zero()],
+                &[0, 2],
+                &[1],
+                GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                &mut stats,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry,
+        );
+        assert_eq!(stats.free_positions_inspected(), 1);
+        assert_eq!(stats.matrix_entries_inspected(), 3);
+        assert_eq!(stats.selector_entries_inspected(), 1);
+        assert_eq!(stats.geometry_integer_bit_work(), 3);
+
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        assert_eq!(
+            authenticate_compact_geometry(
+                3,
+                &[3],
+                &[Integer::zero(), Integer::zero(), Integer::zero()],
+                &[0, 1, 2],
+                &[],
+                GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                &mut stats,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry,
+        );
+        assert_eq!(stats.free_positions_inspected(), 1);
+        assert_eq!(stats.matrix_entries_inspected(), 3);
+
+        let duplicate_selector_rows = [
+            Integer::zero(),
+            Integer::zero(),
+            Integer::one(),
+            Integer::zero(),
+            Integer::zero(),
+            Integer::zero(),
+        ];
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        assert_eq!(
+            authenticate_compact_geometry(
+                3,
+                &[1, 1],
+                &duplicate_selector_rows,
+                &[0, 2],
+                &[1],
+                GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                &mut stats,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::MalformedGeometry,
+        );
+        assert_eq!(stats.free_positions_inspected(), 2);
+        assert_eq!(stats.matrix_entries_inspected(), 6);
+
+        let mut one_below = GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default();
+        one_below.max_matrix_entries_inspected = 2;
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        assert_eq!(
+            authenticate_compact_geometry(
+                3,
+                &[1],
+                &constrained,
+                &[0, 2],
+                &[1],
+                one_below,
+                &mut stats,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::ResourceLimit {
+                resource: "Ready analysis matrix entries inspected",
+                requested: 3,
+                limit: 2,
+            },
+        );
+
+        let mut one_below = GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default();
+        one_below.max_geometry_integer_bit_work = 2;
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        assert_eq!(
+            authenticate_compact_geometry(
+                3,
+                &[1],
+                &constrained,
+                &[0, 2],
+                &[1],
+                one_below,
+                &mut stats,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualGroupReadyPublicationAnalysisError::ResourceLimit {
+                resource: "Ready analysis geometry integer-bit work",
+                requested: 3,
+                limit: 2,
+            },
+        );
+
+        let mut exact = GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default();
+        exact.max_matrix_entries_inspected = 3;
+        exact.max_selector_entries_inspected = 1;
+        exact.max_geometry_integer_bit_work = 3;
+        let mut stats = GeneratedAffineResidualGroupReadyPublicationAnalysisStats::default();
+        authenticate_compact_geometry(3, &[1], &constrained, &[0, 2], &[1], exact, &mut stats)
+            .unwrap();
     }
 
     #[test]
