@@ -86,7 +86,7 @@ the other.
 | Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | The completed explicit `L=6`, 36-row gate validates topology-independent generation and deterministic regeneration only; it does not validate arity-21 cover construction, solving, or reduction. |
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
 | Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
-| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. Raising the cap would pursue `2^K`; the foundry needs target-frontier lazy MTBDD/sector-DAG construction. |
+| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. The foundry needs direct target-frontier search over authenticated normalized formulas, with MTBDD compilation admitted only under an explicit measured budget. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
 | Global eager exact Laporta prototypes and loop-authored finite closures | Oracle only | They validate identities but scale poorly and cannot define production rules. High-loop solving must be sector-local, target-driven, modular-first, and exactly replayed. |
 | Vacuum tensor/numerator parsing and scalar-product lowering | Keep on the hot path | GammaLoop supplies many numerator structures. They must be normalized once and converted to integral-key batches before rule application. |
@@ -181,26 +181,45 @@ Parametric recurrences are preferable to repeating a large finite Laporta
 solve for every graph numerator.  Finite sector solves remain important for
 candidate discovery, fallback coverage, and independent validation.
 
-The scalable Boolean entry is an integration migration, not a new decision-
-diagram implementation. [`coverage_decision_dag.rs`](../../src/coverage_decision_dag.rs)
+The normalized coverage IR, rather than any one Boolean representation, is the
+scalable source authority. [`coverage_decision_dag.rs`](../../src/coverage_decision_dag.rs)
 already provides reduced shared nodes, ITE/apply, deterministic export, and
 rebuild. [`parametric_sector_mtbdd.rs`](../../src/parametric_sector_mtbdd.rs)
-and its authenticated certificate already compile normalized coverage into
-that DAG. The current exponential path survives because sector discovery owns
-the legacy explicit V4 partition, and the live-leaf queue flattens all terminal
-paths into a vector before selecting work.
+and its authenticated certificate compile normalized coverage into that DAG.
+The implemented `O(depth)` cursor now traverses one requested residual path
+without flattening terminal paths, but it starts only after the complete MTBDD
+has been constructed and authenticated.
 
-The next implementation must therefore reuse the existing rooted MTBDD and:
+The genuine all-inactive all-36 `K=21` diagnostic has 49 normalized
+structural loci/atoms, 268,427 rooted nodes, and 18 terminals. Fifteen attempts
+are certified descending and 21 remain Unsupported. The cursor reaches the
+first Unsupported terminal in 43 decisions, but the global owner was already
+built. Thus the cursor solves terminal-path retention, not high-loop owner
+construction. The MTBDD remains a compact-case oracle and an optional
+repeated-query classifier under an explicit node/time/memory budget.
 
-1. add an `O(depth)` residual-path cursor that skips descending-rule terminals
-   and yields one requested `Uncovered`/`Unsupported` path;
-2. translate only that path's atom ordinals back to authenticated structural
-   loci, then run the existing coordinate-locus recognizer kernel on those
-   predicates;
-3. add a versioned Queue V3 and narrow target-frontier owner carrying one
-   residual path, Boolean terminal, and affine group; and
-4. drive one declared `K=21` sector through Ready without manufacturing the
+The next implementation must therefore:
+
+1. extract a replayable shared normalized-source certificate owning the exact
+   row span, ordered authenticated attempts, normalized coverage IR, limits,
+   and phase-separated statistics;
+2. add a bounded deterministic residual cursor directly over the normalized
+   candidate bad-formulas, pruning as soon as any certified candidate is
+   necessarily applicable and branching nonzero before equal-zero on an
+   authenticated structural-locus ordinal;
+3. run the existing coordinate/orthant contradiction recognizer on the one
+   selected path, without inventing a general polynomial satisfiability
+   engine;
+4. carry that path, its exact Unsupported-candidate list when present, and one
+   affine group into a narrow target-frontier owner; and
+5. drive one declared `K=21` sector through Ready without manufacturing the
    legacy partition, queue, or Boolean-cover certificates.
+
+The direct Boolean control layer performs no algebra. Polynomial projection,
+monic normalization, GCD/divisibility, matrix work, finite fields, and
+reconstruction continue through public Symbolica APIs. The existing complete
+product-locus DPLL remains useful for expanding one selected local path; it is
+not the global six-loop search owner.
 
 The topology-wide canonical sector DAG is a separate foundry layer. It is not
 the eager `family_sector_inventory` enumeration, and it need not block the
@@ -277,8 +296,9 @@ cancelled before RustRed was called.
 The following policies are critical at five and six loops:
 
 - Do not enumerate every sector/seed or all `2^K` orthants globally. Work from
-  the requested topology manifest and target frontier, build only reachable
-  MTBDD/case nodes, and schedule bottom-up through the sector DAG.
+  the requested topology manifest and target frontier, retain only reachable
+  normalized-formula search states, compile a global MTBDD only under an
+  explicit measured budget, and schedule bottom-up through the sector DAG.
 - Do not enumerate bounded `GL(L,Z)` matrices as the primary symmetry search.
   Generate graph/routing candidates and certify them generically.
 - Do not use normalized exact rational-function elimination as the exploratory
@@ -366,13 +386,23 @@ six-loop result.
 The first genuine arity-21 attempt exposed the eager-case blocker before
 Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
 limit. The cap was intentionally not raised. A fast separate generator gate
-checks the generic `L=6` formula produces 36 parametric IBPs; arity-21 Ready
-and condition stress remains gated on lazy target-frontier case construction.
-That makes the lazy cover/DAG replacement the next high-loop prerequisite,
-ahead of finishing publication on only small eager-cover fixtures. The
-generator gate and all 11 tests in the independent Ready/publication
-validation module passed licensed `--lib -j4` Nextest run
-`a06d5558-e404-4048-a2e9-5407277a95d6`.
+checks the generic `L=6` formula produces 36 parametric IBPs. The subsequent
+global-MTBDD experiment avoided the explicit orthant partition, and the new
+cursor reaches its first residual without flattening paths, but the all-36
+source still retains 49 atoms and 268,427 nodes. Arity-21 Ready and condition
+stress therefore remain gated on direct normalized-formula frontier search,
+not larger caps. The generator gate and all 11 tests in the
+independent Ready/publication validation module passed licensed `--lib -j4`
+Nextest run `a06d5558-e404-4048-a2e9-5407277a95d6`.
+
+The new cursor's five compact replay/filter/resource tests passed independent
+licensed parallel Nextest run `6fa17e71-f9ec-4fdb-9be0-434e8119977f` (5/5,
+998 skipped). The final post-audit licensed parallel run
+`d1b3d6f2-70fe-4da2-ba36-9a671f48080a` included those five tests plus the
+explicitly ignored real all-36 stress and passed 6/6 with 997 skipped; the
+stress itself took 132.985 seconds. That timing includes source construction,
+authenticated replay, first-path traversal, and cheap exact/one-below repeats;
+it must not be quoted as an online reduction benchmark.
 
 1. **Completed:** Symbolica-native affine-family/symmetry verifier and
    independent matrix oracle, pushed as a standalone milestone.
@@ -380,24 +410,28 @@ validation module passed licensed `--lib -j4` Nextest run
    generation of all 36 ordinary IBPs. It stops before Boolean cover and Ready.
 3. **Completed separate lower-arity checkpoint:** exact independent-cylinder
    Ready descent/hazards. No arity-21 input has reached Ready yet.
-4. **Next:** replace legacy V4 partition/queue flattening with an `O(depth)`
-   target-frontier cursor over the existing authenticated rooted MTBDD, Queue
-   V3, and a narrow one-path solve owner; validate one declared arity-21 sector
-   through Ready without enumerating all terminal paths.
-5. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
+4. **Completed traversal checkpoint:** an authenticated bounded `O(depth)`
+   cursor over the rooted MTBDD, including compact replay/resource tests and
+   an ignored honest all-36 `K=21` scaling oracle. This does not solve global
+   MTBDD construction and has not reached Ready.
+5. **Next:** make authenticated normalized coverage the shared authority, add
+   direct target-frontier formula search plus a narrow one-path solve owner,
+   and validate one declared arity-21 sector through Ready. Use the MTBDD only
+   when its separately measured construction budget is acceptable.
+6. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
    path, including general compact-affine geometry, LiteRed-correct `WhenBad`,
    subsector feedback, atomic publication, durable artifacts, and a 36-source
    session batch.
-6. Add unit-mass `Q(d)` family specialization and modular/reconstruction
+7. Add unit-mass `Q(d)` family specialization and modular/reconstruction
    services through public Symbolica finite-field and polynomial APIs.
-7. Add topology-generic graph ingestion, deterministic ISP completion,
+8. Add topology-generic graph ingestion, deterministic ISP completion,
    factorization, graph-lifted symmetry candidates, and the canonical lazy
    physical-sector dependency DAG; validate through the complete Vakint
    four-loop corpus.
-8. Implement the separate batch rule-application runtime and GammaLoop
+9. Implement the separate batch rule-application runtime and GammaLoop
    `VacuumIntegralEngine`-style adapter at the existing normalized-integrand
    seam.
-9. Expand to general five-loop families, then execute and profile the declared
+10. Expand to general five-loop families, then execute and profile the declared
    six-loop QCD vacuum campaign.
 
 Broad non-vacuum tensor bases, arbitrary one-loop pentagons, and

@@ -1,5 +1,22 @@
 # Coverage V5: reduced MTBDD over authenticated factor atoms
 
+> **Post-design scaling note (2026-08-25).** The authenticated residual-path
+> cursor now avoids flattening all terminal paths, but a genuine all-inactive
+> all-36 `L=6`, `K=21` diagnostic still constructs 49 atoms and 268,427 rooted
+> nodes before traversal. V5 remains the compact-case oracle and an optional
+> repeated-query classifier. The six-loop primary path will instead search
+> one target frontier directly from a shared authenticated normalized-coverage
+> owner, under separate formula-search limits; this does not invalidate the
+> V5 representation or replay contract described below. The focused source is
+> [`full_six_loop_k21_source_finds_first_residual_with_bounded_cursor_memory`](../../src/parametric_sector_residual_path.rs);
+> licensed parallel Nextest run `d1b3d6f2-70fe-4da2-ba36-9a671f48080a`
+> passed the complete cursor slice 6/6 with 997 tests skipped, and the ignored
+> stress took 132.985 seconds. The tested source SHA-256 was
+> `acbaff2560b78135b90ba347cfcc16f3d74ea1fe0329e4cf7a02022fb96514ce`.
+> The command was `SYMBOLICA_LICENSE='<process-local license>'
+> SYMBOLICA_HIDE_BANNER=1 nix develop -c cargo nextest run --lib -j 4
+> --run-ignored all --no-fail-fast -E 'test(parametric_sector_residual_path)'`.
+
 Status: **revised staged design; production Coverage V5 is not implemented**.
 
 The generic decision-DAG core at
@@ -33,7 +50,7 @@ source-identity encoding, the explicit-V4 adapter over the same normalized IR,
 the complete owner-level mapping of nested frozen-core limits, provider
 integration, and outer transactional resource matrix remain staged.
 
-Original design date: 2026-08-14.  Last revised: 2026-08-20.
+Original design date: 2026-08-14.  Last revised: 2026-08-25.
 
 This note specifies the next representation for RustRed's global parametric
 sector coverage.  It records the concrete failure which motivated the change,
@@ -683,23 +700,33 @@ global region ID.
 ## 11. Lazy residual conjunctions
 
 Downstream conditional derivation sometimes needs one exact residual
-conjunction, not only a concrete lookup.  V5 provides a bounded deterministic
-DFS cursor over root-to-terminal paths.
+conjunction, not only a concrete lookup. V5 now provides a bounded
+deterministic DFS cursor over root-to-terminal paths in
+[`src/parametric_sector_residual_path.rs`](../../src/parametric_sector_residual_path.rs).
 
 ```rust
 pub struct ParametricSectorResidualPathDecision {
     node_ordinal: usize,
-    branch_truth: bool,
+    atom_ordinal: usize,
+    structural_locus_ordinal: usize,
+    polarity: NonZeroOrEqualZero,
 }
 
 pub struct ParametricSectorResidualPathCertificate {
-    source_mtbdd_identity: Arc<str>,
+    source: Arc<ParametricSectorMtbddCoverageCertificate>,
+    request: AnyResidualOrOneKind,
     decisions: Box<[ParametricSectorResidualPathDecision]>,
     terminal_ordinal: usize,
+    limits_and_stats: BoundedTraversalEvidence,
 }
 ```
 
-The cursor stores only O(depth) frames and the current decision stack.  It
+The current V1 identity is deliberately process-local: exact `Arc` allocation
+identity binds the path to its source, and replay reauthenticates the complete
+source before reproducing the requested yield ordinal. A later durable owner
+still needs count-delimited source identity bytes.
+
+The cursor stores only O(depth) frames and the current decision stack. It
 does not mark a shared node globally visited: reaching the same node through
 two different prefixes describes two different disjoint regions.  Branch
 order is fixed by the order schema.  Skipped atom levels are don't-care
@@ -879,7 +906,7 @@ generic-core and crate-compilation results, not Coverage V5 integration.
 Every subsequent failure, differential result, and performance measurement
 must capture the literal command, relevant environment variables, working
 directory, UTC timestamp, Rust/nextest versions, platform/CPU, exit status,
-and hashes before drawing a conclusion.  The current planning snapshot is:
+and hashes before drawing a conclusion. The 2026-08-20 planning snapshot was:
 
 ```text
 tests/sunset_depth_two_product_support.rs  221266e702038c1e08f2d7fbc5f808daabb2d48547912f9def9a01e42ed819e0
@@ -894,16 +921,16 @@ flake.nix                                 6d976fb2037f31b73f9c9cd74c64aa188ee748
 flake.lock                                01d38f66c85385251cedc49d5fbebf52da6d46b937038b771619291c5177caa4
 ```
 
-These hashes describe the current snapshot; a future rerun must recapture
+Those hashes describe that historical snapshot; a future rerun must recapture
 them.  The original focused probe did not retain a complete UTC/tool-version/
 platform manifest, so the boundary is valid failure evidence but not a
-performance baseline.  The complete depth-growth stress test has not yet been
-rerun, and no V5 comparison or performance number has yet been measured.
+performance baseline. At that snapshot the complete depth-growth stress had
+not been rerun, and no V5 comparison or performance number had been measured.
 
 The manifest must also retain `cargo tree -e features -i symbolica` (or an
 equivalent `cargo metadata` feature projection).  `Cargo.lock` alone does not
-prove selected features.  At this snapshot `Cargo.toml` disables Symbolica
-default features and selects `gmp` plus `tracing_max_level_info`; no RustRed
+prove selected features. At that snapshot `Cargo.toml` disabled Symbolica
+default features and selected `gmp` plus `tracing_max_level_info`; no RustRed
 test or production build may select `no_gmp`.  When the custom Nix flake is
 used, both flake hashes and the resolved `rustc`, `cargo`, `cargo-nextest`, C
 compiler, and `m4` paths/versions are part of the invocation record.
@@ -916,9 +943,10 @@ The migration is larger than the coverage and queue files because certificates
 embed discovery/queue material by value and providers preflight V4 leaf
 censuses.  The complete owning-layer inventory is:
 
-- new MTBDD types, builder, evaluator, replay validator, cursor, and tests in
-  `src/parametric_sector_mtbdd.rs`, repaired/wired core support from
-  `src/coverage_decision_dag.rs`, and exports in `src/lib.rs`;
+- MTBDD types, builder, evaluator, and replay validator in
+  `src/parametric_sector_mtbdd.rs`, the implemented cursor/path certificates
+  in `src/parametric_sector_residual_path.rs`, repaired/wired core support from
+  `src/coverage_decision_dag.rs`, and crate-private wiring in `src/lib.rs`;
 - the versioned backend-neutral candidate bad-formula IR and one-time
   authenticated normalization seam, replacing the current private,
   backend-entangled `CandidateBadFormula` construction without weakening V4;
@@ -1063,19 +1091,24 @@ or resource semantics.
 6. **Discovery V6 and owning-certificate migration.** Add the tagged payload,
    then version family rule-system, fixed-point, depth-growth, provider-stack,
    and provider ownership/replay without flattening V5.
-7. **Lazy residual cursor and global region IDs.** Introduce path certificates,
-   queue V3, one shared source allocation, and migrate every global
-   `source_case` consumer from section 15 while preserving local case IDs.
-8. **Boolean-cover V2.** Consume baseline concrete factor facts and retain exact
+7. **Completed traversal checkpoint.** The bounded residual cursor and
+   process-local path certificates retain one shared source allocation and
+   pass compact replay/resource tests plus the ignored all-36 `K=21` stress.
+   This checkpoint does not avoid global MTBDD construction.
+8. **Direct normalized-formula frontier and global region IDs.** Extract the
+   normalized source owner, search one authenticated frontier without building
+   a global MTBDD, then add Queue V3 and migrate every global `source_case`
+   consumer from section 15 while preserving local case IDs.
+9. **Boolean-cover V2.** Consume baseline concrete factor facts and retain exact
    DPLL proof data.  Add optional positive-clause handling only if the compound
    experiment is built.
-9. **Measure before any default switch.** On fixed hashes and commands, record
+10. **Measure before any default switch.** On fixed hashes and commands, record
    V4/V5 terminal equivalence, V5 nodes/terminals/edges, cumulative memo and
    validation work, residual paths traversed, peak memory, and wall time for
    small fixtures, the focused sector-011 test, and the full depth-growth
    stress.  A separately versioned compound representation may be A/B-tested
    here against the ordinary-factor baseline.
-10. **Switch default discovery only after acceptance.** Emit baseline V5 only
+11. **Switch default discovery only after acceptance.** Emit baseline V5 only
     after differential, local-applicability, replay/tamper, cumulative-resource,
     provider/fixed-point/depth-growth, focused sunset, and full stress suites
     are green with captured evidence.  Keep V4 replay and the explicit V4
@@ -1309,9 +1342,13 @@ resource mapping, discovery V6, owning consumer versions, global region
 migration, queue V3, and Boolean-cover V2 remain staged work.  The optional
 compound representation is only a proposed A/B experiment.
 
-The only measured large-case fact recorded here is the focused ignored test's
-typed attempt to perform split 65,537 under a 65,536 limit.  The full
-depth-growth stress has not been rerun, and no V5 node count, runtime, memory,
-provider result, or completed sunset reduction has been measured.  Any future
-claim must cite an executed command/environment/hash manifest and its observed
-statistics.
+Two distinct large-case facts are now measured. The legacy focused ignored
+test requested split 65,537 under a 65,536 limit. The new ignored all-36
+`L=6`, `K=21` source retains 49 atoms, 268,427 rooted nodes, and 18 terminals;
+its cursor reaches the first Unsupported terminal in 43 decisions. Licensed
+Nextest run `d1b3d6f2-70fe-4da2-ba36-9a671f48080a` passed the complete six-test
+cursor slice; the stress took 132.985 seconds. The full depth-growth stress has
+not been rerun, and no phase-separated construction/replay peak-memory
+profile, provider result, arity-21 Ready result, or completed reduction has
+been measured. Any future claim must cite an executed
+command/environment/hash manifest and its observed statistics.

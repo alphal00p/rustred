@@ -207,7 +207,12 @@ The repository currently includes tests for:
   loop-count-neutral library stack;
 - a fast test-only `L=6`, `K=21` coordinate-family gate proving the generic
   generator emits all 36 ordinary IBPs in deterministic row order with stable
-  replay manifests; it does not claim sector coverage or reduction; and
+  replay manifests; it does not claim sector coverage or reduction;
+- a bounded authenticated residual-path cursor over the existing coverage
+  MTBDD, with compact replay/resource tests and an ignored all-36 `K=21`
+  stress oracle; the latter measures 49 normalized atoms, 268,427 retained
+  nodes, and an exact 43-decision first Unsupported path, and is not a Ready or
+  reduction result; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -273,8 +278,9 @@ path.
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:
 
-1. replace eager all-orthant case construction with the target-frontier lazy
-   MTBDD/sector-DAG entry path needed at `K=21`;
+1. make authenticated normalized coverage the high-loop source authority and
+   search only a requested residual frontier directly; use the full MTBDD only
+   when a measured construction budget makes it appropriate;
 2. compile and close `WhenBad` exceptional branches;
 3. atomically publish guarded rules and residual work;
 4. feed solved subsectors into supersectors and iterate residual cases; and
@@ -287,11 +293,14 @@ currently serve only as bounded validation fixtures. Non-vacuum pentagon work
 remains in scope but is behind the vacuum rule-foundry and batch-application
 critical path.
 
-A genuine all-inactive `K=21` probe currently stops before Ready because eager
-Boolean-cover construction requests split 65,537 beyond its 65,536 cap. The
-cap is intentionally not raised: replacing all-orthant `2^K` expansion with a
-target-frontier lazy MTBDD/sector-DAG path is now an explicit high-loop
-prerequisite.
+A genuine all-inactive `K=21` probe first exposed the legacy Boolean-cover cap
+at split 65,537 of 65,536. The replacement MTBDD avoids that explicit
+`2^K` partition, and its new cursor avoids flattening all terminal paths, but
+the real all-36 source still constructs 49 atoms and 268,427 nodes before the
+cursor can return its first residual. The cap is not being raised: the next
+high-loop gate is a direct, bounded search over the authenticated normalized
+formulas, followed by the existing exact Ready analysis. No arity-21 case has
+reached Ready yet.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent
