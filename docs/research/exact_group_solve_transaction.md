@@ -102,7 +102,13 @@ The topology-neutral authority and staging layers described below now exist:
   strictly easier under the persisted ordering. It also records every finite
   inactive-orthant activation interval exactly as `[1-q_i, 0]`, with Symbolica
   `Integer` bounds and counts. The successful typestate is deliberately named
-  `ReadyForConditions`: it consumes no target and publishes no rule.
+  `ReadyForConditions`: it consumes no target and publishes no rule. The same
+  production path now accepts a source-profiled Direct singleton session: a
+  freshly generated full independent cylinder reaches this boundary with the
+  exact Direct plan/authority/catalog allocations retained, while a genuine
+  constrained nonempty source returns typed
+  `Pending(NonIndependentCylinder)` before physical-key work. No legacy
+  inventory or replacement target authority is synthesized.
 - Exact-local physical-key construction and its allocation-free prospective
   resource preflight use arbitrary-precision Symbolica integers throughout.
   There is no `IndexShift` or `i64` narrowing in this boundary. Unsupported
@@ -201,10 +207,11 @@ complete equality transition uses the sealed synthetic test adapter because
 current physical-row construction skips equality-premise source cases. An
 end-to-end production equality row remains a future refined-epoch gate.
 
-The next missing mathematical seam begins after `ReadyForConditions`: compile
-the Ready-native condition transcript, build the relative applicable and
-exceptional partition, and atomically publish guarded rules/residual leaves
-with chronological replay. The event ledger currently records `Dependent`,
+The next missing mathematical seam begins with general compact-affine Ready
+analysis and then continues after `ReadyForConditions`: compile the Ready-native
+condition transcript, build the relative applicable and exceptional partition,
+and atomically publish guarded rules/residual leaves with chronological replay.
+The event ledger currently records `Dependent`,
 `NoTarget`, and mandatory affine-equality-refinement transitions; it does not
 yet record unpublished future `WhenBad`/rule/residual leaves. The old raw
 `generated_affine_residual_group_exact_relation.rs` compiler remains a

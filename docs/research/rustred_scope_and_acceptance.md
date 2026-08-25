@@ -3,8 +3,8 @@
 Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
 on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
 on 2026-08-24. Implementation status was reconciled with pushed checkpoint
-`c593865` and the Direct singleton stable-identity/solve-plan checkpoint on
-2026-08-25.
+`c593865` and the Direct singleton stable-identity/exact-session Ready-ingress
+checkpoint on 2026-08-25.
 
 ## Reading status
 
@@ -253,20 +253,21 @@ integration of that API remain pending.
 This checkpoint completes the allocation-independent stable-value identity for
 the generic direct formula-path terminal. The authenticated row span is emitted
 once; later occurrences are typed identity references. Direct singleton
-authority carries that identity through ordering V3, physical frame V2, and
-solve-plan V2 without fabricating V4/V5, Boolean/DPLL, integer-system, or
-legacy inventory certificates. Stable mathematical identity is not an
-allocation capability: exact terminal, authority, and frame `Arc` ancestry is
-authenticated separately, and legacy-inventory-only exact-session stages fail
-closed on Direct plans. Licensed GMP runs passed 3/3 terminal identity tests,
-4/4 focused Direct authority/ordering/frame tests, and 7/7 solve-plan tests;
-an independent audit re-ran both Direct solve-plan tests successfully.
+authority carries that identity through ordering V3, physical frame V2,
+solve-plan V2, and source-profiled exact target/database/session V2 without
+fabricating V4/V5, Boolean/DPLL, integer-system, or legacy inventory
+certificates. Stable mathematical identity is not an allocation capability:
+exact terminal, authority, frame, plan, and catalog `Arc` ancestry is
+authenticated separately. A freshly generated full independent cylinder now
+reaches the existing unpublished `ReadyForConditions` boundary; a genuine
+nonempty constrained source stops before key work as typed
+`Pending(NonIndependentCylinder)`. Licensed default-GMP runs passed the four
+focused Direct ingress, constrained-boundary, resource, and V1/V2 tamper tests
+in parallel; an independent contract audit found no code blocker.
 
-The immediate generic semantic slice is now Direct solve-plan ingress through
-`GeneratedAffineResidualGroupExactSession` staging and recentering into the
-existing `ReadyForConditions` boundary, followed by `WhenBad` closure and
-publication. It must not reconstruct V4, V5, the live-leaf queue, or old
-Boolean/DPLL certificates along the way.
+The immediate generic semantic slice is now general compact-affine Ready
+analysis, followed by `WhenBad` closure and publication. It must not reconstruct
+V4, V5, the live-leaf queue, or old Boolean/DPLL certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -297,8 +298,10 @@ generated IBP/LI rows
 -> coordinate-affine direct formula-path terminal                [implemented]
 -> direct singleton case authority + sealed premises             [implemented]
 -> terminal stable identity -> ordering V3 -> frame V2
-   -> Direct solve-plan V2, no inventory                          [this checkpoint]
--> Direct solve-plan -> exact-session staging and recentering     [next]
+   -> Direct solve-plan V2, no inventory                          [implemented]
+-> Direct solve-plan -> exact-session staging and recentering
+   -> full-cylinder ReadyForConditions                            [this checkpoint]
+-> general compact-affine Ready analysis                          [next]
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering
 -> generated WhenBad with coefficient-pole and RHS-boundary loci

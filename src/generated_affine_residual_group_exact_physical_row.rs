@@ -443,10 +443,10 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
     ///
     /// This includes the physical-row and re-elimination `Arc` allocations and
     /// every uniquely reachable re-elimination child. The physical frame and
-    /// common inventory are shared with the exact solve plan and excluded.
+    /// common retained source are shared with the exact solve plan and excluded.
     /// Only exact authority pointer identity with that frame suppresses the
     /// source-authority allocation; a non-anchor authority which merely shares
-    /// the inventory remains charged.
+    /// the retained source remains charged.
     pub(crate) fn unique_retained_source_graph_byte_bound(&self) -> Option<usize> {
         let charge_source_authority = !self
             .frame
@@ -602,8 +602,8 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
         const REELIMINATION_REPLAYS: usize = 1;
         const FRAME_REPLAYS: usize = 1;
         // Four source-parent `Arc` checks in re-elimination replay, one exact
-        // inventory-allocation comparison in the frame source seam, and one
-        // retained anchor-authority comparison in frame replay.
+        // shared-source allocation comparison in the frame source seam, and
+        // one retained anchor-authority comparison in frame replay.
         const PARENT_ALLOCATION_COMPARISONS: usize = 6;
 
         for (resource, requested, limit) in [
@@ -665,10 +665,10 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
             .replay_for_source_authority(family, context, authority)
             .map_err(map_frame_authentication_error)?;
         let source_case = authority
-            .authenticated_case_view(context)
+            .authenticated_source_neutral_case_view(context)
             .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::WrongCaseBinding)?;
         let source_group = authority
-            .authenticated_group_view(context)
+            .authenticated_source_neutral_group_view(context)
             .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::WrongGroupBinding)?;
         let source_case_ordinal = source_case.ordinal();
         let source_position = source_case.ordinal_within_group();

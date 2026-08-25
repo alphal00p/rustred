@@ -505,11 +505,12 @@ impl GeneratedAffineResidualCaseReeliminationCertificate {
     /// below this re-elimination certificate.
     ///
     /// The certificate's own outer `Arc` control block is excluded for its
-    /// physical-row parent to charge. The common inventory pointee is also
-    /// excluded because the exact solve plan/frame own it independently.
+    /// physical-row parent to charge. The common retained source pointee
+    /// (legacy inventory or Direct terminal) is also excluded because the
+    /// exact solve plan/frame own it independently.
     /// `charge_authority_allocation` must be false only after the physical
     /// frame proves exact pointer identity with this source authority; mere
-    /// shared-inventory ancestry is insufficient.
+    /// shared-source ancestry is insufficient.
     ///
     /// Bound-row outcome controls are already explicit in the owner envelope.
     /// Parent, direct owner-buffer, and elimination controls are charged
@@ -524,7 +525,7 @@ impl GeneratedAffineResidualCaseReeliminationCertificate {
                 .checked_add(
                     self.parents
                         .authority
-                        .owner_retained_bytes_excluding_inventory(),
+                        .owner_retained_bytes_excluding_source(),
                 )?
         } else {
             0
@@ -2827,7 +2828,7 @@ fn try_reserve_exact<T>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Weak};
+    use std::sync::Arc;
     use std::thread;
 
     use super::*;

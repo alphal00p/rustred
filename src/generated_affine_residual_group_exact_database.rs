@@ -27,6 +27,7 @@ use std::sync::{
 #[cfg(test)]
 use std::cell::Cell;
 
+use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
 use crate::generated_affine_residual_group_exact_physical_row::{
     GeneratedAffineResidualGroupExactPhysicalRow,
     GeneratedAffineResidualGroupReplayedExactPhysicalRow,
@@ -50,6 +51,21 @@ use crate::{
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-database-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-database-v2";
+
+const fn exact_database_schema_for_source(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
+        }
+    }
+}
 
 /// Process-unique identity source for sealed staged-row tokens. The counter
 /// never wraps: exhausting it is reported before a database is constructed.
@@ -192,6 +208,7 @@ impl GeneratedAffineResidualGroupExactDatabaseStats {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
+    SourceProfileMismatch,
     WrongDatabaseAllocation,
     WrongTargetStateBinding,
     DatabaseIdentityExhaustion,
@@ -230,6 +247,7 @@ pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
 impl GeneratedAffineResidualGroupExactDatabaseError {
     const fn kind(self) -> &'static str {
         match self {
+            Self::SourceProfileMismatch => "SourceProfileMismatch",
             Self::WrongDatabaseAllocation => "WrongDatabaseAllocation",
             Self::WrongTargetStateBinding => "WrongTargetStateBinding",
             Self::DatabaseIdentityExhaustion => "DatabaseIdentityExhaustion",
@@ -1024,6 +1042,7 @@ impl fmt::Debug for GeneratedAffineResidualGroupPreparedExactRowOutcome {
 /// Persistent algebraic database for one exact solve-plan allocation.
 pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     schema: &'static str,
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     database_nonce: u64,
     transition_identity: ExactDatabaseTransitionIdentity,
     plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
@@ -1341,6 +1360,19 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactDatabase {
 }
 
 impl GeneratedAffineResidualGroupExactDatabase {
+    fn authenticate_source_profile(
+        &self,
+    ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        if self.schema != exact_database_schema_for_source(self.source_kind)
+            || self.source_kind != self.plan.source_kind()
+            || self.group_ordinal != self.plan.group_ordinal()
+            || !Arc::ptr_eq(self.plan.physical_frame(), &self.frame)
+        {
+            return Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch);
+        }
+        Ok(())
+    }
+
     pub(crate) fn try_new(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -1358,21 +1390,13 @@ impl GeneratedAffineResidualGroupExactDatabase {
             if !Arc::ptr_eq(plan.physical_frame(), &frame) {
                 return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongFrameAllocation);
             }
-            let inventory = plan
-                .inventory()
-                .ok_or(GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
-            plan.replay(
-                family,
-                context,
-                inventory,
-                plan.authority(),
-                &frame,
-                limits.solve_plan_replay,
-            )
-            .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
+            plan.replay_retained_source(family, context, limits.solve_plan_replay)
+                .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
             let database_nonce = next_exact_database_nonce()?;
+            let source_kind = plan.source_kind();
             Ok(Self {
-                schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA,
+                schema: exact_database_schema_for_source(source_kind),
+                source_kind,
                 database_nonce,
                 transition_identity: ExactDatabaseTransitionIdentity::PRISTINE,
                 group_ordinal: plan.group_ordinal(),
@@ -1395,6 +1419,10 @@ impl GeneratedAffineResidualGroupExactDatabase {
 
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
+    }
+
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.source_kind
     }
 
     pub(crate) const fn database_epoch(&self) -> usize {
@@ -1442,6 +1470,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupExactTargetStateBinding,
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
+        self.authenticate_source_profile()?;
         if self.state_version != 0
             || self.next_source_ordinal != 0
             || !self.pivots.is_empty()
@@ -1502,6 +1531,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         &self,
         binding: &GeneratedAffineResidualGroupExactTargetStateBinding,
     ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        self.authenticate_source_profile()?;
         if binding.database_nonce != self.database_nonce
             || binding.transition_identity != self.transition_identity
             || !Arc::ptr_eq(&binding.plan, &self.plan)
@@ -1577,6 +1607,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
         database_epoch: usize,
     ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        self.authenticate_source_profile()?;
         if !Arc::ptr_eq(&self.plan, plan) {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongPlanAllocation);
         }
@@ -1671,6 +1702,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         GeneratedAffineResidualGroupStagedExactRow,
         GeneratedAffineResidualGroupExactDatabaseError,
     > {
+        self.authenticate_source_profile()?;
         if !Arc::ptr_eq(&recipe.plan, &self.plan)
             || !Arc::ptr_eq(&recipe.frame, &self.frame)
             || recipe.database_epoch != self.database_epoch
@@ -2478,7 +2510,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         prepared: &GeneratedAffineResidualGroupPreparedExactRowCommit,
     ) -> bool {
         let staged = &prepared.staged;
-        if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA
+        if self.authenticate_source_profile().is_err()
             || self.database_nonce != staged.database_nonce
             || self.database_epoch != staged.database_epoch
             || self.group_ordinal != staged.group_ordinal
@@ -2550,6 +2582,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         &self,
         staged: &GeneratedAffineResidualGroupStagedExactRow,
     ) -> Result<(), GeneratedAffineResidualGroupExactDatabaseError> {
+        self.authenticate_source_profile()?;
         if !staged.source.authenticates_own_allocation() {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow);
         }
@@ -3681,6 +3714,17 @@ mod tests {
     use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
     use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::parametric_sector_formula_affine_terminal::{
+        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
+    };
+    use crate::parametric_sector_formula_residual::{
+        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
+        ParametricSectorFormulaResidualRequest,
+    };
+    use crate::parametric_sector_normalized_source::{
+        ParametricSectorNormalizedCoverageSourceCompiler,
+        ParametricSectorNormalizedCoverageSourceLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
@@ -3714,6 +3758,89 @@ mod tests {
             vec![zero.clone(), zero.clone(), zero],
         )
         .unwrap()
+    }
+
+    fn direct_database_fixture(
+        name: &str,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        Arc<GeneratedAffineResidualGroupSolvePlan>,
+        GeneratedAffineResidualGroupExactDatabase,
+    ) {
+        let family = equal_mass_two_loop_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let source = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                SectorMask::try_from_bit_string("111").unwrap(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                Vec::new(),
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            source,
+            ParametricSectorFormulaResidualRequest::Uncovered,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let path = Arc::new(cursor.next_path().unwrap().unwrap());
+        assert!(cursor.next_path().unwrap().is_none());
+        let terminal = Arc::new(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap(),
+        );
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                terminal,
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                authority,
+                Arc::clone(&frame),
+                GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            )
+            .unwrap(),
+        );
+        let database = GeneratedAffineResidualGroupExactDatabase::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            frame,
+            41,
+            GeneratedAffineResidualGroupExactDatabaseLimits::default(),
+        )
+        .unwrap();
+        (family, context, plan, database)
     }
 
     fn database_fixture(
@@ -3998,6 +4125,61 @@ mod tests {
         assert!(database.lookup == before.lookup);
         assert_eq!(database.lookup.capacity(), before.lookup_capacity);
         assert_eq!(database.stats(), before.stats);
+    }
+
+    #[test]
+    fn source_profile_rejects_v1_v2_schema_and_kind_cross_tamper_before_binding() {
+        let (_family, _context, _plan, _frame, mut legacy, _keys) =
+            database_fixture("exact-db-source-profile-legacy");
+        assert_eq!(
+            legacy.schema,
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA
+        );
+        assert_eq!(
+            legacy.source_kind,
+            GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+        );
+        let legacy_binding = legacy.initial_target_state_binding_for_test().unwrap();
+        legacy.schema = GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA;
+        assert_eq!(
+            legacy.authenticate_source_profile(),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        );
+        assert_eq!(
+            legacy.authenticate_target_state_binding(&legacy_binding),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        );
+        legacy.source_kind = GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton;
+        assert!(matches!(
+            legacy.initial_target_state_binding_for_test(),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        ));
+
+        let (_family, _context, _plan, mut direct) =
+            direct_database_fixture("exact-db-source-profile-direct");
+        assert_eq!(
+            direct.schema,
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
+        );
+        assert_eq!(
+            direct.source_kind,
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        );
+        let direct_binding = direct.initial_target_state_binding_for_test().unwrap();
+        direct.schema = GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA;
+        assert_eq!(
+            direct.authenticate_source_profile(),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        );
+        assert_eq!(
+            direct.authenticate_target_state_binding(&direct_binding),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        );
+        direct.source_kind = GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory;
+        assert!(matches!(
+            direct.initial_target_state_binding_for_test(),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
+        ));
     }
 
     #[test]

@@ -812,6 +812,41 @@ impl GeneratedAffineResidualGroupSolvePlan {
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
     }
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.source.kind()
+    }
+
+    /// Replay the exact source allocation already sealed into this plan.
+    ///
+    /// This source-neutral dispatch is intentionally allocation-bound: the
+    /// legacy arm presents the retained inventory while the direct arm
+    /// presents the retained singleton authority and frame.  Callers cannot
+    /// use it to substitute an independently compiled, payload-equal source.
+    pub(crate) fn replay_retained_source(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        replay_limits: GeneratedAffineResidualGroupSolvePlanReplayLimits,
+    ) -> Result<(), GeneratedAffineResidualGroupSolvePlanError> {
+        match &self.source {
+            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => self.replay(
+                family,
+                context,
+                inventory,
+                &self.authority,
+                &self.physical_frame,
+                replay_limits,
+            ),
+            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => self
+                .replay_direct_formula_singleton(
+                    family,
+                    context,
+                    &self.authority,
+                    &self.physical_frame,
+                    replay_limits,
+                ),
+        }
+    }
     pub(crate) const fn inventory(
         &self,
     ) -> Option<&Arc<GeneratedAffineResidualCaseInventoryCertificate>> {
@@ -1785,7 +1820,6 @@ mod tests {
     use crate::generated_affine_residual_group_exact_targets::{
         GeneratedAffineResidualGroupExactTargetCatalog,
         GeneratedAffineResidualGroupExactTargetCatalogLimits,
-        GeneratedAffineResidualGroupExactTargetError,
     };
     use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
@@ -2238,15 +2272,24 @@ mod tests {
             )
             .unwrap();
 
-        assert!(matches!(
-            GeneratedAffineResidualGroupExactTargetCatalog::try_new(
-                &family,
-                &context,
-                Arc::clone(&direct),
-                GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
-            ),
-            Err(GeneratedAffineResidualGroupExactTargetError::PlanReplay)
-        ));
+        let direct_catalog = GeneratedAffineResidualGroupExactTargetCatalog::try_new(
+            &family,
+            &context,
+            Arc::clone(&direct),
+            GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            direct_catalog.source_kind(),
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        );
+        assert_eq!(
+            direct_catalog.schema(),
+            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+        );
+        assert_eq!(direct_catalog.len(), 1);
+        assert!(direct_catalog.same_plan_allocation(&direct));
+        direct_catalog.replay(&family, &context, &direct).unwrap();
 
         let (legacy_family, legacy_context, inventory, legacy_authority, legacy_frame) =
             singleton_fixture("solve-plan-legacy-singleton-schema");

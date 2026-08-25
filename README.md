@@ -23,8 +23,8 @@ all of LiteRed.
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
-| Bridge a direct actionable residual through case authority, ordering, physical frame, and solve plan | Implemented internally for a singleton case with allocation-independent stable identity; exact-session Ready ingress is pending |
-| Chronologically replay committed generated-affine exact-session transitions | Available for the current legacy-inventory exact-session slice; Direct solve-plan ingress is pending and fails closed |
+| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; a full independent cylinder reaches the unpublished `ReadyForConditions` gate, while general compact affine cylinders remain typed `Pending` |
+| Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
 | Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
@@ -264,13 +264,17 @@ The repository currently includes tests for:
   frame V2, and solve-plan V2 without fabricating a legacy inventory. Stable
   value equality does not replace proof ancestry: replay still authenticates
   the exact retained terminal, authority, and frame `Arc` allocations. Exact
-  relation, target, database, and session entry points that require a legacy
-  inventory reject Direct plans rather than manufacturing compatibility state.
-  Licensed GMP Nextest runs passed 3/3 durable-identity tests, 4/4 focused Direct
-  authority/ordering/frame tests, and 7/7 solve-plan tests; an independent
-  audit re-ran the two Direct solve-plan tests successfully. This milestone is
-  not `ReadyForConditions`, `WhenBad` closure, rule publication, reduction, or
-  six-loop topology support; and
+  relation entry points that require a legacy inventory reject Direct plans
+  rather than manufacturing compatibility state. Source-profiled V2 target,
+  database, and session owners instead retain and authenticate the exact Direct
+  plan/authority allocations. A freshly generated full independent cylinder
+  now reaches the unpublished `ReadyForConditions` gate; a constrained genuine
+  nonempty source stops without key work as typed
+  `Pending(NonIndependentCylinder)`. Licensed GMP Nextest runs passed the four
+  focused Direct ingress, constrained-boundary, resource, and V1/V2 tamper
+  tests in parallel, and `cargo check --all-targets` passed. This milestone is
+  not `WhenBad` closure, rule publication, reduction, or six-loop topology
+  support; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -342,17 +346,19 @@ path.
 Alongside that staged algebra migration, pushed checkpoint `c593865` binds one
 explicit `IntegralOrderingPolicy` into every normalized source, including an
 empty-attempt source, and authenticates every present candidate's policy. The
-current checkpoint additionally completes the allocation-independent terminal
-stable-value identity chain and carries an `Actionable` Direct singleton
-through ordering V3, physical frame V2, and solve-plan V2. The row span is
-emitted once through typed identity references; the Direct path fabricates no
-V4/V5, Boolean/DPLL, integer-system, or legacy inventory certificate. Stable
-identity remains separate from exact retained-`Arc` authority, and legacy-only
-exact-session stages fail closed. The remaining generic LiteRed-style solver
-work is to:
+current checkpoint additionally carries an `Actionable` Direct singleton from
+the allocation-independent terminal stable-value identity through ordering V3,
+physical frame V2, solve-plan V2, and source-profiled exact-session staging and
+recentering. The row span is emitted once through typed identity references;
+the Direct path fabricates no V4/V5, Boolean/DPLL, integer-system, or legacy
+inventory certificate. Stable identity remains separate from exact retained-
+`Arc` authority. A full independent cylinder reaches the existing unpublished
+`ReadyForConditions` gate, while general compact affine target maps remain a
+typed `Pending` boundary. The remaining generic LiteRed-style solver work is
+to:
 
-1. admit the Direct solve plan into exact-session staging and recentering up
-   to, but not past, the existing `ReadyForConditions` boundary;
+1. extend Ready analysis from the full identity cylinder to general compact
+   affine target maps;
 2. compile and close `WhenBad` exceptional branches, then atomically publish
    guarded rules and residual work;
 3. feed solved subsectors into supersectors and iterate residual cases; and
@@ -384,11 +390,12 @@ validation and are not production direct-search phases. Normalized-source V2
 now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
 14/14 suites, independent 30/30 audit/validation, and policy-bound K21 1/1 run
 listed above passed. This checkpoint's coordinate-affine terminal now has an
-allocation-independent stable-value identity and reaches a Direct solve-plan
-V2 through ordering V3 and physical frame V2, with exact `Arc` ancestry kept
-separate and no fake inventory. The immediate gate is Direct solve-plan ingress
-into the existing exact-session `ReadyForConditions` path, followed by
-`WhenBad` closure and publication. No arity-21 case has reached Ready, no
+allocation-independent stable-value identity and reaches the source-profiled
+exact session through Direct solve-plan V2, ordering V3, and physical frame V2,
+with exact `Arc` ancestry kept separate and no fake inventory. A full identity
+cylinder reaches the unpublished `ReadyForConditions` gate. The immediate
+gates are general compact-map Ready analysis followed by `WhenBad` closure and
+publication. No arity-21 case has reached Ready, no
 guarded rule has been published, no physical topology was reduced, and no
 complete reduction is claimed.
 

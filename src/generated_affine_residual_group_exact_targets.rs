@@ -3,11 +3,12 @@
 //! This module is the sealed bridge from one persisted generated-affine solve
 //! order to the exact targets that later recentering will consume.  It is
 //! deliberately topology-neutral: every target is discovered from the exact
-//! solve-plan allocation, authenticated through that plan's retained inventory
+//! solve-plan allocation, authenticated through that plan's retained source
 //! authority, and projected through the existing case-premises compiler.
 //!
-//! V1 publishes no rule, performs no recentering, and exposes no caller-owned
-//! bitmap. Equality-bearing cases remain a typed non-ready outcome. The state
+//! Neither source-schema version publishes a rule, performs recentering, or
+//! exposes a caller-owned bitmap. Equality-bearing cases remain a typed
+//! non-ready outcome. The state
 //! owner starts with every target unresolved and advances only by immutable,
 //! allocation-bound successors that either preserve every disposition or
 //! consume one authenticated Ready target.
@@ -21,6 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+    GeneratedAffineResidualCaseAuthoritySourceKind,
     GeneratedAffineResidualSameGroupTargetCaseLimits,
     GeneratedAffineResidualSameGroupTargetCasesLimits,
     GeneratedAffineResidualSameGroupTargetHandleLimits,
@@ -40,10 +42,41 @@ use crate::{IntegralFamily, ParametricCoefficientContext, ParametricNonZeroCondi
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-catalog-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-target-catalog-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-state-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-target-state-v2";
 
 const TARGET_LOCATOR_COMPARISONS: usize = 9;
+const DIRECT_TARGET_LOCATOR_COMPARISONS: usize = 9;
+
+const fn exact_target_catalog_schema_for_source(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+        }
+    }
+}
+
+const fn exact_target_state_schema_for_source(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
+        }
+    }
+}
 
 /// Process-unique identity for exact target-state allocations.  The nonce is
 /// never exposed or accepted from a caller; future database/session binding
@@ -55,7 +88,7 @@ static NEXT_EXACT_TARGET_STATE_NONCE: AtomicU64 = AtomicU64::new(1);
 /// Child limits remain explicit because target-authority replay and premise
 /// compilation own the potentially large inventory/Symbolica work.  The outer
 /// counters bound the exact repeated-call cardinalities and the retained-byte
-/// fields bound this owner's Rust-visible payload.  Shared plan/inventory/frame
+/// fields bound this owner's Rust-visible payload.  Shared plan/source/frame
 /// graphs are charged by their existing owners and are not duplicated here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactTargetCatalogLimits {
@@ -338,6 +371,7 @@ impl GeneratedAffineResidualGroupExactTargetOutcome {
 /// Immutable plan-allocation-bound target catalog in persisted solve order.
 pub(crate) struct GeneratedAffineResidualGroupExactTargetCatalog {
     schema: &'static str,
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
     group_ordinal: usize,
     targets: Vec<GeneratedAffineResidualGroupExactTargetOutcome>,
@@ -401,19 +435,18 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
         limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
     ) -> Result<Self, GeneratedAffineResidualGroupExactTargetError> {
-        preflight_catalog_counts(plan.targets().len(), limits)?;
+        let source_kind = plan.source_kind();
+        preflight_catalog_counts(source_kind, plan.targets().len(), limits)?;
+        plan.replay_retained_source(family, context, limits.solve_plan_replay)
+            .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
+        if source_kind == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton {
+            return Self::try_new_direct_formula_singleton_after_plan_replay(
+                family, context, plan, limits,
+            );
+        }
         let inventory = plan
             .inventory()
             .ok_or(GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
-        plan.replay(
-            family,
-            context,
-            inventory,
-            plan.authority(),
-            plan.physical_frame(),
-            limits.solve_plan_replay,
-        )
-        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
         let target_cases = plan
             .authority()
             .same_group_target_cases(family, context, limits.target_cases)
@@ -580,10 +613,132 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
                     targets.capacity(),
                     None,
                 )?);
-        validate_catalog_stats(stats, limits)?;
+        validate_catalog_stats(source_kind, stats, limits)?;
         Ok(Self {
-            schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA,
+            schema: exact_target_catalog_schema_for_source(source_kind),
+            source_kind,
             group_ordinal: plan.group_ordinal(),
+            plan,
+            targets,
+            limits,
+            stats,
+        })
+    }
+
+    fn try_new_direct_formula_singleton_after_plan_replay(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+        limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
+    ) -> Result<Self, GeneratedAffineResidualGroupExactTargetError> {
+        let [locator] = plan.targets() else {
+            return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+        };
+        if locator.solve_ordinal() != 0
+            || locator.inventory_position() != 0
+            || locator.case_ordinal() != 0
+            || plan.group_ordinal() != 0
+            || plan.anchor_case_ordinal() != 0
+        {
+            return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+        }
+        let authority = Arc::clone(plan.authority());
+        if authority.source_kind()
+            != GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+            || authority.case_ordinal() != 0
+            || authority.group_ordinal() != 0
+        {
+            return Err(GeneratedAffineResidualGroupExactTargetError::TargetAuthority);
+        }
+        let mut targets = try_vec_with_capacity("exact target catalog", 1)?;
+        let base_retained = catalog_base_retained_bytes(targets.capacity())?;
+        check_limit(
+            "exact target owner retained byte envelope",
+            base_retained,
+            limits.max_owner_retained_byte_envelope,
+        )?;
+        check_limit(
+            "exact target peak staging byte envelope",
+            base_retained,
+            limits.max_peak_staging_byte_envelope,
+        )?;
+        let mut stats = GeneratedAffineResidualGroupExactTargetCatalogStats {
+            plan_replays: 1,
+            same_group_target_collections: 0,
+            targets: 1,
+            locator_comparisons: DIRECT_TARGET_LOCATOR_COMPARISONS,
+            target_handle_resolutions: 0,
+            target_case_authentications: 0,
+            target_authority_constructions: 0,
+            premises_compilations: 1,
+            retained_plan_references: 2,
+            retained_authority_references: 2,
+            owner_retained_byte_envelope: base_retained,
+            peak_staging_byte_envelope: base_retained,
+            ..GeneratedAffineResidualGroupExactTargetCatalogStats::default()
+        };
+        let premises = compile_generated_affine_residual_case_premises(
+            family,
+            context,
+            Arc::clone(&authority),
+            limits.premises,
+        )
+        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::Premises)?;
+        let outcome = match premises {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(domain) => {
+                stats.ready_targets = 1;
+                GeneratedAffineResidualGroupExactTargetOutcome::Ready(
+                    GeneratedAffineResidualGroupReadyExactTarget {
+                        plan: Arc::clone(&plan),
+                        locator: *locator,
+                        authority,
+                        domain,
+                    },
+                )
+            }
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(
+                refinement,
+            ) => {
+                stats.equality_refinement_targets = 1;
+                GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(
+                    GeneratedAffineResidualGroupEqualityRefinementExactTarget {
+                        plan: Arc::clone(&plan),
+                        locator: *locator,
+                        authority,
+                        refinement,
+                    },
+                )
+            }
+        };
+        let staged_owner = catalog_retained_bytes(&targets, targets.capacity(), Some(&outcome))?;
+        check_limit(
+            "exact target owner retained byte envelope",
+            staged_owner,
+            limits.max_owner_retained_byte_envelope,
+        )?;
+        let staged_peak = catalog_peak_staging_bytes(&targets, targets.capacity(), Some(&outcome))?;
+        check_limit(
+            "exact target peak staging byte envelope",
+            staged_peak,
+            limits.max_peak_staging_byte_envelope,
+        )?;
+        targets.push(outcome);
+        stats.owner_retained_byte_envelope =
+            catalog_retained_bytes(&targets, targets.capacity(), None)?;
+        stats.peak_staging_byte_envelope = staged_peak.max(catalog_peak_staging_bytes(
+            &targets,
+            targets.capacity(),
+            None,
+        )?);
+        validate_catalog_stats(
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton,
+            stats,
+            limits,
+        )?;
+        Ok(Self {
+            schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA,
+            source_kind: GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton,
+            group_ordinal: 0,
             plan,
             targets,
             limits,
@@ -593,6 +748,9 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
 
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
+    }
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.source_kind
     }
     pub(crate) const fn group_ordinal(&self) -> usize {
         self.group_ordinal
@@ -616,6 +774,16 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         Arc::ptr_eq(&self.plan, plan)
     }
 
+    #[cfg(test)]
+    pub(crate) fn target_uses_exact_plan_authority_allocation_for_test(
+        &self,
+        solve_ordinal: usize,
+    ) -> bool {
+        self.targets
+            .get(solve_ordinal)
+            .is_some_and(|target| Arc::ptr_eq(target.authority(), self.plan.authority()))
+    }
+
     pub(crate) fn replay(
         &self,
         family: &IntegralFamily,
@@ -637,25 +805,25 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         if !Arc::ptr_eq(&self.plan, plan) {
             return Err(GeneratedAffineResidualGroupExactTargetError::WrongPlanAllocation);
         }
-        if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA {
+        if self.source_kind != plan.source_kind()
+            || self.schema != exact_target_catalog_schema_for_source(self.source_kind)
+        {
             return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
         }
         if self.group_ordinal != plan.group_ordinal() {
             return Err(GeneratedAffineResidualGroupExactTargetError::WrongGroup);
         }
-        preflight_catalog_counts(self.targets.len(), self.limits)?;
-        let inventory = plan
-            .inventory()
-            .ok_or(GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
-        plan.replay(
-            family,
-            context,
-            inventory,
-            plan.authority(),
-            plan.physical_frame(),
-            self.limits.solve_plan_replay,
-        )
-        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
+        preflight_catalog_counts(self.source_kind, self.targets.len(), self.limits)?;
+        plan.replay_retained_source(family, context, self.limits.solve_plan_replay)
+            .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
+        if self.source_kind
+            == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        {
+            return self.replay_direct_formula_singleton_after_plan_replay(family, context, plan);
+        }
+        if plan.inventory().is_none() {
+            return Err(GeneratedAffineResidualGroupExactTargetError::PlanReplay);
+        }
         if plan.targets().len() != self.targets.len() {
             return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
         }
@@ -780,7 +948,110 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             catalog_retained_bytes(&self.targets, self.targets.capacity(), None)?;
         stats.peak_staging_byte_envelope =
             catalog_peak_staging_bytes(&self.targets, self.targets.capacity(), None)?;
-        validate_catalog_stats(stats, self.limits)?;
+        validate_catalog_stats(self.source_kind, stats, self.limits)?;
+        if stats != self.stats {
+            return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
+        }
+        Ok(())
+    }
+
+    fn replay_direct_formula_singleton_after_plan_replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        plan: &Arc<GeneratedAffineResidualGroupSolvePlan>,
+    ) -> Result<(), GeneratedAffineResidualGroupExactTargetError> {
+        let [locator] = plan.targets() else {
+            return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+        };
+        let [outcome] = self.targets.as_slice() else {
+            return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+        };
+        if self.group_ordinal != 0
+            || plan.group_ordinal() != 0
+            || plan.anchor_case_ordinal() != 0
+            || locator.solve_ordinal() != 0
+            || locator.inventory_position() != 0
+            || locator.case_ordinal() != 0
+            || outcome.locator() != *locator
+            || !Arc::ptr_eq(outcome.plan(), plan)
+            || !Arc::ptr_eq(outcome.authority(), plan.authority())
+        {
+            return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+        }
+        let authority = outcome.authority();
+        if authority.source_kind()
+            != GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        {
+            return Err(GeneratedAffineResidualGroupExactTargetError::TargetAuthority);
+        }
+        match outcome {
+            GeneratedAffineResidualGroupExactTargetOutcome::Ready(target) => {
+                if target.domain.case_ordinal() != 0
+                    || target.domain.group_ordinal() != 0
+                    || !target.domain.same_authority_allocation(authority)
+                {
+                    return Err(GeneratedAffineResidualGroupExactTargetError::Premises);
+                }
+                target
+                    .domain
+                    .replay(family, context, authority)
+                    .map_err(|_| GeneratedAffineResidualGroupExactTargetError::Premises)?;
+            }
+            GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(
+                target,
+            ) => {
+                if target.refinement.case_ordinal() != 0
+                    || target.refinement.group_ordinal() != 0
+                    || !target.refinement.same_authority_allocation(authority)
+                {
+                    return Err(GeneratedAffineResidualGroupExactTargetError::Premises);
+                }
+                target
+                    .refinement
+                    .replay(family, context, authority)
+                    .map_err(|_| GeneratedAffineResidualGroupExactTargetError::Premises)?;
+            }
+        }
+        let mut stats = GeneratedAffineResidualGroupExactTargetCatalogStats {
+            plan_replays: 1,
+            same_group_target_collections: 0,
+            targets: 1,
+            locator_comparisons: DIRECT_TARGET_LOCATOR_COMPARISONS,
+            target_handle_resolutions: 0,
+            target_case_authentications: 0,
+            target_authority_constructions: 0,
+            premises_compilations: 1,
+            ready_targets: usize::from(matches!(
+                outcome,
+                GeneratedAffineResidualGroupExactTargetOutcome::Ready(_)
+            )),
+            equality_refinement_targets: usize::from(matches!(
+                outcome,
+                GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(_)
+            )),
+            retained_plan_references: 2,
+            retained_authority_references: 2,
+            owner_retained_byte_envelope: catalog_retained_bytes(
+                &self.targets,
+                self.targets.capacity(),
+                None,
+            )?,
+            peak_staging_byte_envelope: catalog_peak_staging_bytes(
+                &[],
+                self.targets.capacity(),
+                Some(outcome),
+            )?
+            .max(catalog_peak_staging_bytes(
+                &self.targets,
+                self.targets.capacity(),
+                None,
+            )?),
+        };
+        stats.peak_staging_byte_envelope = stats
+            .peak_staging_byte_envelope
+            .max(stats.owner_retained_byte_envelope);
+        validate_catalog_stats(self.source_kind, stats, self.limits)?;
         if stats != self.stats {
             return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
         }
@@ -908,6 +1179,7 @@ impl GeneratedAffineResidualGroupExactTargetStateStats {
 /// Private inert owner for one catalog's target dispositions.
 pub(crate) struct GeneratedAffineResidualGroupExactTargetState {
     schema: &'static str,
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     allocation_nonce: u64,
     binding: GeneratedAffineResidualGroupExactTargetStateBinding,
     catalog: Arc<GeneratedAffineResidualGroupExactTargetCatalog>,
@@ -1118,8 +1390,10 @@ impl GeneratedAffineResidualGroupExactTargetState {
                 combined_retained_byte_envelope,
                 successor_peak_retained_byte_envelope: 0,
             };
+            let source_kind = catalog.source_kind;
             Ok(Arc::new(Self {
-                schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA,
+                schema: exact_target_state_schema_for_source(source_kind),
+                source_kind,
                 allocation_nonce,
                 binding,
                 group_ordinal: catalog.group_ordinal,
@@ -1137,6 +1411,9 @@ impl GeneratedAffineResidualGroupExactTargetState {
 
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
+    }
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.source_kind
     }
     pub(crate) const fn group_ordinal(&self) -> usize {
         self.group_ordinal
@@ -1397,7 +1674,8 @@ impl GeneratedAffineResidualGroupExactTargetState {
                 successor_peak_retained_byte_envelope,
             };
             Ok(Arc::new(Self {
-                schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA,
+                schema: exact_target_state_schema_for_source(self.source_kind),
+                source_kind: self.source_kind,
                 allocation_nonce,
                 binding,
                 catalog: Arc::clone(&self.catalog),
@@ -1595,7 +1873,10 @@ impl GeneratedAffineResidualGroupExactTargetState {
         ] {
             check_limit(resource, requested, limit)?;
         }
-        if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA {
+        if self.source_kind != self.catalog.source_kind
+            || self.source_kind != plan.source_kind()
+            || self.schema != exact_target_state_schema_for_source(self.source_kind)
+        {
             return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
         }
         if self.allocation_nonce == 0 {
@@ -2009,13 +2290,33 @@ impl GeneratedAffineResidualGroupEqualityRefinementExactTargetView<'_> {
 }
 
 fn preflight_catalog_counts(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     targets: usize,
     limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
 ) -> Result<(), GeneratedAffineResidualGroupExactTargetError> {
+    if source_kind == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        && targets != 1
+    {
+        return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
+    }
+    let (
+        same_group_target_collections,
+        locator_comparisons_per_target,
+        target_handle_resolutions,
+        target_case_authentications,
+        target_authority_constructions,
+    ) = match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            (1, TARGET_LOCATOR_COMPARISONS, targets, targets, targets)
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+        }
+    };
     let locator_comparisons = checked_mul(
         "exact target locator comparisons",
         targets,
-        TARGET_LOCATOR_COMPARISONS,
+        locator_comparisons_per_target,
     )?;
     let plan_references = checked_add("exact target retained plan references", targets, 1)?;
     let authority_references =
@@ -2024,7 +2325,7 @@ fn preflight_catalog_counts(
         ("exact target plan replays", 1, limits.max_plan_replays),
         (
             "exact target same-group collections",
-            1,
+            same_group_target_collections,
             limits.max_same_group_target_collections,
         ),
         ("exact targets", targets, limits.max_targets),
@@ -2035,17 +2336,17 @@ fn preflight_catalog_counts(
         ),
         (
             "exact target handle resolutions",
-            targets,
+            target_handle_resolutions,
             limits.max_target_handle_resolutions,
         ),
         (
             "exact target case authentications",
-            targets,
+            target_case_authentications,
             limits.max_target_case_authentications,
         ),
         (
             "exact target authority constructions",
-            targets,
+            target_authority_constructions,
             limits.max_target_authority_constructions,
         ),
         (
@@ -2070,21 +2371,40 @@ fn preflight_catalog_counts(
 }
 
 fn validate_catalog_stats(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     stats: GeneratedAffineResidualGroupExactTargetCatalogStats,
     limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
 ) -> Result<(), GeneratedAffineResidualGroupExactTargetError> {
-    preflight_catalog_counts(stats.targets, limits)?;
+    preflight_catalog_counts(source_kind, stats.targets, limits)?;
+    let (
+        same_group_target_collections,
+        locator_comparisons_per_target,
+        target_handle_resolutions,
+        target_case_authentications,
+        target_authority_constructions,
+    ) = match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => (
+            1,
+            TARGET_LOCATOR_COMPARISONS,
+            stats.targets,
+            stats.targets,
+            stats.targets,
+        ),
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+        }
+    };
     if stats.plan_replays != 1
-        || stats.same_group_target_collections != 1
+        || stats.same_group_target_collections != same_group_target_collections
         || stats.locator_comparisons
             != checked_mul(
                 "exact target locator comparisons",
                 stats.targets,
-                TARGET_LOCATOR_COMPARISONS,
+                locator_comparisons_per_target,
             )?
-        || stats.target_handle_resolutions != stats.targets
-        || stats.target_case_authentications != stats.targets
-        || stats.target_authority_constructions != stats.targets
+        || stats.target_handle_resolutions != target_handle_resolutions
+        || stats.target_case_authentications != target_case_authentications
+        || stats.target_authority_constructions != target_authority_constructions
         || stats.premises_compilations != stats.targets
         || checked_add(
             "exact target outcome count",
@@ -2162,9 +2482,20 @@ fn catalog_retained_bytes(
 fn target_retained_extra(
     target: &GeneratedAffineResidualGroupExactTargetOutcome,
 ) -> Result<usize, GeneratedAffineResidualGroupExactTargetError> {
+    let authority_allocation = if target.authority().source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+    {
+        // The Direct singleton target reuses the exact authority allocation
+        // already owned by the retained plan. Its inline Arc handle is part
+        // of the target enum's structural slot; do not charge the shared
+        // pointee a second time.
+        0
+    } else {
+        arc_allocation_byte_envelope::<GeneratedAffineResidualCaseAuthority>()?
+    };
     checked_add(
         "exact target owner retained byte envelope",
-        arc_allocation_byte_envelope::<GeneratedAffineResidualCaseAuthority>()?,
+        authority_allocation,
         target.child_retained_bytes()?,
     )
 }
@@ -2180,11 +2511,18 @@ fn catalog_peak_staging_bytes(
         let authority = target.authority();
         let child_peak = target.child_peak_bytes();
         let authority_peak = authority.stats().replay_owned_logical_peak();
+        let authority_allocation = if authority.source_kind()
+            == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        {
+            0
+        } else {
+            arc_allocation_byte_envelope::<GeneratedAffineResidualCaseAuthority>()?
+        };
         let staged = checked_sum(
             "exact target peak staging byte envelope",
             [
                 retained,
-                arc_allocation_byte_envelope::<GeneratedAffineResidualCaseAuthority>()?,
+                authority_allocation,
                 authority_peak.max(child_peak),
             ],
         )?;
@@ -2361,6 +2699,17 @@ mod tests {
         GeneratedSectorAffineEffectiveResidualQueueCompiler,
         GeneratedSectorAffineEffectiveResidualQueueLimits,
     };
+    use crate::parametric_sector_formula_affine_terminal::{
+        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
+    };
+    use crate::parametric_sector_formula_residual::{
+        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
+        ParametricSectorFormulaResidualRequest,
+    };
+    use crate::parametric_sector_normalized_source::{
+        ParametricSectorNormalizedCoverageSourceCompiler,
+        ParametricSectorNormalizedCoverageSourceLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
         GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
@@ -2395,6 +2744,81 @@ mod tests {
             vec![zero.clone(), zero.clone(), zero],
         )
         .unwrap()
+    }
+
+    fn direct_uncovered_plan_fixture(
+        name: &str,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        Arc<GeneratedAffineResidualGroupSolvePlan>,
+    ) {
+        let family = equal_mass_two_loop_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let source = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                SectorMask::try_from_bit_string("111").unwrap(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                Vec::new(),
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert!(source.attempts().is_empty());
+        assert!(!source.row_span().rows().is_empty());
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            source,
+            ParametricSectorFormulaResidualRequest::Uncovered,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let path = Arc::new(cursor.next_path().unwrap().unwrap());
+        assert!(cursor.next_path().unwrap().is_none());
+        let terminal = Arc::new(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap(),
+        );
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                terminal,
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                authority,
+                frame,
+                GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            )
+            .unwrap(),
+        );
+        (family, context, plan)
     }
 
     fn ready_plan_fixture(
@@ -2728,6 +3152,140 @@ mod tests {
             );
         }
         panic!("the generic affine-group fixture produced no authenticated physical row")
+    }
+
+    #[test]
+    fn direct_catalog_has_exact_zero_inventory_profile_and_tight_positive_limits() {
+        let (family, context, plan) =
+            direct_uncovered_plan_fixture("exact-target-direct-resource-profile");
+        let baseline = plan
+            .compile_exact_target_catalog(
+                &family,
+                &context,
+                GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
+            )
+            .unwrap();
+        let stats = baseline.stats();
+        assert_eq!(
+            baseline.schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+        );
+        assert_eq!(
+            baseline.source_kind(),
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        );
+        assert_eq!(stats.plan_replays, 1);
+        assert_eq!(stats.same_group_target_collections, 0);
+        assert_eq!(stats.targets, 1);
+        assert_eq!(stats.locator_comparisons, DIRECT_TARGET_LOCATOR_COMPARISONS);
+        assert_eq!(stats.target_handle_resolutions, 0);
+        assert_eq!(stats.target_case_authentications, 0);
+        assert_eq!(stats.target_authority_constructions, 0);
+        assert_eq!(stats.premises_compilations, 1);
+        assert_eq!(stats.ready_targets, 1);
+        assert_eq!(stats.equality_refinement_targets, 0);
+        assert_eq!(stats.retained_plan_references, 2);
+        assert_eq!(stats.retained_authority_references, 2);
+        assert!(stats.owner_retained_byte_envelope > catalog_base_retained_bytes(1).unwrap());
+        assert!(stats.peak_staging_byte_envelope >= stats.owner_retained_byte_envelope);
+        assert!(baseline.target_uses_exact_plan_authority_allocation_for_test(0));
+
+        let mut exact = GeneratedAffineResidualGroupExactTargetCatalogLimits::default();
+        exact.max_plan_replays = 1;
+        exact.max_same_group_target_collections = 0;
+        exact.max_targets = 1;
+        exact.max_locator_comparisons = DIRECT_TARGET_LOCATOR_COMPARISONS;
+        exact.max_target_handle_resolutions = 0;
+        exact.max_target_case_authentications = 0;
+        exact.max_target_authority_constructions = 0;
+        exact.max_premises_compilations = 1;
+        exact.max_ready_targets = 1;
+        exact.max_equality_refinement_targets = 0;
+        exact.max_retained_plan_references = 2;
+        exact.max_retained_authority_references = 2;
+        exact.max_owner_retained_byte_envelope = stats.owner_retained_byte_envelope;
+        exact.max_peak_staging_byte_envelope = stats.peak_staging_byte_envelope;
+        let exact_catalog = plan
+            .compile_exact_target_catalog(&family, &context, exact)
+            .unwrap();
+        assert_eq!(exact_catalog.stats(), stats);
+        exact_catalog.replay(&family, &context, &plan).unwrap();
+
+        let assert_resource_limit =
+            |limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
+             resource: &'static str,
+             requested: usize,
+             limit: usize| {
+                assert!(matches!(
+                    plan.compile_exact_target_catalog(&family, &context, limits),
+                    Err(GeneratedAffineResidualGroupExactTargetError::ResourceLimit {
+                        resource: actual_resource,
+                        requested: actual_requested,
+                        limit: actual_limit,
+                    }) if actual_resource == resource
+                        && actual_requested == requested
+                        && actual_limit == limit
+                ));
+            };
+        let mut below = exact;
+        below.max_plan_replays = 0;
+        assert_resource_limit(below, "exact target plan replays", 1, 0);
+        let mut below = exact;
+        below.max_targets = 0;
+        assert_resource_limit(below, "exact targets", 1, 0);
+        let mut below = exact;
+        below.max_locator_comparisons = DIRECT_TARGET_LOCATOR_COMPARISONS - 1;
+        assert_resource_limit(
+            below,
+            "exact target locator comparisons",
+            DIRECT_TARGET_LOCATOR_COMPARISONS,
+            DIRECT_TARGET_LOCATOR_COMPARISONS - 1,
+        );
+        let mut below = exact;
+        below.max_premises_compilations = 0;
+        assert_resource_limit(below, "exact target premise compilations", 1, 0);
+        let mut below = exact;
+        below.max_ready_targets = 0;
+        assert_resource_limit(below, "exact ready targets", 1, 0);
+        let mut below = exact;
+        below.max_retained_plan_references = 1;
+        assert_resource_limit(below, "exact target retained plan references", 2, 1);
+        let mut below = exact;
+        below.max_retained_authority_references = 1;
+        assert_resource_limit(below, "exact target retained authority references", 2, 1);
+        let base_retained = catalog_base_retained_bytes(1).unwrap();
+        let mut below = exact;
+        below.max_owner_retained_byte_envelope = base_retained - 1;
+        assert_resource_limit(
+            below,
+            "exact target owner retained byte envelope",
+            base_retained,
+            base_retained - 1,
+        );
+        let mut below = exact;
+        below.max_peak_staging_byte_envelope = base_retained - 1;
+        assert_resource_limit(
+            below,
+            "exact target peak staging byte envelope",
+            base_retained,
+            base_retained - 1,
+        );
+        let mut below = exact;
+        below.max_owner_retained_byte_envelope = stats.owner_retained_byte_envelope - 1;
+        assert_resource_limit(
+            below,
+            "exact target owner retained byte envelope",
+            stats.owner_retained_byte_envelope,
+            stats.owner_retained_byte_envelope - 1,
+        );
+        let mut below = exact;
+        below.max_peak_staging_byte_envelope = stats.peak_staging_byte_envelope - 1;
+        assert_resource_limit(
+            below,
+            "exact target peak staging byte envelope",
+            stats.peak_staging_byte_envelope,
+            stats.peak_staging_byte_envelope - 1,
+        );
     }
 
     #[test]

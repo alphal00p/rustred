@@ -28,8 +28,9 @@ use crate::generated_affine_prepare_point_schedule::{
     GeneratedAffinePreparePointSchedulePointHandle,
 };
 use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseSourceRowLimits,
-    GeneratedAffineResidualCaseSourceRowStats,
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseSourceRecordView,
+    GeneratedAffineResidualCaseSourceRowLimits, GeneratedAffineResidualCaseSourceRowStats,
+    GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCasePremisesCertificate, GeneratedAffineResidualCasePremisesStats,
@@ -992,12 +993,12 @@ fn compile_inner<'schedule>(
 
     check_limit("case lookups", CASE_LOOKUPS, limits.max_case_lookups)?;
     let case = authority
-        .authenticated_case_view(context)
+        .authenticated_source_neutral_case_view(context)
         .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::SourceBinding)?;
     stats.case_lookups = CASE_LOOKUPS;
     check_limit("group lookups", GROUP_LOOKUPS, limits.max_group_lookups)?;
     let group = authority
-        .authenticated_group_view(context)
+        .authenticated_source_neutral_group_view(context)
         .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::SourceBinding)?;
     stats.group_lookups = GROUP_LOOKUPS;
     authenticate_geometry(authority.as_ref(), case, group, limits, &mut stats)?;
@@ -1223,8 +1224,8 @@ const GEOMETRY_SHAPE_CHECKS: usize = 10;
 
 fn authenticate_geometry(
     authority: &GeneratedAffineResidualCaseAuthority,
-    case: crate::generated_affine_residual_case_inventory::GeneratedAffineResidualInventoryCaseSourceRecordView<'_>,
-    group: crate::generated_affine_residual_case_inventory::GeneratedAffineResidualInventoryGroupSourceView<'_>,
+    case: GeneratedAffineResidualCaseSourceRecordView<'_>,
+    group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
     limits: GeneratedAffineResidualCaseBoundRelationLimits,
     stats: &mut GeneratedAffineResidualCaseBoundRelationStats,
 ) -> Result<(), GeneratedAffineResidualCaseBoundRelationError> {

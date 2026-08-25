@@ -8,10 +8,11 @@
 //! borrowed, jointly authenticated view rather than caller-supplied database,
 //! staged-row, or target-state parts.
 //!
-//! V1 exposes a typed dependent-row commit and a consuming, inert recenter
-//! classification. The recenter outcome retains the transaction behind sealed
-//! NoTarget, equality-refinement, or Ready typestates and provides no direct
-//! Ready commit. NoTarget may commit through a consuming typed continuation;
+//! Both retained-source schemas expose a typed dependent-row commit and a
+//! consuming, inert recenter classification. The recenter outcome retains the
+//! transaction behind sealed NoTarget, equality-refinement, or Ready
+//! typestates and provides no direct Ready commit. NoTarget may commit through
+//! a consuming typed continuation;
 //! equality may commit only into a one-way refined-epoch suspension. Neither
 //! path publishes a rule or infers a master. A private unconsumed-commit kernel
 //! proves the atomic database/target-state transition, and no raw successor
@@ -26,14 +27,15 @@ use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualInventoryGroupSourceView;
+use crate::generated_affine_residual_case_inventory::{
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualInventoryGroupSourceView,
+};
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
 use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
     GeneratedAffineResidualGroupExactDatabaseLimits,
     GeneratedAffineResidualGroupExactReductionStep,
-    GeneratedAffineResidualGroupPrepareExactRowCommitFailure,
     GeneratedAffineResidualGroupPreparedExactRowCommit,
     GeneratedAffineResidualGroupRetainedExactDependentReductions,
     GeneratedAffineResidualGroupRetainedExactSourceRecipe,
@@ -52,7 +54,6 @@ use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetError, GeneratedAffineResidualGroupExactTargetState,
     GeneratedAffineResidualGroupExactTargetStateLimits,
     GeneratedAffineResidualGroupExactTargetStateView,
-    GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor,
     GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
     GeneratedAffineResidualGroupRetainedExactTarget,
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
@@ -74,8 +75,38 @@ use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidu
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-session-v2";
 const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-event-v1";
+const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-session-event-v2";
+
+const fn exact_session_schema_for_source(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA
+        }
+    }
+}
+
+const fn exact_session_event_schema_for_source(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> &'static str {
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA
+        }
+    }
+}
 
 #[cfg(test)]
 std::thread_local! {
@@ -362,6 +393,7 @@ impl GeneratedAffineResidualGroupExactSessionRecenterStats {
 /// scalars can never substitute for the retained plan/catalog allocations.
 struct GeneratedAffineResidualGroupExactSessionEventAuthority {
     schema: &'static str,
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
     catalog: Arc<GeneratedAffineResidualGroupExactTargetCatalog>,
     database_epoch: usize,
@@ -1817,12 +1849,13 @@ impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitDepende
 
 /// One allocation-bound exact solve session.
 ///
-/// Construction is the unique V1 minting path for the initial target state:
+/// Construction is the unique source-profiled minting path for the initial target state:
 /// the database first creates an opaque, non-`Clone` binding, which is consumed
 /// by the state owner and immediately authenticated back against that same
 /// database allocation.
 pub(crate) struct GeneratedAffineResidualGroupExactSession {
     schema: &'static str,
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
     plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
     database_capability: GeneratedAffineResidualGroupExactSessionDatabaseCapability,
     database: GeneratedAffineResidualGroupExactDatabase,
@@ -1868,6 +1901,7 @@ impl GeneratedAffineResidualGroupExactSession {
         limits: GeneratedAffineResidualGroupExactSessionLimits,
     ) -> Result<Self, GeneratedAffineResidualGroupExactSessionError> {
         catch_unwind(AssertUnwindSafe(|| {
+            let source_kind = plan.source_kind();
             let database_capability =
                 GeneratedAffineResidualGroupExactSessionDatabaseCapability::mint();
             let database = GeneratedAffineResidualGroupExactDatabase::try_new(
@@ -1893,9 +1927,16 @@ impl GeneratedAffineResidualGroupExactSession {
                 limits.target_state,
             )?;
             database.authenticate_target_state_binding(target_state.binding())?;
+            if database.source_kind() != source_kind
+                || catalog.source_kind() != source_kind
+                || target_state.source_kind() != source_kind
+            {
+                return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+            }
             let event_authority =
                 Arc::new(GeneratedAffineResidualGroupExactSessionEventAuthority {
-                    schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA,
+                    schema: exact_session_event_schema_for_source(source_kind),
+                    source_kind,
                     plan: Arc::clone(&plan),
                     catalog: Arc::clone(&catalog),
                     database_epoch,
@@ -1910,7 +1951,8 @@ impl GeneratedAffineResidualGroupExactSession {
                 limits.events.max_ledger_retained_bytes,
             )?;
             Ok(Self {
-                schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA,
+                schema: exact_session_schema_for_source(source_kind),
+                source_kind,
                 plan,
                 database_capability,
                 database,
@@ -1931,6 +1973,10 @@ impl GeneratedAffineResidualGroupExactSession {
 
     pub(crate) const fn schema(&self) -> &'static str {
         self.schema
+    }
+
+    pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.source_kind
     }
 
     pub(crate) const fn limits(&self) -> GeneratedAffineResidualGroupExactSessionLimits {
@@ -1966,8 +2012,8 @@ impl GeneratedAffineResidualGroupExactSession {
     }
 
     fn authenticate_event_head(&self) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
-        if self.event_authority.schema
-            != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA
+        if self.event_authority.schema != exact_session_event_schema_for_source(self.source_kind)
+            || self.event_authority.source_kind != self.source_kind
             || !Arc::ptr_eq(&self.event_authority.plan, &self.plan)
             || !Arc::ptr_eq(&self.event_authority.catalog, &self.catalog)
             || self.event_authority.database_epoch != self.database_epoch()
@@ -2282,7 +2328,11 @@ impl GeneratedAffineResidualGroupExactSession {
         context: &ParametricCoefficientContext,
     ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
         catch_unwind(AssertUnwindSafe(|| {
-            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA
+            if self.schema != exact_session_schema_for_source(self.source_kind)
+                || self.source_kind != self.plan.source_kind()
+                || self.database.source_kind() != self.source_kind
+                || self.catalog.source_kind() != self.source_kind
+                || self.target_state.source_kind() != self.source_kind
                 || self.database.group_ordinal() != self.plan.group_ordinal()
                 || self.database.database_epoch() != self.target_state.database_epoch()
                 || self.database.state_version() != self.target_state.state_version()
@@ -2368,7 +2418,7 @@ impl GeneratedAffineResidualGroupExactSession {
         // Final state comparison scans the complete target catalog once after
         // all events. Admit that work together with the event history before
         // constructing the fresh shadow owner.
-        work.target_scans = session_event_bounded_add(
+        let _ = session_event_bounded_add(
             "exact session replay target scans",
             work.target_scans,
             self.target_count(),
@@ -2665,7 +2715,8 @@ impl GeneratedAffineResidualGroupExactSession {
     }
 
     /// Jointly authenticate one staged new pivot and its exact unresolved
-    /// target state.  This is the sole V1 recentering ingress.
+    /// target state. This is the sole recentering ingress for either
+    /// retained-source schema.
     fn authenticate_staged_new_pivot<'a>(
         &'a self,
         family: &IntegralFamily,
@@ -2703,7 +2754,7 @@ impl GeneratedAffineResidualGroupExactSession {
         let plan = staged_pivot.plan_for_session(&self.database_capability);
         let group = plan
             .authority()
-            .authenticated_group_view(context)
+            .authenticated_source_neutral_group_view(context)
             .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
         let ambient_arity = group.ambient_arity();
         let free_positions = group.free_positions();
@@ -2779,7 +2830,7 @@ impl GeneratedAffineResidualGroupExactSession {
         let group = self
             .plan
             .authority()
-            .authenticated_group_view(context)
+            .authenticated_source_neutral_group_view(context)
             .map_err(|_| GeneratedAffineResidualGroupExactSessionError::GeometryAuthentication)?;
         let frame = self.plan.physical_frame();
         let matrix_entries = group
@@ -4455,6 +4506,12 @@ mod tests {
     use crate::generated_affine_residual_group_physical_key::{
         GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
+    use crate::generated_affine_residual_group_ready_publication::{
+        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
+        GeneratedAffineResidualGroupReadyPublicationPendingReason,
+    };
     use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
@@ -4464,6 +4521,18 @@ mod tests {
     use crate::generated_sector_affine_effective_residual_queue::{
         GeneratedSectorAffineEffectiveResidualQueueCompiler,
         GeneratedSectorAffineEffectiveResidualQueueLimits,
+    };
+    use crate::parametric_sector_formula_affine_terminal::{
+        ParametricSectorFormulaAffineTerminalCertificate,
+        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
+    };
+    use crate::parametric_sector_formula_residual::{
+        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
+        ParametricSectorFormulaResidualRequest,
+    };
+    use crate::parametric_sector_normalized_source::{
+        ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceCompiler,
+        ParametricSectorNormalizedCoverageSourceLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
@@ -4655,6 +4724,217 @@ mod tests {
             .unwrap(),
         );
         (family, context, plan)
+    }
+
+    struct DirectProductionFixture {
+        family: IntegralFamily,
+        context: ParametricCoefficientContext,
+        normalized: Arc<ParametricSectorNormalizedCoverageSource>,
+        terminal: Arc<ParametricSectorFormulaAffineTerminalCertificate>,
+        plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+        rows: Vec<Arc<GeneratedAffineResidualGroupExactPhysicalRow>>,
+    }
+
+    #[derive(Clone, Copy)]
+    enum DirectProductionCoverage {
+        NonemptyAttemptResidual,
+        EmptyUncovered,
+    }
+
+    /// Build the complete production Direct ingress chain.  The returned rows
+    /// are the naturally retained re-elimination rows in deterministic witness
+    /// order; no test-only physical terms or authored recurrence enter it.
+    fn direct_production_fixture(
+        name: &str,
+        coverage: DirectProductionCoverage,
+    ) -> DirectProductionFixture {
+        let family = test_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let sector = SectorMask::try_from_bit_string("111").unwrap();
+        let (normalized, request) = match coverage {
+            DirectProductionCoverage::NonemptyAttemptResidual => {
+                let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
+                discovery_limits.adaptive.max_search_depth = 0;
+                discovery_limits
+                    .coverage
+                    .max_materialized_product_zero_support_terms = 0;
+                let discovery = GeneratedSectorDiscoveryCompiler::compile(
+                    &family,
+                    &context,
+                    sector,
+                    IntegralOrderingPolicy::RustRedUnshiftedV1,
+                    discovery_limits,
+                )
+                .unwrap();
+                let compilations = discovery
+                    .coverage()
+                    .candidate_attempts()
+                    .iter()
+                    .map(|attempt| attempt.compilation().clone())
+                    .collect();
+                (
+                    Arc::new(
+                        ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                            &family,
+                            &context,
+                            discovery.sector().clone(),
+                            IntegralOrderingPolicy::RustRedUnshiftedV1,
+                            compilations,
+                            ParametricSectorNormalizedCoverageSourceLimits::default(),
+                        )
+                        .unwrap(),
+                    ),
+                    ParametricSectorFormulaResidualRequest::AnyResidual,
+                )
+            }
+            DirectProductionCoverage::EmptyUncovered => (
+                Arc::new(
+                    ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                        &family,
+                        &context,
+                        sector,
+                        IntegralOrderingPolicy::RustRedUnshiftedV1,
+                        Vec::new(),
+                        ParametricSectorNormalizedCoverageSourceLimits::default(),
+                    )
+                    .unwrap(),
+                ),
+                ParametricSectorFormulaResidualRequest::Uncovered,
+            ),
+        };
+        assert!(!normalized.row_span().rows().is_empty());
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            Arc::clone(&normalized),
+            request,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let path = Arc::new(cursor.next_path().unwrap().unwrap());
+        if matches!(coverage, DirectProductionCoverage::EmptyUncovered) {
+            assert!(cursor.next_path().unwrap().is_none());
+        }
+        let terminal = Arc::new(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap(),
+        );
+        assert!(terminal.geometry().is_some());
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                Arc::clone(&terminal),
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let premises = match compile_generated_affine_residual_case_premises(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            GeneratedAffineResidualCasePremisesLimits::default(),
+        )
+        .unwrap()
+        {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(value) => Arc::new(value),
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
+                panic!("natural Direct terminal unexpectedly requires equality refinement")
+            }
+        };
+        let ordering = Arc::new(
+            GeneratedAffineParametricOrderingCertificate::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineParametricOrderingLimits::default(),
+            )
+            .unwrap(),
+        );
+        let schedule = Arc::new(
+            GeneratedAffinePreparePointScheduleCertificate::compile(
+                &family,
+                &context,
+                Arc::clone(&ordering),
+                &authority,
+                0,
+                GeneratedAffinePreparePointScheduleLimits::default(),
+            )
+            .unwrap(),
+        );
+        let compilation = GeneratedAffineResidualCaseReeliminationCompiler::compile(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            premises,
+            ordering,
+            schedule,
+            GeneratedAffineResidualCaseReeliminationLimits::default(),
+        )
+        .unwrap();
+        let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
+            compilation
+        else {
+            panic!("natural Direct terminal produced no eliminable rows")
+        };
+        let certificate = Arc::new(certificate);
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                authority,
+                Arc::clone(&frame),
+                GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut retained_row_ordinal = 0usize;
+        let mut rows = Vec::new();
+        for (witness_ordinal, witness) in certificate.witnesses().iter().enumerate() {
+            if !witness.outcome().is_retained() {
+                continue;
+            }
+            rows.push(Arc::new(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                    &family,
+                    &context,
+                    Arc::clone(&certificate),
+                    retained_row_ordinal,
+                    witness_ordinal,
+                    Arc::clone(&frame),
+                    GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+                )
+                .unwrap(),
+            ));
+            retained_row_ordinal += 1;
+        }
+        assert_eq!(rows.len(), certificate.retained_row_count());
+        assert!(!rows.is_empty());
+        DirectProductionFixture {
+            family,
+            context,
+            normalized,
+            terminal,
+            plan,
+            rows,
+        }
     }
 
     fn equality_refinement_plan_fixture(
@@ -4873,6 +5153,306 @@ mod tests {
             );
         }
         panic!("the generated-affine fixture produced no authenticated physical row")
+    }
+
+    #[test]
+    fn natural_direct_constrained_residual_reaches_typed_non_independent_pending() {
+        let fixture = direct_production_fixture(
+            "exact-session-direct-production-constrained",
+            DirectProductionCoverage::NonemptyAttemptResidual,
+        );
+        assert!(!fixture.normalized.attempts().is_empty());
+        fixture
+            .normalized
+            .replay(&fixture.family, &fixture.context)
+            .unwrap();
+        let geometry = fixture.terminal.geometry().unwrap();
+        assert_eq!(geometry.ambient_arity(), 3);
+        assert_eq!(geometry.free_positions(), &[1]);
+        assert_eq!(
+            geometry.compact_linear_coefficients(),
+            &[Integer::from(0), Integer::from(1), Integer::from(0)]
+        );
+
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            211,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        for row in &fixture.rows {
+            let transaction = session
+                .stage_replayed_row(&fixture.family, &fixture.context, row)
+                .unwrap();
+            let transaction = match session.classify_dependent(transaction) {
+                Ok(classified) => {
+                    session
+                        .commit_dependent(&fixture.family, &fixture.context, classified)
+                        .unwrap();
+                    continue;
+                }
+                Err(failure) => failure.into_transaction(),
+            };
+            match session
+                .recenter_staged_new_pivot(&fixture.family, &fixture.context, transaction)
+                .unwrap()
+            {
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) => {
+                    session = session
+                        .commit_no_target(&fixture.family, &fixture.context, no_target)
+                        .unwrap()
+                        .into_session();
+                }
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+                    _,
+                ) => panic!("natural constrained Direct target unexpectedly requires refinement"),
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) => {
+                    let source_ordinal = ready.source_ordinal();
+                    let pivot_ordinal = ready.pivot_ordinal();
+                    let locator = *ready.target_locator();
+                    let before_analysis = session_state_snapshot(&session);
+                    let analyzed =
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            ready,
+                            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                        )
+                        .unwrap();
+                    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Pending(
+                        pending,
+                    ) = analyzed
+                    else {
+                        panic!("constrained Direct cylinder must remain typed Pending")
+                    };
+                    assert_eq!(
+                        pending.reason(),
+                        GeneratedAffineResidualGroupReadyPublicationPendingReason::NonIndependentCylinder
+                    );
+                    assert_eq!(pending.targets_consumed(), 0);
+                    assert_eq!(pending.stats().arity(), 3);
+                    assert_eq!(pending.stats().rhs_terms(), 0);
+                    assert_eq!(pending.stats().physical_keys_constructed(), 0);
+                    assert_eq!(pending.stats().key_comparisons(), 0);
+                    assert_eq!(session_state_snapshot(&session), before_analysis);
+                    let recovered = pending.into_ready();
+                    assert_eq!(recovered.source_ordinal(), source_ordinal);
+                    assert_eq!(recovered.pivot_ordinal(), pivot_ordinal);
+                    assert_eq!(recovered.target_locator(), &locator);
+                    assert_eq!(session_state_snapshot(&session), before_analysis);
+                    session.replay(&fixture.family, &fixture.context).unwrap();
+                    return;
+                }
+            }
+        }
+        panic!("natural constrained Direct rows produced no exact Ready token");
+    }
+
+    #[test]
+    fn natural_direct_uncovered_rows_reach_ready_for_conditions_and_reject_foreign_source() {
+        let fixture_name = "exact-session-direct-production-ready";
+        let fixture =
+            direct_production_fixture(fixture_name, DirectProductionCoverage::EmptyUncovered);
+        let foreign =
+            direct_production_fixture(fixture_name, DirectProductionCoverage::EmptyUncovered);
+        assert!(fixture.normalized.attempts().is_empty());
+        assert!(!fixture.normalized.row_span().rows().is_empty());
+        assert!(Arc::ptr_eq(
+            fixture.terminal.path_arc().source_arc(),
+            &fixture.normalized,
+        ));
+        fixture
+            .normalized
+            .replay(&fixture.family, &fixture.context)
+            .unwrap();
+        let geometry = fixture.terminal.geometry().unwrap();
+        assert_eq!(geometry.ambient_arity(), 3);
+        assert_eq!(
+            geometry.constants(),
+            &[Integer::from(0), Integer::from(0), Integer::from(0)]
+        );
+        assert_eq!(geometry.free_positions(), &[0, 1, 2]);
+        assert_eq!(
+            geometry.compact_linear_coefficients(),
+            &[
+                Integer::from(1),
+                Integer::from(0),
+                Integer::from(0),
+                Integer::from(0),
+                Integer::from(1),
+                Integer::from(0),
+                Integer::from(0),
+                Integer::from(0),
+                Integer::from(1),
+            ]
+        );
+        assert_eq!(
+            fixture.plan.authority().source_row_count(),
+            fixture.normalized.row_span().rows().len()
+        );
+        assert!(fixture.plan.authority().source_row_count() > 0);
+        assert!(!Arc::ptr_eq(&fixture.terminal, &foreign.terminal));
+        assert_eq!(
+            fixture
+                .plan
+                .authority()
+                .stable_value_identity()
+                .unwrap()
+                .bytes(),
+            foreign
+                .plan
+                .authority()
+                .stable_value_identity()
+                .unwrap()
+                .bytes(),
+        );
+        assert!(
+            !fixture
+                .plan
+                .authority()
+                .same_source_allocation_as(foreign.plan.authority())
+        );
+        assert_eq!(
+            fixture.plan.source_kind(),
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        );
+
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            211,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            session.schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA
+        );
+        assert_eq!(
+            session.database.schema(),
+            crate::generated_affine_residual_group_exact_database::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
+        );
+        assert_eq!(
+            session.catalog.schema(),
+            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+        );
+        assert_eq!(
+            session.target_state.schema(),
+            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
+        );
+        assert_eq!(session.source_kind(), fixture.plan.source_kind());
+        assert_eq!(session.database.source_kind(), fixture.plan.source_kind());
+        assert_eq!(session.catalog.source_kind(), fixture.plan.source_kind());
+        assert_eq!(
+            session.target_state.source_kind(),
+            fixture.plan.source_kind()
+        );
+        assert!(session.catalog.same_plan_allocation(&fixture.plan));
+        assert!(
+            session
+                .catalog
+                .target_uses_exact_plan_authority_allocation_for_test(0)
+        );
+        session
+            .catalog
+            .replay(&fixture.family, &fixture.context, &fixture.plan)
+            .unwrap();
+        session.replay(&fixture.family, &fixture.context).unwrap();
+
+        assert_eq!(
+            session
+                .catalog
+                .replay(&fixture.family, &fixture.context, &foreign.plan),
+            Err(GeneratedAffineResidualGroupExactTargetError::WrongPlanAllocation)
+        );
+
+        let before_foreign = session_state_snapshot(&session);
+        assert!(matches!(
+            session.stage_replayed_row(&fixture.family, &fixture.context, &foreign.rows[0],),
+            Err(GeneratedAffineResidualGroupExactSessionError::Database(
+                GeneratedAffineResidualGroupExactDatabaseError::RowReplay
+            ))
+        ));
+        assert_eq!(session_state_snapshot(&session), before_foreign);
+
+        let mut observed_dependent = 0usize;
+        let mut observed_no_target = 0usize;
+        for row in &fixture.rows {
+            let transaction = session
+                .stage_replayed_row(&fixture.family, &fixture.context, row)
+                .unwrap();
+            let transaction = match session.classify_dependent(transaction) {
+                Ok(classified) => {
+                    session
+                        .commit_dependent(&fixture.family, &fixture.context, classified)
+                        .unwrap();
+                    observed_dependent += 1;
+                    session.replay(&fixture.family, &fixture.context).unwrap();
+                    continue;
+                }
+                Err(failure) => failure.into_transaction(),
+            };
+            let outcome = session
+                .recenter_staged_new_pivot(&fixture.family, &fixture.context, transaction)
+                .unwrap();
+            match outcome {
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) => {
+                    let committed = session
+                        .commit_no_target(&fixture.family, &fixture.context, no_target)
+                        .unwrap();
+                    session = committed.into_session();
+                    observed_no_target += 1;
+                    session.replay(&fixture.family, &fixture.context).unwrap();
+                }
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+                    _,
+                ) => panic!("natural Direct Ready target unexpectedly requires refinement"),
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) => {
+                    let before_analysis = session_state_snapshot(&session);
+                    let analyzed =
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            ready,
+                            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                        )
+                        .unwrap();
+                    assert_eq!(session_state_snapshot(&session), before_analysis);
+                    match analyzed {
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+                            ready,
+                        ) => {
+                            assert_eq!(ready.targets_consumed(), 0);
+                            assert_eq!(ready.ready().target_locator(), &fixture.plan.targets()[0]);
+                            assert!(!ready.descent().is_empty());
+                            session.replay(&fixture.family, &fixture.context).unwrap();
+                            return;
+                        }
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Unsupported(
+                            unsupported,
+                        ) => panic!(
+                            "natural full-cylinder Direct Ready candidate was unsupported: {:?}",
+                            unsupported.reason()
+                        ),
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::Pending(
+                            pending,
+                        ) => panic!(
+                            "natural full-cylinder Direct Ready candidate remained pending: {:?}",
+                            pending.reason()
+                        ),
+                    }
+                }
+            }
+        }
+        panic!(
+            "natural Direct retained rows exhausted without ReadyForConditions: rows={}, dependent={observed_dependent}, no_target={observed_no_target}",
+            fixture.rows.len(),
+        );
     }
 
     #[test]

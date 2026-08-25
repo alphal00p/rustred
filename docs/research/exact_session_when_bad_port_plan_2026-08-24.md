@@ -186,23 +186,26 @@ The terminal stable-value identity is allocation-independent across the whole
 authenticated source/path/terminal chain; it emits the authenticated row span
 once and represents subsequent occurrences with typed identity references.
 Direct authority carries that identity through generated ordering V3,
-physical frame V2, and solve-plan V2 without fabricating V4/V5,
-Boolean/DPLL, integer-system, or legacy inventory certificates. Mathematical
-stable-value identity remains distinct from proof ownership: replay separately
-requires the exact retained terminal, authority, and frame `Arc` allocations.
-Legacy-inventory-only exact relation, target, database, and session stages fail
-closed on a Direct plan.
+physical frame V2, solve-plan V2, and source-profiled V2 target, database, and
+session owners without fabricating V4/V5, Boolean/DPLL, integer-system, or
+legacy inventory certificates. Mathematical stable-value identity remains
+distinct from proof ownership: replay separately requires the exact retained
+terminal, authority, frame, plan, and catalog `Arc` allocations. The old exact
+relation compiler remains legacy-only; it is not the Direct production route.
 
-Licensed GMP Nextest runs passed 3/3 terminal durable-identity tests, 4/4
-focused Direct authority/ordering/frame tests, and 7/7 solve-plan tests; an
-independent audit re-ran the two Direct solve-plan tests successfully. The next
-upstream-to-session seam is therefore Direct solve-plan ingress through
-`GeneratedAffineResidualGroupExactSession` staging and recentering to the
-existing `ReadyForConditions` boundary, followed by the `WhenBad` closure and
-publication phases described below. It must not reconstruct V4, V5, the
-live-leaf queue, or Boolean/DPLL certificates. No Direct input, including the
-successful `K=21` cursor fixture, has reached Ready, produced a published
-guarded rule, reduced a physical topology, or established six-loop support.
+A freshly generated full independent-cylinder Direct source now passes through
+chronological row staging and recentering to the existing unpublished
+`ReadyForConditions` boundary. A genuine nonempty constrained source instead
+stops before physical-key work as typed
+`Pending(NonIndependentCylinder)`. Licensed default-GMP Symbolica runs passed
+the four focused Direct ingress, constrained-boundary, resource, and V1/V2
+schema/kind tamper tests in parallel, and `cargo check --all-targets` passed.
+The next seam is general compact-affine Ready analysis followed by the
+`WhenBad` closure and publication phases described below. It must not
+reconstruct V4, V5, the live-leaf queue, or Boolean/DPLL certificates. No
+Direct input has produced a published guarded rule or reduced a physical
+topology, and the successful `K=21` cursor fixture still has not reached Ready
+or established six-loop support.
 
 Not yet implemented are the Ready-native condition transcript and relative
 partition, the terminal current-lineage exact `WhenBad` compiler,
@@ -950,16 +953,18 @@ Implement in this order:
    `430af297-b806-431e-a169-bd0f19a9f9c8` (30/30), and policy-bound K21 run
    `88a73ec1-52c2-4771-8a21-75e1b2a848b6` (1/1) passed;
 6. add the generic direct-backed singleton affine adapter — completed through
-   the Direct solve-plan boundary in this checkpoint. The complete terminal
-   stable-value identity emits the row span once through typed references;
-   ordering V3, physical frame V2, and solve-plan V2 retain it without a fake
-   inventory, while exact terminal/authority/frame `Arc` ancestry remains a
-   separate replay condition. Legacy-only exact-session stages fail closed.
-   Focused and independent licensed GMP tests are green.
-   Next carry the Direct solve plan through exact-session staging and
-   recentering into the existing `ReadyForConditions` boundary, then implement
-   `WhenBad` closure and publication. It has not yet reached that boundary,
-   reduction, publication, or six-loop topology support;
+   source-profiled exact-session staging, chronological replay, recentering,
+   and the existing unpublished `ReadyForConditions` boundary for a full
+   independent cylinder. The terminal stable-value identity emits the row span
+   once through typed references; ordering V3, physical frame V2, solve-plan
+   V2, database V2, catalog/state V2, and session/event V2 retain it without a
+   fake inventory, while exact terminal/authority/frame/plan/catalog `Arc`
+   ancestry remains a separate replay condition. A genuine nonempty
+   constrained source is typed `Pending(NonIndependentCylinder)` before key
+   work. Focused and independent licensed default-GMP tests are green.
+   Next extend Ready analysis to general compact affine target maps, then
+   implement `WhenBad` closure and publication. This has not reached reduction,
+   publication, or six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
