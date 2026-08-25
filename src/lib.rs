@@ -18,6 +18,7 @@ mod coverage_decision_dag;
 mod direct_bad_formula;
 mod exact_identity;
 mod parametric_sector_formula_ir;
+mod parametric_sector_formula_residual;
 mod parametric_sector_mtbdd;
 mod parametric_sector_mtbdd_certificate;
 mod parametric_sector_normalized_source;
