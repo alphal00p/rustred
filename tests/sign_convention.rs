@@ -132,8 +132,8 @@ fn reversed_denominators_obey_exact_exponent_parity() {
         reversed_family.denominators()[0].quadratic_form(),
         &[
             ExactRational::from(-1),
-            ExactRational::ZERO,
-            ExactRational::ZERO,
+            ExactRational::zero(),
+            ExactRational::zero(),
         ]
     );
     let m2 = reversed_family.coefficients().parameter("m2").unwrap();

@@ -37,7 +37,11 @@ fn two_line_family(
             first,
             second,
             Denominator::auxiliary(
-                vec![ExactRational::ZERO, ExactRational::ONE, ExactRational::ZERO],
+                vec![
+                    ExactRational::zero(),
+                    ExactRational::one(),
+                    ExactRational::zero(),
+                ],
                 coefficients.zero(),
             ),
         ],

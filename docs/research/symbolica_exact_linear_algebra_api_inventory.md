@@ -1,8 +1,8 @@
 # Symbolica exact linear-algebra Rust API inventory
 
-Status: read-only source inventory of the vendored Symbolica 2.2.0 and
-Numerica 2.2.0 trees, 2026-08-24. The relevant checkout is
-`vendor/symbolica`. Symbolica's default GMP backend is the required RustRed
+Status: source inventory of the vendored Symbolica 2.2.0 and Numerica 2.2.0
+trees plus B0 adapter findings, 2026-08-24. The relevant checkout is
+`vendor/symbolica`. Symbolica's GMP backend is the required RustRed
 configuration; this inventory does not cover or authorize the `no_gmp`
 feature.
 
@@ -63,11 +63,26 @@ Exact domains relevant to RustRed include:
 
 `Q` and its exact type are defined at
 [`vendor/symbolica/lib/numerica/src/domains/rational.rs:24`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L24).
+Its public checked `try_inv` and `try_div` ring operations are implemented at
+[`rational.rs:502`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L502)
+and are the RustRed scalar error boundary. The public `Integer` enum exposes
+`Single`, `Double`, and `Large` at
+[`integer.rs:85`](../../vendor/symbolica/lib/numerica/src/domains/integer.rs#L85).
+With the required `gmp` feature, `Large` contains the publicly re-exported
+`rug::Integer`; RustRed's logical retained-payload census can therefore use
+its allocated bit `capacity()` without estimating from the significant value.
 The finite-field types and constructors are documented at
 [`vendor/symbolica/lib/numerica/src/domains/finite_field.rs:147`](../../vendor/symbolica/lib/numerica/src/domains/finite_field.rs#L147).
 `RationalPolynomialField::{new, from_poly}` is public at
 [`vendor/symbolica/src/domains/rational_polynomial.rs:45`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L45),
 and the type implements `Field` in the same file.
+`RationalPolynomial::to_polynomial` is public at
+[`rational_polynomial.rs:572`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L572).
+It converts selected variables into polynomial indeterminates while keeping
+the remaining variables in rational-polynomial coefficients and rejects a
+selected variable in the denominator unless explicitly told to ignore the
+denominator. This is the preferred decomposition seam for RustRed's index and
+momentum-variable grouping; manual exponent-row copying is not required.
 
 ## Dense `Matrix` API
 
@@ -87,7 +102,7 @@ Its relevant operations are:
 | `Matrix::eye` | [`matrix.rs:746`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L746) | Matrix with caller-provided diagonal |
 | `Matrix::new_vec` | [`matrix.rs:755`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L755) | Single-column matrix, used as a solver right-hand side |
 | `Matrix::from_linear` | [`matrix.rs:765`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L765) | Checked row-major construction from a flat vector |
-| `Matrix::from_nested_vec` | [`matrix.rs:789`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L789) | Checked rectangular nested-vector construction |
+| `Matrix::from_nested_vec` | [`matrix.rs:789`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L789) | Rectangular nested-vector construction, but unsuitable for empty or zero-column input in 2.2.0 because it divides by the first row length |
 | `nrows`, `ncols`, `field` | [`matrix.rs:811`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L811) | Dimensions and retained domain |
 | `row_iter`, `iter`, `into_vec` | [`matrix.rs:826`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L826) | Row-major inspection or ownership extraction |
 | `transpose`, `into_transposed` | [`matrix.rs:844`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L844) | Borrowed or owning transpose |
@@ -100,6 +115,13 @@ The matrix supports `(u32, u32)` entry indexing, row indexing, addition,
 subtraction, multiplication, negation, and scalar multiplication. RustRed must
 still preflight dimensions and allocation bounds before invoking constructors;
 the generic API does not implement RustRed's resource policy.
+
+RustRed B0 therefore uses `Matrix::from_linear`, not `from_nested_vec`. Its
+adapter first authenticates rectangularity, checks conversion of both
+dimensions to `u32`, checks the `usize` entry product and the constructor's
+internal `u32` product, then reserves and clones one row-major buffer. This
+also gives typed behavior for empty and zero-column matrices instead of
+exposing the vendored constructor's division-by-zero panic.
 
 ### Ring-level determinant
 
@@ -143,7 +165,7 @@ The public `impl<F: Field> Matrix<F>` begins at
 
 | Operation | Source anchor | Behavior |
 |---|---|---|
-| `inv` | [`matrix.rs:1477`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1477) | Exact inverse; specialized dimensions two and three, augmented Gaussian elimination otherwise |
+| `inv` | [`matrix.rs:1477`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1477) | Exact inverse; specialized dimensions two and three, augmented Gaussian elimination otherwise; requires an independent singularity guard in vendored 2.2.0 |
 | `det_in_place` | [`matrix.rs:1589`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1589) | Determinant through field elimination |
 | `partial_row_reduce` | [`matrix.rs:1609`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1609) | Forward Gaussian elimination on the first `max_col` columns |
 | `back_substitution` | [`matrix.rs:1652`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1652) | Normalized backward elimination |
@@ -155,6 +177,14 @@ The public `impl<F: Field> Matrix<F>` begins at
 The built-in pivot rule scans for the first nonzero row in the current column.
 There is no public callback for RustRed integral ordering or coefficient-cost
 pivot selection.
+
+The vendored generic inverse branch reduces all columns of `[A|I]`. For size
+one and sizes four or larger, a singular coefficient block can therefore be
+masked by pivots in the identity block and `inv` may return success. RustRed's
+B0 adapter evaluates the independent native `Matrix::det` first, rejects zero,
+and only then calls `inv`; sizes one through six and singular/nonsingular cases
+are regression-tested. This is a checked composition of public Symbolica
+operations, not a replacement inverse algorithm.
 
 `MatrixError<F>` is defined at
 [`matrix.rs:1391`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1391).
@@ -268,6 +298,15 @@ chooses full `L`, its pattern, or no `L`. Public operations include:
 The reducer normalizes pivots by field inversion and exposes no custom pivot
 policy. It is nevertheless mandatory to evaluate it, and composition around
 it, before implementing sparse field elimination in RustRed.
+
+Post-B0 source review found a stronger composition candidate than a simple
+rank oracle. RustRed can reindex columns into hardest-first order, feed rows in
+authenticated source order, select `LuLMode::Full`, and inspect public `u`,
+`l`, and `pivots`; `add_cols` supports a growing authenticated column map.
+This may retain the controller's ordering and enough elimination factors for
+provenance while delegating row algebra to Symbolica. A transcript-equivalence
+spike against `add_row`, `add_row_with_back_subs`, and `back_substitute` is
+mandatory before claiming a custom sparse reducer is an irreducible API gap.
 
 ## Tests, examples, and documentation evidence
 

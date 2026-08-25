@@ -300,8 +300,8 @@ impl FiveLoopBananaProductNumeratorWitness {
         &self.loop_map
     }
 
-    pub const fn mass_coefficient(&self) -> ExactRational {
-        self.mass_coefficient
+    pub fn mass_coefficient(&self) -> ExactRational {
+        self.mass_coefficient.clone()
     }
 
     pub const fn transformed_quadratic_form(
@@ -312,7 +312,7 @@ impl FiveLoopBananaProductNumeratorWitness {
 
     pub fn diagonal_coefficients(&self) -> [ExactRational; FIVE_LOOP_BANANA_LOOP_MOMENTA] {
         array::from_fn(|loop_index| {
-            self.transformed_quadratic_form[scalar_product_index(loop_index, loop_index)]
+            self.transformed_quadratic_form[scalar_product_index(loop_index, loop_index)].clone()
         })
     }
 }
@@ -884,33 +884,36 @@ impl FiveLoopBananaBoundaryReducer {
 
         let denominator = &self.family.denominators()[numerator_position];
         let old_quadratic = denominator.quadratic_form();
-        let mut transformed = [ExactRational::ZERO; FIVE_LOOP_BANANA_DENOMINATORS];
+        let mut transformed = array::from_fn(|_| ExactRational::zero());
         // If p=A*k, then k=A^{-1}p.  Convert the stored upper-triangular row
         // to a symmetric matrix Q (halving its off-diagonal entries), compute
         // A^{-T} Q A^{-1}, then convert back to the stored row convention.
-        let mut old_matrix = [[ExactRational::ZERO; 5]; 5];
+        let mut old_matrix: [[ExactRational; 5]; 5] =
+            array::from_fn(|_| array::from_fn(|_| ExactRational::zero()));
         for left in 0..5 {
             for right in left..5 {
-                let coefficient = old_quadratic[scalar_product_index(left, right)];
+                let coefficient = &old_quadratic[scalar_product_index(left, right)];
                 if left == right {
-                    old_matrix[left][right] = coefficient;
+                    old_matrix[left][right] = coefficient.clone();
                 } else {
-                    let half = coefficient / ExactRational::from(2);
-                    old_matrix[left][right] = half;
+                    let half = coefficient / &ExactRational::from(2);
+                    old_matrix[left][right] = half.clone();
                     old_matrix[right][left] = half;
                 }
             }
         }
+        let inverse_ref = &inverse;
+        let old_matrix_ref = &old_matrix;
         for new_left in 0..5 {
             for new_right in new_left..5 {
                 let matrix_entry = (0..5)
                     .flat_map(|old_left| (0..5).map(move |old_right| (old_left, old_right)))
                     .map(|(old_left, old_right)| {
-                        inverse[old_left][new_left]
-                            * old_matrix[old_left][old_right]
-                            * inverse[old_right][new_right]
+                        &inverse_ref[old_left][new_left]
+                            * &old_matrix_ref[old_left][old_right]
+                            * &inverse_ref[old_right][new_right]
                     })
-                    .fold(ExactRational::ZERO, std::ops::Add::add);
+                    .fold(ExactRational::zero(), std::ops::Add::add);
                 transformed[scalar_product_index(new_left, new_right)] = if new_left == new_right {
                     matrix_entry
                 } else {
@@ -919,9 +922,9 @@ impl FiveLoopBananaBoundaryReducer {
             }
         }
         let mass_coefficient = if numerator_position < FIVE_LOOP_BANANA_PHYSICAL_LINES {
-            ExactRational::ONE
+            ExactRational::one()
         } else {
-            ExactRational::ZERO
+            ExactRational::zero()
         };
         Ok(FiveLoopBananaProductNumeratorWitness {
             numerator_position,
@@ -952,9 +955,9 @@ impl FiveLoopBananaBoundaryReducer {
             .iter()
             .fold(context.one(), |coefficient, ratio| &coefficient * ratio);
         let mut coefficient =
-            &context.scale_rational(&self.mass, witness.mass_coefficient) * &product;
+            &context.scale_rational(&self.mass, witness.mass_coefficient()) * &product;
         for transformed_loop in 0..FIVE_LOOP_BANANA_LOOP_MOMENTA {
-            let diagonal = witness.transformed_quadratic_form
+            let diagonal = &witness.transformed_quadratic_form()
                 [scalar_product_index(transformed_loop, transformed_loop)];
             if diagonal.is_zero() {
                 continue;
@@ -1273,9 +1276,9 @@ fn validate_family(family: &VacuumFamily) -> Result<Coefficient, FiveLoopBananaB
         let expected: Vec<_> = (0..FIVE_LOOP_BANANA_DENOMINATORS)
             .map(|candidate| {
                 if candidate == scalar_product {
-                    ExactRational::ONE
+                    ExactRational::one()
                 } else {
-                    ExactRational::ZERO
+                    ExactRational::zero()
                 }
             })
             .collect();

@@ -1,326 +1,610 @@
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// A small exact rational used for kinematic basis matrices.
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::{Q, Rational};
+use symbolica::domains::{Ring, RingOps};
+use symbolica::tensors::matrix::Matrix;
+
+/// A canonical exact rational backed by Symbolica's GMP-enabled rational field.
 ///
-/// Symbolic reduction coefficients live in Symbolica's rational-polynomial
-/// field.  This type is deliberately limited to the integer/rational linear
-/// algebra needed to rewrite loop scalar products into denominators.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExactRational {
-    numerator: i64,
-    denominator: i64,
+/// This nominal wrapper keeps RustRed's public kinematic-coordinate type
+/// separate from its rational-polynomial coefficients. All normalization and
+/// arithmetic are delegated to Symbolica; RustRed does not implement a second
+/// rational field.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExactRational(Rational);
+
+/// Checked-construction and checked-division failures for ExactRational.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExactRationalError {
+    ZeroDenominator,
+    DivisionByZero,
 }
+
+impl fmt::Display for ExactRationalError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ZeroDenominator => formatter.write_str("a rational denominator cannot be zero"),
+            Self::DivisionByZero => formatter.write_str("cannot divide by zero"),
+        }
+    }
+}
+
+impl std::error::Error for ExactRationalError {}
 
 impl ExactRational {
-    pub const ZERO: Self = Self {
-        numerator: 0,
-        denominator: 1,
-    };
-    pub const ONE: Self = Self {
-        numerator: 1,
-        denominator: 1,
-    };
+    /// Construct and canonically normalize an exact rational.
+    ///
+    /// This compatibility constructor retains the historical panic on a zero
+    /// denominator. Input-dependent code should use try_new.
+    pub fn new<N: Into<Integer>, D: Into<Integer>>(numerator: N, denominator: D) -> Self {
+        Self::try_new(numerator, denominator).expect("a rational denominator cannot be zero")
+    }
 
-    pub fn new(numerator: i64, denominator: i64) -> Self {
-        assert!(denominator != 0, "a rational denominator cannot be zero");
-        if numerator == 0 {
-            return Self::ZERO;
+    /// Construct and canonically normalize an exact rational without a panic
+    /// on a zero denominator.
+    pub fn try_new<N: Into<Integer>, D: Into<Integer>>(
+        numerator: N,
+        denominator: D,
+    ) -> Result<Self, ExactRationalError> {
+        let numerator = numerator.into();
+        let denominator = denominator.into();
+        if denominator.is_zero() {
+            return Err(ExactRationalError::ZeroDenominator);
         }
 
-        let mut numerator = numerator;
-        let mut denominator = denominator;
-        if denominator < 0 {
-            numerator = numerator
-                .checked_neg()
-                .expect("rational numerator overflow while normalizing sign");
-            denominator = denominator
-                .checked_neg()
-                .expect("rational denominator overflow while normalizing sign");
+        // Rational::new delegates gcd reduction and denominator-sign
+        // normalization to Symbolica's exact rational field. The zero case was
+        // checked above because Symbolica's constructor is intentionally
+        // panicking for that malformed input.
+        Ok(Self(Rational::new(numerator, denominator)))
+    }
+
+    pub fn zero() -> Self {
+        Self(Rational::zero())
+    }
+
+    pub fn one() -> Self {
+        Self(Rational::one())
+    }
+
+    /// Return the arbitrary-precision canonical numerator.
+    pub fn numerator(&self) -> &Integer {
+        self.0.numerator_ref()
+    }
+
+    /// Return the arbitrary-precision positive canonical denominator.
+    pub fn denominator(&self) -> &Integer {
+        self.0.denominator_ref()
+    }
+
+    /// Narrow the numerator only when it is exactly representable as i64.
+    pub fn numerator_i64(&self) -> Option<i64> {
+        self.numerator().to_i64()
+    }
+
+    /// Narrow the denominator only when it is exactly representable as i64.
+    pub fn denominator_i64(&self) -> Option<i64> {
+        self.denominator().to_i64()
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0.is_zero()
+    }
+
+    pub fn is_one(&self) -> bool {
+        self.0.is_one()
+    }
+
+    pub fn is_negative(&self) -> bool {
+        self.0.is_negative()
+    }
+
+    /// Invert this value using Symbolica's checked rational-field operation.
+    pub fn try_reciprocal(&self) -> Result<Self, ExactRationalError> {
+        Q.try_inv(&self.0)
+            .map(Self)
+            .ok_or(ExactRationalError::DivisionByZero)
+    }
+
+    /// Historical panicking reciprocal. Input-dependent code should use
+    /// try_reciprocal.
+    pub fn reciprocal(&self) -> Self {
+        self.try_reciprocal().expect("cannot invert zero")
+    }
+
+    /// Divide through Symbolica's checked rational-field operation.
+    pub fn try_div(&self, rhs: &Self) -> Result<Self, ExactRationalError> {
+        Q.try_div(&self.0, &rhs.0)
+            .map(Self)
+            .ok_or(ExactRationalError::DivisionByZero)
+    }
+
+    /// Borrow the underlying canonical Symbolica value.
+    pub fn as_rational(&self) -> &Rational {
+        &self.0
+    }
+
+    /// Consume this wrapper and return its canonical Symbolica value.
+    pub fn into_rational(self) -> Rational {
+        self.0
+    }
+
+    /// Heap bytes retained by the numerator and denominator GMP allocations.
+    ///
+    /// The fixed-size `ExactRational` wrapper is deliberately excluded so
+    /// callers can census inline and heap storage without double counting.
+    /// Symbolica publicly exposes its GMP integer variant, whose `capacity()`
+    /// reports the allocated bit capacity rather than only significant bits.
+    pub(crate) fn retained_heap_bytes(&self) -> Option<usize> {
+        fn integer_heap_bytes(value: &Integer) -> usize {
+            match value {
+                Integer::Large(value) => value.capacity().div_ceil(u8::BITS as usize),
+                Integer::Single(_) | Integer::Double(_) => 0,
+            }
         }
 
-        let gcd = gcd_u64(numerator.unsigned_abs(), denominator as u64) as i64;
-        Self {
-            numerator: numerator / gcd,
-            denominator: denominator / gcd,
-        }
+        integer_heap_bytes(self.numerator()).checked_add(integer_heap_bytes(self.denominator()))
     }
 
-    pub fn numerator(self) -> i64 {
-        self.numerator
+    fn from_symbolica(value: Rational) -> Self {
+        Self(value)
     }
-
-    pub fn denominator(self) -> i64 {
-        self.denominator
-    }
-
-    pub fn is_zero(self) -> bool {
-        self.numerator == 0
-    }
-
-    pub fn reciprocal(self) -> Self {
-        assert!(!self.is_zero(), "cannot invert zero");
-        Self::new(self.denominator, self.numerator)
-    }
-}
-
-fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        let remainder = a % b;
-        a = b;
-        b = remainder;
-    }
-    a.max(1)
 }
 
 impl From<i64> for ExactRational {
     fn from(value: i64) -> Self {
-        Self::new(value, 1)
+        Self(Rational::from(value))
     }
 }
 
-impl Add for ExactRational {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let numerator = self
-            .numerator
-            .checked_mul(rhs.denominator)
-            .and_then(|x| {
-                rhs.numerator
-                    .checked_mul(self.denominator)
-                    .and_then(|y| x.checked_add(y))
-            })
-            .expect("rational addition overflow");
-        let denominator = self
-            .denominator
-            .checked_mul(rhs.denominator)
-            .expect("rational denominator overflow");
-        Self::new(numerator, denominator)
+impl From<Integer> for ExactRational {
+    fn from(value: Integer) -> Self {
+        Self(Rational::from(value))
     }
 }
 
-impl Sub for ExactRational {
-    type Output = Self;
+macro_rules! forward_binary_operator {
+    ($trait:ident, $method:ident, $operator:tt) => {
+        impl $trait for ExactRational {
+            type Output = Self;
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        self + (-rhs)
-    }
+            fn $method(self, rhs: Self) -> Self::Output {
+                Self(self.0 $operator rhs.0)
+            }
+        }
+
+        impl $trait<&ExactRational> for ExactRational {
+            type Output = ExactRational;
+
+            fn $method(self, rhs: &ExactRational) -> Self::Output {
+                ExactRational(self.0 $operator &rhs.0)
+            }
+        }
+
+        impl $trait<ExactRational> for &ExactRational {
+            type Output = ExactRational;
+
+            fn $method(self, rhs: ExactRational) -> Self::Output {
+                ExactRational(&self.0 $operator &rhs.0)
+            }
+        }
+
+        impl $trait<&ExactRational> for &ExactRational {
+            type Output = ExactRational;
+
+            fn $method(self, rhs: &ExactRational) -> Self::Output {
+                ExactRational(&self.0 $operator &rhs.0)
+            }
+        }
+    };
 }
 
-impl Mul for ExactRational {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        let numerator = self
-            .numerator
-            .checked_mul(rhs.numerator)
-            .expect("rational multiplication overflow");
-        let denominator = self
-            .denominator
-            .checked_mul(rhs.denominator)
-            .expect("rational denominator overflow");
-        Self::new(numerator, denominator)
-    }
-}
-
-impl Div for ExactRational {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        self * rhs.reciprocal()
-    }
-}
+forward_binary_operator!(Add, add, +);
+forward_binary_operator!(Sub, sub, -);
+forward_binary_operator!(Mul, mul, *);
+forward_binary_operator!(Div, div, /);
 
 impl Neg for ExactRational {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self::new(
-            self.numerator
-                .checked_neg()
-                .expect("rational negation overflow"),
-            self.denominator,
-        )
+        Self(-self.0)
+    }
+}
+
+impl Neg for &ExactRational {
+    type Output = ExactRational;
+
+    fn neg(self) -> Self::Output {
+        ExactRational(Q.neg(&self.0))
     }
 }
 
 impl fmt::Display for ExactRational {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.denominator == 1 {
-            write!(formatter, "{}", self.numerator)
-        } else {
-            write!(formatter, "{}/{}", self.numerator, self.denominator)
-        }
+        self.0.fmt(formatter)
     }
 }
 
-/// Invert a square matrix over exact rationals.
+type SymbolicaExactMatrix = Matrix<Q>;
+
+fn matrix_shape(matrix: &[Vec<ExactRational>]) -> Result<(u32, u32, usize), String> {
+    let rows = matrix.len();
+    let columns = matrix.first().map_or(0, Vec::len);
+    if let Some((row, actual)) = matrix
+        .iter()
+        .enumerate()
+        .find_map(|(row, values)| (values.len() != columns).then_some((row, values.len())))
+    {
+        return Err(format!(
+            "ragged matrix: row {row} has {actual} columns, expected {columns}"
+        ));
+    }
+
+    let rows_u32 = u32::try_from(rows)
+        .map_err(|_| format!("matrix row count {rows} exceeds Symbolica's u32 dimension"))?;
+    let columns_u32 = u32::try_from(columns)
+        .map_err(|_| format!("matrix column count {columns} exceeds Symbolica's u32 dimension"))?;
+    let entries = rows
+        .checked_mul(columns)
+        .ok_or_else(|| format!("matrix element count overflows usize: {rows}*{columns}"))?;
+
+    // Matrix::from_linear currently multiplies its two u32 dimensions before
+    // converting to usize. Reject that overflow prospectively.
+    rows_u32.checked_mul(columns_u32).ok_or_else(|| {
+        format!("matrix element count exceeds Symbolica's u32 constructor range: {rows}*{columns}")
+    })?;
+
+    Ok((rows_u32, columns_u32, entries))
+}
+
+fn to_symbolica_matrix(matrix: &[Vec<ExactRational>]) -> Result<SymbolicaExactMatrix, String> {
+    let (rows, columns, entries) = matrix_shape(matrix)?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(entries)
+        .map_err(|_| format!("failed to reserve {entries} exact entries for a Symbolica matrix"))?;
+    for row in matrix {
+        data.extend(row.iter().map(|value| value.0.clone()));
+    }
+
+    Matrix::from_linear(data, rows, columns, Q)
+}
+
+fn from_symbolica_matrix(matrix: SymbolicaExactMatrix) -> Vec<Vec<ExactRational>> {
+    let rows = matrix.nrows();
+    let columns = matrix.ncols();
+    let mut data = matrix.into_vec().into_iter();
+    (0..rows)
+        .map(|_| {
+            data.by_ref()
+                .take(columns)
+                .map(ExactRational::from_symbolica)
+                .collect()
+        })
+        .collect()
+}
+
+fn call_symbolica_matrix<T>(
+    operation: &'static str,
+    callback: impl FnOnce() -> T,
+) -> Result<T, String> {
+    catch_unwind(AssertUnwindSafe(callback))
+        .map_err(|_| format!("Symbolica panicked while computing matrix {operation}"))
+}
+
+/// Invert a non-empty square matrix over Symbolica's exact rational field.
 pub(crate) fn invert_matrix(
     matrix: &[Vec<ExactRational>],
 ) -> Result<Vec<Vec<ExactRational>>, String> {
-    let size = matrix.len();
-    if size == 0 || matrix.iter().any(|row| row.len() != size) {
+    let native = to_symbolica_matrix(matrix)?;
+    let size = native.nrows();
+    if size == 0 || native.ncols() != size {
         return Err("matrix must be non-empty and square".to_owned());
     }
 
-    let mut augmented = vec![vec![ExactRational::ZERO; size * 2]; size];
-    for row in 0..size {
-        for column in 0..size {
-            augmented[row][column] = matrix[row][column];
-        }
-        augmented[row][size + row] = ExactRational::ONE;
+    // Symbolica 2.2.0's generic inverse branch row-reduces every column of
+    // [A|I], so pivots in I can mask a singular A for sizes 1 and >=4. Its
+    // native determinant is an independent, exact singularity guard.
+    let determinant = call_symbolica_matrix("inverse determinant guard", || native.det())?
+        .map_err(|error| error.to_string())?;
+    if determinant.is_zero() {
+        return Err("denominator basis matrix is singular".to_owned());
     }
 
-    for pivot_column in 0..size {
-        let pivot_row = (pivot_column..size)
-            .find(|&row| !augmented[row][pivot_column].is_zero())
-            .ok_or_else(|| "denominator basis matrix is singular".to_owned())?;
-        augmented.swap(pivot_column, pivot_row);
-
-        let pivot = augmented[pivot_column][pivot_column];
-        for entry in &mut augmented[pivot_column] {
-            *entry = *entry / pivot;
-        }
-
-        for row in 0..size {
-            if row == pivot_column {
-                continue;
-            }
-            let factor = augmented[row][pivot_column];
-            if factor.is_zero() {
-                continue;
-            }
-            for column in 0..size * 2 {
-                augmented[row][column] =
-                    augmented[row][column] - factor * augmented[pivot_column][column];
-            }
-        }
-    }
-
-    Ok(augmented
-        .into_iter()
-        .map(|row| row[size..].to_vec())
-        .collect())
+    let inverse =
+        call_symbolica_matrix("inverse", || native.inv())?.map_err(|error| error.to_string())?;
+    Ok(from_symbolica_matrix(inverse))
 }
 
-pub(crate) fn matrix_rank(mut matrix: Vec<Vec<ExactRational>>) -> usize {
+pub(crate) fn matrix_rank(matrix: Vec<Vec<ExactRational>>) -> Result<usize, String> {
     if matrix.is_empty() {
-        return 0;
+        return Ok(0);
     }
-    let columns = matrix[0].len();
-    let mut rank = 0;
-
-    for column in 0..columns {
-        let Some(pivot_row) = (rank..matrix.len()).find(|&row| !matrix[row][column].is_zero())
-        else {
-            continue;
-        };
-        matrix.swap(rank, pivot_row);
-        let pivot = matrix[rank][column];
-        for entry in &mut matrix[rank] {
-            *entry = *entry / pivot;
-        }
-        for row in rank + 1..matrix.len() {
-            let factor = matrix[row][column];
-            if factor.is_zero() {
-                continue;
-            }
-            for c in column..columns {
-                matrix[row][c] = matrix[row][c] - factor * matrix[rank][c];
-            }
-        }
-        rank += 1;
-        if rank == matrix.len() {
-            break;
-        }
-    }
-    rank
+    let native = to_symbolica_matrix(&matrix)?;
+    call_symbolica_matrix("rank", || native.rank())
 }
 
 pub(crate) fn matrix_multiply(
     left: &[Vec<ExactRational>],
     right: &[Vec<ExactRational>],
 ) -> Result<Vec<Vec<ExactRational>>, String> {
-    if left.is_empty() || right.is_empty() || left[0].len() != right.len() {
+    if left.is_empty() || right.is_empty() {
         return Err("incompatible matrix dimensions".to_owned());
     }
-    if left.iter().any(|row| row.len() != left[0].len())
-        || right.iter().any(|row| row.len() != right[0].len())
-    {
-        return Err("ragged matrix".to_owned());
+    let left = to_symbolica_matrix(left)?;
+    let right = to_symbolica_matrix(right)?;
+    if left.ncols() != right.nrows() {
+        return Err(format!(
+            "incompatible matrix dimensions: ({},{}) and ({},{})",
+            left.nrows(),
+            left.ncols(),
+            right.nrows(),
+            right.ncols()
+        ));
     }
-    Ok(left
-        .iter()
-        .map(|left_row| {
-            (0..right[0].len())
-                .map(|column| {
-                    left_row
-                        .iter()
-                        .zip(right)
-                        .map(|(&coefficient, right_row)| coefficient * right_row[column])
-                        .fold(ExactRational::ZERO, Add::add)
-                })
-                .collect()
-        })
-        .collect())
+
+    let product = call_symbolica_matrix("product", || &left * &right)?;
+    Ok(from_symbolica_matrix(product))
 }
 
-pub(crate) fn matrix_transpose(matrix: &[Vec<ExactRational>]) -> Vec<Vec<ExactRational>> {
+pub(crate) fn matrix_transpose(
+    matrix: &[Vec<ExactRational>],
+) -> Result<Vec<Vec<ExactRational>>, String> {
     if matrix.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    (0..matrix[0].len())
-        .map(|column| matrix.iter().map(|row| row[column]).collect())
-        .collect()
+    let native = to_symbolica_matrix(matrix)?;
+    let transposed = call_symbolica_matrix("transpose", || native.transpose())?;
+    Ok(from_symbolica_matrix(transposed))
 }
 
 pub(crate) fn matrix_determinant(matrix: &[Vec<ExactRational>]) -> Result<ExactRational, String> {
-    let size = matrix.len();
-    if size == 0 || matrix.iter().any(|row| row.len() != size) {
+    let native = to_symbolica_matrix(matrix)?;
+    if native.nrows() == 0 || native.nrows() != native.ncols() {
         return Err("matrix must be non-empty and square".to_owned());
     }
-    let mut matrix = matrix.to_vec();
-    let mut determinant = ExactRational::ONE;
-    for column in 0..size {
-        let Some(pivot) = (column..size).find(|&row| !matrix[row][column].is_zero()) else {
-            return Ok(ExactRational::ZERO);
-        };
-        if pivot != column {
-            matrix.swap(pivot, column);
-            determinant = -determinant;
-        }
-        let pivot_value = matrix[column][column];
-        determinant = determinant * pivot_value;
-        for row in column + 1..size {
-            let factor = matrix[row][column] / pivot_value;
-            for entry in column..size {
-                matrix[row][entry] = matrix[row][entry] - factor * matrix[column][entry];
-            }
-        }
-    }
-    Ok(determinant)
+    call_symbolica_matrix("determinant", || native.det())?
+        .map(ExactRational::from_symbolica)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn diagonal(values: impl IntoIterator<Item = ExactRational>) -> Vec<Vec<ExactRational>> {
+        let values = values.into_iter().collect::<Vec<_>>();
+        (0..values.len())
+            .map(|row| {
+                (0..values.len())
+                    .map(|column| {
+                        if row == column {
+                            values[row].clone()
+                        } else {
+                            ExactRational::zero()
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn assert_inverse(matrix: &[Vec<ExactRational>]) {
+        let inverse = invert_matrix(matrix).unwrap();
+        for product in [
+            matrix_multiply(matrix, &inverse).unwrap(),
+            matrix_multiply(&inverse, matrix).unwrap(),
+        ] {
+            for (row, values) in product.iter().enumerate() {
+                for (column, value) in values.iter().enumerate() {
+                    let expected = if row == column {
+                        ExactRational::one()
+                    } else {
+                        ExactRational::zero()
+                    };
+                    assert_eq!(value, &expected);
+                }
+            }
+        }
+
+        // Cross-check every inverse column through Symbolica's independent
+        // public linear solver. This does not compare inv() against itself:
+        // solve() reduces only the coefficient columns of A.
+        let native = to_symbolica_matrix(matrix).unwrap();
+        for column in 0..matrix.len() {
+            let right_hand_side = Matrix::new_vec(
+                (0..matrix.len())
+                    .map(|row| if row == column { Q.one() } else { Q.zero() })
+                    .collect(),
+                Q,
+            );
+            let solution = native.solve(&right_hand_side).unwrap();
+            for row in 0..matrix.len() {
+                assert_eq!(
+                    inverse[row][column].as_rational(),
+                    &solution[(row as u32, 0)]
+                );
+            }
+        }
+    }
+
     #[test]
-    fn exact_matrix_inverse() {
+    fn exact_rational_is_gmp_backed_and_canonical() {
+        let huge = Integer::from(2).pow(257);
+        let value = ExactRational::try_new(-&huge * 6, Integer::from(-18)).unwrap();
+        assert_eq!(value.numerator(), &huge);
+        assert_eq!(value.denominator(), &Integer::from(3));
+        assert_eq!(value.numerator_i64(), None);
+        assert_eq!(value.denominator_i64(), Some(3));
+
+        let squared = &value * &value;
+        assert_eq!(squared.numerator(), &huge.pow(2));
+        assert_eq!(squared.denominator(), &Integer::from(9));
+    }
+
+    #[test]
+    fn exact_rational_checked_boundaries_reject_zero() {
+        assert_eq!(
+            ExactRational::try_new(1, 0),
+            Err(ExactRationalError::ZeroDenominator)
+        );
+        assert_eq!(
+            ExactRational::zero().try_reciprocal(),
+            Err(ExactRationalError::DivisionByZero)
+        );
+        assert_eq!(
+            ExactRational::one().try_div(&ExactRational::zero()),
+            Err(ExactRationalError::DivisionByZero)
+        );
+    }
+
+    #[test]
+    fn retained_heap_census_uses_gmp_capacity() {
+        assert_eq!(ExactRational::new(3, 7).retained_heap_bytes(), Some(0));
+
+        let huge = Integer::from(2).pow(257) + Integer::from(1);
+        let value = ExactRational::try_new(huge.clone(), &huge + 2).unwrap();
+        let retained = value.retained_heap_bytes().unwrap();
+        let expected: usize = [value.numerator(), value.denominator()]
+            .into_iter()
+            .map(|integer| match integer {
+                Integer::Large(integer) => integer.capacity().div_ceil(u8::BITS as usize),
+                Integer::Single(_) | Integer::Double(_) => 0,
+            })
+            .sum();
+        assert_eq!(retained, expected);
+        assert!(retained >= 66, "both 258-bit GMP payloads are retained");
+    }
+
+    #[test]
+    fn exact_matrix_inverse_uses_symbolica() {
         let matrix = vec![
             vec![1.into(), 0.into(), 0.into()],
             vec![0.into(), 0.into(), 1.into()],
             vec![1.into(), 2.into(), 1.into()],
         ];
-        let inverse = invert_matrix(&matrix).unwrap();
-        for row in 0..3 {
-            for column in 0..3 {
-                let product = (0..3)
-                    .map(|index| matrix[row][index] * inverse[index][column])
-                    .fold(ExactRational::ZERO, Add::add);
-                assert_eq!(product, if row == column { 1.into() } else { 0.into() });
+        assert_inverse(&matrix);
+    }
+
+    #[test]
+    fn exact_matrix_inverse_preserves_gmp_entries() {
+        let huge = Integer::from(2).pow(257) + Integer::from(17);
+        let matrix = diagonal([ExactRational::from(huge.clone()), ExactRational::new(1, 3)]);
+        assert_inverse(&matrix);
+        assert_eq!(
+            matrix_determinant(&matrix).unwrap(),
+            ExactRational::try_new(huge, 3).unwrap()
+        );
+    }
+
+    #[test]
+    fn inverse_handles_one_through_six_dimensions() {
+        for size in 1_usize..=6 {
+            let values = (0..size)
+                .map(|index| ExactRational::from(i64::try_from(index + 2).unwrap()))
+                .collect::<Vec<_>>();
+            assert_inverse(&diagonal(values));
+        }
+    }
+
+    #[test]
+    fn inverse_rejects_singular_one_through_six_dimensions() {
+        for size in 1_usize..=6 {
+            let mut matrix = diagonal((0..size).map(|_| ExactRational::one()));
+            if size == 1 {
+                matrix[0][0] = ExactRational::zero();
+            } else {
+                matrix[size - 1] = matrix[0].clone();
+            }
+            assert_eq!(
+                invert_matrix(&matrix).unwrap_err(),
+                "denominator basis matrix is singular"
+            );
+        }
+    }
+
+    #[test]
+    fn determinant_tracks_row_swap_sign() {
+        let matrix = vec![
+            vec![ExactRational::zero(), ExactRational::one()],
+            vec![ExactRational::one(), ExactRational::zero()],
+        ];
+        assert_eq!(
+            matrix_determinant(&matrix).unwrap(),
+            ExactRational::from(-1)
+        );
+    }
+
+    #[test]
+    fn exhaustive_two_by_two_rank_determinant_and_inverse_agree() {
+        for first in -2_i64..=2 {
+            for second in -2_i64..=2 {
+                for third in -2_i64..=2 {
+                    for fourth in -2_i64..=2 {
+                        let matrix = vec![
+                            vec![first.into(), second.into()],
+                            vec![third.into(), fourth.into()],
+                        ];
+                        let determinant = matrix_determinant(&matrix).unwrap();
+                        let rank = matrix_rank(matrix.clone()).unwrap();
+                        assert_eq!(determinant.is_zero(), rank < 2);
+                        if determinant.is_zero() {
+                            assert_eq!(
+                                invert_matrix(&matrix).unwrap_err(),
+                                "denominator basis matrix is singular"
+                            );
+                        } else {
+                            assert_inverse(&matrix);
+                        }
+                    }
+                }
             }
         }
+    }
+
+    #[test]
+    fn matrix_shape_and_zero_column_boundaries_are_checked() {
+        let ragged = vec![vec![ExactRational::one()], Vec::new()];
+        assert!(matrix_rank(ragged.clone()).unwrap_err().contains("ragged"));
+        assert!(matrix_transpose(&ragged).unwrap_err().contains("ragged"));
+        assert!(
+            matrix_multiply(&ragged, &ragged)
+                .unwrap_err()
+                .contains("ragged")
+        );
+        assert!(matrix_determinant(&ragged).unwrap_err().contains("ragged"));
+
+        let zero_columns = vec![Vec::new(), Vec::new()];
+        assert_eq!(matrix_rank(zero_columns.clone()).unwrap(), 0);
+        assert!(matrix_transpose(&zero_columns).unwrap().is_empty());
+        assert_eq!(matrix_rank(Vec::new()).unwrap(), 0);
+        assert!(matrix_determinant(&[]).is_err());
+    }
+
+    #[test]
+    fn rectangular_rank_product_and_transpose_use_native_matrices() {
+        let matrix = vec![
+            vec![1.into(), 2.into(), 3.into()],
+            vec![2.into(), 4.into(), 6.into()],
+        ];
+        assert_eq!(matrix_rank(matrix.clone()).unwrap(), 1);
+        assert_eq!(
+            matrix_transpose(&matrix).unwrap(),
+            vec![
+                vec![1.into(), 2.into()],
+                vec![2.into(), 4.into()],
+                vec![3.into(), 6.into()]
+            ]
+        );
+
+        let right = vec![vec![1.into()], vec![0.into()], vec![1.into()]];
+        assert_eq!(
+            matrix_multiply(&matrix, &right).unwrap(),
+            vec![vec![4.into()], vec![8.into()]]
+        );
+        assert!(matrix_multiply(&right, &matrix).is_err());
     }
 }

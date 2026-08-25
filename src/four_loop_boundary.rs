@@ -13,6 +13,7 @@
 
 use std::array;
 use std::fmt;
+use std::mem::size_of;
 
 use crate::exact::{invert_matrix, matrix_determinant, matrix_multiply, matrix_rank};
 use crate::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
@@ -244,6 +245,75 @@ impl FourLoopFactorizationWitness {
     pub fn product(&self) -> Result<MasterProduct<MassiveVacuumMaster>, MasterProductError> {
         MasterProduct::try_from_factors(self.components.iter().map(|component| component.master))
     }
+
+    /// Bytes in this witness's owned Rust payload and Symbolica GMP limbs.
+    ///
+    /// This census includes the `Arc`-owned shallow witness value, every owned
+    /// `Vec` allocation at its retained capacity, and the allocated bit
+    /// capacity of every large Symbolica integer. Owner-collection storage,
+    /// allocator metadata, and `Arc` reference-count headers are outside this
+    /// payload metric and are charged by their respective owners where needed.
+    pub(crate) fn retained_payload_bytes(&self) -> Option<usize> {
+        fn add(total: &mut usize, bytes: usize) -> Option<()> {
+            *total = total.checked_add(bytes)?;
+            Some(())
+        }
+
+        fn vector_bytes<T>(values: &Vec<T>) -> Option<usize> {
+            values.capacity().checked_mul(size_of::<T>())
+        }
+
+        fn rational_heap_bytes<'a>(
+            values: impl IntoIterator<Item = &'a ExactRational>,
+        ) -> Option<usize> {
+            values.into_iter().try_fold(0_usize, |total, value| {
+                total.checked_add(value.retained_heap_bytes()?)
+            })
+        }
+
+        fn rational_rows_bytes(rows: &Vec<Vec<ExactRational>>) -> Option<usize> {
+            let mut bytes = vector_bytes(rows)?;
+            for row in rows {
+                add(&mut bytes, vector_bytes(row)?)?;
+                add(&mut bytes, rational_heap_bytes(row)?)?;
+            }
+            Some(bytes)
+        }
+
+        let mut bytes = size_of::<Self>();
+        add(
+            &mut bytes,
+            rational_heap_bytes(self.global_loop_map.iter().flatten())?,
+        )?;
+        add(&mut bytes, vector_bytes(&self.line_coordinates)?)?;
+        add(
+            &mut bytes,
+            rational_heap_bytes(
+                self.line_coordinates
+                    .iter()
+                    .flat_map(|line| line.coordinates.iter()),
+            )?,
+        )?;
+        add(&mut bytes, vector_bytes(&self.components)?)?;
+        for component in &self.components {
+            add(&mut bytes, vector_bytes(&component.global_basis_slots)?)?;
+            add(&mut bytes, vector_bytes(&component.physical_positions)?)?;
+            add(
+                &mut bytes,
+                vector_bytes(&component.component_basis_positions)?,
+            )?;
+            add(
+                &mut bytes,
+                rational_rows_bytes(&component.canonical_signature)?,
+            )?;
+            add(
+                &mut bytes,
+                rational_rows_bytes(&component.component_loop_map)?,
+            )?;
+            add(&mut bytes, vector_bytes(&component.signed_line_matches)?)?;
+        }
+        Some(bytes)
+    }
 }
 
 /// Exact scalar-corner classification.
@@ -321,7 +391,8 @@ impl FourLoopBoundaryReducer {
             .iter()
             .map(|&position| (position, self.physical_routing(position)))
             .collect::<Vec<_>>();
-        let rank = matrix_rank(rows.iter().map(|(_, row)| row.clone()).collect());
+        let rank = matrix_rank(rows.iter().map(|(_, row)| row.clone()).collect())
+            .map_err(FourLoopBoundaryError::LinearAlgebra)?;
         if rank < LOOPS {
             return Ok(FourLoopScalarClass::Scaleless {
                 sector_mask,
@@ -380,7 +451,7 @@ impl FourLoopBoundaryReducer {
                         line.physical_position,
                         slots
                             .iter()
-                            .map(|&slot| line.coordinates[slot])
+                            .map(|&slot| line.coordinates[slot].clone())
                             .collect::<Vec<_>>(),
                     )
                 })
@@ -569,7 +640,7 @@ impl FourLoopBoundaryReducer {
                 let local = component
                     .global_basis_slots
                     .iter()
-                    .map(|&slot| line.coordinates[slot])
+                    .map(|&slot| line.coordinates[slot].clone())
                     .collect::<Vec<_>>();
                 let mapped = row_times_matrix(&local, &component.component_loop_map);
                 let reference = reference_rows(component.master);
@@ -579,11 +650,10 @@ impl FourLoopBoundaryReducer {
                 else {
                     return Err(FourLoopBoundaryError::WitnessMismatch);
                 };
+                let orientation = ExactRational::from(i64::from(line_match.orientation_sign));
                 let expected = reference_row
                     .iter()
-                    .map(|&value| {
-                        value * ExactRational::from(i64::from(line_match.orientation_sign))
-                    })
+                    .map(|value| value * &orientation)
                     .collect::<Vec<_>>();
                 if mapped != expected {
                     return Err(FourLoopBoundaryError::WitnessMismatch);
@@ -670,7 +740,8 @@ impl FourLoopBoundaryReducer {
                 .collect::<Vec<_>>();
             let determinant =
                 matrix_determinant(&basis).map_err(FourLoopBoundaryError::LinearAlgebra)?;
-            if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+            let one = ExactRational::one();
+            if determinant != one && determinant != -&one {
                 continue;
             }
             let positions = indices
@@ -684,11 +755,7 @@ impl FourLoopBoundaryReducer {
                 positions,
                 basis,
                 inverse,
-                if determinant == ExactRational::ONE {
-                    1
-                } else {
-                    -1
-                },
+                if determinant == one { 1 } else { -1 },
             ));
         }
         Err(FourLoopBoundaryError::NoUnimodularGlobalBasis { sector_mask })
@@ -733,7 +800,8 @@ fn canonical_signature(
             .collect::<Vec<_>>();
         let determinant =
             matrix_determinant(&basis).map_err(FourLoopBoundaryError::LinearAlgebra)?;
-        if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+        let one = ExactRational::one();
+        if determinant != one && determinant != -&one {
             continue;
         }
         let inverse = invert_matrix(&basis).map_err(FourLoopBoundaryError::LinearAlgebra)?;
@@ -749,9 +817,9 @@ fn canonical_signature(
                     let signed = row
                         .iter()
                         .enumerate()
-                        .map(|(axis, &value)| {
+                        .map(|(axis, value)| {
                             if signs & (1 << axis) == 0 {
-                                value
+                                value.clone()
                             } else {
                                 -value
                             }
@@ -925,8 +993,8 @@ fn row_times_matrix(row: &[ExactRational], matrix: &[Vec<ExactRational>]) -> Vec
         .map(|column| {
             row.iter()
                 .zip(matrix)
-                .map(|(&left, right)| left * right[column])
-                .fold(ExactRational::ZERO, |sum, value| sum + value)
+                .map(|(left, right)| left * &right[column])
+                .fold(ExactRational::zero(), |sum, value| sum + value)
         })
         .collect()
 }
@@ -936,11 +1004,11 @@ fn normalize_squared_routing(mut row: Vec<ExactRational>) -> (Vec<ExactRational>
     if row
         .iter()
         .find(|value| !value.is_zero())
-        .is_some_and(|value| value.numerator() < 0)
+        .is_some_and(|value| value.is_negative())
     {
         orientation_sign = -1;
         for value in &mut row {
-            *value = -*value;
+            *value = -&*value;
         }
     }
     (row, orientation_sign)
@@ -954,7 +1022,7 @@ fn diagonal_sign_product(left: &[i8], right: &[i8]) -> Vec<Vec<ExactRational>> {
                     if row == column {
                         ExactRational::from(i64::from(left[row] * right[row]))
                     } else {
-                        ExactRational::ZERO
+                        ExactRational::zero()
                     }
                 })
                 .collect()
@@ -964,12 +1032,15 @@ fn diagonal_sign_product(left: &[i8], right: &[i8]) -> Vec<Vec<ExactRational>> {
 
 fn determinant_sign(matrix: &[Vec<ExactRational>]) -> Result<i8, FourLoopBoundaryError> {
     let determinant = matrix_determinant(matrix).map_err(FourLoopBoundaryError::LinearAlgebra)?;
-    match determinant {
-        ExactRational::ONE => Ok(1),
-        value if value == -ExactRational::ONE => Ok(-1),
-        _ => Err(FourLoopBoundaryError::WitnessConstruction(
+    let one = ExactRational::one();
+    if determinant == one {
+        Ok(1)
+    } else if determinant == -&one {
+        Ok(-1)
+    } else {
+        Err(FourLoopBoundaryError::WitnessConstruction(
             "component loop map is not unimodular".to_owned(),
-        )),
+        ))
     }
 }
 
@@ -1304,5 +1375,138 @@ impl std::error::Error for FourLoopBoundaryError {
             Self::MasterProduct(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod retained_payload_tests {
+    use symbolica::domains::integer::Integer;
+
+    use super::*;
+
+    fn witness_fixture() -> FourLoopFactorizationWitness {
+        FourLoopFactorizationWitness {
+            topology: FourLoopTopology::H,
+            sector_mask: 1,
+            global_basis_positions: [0, 1, 2, 3],
+            global_loop_map: array::from_fn(|_| array::from_fn(|_| ExactRational::zero())),
+            determinant_sign: 1,
+            line_coordinates: vec![FourLoopLineCoordinate {
+                physical_position: 0,
+                coordinates: array::from_fn(|_| ExactRational::zero()),
+            }],
+            components: vec![FourLoopComponentWitness {
+                master: MassiveVacuumMaster::T1,
+                global_basis_slots: vec![0],
+                physical_positions: vec![0],
+                component_basis_positions: vec![0],
+                canonical_signature: vec![vec![ExactRational::zero()]],
+                component_loop_map: vec![vec![ExactRational::zero()]],
+                determinant_sign: 1,
+                signed_line_matches: Vec::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn retained_payload_census_charges_every_gmp_rational_parent() {
+        let huge = ExactRational::from(Integer::from(2).pow(513) + Integer::from(1));
+        let huge_bytes = huge.retained_heap_bytes().unwrap();
+        assert!(huge_bytes > 0);
+
+        let baseline = witness_fixture().retained_payload_bytes().unwrap();
+        let mut global = witness_fixture();
+        global.global_loop_map[0][0] = huge.clone();
+        let stored_bytes = global.global_loop_map[0][0].retained_heap_bytes().unwrap();
+        assert_eq!(
+            global.retained_payload_bytes().unwrap() - baseline,
+            stored_bytes
+        );
+
+        let mut line = witness_fixture();
+        line.line_coordinates[0].coordinates[0] = huge.clone();
+        let stored_bytes = line.line_coordinates[0].coordinates[0]
+            .retained_heap_bytes()
+            .unwrap();
+        assert_eq!(
+            line.retained_payload_bytes().unwrap() - baseline,
+            stored_bytes
+        );
+
+        let mut signature = witness_fixture();
+        signature.components[0].canonical_signature[0][0] = huge.clone();
+        let stored_bytes = signature.components[0].canonical_signature[0][0]
+            .retained_heap_bytes()
+            .unwrap();
+        assert_eq!(
+            signature.retained_payload_bytes().unwrap() - baseline,
+            stored_bytes
+        );
+
+        let mut component_map = witness_fixture();
+        component_map.components[0].component_loop_map[0][0] = huge;
+        let stored_bytes = component_map.components[0].component_loop_map[0][0]
+            .retained_heap_bytes()
+            .unwrap();
+        assert_eq!(
+            component_map.retained_payload_bytes().unwrap() - baseline,
+            stored_bytes
+        );
+    }
+
+    #[test]
+    fn retained_payload_census_charges_every_vec_at_observed_capacity() {
+        macro_rules! assert_capacity_charge {
+            ($owner:ident, $values:expr, $element:ty) => {{
+                let before_bytes = $owner.retained_payload_bytes().unwrap();
+                let before_capacity = $values.capacity();
+                let additional = before_capacity - $values.len() + 7;
+                $values.reserve_exact(additional);
+                let after_capacity = $values.capacity();
+                assert!(after_capacity > before_capacity);
+                assert_eq!(
+                    $owner.retained_payload_bytes().unwrap() - before_bytes,
+                    (after_capacity - before_capacity) * std::mem::size_of::<$element>()
+                );
+            }};
+        }
+
+        let mut witness = witness_fixture();
+        assert_capacity_charge!(witness, witness.line_coordinates, FourLoopLineCoordinate);
+        assert_capacity_charge!(witness, witness.components, FourLoopComponentWitness);
+
+        assert_capacity_charge!(witness, witness.components[0].global_basis_slots, usize);
+        assert_capacity_charge!(witness, witness.components[0].physical_positions, usize);
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].component_basis_positions,
+            usize
+        );
+
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].canonical_signature,
+            Vec<ExactRational>
+        );
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].canonical_signature[0],
+            ExactRational
+        );
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].component_loop_map,
+            Vec<ExactRational>
+        );
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].component_loop_map[0],
+            ExactRational
+        );
+        assert_capacity_charge!(
+            witness,
+            witness.components[0].signed_line_matches,
+            FourLoopSignedLineMatch
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt, mem::size_of, sync::Arc};
+use std::{borrow::Borrow, cmp::Ordering, fmt, mem::size_of, sync::Arc};
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
@@ -1025,9 +1025,18 @@ impl CoefficientContext {
             .into()
     }
 
-    pub fn rational(&self, value: ExactRational) -> Coefficient {
-        let numerator = self.integer(value.numerator());
-        let denominator = self.integer(value.denominator());
+    pub fn rational(&self, value: impl Borrow<ExactRational>) -> Coefficient {
+        let value = value.borrow();
+        let numerator: Coefficient = self
+            .template
+            .numerator
+            .constant(value.numerator().clone())
+            .into();
+        let denominator: Coefficient = self
+            .template
+            .denominator
+            .constant(value.denominator().clone())
+            .into();
         &numerator / &denominator
     }
 
@@ -1251,7 +1260,11 @@ impl CoefficientContext {
         coefficient * &self.integer(i64::from(value))
     }
 
-    pub fn scale_rational(&self, coefficient: &Coefficient, value: ExactRational) -> Coefficient {
+    pub fn scale_rational(
+        &self,
+        coefficient: &Coefficient,
+        value: impl Borrow<ExactRational>,
+    ) -> Coefficient {
         coefficient * &self.rational(value)
     }
 }

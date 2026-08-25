@@ -29,27 +29,81 @@ fn check_complete_basis_and_inverse(family: &VacuumFamily) {
 
     let half = rational(1, 2);
     let minus_half = rational(-1, 2);
-    let zero = ExactRational::ZERO;
-    let one = ExactRational::ONE;
+    let zero = ExactRational::zero();
+    let one = ExactRational::one();
     let expected = [
-        ((0, 0), "-m2", vec![one, zero, zero, zero, zero, zero]),
+        (
+            (0, 0),
+            "-m2",
+            vec![
+                one.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
+        ),
         (
             (0, 1),
             "-m2/2",
-            vec![half, half, zero, zero, minus_half, zero],
+            vec![
+                half.clone(),
+                half.clone(),
+                zero.clone(),
+                zero.clone(),
+                minus_half.clone(),
+                zero.clone(),
+            ],
         ),
         (
             (0, 2),
             "-m2/2",
-            vec![half, zero, half, minus_half, zero, zero],
+            vec![
+                half.clone(),
+                zero.clone(),
+                half.clone(),
+                minus_half.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
         ),
-        ((1, 1), "-m2", vec![zero, one, zero, zero, zero, zero]),
+        (
+            (1, 1),
+            "-m2",
+            vec![
+                zero.clone(),
+                one.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
+        ),
         (
             (1, 2),
             "-m2/2",
-            vec![zero, half, half, zero, zero, minus_half],
+            vec![
+                zero.clone(),
+                half.clone(),
+                half.clone(),
+                zero.clone(),
+                zero.clone(),
+                minus_half.clone(),
+            ],
         ),
-        ((2, 2), "-m2", vec![zero, zero, one, zero, zero, zero]),
+        (
+            (2, 2),
+            "-m2",
+            vec![
+                zero.clone(),
+                zero.clone(),
+                one.clone(),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
+        ),
     ];
 
     for ((left, right), constant, coefficients) in &expected {
@@ -65,9 +119,9 @@ fn check_complete_basis_and_inverse(family: &VacuumFamily) {
     // into every q_i^2+m2.  Each result must be precisely D_i.
     for (denominator_index, denominator) in family.denominators().iter().enumerate() {
         let mut constant = denominator.shift().clone();
-        let mut coefficients = vec![ExactRational::ZERO; 6];
+        let mut coefficients = vec![ExactRational::zero(); 6];
         for (scalar_product, ((left, right), _, _)) in expected.iter().enumerate() {
-            let factor = denominator.quadratic_form()[scalar_product];
+            let factor = &denominator.quadratic_form()[scalar_product];
             if factor.is_zero() {
                 continue;
             }
@@ -76,8 +130,9 @@ fn check_complete_basis_and_inverse(family: &VacuumFamily) {
                 + &family
                     .coefficients()
                     .scale_rational(expansion.constant(), factor);
-            for (target, &coefficient) in expansion.denominator_coefficients().iter().enumerate() {
-                coefficients[target] = coefficients[target] + factor * coefficient;
+            for (target, coefficient) in expansion.denominator_coefficients().iter().enumerate() {
+                let contribution = factor * coefficient;
+                coefficients[target] = &coefficients[target] + &contribution;
             }
         }
         assert!(constant.is_zero());
@@ -86,9 +141,9 @@ fn check_complete_basis_and_inverse(family: &VacuumFamily) {
             (0..6)
                 .map(|target| {
                     if target == denominator_index {
-                        ExactRational::ONE
+                        ExactRational::one()
                     } else {
-                        ExactRational::ZERO
+                        ExactRational::zero()
                     }
                 })
                 .collect::<Vec<_>>()

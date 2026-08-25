@@ -96,9 +96,10 @@ fn determinant(matrix: &[[ExactRational; 4]; 4]) -> ExactRational {
                 .filter(|&(left, right)| columns[left] > columns[right])
                 .count();
             let value = (0..4)
-                .map(|index| matrix[index][columns[index]])
-                .fold(ExactRational::ONE, |left, right| left * right);
-            *total = *total + if inversions % 2 == 0 { value } else { -value };
+                .map(|index| &matrix[index][columns[index]])
+                .fold(ExactRational::one(), |left, right| &left * right);
+            let signed = if inversions % 2 == 0 { value } else { -value };
+            *total = &*total + &signed;
             return;
         }
         for column in 0..4 {
@@ -110,7 +111,7 @@ fn determinant(matrix: &[[ExactRational; 4]; 4]) -> ExactRational {
             }
         }
     }
-    let mut total = ExactRational::ZERO;
+    let mut total = ExactRational::zero();
     visit(0, matrix, &mut [false; 4], &mut [0; 4], &mut total);
     total
 }
@@ -150,8 +151,8 @@ fn check_witness(
     for line in witness.line_coordinates() {
         let reconstructed: [ExactRational; 4] = std::array::from_fn(|column| {
             (0..4)
-                .map(|slot| line.coordinates()[slot] * witness.global_loop_map()[slot][column])
-                .fold(ExactRational::ZERO, |left, right| left + right)
+                .map(|slot| &line.coordinates()[slot] * &witness.global_loop_map()[slot][column])
+                .fold(ExactRational::zero(), |left, right| &left + &right)
         });
         let expected = reducer.family().denominators()[line.physical_position()]
             .momentum()
@@ -215,12 +216,12 @@ fn check_witness(
             .collect::<Vec<_>>();
         let map = component.component_loop_map();
         let determinant = match map.len() {
-            1 => map[0][0],
-            2 => map[0][0] * map[1][1] - map[0][1] * map[1][0],
+            1 => map[0][0].clone(),
+            2 => &map[0][0] * &map[1][1] - &map[0][1] * &map[1][0],
             3 => {
-                map[0][0] * (map[1][1] * map[2][2] - map[1][2] * map[2][1])
-                    - map[0][1] * (map[1][0] * map[2][2] - map[1][2] * map[2][0])
-                    + map[0][2] * (map[1][0] * map[2][1] - map[1][1] * map[2][0])
+                &map[0][0] * (&map[1][1] * &map[2][2] - &map[1][2] * &map[2][1])
+                    - &map[0][1] * (&map[1][0] * &map[2][2] - &map[1][2] * &map[2][0])
+                    + &map[0][2] * (&map[1][0] * &map[2][1] - &map[1][1] * &map[2][0])
             }
             _ => unreachable!(),
         };
@@ -247,20 +248,20 @@ fn check_witness(
             let local = component
                 .global_basis_slots()
                 .iter()
-                .map(|&slot| line.coordinates()[slot])
+                .map(|&slot| line.coordinates()[slot].clone())
                 .collect::<Vec<_>>();
             let mapped = (0..map.len())
                 .map(|column| {
                     local
                         .iter()
                         .zip(map)
-                        .map(|(&left, right)| left * right[column])
-                        .fold(ExactRational::ZERO, |left, right| left + right)
+                        .map(|(left, right)| left * &right[column])
+                        .fold(ExactRational::zero(), |left, right| &left + &right)
                 })
                 .collect::<Vec<_>>();
             let expected = reference[line_match.reference_position()]
                 .iter()
-                .map(|&value| value * ExactRational::from(i64::from(line_match.orientation_sign())))
+                .map(|value| value * &ExactRational::from(i64::from(line_match.orientation_sign())))
                 .collect::<Vec<_>>();
             assert_eq!(mapped, expected);
         }

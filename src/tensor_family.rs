@@ -221,7 +221,7 @@ impl<'family> TensorFamilyReducer<'family> {
                             );
                             check_term_limit(&next, self.max_expansion_terms)?;
                         }
-                        for (denominator, &basis_coefficient) in
+                        for (denominator, basis_coefficient) in
                             expansion.denominator_coefficients().iter().enumerate()
                         {
                             if basis_coefficient.is_zero() {

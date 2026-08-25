@@ -92,9 +92,11 @@ impl Denominator {
         let mut quadratic_form = Vec::with_capacity(momentum.len() * (momentum.len() + 1) / 2);
         for left in 0..momentum.len() {
             for right in left..momentum.len() {
-                let symmetry_factor = if left == right { 1.into() } else { 2.into() };
-                quadratic_form
-                    .push(momentum[left] * momentum[right] * symmetry_factor * normalization);
+                let symmetry_factor: ExactRational =
+                    if left == right { 1.into() } else { 2.into() };
+                let routed_product = &momentum[left] * &momentum[right];
+                let routed_product = &routed_product * &symmetry_factor;
+                quadratic_form.push(&routed_product * &normalization);
             }
         }
         Self {
@@ -425,7 +427,7 @@ impl VacuumFamily {
             .iter()
             .map(|denominator| denominator.quadratic_form.clone())
             .collect();
-        let mut rank = matrix_rank(rows.clone());
+        let mut rank = matrix_rank(rows.clone()).map_err(FamilyError::SingularBasis)?;
         if rank != rows.len() {
             return Err(FamilyError::SingularBasis(
                 "physical propagator quadratic forms are linearly dependent".to_owned(),
@@ -436,11 +438,11 @@ impl VacuumFamily {
             if denominators.len() == scalar_products {
                 break;
             }
-            let mut row = vec![ExactRational::ZERO; scalar_products];
-            row[scalar_product] = ExactRational::ONE;
+            let mut row = vec![ExactRational::zero(); scalar_products];
+            row[scalar_product] = ExactRational::one();
             let mut trial = rows.clone();
             trial.push(row.clone());
-            let trial_rank = matrix_rank(trial);
+            let trial_rank = matrix_rank(trial).map_err(FamilyError::SingularBasis)?;
             if trial_rank > rank {
                 denominators.push(Denominator::auxiliary(row.clone(), coefficients.zero()));
                 rows.push(row);
@@ -740,7 +742,7 @@ impl VacuumFamily {
                 constant = &constant
                     + &self
                         .coefficients
-                        .scale_rational(&denominator.shift, -*coefficient);
+                        .scale_rational(&denominator.shift, -coefficient);
             }
         }
         Ok(ScalarProductExpansion {
@@ -833,7 +835,13 @@ impl VacuumFamily {
         if has_auxiliary_denominator {
             return false;
         }
-        if matrix_rank(active_momenta) < self.loops {
+        let Ok(active_rank) = matrix_rank(active_momenta) else {
+            // Every physical routing was authenticated against `self.loops`
+            // during construction. Be conservative if that invariant is ever
+            // violated: a malformed rank input is not a zero-sector proof.
+            return false;
+        };
+        if active_rank < self.loops {
             return true;
         }
 
@@ -1004,11 +1012,11 @@ impl VacuumFamily {
         contraction_loop: usize,
     ) -> DenominatorLinearForm {
         let scalar_products = self.denominator_count();
-        let mut scalar_coefficients = vec![ExactRational::ZERO; scalar_products];
+        let mut scalar_coefficients = vec![ExactRational::zero(); scalar_products];
 
         for left in 0..self.loops {
             for right in left..self.loops {
-                let coefficient = self.denominators[denominator].quadratic_form
+                let coefficient = &self.denominators[denominator].quadratic_form
                     [scalar_product_index(self.loops, left, right)];
                 if coefficient.is_zero() {
                     continue;
@@ -1016,23 +1024,23 @@ impl VacuumFamily {
                 if differentiated_loop == left {
                     let multiplicity: ExactRational = if left == right { 2 } else { 1 }.into();
                     let index = scalar_product_index(self.loops, right, contraction_loop);
-                    scalar_coefficients[index] =
-                        scalar_coefficients[index] + coefficient * multiplicity;
+                    let contribution = coefficient * &multiplicity;
+                    scalar_coefficients[index] = &scalar_coefficients[index] + &contribution;
                 }
                 if left != right && differentiated_loop == right {
                     let index = scalar_product_index(self.loops, left, contraction_loop);
-                    scalar_coefficients[index] = scalar_coefficients[index] + coefficient;
+                    scalar_coefficients[index] = &scalar_coefficients[index] + coefficient;
                 }
             }
         }
 
-        let mut denominator_coefficients = vec![ExactRational::ZERO; scalar_products];
+        let mut denominator_coefficients = vec![ExactRational::zero(); scalar_products];
         for scalar_product in 0..scalar_products {
             for target_denominator in 0..scalar_products {
-                denominator_coefficients[target_denominator] = denominator_coefficients
-                    [target_denominator]
-                    + scalar_coefficients[scalar_product]
-                        * self.inverse_basis[scalar_product][target_denominator];
+                let contribution = &scalar_coefficients[scalar_product]
+                    * &self.inverse_basis[scalar_product][target_denominator];
+                denominator_coefficients[target_denominator] =
+                    &denominator_coefficients[target_denominator] + &contribution;
             }
         }
 
@@ -1043,7 +1051,7 @@ impl VacuumFamily {
             if !coefficient.is_zero() {
                 let contribution = self
                     .coefficients
-                    .scale_rational(&target_denominator.shift, -*coefficient);
+                    .scale_rational(&target_denominator.shift, -coefficient);
                 constant = &constant + &contribution;
             }
         }
@@ -1213,7 +1221,7 @@ fn symmetry_is_geometric(
                 .enumerate()
                 .map(|(row, values)| {
                     let sign: ExactRational = if signs[row] { -1 } else { 1 }.into();
-                    values.iter().map(|&value| sign * value).collect()
+                    values.iter().map(|value| &sign * value).collect()
                 })
                 .collect();
             let Ok(transformation) = matrix_multiply(&source_inverse, &signed_target) else {
@@ -1222,7 +1230,7 @@ fn symmetry_is_geometric(
             let Ok(determinant) = matrix_determinant(&transformation) else {
                 continue;
             };
-            if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+            if determinant != ExactRational::one() && determinant != -ExactRational::one() {
                 continue;
             }
             if permutation.iter().enumerate().all(|(target, &source)| {
@@ -1261,32 +1269,32 @@ fn transformed_quadratic_form(
     form: &[ExactRational],
     transformation: &[Vec<ExactRational>],
 ) -> Vec<ExactRational> {
-    let mut matrix = vec![vec![ExactRational::ZERO; loops]; loops];
+    let mut matrix = vec![vec![ExactRational::zero(); loops]; loops];
     for left in 0..loops {
         for right in left..loops {
-            let coefficient = form[scalar_product_index(loops, left, right)];
+            let coefficient = &form[scalar_product_index(loops, left, right)];
             if left == right {
-                matrix[left][right] = coefficient;
+                matrix[left][right] = coefficient.clone();
             } else {
                 let half = coefficient * ExactRational::new(1, 2);
-                matrix[left][right] = half;
+                matrix[left][right] = half.clone();
                 matrix[right][left] = half;
             }
         }
     }
-    let transformed = matrix_multiply(
-        &matrix_multiply(&matrix_transpose(transformation), &matrix)
-            .expect("square transformation has compatible dimensions"),
-        transformation,
-    )
-    .expect("square transformation has compatible dimensions");
+    let transpose =
+        matrix_transpose(transformation).expect("square transformation has compatible dimensions");
+    let left_product = matrix_multiply(&transpose, &matrix)
+        .expect("square transformation has compatible dimensions");
+    let transformed = matrix_multiply(&left_product, transformation)
+        .expect("square transformation has compatible dimensions");
     let mut result = Vec::with_capacity(form.len());
     for left in 0..loops {
         for right in left..loops {
             result.push(if left == right {
-                transformed[left][right]
+                transformed[left][right].clone()
             } else {
-                transformed[left][right] * 2.into()
+                &transformed[left][right] * &ExactRational::from(2)
             });
         }
     }
@@ -1643,8 +1651,8 @@ mod tests {
         let loops = if usize::BITS == 64 { 16 } else { 8 };
         let coefficients = CoefficientContext::new(["d", "m2"]);
         let mass = coefficients.parameter("m2").unwrap();
-        let mut momentum = vec![ExactRational::ZERO; loops];
-        momentum[0] = ExactRational::ONE;
+        let mut momentum = vec![ExactRational::zero(); loops];
+        momentum[0] = ExactRational::one();
         let duplicate = Denominator::propagator(momentum, mass);
         let propagators = vec![duplicate; usize::BITS as usize];
 

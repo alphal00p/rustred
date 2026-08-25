@@ -109,7 +109,7 @@ impl<'family> TwoLoopBoundaryReducer<'family> {
         let normalization: crate::ExactRational = i64::from(propagator_sign.normalization()).into();
         let normalized_shift = family
             .coefficients()
-            .scale_rational(family.denominators()[0].shift(), normalization);
+            .scale_rational(family.denominators()[0].shift(), &normalization);
         if normalized_shift.is_zero() {
             return Err(TwoLoopBoundaryError::MasslessFamily);
         }
@@ -120,7 +120,7 @@ impl<'family> TwoLoopBoundaryReducer<'family> {
             .map(|denominator| {
                 family
                     .coefficients()
-                    .scale_rational(denominator.shift(), normalization)
+                    .scale_rational(denominator.shift(), &normalization)
             })
             .any(|shift| shift != normalized_shift)
         {
@@ -137,18 +137,28 @@ impl<'family> TwoLoopBoundaryReducer<'family> {
                 denominator
                     .quadratic_form()
                     .iter()
-                    .map(|coefficient| *coefficient * normalization)
+                    .map(|coefficient| coefficient * &normalization)
                     .collect::<Vec<_>>()
             })
             .collect();
         actual_basis.sort();
-        let one = crate::ExactRational::ONE;
-        let zero = crate::ExactRational::ZERO;
         let two = crate::ExactRational::from(2);
         let mut expected_basis = vec![
-            vec![one, zero, zero],
-            vec![zero, zero, one],
-            vec![one, two, one],
+            vec![
+                crate::ExactRational::one(),
+                crate::ExactRational::zero(),
+                crate::ExactRational::zero(),
+            ],
+            vec![
+                crate::ExactRational::zero(),
+                crate::ExactRational::zero(),
+                crate::ExactRational::one(),
+            ],
+            vec![
+                crate::ExactRational::one(),
+                two,
+                crate::ExactRational::one(),
+            ],
         ];
         expected_basis.sort();
         if actual_basis != expected_basis {

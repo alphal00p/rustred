@@ -86,7 +86,7 @@ impl ProductBoundaryReducer {
         let sign_rational = ExactRational::from(i64::from(sign.normalization()));
         let mass = family
             .coefficients()
-            .scale_rational(first.shift(), sign_rational);
+            .scale_rational(first.shift(), &sign_rational);
         if mass.is_zero() {
             return Err(ProductBoundaryError::MasslessFamily);
         }
@@ -96,7 +96,7 @@ impl ProductBoundaryReducer {
             }
             let normalized = family
                 .coefficients()
-                .scale_rational(denominator.shift(), sign_rational);
+                .scale_rational(denominator.shift(), &sign_rational);
             if normalized != mass {
                 return Err(ProductBoundaryError::UnequalMasses { position });
             }
@@ -413,9 +413,10 @@ fn sector_is_unimodular(family: &VacuumFamily, sector: &[bool]) -> bool {
     if routings.len() != family.loops() {
         return false;
     }
+    let one = ExactRational::one();
     matches!(
         matrix_determinant(&routings),
-        Ok(determinant) if determinant == ExactRational::ONE || determinant == -ExactRational::ONE
+        Ok(determinant) if determinant == one || determinant == -&one
     )
 }
 

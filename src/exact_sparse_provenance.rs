@@ -987,11 +987,11 @@ mod tests {
         let first = bundle.item(requests[0]).unwrap().source_weights();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].source_row_index(), 0);
-        assert_eq!(first[0].coefficient(), &context.rational(crate::ExactRational::new(1, 2).unwrap()));
+        assert_eq!(first[0].coefficient(), &context.rational(crate::ExactRational::new(1, 2)));
         let second = bundle.item(requests[1]).unwrap().source_weights();
         assert_eq!(second.iter().map(|weight| weight.source_row_index()).collect::<Vec<_>>(), vec![0, 1]);
         assert_eq!(second[0].coefficient(), &context.integer(-1));
-        assert_eq!(second[1].coefficient(), &context.rational(crate::ExactRational::new(1, 3).unwrap()));
+        assert_eq!(second[1].coefficient(), &context.rational(crate::ExactRational::new(1, 3)));
         let root = bundle.item(requests[2]).unwrap().source_weights();
         assert_eq!(root.iter().map(|weight| (weight.source_row_index(), weight.coefficient().clone())).collect::<Vec<_>>(), vec![(0, context.integer(-2)), (1, context.one()), (2, context.one())]);
         bundle.replay_authenticated(&certificate, &context, &rows).unwrap();

@@ -88,7 +88,11 @@ fn check_family_safety() {
             Denominator::propagator(vec![1.into(), 0.into()], mass),
             Denominator::propagator(vec![0.into(), 1.into()], zero.clone()),
             Denominator::auxiliary(
-                vec![ExactRational::ZERO, ExactRational::ONE, ExactRational::ZERO],
+                vec![
+                    ExactRational::zero(),
+                    ExactRational::one(),
+                    ExactRational::zero(),
+                ],
                 zero,
             ),
         ],
@@ -279,7 +283,11 @@ fn check_isp_seed_bounds() {
             Denominator::propagator(vec![1.into(), 0.into()], mass.clone()),
             Denominator::propagator(vec![0.into(), 1.into()], mass),
             Denominator::auxiliary(
-                vec![ExactRational::ZERO, ExactRational::ONE, ExactRational::ZERO],
+                vec![
+                    ExactRational::zero(),
+                    ExactRational::one(),
+                    ExactRational::zero(),
+                ],
                 zero,
             ),
         ],

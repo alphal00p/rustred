@@ -222,15 +222,21 @@ events own opaque source recipes and exact evidence, and the owning prepared
 database transition has an infallible commit tail after all fallible work has
 completed.
 
-The first immediate algebra blocker is a pre-existing layer in
-[`src/exact.rs`](src/exact.rs): its fixed-width rational arithmetic and custom
-matrix routines must be migrated to Symbolica's GMP `Rational` and `Matrix`
-APIs, then its consumers revalidated. The public-API inventory and migration
-audit linked below record the Symbolica operations selected for that work.
-That is the B0 migration, not the end of the Symbolica-first cleanup: the audit
-also identifies remaining production matrix, polynomial, integer, and modular
-arithmetic at priorities P1 through P3. Each must cross the corresponding
-public Symbolica API before its algebraic milestone is complete.
+The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
+keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
+arithmetic and exact matrix inverse, rank, determinant, multiplication, and
+transpose cross the public `Q`/`Matrix<Q>` APIs. The old fixed-width rational,
+gcd, Gaussian-elimination, and determinant implementations have been deleted.
+Checked row-major conversion, allocation/shape admission, panic containment,
+and the independent singularity guard remain RustRed-owned boundaries.
+
+B0 is not the end of the Symbolica-first cleanup. The audit also identifies
+remaining production matrix, polynomial, integer, and modular arithmetic at
+priorities P1 through P3. Each must cross the corresponding public Symbolica
+API before its algebraic milestone is complete. The next migration slice
+moves generated-affine composition and polynomial-associate checks onto
+Symbolica's native polynomial APIs; direct parametric matrix consumers and a
+`SparseRowReducer` transcript-equivalence spike follow it.
 
 Alongside that staged algebra migration, the remaining generic LiteRed-style
 solver work is to:

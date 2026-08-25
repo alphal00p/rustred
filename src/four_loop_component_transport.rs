@@ -293,7 +293,7 @@ impl FourLoopComponentScalarBranch {
 
 /// A nonzero cross-component coefficient accompanied by two independent
 /// rank-one odd projector results.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FourLoopComponentParityWitness {
     basis_position: usize,
     coefficient: ExactRational,
@@ -306,28 +306,28 @@ pub struct FourLoopComponentParityWitness {
 }
 
 impl FourLoopComponentParityWitness {
-    pub const fn basis_position(self) -> usize {
+    pub const fn basis_position(&self) -> usize {
         self.basis_position
     }
-    pub const fn coefficient(self) -> ExactRational {
-        self.coefficient
+    pub fn coefficient(&self) -> ExactRational {
+        self.coefficient.clone()
     }
-    pub const fn left_component(self) -> usize {
+    pub const fn left_component(&self) -> usize {
         self.left_component
     }
-    pub const fn left_axis(self) -> usize {
+    pub const fn left_axis(&self) -> usize {
         self.left_axis
     }
-    pub const fn right_component(self) -> usize {
+    pub const fn right_component(&self) -> usize {
         self.right_component
     }
-    pub const fn right_axis(self) -> usize {
+    pub const fn right_axis(&self) -> usize {
         self.right_axis
     }
-    pub const fn left_rank_one_zero(self) -> bool {
+    pub const fn left_rank_one_zero(&self) -> bool {
         self.left_rank_one_zero
     }
-    pub const fn right_rank_one_zero(self) -> bool {
+    pub const fn right_rank_one_zero(&self) -> bool {
         self.right_rank_one_zero
     }
 }
@@ -1207,7 +1207,7 @@ fn build_plan(
         .collect::<Vec<_>>();
     let basis_inverse =
         invert_matrix(&basis_matrix).map_err(FourLoopComponentTransportError::LinearAlgebra)?;
-    let mut scatter = vec![vec![ExactRational::ZERO; LOOPS]; LOOPS];
+    let mut scatter = vec![vec![ExactRational::zero(); LOOPS]; LOOPS];
     let mut reference_offset = 0_usize;
     for component in witness.components() {
         let rank = component.master().loops();
@@ -1233,7 +1233,7 @@ fn build_plan(
             }
             for local_column in 0..rank {
                 scatter[global_slot][reference_offset + local_column] =
-                    component.component_loop_map()[local_row][local_column];
+                    component.component_loop_map()[local_row][local_column].clone();
             }
         }
         reference_offset += rank;
@@ -1252,7 +1252,7 @@ fn build_plan(
         .map_err(FourLoopComponentTransportError::LinearAlgebra)?;
     let determinant =
         matrix_determinant(&loop_map).map_err(FourLoopComponentTransportError::LinearAlgebra)?;
-    if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+    if determinant != ExactRational::one() && determinant != -ExactRational::one() {
         return Err(FourLoopComponentTransportError::ReplayMismatch {
             leaf_id,
             stage: "component loop transform determinant",
@@ -1473,7 +1473,7 @@ fn verify_signed_line(
         },
     )?;
     let sign = ExactRational::from(i64::from(orientation_sign));
-    let mut expected = vec![ExactRational::ZERO; LOOPS];
+    let mut expected = vec![ExactRational::zero(); LOOPS];
     for (axis, value) in local.into_iter().enumerate() {
         let Some(target) = expected.get_mut(reference_offset + axis) else {
             return Err(FourLoopComponentTransportError::ReplayMismatch {
@@ -1481,7 +1481,7 @@ fn verify_signed_line(
                 stage: "signed line reference offset",
             });
         };
-        *target = sign * value;
+        *target = &sign * &value;
     }
     if mapped != expected {
         return Err(FourLoopComponentTransportError::ReplayMismatch {
@@ -1510,8 +1510,8 @@ fn row_times_matrix(
         .map(|column| {
             row.iter()
                 .zip(matrix)
-                .map(|(&coefficient, matrix_row)| coefficient * matrix_row[column])
-                .fold(ExactRational::ZERO, |sum, term| sum + term)
+                .map(|(coefficient, matrix_row)| coefficient * &matrix_row[column])
+                .fold(ExactRational::zero(), |sum, term| sum + term)
         })
         .collect())
 }
@@ -1539,7 +1539,7 @@ fn build_factorized_basis(
             .into_iter()
             .enumerate()
         {
-            let mut embedded = vec![ExactRational::ZERO; LOOPS];
+            let mut embedded = vec![ExactRational::zero(); LOOPS];
             for (axis, value) in routing.into_iter().enumerate() {
                 embedded[component.reference_loop_offset + axis] = value;
             }
@@ -1561,9 +1561,9 @@ fn build_factorized_basis(
                 for right_axis in 0..right.master.loops() {
                     let left_global = left.reference_loop_offset + left_axis;
                     let right_global = right.reference_loop_offset + right_axis;
-                    let mut quadratic_form = [ExactRational::ZERO; BASIS];
+                    let mut quadratic_form = std::array::from_fn(|_| ExactRational::zero());
                     quadratic_form[scalar_product_index(left_global, right_global)] =
-                        ExactRational::ONE;
+                        ExactRational::one();
                     entries.push(InternalBasisEntry {
                         column: FourLoopComponentBasisColumn::Cross {
                             left_component,
@@ -1605,15 +1605,15 @@ fn build_factorized_basis(
 }
 
 fn routing_quadratic_form(routing: &[ExactRational]) -> [ExactRational; BASIS] {
-    let mut result = [ExactRational::ZERO; BASIS];
+    let mut result = std::array::from_fn(|_| ExactRational::zero());
     for left in 0..LOOPS {
         for right in left..LOOPS {
             let factor = if left == right {
-                ExactRational::ONE
+                ExactRational::one()
             } else {
                 ExactRational::from(2)
             };
-            result[scalar_product_index(left, right)] = routing[left] * routing[right] * factor;
+            result[scalar_product_index(left, right)] = &routing[left] * &routing[right] * factor;
         }
     }
     result
@@ -1656,16 +1656,16 @@ fn build_n1_transport(
         .collect::<Vec<_>>();
     let basis_inverse =
         invert_matrix(&basis_matrix).map_err(FourLoopComponentTransportError::LinearAlgebra)?;
-    let mut coefficients = [ExactRational::ZERO; BASIS];
+    let mut coefficients = std::array::from_fn(|_| ExactRational::zero());
     for target in 0..BASIS {
         coefficients[target] = (0..BASIS)
             .map(|scalar_product| {
-                transformed[scalar_product] * basis_inverse[scalar_product][target]
+                &transformed[scalar_product] * &basis_inverse[scalar_product][target]
             })
-            .fold(ExactRational::ZERO, |sum, term| sum + term);
+            .fold(ExactRational::zero(), |sum, term| sum + term);
     }
     let mut constant = source.shift().clone();
-    for (&coefficient, basis_entry) in coefficients.iter().zip(basis_entries) {
+    for (coefficient, basis_entry) in coefficients.iter().zip(basis_entries) {
         if !coefficient.is_zero() {
             constant = &constant
                 - &family
@@ -1676,7 +1676,7 @@ fn build_n1_transport(
     let affine_image = FourLoopComponentAffineImage {
         source_position,
         constant: constant.clone(),
-        coefficients,
+        coefficients: coefficients.clone(),
     };
     verify_affine_probes(
         leaf_id,
@@ -1709,7 +1709,7 @@ fn build_n1_transport(
         }
     })?;
     let mut projector = VacuumTensorProjector::new(family.coefficients(), "d")?;
-    for (basis_position, (basis_entry, &coefficient)) in
+    for (basis_position, (basis_entry, coefficient)) in
         basis_entries.iter().zip(&coefficients).enumerate()
     {
         if coefficient.is_zero() {
@@ -1777,7 +1777,7 @@ fn build_n1_transport(
                 }
                 parity_witnesses.push(FourLoopComponentParityWitness {
                     basis_position,
-                    coefficient,
+                    coefficient: coefficient.clone(),
                     left_component,
                     left_axis,
                     right_component,
@@ -1822,24 +1822,25 @@ fn transform_quadratic_form(
     source: &[ExactRational],
     loop_map: &[Vec<ExactRational>],
 ) -> [ExactRational; BASIS] {
-    let mut output = [ExactRational::ZERO; BASIS];
+    let mut output = std::array::from_fn(|_| ExactRational::zero());
     for source_left in 0..LOOPS {
         for source_right in source_left..LOOPS {
-            let coefficient = source[scalar_product_index(source_left, source_right)];
+            let coefficient = &source[scalar_product_index(source_left, source_right)];
             if coefficient.is_zero() {
                 continue;
             }
             for target_left in 0..LOOPS {
                 for target_right in target_left..LOOPS {
                     let transformed = if target_left == target_right {
-                        loop_map[source_left][target_left] * loop_map[source_right][target_right]
+                        &loop_map[source_left][target_left] * &loop_map[source_right][target_right]
                     } else {
-                        loop_map[source_left][target_left] * loop_map[source_right][target_right]
-                            + loop_map[source_left][target_right]
-                                * loop_map[source_right][target_left]
+                        &loop_map[source_left][target_left] * &loop_map[source_right][target_right]
+                            + &loop_map[source_left][target_right]
+                                * &loop_map[source_right][target_left]
                     };
                     let target = scalar_product_index(target_left, target_right);
-                    output[target] = output[target] + coefficient * transformed;
+                    let contribution = coefficient * &transformed;
+                    output[target] = &output[target] + &contribution;
                 }
             }
         }
@@ -1848,15 +1849,15 @@ fn transform_quadratic_form(
 }
 
 fn affine_probe_points() -> [[ExactRational; LOOPS]; 11] {
-    let mut points = [[ExactRational::ZERO; LOOPS]; 11];
+    let mut points = std::array::from_fn(|_| std::array::from_fn(|_| ExactRational::zero()));
     for axis in 0..LOOPS {
-        points[1 + axis][axis] = ExactRational::ONE;
+        points[1 + axis][axis] = ExactRational::one();
     }
     let mut position = 1 + LOOPS;
     for left in 0..LOOPS {
         for right in left + 1..LOOPS {
-            points[position][left] = ExactRational::ONE;
-            points[position][right] = ExactRational::ONE;
+            points[position][left] = ExactRational::one();
+            points[position][right] = ExactRational::one();
             position += 1;
         }
     }
@@ -1867,11 +1868,12 @@ fn evaluate_quadratic_form(
     quadratic_form: &[ExactRational],
     point: &[ExactRational; LOOPS],
 ) -> ExactRational {
-    let mut value = ExactRational::ZERO;
+    let mut value = ExactRational::zero();
     for left in 0..LOOPS {
         for right in left..LOOPS {
-            value = value
-                + quadratic_form[scalar_product_index(left, right)] * point[left] * point[right];
+            let term =
+                &quadratic_form[scalar_product_index(left, right)] * &point[left] * &point[right];
+            value = &value + &term;
         }
     }
     value
@@ -1889,8 +1891,8 @@ fn verify_affine_probes(
         let source_point = (0..LOOPS)
             .map(|row| {
                 (0..LOOPS)
-                    .map(|column| loop_map[row][column] * point[column])
-                    .fold(ExactRational::ZERO, |sum, term| sum + term)
+                    .map(|column| &loop_map[row][column] * &point[column])
+                    .fold(ExactRational::zero(), |sum, term| sum + term)
             })
             .collect::<Vec<_>>();
         let source_point: [ExactRational; LOOPS] = source_point.try_into().map_err(|_| {
@@ -1907,7 +1909,7 @@ fn verify_affine_probes(
             ));
 
         let mut right = image.constant.clone();
-        for (&coefficient, basis_entry) in image.coefficients.iter().zip(basis_entries) {
+        for (coefficient, basis_entry) in image.coefficients.iter().zip(basis_entries) {
             if coefficient.is_zero() {
                 continue;
             }
@@ -1949,7 +1951,7 @@ fn replay_retained_plan(
     validate_key_power_mask(leaf_id, key, family)?;
 
     let witness = key.witness();
-    let mut scatter = vec![vec![ExactRational::ZERO; LOOPS]; LOOPS];
+    let mut scatter = vec![vec![ExactRational::zero(); LOOPS]; LOOPS];
     let mut reference_offset = 0_usize;
     for component in witness.components() {
         let rank = component.master().loops();
@@ -1975,7 +1977,7 @@ fn replay_retained_plan(
             )?;
             for local_column in 0..rank {
                 scatter_row[reference_offset + local_column] =
-                    component.component_loop_map()[local_row][local_column];
+                    component.component_loop_map()[local_row][local_column].clone();
             }
         }
         reference_offset += rank;
@@ -2007,7 +2009,7 @@ fn replay_retained_plan(
     }
     let determinant = matrix_determinant(&retained_transform)
         .map_err(FourLoopComponentTransportError::LinearAlgebra)?;
-    if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+    if determinant != ExactRational::one() && determinant != -ExactRational::one() {
         return Err(FourLoopComponentTransportError::ReplayMismatch {
             leaf_id,
             stage: "retained loop-transform determinant",
@@ -2212,7 +2214,7 @@ fn replay_scalar_and_parity_branches(
         }
     })?;
     let mut projector = VacuumTensorProjector::new(family.coefficients(), "d")?;
-    for (basis_position, (entry, &coefficient)) in
+    for (basis_position, (entry, coefficient)) in
         basis_entries.iter().zip(&image.coefficients).enumerate()
     {
         if coefficient.is_zero() {
@@ -2282,7 +2284,7 @@ fn replay_scalar_and_parity_branches(
                 }
                 expected_parity.push(FourLoopComponentParityWitness {
                     basis_position,
-                    coefficient,
+                    coefficient: coefficient.clone(),
                     left_component,
                     left_axis,
                     right_component,

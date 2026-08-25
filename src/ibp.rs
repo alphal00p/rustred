@@ -100,7 +100,7 @@ impl<'family> IbpGenerator<'family> {
                 );
             }
 
-            for (cancelled_denominator, &kinematic_coefficient) in
+            for (cancelled_denominator, kinematic_coefficient) in
                 contraction.denominator_coefficients.iter().enumerate()
             {
                 if kinematic_coefficient.is_zero() {

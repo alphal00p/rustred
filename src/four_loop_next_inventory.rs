@@ -2064,8 +2064,11 @@ impl InventoryBuilder {
         {
             return Ok(existing.clone());
         }
-        let bytes = factorization_witness_dynamic_bytes(&witness)?;
-        self.charge_dynamic_bytes(bytes, "factorization witness bytes")?;
+        self.stats.peak_charged_bytes = factorization_witness_peak_after_admission(
+            self.stats.peak_charged_bytes,
+            &witness,
+            self.config.max_retained_dynamic_bytes,
+        )?;
         let witness = Arc::new(witness);
         self.witness_pool.push(witness.clone());
         Ok(witness)
@@ -3643,45 +3646,29 @@ fn topology_from_order(order: u8) -> FourLoopTopology {
 fn factorization_witness_dynamic_bytes(
     witness: &FourLoopFactorizationWitness,
 ) -> Result<usize, FourLoopNextInventoryError> {
-    let mut bytes = witness
-        .line_coordinates()
-        .len()
-        .checked_mul(size_of::<crate::FourLoopLineCoordinate>())
+    witness
+        .retained_payload_bytes()
         .ok_or(FourLoopNextInventoryError::ResourceLimit {
             resource: "factorization witness bytes",
             requested: u128::MAX,
             limit: usize::MAX as u128,
+        })
+}
+
+fn factorization_witness_peak_after_admission(
+    current: usize,
+    witness: &FourLoopFactorizationWitness,
+    limit: usize,
+) -> Result<usize, FourLoopNextInventoryError> {
+    let requested = current
+        .checked_add(factorization_witness_dynamic_bytes(witness)?)
+        .ok_or(FourLoopNextInventoryError::ResourceLimit {
+            resource: "factorization witness bytes",
+            requested: u128::MAX,
+            limit: limit as u128,
         })?;
-    for component in witness.components() {
-        let integers = component
-            .global_basis_slots()
-            .len()
-            .saturating_add(component.physical_positions().len())
-            .saturating_add(component.component_basis_positions().len());
-        bytes = bytes
-            .saturating_add(integers.saturating_mul(size_of::<usize>()))
-            .saturating_add(
-                component
-                    .canonical_signature()
-                    .iter()
-                    .map(|row| row.len().saturating_mul(size_of::<crate::ExactRational>()))
-                    .sum::<usize>(),
-            )
-            .saturating_add(
-                component
-                    .component_loop_map()
-                    .iter()
-                    .map(|row| row.len().saturating_mul(size_of::<crate::ExactRational>()))
-                    .sum::<usize>(),
-            )
-            .saturating_add(
-                component
-                    .signed_line_matches()
-                    .len()
-                    .saturating_mul(size_of::<crate::FourLoopSignedLineMatch>()),
-            );
-    }
-    Ok(bytes)
+    check_resource("factorization witness bytes", requested, limit)?;
+    Ok(requested)
 }
 
 fn checked_mul_replay(
@@ -3801,6 +3788,24 @@ fn classify_terminal_replay(
 mod coefficient_envelope_tests {
     use super::*;
 
+    fn factorized_witness() -> FourLoopFactorizationWitness {
+        let topology = FourLoopTopology::H;
+        let reducer = FourLoopBoundaryReducer::build(topology, Default::default()).unwrap();
+        (0..1_usize << topology.routings().len())
+            .find_map(|mask| {
+                let integral = Integral::new(
+                    (0..BASIS)
+                        .map(|position| i32::from(mask & (1 << position) != 0))
+                        .collect::<Vec<_>>(),
+                );
+                match reducer.classify_integral(&integral).unwrap() {
+                    FourLoopScalarClass::Factorized { witness, .. } => Some(witness),
+                    _ => None,
+                }
+            })
+            .expect("the built-in H family has factorized boundary corners")
+    }
+
     fn exact_term_count(coefficient: &Coefficient) -> u128 {
         coefficient
             .numerator
@@ -3835,5 +3840,36 @@ mod coefficient_envelope_tests {
         assert!(exact_term_count(&sum) > old_sparse_sum_bound);
         assert!(sum_envelope.dense_term_bound().unwrap() >= exact_term_count(&sum));
         sum_envelope.preflight(64, 1_000).unwrap();
+    }
+
+    #[test]
+    fn factorization_witness_admission_accepts_exact_limit_and_rejects_one_below() {
+        let witness = factorized_witness();
+        let current = 137;
+        let required = factorization_witness_peak_after_admission(current, &witness, usize::MAX)
+            .expect("the witness census fits in usize");
+        assert!(required > current);
+        assert_eq!(
+            factorization_witness_peak_after_admission(current, &witness, required).unwrap(),
+            required
+        );
+
+        let limit = required - 1;
+        assert!(matches!(
+            factorization_witness_peak_after_admission(current, &witness, limit),
+            Err(FourLoopNextInventoryError::ResourceLimit {
+                resource: "factorization witness bytes",
+                requested,
+                limit: actual_limit,
+            }) if requested == required as u128 && actual_limit == limit as u128
+        ));
+        assert!(matches!(
+            factorization_witness_peak_after_admission(usize::MAX, &witness, usize::MAX),
+            Err(FourLoopNextInventoryError::ResourceLimit {
+                resource: "factorization witness bytes",
+                requested: u128::MAX,
+                limit,
+            }) if limit == usize::MAX as u128
+        ));
     }
 }

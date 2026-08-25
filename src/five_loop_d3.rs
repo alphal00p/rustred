@@ -1376,7 +1376,7 @@ impl ShellBuilder {
                     }
                     denominators[position] = self.arithmetic.checked_add(
                         &denominators[position],
-                        &context.scale_rational(&context.integer(integer), *rational),
+                        &context.scale_rational(&context.integer(integer), rational),
                     )?;
                 }
             }

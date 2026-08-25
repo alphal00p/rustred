@@ -92,7 +92,7 @@ fn independently_convolve(
         .map(|image| {
             let mut factor = BTreeMap::new();
             add_coefficient(&mut factor, [0; BASIS], image.constant().clone());
-            for (position, &coefficient) in image.denominator_coefficients().iter().enumerate() {
+            for (position, coefficient) in image.denominator_coefficients().iter().enumerate() {
                 if coefficient.is_zero() {
                     continue;
                 }
@@ -366,9 +366,9 @@ fn degree_two_examples(
         (0..4).any(|column| {
             class.witness().loop_map()[row][column]
                 != if row == column {
-                    ExactRational::ONE
+                    ExactRational::one()
                 } else {
-                    ExactRational::ZERO
+                    ExactRational::zero()
                 }
         })
     }));

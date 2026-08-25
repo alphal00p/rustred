@@ -362,11 +362,8 @@ impl ThreeLoopProperDotReducer {
                             &row_factor * &contraction.constant,
                         );
                     }
-                    for (cancelled, rational) in contraction
-                        .denominator_coefficients
-                        .iter()
-                        .copied()
-                        .enumerate()
+                    for (cancelled, rational) in
+                        contraction.denominator_coefficients.iter().enumerate()
                     {
                         if rational.is_zero() {
                             continue;

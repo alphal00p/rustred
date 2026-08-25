@@ -385,10 +385,10 @@ fn check_product_numerator_witnesses(reducer: &FiveLoopBananaBoundaryReducer) {
             let transformed = witness.transformed_quadratic_form();
             for old_left in 0..5 {
                 for old_right in old_left..5 {
-                    let mut reconstructed = rustred::ExactRational::ZERO;
+                    let mut reconstructed = rustred::ExactRational::zero();
                     for new_left in 0..5 {
                         for new_right in new_left..5 {
-                            let coefficient = transformed[sp_index(new_left, new_right)];
+                            let coefficient = &transformed[sp_index(new_left, new_right)];
                             let pullback = if new_left == new_right {
                                 let product = witness.loop_map()[new_left][old_left] as i64
                                     * witness.loop_map()[new_right][old_right] as i64;
@@ -408,8 +408,9 @@ fn check_product_numerator_witnesses(reducer: &FiveLoopBananaBoundaryReducer) {
                                             * witness.loop_map()[new_right][old_left] as i64
                                 }
                             };
-                            reconstructed = reconstructed
-                                + coefficient * rustred::ExactRational::from(pullback);
+                            let contribution =
+                                coefficient * &rustred::ExactRational::from(pullback);
+                            reconstructed = &reconstructed + &contribution;
                         }
                     }
                     assert_eq!(

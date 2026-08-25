@@ -429,7 +429,7 @@ impl FourLoopGenuineClassifier {
                 .clone()
                 .try_into()
                 .expect("a four-loop signature has four basis positions"),
-            loop_map: array::from_fn(|row| array::from_fn(|column| loop_map[row][column])),
+            loop_map: array::from_fn(|row| array::from_fn(|column| loop_map[row][column].clone())),
             determinant_sign,
             signed_line_matches,
         };
@@ -516,7 +516,7 @@ impl FourLoopGenuineClassifier {
         for basis in [&source_basis, &reference_basis] {
             let determinant =
                 matrix_determinant(basis).map_err(FourLoopGenuineError::LinearAlgebra)?;
-            if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+            if determinant != ExactRational::one() && determinant != -ExactRational::one() {
                 return Err(FourLoopGenuineError::WitnessMismatch);
             }
         }
@@ -541,7 +541,7 @@ impl FourLoopGenuineClassifier {
                 .ok_or(FourLoopGenuineError::WitnessMismatch)?;
             let expected = reference
                 .iter()
-                .map(|value| *value * ExactRational::from(i64::from(line_match.orientation_sign)))
+                .map(|value| value * &ExactRational::from(i64::from(line_match.orientation_sign)))
                 .collect::<Vec<_>>();
             if mapped != expected {
                 return Err(FourLoopGenuineError::WitnessMismatch);
@@ -674,7 +674,7 @@ fn canonical_signature(
             .collect::<Vec<_>>();
         let determinant =
             matrix_determinant(&basis).map_err(FourLoopGenuineError::LinearAlgebra)?;
-        if determinant != ExactRational::ONE && determinant != -ExactRational::ONE {
+        if determinant != ExactRational::one() && determinant != -ExactRational::one() {
             continue;
         }
         let inverse = invert_matrix(&basis).map_err(FourLoopGenuineError::LinearAlgebra)?;
@@ -690,9 +690,9 @@ fn canonical_signature(
                     let signed = row
                         .iter()
                         .enumerate()
-                        .map(|(axis, &value)| {
+                        .map(|(axis, value)| {
                             if signs & (1 << axis) == 0 {
-                                value
+                                value.clone()
                             } else {
                                 -value
                             }
@@ -782,8 +782,8 @@ fn row_times_matrix(row: &[ExactRational], matrix: &[Vec<ExactRational>]) -> Vec
         .map(|column| {
             row.iter()
                 .zip(matrix)
-                .map(|(&left, right)| left * right[column])
-                .fold(ExactRational::ZERO, |sum, value| sum + value)
+                .map(|(left, right)| left * &right[column])
+                .fold(ExactRational::zero(), |sum, value| sum + value)
         })
         .collect()
 }
@@ -793,11 +793,11 @@ fn normalize_squared_routing(mut row: Vec<ExactRational>) -> (Vec<ExactRational>
     if row
         .iter()
         .find(|value| !value.is_zero())
-        .is_some_and(|value| value.numerator() < 0)
+        .is_some_and(|value| value.is_negative())
     {
         orientation_sign = -1;
         for value in &mut row {
-            *value = -*value;
+            *value = -&*value;
         }
     }
     (row, orientation_sign)
@@ -811,7 +811,7 @@ fn diagonal_sign_product(left: &[i8], right: &[i8]) -> Vec<Vec<ExactRational>> {
                     if row == column {
                         ExactRational::from(i64::from(left[row] * right[row]))
                     } else {
-                        ExactRational::ZERO
+                        ExactRational::zero()
                     }
                 })
                 .collect()
@@ -821,10 +821,12 @@ fn diagonal_sign_product(left: &[i8], right: &[i8]) -> Vec<Vec<ExactRational>> {
 
 fn determinant_sign(matrix: &[Vec<ExactRational>]) -> Result<i8, FourLoopGenuineError> {
     let determinant = matrix_determinant(matrix).map_err(FourLoopGenuineError::LinearAlgebra)?;
-    match determinant {
-        ExactRational::ONE => Ok(1),
-        value if value == -ExactRational::ONE => Ok(-1),
-        _ => Err(FourLoopGenuineError::WitnessMismatch),
+    if determinant.is_one() {
+        Ok(1)
+    } else if determinant == -ExactRational::one() {
+        Ok(-1)
+    } else {
+        Err(FourLoopGenuineError::WitnessMismatch)
     }
 }
 

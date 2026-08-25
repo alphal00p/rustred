@@ -317,7 +317,7 @@ pub use cylindrical_prepare_points::{
     CYLINDRICAL_PREPARE_POINT_LAYER_V1_SCHEMA, CylindricalPreparePointError,
     CylindricalPreparePointLayer, CylindricalPreparePointLimits, CylindricalPreparePointStats,
 };
-pub use exact::ExactRational;
+pub use exact::{ExactRational, ExactRationalError};
 pub use exact_sparse_elimination::{
     ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,

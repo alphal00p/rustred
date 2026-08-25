@@ -232,7 +232,7 @@ fn exact_component_transport_covers_and_replays_the_full_boundary_census() {
                     assert_eq!(branch.coefficient(), image.constant());
                     assert!(branch.lowered_component_powers().is_none());
                 }
-                for (basis_position, (&coefficient, column)) in image
+                for (basis_position, (coefficient, column)) in image
                     .coefficients()
                     .iter()
                     .zip(plan.basis_columns())
@@ -282,7 +282,7 @@ fn exact_component_transport_covers_and_replays_the_full_boundary_census() {
                                 .iter()
                                 .filter(|parity| {
                                     parity.basis_position() == basis_position
-                                        && parity.coefficient() == coefficient
+                                        && parity.coefficient() == coefficient.clone()
                                         && parity.left_component() == left_component
                                         && parity.left_axis() == left_axis
                                         && parity.right_component() == right_component
@@ -422,7 +422,7 @@ fn exact_component_transport_covers_and_replays_the_full_boundary_census() {
     let tampered_transform = first.with_loop_transform_entry_for_replay(
         0,
         0,
-        first.loop_transform()[0][0] + ExactRational::ONE,
+        &first.loop_transform()[0][0] + &ExactRational::one(),
     );
     assert!(
         transport
@@ -433,7 +433,7 @@ fn exact_component_transport_covers_and_replays_the_full_boundary_census() {
     let n1 = n1_plan.unwrap();
     let tampered_affine = n1.with_affine_coefficient_for_replay(
         0,
-        n1.affine_image().unwrap().coefficients()[0] + ExactRational::ONE,
+        &n1.affine_image().unwrap().coefficients()[0] + &ExactRational::one(),
     );
     assert!(transport.replay_plan_candidate(&tampered_affine).is_err());
     let affine = n1.affine_image().unwrap();

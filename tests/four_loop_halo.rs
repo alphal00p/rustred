@@ -25,11 +25,12 @@ fn evaluate_quadratic(
     quadratic_form: &[ExactRational],
     momenta: &[ExactRational; 4],
 ) -> ExactRational {
-    let mut value = ExactRational::ZERO;
+    let mut value = ExactRational::zero();
     let mut position = 0;
     for left in 0..4 {
         for right in left..4 {
-            value = value + quadratic_form[position] * momenta[left] * momenta[right];
+            let term = &quadratic_form[position] * &momenta[left] * &momenta[right];
+            value = &value + &term;
             position += 1;
         }
     }
@@ -46,13 +47,13 @@ fn check_affine_map_by_evaluation(
 ) {
     let mut probes = Vec::with_capacity(10);
     for left in 0..4 {
-        let mut probe = [ExactRational::ZERO; 4];
-        probe[left] = ExactRational::ONE;
-        probes.push(probe);
+        let mut probe: [ExactRational; 4] = std::array::from_fn(|_| ExactRational::zero());
+        probe[left] = ExactRational::one();
+        probes.push(probe.clone());
         for right in left + 1..4 {
-            let mut probe = probe;
-            probe[right] = ExactRational::ONE;
-            probes.push(probe);
+            let mut pair = probe.clone();
+            pair[right] = ExactRational::one();
+            probes.push(pair);
         }
     }
     assert_eq!(probes.len(), 10);
@@ -66,24 +67,24 @@ fn check_affine_map_by_evaluation(
         for reference_momenta in &probes {
             let source_momenta: [ExactRational; 4] = std::array::from_fn(|row| {
                 (0..4)
-                    .map(|column| witness.loop_map()[row][column] * reference_momenta[column])
-                    .fold(ExactRational::ZERO, |sum, value| sum + value)
+                    .map(|column| &witness.loop_map()[row][column] * &reference_momenta[column])
+                    .fold(ExactRational::zero(), |sum, value| &sum + &value)
             });
             let source_value = evaluate_quadratic(source.quadratic_form(), &source_momenta);
             let reference_value = image
                 .denominator_coefficients()
                 .iter()
                 .zip(mapper.reference_family().denominators())
-                .map(|(&coefficient, denominator)| {
+                .map(|(coefficient, denominator)| {
                     coefficient
                         * evaluate_quadratic(denominator.quadratic_form(), reference_momenta)
                 })
-                .fold(ExactRational::ZERO, |sum, value| sum + value);
+                .fold(ExactRational::zero(), |sum, value| &sum + &value);
             assert_eq!(source_value, reference_value);
         }
 
         let mut reconstructed_shift = image.constant().clone();
-        for (&coefficient, reference) in image
+        for (coefficient, reference) in image
             .denominator_coefficients()
             .iter()
             .zip(mapper.reference_family().denominators())
@@ -185,9 +186,9 @@ fn check_nontrivial_interfamily_maps() {
             (0..4).any(|column| {
                 class.witness().loop_map()[row][column]
                     != if row == column {
-                        ExactRational::ONE
+                        ExactRational::one()
                     } else {
-                        ExactRational::ZERO
+                        ExactRational::zero()
                     }
             })
         }));
@@ -256,7 +257,7 @@ fn check_replay_tampering_and_limits() {
     .unwrap();
     let bad_image = mapper.images()[0].with_denominator_coefficient_for_replay(
         0,
-        mapper.images()[0].denominator_coefficients()[0] + rustred::ExactRational::ONE,
+        &mapper.images()[0].denominator_coefficients()[0] + &rustred::ExactRational::one(),
     );
     let tampered = mapper.with_affine_image_for_replay(0, bad_image);
     assert!(matches!(

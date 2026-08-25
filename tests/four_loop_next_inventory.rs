@@ -177,7 +177,7 @@ fn exact_full_preclosure_inventory_is_replayable_and_projects_boundaries() {
     assert_eq!(stats.coefficient_additions(), 28);
     assert_eq!(stats.retained_coefficient_terms(), 11_106);
     assert_eq!(stats.retained_coefficient_serialized_bytes(), 8_452);
-    assert_eq!(stats.peak_charged_bytes(), 964_648);
+    assert_eq!(stats.peak_charged_bytes(), 1_070_904);
     assert!(inventory.stats().paths() <= FOUR_LOOP_NEXT_INVENTORY_PATH_BOUND);
     assert!(inventory.stats().leaves() <= FOUR_LOOP_NEXT_INVENTORY_FULL_POWER_KEY_BOUND);
     assert!(

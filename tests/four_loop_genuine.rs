@@ -66,9 +66,10 @@ fn determinant(matrix: &[[ExactRational; 4]; 4]) -> ExactRational {
                 .filter(|&(left, right)| columns[left] > columns[right])
                 .count();
             let value = (0..4)
-                .map(|index| matrix[index][columns[index]])
-                .fold(ExactRational::ONE, |left, right| left * right);
-            *total = *total + if inversions % 2 == 0 { value } else { -value };
+                .map(|index| &matrix[index][columns[index]])
+                .fold(ExactRational::one(), |left, right| &left * right);
+            let signed = if inversions % 2 == 0 { value } else { -value };
+            *total = &*total + &signed;
             return;
         }
         for column in 0..4 {
@@ -80,7 +81,7 @@ fn determinant(matrix: &[[ExactRational; 4]; 4]) -> ExactRational {
             }
         }
     }
-    let mut total = ExactRational::ZERO;
+    let mut total = ExactRational::zero();
     visit(0, matrix, &mut [false; 4], &mut [0; 4], &mut total);
     total
 }
@@ -174,8 +175,8 @@ fn check_witness(classifier: &FourLoopGenuineClassifier, class: &rustred::FourLo
                 source
                     .iter()
                     .enumerate()
-                    .map(|(row, value)| *value * witness.loop_map()[row][column])
-                    .fold(ExactRational::ZERO, |sum, value| sum + value)
+                    .map(|(row, value)| value * &witness.loop_map()[row][column])
+                    .fold(ExactRational::zero(), |sum, value| &sum + &value)
             })
             .collect();
         let expected: Vec<_> = kind.reference_topology().routings()

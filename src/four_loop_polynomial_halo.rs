@@ -1176,7 +1176,7 @@ impl FourLoopPolynomialHaloMapper {
             FourLoopPolynomialMonomial::ONE,
             image.constant().clone(),
         );
-        for (position, &coefficient) in image.denominator_coefficients().iter().enumerate() {
+        for (position, coefficient) in image.denominator_coefficients().iter().enumerate() {
             if coefficient.is_zero() {
                 continue;
             }

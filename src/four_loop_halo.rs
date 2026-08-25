@@ -12,7 +12,7 @@
 //! four-loop reduction: factorized numerator sectors still need native tensor
 //! closure, and genuine halo columns still need sparse IBP elimination.
 
-use std::fmt;
+use std::{array, fmt};
 
 use crate::four_loop::FourLoopTopology;
 use crate::four_loop_genuine::{
@@ -298,9 +298,10 @@ impl FourLoopHaloMapper {
                 return Err(FourLoopHaloError::AffineReplayMismatch { position });
             }
             let transformed = transform_quadratic_form(source.quadratic_form(), &loop_map);
-            let mut reconstructed = [ExactRational::ZERO; BASIS];
+            let mut reconstructed: [ExactRational; BASIS] =
+                array::from_fn(|_| ExactRational::zero());
             let mut reconstructed_shift = image.constant.clone();
-            for (&coefficient, reference) in image
+            for (coefficient, reference) in image
                 .denominator_coefficients
                 .iter()
                 .zip(self.reference_family.denominators())
@@ -308,8 +309,9 @@ impl FourLoopHaloMapper {
                 if coefficient.is_zero() {
                     continue;
                 }
-                for (target, &value) in reconstructed.iter_mut().zip(reference.quadratic_form()) {
-                    *target = *target + coefficient * value;
+                for (target, value) in reconstructed.iter_mut().zip(reference.quadratic_form()) {
+                    let contribution = coefficient * value;
+                    *target = &*target + &contribution;
                 }
                 reconstructed_shift = &reconstructed_shift
                     + &self
@@ -328,13 +330,13 @@ impl FourLoopHaloMapper {
             let image = self.image(source)?;
             if !image.constant.is_zero()
                 || image.denominator_coefficients.iter().enumerate().any(
-                    |(position, &coefficient)| {
-                        coefficient
-                            != if position == reference {
-                                ExactRational::ONE
-                            } else {
-                                ExactRational::ZERO
-                            }
+                    |(position, coefficient)| {
+                        let expected = if position == reference {
+                            ExactRational::one()
+                        } else {
+                            ExactRational::zero()
+                        };
+                        coefficient != &expected
                     },
                 )
             {
@@ -446,7 +448,7 @@ impl FourLoopHaloMapper {
         if !image.constant.is_zero() {
             output.add_term(Integral::from(reference_powers), image.constant.clone());
         }
-        for (position, &coefficient) in image.denominator_coefficients.iter().enumerate() {
+        for (position, coefficient) in image.denominator_coefficients.iter().enumerate() {
             if coefficient.is_zero() {
                 continue;
             }
@@ -483,8 +485,8 @@ fn affine_image(
 ) -> Result<FourLoopAffineDenominatorImage, FourLoopHaloError> {
     let transformed = transform_quadratic_form(source.quadratic_form(), loop_map);
     let mut constant = source.shift().clone();
-    let mut denominator_coefficients = [ExactRational::ZERO; BASIS];
-    for (scalar_product, &coefficient) in transformed.iter().enumerate() {
+    let mut denominator_coefficients = array::from_fn(|_| ExactRational::zero());
+    for (scalar_product, coefficient) in transformed.iter().enumerate() {
         if coefficient.is_zero() {
             continue;
         }
@@ -494,11 +496,12 @@ fn affine_image(
             + &reference
                 .coefficients()
                 .scale_rational(expansion.constant(), coefficient);
-        for (target, &basis_coefficient) in denominator_coefficients
+        for (target, basis_coefficient) in denominator_coefficients
             .iter_mut()
             .zip(expansion.denominator_coefficients())
         {
-            *target = *target + coefficient * basis_coefficient;
+            let contribution = coefficient * basis_coefficient;
+            *target = &*target + &contribution;
         }
     }
     Ok(FourLoopAffineDenominatorImage {
@@ -516,26 +519,27 @@ fn transform_quadratic_form(
     source: &[ExactRational],
     loop_map: &[Vec<ExactRational>],
 ) -> [ExactRational; BASIS] {
-    let mut output = [ExactRational::ZERO; BASIS];
+    let mut output = array::from_fn(|_| ExactRational::zero());
     for source_left in 0..LOOPS {
         for source_right in source_left..LOOPS {
-            let coefficient = source[scalar_product_index(source_left, source_right)];
+            let coefficient = &source[scalar_product_index(source_left, source_right)];
             if coefficient.is_zero() {
                 continue;
             }
             for reference_left in 0..LOOPS {
                 for reference_right in reference_left..LOOPS {
                     let transformed = if reference_left == reference_right {
-                        loop_map[source_left][reference_left]
-                            * loop_map[source_right][reference_right]
+                        &loop_map[source_left][reference_left]
+                            * &loop_map[source_right][reference_right]
                     } else {
-                        loop_map[source_left][reference_left]
-                            * loop_map[source_right][reference_right]
-                            + loop_map[source_left][reference_right]
-                                * loop_map[source_right][reference_left]
+                        &loop_map[source_left][reference_left]
+                            * &loop_map[source_right][reference_right]
+                            + &loop_map[source_left][reference_right]
+                                * &loop_map[source_right][reference_left]
                     };
                     let target = scalar_product_index(reference_left, reference_right);
-                    output[target] = output[target] + coefficient * transformed;
+                    let contribution = coefficient * &transformed;
+                    output[target] = &output[target] + &contribution;
                 }
             }
         }

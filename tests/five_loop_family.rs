@@ -16,11 +16,11 @@ fn five_loop_banana_foundation() {
     // physical or generated auxiliary denominator.
     for (denominator_index, denominator) in family.denominators().iter().enumerate() {
         let mut constant = denominator.shift().clone();
-        let mut coefficients = vec![ExactRational::ZERO; family.denominator_count()];
+        let mut coefficients = vec![ExactRational::zero(); family.denominator_count()];
         let mut scalar_product = 0;
         for left in 0..family.loops() {
             for right in left..family.loops() {
-                let factor = denominator.quadratic_form()[scalar_product];
+                let factor = &denominator.quadratic_form()[scalar_product];
                 scalar_product += 1;
                 if factor.is_zero() {
                     continue;
@@ -30,10 +30,10 @@ fn five_loop_banana_foundation() {
                     + &family
                         .coefficients()
                         .scale_rational(expansion.constant(), factor);
-                for (target, &coefficient) in
-                    expansion.denominator_coefficients().iter().enumerate()
+                for (target, coefficient) in expansion.denominator_coefficients().iter().enumerate()
                 {
-                    coefficients[target] = coefficients[target] + factor * coefficient;
+                    let contribution = factor * coefficient;
+                    coefficients[target] = &coefficients[target] + &contribution;
                 }
             }
         }
@@ -43,9 +43,9 @@ fn five_loop_banana_foundation() {
             (0..family.denominator_count())
                 .map(|target| {
                     if target == denominator_index {
-                        ExactRational::ONE
+                        ExactRational::one()
                     } else {
-                        ExactRational::ZERO
+                        ExactRational::zero()
                     }
                 })
                 .collect::<Vec<_>>()
