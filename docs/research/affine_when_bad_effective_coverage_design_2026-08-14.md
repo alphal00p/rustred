@@ -642,8 +642,9 @@ For each dangerous value `v` in the construction pass:
 This is the boundary polynomial. The global `n_i-v` polynomial is not valid
 on a dependent target unless it is pulled back through `G`.
 
-Preflight and native composition must use the same plan and the same source
-polynomial. Validate native statistics against the preflight envelope before
+Preflight and the selected Symbolica composition backend must use the same
+plan and the same source polynomial. Validate selected-backend statistics
+against the preflight envelope before
 committing outer aggregate statistics. After composition, validate again that
 all index variables in `B_{s,i,v}` belong to the target's authenticated free
 positions.

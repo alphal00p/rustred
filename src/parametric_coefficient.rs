@@ -2267,8 +2267,8 @@ impl ResidualAffineCompactCompositionManifest {
     }
 }
 
-/// Bounds checked before entering Symbolica's infallible polynomial
-/// full-point evaluator.
+/// Bounds checked before entering either Symbolica affine-composition
+/// backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResidualUnitAffinePolynomialCompositionLimits {
     pub exact_algebra: ExactAlgebraLimits,
@@ -2278,8 +2278,14 @@ pub struct ResidualUnitAffinePolynomialCompositionLimits {
     pub max_output_terms: usize,
     pub max_output_exponent_entries: usize,
     pub max_power_calls: usize,
+    /// Compatibility-named power-expansion work bound. For the polynomial
+    /// evaluator this bounds heap pairs; for expression expansion it remains
+    /// the conservative `image_terms * powered_terms` admission policy.
     pub max_native_power_heap_pairs: usize,
     pub max_multiplication_term_pairs: usize,
+    /// Compatibility-named structural-work limit. This bounds sparse
+    /// addition visits for the polynomial evaluator and literal replacement
+    /// plus Atom normalization/conversion visits for expression expansion.
     pub max_addition_term_visits: usize,
     pub max_kronecker_exponent_bits: usize,
     pub max_integer_coefficient_bits: usize,
@@ -2287,224 +2293,6 @@ pub struct ResidualUnitAffinePolynomialCompositionLimits {
     pub max_normalization_input_term_pairs: usize,
     pub max_guard_origins: usize,
     pub max_guard_origin_retained_bytes: usize,
-}
-
-/// Limit-derived logical workspace for the source-neutral controlled affine
-/// polynomial compositor.
-///
-/// This envelope is deliberately independent of a persisted composition
-/// statistic.  V2 proof owners can therefore recompute it from their sealed
-/// plan/polynomial limits without allowing a coherently modified statistic to
-/// authenticate its own memory peak.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ResidualAffineControlledWorkspaceEnvelope {
-    expansion_owned_logical_peak_upper_bound: usize,
-    collection_owned_logical_peak_upper_bound: usize,
-    owned_logical_peak_upper_bound: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ControlledPowerBlock {
-    start: usize,
-    len: usize,
-}
-
-#[derive(Debug)]
-struct ControlledContributionBuffer {
-    coefficients: Vec<Integer>,
-    exponents: Vec<u16>,
-}
-
-/// Simultaneously-live owned storage while affine powers are enumerated and
-/// their Cartesian product is streamed directly into the one global
-/// contribution buffer.  In particular, there is no prefix-polynomial or
-/// cross-product-polynomial allocation hidden behind this workspace.
-#[derive(Debug)]
-struct ControlledAffineExpansionWorkspace {
-    contributions: ControlledContributionBuffer,
-    power_coefficients: Vec<Integer>,
-    power_exponents: Vec<u16>,
-    power_blocks: Vec<ControlledPowerBlock>,
-    multiplicities: Vec<u32>,
-    cursor: Vec<usize>,
-    coefficient_stack: Vec<Integer>,
-    target_exponents: Vec<u32>,
-}
-
-/// Simultaneously-live owned storage after expansion scratch has been
-/// dropped.  Two index buffers and one reusable byte-count table implement a
-/// stable two-pass-per-coordinate LSD radix sort over the flat u16 exponent
-/// rows.
-#[derive(Debug)]
-struct ControlledAffineCollectionWorkspace {
-    contributions: ControlledContributionBuffer,
-    first_indices: Vec<usize>,
-    second_indices: Vec<usize>,
-    counts: [usize; 256],
-}
-
-impl ControlledAffineExpansionWorkspace {
-    /// Consume the expansion phase so all powered-image, DFS, and
-    /// multiplicity scratch is dropped before collection storage is created.
-    fn into_contributions(self) -> ControlledContributionBuffer {
-        self.contributions
-    }
-}
-
-impl ResidualAffineControlledWorkspaceEnvelope {
-    pub(crate) const fn expansion_owned_logical_peak_upper_bound(self) -> usize {
-        self.expansion_owned_logical_peak_upper_bound
-    }
-
-    pub(crate) const fn collection_owned_logical_peak_upper_bound(self) -> usize {
-        self.collection_owned_logical_peak_upper_bound
-    }
-
-    pub(crate) const fn owned_logical_peak_upper_bound(self) -> usize {
-        self.owned_logical_peak_upper_bound
-    }
-}
-
-/// Reconstruct the complete V2 controlled-compositor workspace envelope from
-/// sealed limits alone.  The calculation intentionally does not consume a
-/// persisted polynomial statistic.
-pub(crate) fn residual_affine_controlled_workspace_envelope_from_limits(
-    plan_limits: ResidualUnitAffineCompositionPlanLimits,
-    polynomial_limits: ResidualUnitAffinePolynomialCompositionLimits,
-) -> Result<ResidualAffineControlledWorkspaceEnvelope, ResidualUnitAffineCompositionError> {
-    let resource = "controlled affine composition workspace";
-    let variables = plan_limits.max_variables.min(plan_limits.max_full_images);
-    let contributions = polynomial_limits
-        .max_expanded_contributions
-        .min(polynomial_limits.max_output_terms)
-        .min(polynomial_limits.exact_algebra.max_polynomial_terms);
-    let contribution_exponent_entries =
-        residual_affine_checked_mul(resource, contributions, variables)?
-            .min(polynomial_limits.max_output_exponent_entries);
-    // The preflight charges image_terms * powered_terms for every nonzero
-    // affine power.  Since a nonzero image has at least one term, that charge
-    // is also a limit-only upper bound on all materialized powered terms.
-    let powered_terms = polynomial_limits.max_native_power_heap_pairs;
-    let powered_exponent_entries = residual_affine_checked_mul(resource, powered_terms, variables)?;
-    // One affine image contains at most a constant and one linear term per
-    // target variable.  Multiplicities are u32 from their first allocation so
-    // Integer::multinom never needs an uncharged conversion buffer.
-    let multiplicities = residual_affine_checked_add(resource, variables, 1)?;
-    let coefficient_stack_entries = multiplicities;
-
-    let exponent_limit = polynomial_limits
-        .exact_algebra
-        .max_exponent
-        .min(SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT);
-    let exponent_limit = usize::try_from(exponent_limit)
-        .map_err(|_| ResidualUnitAffineCompositionError::ResourceCountOverflow { resource })?;
-    let transient_integer_bits = residual_affine_checked_add(
-        resource,
-        polynomial_limits.max_integer_coefficient_bits,
-        residual_affine_ceil_log2(residual_affine_checked_add(resource, exponent_limit, 1)?),
-    )?;
-
-    // C contribution Integers, H powered-image Integers, V+1 coefficient
-    // stack Integers, and three named arithmetic temporaries can all coexist
-    // during expansion.  Logical GMP payload excludes allocator spare
-    // capacity and backend-internal scratch, but includes one limb handle and
-    // inter-object alignment for every conservatively-Large value.
-    let expansion_integer_entries = [contributions, powered_terms, coefficient_stack_entries, 3]
-        .into_iter()
-        .try_fold(0usize, |sum, value| {
-            residual_affine_checked_add(resource, sum, value)
-        })?;
-    let expansion_integer_bits =
-        residual_affine_checked_mul(resource, expansion_integer_entries, transient_integer_bits)?;
-    let expansion_gmp = residual_affine_controlled_gmp_logical_bytes_upper_bound(
-        expansion_integer_entries,
-        expansion_integer_bits,
-        resource,
-    )?;
-    let expansion_owned_logical_peak_upper_bound = [
-        size_of::<ControlledAffineExpansionWorkspace>(),
-        residual_affine_checked_mul(resource, contributions, size_of::<Integer>())?,
-        residual_affine_checked_mul(resource, contribution_exponent_entries, size_of::<u16>())?,
-        residual_affine_checked_mul(resource, powered_terms, size_of::<Integer>())?,
-        residual_affine_checked_mul(resource, powered_exponent_entries, size_of::<u16>())?,
-        residual_affine_checked_mul(resource, variables, size_of::<ControlledPowerBlock>())?,
-        residual_affine_checked_mul(resource, multiplicities, size_of::<u32>())?,
-        residual_affine_checked_mul(resource, variables, size_of::<usize>())?,
-        residual_affine_checked_mul(resource, coefficient_stack_entries, size_of::<Integer>())?,
-        residual_affine_checked_mul(resource, variables, size_of::<u32>())?,
-        residual_affine_checked_mul(resource, 3, size_of::<Integer>())?,
-        expansion_gmp,
-    ]
-    .into_iter()
-    .try_fold(0usize, |sum, bytes| {
-        residual_affine_checked_add(resource, sum, bytes)
-    })?;
-
-    // Collection retains the flat contribution buffers while building the
-    // canonical output.  Coefficients are moved, not cloned, so at most C+2
-    // Large payloads coexist even though 2C+2 Integer representation slots
-    // are live (the moved-from slots contain Small zero values).
-    let collection_integer_slots = residual_affine_checked_add(
-        resource,
-        residual_affine_checked_mul(resource, contributions, 2)?,
-        2,
-    )?;
-    let collection_large_entries = residual_affine_checked_add(resource, contributions, 2)?;
-    let collection_integer_bits = residual_affine_checked_mul(
-        resource,
-        collection_large_entries,
-        polynomial_limits.max_integer_coefficient_bits,
-    )?;
-    let collection_gmp = residual_affine_controlled_gmp_logical_bytes_upper_bound(
-        collection_large_entries,
-        collection_integer_bits,
-        resource,
-    )?;
-    let collection_owned_logical_peak_upper_bound = [
-        size_of::<ControlledAffineCollectionWorkspace>(),
-        size_of::<CoefficientPolynomial>(),
-        residual_affine_checked_mul(resource, collection_integer_slots, size_of::<Integer>())?,
-        residual_affine_checked_mul(
-            resource,
-            residual_affine_checked_mul(resource, contribution_exponent_entries, 2)?,
-            size_of::<u16>(),
-        )?,
-        residual_affine_checked_mul(
-            resource,
-            residual_affine_checked_mul(resource, contributions, 2)?,
-            size_of::<usize>(),
-        )?,
-        collection_gmp,
-    ]
-    .into_iter()
-    .try_fold(0usize, |sum, bytes| {
-        residual_affine_checked_add(resource, sum, bytes)
-    })?;
-
-    Ok(ResidualAffineControlledWorkspaceEnvelope {
-        expansion_owned_logical_peak_upper_bound,
-        collection_owned_logical_peak_upper_bound,
-        owned_logical_peak_upper_bound: expansion_owned_logical_peak_upper_bound
-            .max(collection_owned_logical_peak_upper_bound),
-    })
-}
-
-fn residual_affine_controlled_gmp_logical_bytes_upper_bound(
-    integer_entries: usize,
-    total_integer_bits: usize,
-    resource: &'static str,
-) -> Result<usize, ResidualUnitAffineCompositionError> {
-    let payload_bytes = total_integer_bits / u8::BITS as usize
-        + usize::from(total_integer_bits % u8::BITS as usize != 0);
-    residual_affine_checked_add(
-        resource,
-        payload_bytes,
-        residual_affine_checked_add(
-            resource,
-            residual_affine_checked_mul(resource, integer_entries, size_of::<usize>())?,
-            integer_entries.saturating_sub(1),
-        )?,
-    )
 }
 
 impl Default for ResidualUnitAffinePolynomialCompositionLimits {
@@ -2532,11 +2320,11 @@ impl Default for ResidualUnitAffinePolynomialCompositionLimits {
 
 /// Exact prospective and retained work census for one composition.
 ///
-/// Expansion and native-operation fields are conservative preflight bounds;
+/// Expansion and backend-operation fields are conservative preflight bounds;
 /// `output_exponent_entry_bound` is the dense prospective preflight charge,
 /// while `output_terms` and `output_exponent_entries` are measured after the
-/// native call. Rational normalization has a separate, per-half coefficient
-/// census.
+/// selected Symbolica call. Rational normalization has a separate, per-half
+/// coefficient census.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ResidualUnitAffinePolynomialCompositionStats {
     source_terms: usize,
@@ -2564,14 +2352,29 @@ impl ResidualUnitAffinePolynomialCompositionStats {
         output_exponent_entry_bound,
         output_exponent_entries,
         power_calls,
-        native_power_heap_pair_bound,
         multiplication_term_pair_bound,
-        addition_term_visit_bound,
         largest_kronecker_exponent_bits,
         largest_integer_coefficient_bit_bound,
-        native_integer_bit_work_bound,
         integer_bit_work_bound,
     );
+
+    /// Compatibility-named power-expansion census; see
+    /// [`ResidualUnitAffinePolynomialCompositionLimits::max_native_power_heap_pairs`].
+    pub const fn native_power_heap_pair_bound(self) -> usize {
+        self.native_power_heap_pair_bound
+    }
+
+    /// Structural-work census for the selected Symbolica backend. The field
+    /// name is retained for schema/API compatibility.
+    pub const fn addition_term_visit_bound(self) -> usize {
+        self.addition_term_visit_bound
+    }
+
+    /// Complete pre-output integer-work census for the selected Symbolica
+    /// backend. The name is retained for schema/API compatibility.
+    pub const fn native_integer_bit_work_bound(self) -> usize {
+        self.native_integer_bit_work_bound
+    }
 }
 
 /// Lossless numerator/denominator work census for one rational coefficient
@@ -2650,8 +2453,8 @@ impl ResidualUnitAffineCoefficientCompositionStats {
     }
 }
 
-/// Typed failure at the RustRed boundary around Symbolica's native
-/// simultaneous polynomial evaluator and fraction normalizer.
+/// Typed failure at the RustRed boundary around Symbolica's simultaneous
+/// polynomial/expression composition backends and fraction normalizer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ResidualUnitAffineCompositionError {
     SchemaMismatch,
@@ -3793,8 +3596,8 @@ pub(crate) type ResidualUnitAffinePolynomialComposition = ResidualAffinePolynomi
 
 /// Prospective numerator/denominator work for one source-neutral rational
 /// composition.  This contains no mapped polynomial and is therefore safe to
-/// use for a complete-row resource preflight before the first native
-/// Symbolica evaluator is entered.
+/// use for a complete-row resource preflight before either selected Symbolica
+/// composition backend is entered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ResidualAffineCoefficientCompositionPreflight {
     numerator: ResidualUnitAffinePolynomialCompositionStats,
@@ -3875,9 +3678,9 @@ impl PreparedResidualAffineCompactGuardComposition<'_> {
 
 /// Sealed prepared execution for one compact-plan rational composition.
 ///
-/// The retained core preflight contains the exact native numerator and
-/// denominator preflights, including the denominator's remaining limit
-/// envelope.  Execution therefore performs no second source preflight while
+/// The retained core preflight contains the exact selected-backend numerator
+/// and denominator preflights, including the denominator's remaining limit
+/// envelope. Execution therefore performs no second source preflight while
 /// preserving the existing denominator-before-normalization result.
 pub(crate) struct PreparedResidualAffineCompactCoefficientComposition<'prepared> {
     context: &'prepared ParametricCoefficientContext,
@@ -7194,8 +6997,8 @@ impl ParametricCoefficientContext {
     }
 
     /// Preflight one compact-plan guard exactly once and retain the sealed
-    /// native execution input.  The returned token borrows the exact context,
-    /// source, and plan and must be consumed to execute.
+    /// Symbolica execution input. The returned token borrows the exact
+    /// context, source, and plan and must be consumed to execute.
     pub(crate) fn prepare_guard_on_residual_affine_compact_composition_plan<'prepared>(
         &'prepared self,
         source: &'prepared ParametricPolynomial,
@@ -7217,8 +7020,8 @@ impl ParametricCoefficientContext {
         })
     }
 
-    /// Compose one authority-neutral guard through Symbolica's simultaneous
-    /// full-point evaluator after complete prospective preflight.
+    /// Compose one authority-neutral guard through the preflight-selected
+    /// simultaneous Symbolica backend.
     pub(crate) fn compose_guard_on_residual_affine_compact_composition_plan(
         &self,
         source: &ParametricPolynomial,
@@ -7227,21 +7030,6 @@ impl ParametricCoefficientContext {
     ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
         self.prepare_guard_on_residual_affine_compact_composition_plan(source, plan, limits)?
             .execute()
-    }
-
-    /// Differential/reference path using RustRed's controlled compositor.
-    pub(crate) fn compose_guard_on_residual_affine_compact_composition_plan_controlled(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualAffineCompactCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        self.validate_residual_affine_compact_composition_plan(plan)?;
-        let preflight =
-            self.preflight_residual_affine_polynomial_core_controlled(source, &plan.core, limits)?;
-        self.execute_residual_affine_polynomial_core_controlled(
-            source, &plan.core, limits, preflight,
-        )
     }
 
     /// Preflight numerator, denominator, durable denominator, and
@@ -7259,7 +7047,7 @@ impl ParametricCoefficientContext {
     }
 
     /// Preflight one compact-plan rational coefficient exactly once and retain
-    /// both native polynomial preflights for later consuming execution.
+    /// both Symbolica polynomial preflights for later consuming execution.
     pub(crate) fn prepare_coefficient_on_residual_affine_compact_composition_plan<'prepared>(
         &'prepared self,
         source: &'prepared ParametricCoefficient,
@@ -7310,23 +7098,6 @@ impl ParametricCoefficientContext {
             .stats)
     }
 
-    /// V2 preflight for the RustRed-controlled affine compositor.  It keeps
-    /// the exact exponent/support and arithmetic bounds of the legacy seam,
-    /// but deliberately has no Symbolica mixed-radix/Kronecker feasibility
-    /// condition because the controlled executor never constructs that key.
-    pub(crate) fn preflight_polynomial_on_residual_affine_composition_plan_controlled(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualAffineCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffinePolynomialCompositionStats, ResidualUnitAffineCompositionError>
-    {
-        self.validate_residual_affine_composition_plan(plan)?;
-        Ok(self
-            .preflight_residual_affine_polynomial_core_controlled(source, &plan.core, limits)?
-            .stats)
-    }
-
     /// Compose one polynomial through the source-neutral integer-system plan.
     /// Guard classification and provenance deliberately remain the caller's
     /// responsibility.
@@ -7340,22 +7111,6 @@ impl ParametricCoefficientContext {
         let preflight =
             self.preflight_residual_affine_polynomial_core(source, &plan.core, limits)?;
         self.execute_residual_affine_polynomial_core(source, &plan.core, limits, preflight)
-    }
-
-    /// Compose with the V2 RustRed-controlled weak-composition executor.  The
-    /// legacy Symbolica-native entry point above remains unchanged for V1.
-    pub(crate) fn compose_polynomial_on_residual_affine_composition_plan_controlled(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualAffineCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        self.validate_residual_affine_composition_plan(plan)?;
-        let preflight =
-            self.preflight_residual_affine_polynomial_core_controlled(source, &plan.core, limits)?;
-        self.execute_residual_affine_polynomial_core_controlled(
-            source, &plan.core, limits, preflight,
-        )
     }
 
     /// Preflight both halves of one rational coefficient without evaluating
@@ -7677,8 +7432,8 @@ impl ParametricCoefficientContext {
     /// Shared provenance-free numerator/denominator composition core used by
     /// both the legacy guarded adapter and the integer-system adapter.
     ///
-    /// Both raw halves are preflighted before either native evaluator is
-    /// entered.  The denominator receives the exact remaining aggregate
+    /// Both raw halves are preflighted before either Symbolica backend is
+    /// entered. The denominator receives the exact remaining aggregate
     /// allowance after the numerator's prospective census.
     fn compose_residual_affine_coefficient_halves(
         &self,
@@ -7844,7 +7599,8 @@ impl ParametricCoefficientContext {
     ///
     /// The Symbolica polynomial's two backing vectors are reserved fallibly
     /// before any coefficient is cloned. Large-integer payload is bounded by
-    /// the same aggregate integer-bit allowance used for native composition;
+    /// the same aggregate integer-bit allowance used for selected Symbolica
+    /// composition;
     /// Rust's allocator still cannot make an individual GMP limb clone
     /// intrinsically fallible, but no unbounded vector growth is hidden in a
     /// derived `Clone` call.
@@ -8164,13 +7920,45 @@ impl ParametricCoefficientContext {
         let mut power_calls = 0usize;
         let mut native_power_heap_pair_bound = 0usize;
         let mut multiplication_term_pair_bound = 0usize;
-        let mut addition_term_visit_bound = 0usize;
+        let mut polynomial_evaluator_addition_term_visit_bound = 0usize;
         let mut accumulated_output_term_bound = 0usize;
         let mut accumulated_output_integer_bits = 0usize;
         let mut largest_kronecker_exponent_bits = 0usize;
         let mut largest_integer_contribution_bits = 0usize;
-        let mut largest_native_integer_coefficient_bits = 0usize;
-        let mut native_integer_bit_work_bound = 0usize;
+        let mut largest_polynomial_evaluator_integer_coefficient_bits = 0usize;
+        let mut polynomial_evaluator_integer_bit_work_bound = 0usize;
+        let mut backend = ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator;
+
+        // Select the Symbolica compositor before computing either backend's
+        // integer-work census.  In particular, an input that requires Atom
+        // expansion must not be rejected by checked resource arithmetic that
+        // belongs exclusively to `Polynomial::evaluate`/`heap_pow`.
+        for source_term in 0..source_terms {
+            for (variable, &exponent) in source.exponents(source_term).iter().enumerate() {
+                if exponent == 0 {
+                    continue;
+                }
+                let kronecker = residual_affine_kronecker_preflight(
+                    plan,
+                    variable,
+                    usize::from(exponent),
+                    base_count,
+                )?;
+                if !kronecker.polynomial_evaluator_safe {
+                    backend =
+                        ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion;
+                }
+                check_residual_affine_limit(
+                    "Kronecker exponent bits",
+                    kronecker.exponent_bits,
+                    limits.max_kronecker_exponent_bits,
+                )?;
+                largest_kronecker_exponent_bits =
+                    largest_kronecker_exponent_bits.max(kronecker.exponent_bits);
+            }
+        }
+        let polynomial_evaluator_selected =
+            backend == ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator;
 
         for source_term in 0..source_terms {
             let source_exponents = source.exponents(source_term);
@@ -8210,9 +7998,9 @@ impl ParametricCoefficientContext {
             }
 
             let mut contribution_bound = 1usize;
-            // `evaluate_with_coeff_map` maps (and therefore clones) the
-            // source coefficient before evaluating any image. This work is
-            // unconditional even when a later zero image kills the term.
+            // Both Symbolica backends retain the source integer while
+            // composing this term. This work is unconditional even when a
+            // later zero image kills the term.
             let source_integer_bits =
                 residual_affine_integer_bits(&source.coefficients[source_term])?;
             check_residual_affine_limit(
@@ -8220,20 +8008,17 @@ impl ParametricCoefficientContext {
                 source_integer_bits,
                 limits.max_integer_coefficient_bits,
             )?;
-            largest_native_integer_coefficient_bits =
-                largest_native_integer_coefficient_bits.max(source_integer_bits);
-            native_integer_bit_work_bound = residual_affine_checked_add(
-                "native integer bit work",
-                native_integer_bit_work_bound,
-                source_integer_bits,
-            )?;
-            check_residual_affine_limit(
-                "integer bit work",
-                native_integer_bit_work_bound,
-                limits.max_integer_bit_work,
-            )?;
+            if polynomial_evaluator_selected {
+                largest_polynomial_evaluator_integer_coefficient_bits =
+                    largest_polynomial_evaluator_integer_coefficient_bits.max(source_integer_bits);
+                polynomial_evaluator_integer_bit_work_bound = residual_affine_checked_add(
+                    "polynomial evaluator integer bit work",
+                    polynomial_evaluator_integer_bit_work_bound,
+                    source_integer_bits,
+                )?;
+            }
             let mut term_integer_bits = source_integer_bits;
-            let mut native_prefix_integer_bits = source_integer_bits;
+            let mut polynomial_evaluator_prefix_integer_bits = source_integer_bits;
             for (variable, &exponent) in source_exponents.iter().enumerate() {
                 if exponent == 0 {
                     continue;
@@ -8270,26 +8055,19 @@ impl ParametricCoefficientContext {
                     limits.max_native_power_heap_pairs,
                 )?;
 
-                let kronecker_bits = residual_affine_kronecker_preflight(
-                    plan,
-                    variable,
-                    usize::from(exponent),
-                    base_count,
-                )?;
-                check_residual_affine_limit(
-                    "Kronecker exponent bits",
-                    kronecker_bits,
-                    limits.max_kronecker_exponent_bits,
-                )?;
-                largest_kronecker_exponent_bits =
-                    largest_kronecker_exponent_bits.max(kronecker_bits);
                 let multiplication_pairs = residual_affine_checked_mul(
                     "native multiplication term pairs",
                     contribution_bound,
                     power_terms,
                 )?;
 
-                if power_terms != 0 {
+                if power_terms != 0 && polynomial_evaluator_selected {
+                    let kronecker = residual_affine_kronecker_preflight(
+                        plan,
+                        variable,
+                        usize::from(exponent),
+                        base_count,
+                    )?;
                     let per_power_growth = plan.image_coefficient_growth_bits[variable]
                         .checked_add(residual_affine_ceil_log2(image_terms))
                         .and_then(|bits| bits.checked_mul(usize::from(exponent)))
@@ -8322,7 +8100,7 @@ impl ParametricCoefficientContext {
                                         },
                                     )?,
                             )
-                            .and_then(|bits| bits.checked_add(kronecker_bits))
+                            .and_then(|bits| bits.checked_add(kronecker.exponent_bits))
                             .and_then(|bits| {
                                 bits.checked_add(residual_affine_ceil_log2(heap_pairs.max(1)))
                             })
@@ -8332,13 +8110,9 @@ impl ParametricCoefficientContext {
                     } else {
                         power_final_integer_bits
                     };
-                    check_residual_affine_limit(
-                        "integer coefficient bits",
-                        power_native_integer_bits,
-                        limits.max_integer_coefficient_bits,
-                    )?;
-                    largest_native_integer_coefficient_bits =
-                        largest_native_integer_coefficient_bits.max(power_native_integer_bits);
+                    largest_polynomial_evaluator_integer_coefficient_bits =
+                        largest_polynomial_evaluator_integer_coefficient_bits
+                            .max(power_native_integer_bits);
                     let power_work_units = if image_terms > 1 && usize::from(exponent) > 1 {
                         // One recurrence accumulation per heap pair plus one
                         // denominator-product/division step per retained
@@ -8356,15 +8130,10 @@ impl ParametricCoefficientContext {
                         power_work_units,
                         power_native_integer_bits,
                     )?;
-                    native_integer_bit_work_bound = residual_affine_checked_add(
-                        "native integer bit work",
-                        native_integer_bit_work_bound,
+                    polynomial_evaluator_integer_bit_work_bound = residual_affine_checked_add(
+                        "polynomial evaluator integer bit work",
+                        polynomial_evaluator_integer_bit_work_bound,
                         power_integer_bit_work,
-                    )?;
-                    check_residual_affine_limit(
-                        "integer bit work",
-                        native_integer_bit_work_bound,
-                        limits.max_integer_bit_work,
                     )?;
 
                     // The evaluator next multiplies the accumulated term by
@@ -8372,7 +8141,7 @@ impl ParametricCoefficientContext {
                     // product coefficient before mutating the prefix. This
                     // remains necessary when a later image is identically
                     // zero and the final C_m is therefore zero.
-                    let multiplication_integer_bits = native_prefix_integer_bits
+                    let multiplication_integer_bits = polynomial_evaluator_prefix_integer_bits
                         .checked_add(power_final_integer_bits)
                         .and_then(|bits| {
                             bits.checked_add(residual_affine_ceil_log2(multiplication_pairs.max(1)))
@@ -8381,13 +8150,8 @@ impl ParametricCoefficientContext {
                             resource: "integer coefficient bits",
                         })?;
                     if multiplication_pairs != 0 {
-                        check_residual_affine_limit(
-                            "integer coefficient bits",
-                            multiplication_integer_bits,
-                            limits.max_integer_coefficient_bits,
-                        )?;
-                        largest_native_integer_coefficient_bits =
-                            largest_native_integer_coefficient_bits
+                        largest_polynomial_evaluator_integer_coefficient_bits =
+                            largest_polynomial_evaluator_integer_coefficient_bits
                                 .max(multiplication_integer_bits);
                     }
                     let multiplication_integer_bit_work = residual_affine_checked_mul(
@@ -8395,17 +8159,12 @@ impl ParametricCoefficientContext {
                         multiplication_pairs,
                         multiplication_integer_bits,
                     )?;
-                    native_integer_bit_work_bound = residual_affine_checked_add(
-                        "native integer bit work",
-                        native_integer_bit_work_bound,
+                    polynomial_evaluator_integer_bit_work_bound = residual_affine_checked_add(
+                        "polynomial evaluator integer bit work",
+                        polynomial_evaluator_integer_bit_work_bound,
                         multiplication_integer_bit_work,
                     )?;
-                    check_residual_affine_limit(
-                        "integer bit work",
-                        native_integer_bit_work_bound,
-                        limits.max_integer_bit_work,
-                    )?;
-                    native_prefix_integer_bits = multiplication_integer_bits;
+                    polynomial_evaluator_prefix_integer_bits = multiplication_integer_bits;
                     // This is also the bound on the collected coefficient of
                     // the current term prefix; carry multiplication
                     // collisions into later output-addition accounting.
@@ -8451,35 +8210,34 @@ impl ParametricCoefficientContext {
                 limits.exact_algebra.max_polynomial_terms,
             )?;
 
-            let addition_visits = residual_affine_checked_add(
-                "native addition term visits",
-                expanded_contribution_bound,
-                contribution_bound,
-            )?
-            .checked_sub(contribution_bound)
-            .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "native addition term visits",
-            })?;
-            // The expression above is the new prefix plus C_m; spell the
-            // equivalent old-prefix + C_m without retaining another mutable
-            // prefix counter.
-            addition_term_visit_bound = residual_affine_checked_add(
-                "native addition term visits",
-                addition_term_visit_bound,
-                addition_visits,
-            )?;
-            check_residual_affine_limit(
-                "native addition term visits",
-                addition_term_visit_bound,
-                limits.max_addition_term_visits,
-            )?;
-
-            if contribution_bound != 0 {
-                check_residual_affine_limit(
-                    "integer coefficient bits",
-                    term_integer_bits,
-                    limits.max_integer_coefficient_bits,
+            if polynomial_evaluator_selected {
+                let addition_visits = residual_affine_checked_add(
+                    "polynomial evaluator addition term visits",
+                    expanded_contribution_bound,
+                    contribution_bound,
+                )?
+                .checked_sub(contribution_bound)
+                .ok_or(
+                    ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                        resource: "polynomial evaluator addition term visits",
+                    },
                 )?;
+                // The expression above is the new prefix plus C_m; spell the
+                // equivalent old-prefix + C_m without retaining another
+                // mutable prefix counter.
+                polynomial_evaluator_addition_term_visit_bound = residual_affine_checked_add(
+                    "polynomial evaluator addition term visits",
+                    polynomial_evaluator_addition_term_visit_bound,
+                    addition_visits,
+                )?;
+                check_residual_affine_limit(
+                    "native addition term visits",
+                    polynomial_evaluator_addition_term_visit_bound,
+                    limits.max_addition_term_visits,
+                )?;
+            }
+
+            if contribution_bound != 0 && polynomial_evaluator_selected {
                 largest_integer_contribution_bits =
                     largest_integer_contribution_bits.max(term_integer_bits);
 
@@ -8503,20 +8261,97 @@ impl ParametricCoefficientContext {
                     addition_integer_visits,
                     addition_integer_bits,
                 )?;
-                native_integer_bit_work_bound = residual_affine_checked_add(
-                    "native integer bit work",
-                    native_integer_bit_work_bound,
+                polynomial_evaluator_integer_bit_work_bound = residual_affine_checked_add(
+                    "polynomial evaluator integer bit work",
+                    polynomial_evaluator_integer_bit_work_bound,
                     addition_integer_bit_work,
-                )?;
-                check_residual_affine_limit(
-                    "integer bit work",
-                    native_integer_bit_work_bound,
-                    limits.max_integer_bit_work,
                 )?;
                 accumulated_output_integer_bits = addition_integer_bits;
             }
             accumulated_output_term_bound = expanded_contribution_bound;
         }
+
+        let addition_term_visit_bound = match backend {
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator => {
+                polynomial_evaluator_addition_term_visit_bound
+            }
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion => {
+                // The execution iterator filters inactive nonfree variables
+                // without allocating a support set. Reproduce its exact
+                // support predicate while counting the RHS Atoms that
+                // Symbolica will collect internally.
+                let (
+                    active_replacement_count,
+                    replacement_image_terms,
+                    replacement_occurrence_image_terms,
+                ) = plan.nonfree_positions.iter().try_fold(
+                    (0usize, 0usize, 0usize),
+                    |(active, terms, occurrence_terms),
+                     &position|
+                     -> Result<_, ResidualUnitAffineCompositionError> {
+                        let variable = base_count.checked_add(position).ok_or(
+                            ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                                resource: "Symbolica expression replacement image terms",
+                            },
+                        )?;
+                        let occurrences =
+                            (0..source_terms).try_fold(0usize, |occurrences, source_term| {
+                                if source.exponents(source_term)[variable] == 0 {
+                                    Ok(occurrences)
+                                } else {
+                                    residual_affine_checked_add(
+                                        "Symbolica expression replacement occurrences",
+                                        occurrences,
+                                        1,
+                                    )
+                                }
+                            })?;
+                        if occurrences == 0 {
+                            return Ok((active, terms, occurrence_terms));
+                        }
+                        let image_terms = plan.image_term_counts[variable];
+                        Ok((
+                            residual_affine_checked_add(
+                                "Symbolica expression active replacements",
+                                active,
+                                1,
+                            )?,
+                            residual_affine_checked_add(
+                                "Symbolica expression replacement image terms",
+                                terms,
+                                image_terms,
+                            )?,
+                            residual_affine_checked_add(
+                                "Symbolica expression substituted image terms",
+                                occurrence_terms,
+                                residual_affine_checked_mul(
+                                    "Symbolica expression substituted image terms",
+                                    occurrences,
+                                    image_terms,
+                                )?,
+                            )?,
+                        ))
+                    },
+                )?;
+                let bound = residual_affine_symbolica_expression_structural_visit_bound(
+                    source_terms,
+                    variable_count,
+                    plan.nonfree_positions.len(),
+                    active_replacement_count,
+                    replacement_image_terms,
+                    replacement_occurrence_image_terms,
+                    native_power_heap_pair_bound,
+                    multiplication_term_pair_bound,
+                    expanded_contribution_bound,
+                )?;
+                check_residual_affine_limit(
+                    "Symbolica backend structural term visits",
+                    bound,
+                    limits.max_addition_term_visits,
+                )?;
+                bound
+            }
+        };
 
         let prospective_output_exponents = residual_affine_checked_mul(
             "prospective output exponent entries",
@@ -8528,22 +8363,67 @@ impl ParametricCoefficientContext {
             prospective_output_exponents,
             limits.max_output_exponent_entries,
         )?;
+        let mut selected_backend_integer = match backend {
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator => {
+                ResidualAffineSymbolicaExpressionIntegerPreflight {
+                    largest_integer_coefficient_bit_bound:
+                        largest_polynomial_evaluator_integer_coefficient_bits,
+                    largest_integer_contribution_bit_bound: largest_integer_contribution_bits,
+                    integer_bit_work_bound: polynomial_evaluator_integer_bit_work_bound,
+                }
+            }
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion => {
+                residual_affine_symbolica_expression_integer_preflight(
+                    source,
+                    plan,
+                    base_count,
+                    limits
+                        .max_expanded_contributions
+                        .min(limits.max_output_terms)
+                        .min(limits.exact_algebra.max_polynomial_terms),
+                )?
+            }
+        };
         let largest_output_integer_coefficient_bit_bound = if expanded_contribution_bound == 0 {
             0
         } else {
-            largest_integer_contribution_bits
+            selected_backend_integer
+                .largest_integer_contribution_bit_bound
                 .checked_add(residual_affine_ceil_log2(expanded_contribution_bound))
                 .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
                     resource: "integer coefficient bits",
                 })?
         };
-        let largest_integer_coefficient_bit_bound = largest_native_integer_coefficient_bits
+        let largest_integer_coefficient_bit_bound = selected_backend_integer
+            .largest_integer_coefficient_bit_bound
             .max(largest_output_integer_coefficient_bit_bound);
         check_residual_affine_limit(
             "integer coefficient bits",
             largest_integer_coefficient_bit_bound,
             limits.max_integer_coefficient_bits,
         )?;
+        if backend == ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion {
+            // Atom replacement, normalization, expansion, validation and
+            // conversion copy packed integer payloads while traversing the
+            // structurally admitted tree. Scale the complete selected-path
+            // visit census by the collision-grown final width so those
+            // backend-internal byte copies cannot bypass integer-work
+            // admission. Exponents are serialized as Num nodes too, hence
+            // the fixed u16 width floor.
+            let packed_integer_width = largest_integer_coefficient_bit_bound
+                .max(u16::BITS as usize)
+                .max(1);
+            let atom_payload_bit_work = residual_affine_checked_mul(
+                "Symbolica expression Atom payload bit work",
+                addition_term_visit_bound,
+                packed_integer_width,
+            )?;
+            selected_backend_integer.integer_bit_work_bound = residual_affine_checked_add(
+                "Symbolica expression integer bit work",
+                selected_backend_integer.integer_bit_work_bound,
+                atom_payload_bit_work,
+            )?;
+        }
         // Every expanded contribution can participate in a maximal collision.
         // Charge the complete post-collection bit allowance to every one of C
         // contributions. This is conservative but, unlike a per-source-term
@@ -8553,11 +8433,26 @@ impl ParametricCoefficientContext {
             expanded_contribution_bound,
             largest_output_integer_coefficient_bit_bound,
         )?;
-        let integer_bit_work_bound = residual_affine_checked_add(
+        let mut integer_bit_work_bound = residual_affine_checked_add(
             "integer bit work",
-            native_integer_bit_work_bound,
+            selected_backend_integer.integer_bit_work_bound,
             output_integer_bit_work_bound,
         )?;
+        if backend == ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion {
+            // The expanded-Atom fast converter parses every final term and
+            // reconstructs its integer coefficient through two additional
+            // magnitude operations. This is separate from the C*B global
+            // collision/collection charge above.
+            integer_bit_work_bound = residual_affine_checked_add(
+                "integer bit work",
+                integer_bit_work_bound,
+                residual_affine_checked_mul(
+                    "Symbolica expression conversion integer bit work",
+                    output_integer_bit_work_bound,
+                    2,
+                )?,
+            )?;
+        }
         check_residual_affine_limit(
             "integer bit work",
             integer_bit_work_bound,
@@ -8578,871 +8473,14 @@ impl ParametricCoefficientContext {
                 addition_term_visit_bound,
                 largest_kronecker_exponent_bits,
                 largest_integer_coefficient_bit_bound,
-                native_integer_bit_work_bound,
+                // Compatibility field name: this is the complete
+                // pre-output integer-work census for whichever Symbolica
+                // backend preflight selected.
+                native_integer_bit_work_bound: selected_backend_integer.integer_bit_work_bound,
                 integer_bit_work_bound,
             },
+            backend,
         })
-    }
-
-    fn preflight_residual_affine_polynomial_core_controlled(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualAffineCompositionCorePlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffinePolynomialPreflight, ResidualUnitAffineCompositionError> {
-        self.validate_residual_affine_composition_core(plan)?;
-        self.validate_polynomial_with_limits(source, limits.exact_algebra)?;
-        self.preflight_residual_unit_affine_polynomial_raw_controlled(&source.raw, plan, limits)
-    }
-
-    /// Resource census for the controlled weak-composition/Cartesian-product
-    /// executor.  Keep this separate from the frozen native preflight above:
-    /// in particular, no u32 Kronecker key is constructed or admitted here.
-    fn preflight_residual_unit_affine_polynomial_raw_controlled(
-        &self,
-        source: &CoefficientPolynomial,
-        plan: &ResidualAffineCompositionCorePlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffinePolynomialPreflight, ResidualUnitAffineCompositionError> {
-        self.validate_residual_affine_composition_core(plan)?;
-        validate_polynomial_on_map(
-            source,
-            &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
-            limits.exact_algebra,
-        )
-        .map_err(ParametricCoefficientError::from)?;
-        let source_terms = source.nterms();
-        check_residual_affine_limit(
-            "polynomial source terms",
-            source_terms,
-            limits.max_source_terms,
-        )?;
-        let variable_count = self.variables.len();
-        let source_exponent_entries = residual_affine_checked_mul(
-            "polynomial source exponent entries",
-            source_terms,
-            variable_count,
-        )?;
-        check_residual_affine_limit(
-            "polynomial source exponent entries",
-            source_exponent_entries,
-            limits.max_source_exponent_entries,
-        )?;
-
-        let base_count = self.base.variables().len();
-        let exponent_limit = limits
-            .exact_algebra
-            .max_exponent
-            .min(SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT);
-        let power_term_limit = limits
-            .max_expanded_contributions
-            .min(limits.max_output_terms)
-            .min(limits.exact_algebra.max_polynomial_terms);
-        let mut expanded_contribution_bound = 0usize;
-        let mut power_calls = 0usize;
-        // This compatibility statistic now bounds controlled power-term
-        // enumeration pairs (image terms times powered terms).  It remains a
-        // conservative upper bound on all simultaneously materialized power
-        // terms and continues to honor the existing nested/aggregate limit.
-        let mut native_power_heap_pair_bound = 0usize;
-        let mut multiplication_term_pair_bound = 0usize;
-        let mut largest_integer_contribution_bits = 0usize;
-        let mut largest_controlled_integer_coefficient_bits = 0usize;
-        let mut controlled_integer_bit_work_bound = 0usize;
-
-        for source_term in 0..source_terms {
-            let source_exponents = source.exponents(source_term);
-
-            // The controlled executor accumulates target exponents in u32
-            // and narrows only after this complete affine support check has
-            // proved every prospective exponent fits the configured/u16
-            // representation boundary.
-            for variable in 0..base_count {
-                check_residual_affine_exponent(
-                    source_term,
-                    variable,
-                    u128::from(source_exponents[variable]),
-                    exponent_limit,
-                )?;
-            }
-            for (free_ordinal, &free_position) in plan.free_positions.iter().enumerate() {
-                let mut requested = 0u128;
-                for position in 0..self.index_count() {
-                    let coefficient_is_nonzero =
-                        plan.linear_is_nonzero(position, free_ordinal).ok_or(
-                            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                                resource: "affine linear support",
-                                actual: plan.linear_support.len(),
-                                bound: plan.ambient_arity.saturating_mul(plan.free_positions.len()),
-                            },
-                        )?;
-                    if coefficient_is_nonzero {
-                        requested = requested
-                            .checked_add(u128::from(source_exponents[base_count + position]))
-                            .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                                resource: "target exponent",
-                            })?;
-                    }
-                }
-                check_residual_affine_exponent(
-                    source_term,
-                    base_count + free_position,
-                    requested,
-                    exponent_limit,
-                )?;
-            }
-
-            let source_integer_bits =
-                residual_affine_integer_bits(&source.coefficients[source_term])?;
-            check_residual_affine_limit(
-                "integer coefficient bits",
-                source_integer_bits,
-                limits.max_integer_coefficient_bits,
-            )?;
-            largest_controlled_integer_coefficient_bits =
-                largest_controlled_integer_coefficient_bits.max(source_integer_bits);
-            controlled_integer_bit_work_bound = residual_affine_checked_add(
-                "controlled integer bit work",
-                controlled_integer_bit_work_bound,
-                source_integer_bits,
-            )?;
-            check_residual_affine_limit(
-                "integer bit work",
-                controlled_integer_bit_work_bound,
-                limits.max_integer_bit_work,
-            )?;
-
-            let mut contribution_bound = 1usize;
-            let mut contribution_integer_bits = source_integer_bits;
-            for (variable, &exponent) in source_exponents.iter().enumerate() {
-                if exponent == 0 {
-                    continue;
-                }
-                power_calls =
-                    residual_affine_checked_add("controlled affine power calls", power_calls, 1)?;
-                check_residual_affine_limit(
-                    "native power calls",
-                    power_calls,
-                    limits.max_power_calls,
-                )?;
-
-                let exponent = usize::from(exponent);
-                let image_terms = plan.image_term_counts[variable];
-                let power_terms = residual_affine_affine_power_term_bound(
-                    exponent,
-                    image_terms,
-                    power_term_limit,
-                )?;
-                let power_enumeration_pairs = residual_affine_checked_mul(
-                    "controlled affine power enumeration pairs",
-                    image_terms,
-                    power_terms,
-                )?;
-                native_power_heap_pair_bound = residual_affine_checked_add(
-                    "controlled affine power enumeration pairs",
-                    native_power_heap_pair_bound,
-                    power_enumeration_pairs,
-                )?;
-                check_residual_affine_limit(
-                    "native power heap pairs",
-                    native_power_heap_pair_bound,
-                    limits.max_native_power_heap_pairs,
-                )?;
-
-                let multiplication_pairs = residual_affine_checked_mul(
-                    "controlled affine multiplication term pairs",
-                    contribution_bound,
-                    power_terms,
-                )?;
-                multiplication_term_pair_bound = residual_affine_checked_add(
-                    "controlled affine multiplication term pairs",
-                    multiplication_term_pair_bound,
-                    multiplication_pairs,
-                )?;
-                check_residual_affine_limit(
-                    "native multiplication term pairs",
-                    multiplication_term_pair_bound,
-                    limits.max_multiplication_term_pairs,
-                )?;
-
-                if power_terms != 0 {
-                    let per_power_growth = plan.image_coefficient_growth_bits[variable]
-                        .checked_add(residual_affine_ceil_log2(image_terms))
-                        .and_then(|bits| bits.checked_mul(exponent))
-                        .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                            resource: "integer coefficient growth bits",
-                        })?;
-                    let power_final_integer_bits = per_power_growth.checked_add(1).ok_or(
-                        ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                            resource: "integer coefficient bits",
-                        },
-                    )?;
-                    check_residual_affine_limit(
-                        "integer coefficient bits",
-                        power_final_integer_bits,
-                        limits.max_integer_coefficient_bits,
-                    )?;
-                    largest_controlled_integer_coefficient_bits =
-                        largest_controlled_integer_coefficient_bits.max(power_final_integer_bits);
-
-                    // Per materialized power monomial: weak-composition
-                    // advance, multinomial binomials, coefficient powers and
-                    // coefficient products.  This deliberately avoids any
-                    // backend heap/Kronecker recurrence charge.
-                    let exponent_log = residual_affine_ceil_log2(residual_affine_checked_add(
-                        "controlled affine power work units",
-                        exponent,
-                        1,
-                    )?);
-                    let power_work_units_per_term = [
-                        residual_affine_checked_mul(
-                            "controlled affine power work units",
-                            exponent,
-                            2,
-                        )?,
-                        residual_affine_checked_mul(
-                            "controlled affine power work units",
-                            image_terms,
-                            2,
-                        )?,
-                        residual_affine_checked_mul(
-                            "controlled affine power work units",
-                            residual_affine_checked_mul(
-                                "controlled affine power work units",
-                                image_terms,
-                                exponent_log,
-                            )?,
-                            2,
-                        )?,
-                        4,
-                    ]
-                    .into_iter()
-                    .try_fold(0usize, |sum, units| {
-                        residual_affine_checked_add(
-                            "controlled affine power work units",
-                            sum,
-                            units,
-                        )
-                    })?;
-                    let power_work_units = residual_affine_checked_mul(
-                        "controlled affine power work units",
-                        power_terms,
-                        power_work_units_per_term,
-                    )?;
-                    let power_transient_integer_bits = residual_affine_checked_add(
-                        "controlled affine transient integer bits",
-                        power_final_integer_bits,
-                        exponent_log,
-                    )?;
-                    let power_integer_bit_work = residual_affine_checked_mul(
-                        "controlled integer bit work",
-                        power_work_units,
-                        power_transient_integer_bits,
-                    )?;
-                    controlled_integer_bit_work_bound = residual_affine_checked_add(
-                        "controlled integer bit work",
-                        controlled_integer_bit_work_bound,
-                        power_integer_bit_work,
-                    )?;
-
-                    contribution_integer_bits = residual_affine_checked_add(
-                        "controlled affine contribution integer bits",
-                        contribution_integer_bits,
-                        power_final_integer_bits,
-                    )?;
-                    if multiplication_pairs != 0 {
-                        check_residual_affine_limit(
-                            "integer coefficient bits",
-                            contribution_integer_bits,
-                            limits.max_integer_coefficient_bits,
-                        )?;
-                        largest_controlled_integer_coefficient_bits =
-                            largest_controlled_integer_coefficient_bits
-                                .max(contribution_integer_bits);
-                    }
-                    let multiplication_integer_bit_work = residual_affine_checked_mul(
-                        "controlled integer bit work",
-                        multiplication_pairs,
-                        contribution_integer_bits,
-                    )?;
-                    controlled_integer_bit_work_bound = residual_affine_checked_add(
-                        "controlled integer bit work",
-                        controlled_integer_bit_work_bound,
-                        multiplication_integer_bit_work,
-                    )?;
-                    check_residual_affine_limit(
-                        "integer bit work",
-                        controlled_integer_bit_work_bound,
-                        limits.max_integer_bit_work,
-                    )?;
-                }
-
-                contribution_bound = multiplication_pairs;
-                check_residual_affine_limit(
-                    "expanded polynomial contributions",
-                    contribution_bound,
-                    limits.max_expanded_contributions,
-                )?;
-            }
-
-            expanded_contribution_bound = residual_affine_checked_add(
-                "expanded polynomial contributions",
-                expanded_contribution_bound,
-                contribution_bound,
-            )?;
-            check_residual_affine_limit(
-                "expanded polynomial contributions",
-                expanded_contribution_bound,
-                limits.max_expanded_contributions,
-            )?;
-            check_residual_affine_limit(
-                "prospective output terms",
-                expanded_contribution_bound,
-                limits.max_output_terms,
-            )?;
-            check_residual_affine_limit(
-                "prospective exact-algebra output terms",
-                expanded_contribution_bound,
-                limits.exact_algebra.max_polynomial_terms,
-            )?;
-            if contribution_bound != 0 {
-                largest_integer_contribution_bits =
-                    largest_integer_contribution_bits.max(contribution_integer_bits);
-            }
-        }
-
-        let prospective_output_exponents = residual_affine_checked_mul(
-            "prospective output exponent entries",
-            expanded_contribution_bound,
-            variable_count,
-        )?;
-        check_residual_affine_limit(
-            "prospective output exponent entries",
-            prospective_output_exponents,
-            limits.max_output_exponent_entries,
-        )?;
-        // Two stable byte passes for every u16 coordinate.  Each pass scans
-        // every contribution once to count and once to scatter, followed by
-        // one canonical collection visit per contribution.  The fixed
-        // 256-bucket clear/prefix sweeps are bounded by V and are deliberately
-        // not called term visits.
-        let addition_term_visit_bound = residual_affine_checked_add(
-            "controlled radix and collection visits",
-            residual_affine_checked_mul(
-                "controlled radix and collection visits",
-                prospective_output_exponents,
-                4,
-            )?,
-            expanded_contribution_bound,
-        )?;
-        check_residual_affine_limit(
-            "native addition term visits",
-            addition_term_visit_bound,
-            limits.max_addition_term_visits,
-        )?;
-
-        let largest_output_integer_coefficient_bit_bound = if expanded_contribution_bound == 0 {
-            0
-        } else {
-            residual_affine_checked_add(
-                "integer coefficient bits",
-                largest_integer_contribution_bits,
-                residual_affine_ceil_log2(expanded_contribution_bound),
-            )?
-        };
-        let largest_integer_coefficient_bit_bound = largest_controlled_integer_coefficient_bits
-            .max(largest_output_integer_coefficient_bit_bound);
-        check_residual_affine_limit(
-            "integer coefficient bits",
-            largest_integer_coefficient_bit_bound,
-            limits.max_integer_coefficient_bits,
-        )?;
-        let output_integer_bit_work_bound = residual_affine_checked_mul(
-            "integer bit work",
-            expanded_contribution_bound,
-            largest_output_integer_coefficient_bit_bound,
-        )?;
-        let integer_bit_work_bound = residual_affine_checked_add(
-            "integer bit work",
-            controlled_integer_bit_work_bound,
-            output_integer_bit_work_bound,
-        )?;
-        check_residual_affine_limit(
-            "integer bit work",
-            integer_bit_work_bound,
-            limits.max_integer_bit_work,
-        )?;
-
-        Ok(ResidualUnitAffinePolynomialPreflight {
-            stats: ResidualUnitAffinePolynomialCompositionStats {
-                source_terms,
-                source_exponent_entries,
-                expanded_contribution_bound,
-                output_terms: 0,
-                output_exponent_entry_bound: prospective_output_exponents,
-                output_exponent_entries: 0,
-                power_calls,
-                native_power_heap_pair_bound,
-                multiplication_term_pair_bound,
-                addition_term_visit_bound,
-                largest_kronecker_exponent_bits: 0,
-                largest_integer_coefficient_bit_bound,
-                native_integer_bit_work_bound: controlled_integer_bit_work_bound,
-                integer_bit_work_bound,
-            },
-        })
-    }
-
-    fn execute_residual_affine_polynomial_core_controlled(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualAffineCompositionCorePlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-        preflight: ResidualUnitAffinePolynomialPreflight,
-    ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        self.execute_residual_unit_affine_polynomial_raw_controlled(
-            &source.raw,
-            plan,
-            limits,
-            preflight,
-        )
-    }
-
-    fn execute_residual_unit_affine_polynomial_raw_controlled(
-        &self,
-        source: &CoefficientPolynomial,
-        plan: &ResidualAffineCompositionCorePlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-        preflight: ResidualUnitAffinePolynomialPreflight,
-    ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        let variable_count = self.variables.len();
-        let contribution_capacity = preflight.stats.expanded_contribution_bound;
-        let contribution_exponent_capacity = preflight.stats.output_exponent_entry_bound;
-        let powered_term_capacity = preflight.stats.native_power_heap_pair_bound;
-        let powered_exponent_capacity = residual_affine_checked_mul(
-            "controlled powered exponent entries",
-            powered_term_capacity,
-            variable_count,
-        )?;
-        let multiplicity_capacity =
-            residual_affine_checked_add("controlled affine multiplicities", variable_count, 1)?;
-        let coefficient_stack_capacity = multiplicity_capacity;
-
-        let mut workspace = ControlledAffineExpansionWorkspace {
-            contributions: ControlledContributionBuffer {
-                coefficients: Vec::new(),
-                exponents: Vec::new(),
-            },
-            power_coefficients: Vec::new(),
-            power_exponents: Vec::new(),
-            power_blocks: Vec::new(),
-            multiplicities: Vec::new(),
-            cursor: Vec::new(),
-            coefficient_stack: Vec::new(),
-            target_exponents: Vec::new(),
-        };
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.contributions.coefficients,
-            contribution_capacity,
-            "controlled contribution coefficients",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.contributions.exponents,
-            contribution_exponent_capacity,
-            "controlled contribution exponents",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.power_coefficients,
-            powered_term_capacity,
-            "controlled powered coefficients",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.power_exponents,
-            powered_exponent_capacity,
-            "controlled powered exponents",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.power_blocks,
-            variable_count,
-            "controlled powered-image blocks",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.multiplicities,
-            multiplicity_capacity,
-            "controlled affine multiplicities",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.cursor,
-            variable_count,
-            "controlled Cartesian cursor",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.coefficient_stack,
-            coefficient_stack_capacity,
-            "controlled coefficient stack",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.target_exponents,
-            variable_count,
-            "controlled target exponents",
-        )?;
-        workspace.target_exponents.resize(variable_count, 0);
-
-        let exponent_limit = limits
-            .exact_algebra
-            .max_exponent
-            .min(SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT);
-        let power_term_limit = limits
-            .max_expanded_contributions
-            .min(limits.max_output_terms)
-            .min(limits.exact_algebra.max_polynomial_terms);
-        let mut observed_power_calls = 0usize;
-        let mut observed_power_enumeration_pairs = 0usize;
-
-        for source_term in 0..source.nterms() {
-            workspace.power_coefficients.clear();
-            workspace.power_exponents.clear();
-            workspace.power_blocks.clear();
-            workspace.multiplicities.clear();
-            workspace.cursor.clear();
-            workspace.coefficient_stack.clear();
-            workspace.target_exponents.fill(0);
-
-            for (source_variable, &exponent) in source.exponents(source_term).iter().enumerate() {
-                if exponent == 0 {
-                    continue;
-                }
-                observed_power_calls = residual_affine_checked_add(
-                    "controlled affine power calls",
-                    observed_power_calls,
-                    1,
-                )?;
-                if observed_power_calls > preflight.stats.power_calls {
-                    return Err(
-                        ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                            resource: "controlled affine power calls",
-                            actual: observed_power_calls,
-                            bound: preflight.stats.power_calls,
-                        },
-                    );
-                }
-                let image = &plan.full_images[source_variable];
-                let expected_power_terms = residual_affine_affine_power_term_bound(
-                    usize::from(exponent),
-                    image.nterms(),
-                    power_term_limit,
-                )?;
-                let enumeration_pairs = residual_affine_checked_mul(
-                    "controlled affine power enumeration pairs",
-                    image.nterms(),
-                    expected_power_terms,
-                )?;
-                observed_power_enumeration_pairs = residual_affine_checked_add(
-                    "controlled affine power enumeration pairs",
-                    observed_power_enumeration_pairs,
-                    enumeration_pairs,
-                )?;
-                if observed_power_enumeration_pairs > preflight.stats.native_power_heap_pair_bound {
-                    return Err(
-                        ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                            resource: "controlled affine power enumeration pairs",
-                            actual: observed_power_enumeration_pairs,
-                            bound: preflight.stats.native_power_heap_pair_bound,
-                        },
-                    );
-                }
-                let block = residual_affine_materialize_controlled_power(
-                    &mut workspace,
-                    image,
-                    exponent,
-                    expected_power_terms,
-                    variable_count,
-                    source_term,
-                    exponent_limit,
-                    preflight.stats,
-                    limits,
-                )?;
-                if workspace.power_blocks.len() >= variable_count {
-                    return Err(
-                        ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                            resource: "controlled powered-image block depth",
-                            actual: workspace.power_blocks.len().saturating_add(1),
-                            bound: variable_count,
-                        },
-                    );
-                }
-                workspace.power_blocks.push(block);
-            }
-
-            residual_affine_append_controlled_cross_product(
-                &mut workspace,
-                &source.coefficients[source_term],
-                variable_count,
-                source_term,
-                exponent_limit,
-                preflight.stats,
-                limits,
-            )?;
-        }
-
-        if observed_power_calls != preflight.stats.power_calls {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled affine power calls",
-                    actual: observed_power_calls,
-                    bound: preflight.stats.power_calls,
-                },
-            );
-        }
-        if observed_power_enumeration_pairs != preflight.stats.native_power_heap_pair_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled affine power enumeration pairs",
-                    actual: observed_power_enumeration_pairs,
-                    bound: preflight.stats.native_power_heap_pair_bound,
-                },
-            );
-        }
-        if workspace.contributions.coefficients.len() != preflight.stats.expanded_contribution_bound
-        {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled expanded contributions",
-                    actual: workspace.contributions.coefficients.len(),
-                    bound: preflight.stats.expanded_contribution_bound,
-                },
-            );
-        }
-        let observed_contribution_exponents = workspace.contributions.exponents.len();
-        if observed_contribution_exponents != preflight.stats.output_exponent_entry_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled contribution exponent entries",
-                    actual: observed_contribution_exponents,
-                    bound: preflight.stats.output_exponent_entry_bound,
-                },
-            );
-        }
-
-        // `into_contributions` destroys every expansion-only Vec before the
-        // collection phase allocates either radix index buffer or the output
-        // polynomial.
-        let contributions = workspace.into_contributions();
-        let mapped = self.collect_controlled_affine_contributions(
-            contributions,
-            variable_count,
-            preflight.stats,
-        )?;
-
-        if !Arc::ptr_eq(&mapped.variables, &self.variables) {
-            return Err(ResidualUnitAffineCompositionError::WrongContext);
-        }
-        if mapped.nterms() > preflight.stats.expanded_contribution_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "retained output terms",
-                    actual: mapped.nterms(),
-                    bound: preflight.stats.expanded_contribution_bound,
-                },
-            );
-        }
-        check_residual_affine_limit(
-            "retained output terms",
-            mapped.nterms(),
-            limits.max_output_terms,
-        )?;
-        let output_exponent_entries = residual_affine_checked_mul(
-            "retained output exponent entries",
-            mapped.nterms(),
-            variable_count,
-        )?;
-        if output_exponent_entries > preflight.stats.output_exponent_entry_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "retained output exponent entries",
-                    actual: output_exponent_entries,
-                    bound: preflight.stats.output_exponent_entry_bound,
-                },
-            );
-        }
-        check_residual_affine_limit(
-            "retained output exponent entries",
-            output_exponent_entries,
-            limits.max_output_exponent_entries,
-        )?;
-        validate_polynomial_on_map(
-            &mapped,
-            &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
-            limits.exact_algebra,
-        )
-        .map_err(ParametricCoefficientError::from)?;
-
-        let base_count = self.base.variables().len();
-        for exponents in mapped.exponents_iter() {
-            for &position in &plan.nonfree_positions {
-                if exponents[base_count + position] != 0 {
-                    return Err(ResidualUnitAffineCompositionError::NonFreeIndexSurvived {
-                        position,
-                    });
-                }
-            }
-        }
-        for coefficient in &mapped.coefficients {
-            let actual_bits = residual_affine_integer_bits(coefficient)?;
-            if actual_bits > preflight.stats.largest_integer_coefficient_bit_bound {
-                return Err(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "retained integer coefficient bits",
-                        actual: actual_bits,
-                        bound: preflight.stats.largest_integer_coefficient_bit_bound,
-                    },
-                );
-            }
-            check_residual_affine_limit(
-                "retained integer coefficient bits",
-                actual_bits,
-                limits.max_integer_coefficient_bits,
-            )?;
-        }
-
-        let mut stats = preflight.stats;
-        stats.output_terms = mapped.nterms();
-        stats.output_exponent_entries = output_exponent_entries;
-        Ok(ResidualAffinePolynomialComposition {
-            value: ParametricPolynomial {
-                raw: mapped,
-                context: self.fingerprint.clone(),
-            },
-            stats,
-        })
-    }
-
-    fn collect_controlled_affine_contributions(
-        &self,
-        contributions: ControlledContributionBuffer,
-        variable_count: usize,
-        preflight: ResidualUnitAffinePolynomialCompositionStats,
-    ) -> Result<CoefficientPolynomial, ResidualUnitAffineCompositionError> {
-        let contribution_count = contributions.coefficients.len();
-        let mut workspace = ControlledAffineCollectionWorkspace {
-            contributions,
-            first_indices: Vec::new(),
-            second_indices: Vec::new(),
-            counts: [0; 256],
-        };
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.first_indices,
-            contribution_count,
-            "controlled first radix indices",
-        )?;
-        residual_affine_controlled_try_reserve_exact(
-            &mut workspace.second_indices,
-            contribution_count,
-            "controlled second radix indices",
-        )?;
-        workspace.first_indices.extend(0..contribution_count);
-        workspace.second_indices.resize(contribution_count, 0);
-
-        if contribution_count > 1 {
-            for variable in (0..variable_count).rev() {
-                residual_affine_controlled_radix_pass(
-                    &workspace.first_indices,
-                    &mut workspace.second_indices,
-                    &mut workspace.counts,
-                    &workspace.contributions.exponents,
-                    variable_count,
-                    variable,
-                    false,
-                )?;
-                std::mem::swap(&mut workspace.first_indices, &mut workspace.second_indices);
-                residual_affine_controlled_radix_pass(
-                    &workspace.first_indices,
-                    &mut workspace.second_indices,
-                    &mut workspace.counts,
-                    &workspace.contributions.exponents,
-                    variable_count,
-                    variable,
-                    true,
-                )?;
-                std::mem::swap(&mut workspace.first_indices, &mut workspace.second_indices);
-            }
-        }
-
-        let mut mapped = reserve_residual_affine_polynomial(
-            &self.template.numerator,
-            contribution_count,
-            variable_count,
-            "controlled canonical output",
-        )?;
-        let mut previous_index = None;
-        for &index in &workspace.first_indices {
-            let exponent_start = residual_affine_checked_mul(
-                "controlled contribution exponent offset",
-                index,
-                variable_count,
-            )?;
-            let exponent_end = residual_affine_checked_add(
-                "controlled contribution exponent offset",
-                exponent_start,
-                variable_count,
-            )?;
-            let exponents = workspace
-                .contributions
-                .exponents
-                .get(exponent_start..exponent_end)
-                .ok_or(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled contribution exponent row",
-                        actual: exponent_end,
-                        bound: workspace.contributions.exponents.len(),
-                    },
-                )?;
-            if let Some(previous_index) = previous_index {
-                let previous_start = residual_affine_checked_mul(
-                    "controlled contribution exponent offset",
-                    previous_index,
-                    variable_count,
-                )?;
-                let previous_end = residual_affine_checked_add(
-                    "controlled contribution exponent offset",
-                    previous_start,
-                    variable_count,
-                )?;
-                if workspace.contributions.exponents[previous_start..previous_end] > *exponents {
-                    return Err(
-                        ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                            resource: "controlled radix Lex order",
-                            actual: 1,
-                            bound: 0,
-                        },
-                    );
-                }
-            }
-            previous_index = Some(index);
-            let coefficient = std::mem::replace(
-                workspace.contributions.coefficients.get_mut(index).ok_or(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled contribution coefficient",
-                        actual: index,
-                        bound: contribution_count,
-                    },
-                )?,
-                Integer::zero(),
-            );
-            mapped.append_monomial_back(coefficient, exponents);
-        }
-        if mapped.nterms() > preflight.expanded_contribution_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled canonical output terms",
-                    actual: mapped.nterms(),
-                    bound: preflight.expanded_contribution_bound,
-                },
-            );
-        }
-        Ok(mapped)
     }
 
     fn execute_residual_affine_polynomial_core(
@@ -9462,17 +8500,90 @@ impl ParametricCoefficientContext {
         limits: ResidualUnitAffinePolynomialCompositionLimits,
         preflight: ResidualUnitAffinePolynomialPreflight,
     ) -> Result<ResidualAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        let ring = PolynomialRing::<IntegerRing, u16>::from_poly(&self.template.numerator);
-        let mapped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            source.evaluate_with_coeff_map(
-                |integer| self.template.numerator.constant(integer.clone()),
-                &plan.full_images,
-                &ring,
-            )
-        }))
-        .map_err(|_| ResidualUnitAffineCompositionError::SymbolicaPanic {
-            stage: "unit-affine polynomial composition",
-        })?;
+        let mapped = match preflight.backend {
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator => {
+                let ring = PolynomialRing::<IntegerRing, u16>::from_poly(&self.template.numerator);
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    source.evaluate_with_coeff_map(
+                        |integer| self.template.numerator.constant(integer.clone()),
+                        &plan.full_images,
+                        &ring,
+                    )
+                }))
+                .map_err(|_| {
+                    ResidualUnitAffineCompositionError::SymbolicaPanic {
+                        stage: "unit-affine polynomial composition",
+                    }
+                })?
+            }
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion => {
+                let mut mapped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let base_count = self.base.variables().len();
+                    // Feed a support-filtered lazy iterator into Symbolica.
+                    // Its replacement engine performs the collection
+                    // internally, so RustRed owns no transient replacement
+                    // Vec and does not build RHS Atoms absent from `source`.
+                    let replacements = plan.nonfree_positions.iter().filter_map(|&position| {
+                        let variable = base_count
+                            .checked_add(position)
+                            .expect("validated affine variable offset");
+                        source
+                            .exponents_iter()
+                            .any(|exponents| exponents[variable] != 0)
+                            .then(|| {
+                                Replacement::new(
+                                    self.variables[variable].to_atom(),
+                                    plan.full_images[variable].to_expression(),
+                                )
+                            })
+                    });
+                    let expanded = source
+                        .to_expression()
+                        .replace_multiple(replacements)
+                        .expand();
+                    // Pin conversion to Symbolica's expanded-polynomial fast
+                    // path. If a future backend revision changes `expand`
+                    // semantics, fail at this typed boundary instead of
+                    // allowing the converter's recursive fallback to re-enter
+                    // polynomial `pow` and its u32 mixed-radix stride.
+                    if !expanded.is_expanded::<Atom>(None)
+                        || expanded.is_polynomial(false, false).is_none()
+                    {
+                        return Err(
+                            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
+                                resource: "Symbolica expanded affine polynomial form",
+                                actual: 0,
+                                bound: 1,
+                            },
+                        );
+                    }
+                    expanded
+                        .try_to_polynomial::<_, u16>(&Z, Some(self.variables.clone()))
+                        .map_err(|_| {
+                            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
+                                resource: "Symbolica affine expression polynomial conversion",
+                                actual: 1,
+                                bound: 0,
+                            }
+                        })
+                }))
+                .map_err(|_| {
+                    ResidualUnitAffineCompositionError::SymbolicaPanic {
+                        stage: "unit-affine Symbolica expression composition",
+                    }
+                })??;
+                // `try_to_polynomial` reconstructs an equal ordered variable
+                // map behind a fresh Arc and permits discovering variables
+                // while converting. Authenticate that no variable was added
+                // or reordered, then restore the context's canonical Arc for
+                // the common postvalidation boundary below.
+                if mapped.variables.as_ref() != self.variables.as_ref() {
+                    return Err(ResidualUnitAffineCompositionError::WrongContext);
+                }
+                mapped.variables = self.variables.clone();
+                mapped
+            }
+        };
 
         if !Arc::ptr_eq(&mapped.variables, &self.variables) {
             return Err(ResidualUnitAffineCompositionError::WrongContext);
@@ -11037,9 +10148,23 @@ fn parametric_ceil_log2(value: usize) -> usize {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResidualAffinePolynomialCompositionBackend {
+    PolynomialEvaluator,
+    SymbolicaExpressionExpansion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ResidualAffineSymbolicaExpressionIntegerPreflight {
+    largest_integer_coefficient_bit_bound: usize,
+    largest_integer_contribution_bit_bound: usize,
+    integer_bit_work_bound: usize,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ResidualUnitAffinePolynomialPreflight {
     stats: ResidualUnitAffinePolynomialCompositionStats,
+    backend: ResidualAffinePolynomialCompositionBackend,
 }
 
 struct ResidualAffineCoefficientCorePreflight {
@@ -12390,594 +11515,6 @@ fn reserve_residual_affine_polynomial(
     Ok(result)
 }
 
-fn residual_affine_controlled_try_reserve_exact<T>(
-    values: &mut Vec<T>,
-    requested: usize,
-    resource: &'static str,
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    values.try_reserve_exact(requested).map_err(|_| {
-        ResidualUnitAffineCompositionError::AllocationFailure {
-            resource,
-            requested,
-        }
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn residual_affine_materialize_controlled_power(
-    workspace: &mut ControlledAffineExpansionWorkspace,
-    image: &CoefficientPolynomial,
-    exponent: u16,
-    expected_power_terms: usize,
-    variable_count: usize,
-    source_term: usize,
-    exponent_limit: u128,
-    preflight: ResidualUnitAffinePolynomialCompositionStats,
-    limits: ResidualUnitAffinePolynomialCompositionLimits,
-) -> Result<ControlledPowerBlock, ResidualUnitAffineCompositionError> {
-    let image_terms = image.nterms();
-    let multiplicity_bound =
-        residual_affine_checked_add("controlled affine multiplicities", variable_count, 1)?;
-    if image_terms > multiplicity_bound {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled affine image terms",
-                actual: image_terms,
-                bound: multiplicity_bound,
-            },
-        );
-    }
-    let start = workspace.power_coefficients.len();
-    if image_terms != 0 {
-        workspace.multiplicities.clear();
-        workspace.multiplicities.resize(image_terms, 0);
-        workspace.multiplicities[0] = u32::from(exponent);
-        loop {
-            let next_power_count = residual_affine_checked_add(
-                "controlled powered terms",
-                workspace.power_coefficients.len(),
-                1,
-            )?;
-            if next_power_count > preflight.native_power_heap_pair_bound {
-                return Err(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled powered terms",
-                        actual: next_power_count,
-                        bound: preflight.native_power_heap_pair_bound,
-                    },
-                );
-            }
-
-            let mut coefficient = Integer::multinom(&workspace.multiplicities);
-            for (image_term, &multiplicity) in workspace.multiplicities.iter().enumerate() {
-                if multiplicity == 0 {
-                    continue;
-                }
-                let factor = image.coefficients[image_term].pow(u64::from(multiplicity));
-                coefficient *= &factor;
-            }
-            let coefficient_bits = residual_affine_integer_bits(&coefficient)?;
-            if coefficient_bits > preflight.largest_integer_coefficient_bit_bound {
-                return Err(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled powered coefficient bits",
-                        actual: coefficient_bits,
-                        bound: preflight.largest_integer_coefficient_bit_bound,
-                    },
-                );
-            }
-            check_residual_affine_limit(
-                "integer coefficient bits",
-                coefficient_bits,
-                limits.max_integer_coefficient_bits,
-            )?;
-
-            let exponent_start = workspace.power_exponents.len();
-            let exponent_end = residual_affine_checked_add(
-                "controlled powered exponent entries",
-                exponent_start,
-                variable_count,
-            )?;
-            let powered_exponent_bound = residual_affine_checked_mul(
-                "controlled powered exponent entries",
-                preflight.native_power_heap_pair_bound,
-                variable_count,
-            )?;
-            if exponent_end > powered_exponent_bound {
-                return Err(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled powered exponent entries",
-                        actual: exponent_end,
-                        bound: powered_exponent_bound,
-                    },
-                );
-            }
-            workspace.power_exponents.resize(exponent_end, 0);
-            for (image_term, &multiplicity) in workspace.multiplicities.iter().enumerate() {
-                if multiplicity == 0 {
-                    continue;
-                }
-                for (target_variable, &image_exponent) in
-                    image.exponents(image_term).iter().enumerate()
-                {
-                    let increment = u32::from(image_exponent).checked_mul(multiplicity).ok_or(
-                        ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                            resource: "controlled powered exponent",
-                        },
-                    )?;
-                    let target = workspace.power_exponents[exponent_start + target_variable];
-                    let requested = u32::from(target).checked_add(increment).ok_or(
-                        ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                            resource: "controlled powered exponent",
-                        },
-                    )?;
-                    check_residual_affine_exponent(
-                        source_term,
-                        target_variable,
-                        u128::from(requested),
-                        exponent_limit,
-                    )?;
-                    workspace.power_exponents[exponent_start + target_variable] =
-                        u16::try_from(requested).map_err(|_| {
-                            ResidualUnitAffineCompositionError::ExponentLimit {
-                                source_term,
-                                target_variable,
-                                requested: u128::from(requested),
-                                limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-                            }
-                        })?;
-                }
-            }
-            workspace.power_coefficients.push(coefficient);
-
-            if !residual_affine_advance_weak_composition(&mut workspace.multiplicities)? {
-                break;
-            }
-        }
-    }
-    let len = workspace
-        .power_coefficients
-        .len()
-        .checked_sub(start)
-        .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-            resource: "controlled powered-image block",
-        })?;
-    if len != expected_power_terms {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled powered-image terms",
-                actual: len,
-                bound: expected_power_terms,
-            },
-        );
-    }
-    Ok(ControlledPowerBlock { start, len })
-}
-
-fn residual_affine_advance_weak_composition(
-    multiplicities: &mut [u32],
-) -> Result<bool, ResidualUnitAffineCompositionError> {
-    if multiplicities.len() <= 1 {
-        return Ok(false);
-    }
-    let last = multiplicities.len() - 1;
-    for position in (0..last).rev() {
-        if multiplicities[position] == 0 {
-            continue;
-        }
-        let tail = multiplicities[last].checked_add(1).ok_or(
-            ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled affine multiplicity",
-            },
-        )?;
-        multiplicities[last] = 0;
-        multiplicities[position] -= 1;
-        multiplicities[position + 1] = tail;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn residual_affine_append_controlled_cross_product(
-    workspace: &mut ControlledAffineExpansionWorkspace,
-    source_coefficient: &Integer,
-    variable_count: usize,
-    source_term: usize,
-    exponent_limit: u128,
-    preflight: ResidualUnitAffinePolynomialCompositionStats,
-    limits: ResidualUnitAffinePolynomialCompositionLimits,
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    let factor_count = workspace.power_blocks.len();
-    if factor_count > variable_count {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled coefficient stack depth",
-                actual: factor_count,
-                bound: variable_count,
-            },
-        );
-    }
-    if workspace.power_blocks.iter().any(|block| block.len == 0) {
-        return Ok(());
-    }
-    workspace.cursor.clear();
-    workspace.cursor.resize(factor_count, 0);
-    workspace.coefficient_stack.clear();
-    workspace.coefficient_stack.push(source_coefficient.clone());
-    workspace.target_exponents.fill(0);
-
-    if factor_count == 0 {
-        let coefficient = std::mem::replace(&mut workspace.coefficient_stack[0], Integer::zero());
-        return residual_affine_emit_controlled_contribution(
-            workspace,
-            coefficient,
-            variable_count,
-            source_term,
-            exponent_limit,
-            preflight,
-            limits,
-        );
-    }
-
-    let mut depth = 0usize;
-    loop {
-        let block = workspace.power_blocks[depth];
-        let ordinal = workspace.cursor[depth];
-        if ordinal >= block.len {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled Cartesian cursor",
-                    actual: ordinal,
-                    bound: block.len,
-                },
-            );
-        }
-        let powered_index =
-            residual_affine_checked_add("controlled powered-image index", block.start, ordinal)?;
-        let exponent_start = residual_affine_checked_mul(
-            "controlled powered exponent offset",
-            powered_index,
-            variable_count,
-        )?;
-        let exponent_end = residual_affine_checked_add(
-            "controlled powered exponent offset",
-            exponent_start,
-            variable_count,
-        )?;
-        let powered_exponents = workspace
-            .power_exponents
-            .get(exponent_start..exponent_end)
-            .ok_or(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled powered exponent row",
-                    actual: exponent_end,
-                    bound: workspace.power_exponents.len(),
-                },
-            )?;
-        residual_affine_add_controlled_target_exponents(
-            &mut workspace.target_exponents,
-            powered_exponents,
-            source_term,
-            exponent_limit,
-        )?;
-
-        let powered_coefficient = workspace.power_coefficients.get(powered_index).ok_or(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled powered coefficient",
-                actual: powered_index,
-                bound: workspace.power_coefficients.len(),
-            },
-        )?;
-        let coefficient = &workspace.coefficient_stack[depth] * powered_coefficient;
-        let coefficient_bits = residual_affine_integer_bits(&coefficient)?;
-        if coefficient_bits > preflight.largest_integer_coefficient_bit_bound {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled contribution coefficient bits",
-                    actual: coefficient_bits,
-                    bound: preflight.largest_integer_coefficient_bit_bound,
-                },
-            );
-        }
-        check_residual_affine_limit(
-            "integer coefficient bits",
-            coefficient_bits,
-            limits.max_integer_coefficient_bits,
-        )?;
-        if workspace.coefficient_stack.len() == depth + 1 {
-            workspace.coefficient_stack.push(coefficient);
-        } else {
-            workspace.coefficient_stack[depth + 1] = coefficient;
-        }
-
-        if depth + 1 < factor_count {
-            depth += 1;
-            continue;
-        }
-
-        // Move the leaf coefficient into the global contribution buffer.  No
-        // leaf clone or second Large payload is created here.
-        let coefficient =
-            std::mem::replace(&mut workspace.coefficient_stack[depth + 1], Integer::zero());
-        residual_affine_emit_controlled_contribution(
-            workspace,
-            coefficient,
-            variable_count,
-            source_term,
-            exponent_limit,
-            preflight,
-            limits,
-        )?;
-
-        loop {
-            let completed_block = workspace.power_blocks[depth];
-            let completed_ordinal = workspace.cursor[depth];
-            let completed_index = residual_affine_checked_add(
-                "controlled powered-image index",
-                completed_block.start,
-                completed_ordinal,
-            )?;
-            let completed_start = residual_affine_checked_mul(
-                "controlled powered exponent offset",
-                completed_index,
-                variable_count,
-            )?;
-            let completed_end = residual_affine_checked_add(
-                "controlled powered exponent offset",
-                completed_start,
-                variable_count,
-            )?;
-            let completed_exponents = workspace
-                .power_exponents
-                .get(completed_start..completed_end)
-                .ok_or(
-                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                        resource: "controlled powered exponent row",
-                        actual: completed_end,
-                        bound: workspace.power_exponents.len(),
-                    },
-                )?;
-            residual_affine_subtract_controlled_target_exponents(
-                &mut workspace.target_exponents,
-                completed_exponents,
-            )?;
-            workspace.cursor[depth] = residual_affine_checked_add(
-                "controlled Cartesian cursor",
-                workspace.cursor[depth],
-                1,
-            )?;
-            if workspace.cursor[depth] < completed_block.len {
-                break;
-            }
-            workspace.cursor[depth] = 0;
-            if depth == 0 {
-                return Ok(());
-            }
-            depth -= 1;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn residual_affine_emit_controlled_contribution(
-    workspace: &mut ControlledAffineExpansionWorkspace,
-    coefficient: Integer,
-    variable_count: usize,
-    source_term: usize,
-    exponent_limit: u128,
-    preflight: ResidualUnitAffinePolynomialCompositionStats,
-    limits: ResidualUnitAffinePolynomialCompositionLimits,
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    let next_terms = residual_affine_checked_add(
-        "controlled expanded contributions",
-        workspace.contributions.coefficients.len(),
-        1,
-    )?;
-    if next_terms > preflight.expanded_contribution_bound {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled expanded contributions",
-                actual: next_terms,
-                bound: preflight.expanded_contribution_bound,
-            },
-        );
-    }
-    check_residual_affine_limit(
-        "expanded polynomial contributions",
-        next_terms,
-        limits.max_expanded_contributions,
-    )?;
-    let next_exponent_entries = residual_affine_checked_add(
-        "controlled contribution exponent entries",
-        workspace.contributions.exponents.len(),
-        variable_count,
-    )?;
-    if next_exponent_entries > preflight.output_exponent_entry_bound {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled contribution exponent entries",
-                actual: next_exponent_entries,
-                bound: preflight.output_exponent_entry_bound,
-            },
-        );
-    }
-    check_residual_affine_limit(
-        "prospective output exponent entries",
-        next_exponent_entries,
-        limits.max_output_exponent_entries,
-    )?;
-    let coefficient_bits = residual_affine_integer_bits(&coefficient)?;
-    if coefficient_bits > preflight.largest_integer_coefficient_bit_bound {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled contribution coefficient bits",
-                actual: coefficient_bits,
-                bound: preflight.largest_integer_coefficient_bit_bound,
-            },
-        );
-    }
-    for (target_variable, &requested) in workspace.target_exponents.iter().enumerate() {
-        check_residual_affine_exponent(
-            source_term,
-            target_variable,
-            u128::from(requested),
-            exponent_limit,
-        )?;
-        if requested > u32::from(u16::MAX) {
-            return Err(ResidualUnitAffineCompositionError::ExponentLimit {
-                source_term,
-                target_variable,
-                requested: u128::from(requested),
-                limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-            });
-        }
-    }
-    workspace.contributions.coefficients.push(coefficient);
-    workspace
-        .contributions
-        .exponents
-        .extend(workspace.target_exponents.iter().map(|&value| value as u16));
-    Ok(())
-}
-
-fn residual_affine_add_controlled_target_exponents(
-    target: &mut [u32],
-    addend: &[u16],
-    source_term: usize,
-    exponent_limit: u128,
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    if target.len() != addend.len() {
-        return Err(ResidualUnitAffineCompositionError::WrongArity {
-            expected: target.len(),
-            actual: addend.len(),
-        });
-    }
-    for (target_variable, (target_exponent, &increment)) in
-        target.iter_mut().zip(addend).enumerate()
-    {
-        *target_exponent = target_exponent.checked_add(u32::from(increment)).ok_or(
-            ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled target exponent",
-            },
-        )?;
-        check_residual_affine_exponent(
-            source_term,
-            target_variable,
-            u128::from(*target_exponent),
-            exponent_limit,
-        )?;
-    }
-    Ok(())
-}
-
-fn residual_affine_subtract_controlled_target_exponents(
-    target: &mut [u32],
-    subtrahend: &[u16],
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    if target.len() != subtrahend.len() {
-        return Err(ResidualUnitAffineCompositionError::WrongArity {
-            expected: target.len(),
-            actual: subtrahend.len(),
-        });
-    }
-    for (target_exponent, &decrement) in target.iter_mut().zip(subtrahend) {
-        *target_exponent = target_exponent.checked_sub(u32::from(decrement)).ok_or(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled target exponent backtrack",
-                actual: u32::from(decrement) as usize,
-                bound: *target_exponent as usize,
-            },
-        )?;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn residual_affine_controlled_radix_pass(
-    source_indices: &[usize],
-    target_indices: &mut [usize],
-    counts: &mut [usize; 256],
-    exponents: &[u16],
-    variable_count: usize,
-    variable: usize,
-    high_byte: bool,
-) -> Result<(), ResidualUnitAffineCompositionError> {
-    if source_indices.len() != target_indices.len() || variable >= variable_count {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled radix workspace",
-                actual: target_indices.len(),
-                bound: source_indices.len(),
-            },
-        );
-    }
-    counts.fill(0);
-    for &index in source_indices {
-        let offset = residual_affine_checked_add(
-            "controlled radix exponent offset",
-            residual_affine_checked_mul("controlled radix exponent offset", index, variable_count)?,
-            variable,
-        )?;
-        let exponent = *exponents.get(offset).ok_or(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled radix exponent offset",
-                actual: offset,
-                bound: exponents.len(),
-            },
-        )?;
-        let digit = if high_byte {
-            usize::from(exponent >> 8)
-        } else {
-            usize::from(exponent & 0xff)
-        };
-        counts[digit] = residual_affine_checked_add("controlled radix bucket", counts[digit], 1)?;
-    }
-    let mut prefix = 0usize;
-    for count in counts.iter_mut() {
-        let bucket_count = *count;
-        *count = prefix;
-        prefix =
-            residual_affine_checked_add("controlled radix bucket prefix", prefix, bucket_count)?;
-    }
-    if prefix != source_indices.len() {
-        return Err(
-            ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                resource: "controlled radix bucket prefix",
-                actual: prefix,
-                bound: source_indices.len(),
-            },
-        );
-    }
-    for &index in source_indices {
-        let offset = residual_affine_checked_add(
-            "controlled radix exponent offset",
-            residual_affine_checked_mul("controlled radix exponent offset", index, variable_count)?,
-            variable,
-        )?;
-        let exponent = exponents[offset];
-        let digit = if high_byte {
-            usize::from(exponent >> 8)
-        } else {
-            usize::from(exponent & 0xff)
-        };
-        let destination = counts[digit];
-        if destination >= target_indices.len() {
-            return Err(
-                ResidualUnitAffineCompositionError::CompositionInvariantViolation {
-                    resource: "controlled radix destination",
-                    actual: destination,
-                    bound: target_indices.len(),
-                },
-            );
-        }
-        target_indices[destination] = index;
-        counts[digit] =
-            residual_affine_checked_add("controlled radix destination", destination, 1)?;
-    }
-    Ok(())
-}
-
 fn residual_affine_guard_locator(
     map: &ResidualUnitAffineIndexMapCertificate,
 ) -> (u64, usize, usize) {
@@ -13040,7 +11577,7 @@ fn residual_affine_remaining_limits(
             consumed.stats.multiplication_term_pair_bound,
         )?,
         max_addition_term_visits: subtract(
-            "aggregate native addition term visits",
+            "aggregate Symbolica structural term visits",
             limits.max_addition_term_visits,
             consumed.stats.addition_term_visit_bound,
         )?,
@@ -13202,6 +11739,310 @@ fn residual_affine_affine_power_term_bound(
     )
 }
 
+/// Conservative structural-work census for Symbolica's Atom compositor.
+///
+/// `CoefficientPolynomial::to_expression` has at most one root plus two
+/// nodes per source term and three nodes per dense source exponent slot.
+/// Literal replacements are tested in order at every such node, hence the
+/// `A * N_source` charge for the active replacement count A. RustRed scans all
+/// R nonfree positions against all S source terms during structural census,
+/// integer census, and execution, which contributes `3*R*S` probes.
+/// Symbolica then
+/// collects that iterator, so the census includes construction and
+/// normalization of every active RHS. The remaining items cover the substituted tree,
+/// every affine-power normalization, every prospective product, final
+/// expansion/normalization and dense expanded-polynomial conversion. A
+/// four-pass logical allowance at every level of the largest admitted shape
+/// conservatively covers Symbolica's internal Atom ordering/traversal without
+/// depending on an unstable standard-library sort comparison count.
+fn residual_affine_symbolica_expression_structural_visit_bound(
+    source_terms: usize,
+    variable_count: usize,
+    nonfree_replacement_count: usize,
+    active_replacement_count: usize,
+    replacement_image_terms: usize,
+    replacement_occurrence_image_terms: usize,
+    power_heap_pairs: usize,
+    multiplication_term_pairs: usize,
+    expanded_contributions: usize,
+) -> Result<usize, ResidualUnitAffineCompositionError> {
+    let resource = "Symbolica expression structural term visits";
+    let source_dense_slots = residual_affine_checked_mul(resource, source_terms, variable_count)?;
+    let source_nodes = [
+        1,
+        residual_affine_checked_mul(resource, source_terms, 2)?,
+        residual_affine_checked_mul(resource, source_dense_slots, 3)?,
+    ]
+    .into_iter()
+    .try_fold(0usize, |sum, value| {
+        residual_affine_checked_add(resource, sum, value)
+    })?;
+    let support_filter_probes = residual_affine_checked_mul(
+        resource,
+        residual_affine_checked_mul(resource, nonfree_replacement_count, source_terms)?,
+        3,
+    )?;
+    let replacement_match_attempts =
+        residual_affine_checked_mul(resource, active_replacement_count, source_nodes)?;
+
+    let image_dense_slots =
+        residual_affine_checked_mul(resource, replacement_image_terms, variable_count)?;
+    let image_variable_sort_items =
+        residual_affine_checked_mul(resource, active_replacement_count, variable_count)?;
+    let image_nodes = residual_affine_checked_add(
+        resource,
+        active_replacement_count,
+        residual_affine_checked_mul(resource, replacement_image_terms, 3)?,
+    )?;
+    let replacement_image_build = [image_dense_slots, image_variable_sort_items, image_nodes]
+        .into_iter()
+        .try_fold(0usize, |sum, value| {
+            residual_affine_checked_add(resource, sum, value)
+        })?;
+
+    // One affine RHS with w terms contributes at most 1+3w Atom nodes.
+    // The source root is already present, so every actual occurrence adds at
+    // most 3w nodes after replacement.
+    let substituted_nodes = residual_affine_checked_add(
+        resource,
+        source_nodes,
+        residual_affine_checked_mul(resource, replacement_occurrence_image_terms, 3)?,
+    )?;
+    let twice_power_heap_pairs = residual_affine_checked_mul(resource, power_heap_pairs, 2)?;
+    let multiplication_factor_visits =
+        residual_affine_checked_mul(resource, multiplication_term_pairs, variable_count)?;
+    let final_expression_terms = residual_affine_checked_mul(resource, expanded_contributions, 4)?;
+    let conversion_exponent_slots =
+        residual_affine_checked_mul(resource, expanded_contributions, variable_count)?;
+    let ordered_items = [
+        source_nodes,
+        replacement_image_build,
+        substituted_nodes,
+        twice_power_heap_pairs,
+        multiplication_factor_visits,
+        final_expression_terms,
+        residual_affine_checked_mul(resource, conversion_exponent_slots, 6)?,
+    ]
+    .into_iter()
+    .try_fold(0usize, |sum, value| {
+        residual_affine_checked_add(resource, sum, value)
+    })?;
+    let largest_shape = source_terms
+        .max(expanded_contributions)
+        .max(power_heap_pairs)
+        .max(multiplication_term_pairs)
+        .max(residual_affine_checked_add(
+            resource,
+            residual_affine_checked_mul(resource, variable_count, 2)?,
+            2,
+        )?)
+        .max(2);
+    let sort_factor = residual_affine_checked_mul(
+        resource,
+        residual_affine_checked_add(resource, residual_affine_ceil_log2(largest_shape), 1)?,
+        4,
+    )?;
+    let ordering_visits = residual_affine_checked_mul(resource, ordered_items, sort_factor)?;
+    residual_affine_checked_add(
+        resource,
+        support_filter_probes,
+        residual_affine_checked_add(resource, replacement_match_attempts, ordering_visits)?,
+    )
+}
+
+/// Conservative integer-work census for Symbolica's Atom expansion backend.
+///
+/// For every one of the `H(e,w)` materialized power monomials,
+/// `Integer::multinom` performs at most `e` binomial iterations (two integer
+/// multiply/divide operations each), followed by coefficient powers and
+/// products for the `w` image terms. The logarithmic factor covers the
+/// integer sizes used to represent multiplicities and binomial intermediates.
+/// This is resource arithmetic only; all polynomial algebra remains inside
+/// Symbolica.
+fn residual_affine_symbolica_expression_integer_preflight(
+    source: &CoefficientPolynomial,
+    plan: &ResidualAffineCompositionCorePlan,
+    base_count: usize,
+    power_term_limit: usize,
+) -> Result<ResidualAffineSymbolicaExpressionIntegerPreflight, ResidualUnitAffineCompositionError> {
+    let mut largest_integer_coefficient_bit_bound = 0usize;
+    let mut largest_integer_contribution_bit_bound = 0usize;
+    let mut integer_bit_work_bound = 0usize;
+
+    // Every active affine RHS is converted from a Symbolica polynomial to an
+    // Atom before simultaneous replacement. `to_expression` makes two
+    // magnitude copies per coefficient (the polynomial clone and serialized
+    // numerator); inactive images are filtered and incur no RHS construction.
+    for &position in &plan.nonfree_positions {
+        let variable = base_count.checked_add(position).ok_or(
+            ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                resource: "Symbolica expression replacement image integers",
+            },
+        )?;
+        let occurrence_count =
+            source
+                .exponents_iter()
+                .try_fold(0usize, |occurrences, exponents| {
+                    if exponents[variable] == 0 {
+                        Ok(occurrences)
+                    } else {
+                        residual_affine_checked_add(
+                            "Symbolica expression replacement occurrences",
+                            occurrences,
+                            1,
+                        )
+                    }
+                })?;
+        if occurrence_count == 0 {
+            continue;
+        }
+        for coefficient in &plan.full_images[variable].coefficients {
+            let coefficient_bits = residual_affine_integer_bits(coefficient)?;
+            largest_integer_coefficient_bit_bound =
+                largest_integer_coefficient_bit_bound.max(coefficient_bits);
+            integer_bit_work_bound = residual_affine_checked_add(
+                "Symbolica expression integer bit work",
+                integer_bit_work_bound,
+                residual_affine_checked_mul(
+                    "Symbolica expression replacement integer bit work",
+                    2,
+                    coefficient_bits,
+                )?,
+            )?;
+        }
+    }
+
+    for source_term in 0..source.nterms() {
+        let source_integer_bits = residual_affine_integer_bits(&source.coefficients[source_term])?;
+        largest_integer_coefficient_bit_bound =
+            largest_integer_coefficient_bit_bound.max(source_integer_bits);
+        integer_bit_work_bound = residual_affine_checked_add(
+            "Symbolica expression integer bit work",
+            integer_bit_work_bound,
+            residual_affine_checked_mul(
+                "Symbolica expression source integer bit work",
+                2,
+                source_integer_bits,
+            )?,
+        )?;
+
+        let mut contribution_bound = 1usize;
+        let mut contribution_integer_bits = source_integer_bits;
+        for (variable, &exponent) in source.exponents(source_term).iter().enumerate() {
+            if exponent == 0 {
+                continue;
+            }
+            let exponent = usize::from(exponent);
+            let image_terms = plan.image_term_counts[variable];
+            let power_terms =
+                residual_affine_affine_power_term_bound(exponent, image_terms, power_term_limit)?;
+            let multiplication_pairs = residual_affine_checked_mul(
+                "Symbolica expression multiplication term pairs",
+                contribution_bound,
+                power_terms,
+            )?;
+
+            if power_terms != 0 {
+                let per_power_growth = plan.image_coefficient_growth_bits[variable]
+                    .checked_add(residual_affine_ceil_log2(image_terms))
+                    .and_then(|bits| bits.checked_mul(exponent))
+                    .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                        resource: "Symbolica expression integer coefficient growth bits",
+                    })?;
+                let power_final_integer_bits = per_power_growth.checked_add(1).ok_or(
+                    ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                        resource: "Symbolica expression integer coefficient bits",
+                    },
+                )?;
+                let exponent_log = residual_affine_ceil_log2(residual_affine_checked_add(
+                    "Symbolica expression power work units",
+                    exponent,
+                    1,
+                )?);
+                let per_term_work_units = [
+                    residual_affine_checked_mul(
+                        "Symbolica expression power work units",
+                        exponent,
+                        2,
+                    )?,
+                    residual_affine_checked_mul(
+                        "Symbolica expression power work units",
+                        image_terms,
+                        2,
+                    )?,
+                    residual_affine_checked_mul(
+                        "Symbolica expression power work units",
+                        residual_affine_checked_mul(
+                            "Symbolica expression power work units",
+                            image_terms,
+                            exponent_log,
+                        )?,
+                        2,
+                    )?,
+                    4,
+                ]
+                .into_iter()
+                .try_fold(0usize, |sum, units| {
+                    residual_affine_checked_add("Symbolica expression power work units", sum, units)
+                })?;
+                let power_work_units = residual_affine_checked_mul(
+                    "Symbolica expression power work units",
+                    power_terms,
+                    per_term_work_units,
+                )?;
+                let power_transient_integer_bits = residual_affine_checked_add(
+                    "Symbolica expression transient integer bits",
+                    power_final_integer_bits,
+                    exponent_log,
+                )?;
+                largest_integer_coefficient_bit_bound =
+                    largest_integer_coefficient_bit_bound.max(power_transient_integer_bits);
+                let power_integer_bit_work = residual_affine_checked_mul(
+                    "Symbolica expression integer bit work",
+                    power_work_units,
+                    power_transient_integer_bits,
+                )?;
+                integer_bit_work_bound = residual_affine_checked_add(
+                    "Symbolica expression integer bit work",
+                    integer_bit_work_bound,
+                    power_integer_bit_work,
+                )?;
+
+                contribution_integer_bits = residual_affine_checked_add(
+                    "Symbolica expression contribution integer bits",
+                    contribution_integer_bits,
+                    power_final_integer_bits,
+                )?;
+                if multiplication_pairs != 0 {
+                    largest_integer_coefficient_bit_bound =
+                        largest_integer_coefficient_bit_bound.max(contribution_integer_bits);
+                }
+                let multiplication_integer_bit_work = residual_affine_checked_mul(
+                    "Symbolica expression integer bit work",
+                    multiplication_pairs,
+                    contribution_integer_bits,
+                )?;
+                integer_bit_work_bound = residual_affine_checked_add(
+                    "Symbolica expression integer bit work",
+                    integer_bit_work_bound,
+                    multiplication_integer_bit_work,
+                )?;
+            }
+            contribution_bound = multiplication_pairs;
+        }
+        if contribution_bound != 0 {
+            largest_integer_contribution_bit_bound =
+                largest_integer_contribution_bit_bound.max(contribution_integer_bits);
+        }
+    }
+
+    Ok(ResidualAffineSymbolicaExpressionIntegerPreflight {
+        largest_integer_coefficient_bit_bound,
+        largest_integer_contribution_bit_bound,
+        integer_bit_work_bound,
+    })
+}
+
 fn residual_affine_u128_gcd(mut left: u128, mut right: u128) -> u128 {
     while right != 0 {
         let remainder = left % right;
@@ -13211,15 +12052,24 @@ fn residual_affine_u128_gcd(mut left: u128, mut right: u128) -> u128 {
     left
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ResidualAffineKroneckerPreflight {
+    exponent_bits: usize,
+    polynomial_evaluator_safe: bool,
+}
+
 fn residual_affine_kronecker_preflight(
     plan: &ResidualAffineCompositionCorePlan,
     source_variable: usize,
     exponent: usize,
     base_count: usize,
-) -> Result<usize, ResidualUnitAffineCompositionError> {
+) -> Result<ResidualAffineKroneckerPreflight, ResidualUnitAffineCompositionError> {
     let image_terms = plan.image_term_counts[source_variable];
     if exponent <= 1 || image_terms <= 1 {
-        return Ok(0);
+        return Ok(ResidualAffineKroneckerPreflight {
+            exponent_bits: 0,
+            polynomial_evaluator_safe: true,
+        });
     }
     let degree_variable_count = if source_variable < base_count {
         1
@@ -13239,42 +12089,61 @@ fn residual_affine_kronecker_preflight(
         }
         count
     };
+    let stride_radix_variable_count = if source_variable < base_count {
+        usize::from(source_variable != 0)
+    } else {
+        let position = source_variable - base_count;
+        let mut count = 0usize;
+        for free_ordinal in 0..plan.free_positions.len() {
+            let target_variable = base_count + plan.free_positions[free_ordinal];
+            if target_variable != 0
+                && plan.linear_is_nonzero(position, free_ordinal).ok_or(
+                    ResidualUnitAffineCompositionError::CompositionInvariantViolation {
+                        resource: "affine linear support",
+                        actual: plan.linear_support.len(),
+                        bound: plan.ambient_arity.saturating_mul(plan.free_positions.len()),
+                    },
+                )?
+            {
+                count = residual_affine_checked_add("Kronecker stride variables", count, 1)?;
+            }
+        }
+        count
+    };
     let radix_factor = exponent.checked_add(1).ok_or(
         ResidualUnitAffineCompositionError::ResourceCountOverflow {
             resource: "Kronecker radix",
         },
     )?;
-    let bits = residual_affine_checked_mul(
+    let exponent_bits = residual_affine_checked_mul(
         "Kronecker exponent bits",
         degree_variable_count,
         residual_affine_ceil_log2(radix_factor),
     )?;
 
-    // In the audited vendored revision `heap_pow` stores the running stride
-    // in a u32 even though the encoded exponent itself is an Integer.  This
-    // backend representation ceiling is therefore mandatory and independent
-    // of the caller's configurable work limit.
-    let mut exact_radix = 1u128;
-    for _ in 0..degree_variable_count {
-        exact_radix = exact_radix.checked_mul(radix_factor as u128).ok_or(
-            ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "Symbolica u32 Kronecker radix",
-            },
-        )?;
-        if exact_radix > u128::from(u32::MAX) {
-            let requested = usize::try_from(exact_radix).map_err(|_| {
-                ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                    resource: "Symbolica u32 Kronecker radix",
-                }
-            })?;
-            return Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "Symbolica u32 Kronecker radix",
-                requested,
-                limit: u32::MAX as usize,
-            });
+    // In the audited vendored revision `heap_pow` infers its unannotated
+    // running stride as u32 even though the encoded exponent is promoted to
+    // `Integer` afterwards. Crossing this backend representation ceiling
+    // selects Symbolica's expression-expansion compositor; it is not itself
+    // a caller-visible resource rejection. The independently configured
+    // exponent-bit limit is enforced above for both Symbolica backends.
+    let mut exact_stride = 1u64;
+    let mut polynomial_evaluator_safe = true;
+    for _ in 0..stride_radix_variable_count {
+        let Some(next) = exact_stride.checked_mul(radix_factor as u64) else {
+            polynomial_evaluator_safe = false;
+            break;
+        };
+        if next > u64::from(u32::MAX) {
+            polynomial_evaluator_safe = false;
+            break;
         }
+        exact_stride = next;
     }
-    Ok(bits)
+    Ok(ResidualAffineKroneckerPreflight {
+        exponent_bits,
+        polynomial_evaluator_safe,
+    })
 }
 
 fn check_residual_affine_exponent(
@@ -14264,12 +13133,6 @@ mod tests {
         let native = context
             .compose_guard_on_residual_affine_compact_composition_plan(&guard, &plan, limits)
             .unwrap();
-        let controlled = context
-            .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                &guard, &plan, limits,
-            )
-            .unwrap();
-        assert_eq!(native.value(), controlled.value());
         assert_eq!(
             native.value(),
             &residual_affine_polynomial(&context, &expected_guard)
@@ -14347,11 +13210,6 @@ mod tests {
         let native = context
             .compose_guard_on_residual_affine_compact_composition_plan(&source, &plan, limits)
             .unwrap();
-        let controlled = context
-            .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                &source, &plan, limits,
-            )
-            .unwrap();
         let image = context
             .add(&context.add(&context.one(), &n2).unwrap(), &n3)
             .unwrap();
@@ -14361,7 +13219,6 @@ mod tests {
                 &context.mul(&image, &n2).unwrap(),
             )
             .unwrap();
-        assert_eq!(native.value(), controlled.value());
         assert_eq!(
             native.value(),
             &residual_affine_polynomial(&context, &expected)
@@ -15107,13 +13964,6 @@ mod tests {
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
             )
             .unwrap();
-        let controlled = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
-                &source,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
         let n0_image = context
             .add(
                 &context
@@ -15139,8 +13989,6 @@ mod tests {
         let expected =
             residual_affine_polynomial(&context, &context.mul(&n0_image, &n2_image).unwrap());
         assert_eq!(mapped.value(), &expected);
-        assert_eq!(controlled.value(), &expected);
-        assert_eq!(controlled.value(), mapped.value());
         let (mapped_value, mapped_stats) = mapped.into_parts();
         assert_eq!(mapped_value, expected);
         assert!(mapped_stats.expanded_contribution_bound() >= mapped_stats.output_terms());
@@ -15154,10 +14002,10 @@ mod tests {
     }
 
     #[test]
-    fn controlled_affine_compositor_matches_native_exact_multinomial_oracle() {
+    fn symbolica_polynomial_evaluator_matches_exact_multinomial_fixture() {
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-exact-multinomial",
+            "symbolica-polynomial-evaluator-exact-multinomial",
             3,
         )
         .unwrap();
@@ -15180,33 +14028,54 @@ mod tests {
         let source =
             residual_affine_polynomial(&context, &context.mul(&n0_squared, &n0_squared).unwrap());
         let limits = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, limits)
+            .unwrap();
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator
+        );
         let native = context
             .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, limits)
             .unwrap();
-        let controlled = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
-                &source, &plan, limits,
-            )
-            .unwrap();
-        assert_eq!(controlled.value(), native.value());
-        assert_eq!(controlled.stats().expanded_contribution_bound(), 15);
-        assert_eq!(controlled.stats().output_terms(), 15);
-        assert_eq!(controlled.stats().largest_kronecker_exponent_bits(), 0);
+        assert_eq!(native.stats().expanded_contribution_bound(), 15);
+        assert_eq!(native.stats().output_terms(), 15);
 
         let coefficient_at = |target: &[u16]| {
-            controlled
+            native
                 .value()
                 .raw
                 .exponents_iter()
-                .zip(&controlled.value().raw.coefficients)
+                .zip(&native.value().raw.coefficients)
                 .find_map(|(exponents, coefficient)| (exponents == target).then_some(coefficient))
                 .cloned()
         };
-        assert_eq!(coefficient_at(&[0, 0, 0]), Some(Integer::from(16)));
-        assert_eq!(coefficient_at(&[0, 4, 0]), Some(Integer::from(81)));
-        assert_eq!(coefficient_at(&[0, 0, 4]), Some(Integer::from(625)));
-        assert_eq!(coefficient_at(&[0, 2, 2]), Some(Integer::from(1_350)));
-        assert_eq!(coefficient_at(&[0, 1, 1]), Some(Integer::from(-720)));
+        // Complete independent coefficient table for
+        // (2 + 3*n1 - 5*n2)^4. This restores full-output differential
+        // coverage without retaining a second polynomial compositor.
+        for (exponents, coefficient) in [
+            ([0, 0, 0], 16),
+            ([0, 1, 0], 96),
+            ([0, 0, 1], -160),
+            ([0, 2, 0], 216),
+            ([0, 1, 1], -720),
+            ([0, 0, 2], 600),
+            ([0, 3, 0], 216),
+            ([0, 2, 1], -1_080),
+            ([0, 1, 2], 1_800),
+            ([0, 0, 3], -1_000),
+            ([0, 4, 0], 81),
+            ([0, 3, 1], -540),
+            ([0, 2, 2], 1_350),
+            ([0, 1, 3], -1_500),
+            ([0, 0, 4], 625),
+        ] {
+            assert_eq!(
+                coefficient_at(&exponents),
+                Some(Integer::from(coefficient)),
+                "wrong quartic coefficient at {exponents:?}"
+            );
+        }
 
         macro_rules! reject_one_below {
             ($field:ident, $exact:expr) => {{
@@ -15218,18 +14087,17 @@ mod tests {
                 };
                 assert!(
                     matches!(
-                        context
-                            .preflight_polynomial_on_residual_affine_composition_plan_controlled(
-                                &source, &plan, strict,
-                            ),
+                        context.preflight_polynomial_on_residual_affine_composition_plan(
+                            &source, &plan, strict,
+                        ),
                         Err(ResidualUnitAffineCompositionError::ResourceLimit { .. })
                     ),
-                    "{} accepted one below its exact controlled census",
+                    "{} accepted one below its exact Symbolica preflight census",
                     stringify!($field),
                 );
             }};
         }
-        let stats = controlled.stats();
+        let stats = native.stats();
         reject_one_below!(max_power_calls, stats.power_calls());
         reject_one_below!(
             max_native_power_heap_pairs,
@@ -15257,11 +14125,11 @@ mod tests {
     }
 
     #[test]
-    fn controlled_affine_compositor_exceeds_native_u32_radix_with_exact_528_term_oracle() {
+    fn symbolica_backend_expression_composition_produces_528_terms_beyond_u32_key() {
         const ARITY: usize = 33;
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-beyond-native-u32-radix",
+            "symbolica-expression-beyond-native-u32-kronecker-key",
             ARITY,
         )
         .unwrap();
@@ -15284,29 +14152,68 @@ mod tests {
         let n0 = context.index(0).unwrap();
         let source = residual_affine_polynomial(&context, &context.mul(&n0, &n0).unwrap());
         let limits = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, limits)
+            .unwrap();
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        let expression_composed = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, limits)
+            .unwrap();
+
+        assert_eq!(
+            expression_composed.stats().expanded_contribution_bound(),
+            528
+        );
+        assert_eq!(expression_composed.stats().output_terms(), 528);
+        assert_eq!(expression_composed.value().raw.nterms(), 528);
+
+        let strict = ResidualUnitAffinePolynomialCompositionLimits {
+            max_kronecker_exponent_bits: preflight
+                .stats
+                .largest_kronecker_exponent_bits()
+                .checked_sub(1)
+                .unwrap(),
+            ..limits
+        };
         assert!(matches!(
             context
-                .preflight_polynomial_on_residual_affine_composition_plan(&source, &plan, limits,),
+                .preflight_polynomial_on_residual_affine_composition_plan(&source, &plan, strict,),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "Symbolica u32 Kronecker radix",
+                resource: "Kronecker exponent bits",
                 ..
             })
         ));
 
-        let controlled = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
-                &source, &plan, limits,
-            )
-            .unwrap();
-        assert_eq!(controlled.stats().largest_kronecker_exponent_bits(), 0);
-        assert_eq!(controlled.stats().expanded_contribution_bound(), 528);
-        assert_eq!(controlled.stats().output_terms(), 528);
-        assert_eq!(controlled.value().raw.nterms(), 528);
-        let rows: Vec<_> = controlled.value().raw.exponents_iter().collect();
+        let exact_integer_work = preflight.stats.integer_bit_work_bound();
+        assert!(exact_integer_work > 0);
+        let strict_expression_work = ResidualUnitAffinePolynomialCompositionLimits {
+            max_integer_bit_work: exact_integer_work - 1,
+            ..limits
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                strict_expression_work,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "integer bit work",
+                requested,
+                limit,
+            }) if requested == exact_integer_work && limit + 1 == exact_integer_work
+        ));
+
+        let rows: Vec<_> = expression_composed.value().raw.exponents_iter().collect();
         assert!(rows.windows(2).all(|pair| pair[0] < pair[1]));
         let mut squares = 0usize;
         let mut pairs = 0usize;
-        for (exponents, coefficient) in rows.into_iter().zip(&controlled.value().raw.coefficients) {
+        for (exponents, coefficient) in rows
+            .into_iter()
+            .zip(&expression_composed.value().raw.coefficients)
+        {
             assert_eq!(exponents[0], 0);
             assert_eq!(
                 exponents
@@ -15337,77 +14244,542 @@ mod tests {
     }
 
     #[test]
-    fn controlled_affine_radix_orders_u16_boundaries_and_collects_gmp_cancellation() {
+    fn symbolica_expression_structural_visits_accept_exact_and_reject_one_below() {
+        const ARITY: usize = 42;
+        const PIVOT_COUNT: usize = 21;
+        const EXPECTED_OUTPUT_TERMS: usize = 231;
+
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-radix-u16-boundaries",
-            2,
+            "symbolica-expression-structural-visits",
+            ARITY,
         )
         .unwrap();
-        let insertion = vec![
-            [u16::MAX, 0],
-            [256, 0],
-            [255, 256],
-            [255, 255],
-            [1, 0],
-            [0, u16::MAX],
-            [0, 256],
-            [0, 255],
-            [0, 0],
-        ];
-        let coefficients: Vec<_> = (0..insertion.len())
-            .map(|ordinal| Integer::from(i64::try_from(ordinal + 1).unwrap()))
-            .collect();
-        let mut expected: Vec<_> = insertion
-            .iter()
-            .copied()
-            .zip(coefficients.iter().cloned())
-            .collect();
-        expected.sort_by_key(|(exponents, _)| *exponents);
-        let contributions = ControlledContributionBuffer {
-            coefficients,
-            exponents: insertion.into_iter().flatten().collect(),
-        };
-        let preflight = ResidualUnitAffinePolynomialCompositionStats {
-            expanded_contribution_bound: expected.len(),
-            output_exponent_entry_bound: expected.len() * 2,
-            ..ResidualUnitAffinePolynomialCompositionStats::default()
-        };
-        let mapped = context
-            .collect_controlled_affine_contributions(contributions, 2, preflight)
+        // n0,...,n19 vanish, while n20 is the sum of the 21 free
+        // coordinates n21,...,n41. The source mentions n20 only, so its
+        // support is discovered only after probing all R=21 nonfree
+        // positions. The executor then sends just this one active
+        // replacement to Symbolica. Squaring its 21-term image also crosses
+        // Symbolica's u32 polynomial-evaluator stride.
+        let mut rows = Vec::with_capacity(PIVOT_COUNT);
+        for pivot in 0..PIVOT_COUNT {
+            let mut components = vec![Integer::zero(); ARITY + 1];
+            components[pivot + 1] = Integer::one();
+            if pivot + 1 == PIVOT_COUNT {
+                for free in PIVOT_COUNT..ARITY {
+                    components[free + 1] = Integer::from(-1);
+                }
+            }
+            rows.push(residual_affine_integer_system_row(components, pivot));
+        }
+        let certificate = residual_affine_integer_system_certificate(ARITY, rows);
+        let plan = context
+            .compile_residual_affine_composition_plan_from_integer_system(
+                certificate,
+                ResidualUnitAffineCompositionPlanLimits::default(),
+            )
             .unwrap();
-        let actual: Vec<_> = mapped
-            .exponents_iter()
-            .zip(mapped.coefficients.iter().cloned())
-            .map(|(exponents, coefficient)| ([exponents[0], exponents[1]], coefficient))
-            .collect();
-        assert_eq!(actual, expected);
+        assert_eq!(
+            plan.core.free_positions.as_slice(),
+            &(PIVOT_COUNT..ARITY).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            plan.core.nonfree_positions.as_slice(),
+            &(0..PIVOT_COUNT).collect::<Vec<_>>()
+        );
 
-        let huge = (Integer::one() << 300u32) + Integer::from(17);
-        let cancellation = ControlledContributionBuffer {
-            coefficients: vec![huge.clone(), Integer::from(11), -huge, Integer::from(7)],
-            exponents: vec![0, 256, 1, 0, 0, 256, 0, 256],
-        };
-        let cancellation_preflight = ResidualUnitAffinePolynomialCompositionStats {
-            expanded_contribution_bound: 4,
-            output_exponent_entry_bound: 8,
-            ..ResidualUnitAffinePolynomialCompositionStats::default()
-        };
-        let mapped = context
-            .collect_controlled_affine_contributions(cancellation, 2, cancellation_preflight)
+        let pivot = context.index(PIVOT_COUNT - 1).unwrap();
+        let source = residual_affine_polynomial(&context, &context.mul(&pivot, &pivot).unwrap());
+        let limits = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, limits)
             .unwrap();
-        assert_eq!(mapped.nterms(), 2);
-        assert_eq!(mapped.exponents(0), &[0, 256]);
-        assert_eq!(mapped.coefficients[0], Integer::from(7));
-        assert_eq!(mapped.exponents(1), &[1, 0]);
-        assert_eq!(mapped.coefficients[1], Integer::from(11));
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        assert_eq!(
+            preflight.stats.expanded_contribution_bound(),
+            EXPECTED_OUTPUT_TERMS
+        );
+        // Independently spell the selected-backend census for this fixture:
+        // F + Q + K*(Nsrc + image_build + Nsub + 2P + M*V + 4C + 6E).
+        let source_nodes = 1 + 2 + 3 * ARITY;
+        let support_filter_probes = 3 * PIVOT_COUNT;
+        let replacement_attempts = source_nodes;
+        let image_build = PIVOT_COUNT * ARITY + ARITY + (1 + 3 * PIVOT_COUNT);
+        let substituted_nodes = source_nodes + 3 * PIVOT_COUNT;
+        let power_heap_pairs = PIVOT_COUNT * EXPECTED_OUTPUT_TERMS;
+        let output_exponent_entries = EXPECTED_OUTPUT_TERMS * ARITY;
+        assert!(power_heap_pairs > EXPECTED_OUTPUT_TERMS);
+        let sort_factor = 4 * (residual_affine_ceil_log2(power_heap_pairs) + 1);
+        let expected_structural_visits = support_filter_probes
+            + replacement_attempts
+            + sort_factor
+                * (source_nodes
+                    + image_build
+                    + substituted_nodes
+                    + 2 * power_heap_pairs
+                    + EXPECTED_OUTPUT_TERMS * ARITY
+                    + 4 * EXPECTED_OUTPUT_TERMS
+                    + 6 * output_exponent_entries);
+        assert_eq!(expected_structural_visits, 4_471_736);
+        assert_eq!(
+            preflight.stats.addition_term_visit_bound(),
+            expected_structural_visits
+        );
+
+        let exact = ResidualUnitAffinePolynomialCompositionLimits {
+            max_addition_term_visits: expected_structural_visits,
+            ..limits
+        };
+        context
+            .preflight_polynomial_on_residual_affine_composition_plan(&source, &plan, exact)
+            .expect("the exact Symbolica expression structural-work boundary must pass");
+        let composed = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, exact)
+            .unwrap();
+        assert_eq!(composed.value().raw.nterms(), EXPECTED_OUTPUT_TERMS);
+        let mut squares = 0usize;
+        let mut pairs = 0usize;
+        for (exponents, coefficient) in composed
+            .value()
+            .raw
+            .exponents_iter()
+            .zip(&composed.value().raw.coefficients)
+        {
+            assert!(exponents[..PIVOT_COUNT].iter().all(|&value| value == 0));
+            let support: Vec<_> = exponents[PIVOT_COUNT..]
+                .iter()
+                .copied()
+                .filter(|&value| value != 0)
+                .collect();
+            match support.as_slice() {
+                [2] => {
+                    squares += 1;
+                    assert_eq!(coefficient, &Integer::one());
+                }
+                [1, 1] => {
+                    pairs += 1;
+                    assert_eq!(coefficient, &Integer::from(2));
+                }
+                other => panic!("unexpected expression-backend support: {other:?}"),
+            }
+        }
+        assert_eq!(squares, PIVOT_COUNT);
+        assert_eq!(pairs, PIVOT_COUNT * (PIVOT_COUNT - 1) / 2);
+
+        let one_below = ResidualUnitAffinePolynomialCompositionLimits {
+            max_addition_term_visits: expected_structural_visits - 1,
+            ..limits
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source, &plan, one_below,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "Symbolica backend structural term visits",
+                requested,
+                limit,
+            }) if requested == expected_structural_visits
+                && limit + 1 == expected_structural_visits
+        ));
     }
 
     #[test]
-    fn controlled_affine_zero_image_still_materializes_later_u16_max_power() {
+    fn symbolica_expression_gmp_cancellation_has_exact_integer_work_boundary() {
+        const ARITY: usize = 23;
+        const FREE_START: usize = 2;
+
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-zero-before-u16-max-power",
+            "symbolica-expression-gmp-cancellation",
+            ARITY,
+        )
+        .unwrap();
+        // Both pivots map to the same sum of 21 free variables. Each square
+        // independently crosses the u32 Kronecker stride, while their
+        // difference cancels only after Symbolica's simultaneous expansion.
+        let rows = (0..FREE_START)
+            .map(|pivot| {
+                let mut components = vec![Integer::zero(); ARITY + 1];
+                components[pivot + 1] = Integer::one();
+                for free in FREE_START..ARITY {
+                    components[free + 1] = Integer::from(-1);
+                }
+                residual_affine_integer_system_row(components, pivot)
+            })
+            .collect();
+        let certificate = residual_affine_integer_system_certificate(ARITY, rows);
+        let plan = context
+            .compile_residual_affine_composition_plan_from_integer_system(
+                certificate,
+                ResidualUnitAffineCompositionPlanLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            plan.core.free_positions.as_slice(),
+            &(FREE_START..ARITY).collect::<Vec<_>>()
+        );
+
+        let n0 = context.index(0).unwrap();
+        let n1 = context.index(1).unwrap();
+        let difference = context
+            .sub(
+                &context.mul(&n0, &n0).unwrap(),
+                &context.mul(&n1, &n1).unwrap(),
+            )
+            .unwrap();
+        let huge = (Integer::one() << 256u32) + Integer::from(17);
+        let huge_coefficient =
+            context.wrap_unchecked(context.template.numerator.constant(huge).into());
+        let source = residual_affine_polynomial(
+            &context,
+            &context.mul(&huge_coefficient, &difference).unwrap(),
+        );
+        let wide = ResidualUnitAffinePolynomialCompositionLimits {
+            max_integer_bit_work: usize::MAX,
+            ..ResidualUnitAffinePolynomialCompositionLimits::default()
+        };
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, wide)
+            .unwrap();
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        assert!(preflight.stats.expanded_contribution_bound() > 0);
+        assert!(preflight.stats.largest_integer_coefficient_bit_bound() > 256);
+        let packed_integer_width = preflight
+            .stats
+            .largest_integer_coefficient_bit_bound()
+            .max(u16::BITS as usize);
+        assert!(
+            preflight.stats.native_integer_bit_work_bound()
+                >= preflight
+                    .stats
+                    .addition_term_visit_bound()
+                    .checked_mul(packed_integer_width)
+                    .unwrap(),
+            "the expression backend must admit packed integer payload work for every structural visit"
+        );
+
+        let exact_integer_work = preflight.stats.integer_bit_work_bound();
+        assert!(exact_integer_work > 0);
+        let exact = ResidualUnitAffinePolynomialCompositionLimits {
+            max_integer_bit_work: exact_integer_work,
+            ..wide
+        };
+        let composed = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, exact)
+            .expect("the exact expression integer-work boundary must pass");
+        assert!(composed.value().is_zero());
+        assert_eq!(composed.stats().output_terms(), 0);
+
+        let one_below = ResidualUnitAffinePolynomialCompositionLimits {
+            max_integer_bit_work: exact_integer_work - 1,
+            ..wide
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source, &plan, one_below,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "integer bit work",
+                requested,
+                limit,
+            }) if requested == exact_integer_work && limit + 1 == exact_integer_work
+        ));
+    }
+
+    #[test]
+    fn symbolica_expression_ignores_inactive_wide_replacement_rhs() {
+        const ARITY: usize = 23;
+        const FREE_START: usize = 2;
+
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(Vec::<String>::new()),
+            "symbolica-expression-inactive-wide-rhs",
+            ARITY,
+        )
+        .unwrap();
+        let compile = |inactive_coefficient: Integer| {
+            let mut active = vec![Integer::zero(); ARITY + 1];
+            active[1] = Integer::one();
+            for free in FREE_START..ARITY {
+                active[free + 1] = Integer::from(-1);
+            }
+            let mut inactive = vec![Integer::zero(); ARITY + 1];
+            inactive[2] = Integer::one();
+            inactive[FREE_START + 1] = -inactive_coefficient;
+            context
+                .compile_residual_affine_composition_plan_from_integer_system(
+                    residual_affine_integer_system_certificate(
+                        ARITY,
+                        vec![
+                            residual_affine_integer_system_row(active, 0),
+                            residual_affine_integer_system_row(inactive, 1),
+                        ],
+                    ),
+                    ResidualUnitAffineCompositionPlanLimits::default(),
+                )
+                .unwrap()
+        };
+        let first = compile((Integer::one() << 256u32) + Integer::from(17));
+        let second = compile(Integer::one());
+        let n0 = context.index(0).unwrap();
+        let source = residual_affine_polynomial(&context, &context.mul(&n0, &n0).unwrap());
+        let limits = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let first_preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &first.core, limits)
+            .unwrap();
+        let second_preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &second.core, limits)
+            .unwrap();
+        assert_eq!(
+            first_preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        assert_eq!(first_preflight.backend, second_preflight.backend);
+        assert_eq!(first_preflight.stats, second_preflight.stats);
+
+        let first_output = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &first, limits)
+            .unwrap();
+        let second_output = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &second, limits)
+            .unwrap();
+        assert_eq!(first_output.value(), second_output.value());
+        assert_eq!(first_output.stats(), second_output.stats());
+    }
+
+    #[test]
+    fn symbolica_expression_zero_killed_intermediate_keeps_power_and_product_work() {
+        const ARITY: usize = 23;
+        const FREE_START: usize = 2;
+        const POWER_TERMS: usize = 231;
+
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(Vec::<String>::new()),
+            "symbolica-expression-zero-killed-intermediate",
+            ARITY,
+        )
+        .unwrap();
+        let mut wide = vec![Integer::zero(); ARITY + 1];
+        wide[1] = Integer::one();
+        for free in FREE_START..ARITY {
+            wide[free + 1] = Integer::from(-1);
+        }
+        let mut zero = vec![Integer::zero(); ARITY + 1];
+        zero[2] = Integer::one();
+        let plan = context
+            .compile_residual_affine_composition_plan_from_integer_system(
+                residual_affine_integer_system_certificate(
+                    ARITY,
+                    vec![
+                        residual_affine_integer_system_row(wide, 0),
+                        residual_affine_integer_system_row(zero, 1),
+                    ],
+                ),
+                ResidualUnitAffineCompositionPlanLimits::default(),
+            )
+            .unwrap();
+        let n0 = context.index(0).unwrap();
+        let n1 = context.index(1).unwrap();
+        let source = residual_affine_polynomial(
+            &context,
+            &context.mul(&context.mul(&n0, &n0).unwrap(), &n1).unwrap(),
+        );
+        let limits = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, limits)
+            .unwrap();
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        assert_eq!(preflight.stats.expanded_contribution_bound(), 0);
+        assert_eq!(
+            preflight.stats.native_power_heap_pair_bound(),
+            (ARITY - FREE_START) * POWER_TERMS
+        );
+        assert_eq!(
+            preflight.stats.multiplication_term_pair_bound(),
+            POWER_TERMS
+        );
+
+        let source_nodes = 1 + 2 + 3 * ARITY;
+        let support_probes = 3 * FREE_START;
+        let replacement_attempts = FREE_START * source_nodes;
+        let image_terms = ARITY - FREE_START;
+        let image_build = image_terms * ARITY + FREE_START * ARITY + (FREE_START + 3 * image_terms);
+        let substituted_nodes = source_nodes + 3 * image_terms;
+        let power_pairs = image_terms * POWER_TERMS;
+        let product_factor_visits = POWER_TERMS * ARITY;
+        let sort_factor = 4 * (residual_affine_ceil_log2(power_pairs) + 1);
+        let expected_structural_visits = support_probes
+            + replacement_attempts
+            + sort_factor
+                * (source_nodes
+                    + image_build
+                    + substituted_nodes
+                    + 2 * power_pairs
+                    + product_factor_visits);
+        assert_eq!(expected_structural_visits, 885_846);
+        assert_eq!(
+            preflight.stats.addition_term_visit_bound(),
+            expected_structural_visits
+        );
+
+        let exact = ResidualUnitAffinePolynomialCompositionLimits {
+            max_addition_term_visits: expected_structural_visits,
+            ..limits
+        };
+        let mapped = context
+            .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, exact)
+            .unwrap();
+        assert!(mapped.value().is_zero());
+        assert_eq!(mapped.stats().output_terms(), 0);
+        let one_below = ResidualUnitAffinePolynomialCompositionLimits {
+            max_addition_term_visits: expected_structural_visits - 1,
+            ..limits
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source, &plan, one_below,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "Symbolica backend structural term visits",
+                requested,
+                limit,
+            }) if requested == expected_structural_visits
+                && limit + 1 == expected_structural_visits
+        ));
+    }
+
+    #[test]
+    fn symbolica_backend_respects_exact_u32_mixed_radix_boundary() {
+        let classify = |arity: usize, pivot: usize| {
+            let label = format!("symbolica-expression-radix-boundary-{arity}-{pivot}");
+            let context = ParametricCoefficientContext::try_new(
+                &CoefficientContext::new(Vec::<String>::new()),
+                &label,
+                arity,
+            )
+            .unwrap();
+            // Only the requested coordinate is a unit pivot. This makes the
+            // target coordinate order, rather than the solver's pivot choice,
+            // the sole difference between the paired fixtures.
+            let mut components = vec![
+                if pivot == 0 {
+                    Integer::from(-2)
+                } else {
+                    Integer::from(2)
+                };
+                arity + 1
+            ];
+            components[0] = Integer::zero();
+            components[pivot + 1] = if pivot == 0 {
+                Integer::one()
+            } else {
+                Integer::from(-1)
+            };
+            let certificate = residual_affine_integer_system_certificate(
+                arity,
+                vec![residual_affine_integer_system_row(components, 0)],
+            );
+            let plan = context
+                .compile_residual_affine_composition_plan_from_integer_system(
+                    certificate,
+                    ResidualUnitAffineCompositionPlanLimits::default(),
+                )
+                .unwrap();
+            let pivot_variable = context.index(pivot).unwrap();
+            let source = residual_affine_polynomial(
+                &context,
+                &context.mul(&pivot_variable, &pivot_variable).unwrap(),
+            );
+            let preflight = context
+                .preflight_residual_affine_polynomial_core(
+                    &source,
+                    &plan.core,
+                    ResidualUnitAffinePolynomialCompositionLimits::default(),
+                )
+                .unwrap();
+            let composed = context
+                .compose_polynomial_on_residual_affine_composition_plan(
+                    &source,
+                    &plan,
+                    ResidualUnitAffinePolynomialCompositionLimits::default(),
+                )
+                .unwrap();
+            assert_eq!(composed.value().raw.nterms(), arity * (arity - 1) / 2);
+            if arity == 22 {
+                let mut squares = 0usize;
+                let mut pairs = 0usize;
+                for (exponents, coefficient) in composed
+                    .value()
+                    .raw
+                    .exponents_iter()
+                    .zip(&composed.value().raw.coefficients)
+                {
+                    let support: Vec<_> = exponents
+                        .iter()
+                        .copied()
+                        .filter(|&value| value != 0)
+                        .collect();
+                    match support.as_slice() {
+                        [2] => {
+                            squares += 1;
+                            assert_eq!(coefficient, &Integer::from(4));
+                        }
+                        [1, 1] => {
+                            pairs += 1;
+                            assert_eq!(coefficient, &Integer::from(8));
+                        }
+                        other => panic!("unexpected degree-two exponent support: {other:?}"),
+                    }
+                }
+                assert_eq!(squares, 21);
+                assert_eq!(pairs, 210);
+            }
+            (preflight.backend, preflight.stats)
+        };
+
+        // 3^20 fits u32, while 3^21 does not.
+        let (safe, safe_stats) = classify(21, 0);
+        assert_eq!(
+            safe,
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator
+        );
+        assert_eq!(safe_stats.largest_kronecker_exponent_bits(), 40);
+        let (fallback, fallback_stats) = classify(22, 0);
+        assert_eq!(
+            fallback,
+            ResidualAffinePolynomialCompositionBackend::SymbolicaExpressionExpansion
+        );
+        assert_eq!(fallback_stats.largest_kronecker_exponent_bits(), 42);
+
+        // `heap_pow::to_uni_var` never multiplies the radix of coordinate
+        // zero. These paired arity-22 maps both produce 231 terms from 21
+        // supported variables, but with coordinate zero free only twenty
+        // radices contribute to the u32 stride.
+        let (zero_coordinate_free, zero_coordinate_free_stats) = classify(22, 21);
+        assert_eq!(
+            zero_coordinate_free,
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator
+        );
+        assert_eq!(
+            zero_coordinate_free_stats.largest_kronecker_exponent_bits(),
+            42
+        );
+    }
+
+    #[test]
+    fn symbolica_affine_zero_image_still_preflights_later_u16_max_power() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(Vec::<String>::new()),
+            "symbolica-affine-zero-before-u16-max-power",
             2,
         )
         .unwrap();
@@ -15431,24 +14803,24 @@ mod tests {
             raw,
             context: context.fingerprint.clone(),
         };
-        let controlled = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
+        let composed = context
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
             )
             .unwrap();
-        assert!(controlled.value().is_zero());
-        assert_eq!(controlled.stats().power_calls(), 2);
-        assert_eq!(controlled.stats().native_power_heap_pair_bound(), 1);
-        assert_eq!(controlled.stats().expanded_contribution_bound(), 0);
+        assert!(composed.value().is_zero());
+        assert_eq!(composed.stats().power_calls(), 2);
+        assert_eq!(composed.stats().native_power_heap_pair_bound(), 1);
+        assert_eq!(composed.stats().expanded_contribution_bound(), 0);
 
         let one_below = ResidualUnitAffinePolynomialCompositionLimits {
             max_native_power_heap_pairs: 0,
             ..ResidualUnitAffinePolynomialCompositionLimits::default()
         };
         assert!(matches!(
-            context.preflight_polynomial_on_residual_affine_composition_plan_controlled(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
                 &source, &plan, one_below,
             ),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
@@ -15460,10 +14832,10 @@ mod tests {
     }
 
     #[test]
-    fn controlled_affine_target_exponent_accepts_65535_and_rejects_65536_typed() {
+    fn symbolica_affine_target_exponent_accepts_65535_and_rejects_65536_typed() {
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-target-u16-boundary",
+            "symbolica-affine-target-u16-boundary",
             2,
         )
         .unwrap();
@@ -15491,7 +14863,7 @@ mod tests {
         };
         let accepted = make_source([u16::MAX, 0]);
         let mapped = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &accepted,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -15502,7 +14874,7 @@ mod tests {
 
         let rejected = make_source([u16::MAX, 1]);
         assert!(matches!(
-            context.preflight_polynomial_on_residual_affine_composition_plan_controlled(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
                 &rejected,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -15517,164 +14889,10 @@ mod tests {
     }
 
     #[test]
-    fn controlled_affine_workspace_envelope_is_exact_on_zero_axes_and_checked_on_overflow() {
-        let zero_plan = ResidualUnitAffineCompositionPlanLimits {
-            max_variables: 0,
-            max_full_images: 0,
-            max_geometry_entries_inspected: 0,
-            max_geometry_entries_retained: 0,
-            max_support_entries_retained: 0,
-            max_total_image_terms: 0,
-            max_total_image_exponent_entries: 0,
-            max_image_integer_bits: 0,
-            max_total_image_integer_bits: 0,
-        };
-        let zero_polynomial = ResidualUnitAffinePolynomialCompositionLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_exponent: 0,
-                max_polynomial_terms: 0,
-                max_term_operations: 0,
-            },
-            max_expanded_contributions: 0,
-            max_output_terms: 0,
-            max_output_exponent_entries: 0,
-            max_native_power_heap_pairs: 0,
-            max_integer_coefficient_bits: 0,
-            ..ResidualUnitAffinePolynomialCompositionLimits::default()
-        };
-        let envelope =
-            residual_affine_controlled_workspace_envelope_from_limits(zero_plan, zero_polynomial)
-                .unwrap();
-        let expected_expansion = size_of::<ControlledAffineExpansionWorkspace>()
-            + size_of::<u32>()
-            + 4 * size_of::<Integer>()
-            + residual_affine_controlled_gmp_logical_bytes_upper_bound(
-                4,
-                0,
-                "controlled affine composition workspace",
-            )
-            .unwrap();
-        let expected_collection = size_of::<ControlledAffineCollectionWorkspace>()
-            + size_of::<CoefficientPolynomial>()
-            + 2 * size_of::<Integer>()
-            + residual_affine_controlled_gmp_logical_bytes_upper_bound(
-                2,
-                0,
-                "controlled affine composition workspace",
-            )
-            .unwrap();
-        assert_eq!(
-            envelope.expansion_owned_logical_peak_upper_bound(),
-            expected_expansion
-        );
-        assert_eq!(
-            envelope.collection_owned_logical_peak_upper_bound(),
-            expected_collection
-        );
-        assert_eq!(
-            envelope.owned_logical_peak_upper_bound(),
-            expected_expansion.max(expected_collection)
-        );
-
-        let two_variables = ResidualUnitAffineCompositionPlanLimits {
-            max_variables: 2,
-            max_full_images: 2,
-            ..zero_plan
-        };
-        let overflow_contributions = ResidualUnitAffinePolynomialCompositionLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_polynomial_terms: usize::MAX,
-                ..zero_polynomial.exact_algebra
-            },
-            max_expanded_contributions: usize::MAX,
-            max_output_terms: usize::MAX,
-            max_output_exponent_entries: usize::MAX,
-            ..zero_polynomial
-        };
-        assert!(matches!(
-            residual_affine_controlled_workspace_envelope_from_limits(
-                two_variables,
-                overflow_contributions,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled affine composition workspace"
-            })
-        ));
-        let overflow_power = ResidualUnitAffinePolynomialCompositionLimits {
-            max_native_power_heap_pairs: usize::MAX,
-            ..zero_polynomial
-        };
-        assert!(matches!(
-            residual_affine_controlled_workspace_envelope_from_limits(
-                two_variables,
-                overflow_power,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled affine composition workspace"
-            })
-        ));
-        let overflow_variables = ResidualUnitAffineCompositionPlanLimits {
-            max_variables: usize::MAX,
-            max_full_images: usize::MAX,
-            ..zero_plan
-        };
-        assert!(matches!(
-            residual_affine_controlled_workspace_envelope_from_limits(
-                overflow_variables,
-                zero_polynomial,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled affine composition workspace"
-            })
-        ));
-        let overflow_bits = ResidualUnitAffinePolynomialCompositionLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_exponent: 1,
-                ..zero_polynomial.exact_algebra
-            },
-            max_integer_coefficient_bits: usize::MAX,
-            ..zero_polynomial
-        };
-        assert!(matches!(
-            residual_affine_controlled_workspace_envelope_from_limits(zero_plan, overflow_bits),
-            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "controlled affine composition workspace"
-            })
-        ));
-    }
-
-    #[test]
-    fn controlled_affine_weak_composition_enumerator_has_exact_cardinalities() {
-        fn enumerate(exponent: u32, width: usize) -> BTreeSet<Vec<u32>> {
-            assert!(width > 0);
-            let mut current = vec![0; width];
-            current[0] = exponent;
-            let mut seen = BTreeSet::new();
-            loop {
-                assert_eq!(current.iter().copied().sum::<u32>(), exponent);
-                assert!(seen.insert(current.clone()));
-                if !residual_affine_advance_weak_composition(&mut current).unwrap() {
-                    break;
-                }
-            }
-            seen
-        }
-        for (exponent, width, expected) in [
-            (0, 1, 1),
-            (4, 3, 15),
-            (255, 2, 256),
-            (256, 2, 257),
-            (65_535, 1, 1),
-        ] {
-            assert_eq!(enumerate(exponent, width).len(), expected);
-        }
-    }
-
-    #[test]
-    fn controlled_affine_compositor_preserves_gmp_source_and_image_coefficients() {
+    fn symbolica_affine_compositor_preserves_gmp_source_and_image_coefficients() {
         let context = ParametricCoefficientContext::try_new(
             &CoefficientContext::new(Vec::<String>::new()),
-            "controlled-affine-gmp-source-and-image",
+            "symbolica-affine-gmp-source-and-image",
             3,
         )
         .unwrap();
@@ -15709,19 +14927,13 @@ mod tests {
         let native = context
             .compose_polynomial_on_residual_affine_composition_plan(&source, &plan, limits)
             .unwrap();
-        let controlled = context
-            .compose_polynomial_on_residual_affine_composition_plan_controlled(
-                &source, &plan, limits,
-            )
-            .unwrap();
-        assert_eq!(controlled.value(), native.value());
-        assert_eq!(controlled.value().raw.nterms(), 3);
+        assert_eq!(native.value().raw.nterms(), 3);
         let coefficient_at = |target: &[u16]| {
-            controlled
+            native
                 .value()
                 .raw
                 .exponents_iter()
-                .zip(&controlled.value().raw.coefficients)
+                .zip(&native.value().raw.coefficients)
                 .find_map(|(exponents, coefficient)| (exponents == target).then_some(coefficient))
                 .cloned()
         };
@@ -16608,38 +15820,76 @@ mod tests {
         );
 
         let base_count = context.base.variables().len();
-        let mut maximal = context.template.numerator.zero_with_capacity(1);
-        let mut exponents = vec![0u16; context.variables.len()];
-        exponents[base_count] = u16::MAX;
-        maximal.append_monomial(Integer::one(), &exponents);
-        let maximal = ParametricPolynomial {
-            raw: maximal,
-            context: context.fingerprint.clone(),
+        let source_power = |exponent: u16| {
+            let mut raw = context.template.numerator.zero_with_capacity(1);
+            let mut exponents = vec![0u16; context.variables.len()];
+            exponents[base_count] = exponent;
+            raw.append_monomial(Integer::one(), &exponents);
+            ParametricPolynomial {
+                raw,
+                context: context.fingerprint.clone(),
+            }
+        };
+        let maximal = source_power(u16::MAX);
+        let wide_limits = ResidualUnitAffinePolynomialCompositionLimits {
+            exact_algebra: ExactAlgebraLimits {
+                max_polynomial_terms: usize::MAX,
+                max_term_operations: usize::MAX,
+                ..ExactAlgebraLimits::default()
+            },
+            max_expanded_contributions: usize::MAX,
+            max_output_terms: usize::MAX,
+            max_output_exponent_entries: usize::MAX,
+            max_native_power_heap_pairs: usize::MAX,
+            max_multiplication_term_pairs: usize::MAX,
+            max_addition_term_visits: usize::MAX,
+            max_integer_coefficient_bits: usize::MAX,
+            max_integer_bit_work: usize::MAX,
+            ..ResidualUnitAffinePolynomialCompositionLimits::default()
+        };
+
+        // The exact vendored evaluator stride is (e+1)^2 here. At u16::MAX
+        // that is one larger than u32::MAX, so backend classification selects
+        // expression expansion. Its honest H*U*B integer-work census exceeds
+        // usize and must reject before Symbolica rather than wrap.
+        let maximal_radix = residual_affine_kronecker_preflight(
+            &plan.core,
+            base_count,
+            usize::from(u16::MAX),
+            base_count,
+        )
+        .unwrap();
+        assert!(!maximal_radix.polynomial_evaluator_safe);
+        assert_eq!(maximal_radix.exponent_bits, 32);
+        assert!(matches!(
+            context.preflight_residual_affine_polynomial_core(&maximal, &plan.core, wide_limits,),
+            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
+                resource: "Symbolica expression integer bit work",
+            })
+        ));
+
+        // A still-large feasible power exercises the same 32-bit policy
+        // boundary while remaining below the evaluator's exact u32 stride.
+        let feasible = source_power(32_768);
+        let preflight = context
+            .preflight_residual_affine_polynomial_core(&feasible, &plan.core, wide_limits)
+            .unwrap();
+        assert_eq!(
+            preflight.backend,
+            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator
+        );
+        assert_eq!(preflight.stats.largest_kronecker_exponent_bits(), 32);
+
+        let strict = ResidualUnitAffinePolynomialCompositionLimits {
+            max_kronecker_exponent_bits: 31,
+            ..wide_limits
         };
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
-                &maximal,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits {
-                    exact_algebra: ExactAlgebraLimits {
-                        max_polynomial_terms: usize::MAX,
-                        max_term_operations: usize::MAX,
-                        ..ExactAlgebraLimits::default()
-                    },
-                    max_expanded_contributions: usize::MAX,
-                    max_output_terms: usize::MAX,
-                    max_output_exponent_entries: usize::MAX,
-                    max_native_power_heap_pairs: usize::MAX,
-                    max_multiplication_term_pairs: usize::MAX,
-                    max_addition_term_visits: usize::MAX,
-                    max_integer_coefficient_bits: usize::MAX,
-                    max_integer_bit_work: usize::MAX,
-                    ..ResidualUnitAffinePolynomialCompositionLimits::default()
-                },
-            ),
+            context.preflight_residual_affine_polynomial_core(&maximal, &plan.core, strict),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "Symbolica u32 Kronecker radix",
-                ..
+                resource: "Kronecker exponent bits",
+                requested: 32,
+                limit: 31,
             })
         ));
     }

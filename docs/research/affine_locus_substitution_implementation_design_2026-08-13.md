@@ -53,11 +53,14 @@ q means J(F(t)+q), not a global J(n+q).
 
 The implementation should use Symbolica's native
 `MultivariatePolynomial::evaluate_with_coeff_map` into a
-`PolynomialRing<IntegerRing,u16>` for genuinely simultaneous composition.
-It must preflight expansion, exponent, integer-bit, and native work bounds
-before entering that infallible/panic-capable API. Numerator and denominator
-are composed separately; the mapped original denominator is made durable as a
-guard before `RationalPolynomial::from_num_den(..., true)` may cancel it.
+`PolynomialRing<IntegerRing,u16>` for genuinely simultaneous composition when
+its audited internal mixed-radix representation is safe. For larger admitted
+radices it should remain fully in Symbolica by using simultaneous Atom
+replacement, direct expression expansion, and polynomial conversion. It must
+preflight expansion, exponent, integer-bit, and native work bounds before
+entering either panic-capable API. Numerator and denominator are composed
+separately; the mapped original denominator is made durable as a guard before
+`RationalPolynomial::from_num_den(..., true)` may cancel it.
 
 Do not add a public method which returns the composed inner
 `ParametricRelation`. The complete source row and translation should be inputs
@@ -141,9 +144,12 @@ The exact native APIs in the vendored source are:
   GCD and normalizes the denominator sign at
   [`rational_polynomial.rs:406-443`](../../vendor/symbolica/src/domains/rational_polynomial.rs#L406).
 
-`evaluate_with_coeff_map` is preferable here to Atom replacement and pattern
-matching. The input is already an authenticated sparse polynomial, and the
-operation required is algebraic composition, not syntactic matching.
+`evaluate_with_coeff_map` is the preferred fast path while its audited u32
+Kronecker stride is safe. The input is already an authenticated sparse
+polynomial, and the operation required is algebraic composition. Beyond that
+backend representation boundary RustRed uses simultaneous Symbolica Atom
+replacement, expansion, and expanded-polynomial conversion; it does not
+implement a replacement or expansion CAS of its own.
 
 The native call still needs a RustRed boundary:
 
@@ -186,7 +192,10 @@ The real implementation must keep `template` access inside
 preflight all work described below, wrap the call in `catch_unwind`, and
 validate that `mapped.variables` is exactly the context's canonical `Arc`
 map. It must also verify that every non-free index exponent is zero in the
-output. The code above is only the central native call.
+output. The code above is only the polynomial-evaluator backend call. It is
+one of two selected Symbolica production paths, not a universal composition
+route; the simultaneous Atom fallback has the same typed preflight and
+postvalidation boundary.
 
 Because `evaluate_with_coeff_map` receives the complete point at once, the
 semantics are simultaneous even if a future certificate admits more than one
@@ -450,8 +459,8 @@ contract.
 
 ## 6. Polynomial preflight
 
-All counts below are computed before `evaluate_with_coeff_map` allocates an
-output.
+All counts below are computed before the selected Symbolica compositor
+allocates an output.
 
 Let `w_i` be the number of nonzero monomials in image `i`. For an affine index
 image this is the count of its nonzero constant and nonzero free-variable
@@ -513,7 +522,7 @@ must be zero. Check these sums in `u128` against both
 for example, a source monomial `n_free^65535 * n_bound` when the bound image
 contains `n_free`; Symbolica's `u16` multiplication would otherwise panic.
 
-### 6.2 Native power and multiplication work
+### 6.2 Selected-backend structural work
 
 `evaluate_with_coeff_map` performs one power and one multiplication for every
 nonzero source exponent. Record that as `power_calls`.
@@ -541,6 +550,37 @@ for every addition and enforce `max_addition_term_visits`. This catches a
 quadratic accumulation pattern even when the final collected term count is
 small.
 
+The compatibility-named `max_addition_term_visits` field instead admits the
+complete structural census of whichever Symbolica backend is selected. For
+the expression route let `S` be source terms, `V` variables, `R` nonfree
+positions, `A` active nonfree positions, `O_p` the number of source monomials
+using active position `p`, and `w_p` its image term count. Define
+
+```text
+D = S*V
+Nsrc = 1 + 2*S + 3*D
+I = sum_active w_p
+J = sum_active O_p*w_p
+F = 3*R*S
+Q = A*Nsrc
+image_build = I*V + A*V + A + 3*I
+Nsub = Nsrc + 3*J
+P = sum(image_terms * powered_terms)
+M = sum(prefix_terms * powered_terms)
+E = C*V
+L = max(2, S, C, 2*V+2, P, M)
+K = 4*(ceil(log2(L))+1)
+expression_visits = F + Q
+  + K*(Nsrc + image_build + Nsub + 2*P + M*V + 4*C + 6*E).
+```
+
+`F` covers the allocation-free support scans in structural preflight, integer
+preflight, and execution. The other terms admit literal matching, active RHS
+construction, substituted-tree normalization, affine powers, Cartesian
+products, final expansion, validation, and expanded-polynomial conversion.
+All arithmetic is checked. This is a logical traversal/order envelope, not a
+claim about an exact standard-library sort comparison count.
+
 Symbolica's dense multiplication path has an audited hard ceiling of
 `1<<24` dense slots in this vendored revision
 ([`polynomial.rs:27,2760-2800`](../../vendor/symbolica/src/poly/polynomial.rs#L2760));
@@ -548,7 +588,8 @@ larger boxes fall back to heap multiplication. This is a fixed backend peak,
 not a caller-configurable RustRed guarantee. Document it in memory estimates,
 and keep term-pair limits as the caller-controlled work boundary. If a future
 backend revision removes that native ceiling, the compile probe must fail
-until RustRed adds an explicit dense-box preflight or a controlled compositor.
+until RustRed adds an explicit dense-box preflight or another separately
+audited Symbolica backend.
 
 ### 6.3 Integer coefficient growth
 
@@ -574,9 +615,9 @@ Check the resulting per-output coefficient bound against
 would charge one bit per power of `1` and needlessly reject high-degree
 identity images.
 
-The native evaluator clones each source coefficient and evaluates every
-nonzero-exponent image before multiplying it into the term.  This remains
-true when an earlier or later zero image makes `C_m=0`.  Therefore validate
+The polynomial evaluator clones each source coefficient and evaluates every
+nonzero-exponent image before multiplying it into the term. This remains true
+when an earlier or later zero image makes `C_m=0`. Therefore validate
 the source coefficient bit length unconditionally and charge it once. For
 every powered nonzero image, charge the final coefficient bound across its
 `H(e,w)` outputs. For the audited `heap_pow` path, additionally include the
@@ -595,32 +636,79 @@ H(e,w) * (1 + e * (G + ceil(log2(w))))
 
 Validate every power, heap-recurrence, multiplication, and addition temporary
 bound against `max_integer_coefficient_bits`; record their total in
-`native_integer_bit_work_bound`. These charges may not be skipped merely
-because the final prospective contribution count becomes zero.
+the evaluator work census. These charges may not be skipped merely because
+the final prospective contribution count becomes zero.
 
-Let `bit_bound_m` include the global collision allowance. Charge
-`C_m * bit_bound_m` in addition to the unconditional native charge, record
-their checked sum as `integer_bit_work_bound`, and enforce
+The expression backend has a separate exponent-scaled census. For every one
+of the `H(e,w)` power monomials, Symbolica's `Integer::multinom` performs at
+most `e` binomial iterations, followed by coefficient powers and products.
+Use
+
+```text
+U(e,w) = 2*e + 2*w + 2*w*ceil(log2(e+1)) + 4
+B(e,w) = final_power_bits + ceil(log2(e+1))
+```
+
+and charge `H(e,w) * U(e,w) * B(e,w)`, plus every prospective
+prefix-times-power coefficient product. Compute evaluator and expression
+totals independently, and select the complete expression total for all powers
+if any source power requires the fallback. The compatibility-named
+`native_integer_bit_work_bound` statistic records the selected Symbolica
+backend's pre-output total.
+
+Expression conversion makes two integer-magnitude copies for every source
+and active RHS coefficient. In addition, multiply the complete expression
+structural-visit census by
+
+```text
+max(largest collision-grown integer coefficient bits, 16, 1)
+```
+
+to admit packed integer payload copies throughout Atom replacement,
+normalization, expansion, validation, and conversion. The 16-bit floor covers
+serialized `u16` exponent Num nodes. This payload-bandwidth term is part of
+the selected backend's pre-output integer-work statistic.
+
+Let `bit_bound` include the global collision allowance. Charge
+`C * bit_bound` in addition to either selected backend charge. The expression
+converter performs two further magnitude operations per final coefficient,
+so that route additionally charges `2*C*bit_bound`. Record the checked sum as
+`integer_bit_work_bound`, and enforce
 `max_integer_bit_work`. Counting only power calls is not sufficient: one high
 exponent and one large affine constant can allocate a very large GMP integer.
 
 `heap_pow` uses an integer Kronecker encoding whose degree radix is roughly
 the product of `(degree+1)` over target variables. Accumulate the sum of
 `ceil(log2(degree+1))` using the already checked target-degree bounds and
-enforce `max_kronecker_exponent_bits` before the native power call.
-The audited backend stores its running stride in `u32`; preflight the exact
-radix product against `u32::MAX` independently of the configurable bit limit.
+enforce `max_kronecker_exponent_bits` as backend-independent work-policy
+admission before the selected Symbolica call.
+The audited polynomial-evaluator backend infers its unannotated running stride
+as `u32` before the encoded exponent is promoted to `Integer`. Preflight the
+exact radix product against `u32::MAX` independently of the configurable bit
+limit. If it crosses that internal ceiling, route the same admitted operation
+through Symbolica's simultaneous Atom replacement, direct expression
+expansion, and polynomial conversion backend instead of rejecting it. RustRed
+does not retain a separate polynomial-composition engine.
 
 ### 6.4 Execute and authenticate
 
 Only after the complete preflight succeeds:
 
-1. enter `catch_unwind(AssertUnwindSafe(...))` around the simultaneous native
-   evaluation;
-2. reject a panic as `SymbolicaPanic { stage: "unit-affine polynomial composition" }`;
+1. select either the polynomial evaluator or the simultaneous Symbolica
+   expression-expansion backend from the exact mixed-radix classification;
+2. enter `catch_unwind(AssertUnwindSafe(...))` around the selected Symbolica
+   evaluation and report a backend-specific `SymbolicaPanic` stage;
+   the expression route support-filters nonfree variables without allocating
+   a side table, then supplies active replacements as a lazy iterator so any
+   eager replacement collection is owned inside Symbolica;
 3. check the actual output term limit again;
    reject `mapped.nterms()>C` as an internal replay/invariant failure;
-4. validate the exact canonical variable map and exact-algebra invariants;
+4. before expression-to-polynomial conversion, require Symbolica to report the
+   Atom both expanded and polynomial so conversion cannot fall back to a
+   recursive polynomial-power path; then validate the exact ordered variable
+   map and exact-algebra invariants; the
+   expression converter returns a fresh equal map, so authenticate its value
+   before restoring the context's canonical `Arc`;
 5. scan all output exponent rows and reject any non-free index occurrence;
 6. wrap the result as an authenticated `ParametricPolynomial`; and
 7. return actual and prospective stats.
@@ -1286,13 +1374,17 @@ cargo nextest run -j4 \
   --test affine_locus_bound_relation_sunset
 ```
 
-The implemented slice was validated with the licensed, default GMP build and
-parallel tests (no `no_gmp` feature):
+The current dual-Symbolica composition slice was validated with the licensed,
+default GMP build and parallel tests (no `no_gmp` feature):
 
-- the focused post-audit wrapper/compositor/sunset set: 15/15 passed;
-- the complete affine stack: 45/45 passed;
-- all RustRed library unit tests: 169/169 passed; and
-- `cargo check --workspace --all-targets`: passed.
+- the complete `parametric_coefficient::tests` shard: 117/117 passed in
+  nextest run `5f582f6c-b483-47a0-a2d9-0df28b8a8b74`;
+- the optimized expression-fallback boundary shard: 4/4 passed in nextest run
+  `5efdf960-d001-4266-b152-db7ca2d3dc5b`;
+- the cross-module affine/generated-certificate selector: 205/205 passed in
+  nextest run `e8b0dcef-7080-47f5-b371-78acdf64709c`; and
+- `cargo check --workspace --all-targets -j4`, formatting, and diff hygiene
+  passed.
 
 The connected-sunset oracle covers four generated ordinary IBP rows, five
 ambient translations, and four concrete affine points (80 exact comparisons),

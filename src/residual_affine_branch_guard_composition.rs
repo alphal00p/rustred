@@ -23,7 +23,6 @@ use crate::parametric_coefficient::{
     ResidualAffineCompositionPlan, ResidualAffineCompositionPlanLogicalMemoryCensus,
     ResidualAffineCompositionPlanStats,
     residual_affine_composition_plan_memory_envelope_from_limits,
-    residual_affine_controlled_workspace_envelope_from_limits,
 };
 use crate::residual_affine_branch_system::{
     ResidualAffineBranchSystemFreshGuardAuthorization,
@@ -361,7 +360,7 @@ pub(crate) struct ResidualAffineBranchSealedGuardLogicalMemoryCensus {
     compilation_owned_logical_peak_upper_bound: usize,
     plan_retained_owned_logical_bytes: usize,
     plan_compilation_owned_logical_peak_upper_bound: usize,
-    entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound: usize,
+    entry_prefix_owned_logical_peak_upper_bound: usize,
 }
 
 /// Authenticated scalar cost of comparing two equal sealed-guard payloads.
@@ -388,9 +387,12 @@ impl ResidualAffineBranchSealedGuardPayloadComparisonCensus {
     }
 }
 
-/// Checked V2 limit-derived pieces, including the complete compilation peak
-/// for the RustRed-controlled compositor.  No persisted per-entry statistic
-/// or Symbolica-native polynomial workspace participates in this envelope.
+/// Checked V2 limit-derived pieces for RustRed-owned logical storage.
+///
+/// Symbolica backend transients are deliberately outside this ownership
+/// census. Their term, operation, exponent, and integer-bit work is admitted
+/// by the typed polynomial-composition preflight before the selected
+/// Symbolica backend call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ResidualAffineBranchSealedGuardMemoryEnvelopeParts {
     guard_retained_owned_logical_bytes_upper_bound: usize,
@@ -434,10 +436,8 @@ impl ResidualAffineBranchSealedGuardLogicalMemoryCensus {
         self.plan_compilation_owned_logical_peak_upper_bound
     }
 
-    pub(crate) const fn entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound(
-        self,
-    ) -> usize {
-        self.entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound
+    pub(crate) const fn entry_prefix_owned_logical_peak_upper_bound(self) -> usize {
+        self.entry_prefix_owned_logical_peak_upper_bound
     }
 }
 
@@ -739,14 +739,9 @@ impl ResidualAffineBranchSealedGuardBundle {
         // This is deliberately coherent under the old self-fed verifier: all
         // derived maxima are rebuilt from the forged plan scalars. The new
         // structural re-census must still reject it.
-        core.memory = sealed_guard_logical_memory_census(
-            &core.entries,
-            plan_retained,
-            plan_peak,
-            core.stats,
-            core.limits,
-        )
-        .expect("test memory re-census");
+        core.memory =
+            sealed_guard_logical_memory_census(&core.entries, plan_retained, plan_peak, core.stats)
+                .expect("test memory re-census");
     }
 
     #[cfg(test)]
@@ -1625,7 +1620,6 @@ fn compile_fresh_sealed_guard(
             plan_memory.retained_owned_logical_bytes(),
             plan_memory.compilation_owned_logical_peak_upper_bound(),
             stats,
-            limits,
         )?;
         if memory.retained_owned_logical_bytes()
             > memory_envelope.guard_retained_owned_logical_bytes_upper_bound()
@@ -1736,22 +1730,14 @@ fn compose_guard_entries_with_origin_mode<'a>(
             composed_source_exponent_entries,
         )?;
         // The nested compositor has one combined integer-work cap. Obtain its
-        // no-native-call preflight stats first so the branch-wide native-work
-        // allowance can remain exact and independent of total integer work.
-        let preflight_stats = match origin_mode {
-            BranchGuardOriginMode::Legacy(_) => context
-                .preflight_polynomial_on_residual_affine_composition_plan(
-                    source,
-                    plan,
-                    effective_limits,
-                )?,
-            BranchGuardOriginMode::GeneratedAffineSealedCondition => context
-                .preflight_polynomial_on_residual_affine_composition_plan_controlled(
-                    source,
-                    plan,
-                    effective_limits,
-                )?,
-        };
+        // no-Symbolica-call preflight stats first so the compatibility-named
+        // selected-backend allowance remains exact and independent of total
+        // integer work.
+        let preflight_stats = context.preflight_polynomial_on_residual_affine_composition_plan(
+            source,
+            plan,
+            effective_limits,
+        )?;
         check_limit(
             "total native integer-bit work",
             checked_add(
@@ -1761,20 +1747,11 @@ fn compose_guard_entries_with_origin_mode<'a>(
             )?,
             limits.max_total_native_integer_bit_work,
         )?;
-        let composition = match origin_mode {
-            BranchGuardOriginMode::Legacy(_) => context
-                .compose_polynomial_on_residual_affine_composition_plan(
-                    source,
-                    plan,
-                    effective_limits,
-                )?,
-            BranchGuardOriginMode::GeneratedAffineSealedCondition => context
-                .compose_polynomial_on_residual_affine_composition_plan_controlled(
-                    source,
-                    plan,
-                    effective_limits,
-                )?,
-        };
+        let composition = context.compose_polynomial_on_residual_affine_composition_plan(
+            source,
+            plan,
+            effective_limits,
+        )?;
         let (mapped_polynomial, polynomial_stats) = composition.into_parts();
         composed_source_terms = checked_add(
             "composed source terms",
@@ -1899,7 +1876,6 @@ fn sealed_guard_logical_memory_census(
     plan_retained_owned_logical_bytes: usize,
     plan_compilation_owned_logical_peak_upper_bound: usize,
     stats: ResidualAffineBranchGuardCompositionStats,
-    limits: ResidualAffineBranchGuardCompositionLimits,
 ) -> Result<
     ResidualAffineBranchSealedGuardLogicalMemoryCensus,
     ResidualAffineBranchGuardCompositionError,
@@ -1917,44 +1893,15 @@ fn sealed_guard_logical_memory_census(
             stats.context_fingerprint_bytes(),
         )?,
     )?;
-    // Remaining aggregate limits only decrease after each guard.  Tightening
-    // the first-entry allowance against every branch-wide cap therefore
-    // yields a limit-only workspace envelope that dominates every V2 entry
-    // without trusting a persisted per-entry statistic.
-    let controlled_workspace = if entries.is_empty() {
-        0
-    } else {
-        let first_entry_limits = remaining_polynomial_composition_limits(
-            limits,
-            &ResidualAffineBranchGuardCompositionStats::default(),
-            0,
-            0,
-        )?;
-        residual_affine_controlled_workspace_envelope_from_limits(
-            limits.composition_plan,
-            first_entry_limits,
-        )?
-        .owned_logical_peak_upper_bound()
-    };
     let mut retained_prefix = 0usize;
-    let mut entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound = outer;
+    let mut entry_prefix_owned_logical_peak_upper_bound = outer;
     for entry in entries {
-        entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound =
-            entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound.max(checked_add(
-                "sealed guard entry-prefix/controlled-workspace logical peak",
-                checked_add(
-                    "sealed guard entry-prefix/controlled-workspace logical peak",
-                    outer,
-                    retained_prefix,
-                )?,
-                controlled_workspace,
-            )?);
         let retained_entry = guard_entry_retained_logical_bytes(entry)?;
-        // This second overlap pins the moment at which a mapped polynomial and
-        // its separately copied sealed condition coexist. For condition
-        // classes `retained_entry` includes both sparse payloads.
-        entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound =
-            entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound.max(checked_add(
+        // This overlap pins the moment at which a mapped polynomial and its
+        // separately copied sealed condition coexist. For condition classes
+        // `retained_entry` includes both sparse payloads.
+        entry_prefix_owned_logical_peak_upper_bound = entry_prefix_owned_logical_peak_upper_bound
+            .max(checked_add(
                 "sealed guard entry-prefix/condition-copy logical peak",
                 checked_add(
                     "sealed guard entry-prefix/condition-copy logical peak",
@@ -1977,7 +1924,7 @@ fn sealed_guard_logical_memory_census(
     let composition_overlap = checked_add(
         "sealed guard composition logical peak",
         plan_retained_owned_logical_bytes,
-        entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound,
+        entry_prefix_owned_logical_peak_upper_bound,
     )?;
     let compilation_owned_logical_peak_upper_bound = retained_owned_logical_bytes
         .max(plan_compilation_owned_logical_peak_upper_bound)
@@ -1987,12 +1934,13 @@ fn sealed_guard_logical_memory_census(
         compilation_owned_logical_peak_upper_bound,
         plan_retained_owned_logical_bytes,
         plan_compilation_owned_logical_peak_upper_bound,
-        entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound,
+        entry_prefix_owned_logical_peak_upper_bound,
     })
 }
 
-/// Exact checked retained, controlled-workspace, and plan envelope pieces
-/// derivable from sealed V2 limits alone.
+/// Exact checked retained and plan envelope pieces derivable from sealed V2
+/// limits alone. Symbolica-owned evaluator transients are excluded here and
+/// admitted separately by polynomial-composition resource limits.
 pub(crate) fn sealed_guard_memory_envelope_parts_from_limits(
     limits: ResidualAffineBranchGuardCompositionLimits,
 ) -> Result<
@@ -2047,29 +1995,10 @@ pub(crate) fn sealed_guard_memory_envelope_parts_from_limits(
     ]
     .into_iter()
     .try_fold(0usize, |sum, bytes| checked_add(resource, sum, bytes))?;
-    let controlled_workspace = if retained_entries == 0 {
-        0
-    } else {
-        let first_entry_limits = remaining_polynomial_composition_limits(
-            limits,
-            &ResidualAffineBranchGuardCompositionStats::default(),
-            0,
-            0,
-        )?;
-        residual_affine_controlled_workspace_envelope_from_limits(
-            limits.composition_plan,
-            first_entry_limits,
-        )?
-        .owned_logical_peak_upper_bound()
-    };
     let composition_peak = checked_add(
         resource,
-        checked_add(
-            resource,
-            plan.retained_owned_logical_bytes(),
-            guard_retained_owned_logical_bytes_upper_bound,
-        )?,
-        controlled_workspace,
+        plan.retained_owned_logical_bytes(),
+        guard_retained_owned_logical_bytes_upper_bound,
     )?;
     let compilation_owned_logical_peak_upper_bound = guard_retained_owned_logical_bytes_upper_bound
         .max(plan.compilation_owned_logical_peak_upper_bound())
@@ -2174,7 +2103,6 @@ fn authenticate_sealed_guard_bundle(
         structural_plan_memory.retained_owned_logical_bytes(),
         structural_plan_memory.compilation_owned_logical_peak_upper_bound(),
         core.stats,
-        core.limits,
     )?;
     let recomputed_payload = sealed_guard_equal_payload_comparison_census(core)?;
     if recomputed != core.memory
@@ -3205,7 +3133,7 @@ mod tests {
         assert_eq!(
             sealed_guard_memory_envelope_parts_from_limits(irrelevant_zero_axes).unwrap(),
             parts,
-            "Q=0 must ignore unreachable retained/workspace maxima"
+            "Q=0 must ignore unreachable retained maxima"
         );
 
         let mut overflow = zero;
@@ -3351,32 +3279,32 @@ mod tests {
     }
 
     #[test]
-    fn sealed_v2_origin_mode_uses_controlled_compositor_and_limit_derived_memory() {
-        let context = synthetic_context("sealed-v2-controlled-compositor-dispatch");
+    fn sealed_v2_origin_mode_uses_symbolica_compositor_and_preserves_provenance() {
+        let context = synthetic_context("sealed-v2-symbolica-native-compositor-dispatch");
         let n0 = context.index(0).unwrap();
         let source = polynomial(&context, &context.mul(&n0, &n0).unwrap());
         let limits = ResidualAffineBranchGuardCompositionLimits::default();
         let plan = synthetic_plan(&context, limits);
 
-        let mut controlled_stats = ResidualAffineBranchGuardCompositionStats::default();
-        let controlled = compose_guard_entries_with_origin_mode(
+        let mut native_stats = ResidualAffineBranchGuardCompositionStats::default();
+        let native = compose_guard_entries_with_origin_mode(
             &context,
             &plan,
             1,
             [Ok((101, &source))],
             BranchGuardOriginMode::GeneratedAffineSealedCondition,
             limits,
-            &mut controlled_stats,
+            &mut native_stats,
         )
         .unwrap();
-        assert_eq!(controlled.entries.len(), 1);
-        assert_eq!(
-            controlled.entries[0]
+        assert_eq!(native.entries.len(), 1);
+        assert!(
+            native.entries[0]
                 .polynomial_stats()
-                .largest_kronecker_exponent_bits(),
-            0
+                .largest_kronecker_exponent_bits()
+                > 0
         );
-        let condition = controlled.entries[0].class().condition().unwrap();
+        let condition = native.entries[0].class().condition().unwrap();
         assert_eq!(condition.origins().len(), 1);
         assert!(
             condition
@@ -3400,43 +3328,51 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            controlled.entries[0].mapped_polynomial(),
+            native.entries[0].mapped_polynomial(),
             legacy.entries[0].mapped_polynomial()
         );
-        assert!(
-            legacy.entries[0]
-                .polynomial_stats()
-                .largest_kronecker_exponent_bits()
-                > 0
+        assert_eq!(
+            native.entries[0].polynomial_stats(),
+            legacy.entries[0].polynomial_stats()
         );
+
+        let mut rejected_limits = limits;
+        rejected_limits
+            .polynomial_composition
+            .max_kronecker_exponent_bits = 0;
+        let mut rejected_stats = ResidualAffineBranchGuardCompositionStats::default();
+        assert!(matches!(
+            compose_guard_entries_with_origin_mode(
+                &context,
+                &plan,
+                1,
+                [Ok((101, &source))],
+                BranchGuardOriginMode::GeneratedAffineSealedCondition,
+                rejected_limits,
+                &mut rejected_stats,
+            ),
+            Err(ResidualAffineBranchGuardCompositionError::Composition(
+                ResidualUnitAffineCompositionError::ResourceLimit {
+                    resource: "Kronecker exponent bits",
+                    requested,
+                    limit: 0,
+                }
+            )) if requested > 0
+        ));
 
         let plan_memory = plan.recompute_logical_memory_census().unwrap();
         let memory = sealed_guard_logical_memory_census(
-            &controlled.entries,
+            &native.entries,
             plan_memory.retained_owned_logical_bytes(),
             plan_memory.compilation_owned_logical_peak_upper_bound(),
-            controlled_stats,
-            limits,
+            native_stats,
         )
         .unwrap();
-        let first_entry_limits = remaining_polynomial_composition_limits(
-            limits,
-            &ResidualAffineBranchGuardCompositionStats::default(),
-            0,
-            0,
-        )
-        .unwrap();
-        let workspace = residual_affine_controlled_workspace_envelope_from_limits(
-            limits.composition_plan,
-            first_entry_limits,
-        )
-        .unwrap()
-        .owned_logical_peak_upper_bound();
         let outer = sealed_guard_core_owned_logical_bytes().unwrap();
-        let retained_entry = guard_entry_retained_logical_bytes(&controlled.entries[0]).unwrap();
-        let expected_entry_peak = (outer + workspace).max(outer + retained_entry);
+        let retained_entry = guard_entry_retained_logical_bytes(&native.entries[0]).unwrap();
+        let expected_entry_peak = outer + retained_entry;
         assert_eq!(
-            memory.entry_prefix_and_controlled_workspace_owned_logical_peak_upper_bound(),
+            memory.entry_prefix_owned_logical_peak_upper_bound(),
             expected_entry_peak
         );
         let expected_compilation_peak = (outer + retained_entry)
@@ -3450,10 +3386,6 @@ mod tests {
         assert!(
             memory.compilation_owned_logical_peak_upper_bound()
                 <= envelope.compilation_owned_logical_peak_upper_bound()
-        );
-        assert!(
-            memory.compilation_owned_logical_peak_upper_bound()
-                > memory.compilation_owned_logical_peak_upper_bound() - 1
         );
     }
 

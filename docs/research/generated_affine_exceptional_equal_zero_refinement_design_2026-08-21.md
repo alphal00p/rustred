@@ -141,20 +141,26 @@ src/residual_affine_atom_rows.rs:280-313. Its bounded compiler begins at line
 Non-affine index monomials and nonassociate base-parameter blocks are explicit
 unsupported outcomes, not proofs of emptiness.
 
-The polynomial composition machinery is also reusable:
+The polynomial composition machinery is also reusable. The authoritative
+entry points and types are named here rather than pinned to source line
+numbers, which move as old compositor code is deleted:
 
-- ResidualAffineCompositionCorePlan and its owning plan are defined in
-  src/parametric_coefficient.rs:2456-2553.
-- The compact-geometry full-image builder is at
-  src/parametric_coefficient.rs:6254-6485.
-- Controlled polynomial composition is exposed at lines 6520-6562.
-- Rational-coefficient composition at lines 6633-6715 maps numerator and
-  denominator, reports a zero mapped denominator, and retains the exact mapped
+- `ResidualAffineCompositionCorePlan` and its owning plans retain the shared
+  authenticated image payload.
+- `compile_residual_affine_compact_composition_plan` and
+  `compile_residual_affine_composition_core` build the compact-geometry full
+  images.
+- Polynomial composition selects Symbolica's simultaneous polynomial
+  evaluator when its audited stride is safe and Symbolica's simultaneous Atom
+  replace/expand/convert path otherwise. RustRed owns the typed preflight and
+  postvalidation boundary, not a private polynomial compositor.
+- `prepare_residual_affine_coefficient_core` and
+  `execute_prepared_coefficient_on_residual_affine_core` map numerator and
+  denominator, report a zero mapped denominator, and retain the exact mapped
   denominator before normalization for later guard classification.
 
-The existing plan adapter at src/parametric_coefficient.rs:6166-6251 is bound
-to ResidualAffineIntegerSystemCertificate. Its structural census, beginning at
-lines 2735-3028, assumes the V1 pivot/free partition and identity free rows.
+The legacy plan adapter is bound to `ResidualAffineIntegerSystemCertificate`.
+Its structural census assumes the V1 pivot/free partition and identity free rows.
 The generalized refinement must therefore add an authenticated compact-
 geometry adapter. The core full-image builder itself can be reused.
 
@@ -637,8 +643,8 @@ authorized plan.
 ### 10.1 Fresh composition-plan seam
 
 Add a non-Clone fresh authorization analogous to
-compile_residual_affine_composition_plan_from_fresh_integer_system at
-src/parametric_coefficient.rs:6186-6200. It should:
+[`ParametricCoefficientContext::compile_residual_affine_composition_plan_from_fresh_integer_system`](../../src/parametric_coefficient.rs).
+It should:
 
 1. consume the immediately preceding successful refinement result;
 2. reauthenticate the adjacent compact geometry and authority binding;

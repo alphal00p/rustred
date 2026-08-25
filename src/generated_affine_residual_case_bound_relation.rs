@@ -93,7 +93,7 @@ fn bound_relation_token_reserve_attempts_for_test() -> usize {
 ///
 /// Child limits are kept verbatim so the row owner can prove that source-row
 /// resolution, point authentication, compact-plan compilation, translation,
-/// and each native composition were independently admitted.  Every positive
+/// and each selected Symbolica composition were independently admitted. Every positive
 /// outer statistic has a corresponding limit below.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualCaseBoundRelationLimits {
@@ -1092,8 +1092,8 @@ fn compile_inner<'schedule>(
     // Token vectors are the first allocations made by the complete-row
     // composition preflight.  Admit their count-only logical envelope against
     // the global concurrently-live peak before either vector is reserved.
-    // The later, stronger composition peak remains the gate before any native
-    // evaluator is entered.
+    // The later, stronger composition peak remains the gate before either
+    // selected Symbolica composition backend is entered.
     let prepared_token_byte_envelope =
         prepared_composition_token_byte_envelope(stats.translated_guards, stats.translated_terms)?;
     check_limit(
@@ -1484,9 +1484,9 @@ fn consume_translation_polynomial(
 }
 
 /// Complete-row algebra census.  Apart from exactly reserved sealed-token
-/// vectors, no result payload is allocated and no native Symbolica affine
-/// evaluator is entered until this function has visited every translated
-/// guard and both halves of every translated coefficient.
+/// vectors, no result payload is allocated and no selected Symbolica affine
+/// composition backend is entered until this function has visited every
+/// translated guard and both halves of every translated coefficient.
 struct CompleteRowCompositionPreflight<'prepared> {
     stats: GeneratedAffineResidualCaseBoundRelationStats,
     guards: Vec<PreparedResidualAffineCompactGuardComposition<'prepared>>,
@@ -1978,7 +1978,10 @@ fn map_prepared_composition_error(
         total_addition_term_visits,
         max_total_addition_term_visits,
         "total addition term visits",
-        ["native addition term visits"]
+        [
+            "native addition term visits",
+            "Symbolica backend structural term visits"
+        ]
     );
     direct_remap!(
         integer_bit_work,
@@ -3404,10 +3407,10 @@ mod tests {
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
-        SectorMask,
+        AffineDenominator, CoefficientContext, ExactAlgebraLimits,
+        GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
+        IntegralOrderingPolicy, ParametricIbpGenerator, SectorMask,
     };
 
     struct NaturalFixture {
@@ -4054,6 +4057,30 @@ mod tests {
                 limit: 15,
             }
         );
+
+        // Both selected Symbolica affine backends expose the same aggregate
+        // budget while retaining their backend-specific child resource label.
+        let mut addition_limits = GeneratedAffineResidualCaseBoundRelationLimits::default();
+        addition_limits
+            .polynomial_composition
+            .max_addition_term_visits = 100;
+        addition_limits.max_total_addition_term_visits = 15;
+        let mut addition_stats = GeneratedAffineResidualCaseBoundRelationStats::default();
+        addition_stats.total_addition_term_visits = 10;
+        for resource in [
+            "native addition term visits",
+            "Symbolica backend structural term visits",
+        ] {
+            assert_eq!(
+                map(addition_limits, addition_stats, resource, 6, 5),
+                GeneratedAffineResidualCaseBoundRelationError::ResourceLimit {
+                    resource: "total addition term visits",
+                    requested: 16,
+                    limit: 15,
+                },
+                "failed to remap {resource}",
+            );
+        }
 
         // Numerator work is reflected by the reduction from the top-of-call
         // cap (10) to the denominator's reported child cap (6).
@@ -4940,7 +4967,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_row_matches_independent_translate_then_compose_and_controlled_oracle() {
+    fn complete_row_matches_independent_translate_then_symbolica_compose() {
         let fixture = natural_fixture("bound-v2-complete-differential-private");
         let oracle = oracle_row(&fixture);
         assert!(oracle.translated.terms().len() >= 2);
@@ -4977,15 +5004,6 @@ mod tests {
                     ResidualUnitAffinePolynomialCompositionLimits::default(),
                 )
                 .unwrap();
-            let controlled = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                    guard.polynomial(),
-                    &oracle.plan,
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            assert_eq!(native.value(), controlled.value());
             let witness = certificate
                 .condition_witnesses()
                 .iter()
@@ -5006,24 +5024,7 @@ mod tests {
 
         let mut expected_nonzero_keys = Vec::new();
         for (term_ordinal, (shift, coefficient)) in oracle.translated.terms().iter().enumerate() {
-            let numerator = fixture.context.numerator_condition(coefficient).unwrap();
             let denominator = fixture.context.denominator_condition(coefficient).unwrap();
-            let native_numerator = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan(
-                    &numerator,
-                    &oracle.plan,
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            let controlled_numerator = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                    &numerator,
-                    &oracle.plan,
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
             let native_denominator = fixture
                 .context
                 .compose_guard_on_residual_affine_compact_composition_plan(
@@ -5032,16 +5033,6 @@ mod tests {
                     ResidualUnitAffinePolynomialCompositionLimits::default(),
                 )
                 .unwrap();
-            let controlled_denominator = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                    &denominator,
-                    &oracle.plan,
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            assert_eq!(native_numerator.value(), controlled_numerator.value());
-            assert_eq!(native_denominator.value(), controlled_denominator.value());
 
             let ResidualAffineCoefficientComposition::Available(mapped) = fixture
                 .context
@@ -5144,7 +5135,7 @@ mod tests {
             }
             let mapped = fixture
                 .context
-                .compose_guard_on_residual_affine_compact_composition_plan_controlled(
+                .compose_guard_on_residual_affine_compact_composition_plan(
                     &polynomial,
                     oracle.plan.as_ref(),
                     ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -5169,7 +5160,7 @@ mod tests {
                 let polynomial = fixture.context.numerator_condition(&candidate).unwrap();
                 let mapped = fixture
                     .context
-                    .compose_guard_on_residual_affine_compact_composition_plan_controlled(
+                    .compose_guard_on_residual_affine_compact_composition_plan(
                         &polynomial,
                         oracle.plan.as_ref(),
                         ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -5325,46 +5316,35 @@ mod tests {
         add_synthetic_guard(&fixture, &mut translated, &associate_guard);
         let synthetic_guards = translated.guarded_nonzero_conditions();
         assert_eq!(synthetic_guards.len(), 2);
-        for guard in synthetic_guards {
-            let native = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan(
-                    guard.polynomial(),
-                    oracle.plan.as_ref(),
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            let controlled = fixture
-                .context
-                .compose_guard_on_residual_affine_compact_composition_plan_controlled(
-                    guard.polynomial(),
-                    oracle.plan.as_ref(),
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            assert_eq!(native.value(), controlled.value());
-            // The controlled compositor deliberately carries a different,
-            // more conservative scratch-work census.  Compare every
-            // algorithm-independent source/output count alongside the exact
-            // polynomial value, rather than equating algorithm-specific work
-            // bounds such as addition visits.
-            let native_stats = native.stats();
-            let controlled_stats = controlled.stats();
-            assert_eq!(native_stats.source_terms(), controlled_stats.source_terms());
-            assert_eq!(
-                native_stats.source_exponent_entries(),
-                controlled_stats.source_exponent_entries()
-            );
-            assert_eq!(
-                native_stats.expanded_contribution_bound(),
-                controlled_stats.expanded_contribution_bound()
-            );
-            assert_eq!(native_stats.output_terms(), controlled_stats.output_terms());
-            assert_eq!(
-                native_stats.output_exponent_entries(),
-                controlled_stats.output_exponent_entries()
-            );
-        }
+        let mapped_guards = synthetic_guards
+            .iter()
+            .map(|guard| {
+                let mapped = fixture
+                    .context
+                    .compose_guard_on_residual_affine_compact_composition_plan(
+                        guard.polynomial(),
+                        oracle.plan.as_ref(),
+                        ResidualUnitAffinePolynomialCompositionLimits::default(),
+                    )
+                    .unwrap();
+                assert!(!mapped.value().is_zero());
+                mapped.value().clone()
+            })
+            .collect::<Vec<_>>();
+        let minus_two = fixture
+            .context
+            .numerator_condition(&fixture.context.integer(-2))
+            .unwrap();
+        let expected_associate = fixture
+            .context
+            .multiply_polynomial_conditions_with_limits(
+                &mapped_guards[0],
+                &minus_two,
+                ExactAlgebraLimits::default(),
+            )
+            .unwrap();
+        assert!(!expected_associate.is_zero());
+        assert_eq!(mapped_guards[1], expected_associate);
         translated
             .insert_prevalidated_distinct_term_without_denominator_discovery(
                 &fixture.context,

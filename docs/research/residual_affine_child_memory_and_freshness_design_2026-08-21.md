@@ -203,45 +203,25 @@ For plan limits, retain the plan/core control blocks, variables, support bits,
 full image polynomials, and pivot/free coordinates.  Add compact geometry and
 exponent scratch to obtain `Plan_peak`.
 
-V2 does **not** infer a memory bound for Symbolica's native polynomial
-evaluator from operation counters.  That evaluator may select private heap,
-map, quotient-cache, or dense thread-local paths that the RustRed certificate
-cannot census.  V2 instead uses a RustRed-owned controlled compositor:
+V2 does **not** infer a byte bound for Symbolica's polynomial or expression
+workspaces from operation counters. The production compositor uses only
+public Symbolica APIs: the polynomial evaluator is the fast path, while an
+ordering-sensitive preflight sends inputs beyond the vendored evaluator's
+`u32` mixed-radix stride to simultaneous expression replacement, direct
+Symbolica expansion, and polynomial conversion. Both paths are admitted by
+checked term, operation, exponent, coefficient-width, and integer-bit-work
+limits before Symbolica is called. Those limits are work policies, not a
+native allocator or OOM guarantee.
 
-1. enumerate each affine-image power into flat coefficient/exponent buffers
-   by weak compositions;
-2. stream the Cartesian leaves directly into one global contribution buffer;
-3. drop all power and traversal scratch;
-4. stable-radix-sort contribution indices by the `u16` exponent rows; and
-5. move coefficients into one canonical Symbolica polynomial, collecting
-   adjacent equal monomials.
-
-Its workspace envelope is reconstructed from sealed limits only, never from a
-persisted per-entry statistic.  Here `poly` is the first-entry polynomial
-allowance after tightening every nested axis by the corresponding remaining
-branch-wide aggregate raw/work allowance.  With
-
-```text
-V = min(plan.max_variables, plan.max_full_images)
-C = min(poly.max_expanded_contributions,
-        poly.max_output_terms,
-        poly.exact.max_polynomial_terms)
-X = min(checked(C*V), poly.max_output_exponent_entries)
-H = poly.max_native_power_heap_pairs
-```
-
-the expansion phase retains one `C`-term contribution buffer, at most `H`
-powered terms, `H*V` powered exponent entries, and `O(V)` traversal,
-multiplicity, coefficient-stack, and exponent scratch.  The collection phase
-retains the contribution and output buffers together, two `C`-entry radix
-index buffers, and one inline 256-bucket table; every `u16` coordinate is
-ordered by two stable 8-bit passes.  Coefficients are moved rather than
-cloned.  For a sealed coefficient-width limit `B`, controlled GMP transient
-width is bounded by
-`B + ceil_log2(min(poly.exact.max_exponent, u16::MAX) + 1)`, including the
-multiply-before-divide intermediate used by `Integer::multinom`.
-The old `native_*` limit/statistic field names remain compatibility counters;
-they do not imply a call to Symbolica's native polynomial evaluator on V2.
+The logical-memory certificate covers storage owned and retained by RustRed:
+the authenticated plan, guard records, sparse polynomial payloads, provenance,
+and the entry prefix/copy overlap. Symbolica's evaluator, replacement,
+expression, and conversion transients are explicitly outside that ownership
+census. The fallback does not allocate or retain an independently managed
+RustRed replacement buffer: it supplies an iterator whose items are collected
+inside the Symbolica API call. The former RustRed-owned weak-composition,
+Cartesian-product, and radix-collection engine has been deleted; all affine
+polynomial composition is delegated to Symbolica.
 
 The sealed V2 guard peak is:
 
@@ -249,27 +229,23 @@ The sealed V2 guard peak is:
 Guard_peak = max(
     Guard_ret,
     Plan_peak,
-    Plan_ret + Guard_ret + Controlled_temp
+    Plan_ret + EntryPrefix_peak
 )
 ```
 
-`Controlled_temp` is exactly zero, and its envelope helper is not called, when
-the authenticated branch has zero guards (or the limit-derived maximum guard
-count is zero).  Thus irrelevant controlled-compositor workspace limits cannot
-reject a zero-guard branch.  The public V1 path continues to use the frozen
-native evaluator and
-additionally takes the maximum with integer-system replay peak.  The V2
-freshness-seal path neither calls that evaluator nor replays integer-system
-elimination; authentication does independently recompute the structural plan
-census from the already authenticated integer-system certificate.
+`EntryPrefix_peak` includes the outer guard allocation, every already retained
+entry, and the mapped-polynomial/condition-copy overlap for the current entry.
+For a zero-guard branch it reduces to the fixed outer allocation. The V2
+freshness-seal path does not replay integer-system elimination; authentication
+does independently recompute the structural plan census from the already
+authenticated integer-system certificate.
 
 Account for free/nonfree support lengths, compact geometry count/bits, plan
-retained/peak, exponent scratch, the limit-derived controlled workspace, plan
-plus retained-entry-prefix overlap, and mapped-polynomial/condition-copy
-overlap.  Persist only the authenticated combined peak scalars; replay
-reconstructs the controlled workspace from sealed limits.  Do not use current
-polynomial or plan allocator-capacity-based byte helpers for these logical
-censes.
+retained/peak, exponent scratch, plan plus retained-entry-prefix overlap, and
+mapped-polynomial/condition-copy overlap. Persist only the authenticated
+combined peak scalars. Do not use current polynomial or plan
+allocator-capacity-based byte helpers for these logical censes, and do not
+describe the logical census as a byte cap on Symbolica's internal workspace.
 
 ## Required narrow helpers
 

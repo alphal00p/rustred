@@ -16,9 +16,13 @@ source authority, synthesize a V1 live queue, or copy prior predicates.
 
 ### Implementation checkpoint
 
-The fresh integer-system, controlled guard-composition, sealed-origin, and
-opaque initial-terminal prerequisites are implemented and audited.  The next
-work is deliberately split into two bounded seams:
+The fresh integer-system, Symbolica-native guard-composition, sealed-origin,
+and opaque initial-terminal prerequisites are implemented and audited. Guard
+composition uses Symbolica's polynomial evaluator when its vendored mixed-radix
+stride is safe and otherwise uses simultaneous Symbolica expression
+replacement, expansion, and polynomial conversion. RustRed does not retain a
+second polynomial compositor. The next work is deliberately split into two
+bounded seams:
 
 1. **B0 authority firewall.**  The unified prior-effective authority must
    project old target/guard payloads internally into lifetime-bound,
