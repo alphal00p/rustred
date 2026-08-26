@@ -469,6 +469,18 @@ turns unused `Field` callbacks into typed failures. Licensed default-GMP runs
 with four test threads passed 13/13 adapter, 39/39 exact-database, and 2/2
 direct-session tests.
 
+The checked-field ownership prerequisite for retaining that reducer is now
+implemented. `CheckedParametricField` owns an
+`Arc<ParametricCoefficientContext>` and its clones share a `Send + Sync`
+controller with one serialized, per-stage coefficient-work ledger. An RAII
+stage guard clears the active ledger after success, a typed checked-field
+abort, or an unrelated unwind panic, so a retry always starts with fresh work
+limits and counters. Five focused tests cover owned context lifetime and
+`Send + Sync`, inactive callbacks, serialized sibling clones, unknown-panic
+recovery, and deterministic typed-abort/retry cleanup. This makes independent
+reducers safe to schedule across campaign shards; it does not parallelize the
+ordered forward pass inside one reducer.
+
 This is still a transactional correctness bridge. Every stage reconstructs the
 full reducer, giving a cumulative tendency toward `O(P^2)` work over `P`
 pivots; Symbolica's current reducer also owns an `O(K)` dense scratch vector and
@@ -478,8 +490,12 @@ input, admitted/observed U+L fill, trace, and native coefficient-work counts.
 It is excluded from replay identity and does not include catalog sorting, wall
 time, or RSS. These results do not establish complete topology reduction,
 Vakint reproduction, or physical six-loop scalability. Persistent reducer
-ownership, rollback/rebuild semantics, and measured physical-family scaling
-remain separate work.
+ownership and clone-on-stage database/catalog integration remain separate
+work: `forward_reduce_last_row` still reconstructs every committed pivot in a
+fresh `SparseRowReducer` and constructs `Arc::new(context.clone())` on every
+call. That infallible context clone is not admitted or accounted as persistent-
+state memory; the retained owner must hold one already-admitted context `Arc`.
+Physical-family scaling also remains to be measured.
 
 The next vacuum-critical solver milestone is the topology-neutral
 `compact application event -> native Symbolica incremental reducer -> owning
@@ -551,10 +567,10 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. expose the committed native sparse telemetry to campaign benchmark output,
-   profile physical families, evaluate a rollback-safe persistent reducer, and
-   retain exact regenerated-residual checks around the now-live Symbolica
-   transcript authority;
+1. integrate the now-owned checked field into a rollback-safe, clone-on-stage
+   retained `SparseRowReducer` and database column catalog, expose its existing
+   telemetry to physical campaign profiles, and retain exact regenerated-
+   residual checks around the now-live Symbolica transcript authority;
 2. implement the minimal topology-neutral campaign plan with exact
    representation-level job deduplication, shared proper-subsector children,
    and a deterministic ready-job antichain;

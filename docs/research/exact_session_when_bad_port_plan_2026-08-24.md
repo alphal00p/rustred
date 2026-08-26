@@ -372,7 +372,18 @@ authority. The database constructs the complete stage-local physical-key
 catalog; Symbolica decides ordered reductions and disposition, while guarded
 Rust replay preserves provenance and validates the returned factors, divisor,
 normalized row, and outcome. Independent regenerated-residual checks remain
-mandatory. RustRed must not build a second CAS or matrix layer.
+mandatory. Its checked field now owns an `Arc` coefficient context and shares a
+`Send + Sync`, serialized per-stage ledger controller across clones. Stage
+cleanup covers success, typed checked-field abort, and unrelated unwind panic,
+with focused ownership, concurrency, inactive-access, and retry tests. This is
+only the prerequisite for persistent state: `forward_reduce_last_row` still
+reconstructs all prior pivots, and the database does not yet retain a reducer
+or its complete column catalog. The transitional call also constructs
+`Arc::new(context.clone())`; that infallible context clone is outside
+persistent-state memory admission/accounting and must become one retained,
+already-admitted `Arc`. Parallelism is across independent campaign shards, not
+inside one ordered reducer. RustRed must not build a second CAS or matrix
+layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -1333,7 +1344,15 @@ Implement in this order:
    scratch, serial forward pass, and cumulative `O(P^2)` tendency must be
    exported and profiled rather than
    presented as a complete topology reduction, Vakint reproduction, or
-   six-loop scaling result;
+   six-loop scaling result. The checked field now owns an `Arc` context and a
+   shared `Send + Sync` controller that serializes a fresh ledger per stage and
+   cleans it after success, typed abort, or unwind panic; five focused tests
+   cover this prerequisite. Retained `SparseRowReducer` state and its persistent
+   database catalog remain unimplemented, so `forward_reduce_last_row` still
+   rebuilds prior pivots and performs an unaccounted
+   `Arc::new(context.clone())` per call. The persistent owner must retain one
+   already-admitted context `Arc`. Run independent shard reducers in parallel
+   rather than claiming intra-reducer parallel forward elimination;
 9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, one shared proper-
    subsector child, cycle/non-descent rejection, and a deterministic ready-job

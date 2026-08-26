@@ -782,12 +782,27 @@ RustRed can decode that row and discard the trial, keeping the committed state
 unchanged. Thus there is **no upstream functional blocker** to a persistent
 native reducer, but RustRed has **not implemented this persistent path yet**.
 
-The prerequisite is local to RustRed: the current checked field borrows its
-coefficient context and shares an `Rc<RefCell<...>>` work ledger across field
-clones. A stored reducer first needs an owned field/context and an explicit
-controller contract that isolates or transactionally accounts each trial's
-work and failures. That refactor is not a reason to wait for a new Symbolica
-algebra API.
+The local RustRed prerequisite is now implemented. The checked field owns an
+`Arc<ParametricCoefficientContext>` and its clones share an `Arc` controller
+whose mutex-protected stage gate serializes one fresh coefficient-work ledger
+at a time. The field and `SparseRowReducer<CheckedParametricField>` are
+`Send + Sync`. Dropping the stage guard clears the active ledger after normal
+completion, a typed checked-field abort, or an unrelated unwind panic; the
+next retry therefore starts with fresh limits and counters. Five focused tests
+cover owned-context lifetime and `Send + Sync`, rejection outside an active
+stage, sibling-clone serialization, unknown-panic recovery, and deterministic
+typed-abort/retry cleanup.
+
+This ownership/controller slice does not retain native algebra state.
+`forward_reduce_last_row` still constructs a temporary reducer and replays all
+prior pivots on every call, and the exact database does not yet retain the
+complete matching column catalog. Its transitional construction uses
+`Arc::new(context.clone())` once per call. That infallible, potentially
+nontrivial context clone is outside persistent-state memory admission and
+accounting; the retained owner must instead hold one already-admitted context
+`Arc`. Clone-on-stage reducer/catalog integration is the next implementation
+step. Forward reduction within one ordered reducer remains serial; multi-core
+campaign execution should run independent reducers across shards.
 
 The remaining upstream gaps are resource/performance interfaces, not
 correctness blockers. `Clone` deeply copies the vector-backed `U`, `L`, pivots,
@@ -821,6 +836,11 @@ suite passed 39/39 focused cases and the direct-session suite passed 2/2 with
 four threads. Fixed-size committed telemetry retains last/peak/cumulative
 native reconstruction and coefficient-work counts while remaining outside
 replay identity. None of this establishes a physical-topology reduction.
+Five additional focused ownership/controller tests are implemented for owned
+context lifetime and `Send + Sync`, inactive-stage rejection, sibling-stage
+serialization, unknown-panic cleanup/retry, and typed-abort cleanup with fresh
+per-stage accounting. They establish the storage prerequisite only, not the
+persistent reducer/database integration.
 
 ## 11. Tensor support and the Vakint boundary
 
