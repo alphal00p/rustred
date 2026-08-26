@@ -706,6 +706,25 @@ unconditionally one `L` row per submitted source:
 is already full rank. RustRed must special-case empty input and retain one
 unused sentinel column while probing the transcript contract.
 
+The isolated adapter in
+[`parametric_coefficient/symbolica_sparse.rs`](../../src/parametric_coefficient/symbolica_sparse.rs)
+now implements this contract over `K(n)`. Its crate-private input rows borrow
+authenticated `ParametricCoefficient` values, so constructing a native shadow
+does not first deep-clone the committed database. Native elements hold the
+coefficient behind an `Arc`; cloning Symbolica's dense zero scratch is therefore
+shallow, while every newly computed or returned coefficient remains an owned
+authenticated value charged to the exact coefficient-work ledger. The adapter
+rejects unordered columns, explicit zeros, wrong contexts, dependent prior
+rows, and malformed `L/U` dimensions before returning an outcome.
+
+The sentinel is semantically necessary, not padding. With `K+1` native columns,
+a database at rank `K` can still submit a nonempty dependent candidate and
+obtain its final `L` transcript instead of hitting Symbolica's full-rank early
+return. The sentinel must never pivot. Likewise, an `L` row is ordered by
+physical pivot traversal, not by chronological pivot-row ordinal: legal traces
+can therefore have row indices such as `[1, 0]`. The adapter preserves this
+nonmonotone order and its focused tests cover both behaviors.
+
 `SparseMatrix::inv` has the same augmented-row singularity problem as the
 dense inverse (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:1051-1075`).
 It is not a proof oracle.
@@ -729,18 +748,38 @@ pivot search or elimination decision and therefore is not a second solver;
 every scalar operation still delegates to Symbolica-backed coefficient APIs.
 
 The public reducer mutates in place, exposes no transactional add-row/rollback,
-and its generic `Field` callback is infallible. RustRed should reuse/generalize
-the checked coefficient-field panic bridge in
-`src/symbolica_coefficient_matrix.rs`, preflight a row before entry, contain a
-native panic, and independently validate the new `L/U` state. The first safe
-migration must build a temporary reducer from the immutable committed-pivot log
-inside each non-mutating stage operation; a panic or failed post-check then
-discards only the temporary reducer and leaves the live database retryable.
-This rebuild is an explicitly measured O(P^2) cumulative correctness bridge,
-not the six-loop-scalable endpoint. A persistent live reducer may replace it
-only after Symbolica supplies checkpoint/fork/rollback or RustRed defines an
-append-only rebuild/poisoned-state recovery contract. Retaining a private
-Gaussian solver to mimic transaction ceremony is not acceptable.
+and its generic `Field` callback is infallible. The isolated adapter now
+contains the native call behind a checked panic bridge. Only the callbacks used
+by serial forward reduction implement arithmetic; `nth`, `pow`, `sample`,
+`rem`, `quot_rem`, and `gcd` fail through a typed
+`UnexpectedFieldOperation` path if a future Symbolica implementation starts
+calling them. Before construction, the adapter admits a conservative but tight
+native-output entry envelope: the prior rows that must replay verbatim, at most
+one dense physical candidate `U` row, one possible candidate factor per prior
+row, and all `L` diagonals. Once the outcome is known, it checks the exact
+returned-trace length before copying the newest `L/U` rows out.
+
+This remains an isolated algebra boundary, not live database authority. The
+next integration must build the physical-key catalog, map hardest keys to the
+lowest columns, submit committed pivots in chronological order, and compare
+the native disposition, factor sequence, normalization divisor, normalized
+row, guards, and source-combination residual with the current exact-database
+path in differential shadow. Only after that passes may the handwritten
+decision path be removed.
+
+The first safe migration still builds a temporary reducer from the immutable
+committed-pivot log inside each non-mutating stage operation; a panic or failed
+post-check then discards only the temporary reducer and leaves the live
+database retryable. This rebuild is cumulatively `O(P^2)`. Symbolica's current
+forward reducer is serial and allocates an `O(K)` dense coefficient scratch plus
+an `O(K)` touched bitmap even when submitted rows are sparse. The `Arc` element
+removes deep polynomial duplication from that scratch, but not its column-count
+or serial-work cost. This is a correctness bridge to profile, not the six-loop-
+scalable endpoint. A persistent live reducer may replace it only after
+Symbolica supplies checkpoint/fork/rollback or RustRed defines an append-only
+rebuild/poisoned-state recovery contract. Retaining a private Gaussian solver
+to mimic transaction ceremony is not acceptable.
+
 `back_substitute` must not be called during forward closure because it clears
 or changes provenance needed by the incremental foundry.
 
@@ -749,6 +788,14 @@ or changes provenance needed by the incremental foundry.
 **Behavior probe LA-2:** construct consistent, underdetermined and inconsistent sparse systems, including a `[0 ... 0 | c]` row, to confirm or refute the inverted check before any production use.
 
 **Behavior probe LA-3:** confirm parallel back-substitution output order; the implementation may permute output rows (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:2393-2498`). RustRed artifacts must be sorted semantically regardless.
+
+**Adapter probe LA-4 (complete in isolation):** 12/12 focused licensed
+default-GMP tests passed in parallel. They exercise an independent nonmonotone
+`L` trace, dependence at full physical rank through the sentinel, canonical
+empty input, malformed sparse input, borrowed-input behavior, prospective and
+exact output limits, unused-field-callback failure, exact/one-below work
+admission, and deterministic retry. This probe does not exercise the live exact
+database or establish a physical-topology reduction.
 
 ## 11. Tensor support and the Vakint boundary
 

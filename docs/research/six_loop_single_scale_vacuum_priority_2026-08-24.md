@@ -290,11 +290,23 @@ complete product-locus DPLL may remain a differential/fallback oracle, but the
 direct high-loop entry and affine adapter must not invoke it.
 
 Native Symbolica dense and sparse solves must also replace the older custom
-`exact_sparse_elimination` wherever the public API is applicable. The pinned
-sparse solve has a validation caveat, so the scaling path must use public
-`SparseRowReducer` with independent rank/residual and transcript checks. That
-boundary is a validation wrapper around Symbolica, not permission to grow a
-RustRed CAS or matrix implementation.
+`exact_sparse_elimination` wherever the public API is applicable. A checked
+borrowed-input adapter over public `SparseRowReducer` now exists in isolation:
+it uses `Arc`-backed native elements, one unused full-rank sentinel, ordered
+nonmonotone `L` transcripts, typed failures for unused field callbacks, and a
+prospective native-output envelope. It is tested as an algebra boundary but is
+not yet wired into the live exact database. The next scaling-path seam is the
+hardest-first physical-key catalog plus differential database shadow with
+independent source-combination/residual checks. That boundary is a validation
+wrapper around Symbolica, not permission to grow a RustRed CAS or matrix
+implementation.
+
+The first integration remains a correctness bridge: every stage rebuilds prior
+pivots through a serial reducer with `O(K)` dense scratch and cumulative
+`O(P^2)` reconstruction work. Shallow native elements avoid duplicating sparse
+coefficient polynomials across the scratch vector, but they do not establish a
+six-loop memory or throughput result. Those costs must be measured before a
+persistent rollback/rebuild design is selected.
 
 The topology-wide canonical sector DAG is a separate foundry layer. It is not
 the eager `family_sector_inventory` enumeration, and it need not block the
@@ -629,8 +641,11 @@ or physical-topology calculation.
    mapping, canonical-locus relative `WhenBad` partitioning, one-pass
    move-bound Ready/route preparation, and atomic database/target/event commit.
    The compact event now exposes shallow applicable/exceptional leaves and the
-   full parent-premise-plus-relative-predicate domain. Migrate live row algebra
-   to Symbolica's native incremental reducer, then finish
+   full parent-premise-plus-relative-predicate domain. The borrowed-input,
+   `Arc`-backed checked Symbolica sparse adapter is complete in isolation; it
+   has not replaced the live database's handwritten decisions. Build the
+   hardest-first physical-key catalog and differential shadow, then make native
+   incremental reduction authoritative and finish
    `GeneratedFamilySymbolicResidualSolveV1` with exceptional scheduling,
    solved-subsector feedback, a proved coverage fixed point, exact residual
    verification, and the distinct 36-source session batch.
@@ -644,11 +659,15 @@ or physical-topology calculation.
 12. Derive the complete Vakint one- through four-loop replacement-system
     corpus without FORM or copied recurrences. Use a minimal generic
     application seam to compare normalized reductions with unsubstituted
-    terminals against Vakint as an external oracle.
-13. Close and profile multiple general five-loop families, then one physical
-    nontrivial six-loop root and a small multi-root GammaLoop/BPHZ-derived
-    derivation corpus under declared time, memory, and parallel-scaling
-    budgets.
+    terminals against Vakint as an external oracle. This is the authoritative
+    compatibility lane for the generic foundry, not production recurrence
+    input.
+13. After the one- through four-loop oracle lane closes, close and profile
+    multiple general five-loop families, then one physical nontrivial six-loop
+    root and a small multi-root GammaLoop/BPHZ-derived derivation corpus under
+    declared time, memory, and parallel-scaling budgets. Vakint supplies no
+    five- or six-loop derivation oracle; exact regenerated-IBP residuals and
+    closure/resource manifests are authoritative there.
 14. Only after those foundry gates, optimize the separate batch rule-
     application runtime and GammaLoop `VacuumIntegralEngine`-style adapter at
     the existing normalized-integrand seam.

@@ -244,9 +244,11 @@ independent validation layer, not the proof of a rule.
 - Exact dense and sparse linear solves use public Symbolica APIs wherever they
   apply; older custom `exact_sparse_elimination` code is migration debt, not a
   production algebra authority. Because the pinned sparse solve has a known
-  validation caveat, RustRed must use public `SparseRowReducer` with independent
-  rank/residual and transcript checks rather than implementing another CAS or
-  matrix package.
+  validation caveat, RustRed uses a checked borrowed-input adapter over public
+  `SparseRowReducer` with independent residual and transcript checks rather
+  than implementing another CAS or matrix package. That adapter exists and is
+  tested in isolation; the live generated-affine exact database has not yet
+  switched authority.
 
 ## Current implementation gate and next generic slice
 
@@ -464,7 +466,8 @@ generated IBP/LI rows
 -> move-bound commit state + one-byte-per-leaf route preparation  [implemented]
 -> atomic target consumption + compact application event          [implemented internally]
 -> shallow event-bound rule/residual domains                      [implemented internally]
--> transactional temporary Symbolica reducer correctness bridge  [next]
+-> checked borrowed-input temporary Symbolica reducer adapter     [implemented in isolation]
+-> physical-key catalog + live differential database shadow      [next]
 -> owning provider/residual scheduling
 -> exceptional-domain recursion and solved-subsector feedback
 -> coverage fixed point (publication replay is an optional audit)

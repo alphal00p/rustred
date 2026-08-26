@@ -33,6 +33,8 @@ use crate::{
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
+pub(crate) mod symbolica_sparse;
+
 pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
 pub(crate) const RESIDUAL_AFFINE_COMPACT_PLAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-residual-affine-compact-plan-stable-value-identity-v1";

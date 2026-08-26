@@ -200,6 +200,13 @@ The repository currently includes tests for:
 - affine denominator-basis completion for independent short lists;
 - zero-sector, symmetry, guarded specialization, and sparse-elimination proof
   components;
+- an isolated checked adapter over Symbolica's public incremental
+  `SparseRowReducer`: input coefficients are borrowed, dense native scratch
+  clones an `Arc`-backed element rather than each sparse polynomial, and the
+  focused licensed default-GMP tests passed 12/12 in parallel, covering
+  nonmonotone `L` factors, the full-physical-rank sentinel case, typed limits,
+  unused field callbacks, and deterministic retry. This adapter is not yet the
+  authority used by the live exact database;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
   sealed NoTarget, affine-equality-refinement, or Ready outcomes;
@@ -449,12 +456,29 @@ Native Symbolica dense and sparse solves must likewise replace the older
 custom `exact_sparse_elimination`, `parametric_elimination`, and the row
 arithmetic still present in the live generated-affine exact database. The
 pinned sparse solve has a documented validation caveat, so the production
-migration must use public `SparseRowReducer`/`LuLMode::Full` together with
-independent rank/residual and source-combination checks. RustRed owns physical
-column ordering, guards, scheduling, and proofs, not a parallel CAS or matrix
-implementation. The first transactional bridge rebuilds a temporary reducer
-from immutable committed pivots inside each stage; a persistent reducer is not
-admitted until rollback/rebuild semantics and its scaling profile are explicit.
+migration uses public `SparseRowReducer`/`LuLMode::Full` together with
+independent residual and source-combination checks. The isolated adapter for
+that migration is implemented: it borrows authenticated coefficient rows,
+uses shallow `Arc` clones for Symbolica's dense scratch, charges the required
+field operations through the exact work ledger, and converts any unused
+`Field` callback into a typed failure. It admits a prospective output envelope
+of prior accepted `U` entries, one candidate physical row, all possible
+candidate `L` factors, and the `L` diagonals before entering native code.
+RustRed owns physical column ordering, guards, scheduling, and proofs, not a
+parallel CAS or matrix implementation.
+
+This isolated milestone has not changed the live database authority: its
+handwritten top-reduction loop remains in service. The next seam constructs a
+complete physical-key catalog with hardest keys in the lowest columns, rebuilds
+the immutable pivot rows plus one unused sentinel column, and runs native and
+legacy staging in differential shadow before deleting the legacy decision
+path. The first transactional bridge rebuilds a temporary reducer inside each
+stage; a persistent reducer is not admitted until rollback/rebuild semantics
+and its scaling profile are explicit. Symbolica's current reducer also keeps an
+`O(K)` dense scratch vector and performs serial forward reduction, while the
+per-stage rebuild is cumulatively `O(P^2)`. It is a correctness bridge to
+measure, not evidence of six-loop scalability.
+
 The next vacuum-critical solver milestone is the topology-neutral
 `compact application event -> native Symbolica incremental reducer -> owning
 residual/subsector scheduling -> exactly verified closure` slice. Exact fixed-chamber
@@ -523,9 +547,10 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. replace handwritten live exact-database elimination with public Symbolica
-   `SparseRowReducer`/`LuLMode::Full`, preserving the tested event surface and
-   independently verifying every source combination and residual;
+1. wire the isolated `SparseRowReducer`/`LuLMode::Full` adapter through a
+   hardest-first physical-key catalog and differential database shadow, then
+   replace the handwritten live decision path while preserving the tested event
+   surface and independently verifying every source combination and residual;
 2. add an owning exactly-once exceptional queue, a sealed committed-
    exceptional source, and rejected-candidate continuation; then integrate
    provider scheduling;
@@ -584,8 +609,10 @@ Compact route preparation is now a single move-only owner transition rather
 than a separately authenticated manifest, and the atomic compact-event commit
 now consumes one selected target. Its shallow event owner exposes applicable
 and exceptional views without copying the row or partition. The immediate gate
-is native Symbolica incremental row reduction, followed by the owning
-exceptional/subsector scheduler and a proved coverage fixed point. Closed-shard campaign bundling and a physical six-loop derivation gate
+is the physical-key-catalog and differential-shadow integration that makes the
+tested Symbolica adapter authoritative in the exact database, followed by the
+owning exceptional/subsector scheduler and a proved coverage fixed point.
+Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.

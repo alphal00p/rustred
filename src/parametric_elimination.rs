@@ -3382,6 +3382,30 @@ impl ParametricCoefficientWorkLedger {
         self.try_binary(context, CoefficientOperation::Multiply, left, right)
     }
 
+    /// Execute one unguarded field quotient for Symbolica's native sparse-row
+    /// reducer adapter.
+    ///
+    /// This is deliberately not a rule-construction division seam.  The
+    /// reducer's temporary `L`/`U` state is discarded, and the caller must
+    /// replay the returned `L` transcript through the guarded provenance path
+    /// before accepting any persistent row.  Keeping this operation in the
+    /// work ledger nevertheless gives the native field adapter the same exact
+    /// arithmetic limits and transactional counters as every other scalar
+    /// operation.
+    pub(crate) fn try_native_field_division(
+        &mut self,
+        context: &ParametricCoefficientContext,
+        numerator: &ParametricCoefficient,
+        denominator: &ParametricCoefficient,
+    ) -> Result<ParametricCoefficient, ParametricCoefficientWorkError> {
+        self.try_binary(
+            context,
+            CoefficientOperation::Divide,
+            numerator,
+            denominator,
+        )
+    }
+
     fn try_binary(
         &mut self,
         context: &ParametricCoefficientContext,
@@ -3401,7 +3425,10 @@ impl ParametricCoefficientWorkLedger {
             CoefficientOperation::Multiply => {
                 context.mul_with_limits(left, right, self.arithmetic.exact_algebra)?
             }
-            CoefficientOperation::Divide | CoefficientOperation::Negate => {
+            CoefficientOperation::Divide => {
+                context.checked_div_with_limits(left, right, self.arithmetic.exact_algebra)?
+            }
+            CoefficientOperation::Negate => {
                 return Err(ParametricEliminationError::InternalReplayFailure {
                     detail: "a non-binary coefficient operation reached the work facade".to_owned(),
                 }
