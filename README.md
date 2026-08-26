@@ -331,9 +331,11 @@ The repository currently includes tests for:
   GMP-copy, duplicate-heavy replay, panic/retry, and aggregate resource
   ownership are bounded and tested. Licensed default-GMP focused Nextest run
   `b0217edc-a9e8-4a7d-9c5c-82b824a636b3` passed 19/19 tests with four workers;
-  an independent superset passed 20/20. The preceding authoritative
-  post-partition regression ran 1,640 tests and passed all 1,640, with 5
-  additional configured cases skipped. This phase still
+  an independent superset passed 20/20. Authoritative licensed default-GMP
+  Nextest run `e9004c32-5a51-4705-a2f9-e39bcac40c49` then ran 1,651 tests
+  with four workers and passed all 1,651 (52 slow), with 5 additional
+  configured cases skipped; the following doctest phase also passed. This
+  phase still
   performs no target consumption, rule publication, reduction, or six-loop
   topology solve; and
 - seven end-to-end numerator-spelling closure pairs in

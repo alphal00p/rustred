@@ -9,9 +9,10 @@ materialization, its production-derived sector-011 acceptance, and the
 subsequent current-lineage relative-partition slice were reconciled on
 2026-08-26. The relative-partition gate passed 8/8; the subsequent
 canonical-locus owner gate passed 19/19, with an independent 20/20 superset.
-The preceding authoritative post-partition default-GMP
-`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
-1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
+Authoritative licensed default-GMP Nextest run
+`e9004c32-5a51-4705-a2f9-e39bcac40c49` used four workers, ran 1,651 tests,
+and passed all 1,651 (52 slow), with 5 additional configured cases skipped;
+the following doctest phase also passed.
 
 ## Reading status
 
@@ -328,9 +329,10 @@ fixed-capacity copies, spare-GMP payloads, duplicate-heavy
 replay, panic/retry ownership, and exact/one-below aggregate limits are tested.
 Licensed default-GMP focused Nextest run
 `b0217edc-a9e8-4a7d-9c5c-82b824a636b3` passed 19/19 tests with four workers;
-an independent superset passed 20/20. The preceding authoritative
-post-partition regression ran 1,640 tests and passed all 1,640, with 5
-additional configured cases skipped. This slice consumes no
+an independent superset passed 20/20. Authoritative licensed default-GMP
+Nextest run `e9004c32-5a51-4705-a2f9-e39bcac40c49` then passed 1,651/1,651
+tests with four workers (52 slow), with 5 additional configured cases skipped;
+the following doctest phase also passed. This slice consumes no
 target, publishes no rule, and has no topology or loop-count dispatch. It does
 not establish complete LiteRed `WhenBad` closure.
 

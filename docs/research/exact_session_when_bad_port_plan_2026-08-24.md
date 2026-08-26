@@ -20,10 +20,11 @@ formula, interns its structural loci with Symbolica-backed associate proofs,
 and builds its replayable relative partition. Its licensed default-GMP
 relative-partition gate passed 8/8 with four Rust test threads. The subsequent
 authenticated canonical-locus owner gate passed 19/19, with an independent
-20/20 superset. The preceding authoritative post-partition
-default-GMP `cargo nextest run --workspace --all-targets --test-threads 4`
-regression ran 1,640 tests and passed all 1,640, with 5 additional configured
-cases skipped. Atomic publication and subsector feedback remain next;
+20/20 superset. Authoritative licensed default-GMP Nextest run
+`e9004c32-5a51-4705-a2f9-e39bcac40c49` then used four workers, ran 1,651
+tests, and passed all 1,651 (52 slow), with 5 additional configured cases
+skipped; the following doctest phase also passed. Atomic publication and
+subsector feedback remain next;
 updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
@@ -273,9 +274,10 @@ lineage arbitrary-width OR-of-AND formula is now implemented without
 reconstructing V4, V5, the live-leaf queue, or Boolean/DPLL certificates. Its
 focused licensed default-GMP gate passed 8/8 with four Rust test threads. The
 subsequent canonical-locus owner gate passed 19/19, with an independent 20/20
-superset. The preceding authoritative post-partition default-GMP
-`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
-1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
+superset. Authoritative licensed default-GMP Nextest run
+`e9004c32-5a51-4705-a2f9-e39bcac40c49` then passed 1,651/1,651 tests with four
+workers (52 slow), with 5 additional configured cases skipped; the following
+doctest phase also passed.
 No Direct input has
 produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established

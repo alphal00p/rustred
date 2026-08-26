@@ -374,6 +374,14 @@ The following policies are critical at five and six loops:
 - Do not create topology-specific Rust reducers.  Concrete topology names may
   occur in manifests, tests, benchmark labels, and oracle adapters only.
 
+The 2026-08-26 licensed whole-tree regression exposed a concrete profiling
+target: `equality_target_commits_only_into_a_sealed_refined_epoch_suspension`
+took 4,069.531 seconds in an otherwise passing 1,651-test run. This is not a
+physics capability failure, but it is unacceptable as an unexamined cost model
+for the six-loop campaign. Profile the equality-refinement fixture, replay, and
+full-vector successor preparation separately before treating the current exact
+session path as performance evidence.
+
 At six loops a complete family has 21 indices and each seed emits 36 rows.
 These counts make allocation policy, sparse interning, symmetry/factorization,
 and reachability filtering first-order requirements rather than later
