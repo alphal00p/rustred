@@ -5,17 +5,24 @@ selector-independent compact-affine Ready V2 geometry, fixed-chamber descent,
 lazy hazards, and replay are implemented. Upstream sealed normalization,
 direct formula-residual search, one-pass sealed candidate ingress/replay,
 normalized-source V2 ordering-policy binding, and the K21 evidence were pushed
-at checkpoint `c593865`; the current checkpoint carries the
-allocation-independent Direct identity through ordering V3, physical frame V2,
+at historical pushed checkpoint `c593865`; subsequent current-lineage work
+carries the allocation-independent Direct identity through ordering V3, physical frame V2,
 solve-plan V2, and source-profiled exact-session Ready analysis without a fake
 inventory. A non-publishing owner-bound Ready condition plan, a
 Symbolica-backed physical-parameter identity projector, arbitrary-width direct
 bad-formula routing, and the source-neutral exact affine-boundary
-mapping/divisibility kernel are implemented. The current checkpoint also owns
-and replays mapped conditions and coefficients, retains distinct
-pre-normalization and normalized denominator projections, and specializes
-admitted lazy hazards into exact boundary events. Relative partitioning,
-atomic publication, and subsector feedback remain next; updated 2026-08-26.
+mapping/divisibility kernel are implemented. Subsequent checkpoints also own
+and replay mapped conditions and coefficients, retain distinct
+pre-normalization and normalized denominator projections, and specialize
+admitted lazy hazards into exact boundary events. A subsequent move-only,
+non-publishing owner assembles the current-lineage arbitrary-width OR-of-AND bad
+formula, interns its structural loci with Symbolica-backed associate proofs,
+and builds its replayable relative partition. Its licensed default-GMP focused
+gate passed 8/8 with four Rust test threads. The authoritative post-partition
+default-GMP `cargo nextest run --workspace --all-targets --test-threads 4`
+regression ran 1,640 tests and passed all 1,640, with 5 additional configured
+cases skipped. Atomic publication and subsector feedback remain next;
+updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -89,8 +96,9 @@ The current-lineage components below are implemented and tested:
   source and RHS keys from the exact selected anchor, proves strict physical-
   key descent inside the source chamber, and retains finite inactive-orthant
   hazard intervals as Symbolica `Integer` data. Its `ReadyForConditions` result
-  is an unpublished, target-preserving typestate; condition specialization and
-  publication remain part of the active phase.
+  is an unpublished, target-preserving typestate. Condition planning,
+  materialization, and relative partitioning are implemented downstream;
+  target-consuming publication remains pending.
 - `src/generated_affine_residual_group_exact_when_bad_conditions.rs` consumes
   that typestate only into a recoverable, non-Clone condition plan. It
   authenticates identity or compact-affine target geometry and retains a
@@ -107,6 +115,14 @@ The current-lineage components below are implemented and tested:
   ranges before expansion, and specializes their exact values into ordered
   boundary events with Symbolica-backed numerator classification. It still
   consumes no target and publishes no rule.
+- `src/generated_affine_residual_group_exact_when_bad_partition.rs` consumes
+  the mapped owner into a recoverable, move-only, non-publishing partition
+  compilation. It assembles the arbitrary-width OR-of-AND bad formula,
+  interns first-seen loci with exact Symbolica equality and associate proofs,
+  preserves every source/formula occurrence, and builds a replayable relative
+  applicable/exceptional partition. Resource, authentication, allocation, and
+  panic failures return the original owner. Both `ReadyForPublication` and
+  `IdenticallyBad` consume zero targets and publish zero rules.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -242,30 +258,51 @@ arbitrary-width OR-of-AND routing subsequently passed 12/12 focused tests. The
 source-neutral affine-boundary kernel passed 8/8 focused tests for exact
 arbitrary-width values, compact/identity maps, zero/divisible/nondivisible
 numerators, malformed inputs, panic recovery, and exact/one-below limits. A
-licensed default-GMP parallel library run including both kernels passed
-1091/1091. The owner-bound materializer then passed 16/16 focused tests with
+licensed default-GMP parallel library run at that pre-partition checkpoint,
+including both kernels, passed 1091/1091. The owner-bound materializer then
+passed 16/16 focused tests with
 default GMP and four Rust test threads. Its production-derived sector-011
 acceptance owner has seven mapped sources, four exact hazard ranges, and five
 ordered boundary events: one suppressed by its numerator and four retained.
 The suite covers exact/one-below owner and boundary limits, global retained and
 compilation-peak accounting, retry ownership, replay, and foreign-owner
-rejection. The next seam is relative `WhenBad` partitioning and publication.
-It must not reconstruct V4, V5, the live-leaf queue, or Boolean/DPLL
-certificates. No Direct input has
+rejection. The relative `WhenBad` partition seam for the assembled current-
+lineage arbitrary-width OR-of-AND formula is now implemented without
+reconstructing V4, V5, the live-leaf queue, or Boolean/DPLL certificates. Its
+focused licensed default-GMP gate passed 8/8 with four Rust test threads. The
+authoritative post-partition default-GMP
+`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
+1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
+No Direct input has
 produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
-Not yet implemented are the relative partition over the materialized
-conditions and boundary events, target-consuming rule publication,
-exceptional residual orchestration, subsector feedback, or replayable current-
-lineage rule/residual handles. The current event ledger and mapped transcript
-are complete only for their implemented non-publishing dispositions; their
-schemas and replay must be extended with future partition, publication, and
-residual manifests. The mature `GeneratedResidualAffine...` implementation is
-an oracle, not production authority for these missing pieces. Full LiteRed
+Not yet implemented are target-consuming rule publication, exceptional
+residual orchestration, subsector feedback, or replayable current-lineage
+rule/residual handles. The current event ledger, mapped transcript, and
+current-lineage formula partition are complete only for their implemented
+non-publishing dispositions; their schemas and replay must be extended with
+publication and residual manifests. The mature `GeneratedResidualAffine...` implementation
+is an oracle, not production authority for these missing pieces. Full LiteRed
 parity, arbitrary one-loop pentagon reduction, and the high-throughput two-
 through six-loop vacuum milestones therefore remain pending.
+
+The implemented partition seam still has two explicit high-loop performance
+blockers. The outer first-seen locus interner and the source-neutral raw-problem
+validator both run pairwise Symbolica associate checks, duplicating `O(N^2)`
+CAS work. This is sound and is not a second CAS implementation, but it must be
+removed before high-arity production use. The next source-neutral optimization
+is an authenticated canonical-locus owner/token: the outer bounded proof seals
+the table once, the trusted core skips its duplicate scan, and the raw
+constructor remains a defensive/test path. Symbolica's public monic `K[n]`
+normalization can later provide an indexed canonical key, but currently exposes
+no fallible workspace census. The same API gap affects rational-polynomial and
+projected `K[n]` division. Consequently the resource-bounded arbitrary core
+currently performs complete exact splitting without divisibility-based
+pruning; its public V1 compatibility path is unchanged. A future censused
+Symbolica division seam must feed a bounded ordinal-pair index before this
+optimization is restored.
 
 The former `src/exact.rs` blocker is complete: exact scalar and matrix algebra
 now crosses Symbolica's public GMP `Rational` and `Matrix<Q>` APIs. Continued
@@ -369,7 +406,7 @@ domain.
 
 Run this projection only on final Ready coefficients after exact integral-term
 collection and recentering, so cancelled terms cannot leave spurious bad
-clauses. For a future nonidentity compact-affine pullback, use the public
+clauses. For the implemented nonidentity compact-affine pullback, use the public
 Symbolica-backed `ResidualAffineCoefficientComposition::Available`: its
 normalized `value` supplies the leak numerator, while its separately retained
 pre-normalization `mapped_denominator` supplies the substitution-domain
@@ -513,22 +550,19 @@ Reuse is restricted to mathematics with no old authority payload:
    `AffineWhenBadRelativePartitionCertificate` from
    `src/generated_residual_affine_when_bad.rs:382-518,863-1638`. A new exact
    outer owner must authenticate its problem and retain the certificate.
-3. Canonical Symbolica polynomial normalization, associate detection, and
-   deterministic deduplication algorithms from
+3. Canonical Symbolica polynomial validation, associate detection, and
+   deterministic first-seen deduplication algorithms from
    `src/generated_residual_affine_condition_accumulator.rs`. Its existing
    input/certificate and `Option<&IndexShift>` provenance are not reusable.
-   For the new high-loop path, project each unique locus once to `K[n]`, call
-   public Symbolica `MultivariatePolynomial<Field>::make_monic`, and cache that
-   canonical representative. A hash bucket is lookup only; exact Symbolica
-   polynomial equality remains the proof. This replaces quadratic pairwise
-   associate scans with one checked normalization per unique locus while the
-   old cross-product helper remains a differential oracle. The wrapper must
-   preflight growth, catch panic, authenticate maps/bounds, and return an
-   operational resource failure rather than implementing fallback algebra.
-   Canonicalize/authenticate Symbolica rational coefficients before hashing
-   because `Integer` representation variants can be value-equal but
-   representation-distinct; preserve source insertion order for the transcript
-   and use exact monic polynomial equality to confirm every bucket hit.
+   The current bounded implementation projects each locus to `K[n]`, preserves
+   deterministic first-seen order, and proves equality/association with exact
+   Symbolica polynomial operations. The immediate optimization is an opaque
+   authenticated canonical-locus owner so the inner compiler can trust the
+   outer proof without repeating the pairwise scan. A monic-keyed hash index is
+   deferred until Symbolica exposes a fallible normalization API with a native
+   workspace census: public `make_monic` supplies the mathematics but not the
+   resource authority required by this path. No uncensused normalization or
+   Rust-side fallback algebra is admissible.
 4. Compact affine polynomial-composition algorithms used by
    `src/generated_residual_affine_when_bad_pullback_gate.rs`. Its old Ready
    binding, event table, boundary values, and certificate are not reusable.
@@ -624,13 +658,13 @@ without making the committed session resumable.
 
 ### Phase B: exact target geometry, descent, and hazards
 
-Add topology-neutral current-lineage modules, for example:
+The topology-neutral current-lineage modules are:
 
 ```text
-generated_affine_residual_group_exact_when_bad_descent.rs
+generated_affine_residual_group_ready_publication.rs
 generated_affine_residual_group_exact_when_bad_conditions.rs
-generated_affine_residual_group_exact_when_bad_pullback.rs
-generated_affine_residual_group_exact_when_bad.rs
+generated_affine_residual_group_exact_when_bad_materialization.rs
+generated_affine_residual_group_exact_when_bad_partition.rs
 ```
 
 The exact target-geometry view is borrow-only and constructed solely from the
@@ -685,15 +719,20 @@ Ready coefficients and row guards are already centered.
 
 ### Phase C: owning exact `WhenBad` compiler
 
-The first Phase C slice is implemented as a recoverable, owner-bound
-non-publishing materializer. It owns mapped guards and coefficients, dual
-denominator projections, exact specialized boundary events, replay evidence,
-and complete resource statistics. It returns a transcript ready for
-partitioning (or a proof-bearing pre-partition bad outcome), consumes no
-target, and publishes no rule. The relative partition and the final terminal
-contract below remain to be implemented.
+The implemented Phase C slices are recoverable, owner-bound, non-publishing
+transitions. The materializer owns mapped guards and
+coefficients, dual denominator projections, exact specialized boundary events,
+replay evidence, and complete resource statistics. The next owner consumes
+that move-only payload only after successful preflight, assembles and routes
+the current-lineage arbitrary-width OR-of-AND bad formula, and returns either
+`GeneratedAffineResidualGroupExactWhenBadPartitionCompilation::ReadyForPublication`
+or its proof-bearing `IdenticallyBad` terminal. These names describe a sealed
+nonpublishing partition result, not a certified or published rule: both consume
+no target and publish no rule. The final publication terminal contract below
+remains to be implemented.
 
-Introduce a non-`Clone` current-lineage terminal:
+The later publication compiler must introduce a distinct non-`Clone`
+current-lineage terminal:
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactWhenBadCompilation {
@@ -716,7 +755,7 @@ when RustRed can authenticate and replay a specific representation limitation
 but cannot construct a sound `B` partition; it is not an alternate spelling
 for the literal fail-closed formula.
 
-The Certified certificate retains current target premises, exact row guards,
+The future Certified certificate retains current target premises, exact row guards,
 canonical coefficient-denominator conditions, exact descent witnesses,
 boundary/numerator pullbacks, structural loci, and the relative partition
 certificate. An all-exceptional partition is classified `IdenticallyBad`, not
@@ -1023,9 +1062,11 @@ Implement in this order:
    arbitrary-width formula routing and exact affine-boundary
    mapping/divisibility. The owner-bound non-publishing materializer now maps
    the scheduled conditions and coefficients, retains both denominator
-   projections, and owns exact specialized boundary events. Next build the
-   relative `WhenBad` partition and publish atomically. This has not reached
-   reduction, publication, or six-loop topology support;
+   projections, and owns exact specialized boundary events. The following
+   move-only owner now builds and replays the relative `WhenBad` partition of
+   that current-lineage arbitrary-width OR-of-AND formula.
+   Next publish its guarded and exceptional dispositions atomically. This has
+   not reached reduction, publication, or six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
@@ -1035,15 +1076,15 @@ Implement in this order:
    identity projection are implemented; arbitrary-width direct formula
    construction/routing and source-neutral exact affine-boundary divisibility
    are implemented as reusable kernels. Owner-bound coefficient/guard mapping,
-   dual denominator projection, and exact boundary-event specialization are
-   also implemented. Relative partitioning and the final publication binding
-   remain pending;
-8. complete the owning current-lineage exact `WhenBad` terminal compiler with
-   the relative partition and final Certified/rejected dispositions;
-9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
-10. extend the implemented chronological replay with durable rule/residual
+   dual denominator projection, exact boundary-event specialization, and the
+   owner-bound relative partition of the current-lineage arbitrary-width
+   OR-of-AND formula are also implemented. The
+   final publication binding remains pending;
+8. atomically consume the selected target and seal the guarded rule plus
+   exceptional residual work from the implemented current-lineage terminal;
+9. extend the implemented chronological replay with durable rule/residual
    manifest validation, concrete application, and provider integration;
-11. topology-based validation from one loop upward.
+10. topology-based validation from one loop upward.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, replay path, source-surface seal, exact/one-below tests, and

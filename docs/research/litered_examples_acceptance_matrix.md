@@ -1,6 +1,6 @@
 # LiteRed example parity acceptance matrix
 
-Date: 2026-08-25
+Date: 2026-08-26
 
 This document makes the published LiteRed notebooks a first-class progress
 metric for RustRed.  It supplements, rather than replaces, the generic
@@ -16,14 +16,41 @@ tree.  The vendored LiteRed2 Git tree likewise contains source plus
 not an independent test suite.  Assertions embedded in the Mathematica source
 are implementation invariants, not end-to-end acceptance tests.
 
+The submodule history does, however, contain a substantial frozen generated
+oracle corpus which is absent from the current checkout. Commit
+`9a23bfe8dd87c8969b500427cc388800e14ca25c` has 354 files below
+`Examples/Bases/` for `triangle` and `HQET1`--`HQET5`: generated IBP/LI
+relations, sector classifications, masters, `jRules`, internal symmetries,
+external rules, and the HQET5 partial-fraction relations/Groebner basis. This
+is generated reference data, not an internal test harness. It may be read
+directly from Git objects for structural and exact-rule comparison. Full rule
+tables must not be copied into the MIT repository until the historical
+LiteRed2 tree's unresolved licensing and redistribution status has been
+decided explicitly.
+
+The three LiteRed2 notebooks are pinned to vendored commit
+`9a23bfe8dd87c8969b500427cc388800e14ca25c`; their bytes are unchanged at the
+current vendored `HEAD`. This immutable identity completes the artifact-identity
+part of level 0 independently of the mutable submodule checkout:
+
+| LiteRed2 artifact | Git blob | SHA-256 |
+|---|---|---|
+| `Examples/example1.nb` | `4e41f031e1d42eb3c33010a6f7cd4e39ae51b13f` | `3cae230449142a3788d489572f14bf4cdc6dbfb0202e419ba2972286e51ba9a0` |
+| `Examples/example2.nb` | `3c5adc4ff9ee6cb2a4c8d5e169bfb7e40c296c3f` | `a16c3c23cc699196699467f805cbabfd8292bbb9798cfec47627c9be43a2bc27` |
+| `Examples/NewDsSet.nb` | `2d3878e908998cdfe1d73c21339ea7534b3b2c38` | `e1d9b2d6e599f727f641990300ebeaef5399fb4f0d8a3504bc5b0d88e398fbc2` |
+
 The eight old notebooks contain input and explanatory cells but no saved
 Mathematica `Output` cells.  They therefore supply exact family declarations
-and target expressions, but not complete evaluated target answers.  The
+and target expressions, but not complete evaluated target answers. LiteRed2
+`example1.nb` and `example2.nb` likewise still need evaluated target snapshots;
+`NewDsSet.nb` is already output-bearing and supplies exact partial-fraction and
+four-master reduction goldens. The
 official examples directory also publishes saved basis archives (`b2.zip`,
 `p3.zip`, `p4.zip`, `t4.zip`, and `v3.zip`) containing plain-text generated
 IBPs, sector tables, symmetry tables, and parametric `jRules`.  These external
-GPL artifacts are useful frozen oracles; RustRed does not invoke Mathematica
-or FORM to consume them.
+LiteRed 1.x GPLv2 artifacts are useful frozen oracles; RustRed does not invoke
+Mathematica or FORM to consume them. Their license does not establish the
+license of the separate historical LiteRed2 Git tree.
 
 Output-bearing notebooks supplied later can add exact target-result snapshots
 without changing the fixture identity.
@@ -52,8 +79,8 @@ on 2026-08-25:
 
 Each example is tracked at cumulative, monotonic levels:
 
-0. **Inventoried**: the upstream notebook, archive URL, hash, family metadata,
-   and target cells are identified.
+0. **Inventoried**: the upstream notebook, an archive URL or immutable vendored
+   commit/blob, a content hash, family metadata, and target cells are identified.
 1. **Input parity**: a compact Symbolica or hybrid RustRed fixture normalizes
    to the same loops, external momenta, Gram data, and denominator basis.
 2. **Identity parity**: RustRed derives the expected ordinary-IBP and LI row
@@ -110,6 +137,26 @@ dependent/overcomplete partial-fraction path is a known missing RustRed
 capability; it must not be reported as passing merely because independent
 affine-family generation works.
 
+Historical commit `9a23bfe8dd87c8969b500427cc388800e14ca25c`
+adds these immediately usable structural oracles:
+
+| Family | zero / nonzero sectors | `jExtRules` files by target family | mapped / unique sectors | masters/new masters |
+|---|---:|---:|---:|---:|
+| `triangle` | 1 / 7 | 0 | 2 / 5 | 5 |
+| `HQET1` | 209 / 47 | 0 | 22 / 25 | 7 |
+| `HQET2` | 193 / 63 | 47 to `HQET1` | 6 / 10 | 1 new |
+| `HQET3` | 198 / 58 | 45 to `HQET1`, 9 to `HQET2` | 1 / 3 | 0 new |
+| `HQET4` | 198 / 58 | 47/7/1 to `HQET1`/`HQET2`/`HQET3` | 1 / 2 | 0 new |
+| `HQET5` | 232 / 24 | 12 to `HQET1`, 4 to `HQET2` | dependent-denominator partial-fraction family | pending independent-basis interpretation |
+
+The first local acceptance translation should be the LiteRed2 one-loop
+triangle. It can reach input and identity parity without any evaluated
+notebook output: `L=1`, `E=2`, basis size 3, three ordinary IBPs, one LI
+identity, and the sector/master census above. Next encode `example2`'s `gr1`
+and `gr2` families through input/identity parity, followed by independent
+`HQET1`--`HQET4` inputs and the deliberately separate overcomplete `HQET5`
+partial-fraction lane.
+
 ## Oracle policy
 
 - Notebook and archive URLs plus SHA-256 hashes define upstream fixture
@@ -124,21 +171,25 @@ affine-family generation works.
   generic-point coefficient equality.
 - Target comparisons leave masters unsubstituted and canonicalize sector and
   symmetry mappings before comparing names.
-- Missing output cells remain `oracle pending`.  RustRed output is never used
-  as its own expected result.
+- Missing output cells remain `oracle pending`. RustRed output is never used
+  as its own expected result. When evaluated notebooks are supplied, bind
+  outputs to stable input-cell UUIDs and retain both the raw notebook hash and
+  reviewed compact Symbolica expressions; do not key goldens by `Out[n]`.
 - All production code exercised by these fixtures remains topology- and
   loop-count independent.  Notebook-specific data belongs only in fixtures.
 
 ## Implementation order
 
 1. Check in a versioned metadata manifest and compact Symbolica translations
-   for examples 1--8 and the three LiteRed2 notebooks.
+   for the LiteRed2 triangle, `gr1`/`gr2`, and `HQET1`--`HQET5`, then examples
+   1--8 as their exact declarations become locally available.
 2. Promote every family through input and identity parity; these are fast,
    parallel tests and do not wait for full sector solving.
 3. Import structural sector/symmetry census data from the saved archives as
    opt-in oracle fixtures with stable hashes.
-4. As generic `Ready -> WhenBad -> publication -> sector iteration` lands,
-   promote examples in increasing cost order and compare selected saved
-   parametric rules.
+4. Build atomic publication and sector iteration on the implemented generic
+   nonpublishing `Ready -> condition plan -> materialization -> relative
+   partition` chain, then promote examples in increasing cost order and
+   compare selected saved parametric rules.
 5. Add exact result snapshots from output-bearing notebooks when supplied,
    then enable target-reduction and dimensional/differential-recurrence parity.

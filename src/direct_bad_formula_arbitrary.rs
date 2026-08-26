@@ -172,6 +172,15 @@ impl<A> ArbitraryDirectBadFormula<A> {
 }
 
 impl<A: Copy> ArbitraryDirectBadFormula<A> {
+    /// Preflight a flattened formula without allocating its retained boxes.
+    pub(crate) fn preflight_compile(
+        atoms: &[A],
+        clauses: &[Range<usize>],
+        limits: ArbitraryDirectBadFormulaLimits,
+    ) -> Result<ArbitraryDirectBadFormulaStats, ArbitraryDirectBadFormulaError> {
+        preflight::<A, _>(atoms, clauses, limits)
+    }
+
     /// Compile one canonical flattened formula.
     ///
     /// Clause ranges must form a contiguous partition of `atoms` in supplied

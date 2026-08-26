@@ -271,6 +271,10 @@ pub(crate) struct ParametricPolynomialAssociateLimits {
     pub max_native_heap_workspace_pair_bound: usize,
     pub max_native_workspace_byte_envelope: usize,
     pub max_rustred_visible_temporary_byte_envelope: usize,
+    /// Simultaneously live Rust-visible and Symbolica-native temporary bytes.
+    /// This is checked before every admitted native phase, in addition to the
+    /// two component limits above.
+    pub max_combined_temporary_byte_envelope: usize,
 }
 
 impl Default for ParametricPolynomialAssociateLimits {
@@ -307,6 +311,7 @@ impl Default for ParametricPolynomialAssociateLimits {
             max_native_heap_workspace_pair_bound: usize::MAX,
             max_native_workspace_byte_envelope: usize::MAX,
             max_rustred_visible_temporary_byte_envelope: usize::MAX,
+            max_combined_temporary_byte_envelope: usize::MAX,
         }
     }
 }
@@ -1885,6 +1890,15 @@ fn check_associate_stats(
     ] {
         check_limit(resource, requested, limit)?;
     }
+    check_limit(
+        "polynomial-associate combined temporary byte envelope",
+        checked_parametric_add(
+            "polynomial-associate combined temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            stats.native_workspace_byte_envelope,
+        )?,
+        limits.max_combined_temporary_byte_envelope,
+    )?;
     Ok(())
 }
 
@@ -21506,6 +21520,67 @@ mod tests {
                 );
             }
         };
+    }
+
+    #[test]
+    fn bounded_associate_combined_temporary_limit_precedes_native_allocation() {
+        let (context, left, right) = bounded_associate_resource_fixture(
+            "bounded_associate_combined_temporary_limit_precedes_native_allocation",
+        );
+        let baseline = context
+            .polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        let requested = baseline
+            .stats()
+            .rustred_visible_temporary_byte_envelope()
+            .checked_add(baseline.stats().native_workspace_byte_envelope())
+            .unwrap();
+        assert!(requested > 0);
+
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        let mut before_native = ParametricPolynomialAssociateLimits::default();
+        before_native.max_combined_temporary_byte_envelope = 0;
+        assert!(matches!(
+            context.polynomial_loci_are_associates_with_census(&left, &right, before_native),
+            Err(ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate combined temporary byte envelope",
+                requested: positive,
+                limit: 0,
+            }) if positive > 0
+        ));
+        assert!(matches!(
+            context.polynomial_loci_are_associates_with_census(
+                &left,
+                &right,
+                ParametricPolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::Symbolica(_))
+        ));
+
+        let mut exact = ParametricPolynomialAssociateLimits::default();
+        exact.max_combined_temporary_byte_envelope = requested;
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+        let mut one_below = ParametricPolynomialAssociateLimits::default();
+        one_below.max_combined_temporary_byte_envelope = requested - 1;
+        assert_eq!(
+            context
+                .polynomial_loci_are_associates_with_census(&left, &right, one_below)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "polynomial-associate combined temporary byte envelope",
+                requested,
+                limit: requested - 1,
+            }
+        );
     }
 
     bounded_associate_limit_case!(

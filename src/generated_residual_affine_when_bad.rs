@@ -14,6 +14,7 @@
 use std::fmt;
 use std::fmt::Write as _;
 use std::mem::size_of;
+use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::integer::Integer;
@@ -21,14 +22,178 @@ use symbolica::domains::integer::Integer;
 use crate::direct_bad_formula::{
     DirectBadFormulaClause, DirectBadFormulaRoute, DirectBadFormulaTruth, route_direct_bad_formula,
 };
+use crate::direct_bad_formula_arbitrary::{
+    ArbitraryDirectBadFormula, ArbitraryDirectBadFormulaError, ArbitraryDirectBadFormulaLimits,
+    ArbitraryDirectBadFormulaRoute, ArbitraryDirectBadFormulaTruth,
+};
+use crate::parametric_coefficient::ParametricPolynomialAssociateLimits;
 use crate::{
     ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
     ParametricPolynomial, SymbolicPolynomialPredicateKind,
 };
 
+#[cfg(test)]
+thread_local! {
+    static ARBITRARY_PARTITION_COMPILE_PANIC_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_REPLAY_PANIC_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_CONTEXT_COPY_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_CANONICAL_COPY_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_INHERITED_VALIDATION_RESERVE_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_INHERITED_COPY_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_FORMULA_BOX_RESERVE_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_DIVISIBILITY_CACHE_RESERVE_OBSERVED_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    static ARBITRARY_PARTITION_REPLAY_PROBLEM_COPY_STAGE_FOR_TEST: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn inject_arbitrary_partition_compile_panic_for_test() {
+    ARBITRARY_PARTITION_COMPILE_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn inject_arbitrary_partition_replay_panic_for_test() {
+    ARBITRARY_PARTITION_REPLAY_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn maybe_inject_arbitrary_partition_compile_panic_for_test() {
+    ARBITRARY_PARTITION_COMPILE_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected arbitrary relative partition compile panic");
+        }
+    });
+}
+
+#[cfg(test)]
+fn maybe_inject_arbitrary_partition_replay_panic_for_test() {
+    ARBITRARY_PARTITION_REPLAY_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected arbitrary relative partition replay panic");
+        }
+    });
+}
+
+#[cfg(test)]
+fn reset_arbitrary_partition_reserve_observations_for_test() {
+    ARBITRARY_PARTITION_CONTEXT_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(false));
+    ARBITRARY_PARTITION_CANONICAL_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(false));
+    ARBITRARY_PARTITION_INHERITED_VALIDATION_RESERVE_OBSERVED_FOR_TEST
+        .with(|observed| observed.set(false));
+    ARBITRARY_PARTITION_INHERITED_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(false));
+    ARBITRARY_PARTITION_FORMULA_BOX_RESERVE_OBSERVED_FOR_TEST.with(|observed| observed.set(false));
+    ARBITRARY_PARTITION_DIVISIBILITY_CACHE_RESERVE_OBSERVED_FOR_TEST
+        .with(|observed| observed.set(false));
+}
+
+#[cfg(test)]
+fn arbitrary_partition_reserve_observations_for_test() -> (bool, bool, bool, bool, bool, bool) {
+    (
+        ARBITRARY_PARTITION_CONTEXT_COPY_OBSERVED_FOR_TEST.with(std::cell::Cell::get),
+        ARBITRARY_PARTITION_CANONICAL_COPY_OBSERVED_FOR_TEST.with(std::cell::Cell::get),
+        ARBITRARY_PARTITION_INHERITED_VALIDATION_RESERVE_OBSERVED_FOR_TEST
+            .with(std::cell::Cell::get),
+        ARBITRARY_PARTITION_INHERITED_COPY_OBSERVED_FOR_TEST.with(std::cell::Cell::get),
+        ARBITRARY_PARTITION_FORMULA_BOX_RESERVE_OBSERVED_FOR_TEST.with(std::cell::Cell::get),
+        ARBITRARY_PARTITION_DIVISIBILITY_CACHE_RESERVE_OBSERVED_FOR_TEST.with(std::cell::Cell::get),
+    )
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_context_copy_observed_for_test() {
+    ARBITRARY_PARTITION_CONTEXT_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_canonical_copy_observed_for_test() {
+    ARBITRARY_PARTITION_CANONICAL_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_inherited_validation_reserve_observed_for_test() {
+    ARBITRARY_PARTITION_INHERITED_VALIDATION_RESERVE_OBSERVED_FOR_TEST
+        .with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_inherited_copy_observed_for_test() {
+    ARBITRARY_PARTITION_INHERITED_COPY_OBSERVED_FOR_TEST.with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_formula_box_reserve_observed_for_test() {
+    ARBITRARY_PARTITION_FORMULA_BOX_RESERVE_OBSERVED_FOR_TEST.with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_divisibility_cache_reserve_observed_for_test() {
+    ARBITRARY_PARTITION_DIVISIBILITY_CACHE_RESERVE_OBSERVED_FOR_TEST
+        .with(|observed| observed.set(true));
+}
+
+#[cfg(test)]
+fn reset_arbitrary_partition_replay_problem_copy_stage_for_test() {
+    ARBITRARY_PARTITION_REPLAY_PROBLEM_COPY_STAGE_FOR_TEST.with(|stage| stage.set(0));
+}
+
+#[cfg(test)]
+fn arbitrary_partition_replay_problem_copy_stage_for_test() -> usize {
+    ARBITRARY_PARTITION_REPLAY_PROBLEM_COPY_STAGE_FOR_TEST.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn mark_arbitrary_partition_replay_problem_copy_stage_for_test(stage: usize) {
+    ARBITRARY_PARTITION_REPLAY_PROBLEM_COPY_STAGE_FOR_TEST.with(|observed| {
+        debug_assert_eq!(observed.get() + 1, stage);
+        observed.set(stage);
+    });
+}
+
+#[cfg(not(test))]
+fn maybe_inject_arbitrary_partition_compile_panic_for_test() {}
+
+#[cfg(not(test))]
+fn maybe_inject_arbitrary_partition_replay_panic_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_context_copy_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_canonical_copy_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_inherited_validation_reserve_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_inherited_copy_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_formula_box_reserve_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_divisibility_cache_reserve_observed_for_test() {}
+
+#[cfg(not(test))]
+fn mark_arbitrary_partition_replay_problem_copy_stage_for_test(_stage: usize) {}
+
+#[cfg(not(test))]
+fn reset_arbitrary_partition_replay_problem_copy_stage_for_test() {}
+
 /// Stable schema for the target-relative structural partition core.
 pub const AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA: &str =
     "rustred-affine-when-bad-relative-partition-v1";
+
+/// Stable schema for the owner-neutral arbitrary-width partition seam.
+pub(crate) const AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA: &str =
+    "rustred-affine-when-bad-arbitrary-relative-partition-v1";
 
 /// Checked work and retained-transcript budgets for one target-relative root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +265,33 @@ impl Default for AffineWhenBadRelativeCaseLimits {
             max_payload_comparison_units: 1_000_000_000,
             max_payload_comparison_bytes: 2 * 1024 * 1024 * 1024,
             max_payload_comparison_integer_bits: 4_000_000_000,
+        }
+    }
+}
+
+/// Additional enforceable resources for the crate-private arbitrary seam.
+/// Exported V1 limits remain byte-for-byte unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeLimits {
+    pub(crate) relative: AffineWhenBadRelativeCaseLimits,
+    pub(crate) max_source_problem_owned_logical_bytes: usize,
+    pub(crate) max_formula_retained_owned_logical_bytes: usize,
+    pub(crate) max_formula_compilation_owned_logical_peak_upper_bound: usize,
+    pub(crate) max_work_owned_logical_peak_upper_bound: usize,
+    pub(crate) max_compiler_owned_logical_peak_upper_bound: usize,
+    pub(crate) max_compilation_owned_logical_peak_upper_bound: usize,
+}
+
+impl Default for AffineWhenBadArbitraryRelativeLimits {
+    fn default() -> Self {
+        Self {
+            relative: AffineWhenBadRelativeCaseLimits::default(),
+            max_source_problem_owned_logical_bytes: usize::MAX,
+            max_formula_retained_owned_logical_bytes: usize::MAX,
+            max_formula_compilation_owned_logical_peak_upper_bound: usize::MAX,
+            max_work_owned_logical_peak_upper_bound: usize::MAX,
+            max_compiler_owned_logical_peak_upper_bound: usize::MAX,
+            max_compilation_owned_logical_peak_upper_bound: usize::MAX,
         }
     }
 }
@@ -255,6 +447,99 @@ impl AffineWhenBadRelativeSplit {
     }
 }
 
+/// Exact source-neutral occurrence which caused one arbitrary-width split.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeSplitTrigger {
+    clause_ordinal: usize,
+    clause_atom_ordinal: usize,
+    atom_ordinal: usize,
+    atom: AffineWhenBadAtom,
+}
+
+impl AffineWhenBadArbitraryRelativeSplitTrigger {
+    pub(crate) const fn clause_ordinal(self) -> usize {
+        self.clause_ordinal
+    }
+
+    pub(crate) const fn clause_atom_ordinal(self) -> usize {
+        self.clause_atom_ordinal
+    }
+
+    pub(crate) const fn atom_ordinal(self) -> usize {
+        self.atom_ordinal
+    }
+
+    pub(crate) const fn atom(self) -> AffineWhenBadAtom {
+        self.atom
+    }
+}
+
+/// One deterministic complementary refinement in the arbitrary-width core.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeSplit {
+    ordinal: usize,
+    parent: AffineWhenBadRelativeCaseId,
+    trigger: AffineWhenBadArbitraryRelativeSplitTrigger,
+    equal_zero_child: AffineWhenBadRelativeCaseId,
+    nonzero_child: AffineWhenBadRelativeCaseId,
+}
+
+impl AffineWhenBadArbitraryRelativeSplit {
+    pub(crate) const fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+
+    pub(crate) const fn parent(&self) -> AffineWhenBadRelativeCaseId {
+        self.parent
+    }
+
+    pub(crate) const fn trigger(&self) -> AffineWhenBadArbitraryRelativeSplitTrigger {
+        self.trigger
+    }
+
+    pub(crate) const fn equal_zero_child(&self) -> AffineWhenBadRelativeCaseId {
+        self.equal_zero_child
+    }
+
+    pub(crate) const fn nonzero_child(&self) -> AffineWhenBadRelativeCaseId {
+        self.nonzero_child
+    }
+}
+
+/// One table-indexed predicate retained by the arbitrary-width core.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativePredicate {
+    locus_ordinal: usize,
+    kind: SymbolicPolynomialPredicateKind,
+}
+
+impl AffineWhenBadArbitraryRelativePredicate {
+    pub(crate) const fn locus_ordinal(self) -> usize {
+        self.locus_ordinal
+    }
+
+    pub(crate) const fn kind(self) -> SymbolicPolynomialPredicateKind {
+        self.kind
+    }
+}
+
+/// One final, table-indexed conjunction in the arbitrary-width core.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeCase {
+    id: AffineWhenBadRelativeCaseId,
+    predicates: Vec<AffineWhenBadArbitraryRelativePredicate>,
+}
+
+impl AffineWhenBadArbitraryRelativeCase {
+    pub(crate) const fn id(&self) -> AffineWhenBadRelativeCaseId {
+        self.id
+    }
+
+    pub(crate) fn predicates(&self) -> &[AffineWhenBadArbitraryRelativePredicate] {
+        &self.predicates
+    }
+}
+
 /// One final conjunction relative to the future authenticated target root.
 #[derive(Debug, PartialEq, Eq)]
 pub struct AffineWhenBadRelativeCase {
@@ -298,6 +583,27 @@ impl AffineWhenBadRelativeLeafClassification {
     }
 
     pub const fn decisive_clause_ordinal(&self) -> Option<usize> {
+        self.decisive_clause_ordinal
+    }
+}
+
+/// Provenance-blind disposition of one leaf in the arbitrary-width core.
+///
+/// `None` means the bad formula is false on the leaf.  `Some(i)` means clause
+/// `i` is the first decisive true clause under deterministic formula order.
+/// The authenticated outer owner, not this core, interprets that ordinal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeLeafClassification {
+    case: AffineWhenBadRelativeCaseId,
+    decisive_clause_ordinal: Option<usize>,
+}
+
+impl AffineWhenBadArbitraryRelativeLeafClassification {
+    pub(crate) const fn case(&self) -> AffineWhenBadRelativeCaseId {
+        self.case
+    }
+
+    pub(crate) const fn decisive_clause_ordinal(&self) -> Option<usize> {
         self.decisive_clause_ordinal
     }
 }
@@ -374,6 +680,43 @@ impl AffineWhenBadRelativeCaseStats {
         payload_comparison_bytes,
         payload_comparison_integer_bits,
     );
+}
+
+/// Deterministic compilation-memory census for the arbitrary-width seam.
+///
+/// This is separate from the exported V1 stats so the compatibility schema
+/// and its exact resource transcript remain unchanged.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AffineWhenBadArbitraryRelativeCompilationStats {
+    source_problem_owned_logical_byte_envelope: usize,
+    formula_retained_owned_logical_bytes: usize,
+    formula_compilation_owned_logical_peak_upper_bound: usize,
+    work_owned_logical_peak_upper_bound: usize,
+    compiler_owned_logical_peak_upper_bound: usize,
+}
+
+impl AffineWhenBadArbitraryRelativeCompilationStats {
+    pub(crate) const fn source_problem_owned_logical_byte_envelope(self) -> usize {
+        self.source_problem_owned_logical_byte_envelope
+    }
+
+    pub(crate) const fn formula_retained_owned_logical_bytes(self) -> usize {
+        self.formula_retained_owned_logical_bytes
+    }
+
+    pub(crate) const fn formula_compilation_owned_logical_peak_upper_bound(self) -> usize {
+        self.formula_compilation_owned_logical_peak_upper_bound
+    }
+
+    pub(crate) const fn work_owned_logical_peak_upper_bound(self) -> usize {
+        self.work_owned_logical_peak_upper_bound
+    }
+
+    /// Peak newly owned by the compiler, excluding the caller-owned source
+    /// problem returned by `retained_owned_logical_byte_bound`.
+    pub(crate) const fn compiler_owned_logical_peak_upper_bound(self) -> usize {
+        self.compiler_owned_logical_peak_upper_bound
+    }
 }
 
 /// Replayable target-relative structure.  It proves no target authority by
@@ -513,6 +856,264 @@ impl AffineWhenBadRelativePartitionCertificate {
         ))
     }
 }
+
+/// Replayable, provenance-neutral arbitrary-width partition transcript.
+///
+/// This certificate owns only canonical loci, inherited truths, the flattened
+/// OR-of-AND formula, and structural routing results.  Semantic source
+/// locators remain exclusively owned by the caller.
+pub(crate) struct AffineWhenBadArbitraryRelativePartitionCertificate {
+    schema: &'static str,
+    context_fingerprint: String,
+    structural_loci: Vec<ParametricPolynomial>,
+    inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+    formula: ArbitraryDirectBadFormula<AffineWhenBadAtom>,
+    splits: Vec<AffineWhenBadArbitraryRelativeSplit>,
+    cases: Vec<AffineWhenBadArbitraryRelativeCase>,
+    classifications: Vec<AffineWhenBadArbitraryRelativeLeafClassification>,
+    limits: AffineWhenBadArbitraryRelativeLimits,
+    stats: AffineWhenBadRelativeCaseStats,
+    compilation_stats: AffineWhenBadArbitraryRelativeCompilationStats,
+}
+
+impl AffineWhenBadArbitraryRelativePartitionCertificate {
+    pub(crate) const fn schema(&self) -> &'static str {
+        self.schema
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> &str {
+        &self.context_fingerprint
+    }
+
+    pub(crate) fn structural_loci(&self) -> &[ParametricPolynomial] {
+        &self.structural_loci
+    }
+
+    pub(crate) fn inherited_truths(&self) -> &[AffineWhenBadInheritedTruth] {
+        &self.inherited_truths
+    }
+
+    pub(crate) fn atoms(&self) -> &[AffineWhenBadAtom] {
+        self.formula.atoms()
+    }
+
+    pub(crate) fn clause_count(&self) -> usize {
+        self.formula.clause_count()
+    }
+
+    pub(crate) fn clause_range(&self, clause_ordinal: usize) -> Option<Range<usize>> {
+        self.formula.clause_range(clause_ordinal)
+    }
+
+    pub(crate) fn splits(&self) -> &[AffineWhenBadArbitraryRelativeSplit] {
+        &self.splits
+    }
+
+    pub(crate) fn cases(&self) -> &[AffineWhenBadArbitraryRelativeCase] {
+        &self.cases
+    }
+
+    pub(crate) fn classifications(&self) -> &[AffineWhenBadArbitraryRelativeLeafClassification] {
+        &self.classifications
+    }
+
+    pub(crate) const fn limits(&self) -> AffineWhenBadArbitraryRelativeLimits {
+        self.limits
+    }
+
+    pub(crate) const fn stats(&self) -> AffineWhenBadRelativeCaseStats {
+        self.stats
+    }
+
+    pub(crate) const fn compilation_stats(&self) -> AffineWhenBadArbitraryRelativeCompilationStats {
+        self.compilation_stats
+    }
+
+    pub(crate) fn case(
+        &self,
+        id: AffineWhenBadRelativeCaseId,
+    ) -> Option<&AffineWhenBadArbitraryRelativeCase> {
+        self.cases.iter().find(|case| case.id == id)
+    }
+
+    pub(crate) fn replay(
+        &self,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), AffineWhenBadRelativeCaseError> {
+        catch_unwind(AssertUnwindSafe(|| self.replay_inner(context))).map_err(|_| {
+            AffineWhenBadRelativeCaseError::SymbolicaPanic {
+                stage: "arbitrary relative partition replay",
+            }
+        })?
+    }
+
+    fn replay_inner(
+        &self,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), AffineWhenBadRelativeCaseError> {
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        maybe_inject_arbitrary_partition_replay_panic_for_test();
+        if self.schema != AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA {
+            return Err(AffineWhenBadRelativeCaseError::SchemaMismatch);
+        }
+        if self.context_fingerprint != context.fingerprint() {
+            return Err(AffineWhenBadRelativeCaseError::ContextMismatch);
+        }
+        self.formula
+            .validate_payload()
+            .map_err(map_arbitrary_formula_error)?;
+        preflight_arbitrary_payload_comparison(self, self.limits.relative)?;
+        let replay_source_problem_owned_logical_byte_envelope =
+            arbitrary_replay_source_problem_owned_logical_byte_envelope(
+                &self.structural_loci,
+                self.inherited_truths.len(),
+                self.formula.atoms().len(),
+                self.formula.clause_count(),
+            )?;
+        if replay_source_problem_owned_logical_byte_envelope
+            != self
+                .compilation_stats
+                .source_problem_owned_logical_byte_envelope
+        {
+            return Err(AffineWhenBadRelativeCaseError::ReplayMismatch);
+        }
+        check_limit(
+            "affine WhenBad arbitrary source problem owned logical bytes",
+            replay_source_problem_owned_logical_byte_envelope,
+            self.limits.max_source_problem_owned_logical_bytes,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            self.compilation_stats
+                .compiler_owned_logical_peak_upper_bound,
+            self.limits.max_compiler_owned_logical_peak_upper_bound,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            checked_add(
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                replay_source_problem_owned_logical_byte_envelope,
+                self.compilation_stats
+                    .compiler_owned_logical_peak_upper_bound,
+            )?,
+            self.limits.max_compilation_owned_logical_peak_upper_bound,
+        )?;
+        let problem = self.try_copy_problem(replay_source_problem_owned_logical_byte_envelope)?;
+        let rebuilt = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            context,
+            problem,
+            self.limits,
+        )?;
+        preflight_arbitrary_payload_comparison(&rebuilt, self.limits.relative)?;
+        if self.payload_eq(&rebuilt) {
+            Ok(())
+        } else {
+            Err(AffineWhenBadRelativeCaseError::ReplayMismatch)
+        }
+    }
+
+    fn try_copy_problem(
+        &self,
+        admitted_owned_logical_byte_envelope: usize,
+    ) -> Result<AffineWhenBadArbitraryRelativeProblem, AffineWhenBadRelativeCaseError> {
+        let mut replay_copy_census = AffineWhenBadRelativeCaseStats::default();
+        replay_copy_census.retained_bytes = capacity_byte_envelope(
+            self.structural_loci.len(),
+            size_of::<ParametricPolynomial>(),
+        )?;
+        check_limit(
+            "affine WhenBad relative retained bytes",
+            replay_copy_census.retained_bytes,
+            self.limits.relative.max_retained_bytes,
+        )?;
+        for polynomial in &self.structural_loci {
+            charge_retained_polynomial(polynomial, &mut replay_copy_census, self.limits.relative)?;
+        }
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(1);
+        let structural_loci = try_canonicalize_structural_loci(&self.structural_loci)?;
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(2);
+        let inherited_truths = try_canonicalize_inherited_truths(&self.inherited_truths)?;
+        let mut atoms = Vec::new();
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(3);
+        try_reserve_exact(
+            "affine WhenBad arbitrary replay atoms",
+            &mut atoms,
+            self.formula.atoms().len(),
+        )?;
+        atoms.extend_from_slice(self.formula.atoms());
+        let mut clause_ranges = Vec::new();
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(4);
+        try_reserve_exact(
+            "affine WhenBad arbitrary replay clause ranges",
+            &mut clause_ranges,
+            self.formula.clause_count(),
+        )?;
+        for clause_ordinal in 0..self.formula.clause_count() {
+            clause_ranges.push(
+                self.formula
+                    .clause_range(clause_ordinal)
+                    .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?,
+            );
+        }
+        let problem = AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+            structural_loci,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        );
+        let observed = problem.retained_owned_logical_byte_bound()?;
+        if observed > admitted_owned_logical_byte_envelope {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed,
+                    admitted: admitted_owned_logical_byte_envelope,
+                },
+            );
+        }
+        Ok(problem)
+    }
+
+    fn payload_eq(&self, other: &Self) -> bool {
+        self.schema == other.schema
+            && self.context_fingerprint == other.context_fingerprint
+            && self.structural_loci == other.structural_loci
+            && self.inherited_truths == other.inherited_truths
+            && self.formula.payload_eq(&other.formula)
+            && self.splits == other.splits
+            && self.cases == other.cases
+            && self.classifications == other.classifications
+            && self.limits == other.limits
+            && self.stats == other.stats
+            && self.compilation_stats == other.compilation_stats
+    }
+}
+
+impl fmt::Debug for AffineWhenBadArbitraryRelativePartitionCertificate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AffineWhenBadArbitraryRelativePartitionCertificate")
+            .field("schema", &self.schema)
+            .field("context_fingerprint", &self.context_fingerprint)
+            .field("structural_locus_count", &self.structural_loci.len())
+            .field("inherited_truth_count", &self.inherited_truths.len())
+            .field("formula", &self.formula)
+            .field("split_count", &self.splits.len())
+            .field("case_count", &self.cases.len())
+            .field("classification_count", &self.classifications.len())
+            .field("limits", &self.limits)
+            .field("stats", &self.stats)
+            .field("compilation_stats", &self.compilation_stats)
+            .finish()
+    }
+}
+
+impl PartialEq for AffineWhenBadArbitraryRelativePartitionCertificate {
+    fn eq(&self, other: &Self) -> bool {
+        self.payload_eq(other)
+    }
+}
+
+impl Eq for AffineWhenBadArbitraryRelativePartitionCertificate {}
 
 /// Typed failure of the target-relative structural core.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -661,6 +1262,108 @@ impl From<ParametricCoefficientError> for AffineWhenBadRelativeCaseError {
 
 /// Internal input assembled only after the future outer compiler has
 /// authenticated the selected target, conditions, and pullbacks.
+pub(crate) struct AffineWhenBadArbitraryRelativeProblem {
+    structural_loci: Vec<ParametricPolynomial>,
+    inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+    atoms: Vec<AffineWhenBadAtom>,
+    clause_ranges: Vec<Range<usize>>,
+}
+
+impl AffineWhenBadArbitraryRelativeProblem {
+    pub(crate) fn from_preallocated(
+        structural_loci: Vec<ParametricPolynomial>,
+        inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+        atoms: Vec<AffineWhenBadAtom>,
+        clause_ranges: Vec<Range<usize>>,
+    ) -> Self {
+        Self {
+            structural_loci,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        }
+    }
+
+    /// Complete owned-byte bound for the caller-owned source payload before
+    /// it is moved into the compiler. This includes spare vector capacity and
+    /// every authenticated sparse-polynomial allocation.
+    pub(crate) fn retained_owned_logical_byte_bound(
+        &self,
+    ) -> Result<usize, AffineWhenBadRelativeCaseError> {
+        let mut bytes = size_of::<Self>();
+        for allocation in [
+            checked_mul(
+                "affine WhenBad arbitrary source problem retained bytes",
+                self.structural_loci.capacity(),
+                size_of::<ParametricPolynomial>(),
+            )?,
+            checked_mul(
+                "affine WhenBad arbitrary source problem retained bytes",
+                self.inherited_truths.capacity(),
+                size_of::<AffineWhenBadInheritedTruth>(),
+            )?,
+            checked_mul(
+                "affine WhenBad arbitrary source problem retained bytes",
+                self.atoms.capacity(),
+                size_of::<AffineWhenBadAtom>(),
+            )?,
+            checked_mul(
+                "affine WhenBad arbitrary source problem retained bytes",
+                self.clause_ranges.capacity(),
+                size_of::<Range<usize>>(),
+            )?,
+        ] {
+            bytes = checked_add(
+                "affine WhenBad arbitrary source problem retained bytes",
+                bytes,
+                allocation,
+            )?;
+        }
+        for polynomial in &self.structural_loci {
+            bytes = checked_add(
+                "affine WhenBad arbitrary source problem retained bytes",
+                bytes,
+                polynomial.owned_retained_byte_bound().ok_or(
+                    AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                        resource: "affine WhenBad arbitrary source problem retained bytes",
+                    },
+                )?,
+            )?;
+        }
+        Ok(bytes)
+    }
+}
+
+fn arbitrary_replay_source_problem_owned_logical_byte_envelope(
+    structural_loci: &[ParametricPolynomial],
+    inherited_truth_count: usize,
+    atom_count: usize,
+    clause_count: usize,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let resource = "affine WhenBad arbitrary source problem owned logical bytes";
+    let mut bytes = size_of::<AffineWhenBadArbitraryRelativeProblem>();
+    for allocation in [
+        capacity_byte_envelope(structural_loci.len(), size_of::<ParametricPolynomial>())?,
+        capacity_byte_envelope(
+            inherited_truth_count,
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(atom_count, size_of::<AffineWhenBadAtom>())?,
+        capacity_byte_envelope(clause_count, size_of::<Range<usize>>())?,
+    ] {
+        bytes = checked_add(resource, bytes, allocation)?;
+    }
+    for polynomial in structural_loci {
+        bytes = checked_add(
+            resource,
+            bytes,
+            deterministic_polynomial_owned_byte_envelope(polynomial)?,
+        )?;
+    }
+    Ok(bytes)
+}
+
+/// Compatibility input for the original fixed-width, provenance-owning API.
 pub(crate) struct AffineWhenBadRelativeProblem {
     structural_loci: Vec<ParametricPolynomial>,
     inherited_truths: Vec<AffineWhenBadInheritedTruth>,
@@ -847,8 +1550,62 @@ struct AffineWhenBadDirectFormula {
 }
 
 struct WorkCase {
-    case: AffineWhenBadRelativeCase,
+    case: AffineWhenBadArbitraryRelativeCase,
     decisions: Vec<Option<SymbolicPolynomialPredicateKind>>,
+}
+
+#[derive(Clone, Copy)]
+enum RelativePartitionRetainedLayout {
+    LegacyPolynomialRich,
+    ArbitraryTableIndexed {
+        max_work_owned_logical_peak_upper_bound: usize,
+        max_compiler_owned_logical_peak_upper_bound: usize,
+        source_problem_owned_logical_bytes: usize,
+        max_compilation_owned_logical_peak_upper_bound: usize,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum RelativeDirectFormulaView<'a> {
+    Legacy(&'a AffineWhenBadDirectFormula),
+    Arbitrary(&'a ArbitraryDirectBadFormula<AffineWhenBadAtom>),
+}
+
+impl RelativeDirectFormulaView<'_> {
+    fn clause_visit_bound(self) -> usize {
+        match self {
+            Self::Legacy(formula) => formula.clauses.len(),
+            Self::Arbitrary(formula) => formula.stats().route_clause_visit_bound(),
+        }
+    }
+
+    fn atom_query_bound(self) -> usize {
+        match self {
+            Self::Legacy(formula) => formula.atom_count,
+            Self::Arbitrary(formula) => formula.stats().route_atom_query_bound(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RelativePartitionRoute {
+    Bad {
+        clause_ordinal: usize,
+    },
+    Good,
+    Split {
+        clause_ordinal: usize,
+        clause_atom_ordinal: usize,
+        atom_ordinal: usize,
+        atom: AffineWhenBadAtom,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum RelativePartitionTruth {
+    False,
+    True,
+    Unknown,
 }
 
 #[derive(Clone, Copy)]
@@ -856,6 +1613,12 @@ struct LocusDivisibilityCacheEntry {
     divisor: usize,
     dividend: usize,
     result: bool,
+}
+
+struct ArbitraryAssociatePeakAdmission<'a> {
+    limits: AffineWhenBadArbitraryRelativeLimits,
+    source_problem_owned_logical_bytes: usize,
+    compiler_owned_logical_peak_upper_bound: &'a mut usize,
 }
 
 /// Crate-private by design: only the future matcher-bound compiler may feed
@@ -909,7 +1672,7 @@ impl AffineWhenBadRelativePartitionCompiler {
             inherited_truths: source_inherited_truths,
             clauses,
         } = problem;
-        validate_structural_loci(context, &source_structural_loci, limits, &mut stats)?;
+        validate_structural_loci(context, &source_structural_loci, limits, &mut stats, None)?;
         let structural_loci = try_canonicalize_structural_loci(&source_structural_loci)?;
         let source_formula = validate_formula(clauses, structural_loci.len(), limits, &mut stats)?;
         let formula = try_canonicalize_formula(&source_formula)?;
@@ -921,13 +1684,21 @@ impl AffineWhenBadRelativePartitionCompiler {
         )?;
         let inherited_truths = try_canonicalize_inherited_truths(&source_inherited_truths)?;
 
-        let (splits, cases, classifications) = build_partition(
+        let (kernel_splits, kernel_cases, kernel_classifications) = build_partition_kernel(
             context,
             &structural_loci,
             &inherited_truths,
-            &formula,
+            RelativeDirectFormulaView::Legacy(&formula),
+            RelativePartitionRetainedLayout::LegacyPolynomialRich,
             limits,
             &mut stats,
+        )?;
+        let (splits, cases, classifications) = materialize_legacy_partition(
+            &structural_loci,
+            &formula,
+            kernel_splits,
+            kernel_cases,
+            kernel_classifications,
         )?;
         let (payload_units, payload_bytes, payload_integer_bits) = payload_census(
             &context_fingerprint,
@@ -986,6 +1757,268 @@ impl AffineWhenBadRelativePartitionCompiler {
             limits,
             stats,
         })
+    }
+}
+
+/// Crate-private compiler for the arbitrary-width, provenance-neutral seam.
+pub(crate) struct AffineWhenBadArbitraryRelativePartitionCompiler;
+
+impl AffineWhenBadArbitraryRelativePartitionCompiler {
+    pub(crate) fn compile(
+        context: &ParametricCoefficientContext,
+        problem: AffineWhenBadArbitraryRelativeProblem,
+        limits: AffineWhenBadArbitraryRelativeLimits,
+    ) -> Result<AffineWhenBadArbitraryRelativePartitionCertificate, AffineWhenBadRelativeCaseError>
+    {
+        catch_unwind(AssertUnwindSafe(|| {
+            Self::compile_inner(context, problem, limits)
+        }))
+        .map_err(|_| AffineWhenBadRelativeCaseError::SymbolicaPanic {
+            stage: "arbitrary relative partition compilation",
+        })?
+    }
+
+    fn compile_inner(
+        context: &ParametricCoefficientContext,
+        problem: AffineWhenBadArbitraryRelativeProblem,
+        arbitrary_limits: AffineWhenBadArbitraryRelativeLimits,
+    ) -> Result<AffineWhenBadArbitraryRelativePartitionCertificate, AffineWhenBadRelativeCaseError>
+    {
+        maybe_inject_arbitrary_partition_compile_panic_for_test();
+        let observed_source_problem_owned_logical_bytes =
+            problem.retained_owned_logical_byte_bound()?;
+        let replay_source_problem_owned_logical_byte_envelope =
+            arbitrary_replay_source_problem_owned_logical_byte_envelope(
+                &problem.structural_loci,
+                problem.inherited_truths.len(),
+                problem.atoms.len(),
+                problem.clause_ranges.len(),
+            )?;
+        let source_problem_owned_logical_bytes = observed_source_problem_owned_logical_bytes
+            .max(replay_source_problem_owned_logical_byte_envelope);
+        check_limit(
+            "affine WhenBad arbitrary source problem owned logical bytes",
+            source_problem_owned_logical_bytes,
+            arbitrary_limits.max_source_problem_owned_logical_bytes,
+        )?;
+        let limits = arbitrary_limits.relative;
+        let mut stats = AffineWhenBadRelativeCaseStats::default();
+        stats.context_fingerprint_bytes = context.fingerprint().len();
+        check_limit(
+            "affine WhenBad relative context fingerprint bytes",
+            stats.context_fingerprint_bytes,
+            limits.max_context_fingerprint_bytes,
+        )?;
+        stats.retained_bytes = arbitrary_initial_retained_byte_envelope(
+            context.fingerprint().len(),
+            &problem.structural_loci,
+            &problem.inherited_truths,
+        )?;
+        check_limit(
+            "affine WhenBad relative retained bytes",
+            stats.retained_bytes,
+            limits.max_retained_bytes,
+        )?;
+        let mut pre_partition_compiler_owned_logical_peak_upper_bound =
+            check_arbitrary_owned_peak_limits(
+                stats.retained_bytes,
+                0,
+                source_problem_owned_logical_bytes,
+                arbitrary_limits,
+            )?;
+        mark_arbitrary_partition_context_copy_observed_for_test();
+        let context_fingerprint = try_copy_string(
+            context.fingerprint(),
+            "affine WhenBad arbitrary relative context fingerprint",
+        )?;
+
+        let AffineWhenBadArbitraryRelativeProblem {
+            structural_loci: source_structural_loci,
+            inherited_truths: source_inherited_truths,
+            atoms,
+            clause_ranges,
+        } = problem;
+        validate_structural_loci(
+            context,
+            &source_structural_loci,
+            limits,
+            &mut stats,
+            Some(ArbitraryAssociatePeakAdmission {
+                limits: arbitrary_limits,
+                source_problem_owned_logical_bytes,
+                compiler_owned_logical_peak_upper_bound:
+                    &mut pre_partition_compiler_owned_logical_peak_upper_bound,
+            }),
+        )?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    0,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        mark_arbitrary_partition_canonical_copy_observed_for_test();
+        let structural_loci = try_canonicalize_structural_loci(&source_structural_loci)?;
+
+        let inherited_validation_work_owned_logical_peak_upper_bound =
+            capacity_byte_envelope(structural_loci.len(), size_of::<bool>())?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    inherited_validation_work_owned_logical_peak_upper_bound,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        check_limit(
+            "affine WhenBad relative inherited truths",
+            source_inherited_truths.len(),
+            limits.max_inherited_truths,
+        )?;
+        mark_arbitrary_partition_inherited_validation_reserve_observed_for_test();
+        validate_inherited_truths(
+            &source_inherited_truths,
+            structural_loci.len(),
+            limits,
+            &mut stats,
+        )?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    0,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        mark_arbitrary_partition_inherited_copy_observed_for_test();
+        let inherited_truths = try_canonicalize_inherited_truths(&source_inherited_truths)?;
+        let formula = validate_and_compile_arbitrary_formula(
+            &atoms,
+            &clause_ranges,
+            structural_loci.len(),
+            limits,
+            &mut stats,
+            true,
+            arbitrary_limits,
+            source_problem_owned_logical_bytes,
+            &mut pre_partition_compiler_owned_logical_peak_upper_bound,
+        )?;
+
+        let (splits, cases, classifications) = build_partition_kernel(
+            context,
+            &structural_loci,
+            &inherited_truths,
+            RelativeDirectFormulaView::Arbitrary(&formula),
+            RelativePartitionRetainedLayout::ArbitraryTableIndexed {
+                max_work_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_work_owned_logical_peak_upper_bound,
+                max_compiler_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_compiler_owned_logical_peak_upper_bound,
+                source_problem_owned_logical_bytes,
+                max_compilation_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_compilation_owned_logical_peak_upper_bound,
+            },
+            limits,
+            &mut stats,
+        )?;
+        let (payload_units, payload_bytes, payload_integer_bits) = arbitrary_payload_census(
+            &context_fingerprint,
+            &structural_loci,
+            &inherited_truths,
+            &formula,
+            &splits,
+            &cases,
+            &classifications,
+        )?;
+        check_limit(
+            "affine WhenBad relative payload comparison units",
+            payload_units,
+            limits.max_payload_comparison_units,
+        )?;
+        check_limit(
+            "affine WhenBad relative payload comparison bytes",
+            payload_bytes,
+            limits.max_payload_comparison_bytes,
+        )?;
+        check_limit(
+            "affine WhenBad relative payload comparison integer bits",
+            payload_integer_bits,
+            limits.max_payload_comparison_integer_bits,
+        )?;
+        stats.payload_comparison_units = payload_units;
+        stats.payload_comparison_bytes = payload_bytes;
+        stats.payload_comparison_integer_bits = payload_integer_bits;
+
+        let partition_work_owned_logical_peak_upper_bound =
+            arbitrary_work_owned_logical_peak_upper_bound(stats)?;
+        let work_owned_logical_peak_upper_bound = partition_work_owned_logical_peak_upper_bound
+            .max(inherited_validation_work_owned_logical_peak_upper_bound);
+        check_limit(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            work_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_work_owned_logical_peak_upper_bound,
+        )?;
+        let partition_compiler_owned_logical_peak_upper_bound = checked_add(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            stats.retained_bytes,
+            partition_work_owned_logical_peak_upper_bound,
+        )?;
+        let compiler_owned_logical_peak_upper_bound =
+            partition_compiler_owned_logical_peak_upper_bound
+                .max(pre_partition_compiler_owned_logical_peak_upper_bound);
+        check_limit(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            compiler_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_compiler_owned_logical_peak_upper_bound,
+        )?;
+        let compilation_owned_logical_peak_upper_bound = checked_add(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            source_problem_owned_logical_bytes,
+            compiler_owned_logical_peak_upper_bound,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            compilation_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_compilation_owned_logical_peak_upper_bound,
+        )?;
+        let compilation_stats = AffineWhenBadArbitraryRelativeCompilationStats {
+            source_problem_owned_logical_byte_envelope:
+                replay_source_problem_owned_logical_byte_envelope,
+            formula_retained_owned_logical_bytes: formula.stats().retained_owned_logical_bytes(),
+            formula_compilation_owned_logical_peak_upper_bound: formula
+                .stats()
+                .compilation_owned_logical_peak_upper_bound(),
+            work_owned_logical_peak_upper_bound,
+            compiler_owned_logical_peak_upper_bound,
+        };
+
+        let certificate = AffineWhenBadArbitraryRelativePartitionCertificate {
+            schema: AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA,
+            context_fingerprint,
+            structural_loci,
+            inherited_truths,
+            formula,
+            splits,
+            cases,
+            classifications,
+            limits: arbitrary_limits,
+            stats,
+            compilation_stats,
+        };
+        let observed = observed_arbitrary_certificate_owned_byte_bound(&certificate)?;
+        if observed > certificate.stats.retained_bytes {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed,
+                    admitted: certificate.stats.retained_bytes,
+                },
+            );
+        }
+        Ok(certificate)
     }
 }
 
@@ -1053,6 +2086,7 @@ fn validate_structural_loci(
     loci: &[ParametricPolynomial],
     limits: AffineWhenBadRelativeCaseLimits,
     stats: &mut AffineWhenBadRelativeCaseStats,
+    mut arbitrary_admission: Option<ArbitraryAssociatePeakAdmission<'_>>,
 ) -> Result<(), AffineWhenBadRelativeCaseError> {
     check_limit(
         "affine WhenBad relative structural loci",
@@ -1108,11 +2142,95 @@ fn validate_structural_loci(
                 term_pairs,
                 limits.max_structural_locus_associate_term_pairs,
             )?;
-            let associated = context.polynomial_loci_are_associates_with_limits(
-                first,
-                polynomial,
-                limits.exact_algebra,
-            )?;
+            let associated = if let Some(admission) = arbitrary_admission.as_mut() {
+                let compiler_live = stats.retained_bytes;
+                let compiler_remaining = remaining_limit(
+                    "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                    admission.limits.max_compiler_owned_logical_peak_upper_bound,
+                    compiler_live,
+                )?;
+                let compilation_live = checked_add(
+                    "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                    admission.source_problem_owned_logical_bytes,
+                    compiler_live,
+                )?;
+                let compilation_remaining = remaining_limit(
+                    "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                    admission
+                        .limits
+                        .max_compilation_owned_logical_peak_upper_bound,
+                    compilation_live,
+                )?;
+                let child_limits = ParametricPolynomialAssociateLimits {
+                    exact_algebra: limits.exact_algebra,
+                    max_combined_temporary_byte_envelope: compiler_remaining
+                        .min(compilation_remaining),
+                    ..ParametricPolynomialAssociateLimits::default()
+                };
+                let result = match context.polynomial_loci_are_associates_with_census(
+                    first,
+                    polynomial,
+                    child_limits,
+                ) {
+                    Ok(result) => result,
+                    Err(ParametricCoefficientError::ResourceLimit {
+                        resource: "polynomial-associate combined temporary byte envelope",
+                        requested,
+                        ..
+                    }) => {
+                        let (resource, live, limit) = if compiler_remaining <= compilation_remaining
+                        {
+                            (
+                                "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                                compiler_live,
+                                admission.limits.max_compiler_owned_logical_peak_upper_bound,
+                            )
+                        } else {
+                            (
+                                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                                compilation_live,
+                                admission
+                                    .limits
+                                    .max_compilation_owned_logical_peak_upper_bound,
+                            )
+                        };
+                        return Err(AffineWhenBadRelativeCaseError::ResourceLimit {
+                            resource,
+                            requested: checked_add(resource, live, requested)?,
+                            limit,
+                        });
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                let child = result.stats();
+                let scratch = checked_add(
+                    "affine WhenBad arbitrary associate combined temporary byte envelope",
+                    child.rustred_visible_temporary_byte_envelope(),
+                    child.native_workspace_byte_envelope(),
+                )?;
+                let compiler_peak = checked_add(
+                    "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                    compiler_live,
+                    scratch,
+                )?;
+                check_arbitrary_compiler_and_global_peak_limits(
+                    compiler_peak,
+                    admission.source_problem_owned_logical_bytes,
+                    admission.limits.max_compiler_owned_logical_peak_upper_bound,
+                    admission
+                        .limits
+                        .max_compilation_owned_logical_peak_upper_bound,
+                )?;
+                *admission.compiler_owned_logical_peak_upper_bound =
+                    (*admission.compiler_owned_logical_peak_upper_bound).max(compiler_peak);
+                result.associated()
+            } else {
+                context.polynomial_loci_are_associates_with_limits(
+                    first,
+                    polynomial,
+                    limits.exact_algebra,
+                )?
+            };
             stats.structural_locus_associate_comparisons = prospective_comparisons;
             stats.structural_locus_associate_term_pairs = prospective_term_pairs;
             if associated {
@@ -1171,6 +2289,162 @@ fn validate_formula(
     })
 }
 
+fn validate_and_compile_arbitrary_formula(
+    atoms: &[AffineWhenBadAtom],
+    ranges: &[Range<usize>],
+    locus_count: usize,
+    limits: AffineWhenBadRelativeCaseLimits,
+    stats: &mut AffineWhenBadRelativeCaseStats,
+    retain_formula_storage: bool,
+    arbitrary_limits: AffineWhenBadArbitraryRelativeLimits,
+    source_problem_owned_logical_bytes: usize,
+    pre_partition_compiler_owned_logical_peak_upper_bound: &mut usize,
+) -> Result<ArbitraryDirectBadFormula<AffineWhenBadAtom>, AffineWhenBadRelativeCaseError> {
+    check_limit(
+        "affine WhenBad relative bad clauses",
+        ranges.len(),
+        limits.max_bad_clauses,
+    )?;
+    check_limit(
+        "affine WhenBad relative bad atoms",
+        atoms.len(),
+        limits.max_bad_atoms,
+    )?;
+    for atom in atoms {
+        if atom.locus_ordinal >= locus_count {
+            return Err(AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
+                locus_ordinal: atom.locus_ordinal,
+            });
+        }
+    }
+
+    let formula_limits = arbitrary_formula_limits(limits);
+    let formula_preflight = ArbitraryDirectBadFormula::<AffineWhenBadAtom>::preflight_compile(
+        atoms,
+        ranges,
+        formula_limits,
+    )
+    .map_err(map_arbitrary_formula_error)?;
+    let atom_storage = formula_preflight.atom_storage_bytes();
+    let clause_storage = formula_preflight.clause_storage_bytes();
+    let formula_storage = checked_add(
+        "affine WhenBad relative retained bytes",
+        atom_storage,
+        clause_storage,
+    )?;
+    check_limit(
+        "affine WhenBad arbitrary formula retained owned logical bytes",
+        formula_preflight.retained_owned_logical_bytes(),
+        arbitrary_limits.max_formula_retained_owned_logical_bytes,
+    )?;
+    check_limit(
+        "affine WhenBad arbitrary formula compilation owned logical peak upper bound",
+        formula_preflight.compilation_owned_logical_peak_upper_bound(),
+        arbitrary_limits.max_formula_compilation_owned_logical_peak_upper_bound,
+    )?;
+    if retain_formula_storage {
+        stats.retained_bytes = checked_bounded_add(
+            "affine WhenBad relative retained bytes",
+            stats.retained_bytes,
+            formula_storage,
+            limits.max_retained_bytes,
+        )?;
+    }
+    let formula_compilation_extra = formula_preflight
+        .compilation_owned_logical_peak_upper_bound()
+        .checked_sub(formula_preflight.retained_owned_logical_bytes())
+        .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?;
+    let formula_phase_retained_and_temporary = checked_add(
+        "affine WhenBad arbitrary compiler owned logical peak upper bound",
+        stats.retained_bytes,
+        formula_compilation_extra,
+    )?;
+    *pre_partition_compiler_owned_logical_peak_upper_bound =
+        (*pre_partition_compiler_owned_logical_peak_upper_bound).max(
+            check_arbitrary_owned_peak_limits(
+                formula_phase_retained_and_temporary,
+                0,
+                source_problem_owned_logical_bytes,
+                arbitrary_limits,
+            )?,
+        );
+    mark_arbitrary_partition_formula_box_reserve_observed_for_test();
+    let formula = ArbitraryDirectBadFormula::compile(atoms, ranges, formula_limits)
+        .map_err(map_arbitrary_formula_error)?;
+    if formula.stats().atoms() != atoms.len()
+        || formula.stats().clauses() != ranges.len()
+        || formula.stats().atom_storage_bytes() != atom_storage
+        || formula.stats().clause_storage_bytes() != clause_storage
+    {
+        return Err(AffineWhenBadRelativeCaseError::CaseStateMismatch);
+    }
+    stats.bad_clauses = ranges.len();
+    stats.bad_atoms = atoms.len();
+    Ok(formula)
+}
+
+fn arbitrary_formula_limits(
+    limits: AffineWhenBadRelativeCaseLimits,
+) -> ArbitraryDirectBadFormulaLimits {
+    ArbitraryDirectBadFormulaLimits {
+        max_atoms: limits.max_bad_atoms,
+        max_clauses: limits.max_bad_clauses,
+        max_atom_storage_bytes: usize::MAX,
+        max_clause_storage_bytes: usize::MAX,
+        max_retained_owned_logical_bytes: usize::MAX,
+        max_compilation_owned_logical_peak_upper_bound: usize::MAX,
+        // These are cumulative partition limits, charged before every route.
+        max_route_clause_visits: usize::MAX,
+        max_route_atom_queries: usize::MAX,
+    }
+}
+
+fn map_arbitrary_formula_error(
+    error: ArbitraryDirectBadFormulaError,
+) -> AffineWhenBadRelativeCaseError {
+    match error {
+        ArbitraryDirectBadFormulaError::MalformedClauseRange { clause_ordinal, .. } => {
+            AffineWhenBadRelativeCaseError::MalformedFormulaClause { clause_ordinal }
+        }
+        ArbitraryDirectBadFormulaError::UncoveredAtomTail { .. } => {
+            AffineWhenBadRelativeCaseError::MalformedFormulaClause {
+                clause_ordinal: usize::MAX,
+            }
+        }
+        ArbitraryDirectBadFormulaError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => AffineWhenBadRelativeCaseError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        ArbitraryDirectBadFormulaError::ResourceCountOverflow { resource } => {
+            AffineWhenBadRelativeCaseError::ResourceCountOverflow { resource }
+        }
+        ArbitraryDirectBadFormulaError::AllocationFailure {
+            resource,
+            requested,
+        }
+        | ArbitraryDirectBadFormulaError::NonExactAllocation {
+            resource,
+            requested,
+            ..
+        } => AffineWhenBadRelativeCaseError::AllocationFailure {
+            resource,
+            requested,
+        },
+        ArbitraryDirectBadFormulaError::SchemaMismatch
+        | ArbitraryDirectBadFormulaError::PayloadMismatch => {
+            AffineWhenBadRelativeCaseError::CaseStateMismatch
+        }
+        ArbitraryDirectBadFormulaError::ReplayMismatch => {
+            AffineWhenBadRelativeCaseError::ReplayMismatch
+        }
+    }
+}
+
 fn validate_inherited_truths(
     inherited_truths: &[AffineWhenBadInheritedTruth],
     locus_count: usize,
@@ -1206,18 +2480,19 @@ fn validate_inherited_truths(
     Ok(())
 }
 
-fn build_partition(
+fn build_partition_kernel(
     context: &ParametricCoefficientContext,
-    structural_loci: &Vec<ParametricPolynomial>,
+    structural_loci: &[ParametricPolynomial],
     inherited_truths: &[AffineWhenBadInheritedTruth],
-    formula: &AffineWhenBadDirectFormula,
+    formula: RelativeDirectFormulaView<'_>,
+    retained_layout: RelativePartitionRetainedLayout,
     limits: AffineWhenBadRelativeCaseLimits,
     stats: &mut AffineWhenBadRelativeCaseStats,
 ) -> Result<
     (
-        Vec<AffineWhenBadRelativeSplit>,
-        Vec<AffineWhenBadRelativeCase>,
-        Vec<AffineWhenBadRelativeLeafClassification>,
+        Vec<AffineWhenBadArbitraryRelativeSplit>,
+        Vec<AffineWhenBadArbitraryRelativeCase>,
+        Vec<AffineWhenBadArbitraryRelativeLeafClassification>,
     ),
     AffineWhenBadRelativeCaseError,
 > {
@@ -1241,6 +2516,43 @@ fn build_partition(
         structural_loci.len(),
         limits.max_work_decision_cells,
     )?;
+    if let RelativePartitionRetainedLayout::ArbitraryTableIndexed {
+        max_work_owned_logical_peak_upper_bound,
+        max_compiler_owned_logical_peak_upper_bound,
+        source_problem_owned_logical_bytes,
+        max_compilation_owned_logical_peak_upper_bound,
+    } = retained_layout
+    {
+        let mut root_stats = *stats;
+        root_stats.live_leaves = 1;
+        root_stats.case_ids = 1;
+        root_stats.work_decision_cells = structural_loci.len();
+        let work_peak = arbitrary_work_owned_logical_peak_upper_bound(root_stats)?;
+        check_limit(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            work_peak,
+            max_work_owned_logical_peak_upper_bound,
+        )?;
+        let compiler_peak = checked_add(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            root_stats.retained_bytes,
+            work_peak,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            compiler_peak,
+            max_compiler_owned_logical_peak_upper_bound,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            checked_add(
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                source_problem_owned_logical_bytes,
+                compiler_peak,
+            )?,
+            max_compilation_owned_logical_peak_upper_bound,
+        )?;
+    }
 
     let mut root_decisions = Vec::new();
     try_reserve_exact(
@@ -1263,7 +2575,7 @@ fn build_partition(
     }
 
     let root = WorkCase {
-        case: AffineWhenBadRelativeCase {
+        case: AffineWhenBadArbitraryRelativeCase {
             id: AffineWhenBadRelativeCaseId::ROOT,
             predicates: Vec::new(),
         },
@@ -1296,10 +2608,11 @@ fn build_partition(
                 .get(case_index)
                 .and_then(Option::as_ref)
                 .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?;
-            route_formula(
+            route_arbitrary_formula(
                 context,
                 structural_loci,
                 formula,
+                retained_layout,
                 &work_case.decisions,
                 &mut divisibility_cache,
                 stats,
@@ -1307,35 +2620,34 @@ fn build_partition(
             )?
         };
         match route {
-            DirectBadFormulaRoute::Bad { clause_ordinal } => {
-                let disposition = disposition_for_bad_clause(formula, clause_ordinal)?;
+            RelativePartitionRoute::Bad { clause_ordinal } => {
                 retain_classification(
                     &mut disposition_slots,
                     case_index,
-                    AffineWhenBadRelativeLeafClassification {
+                    AffineWhenBadArbitraryRelativeLeafClassification {
                         case: case_id,
-                        disposition,
                         decisive_clause_ordinal: Some(clause_ordinal),
                     },
                     stats,
                     limits,
                 )?;
             }
-            DirectBadFormulaRoute::Good => {
+            RelativePartitionRoute::Good => {
                 retain_classification(
                     &mut disposition_slots,
                     case_index,
-                    AffineWhenBadRelativeLeafClassification {
+                    AffineWhenBadArbitraryRelativeLeafClassification {
                         case: case_id,
-                        disposition: AffineWhenBadRelativeLeafDisposition::Applicable,
                         decisive_clause_ordinal: None,
                     },
                     stats,
                     limits,
                 )?;
             }
-            DirectBadFormulaRoute::Split {
+            RelativePartitionRoute::Split {
                 clause_ordinal,
+                clause_atom_ordinal,
+                atom_ordinal,
                 atom,
             } => split_work_case(
                 structural_loci,
@@ -1344,10 +2656,13 @@ fn build_partition(
                 &mut work,
                 &mut splits,
                 case_id,
-                AffineWhenBadRelativeSplitTrigger {
+                AffineWhenBadArbitraryRelativeSplitTrigger {
                     clause_ordinal,
+                    clause_atom_ordinal,
+                    atom_ordinal,
                     atom,
                 },
+                retained_layout,
                 stats,
                 limits,
             )?,
@@ -1403,15 +2718,16 @@ fn build_partition(
     Ok((splits, cases, classifications))
 }
 
-fn route_formula(
+fn route_arbitrary_formula(
     context: &ParametricCoefficientContext,
     structural_loci: &[ParametricPolynomial],
-    formula: &AffineWhenBadDirectFormula,
+    formula: RelativeDirectFormulaView<'_>,
+    retained_layout: RelativePartitionRetainedLayout,
     decisions: &[Option<SymbolicPolynomialPredicateKind>],
     divisibility_cache: &mut Vec<LocusDivisibilityCacheEntry>,
     stats: &mut AffineWhenBadRelativeCaseStats,
     limits: AffineWhenBadRelativeCaseLimits,
-) -> Result<DirectBadFormulaRoute<AffineWhenBadAtom>, AffineWhenBadRelativeCaseError> {
+) -> Result<RelativePartitionRoute, AffineWhenBadRelativeCaseError> {
     let evaluations = checked_bounded_add(
         "affine WhenBad relative direct bad-formula evaluations",
         stats.direct_bad_formula_evaluations,
@@ -1421,47 +2737,162 @@ fn route_formula(
     let clause_visits = checked_bounded_add(
         "affine WhenBad relative direct bad-formula clause visits",
         stats.direct_bad_formula_clause_visits,
-        formula.clauses.len(),
+        formula.clause_visit_bound(),
         limits.max_direct_bad_formula_clause_visits,
     )?;
     let atom_queries = checked_bounded_add(
         "affine WhenBad relative direct bad-formula atom truth queries",
         stats.direct_bad_formula_atom_truth_queries,
-        formula.atom_count,
+        formula.atom_query_bound(),
         limits.max_direct_bad_formula_atom_truth_queries,
     )?;
     stats.direct_bad_formula_evaluations = evaluations;
     stats.direct_bad_formula_clause_visits = clause_visits;
     stats.direct_bad_formula_atom_truth_queries = atom_queries;
 
-    route_direct_bad_formula(
-        formula
-            .clauses
-            .iter()
-            .map(AffineWhenBadFormulaClause::direct),
-        |atom| {
-            let exact = decisions.get(atom.locus_ordinal).copied().ok_or(
-                AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
-                    locus_ordinal: atom.locus_ordinal,
+    let mut atom_truth = |atom: AffineWhenBadAtom| {
+        let exact = decisions.get(atom.locus_ordinal).copied().ok_or(
+            AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
+                locus_ordinal: atom.locus_ordinal,
+            },
+        )?;
+        let decided = match exact {
+            Some(kind) => Some(kind),
+            None => implied_locus_decision(
+                context,
+                atom.locus_ordinal,
+                decisions,
+                structural_loci,
+                retained_layout,
+                divisibility_cache,
+                stats,
+                limits,
+            )?,
+        };
+        Ok::<_, AffineWhenBadRelativeCaseError>(match decided {
+            Some(kind) if kind == atom.kind => RelativePartitionTruth::True,
+            Some(_) => RelativePartitionTruth::False,
+            None => RelativePartitionTruth::Unknown,
+        })
+    };
+
+    match formula {
+        RelativeDirectFormulaView::Legacy(formula) => {
+            let route = route_direct_bad_formula(
+                formula
+                    .clauses
+                    .iter()
+                    .map(AffineWhenBadFormulaClause::direct),
+                |atom| -> Result<DirectBadFormulaTruth, AffineWhenBadRelativeCaseError> {
+                    Ok(match atom_truth(atom)? {
+                        RelativePartitionTruth::False => DirectBadFormulaTruth::False,
+                        RelativePartitionTruth::True => DirectBadFormulaTruth::True,
+                        RelativePartitionTruth::Unknown => DirectBadFormulaTruth::Unknown,
+                    })
                 },
             )?;
-            let decided = match exact {
-                Some(kind) => Some(kind),
-                None => implied_locus_decision(
-                    context,
-                    atom.locus_ordinal,
-                    decisions,
-                    structural_loci,
-                    divisibility_cache,
-                    stats,
-                    limits,
-                )?,
-            };
-            Ok(match decided {
-                Some(kind) if kind == atom.kind => DirectBadFormulaTruth::True,
-                Some(_) => DirectBadFormulaTruth::False,
-                None => DirectBadFormulaTruth::Unknown,
-            })
+            match route {
+                DirectBadFormulaRoute::Bad { clause_ordinal } => {
+                    Ok(RelativePartitionRoute::Bad { clause_ordinal })
+                }
+                DirectBadFormulaRoute::Good => Ok(RelativePartitionRoute::Good),
+                DirectBadFormulaRoute::Split {
+                    clause_ordinal,
+                    atom,
+                } => {
+                    let clause = formula
+                        .clauses
+                        .get(clause_ordinal)
+                        .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?;
+                    let clause_atom_ordinal = clause
+                        .atoms()
+                        .position(|candidate| candidate == atom)
+                        .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?;
+                    let atom_ordinal = formula.clauses[..clause_ordinal]
+                        .iter()
+                        .try_fold(0usize, |total, clause| {
+                            checked_add(
+                                "affine WhenBad relative bad atoms",
+                                total,
+                                clause.direct().atom_count(),
+                            )
+                        })?
+                        .checked_add(clause_atom_ordinal)
+                        .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                            resource: "affine WhenBad relative bad atoms",
+                        })?;
+                    Ok(RelativePartitionRoute::Split {
+                        clause_ordinal,
+                        clause_atom_ordinal,
+                        atom_ordinal,
+                        atom,
+                    })
+                }
+            }
+        }
+        RelativeDirectFormulaView::Arbitrary(formula) => Ok(
+            match formula.route(
+                |atom| -> Result<ArbitraryDirectBadFormulaTruth, AffineWhenBadRelativeCaseError> {
+                    Ok(match atom_truth(atom)? {
+                        RelativePartitionTruth::False => ArbitraryDirectBadFormulaTruth::False,
+                        RelativePartitionTruth::True => ArbitraryDirectBadFormulaTruth::True,
+                        RelativePartitionTruth::Unknown => ArbitraryDirectBadFormulaTruth::Unknown,
+                    })
+                },
+            )? {
+                ArbitraryDirectBadFormulaRoute::Bad { clause_ordinal } => {
+                    RelativePartitionRoute::Bad { clause_ordinal }
+                }
+                ArbitraryDirectBadFormulaRoute::Good => RelativePartitionRoute::Good,
+                ArbitraryDirectBadFormulaRoute::Split {
+                    clause_ordinal,
+                    clause_atom_ordinal,
+                    atom_ordinal,
+                    atom,
+                } => RelativePartitionRoute::Split {
+                    clause_ordinal,
+                    clause_atom_ordinal,
+                    atom_ordinal,
+                    atom,
+                },
+            },
+        ),
+    }
+}
+
+#[cfg(test)]
+fn route_formula(
+    context: &ParametricCoefficientContext,
+    structural_loci: &[ParametricPolynomial],
+    formula: &AffineWhenBadDirectFormula,
+    decisions: &[Option<SymbolicPolynomialPredicateKind>],
+    divisibility_cache: &mut Vec<LocusDivisibilityCacheEntry>,
+    stats: &mut AffineWhenBadRelativeCaseStats,
+    limits: AffineWhenBadRelativeCaseLimits,
+) -> Result<DirectBadFormulaRoute<AffineWhenBadAtom>, AffineWhenBadRelativeCaseError> {
+    Ok(
+        match route_arbitrary_formula(
+            context,
+            structural_loci,
+            RelativeDirectFormulaView::Legacy(formula),
+            RelativePartitionRetainedLayout::LegacyPolynomialRich,
+            decisions,
+            divisibility_cache,
+            stats,
+            limits,
+        )? {
+            RelativePartitionRoute::Bad { clause_ordinal } => {
+                DirectBadFormulaRoute::Bad { clause_ordinal }
+            }
+            RelativePartitionRoute::Good => DirectBadFormulaRoute::Good,
+            RelativePartitionRoute::Split {
+                clause_ordinal,
+                atom,
+                ..
+            } => DirectBadFormulaRoute::Split {
+                clause_ordinal,
+                atom,
+            },
         },
     )
 }
@@ -1473,10 +2904,24 @@ fn implied_locus_decision(
     requested_locus: usize,
     decisions: &[Option<SymbolicPolynomialPredicateKind>],
     structural_loci: &[ParametricPolynomial],
+    retained_layout: RelativePartitionRetainedLayout,
     cache: &mut Vec<LocusDivisibilityCacheEntry>,
     stats: &mut AffineWhenBadRelativeCaseStats,
     limits: AffineWhenBadRelativeCaseLimits,
 ) -> Result<Option<SymbolicPolynomialPredicateKind>, AffineWhenBadRelativeCaseError> {
+    if matches!(
+        retained_layout,
+        RelativePartitionRetainedLayout::ArbitraryTableIndexed { .. }
+    ) {
+        // Symbolica owns the K[n] divisibility algebra, but its current public
+        // quotient API exposes no pre-allocation native GCD/quotient workspace
+        // census. The arbitrary compiler promises an aggregate owned-memory
+        // ceiling, so it must not enter that unbounded optimization. Exact
+        // splitting remains complete; only implication-based pruning is
+        // deferred. The public V1 compatibility path retains its historical
+        // behavior and resource contract.
+        return Ok(None);
+    }
     let requested = structural_loci.get(requested_locus).ok_or(
         AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
             locus_ordinal: requested_locus,
@@ -1500,6 +2945,7 @@ fn implied_locus_decision(
                 requested_locus,
                 known,
                 requested,
+                retained_layout,
                 cache,
                 stats,
                 limits,
@@ -1511,6 +2957,7 @@ fn implied_locus_decision(
                 known_locus,
                 requested,
                 known,
+                retained_layout,
                 cache,
                 stats,
                 limits,
@@ -1531,6 +2978,7 @@ fn cached_locus_divisibility(
     dividend_ordinal: usize,
     divisor: &ParametricPolynomial,
     dividend: &ParametricPolynomial,
+    retained_layout: RelativePartitionRetainedLayout,
     cache: &mut Vec<LocusDivisibilityCacheEntry>,
     stats: &mut AffineWhenBadRelativeCaseStats,
     limits: AffineWhenBadRelativeCaseLimits,
@@ -1564,6 +3012,34 @@ fn cached_locus_divisibility(
         1,
         limits.max_locus_divisibility_cache_entries,
     )?;
+    if let RelativePartitionRetainedLayout::ArbitraryTableIndexed {
+        max_work_owned_logical_peak_upper_bound,
+        max_compiler_owned_logical_peak_upper_bound,
+        source_problem_owned_logical_bytes,
+        max_compilation_owned_logical_peak_upper_bound,
+    } = retained_layout
+    {
+        let mut staged = *stats;
+        staged.locus_divisibility_cache_entries = prospective_entries;
+        let work_owned_logical_peak_upper_bound =
+            arbitrary_work_owned_logical_peak_upper_bound(staged)?;
+        check_limit(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            work_owned_logical_peak_upper_bound,
+            max_work_owned_logical_peak_upper_bound,
+        )?;
+        check_arbitrary_compiler_and_global_peak_limits(
+            checked_add(
+                "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                staged.retained_bytes,
+                work_owned_logical_peak_upper_bound,
+            )?,
+            source_problem_owned_logical_bytes,
+            max_compiler_owned_logical_peak_upper_bound,
+            max_compilation_owned_logical_peak_upper_bound,
+        )?;
+        mark_arbitrary_partition_divisibility_cache_reserve_observed_for_test();
+    }
     try_reserve_exact("affine WhenBad relative locus divisibility cache", cache, 1)?;
     let result = context.polynomial_divides_with_limits(divisor, dividend, limits.exact_algebra)?;
     cache.push(LocusDivisibilityCacheEntry {
@@ -1575,6 +3051,102 @@ fn cached_locus_divisibility(
     stats.locus_divisibility_term_pairs = prospective_term_pairs;
     stats.locus_divisibility_cache_entries = prospective_entries;
     Ok(result)
+}
+
+fn materialize_legacy_partition(
+    structural_loci: &[ParametricPolynomial],
+    formula: &AffineWhenBadDirectFormula,
+    kernel_splits: Vec<AffineWhenBadArbitraryRelativeSplit>,
+    kernel_cases: Vec<AffineWhenBadArbitraryRelativeCase>,
+    kernel_classifications: Vec<AffineWhenBadArbitraryRelativeLeafClassification>,
+) -> Result<
+    (
+        Vec<AffineWhenBadRelativeSplit>,
+        Vec<AffineWhenBadRelativeCase>,
+        Vec<AffineWhenBadRelativeLeafClassification>,
+    ),
+    AffineWhenBadRelativeCaseError,
+> {
+    let mut splits = Vec::new();
+    try_reserve_exact(
+        "affine WhenBad relative compatibility splits",
+        &mut splits,
+        kernel_splits.len(),
+    )?;
+    for split in kernel_splits {
+        let source = structural_loci
+            .get(split.trigger.atom.locus_ordinal)
+            .ok_or(AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
+                locus_ordinal: split.trigger.atom.locus_ordinal,
+            })?;
+        splits.push(AffineWhenBadRelativeSplit {
+            ordinal: split.ordinal,
+            parent: split.parent,
+            trigger: AffineWhenBadRelativeSplitTrigger {
+                clause_ordinal: split.trigger.clause_ordinal,
+                atom: split.trigger.atom,
+            },
+            polynomial: try_copy_polynomial(
+                source,
+                "affine WhenBad relative compatibility split polynomial",
+            )?,
+            equal_zero_child: split.equal_zero_child,
+            nonzero_child: split.nonzero_child,
+        });
+    }
+
+    let mut cases = Vec::new();
+    try_reserve_exact(
+        "affine WhenBad relative compatibility cases",
+        &mut cases,
+        kernel_cases.len(),
+    )?;
+    for case in kernel_cases {
+        let mut predicates = Vec::new();
+        try_reserve_exact(
+            "affine WhenBad relative compatibility case predicates",
+            &mut predicates,
+            case.predicates.len(),
+        )?;
+        for predicate in case.predicates {
+            let source = structural_loci.get(predicate.locus_ordinal).ok_or(
+                AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
+                    locus_ordinal: predicate.locus_ordinal,
+                },
+            )?;
+            predicates.push(AffineWhenBadRelativePredicate {
+                locus_ordinal: predicate.locus_ordinal,
+                kind: predicate.kind,
+                polynomial: try_copy_polynomial(
+                    source,
+                    "affine WhenBad relative compatibility predicate polynomial",
+                )?,
+            });
+        }
+        cases.push(AffineWhenBadRelativeCase {
+            id: case.id,
+            predicates,
+        });
+    }
+
+    let mut classifications = Vec::new();
+    try_reserve_exact(
+        "affine WhenBad relative compatibility classifications",
+        &mut classifications,
+        kernel_classifications.len(),
+    )?;
+    for classification in kernel_classifications {
+        let disposition = match classification.decisive_clause_ordinal {
+            Some(clause_ordinal) => disposition_for_bad_clause(formula, clause_ordinal)?,
+            None => AffineWhenBadRelativeLeafDisposition::Applicable,
+        };
+        classifications.push(AffineWhenBadRelativeLeafClassification {
+            case: classification.case,
+            disposition,
+            decisive_clause_ordinal: classification.decisive_clause_ordinal,
+        });
+    }
+    Ok((splits, cases, classifications))
 }
 
 fn disposition_for_bad_clause(
@@ -1598,9 +3170,9 @@ fn disposition_for_bad_clause(
 }
 
 fn retain_classification(
-    disposition_slots: &mut [Option<AffineWhenBadRelativeLeafClassification>],
+    disposition_slots: &mut [Option<AffineWhenBadArbitraryRelativeLeafClassification>],
     case_index: usize,
-    classification: AffineWhenBadRelativeLeafClassification,
+    classification: AffineWhenBadArbitraryRelativeLeafClassification,
     stats: &mut AffineWhenBadRelativeCaseStats,
     limits: AffineWhenBadRelativeCaseLimits,
 ) -> Result<(), AffineWhenBadRelativeCaseError> {
@@ -1624,11 +3196,12 @@ fn retain_classification(
 fn split_work_case(
     structural_loci: &[ParametricPolynomial],
     slots: &mut Vec<Option<WorkCase>>,
-    disposition_slots: &mut Vec<Option<AffineWhenBadRelativeLeafClassification>>,
+    disposition_slots: &mut Vec<Option<AffineWhenBadArbitraryRelativeLeafClassification>>,
     work: &mut Vec<AffineWhenBadRelativeCaseId>,
-    splits: &mut Vec<AffineWhenBadRelativeSplit>,
+    splits: &mut Vec<AffineWhenBadArbitraryRelativeSplit>,
     parent_id: AffineWhenBadRelativeCaseId,
-    trigger: AffineWhenBadRelativeSplitTrigger,
+    trigger: AffineWhenBadArbitraryRelativeSplitTrigger,
+    retained_layout: RelativePartitionRetainedLayout,
     stats: &mut AffineWhenBadRelativeCaseStats,
     limits: AffineWhenBadRelativeCaseLimits,
 ) -> Result<(), AffineWhenBadRelativeCaseError> {
@@ -1716,19 +3289,30 @@ fn split_work_case(
         staged.work_decision_cells,
         limits.max_work_decision_cells,
     )?;
+    let (split_size, case_size, classification_size, predicate_size) = match retained_layout {
+        RelativePartitionRetainedLayout::LegacyPolynomialRich => (
+            size_of::<AffineWhenBadRelativeSplit>(),
+            size_of::<AffineWhenBadRelativeCase>(),
+            size_of::<AffineWhenBadRelativeLeafClassification>(),
+            size_of::<AffineWhenBadRelativePredicate>(),
+        ),
+        RelativePartitionRetainedLayout::ArbitraryTableIndexed { .. } => (
+            size_of::<AffineWhenBadArbitraryRelativeSplit>(),
+            size_of::<AffineWhenBadArbitraryRelativeCase>(),
+            size_of::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+            size_of::<AffineWhenBadArbitraryRelativePredicate>(),
+        ),
+    };
     let retained_container_delta = checked_add(
         "affine WhenBad relative retained bytes",
-        capacity_byte_envelope(1, size_of::<AffineWhenBadRelativeSplit>())?,
+        capacity_byte_envelope(1, split_size)?,
         checked_add(
             "affine WhenBad relative retained bytes",
-            capacity_byte_envelope(1, size_of::<AffineWhenBadRelativeCase>())?,
+            capacity_byte_envelope(1, case_size)?,
             checked_add(
                 "affine WhenBad relative retained bytes",
-                capacity_byte_envelope(1, size_of::<AffineWhenBadRelativeLeafClassification>())?,
-                capacity_byte_envelope(
-                    predicate_delta,
-                    size_of::<AffineWhenBadRelativePredicate>(),
-                )?,
+                capacity_byte_envelope(1, classification_size)?,
+                capacity_byte_envelope(predicate_delta, predicate_size)?,
             )?,
         )?,
     )?;
@@ -1739,6 +3323,60 @@ fn split_work_case(
         limits.max_retained_bytes,
     )?;
 
+    if matches!(
+        retained_layout,
+        RelativePartitionRetainedLayout::LegacyPolynomialRich
+    ) {
+        // The V1 compatibility certificate owns one split polynomial, every
+        // final case predicate polynomial, and no table-indexed aliases.
+        // Charge the exact copies before mutating the kernel transcript; the
+        // compatibility adapter performs only the already-admitted copies.
+        for predicate in &parent.case.predicates {
+            let source = structural_loci.get(predicate.locus_ordinal).ok_or(
+                AffineWhenBadRelativeCaseError::StructuralLocusOutOfRange {
+                    locus_ordinal: predicate.locus_ordinal,
+                },
+            )?;
+            charge_retained_polynomial(source, &mut staged, limits)?;
+        }
+        charge_retained_polynomial(polynomial, &mut staged, limits)?;
+        charge_retained_polynomial(polynomial, &mut staged, limits)?;
+        charge_retained_polynomial(polynomial, &mut staged, limits)?;
+    }
+    if let RelativePartitionRetainedLayout::ArbitraryTableIndexed {
+        max_work_owned_logical_peak_upper_bound,
+        max_compiler_owned_logical_peak_upper_bound,
+        source_problem_owned_logical_bytes,
+        max_compilation_owned_logical_peak_upper_bound,
+    } = retained_layout
+    {
+        let work_peak = arbitrary_work_owned_logical_peak_upper_bound(staged)?;
+        check_limit(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            work_peak,
+            max_work_owned_logical_peak_upper_bound,
+        )?;
+        let compiler_peak = checked_add(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            staged.retained_bytes,
+            work_peak,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            compiler_peak,
+            max_compiler_owned_logical_peak_upper_bound,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            checked_add(
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                source_problem_owned_logical_bytes,
+                compiler_peak,
+            )?,
+            max_compilation_owned_logical_peak_upper_bound,
+        )?;
+    }
+
     let mut equal_predicates = Vec::new();
     try_reserve_exact(
         "affine WhenBad relative equal-zero child predicates",
@@ -1746,15 +3384,12 @@ fn split_work_case(
         child_depth,
     )?;
     for predicate in &parent.case.predicates {
-        equal_predicates.push(try_copy_predicate(predicate, &mut staged, limits)?);
+        equal_predicates.push(*predicate);
     }
-    equal_predicates.push(AffineWhenBadRelativePredicate {
+    equal_predicates.push(AffineWhenBadArbitraryRelativePredicate {
         locus_ordinal: trigger.atom.locus_ordinal,
         kind: SymbolicPolynomialPredicateKind::EqualZero,
-        polynomial: try_copy_and_charge_polynomial(polynomial, &mut staged, limits)?,
     });
-    let nonzero_polynomial = try_copy_and_charge_polynomial(polynomial, &mut staged, limits)?;
-    let transcript_polynomial = try_copy_and_charge_polynomial(polynomial, &mut staged, limits)?;
 
     let mut equal_decisions = Vec::new();
     try_reserve_exact(
@@ -1797,15 +3432,17 @@ fn split_work_case(
         .take()
         .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?;
     parent.decisions[trigger.atom.locus_ordinal] = Some(SymbolicPolynomialPredicateKind::NonZero);
-    parent.case.predicates.push(AffineWhenBadRelativePredicate {
-        locus_ordinal: trigger.atom.locus_ordinal,
-        kind: SymbolicPolynomialPredicateKind::NonZero,
-        polynomial: nonzero_polynomial,
-    });
+    parent
+        .case
+        .predicates
+        .push(AffineWhenBadArbitraryRelativePredicate {
+            locus_ordinal: trigger.atom.locus_ordinal,
+            kind: SymbolicPolynomialPredicateKind::NonZero,
+        });
     parent.case.id = nonzero_id;
 
     let equal = WorkCase {
-        case: AffineWhenBadRelativeCase {
+        case: AffineWhenBadArbitraryRelativeCase {
             id: equal_id,
             predicates: equal_predicates,
         },
@@ -1815,11 +3452,10 @@ fn split_work_case(
     slots.push(Some(parent));
     disposition_slots.push(None);
     disposition_slots.push(None);
-    splits.push(AffineWhenBadRelativeSplit {
+    splits.push(AffineWhenBadArbitraryRelativeSplit {
         ordinal: splits.len(),
         parent: parent_id,
         trigger,
-        polynomial: transcript_polynomial,
         equal_zero_child: equal_id,
         nonzero_child: nonzero_id,
     });
@@ -1828,49 +3464,6 @@ fn split_work_case(
     work.push(equal_id);
     *stats = staged;
     Ok(())
-}
-
-fn try_copy_predicate(
-    source: &AffineWhenBadRelativePredicate,
-    stats: &mut AffineWhenBadRelativeCaseStats,
-    limits: AffineWhenBadRelativeCaseLimits,
-) -> Result<AffineWhenBadRelativePredicate, AffineWhenBadRelativeCaseError> {
-    Ok(AffineWhenBadRelativePredicate {
-        locus_ordinal: source.locus_ordinal,
-        kind: source.kind,
-        polynomial: try_copy_and_charge_polynomial(&source.polynomial, stats, limits)?,
-    })
-}
-
-fn try_copy_and_charge_polynomial(
-    source: &ParametricPolynomial,
-    stats: &mut AffineWhenBadRelativeCaseStats,
-    limits: AffineWhenBadRelativeCaseLimits,
-) -> Result<ParametricPolynomial, AffineWhenBadRelativeCaseError> {
-    let before_bytes = stats.retained_bytes;
-    let mut staged = *stats;
-    charge_retained_polynomial(source, &mut staged, limits)?;
-    let copied = try_copy_polynomial(
-        source,
-        "affine WhenBad relative retained polynomial payload",
-    )?;
-    let observed = copied.owned_retained_byte_bound().ok_or(
-        AffineWhenBadRelativeCaseError::ResourceCountOverflow {
-            resource: "affine WhenBad relative retained bytes",
-        },
-    )?;
-    let admitted = staged.retained_bytes.checked_sub(before_bytes).ok_or(
-        AffineWhenBadRelativeCaseError::ResourceCountOverflow {
-            resource: "affine WhenBad relative retained bytes",
-        },
-    )?;
-    if observed > admitted {
-        return Err(
-            AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded { observed, admitted },
-        );
-    }
-    *stats = staged;
-    Ok(copied)
 }
 
 fn charge_retained_polynomial(
@@ -2094,6 +3687,330 @@ fn payload_census(
         )?;
     }
     Ok((units, bytes, integer_bits))
+}
+
+fn arbitrary_payload_census(
+    context_fingerprint: &str,
+    structural_loci: &[ParametricPolynomial],
+    inherited_truths: &[AffineWhenBadInheritedTruth],
+    formula: &ArbitraryDirectBadFormula<AffineWhenBadAtom>,
+    splits: &[AffineWhenBadArbitraryRelativeSplit],
+    cases: &[AffineWhenBadArbitraryRelativeCase],
+    classifications: &[AffineWhenBadArbitraryRelativeLeafClassification],
+) -> Result<(usize, usize, usize), AffineWhenBadRelativeCaseError> {
+    formula
+        .validate_payload()
+        .map_err(map_arbitrary_formula_error)?;
+    let mut units =
+        scalar_representation_units::<AffineWhenBadArbitraryRelativePartitionCertificate>();
+    for count in [
+        scalar_representation_units::<AffineWhenBadRelativeCaseLimits>(),
+        scalar_representation_units::<AffineWhenBadRelativeCaseStats>(),
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            inherited_truths.len(),
+            scalar_representation_units::<AffineWhenBadInheritedTruth>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            formula.atoms().len(),
+            scalar_representation_units::<AffineWhenBadAtom>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            formula.clause_count(),
+            2,
+        )?,
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            splits.len(),
+            scalar_representation_units::<AffineWhenBadArbitraryRelativeSplit>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            cases.len(),
+            scalar_representation_units::<AffineWhenBadArbitraryRelativeCase>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative payload comparison units",
+            classifications.len(),
+            scalar_representation_units::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+        )?,
+    ] {
+        units = checked_add(
+            "affine WhenBad relative payload comparison units",
+            units,
+            count,
+        )?;
+    }
+    for case in cases {
+        units = checked_add(
+            "affine WhenBad relative payload comparison units",
+            units,
+            checked_mul(
+                "affine WhenBad relative payload comparison units",
+                case.predicates.len(),
+                scalar_representation_units::<AffineWhenBadArbitraryRelativePredicate>(),
+            )?,
+        )?;
+    }
+
+    let mut bytes = context_fingerprint.len();
+    let mut integer_bits = 0usize;
+    for polynomial in structural_loci {
+        units = checked_add(
+            "affine WhenBad relative payload comparison units",
+            units,
+            scalar_representation_units::<ParametricPolynomial>(),
+        )?;
+        units = checked_add(
+            "affine WhenBad relative payload comparison units",
+            units,
+            polynomial.term_count(),
+        )?;
+        units = checked_add(
+            "affine WhenBad relative payload comparison units",
+            units,
+            polynomial.raw().exponents.len(),
+        )?;
+        bytes = checked_add(
+            "affine WhenBad relative payload comparison bytes",
+            bytes,
+            bounded_polynomial_display_bytes(polynomial, usize::MAX).map_err(|_| {
+                AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                    resource: "affine WhenBad relative payload comparison bytes",
+                }
+            })?,
+        )?;
+        for coefficient in &polynomial.raw().coefficients {
+            integer_bits = checked_add(
+                "affine WhenBad relative payload comparison integer bits",
+                integer_bits,
+                integer_magnitude_bits(coefficient)?,
+            )?;
+        }
+    }
+    Ok((units, bytes, integer_bits))
+}
+
+fn arbitrary_initial_retained_byte_envelope(
+    context_fingerprint_bytes: usize,
+    structural_loci: &[ParametricPolynomial],
+    inherited_truths: &[AffineWhenBadInheritedTruth],
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let mut bytes = size_of::<AffineWhenBadArbitraryRelativePartitionCertificate>();
+    bytes = checked_add(
+        "affine WhenBad relative retained bytes",
+        bytes,
+        capacity_byte_envelope(context_fingerprint_bytes, size_of::<u8>())?,
+    )?;
+    for allocation in [
+        capacity_byte_envelope(structural_loci.len(), size_of::<ParametricPolynomial>())?,
+        capacity_byte_envelope(
+            inherited_truths.len(),
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(1, size_of::<AffineWhenBadArbitraryRelativeCase>())?,
+        capacity_byte_envelope(
+            1,
+            size_of::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+        )?,
+    ] {
+        bytes = checked_add("affine WhenBad relative retained bytes", bytes, allocation)?;
+    }
+    Ok(bytes)
+}
+
+fn arbitrary_work_owned_logical_peak_upper_bound(
+    stats: AffineWhenBadRelativeCaseStats,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let mut bytes = checked_mul(
+        "affine WhenBad arbitrary work owned logical peak upper bound",
+        stats.work_decision_cells,
+        size_of::<Option<SymbolicPolynomialPredicateKind>>(),
+    )?;
+    for allocation in [
+        capacity_byte_envelope(stats.case_ids, size_of::<Option<WorkCase>>())?,
+        capacity_byte_envelope(
+            stats.case_ids,
+            size_of::<Option<AffineWhenBadArbitraryRelativeLeafClassification>>(),
+        )?,
+        capacity_byte_envelope(stats.case_ids, size_of::<AffineWhenBadRelativeCaseId>())?,
+        capacity_byte_envelope(
+            stats.locus_divisibility_cache_entries,
+            size_of::<LocusDivisibilityCacheEntry>(),
+        )?,
+    ] {
+        bytes = checked_add(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            bytes,
+            allocation,
+        )?;
+    }
+    Ok(bytes)
+}
+
+fn check_arbitrary_owned_peak_limits(
+    retained_bytes: usize,
+    work_owned_logical_peak_upper_bound: usize,
+    source_problem_owned_logical_bytes: usize,
+    limits: AffineWhenBadArbitraryRelativeLimits,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    check_limit(
+        "affine WhenBad arbitrary work owned logical peak upper bound",
+        work_owned_logical_peak_upper_bound,
+        limits.max_work_owned_logical_peak_upper_bound,
+    )?;
+    let compiler_peak = checked_add(
+        "affine WhenBad arbitrary compiler owned logical peak upper bound",
+        retained_bytes,
+        work_owned_logical_peak_upper_bound,
+    )?;
+    check_arbitrary_compiler_and_global_peak_limits(
+        compiler_peak,
+        source_problem_owned_logical_bytes,
+        limits.max_compiler_owned_logical_peak_upper_bound,
+        limits.max_compilation_owned_logical_peak_upper_bound,
+    )?;
+    Ok(compiler_peak)
+}
+
+fn check_arbitrary_compiler_and_global_peak_limits(
+    compiler_owned_logical_peak_upper_bound: usize,
+    source_problem_owned_logical_bytes: usize,
+    max_compiler_owned_logical_peak_upper_bound: usize,
+    max_compilation_owned_logical_peak_upper_bound: usize,
+) -> Result<(), AffineWhenBadRelativeCaseError> {
+    check_limit(
+        "affine WhenBad arbitrary compiler owned logical peak upper bound",
+        compiler_owned_logical_peak_upper_bound,
+        max_compiler_owned_logical_peak_upper_bound,
+    )?;
+    let global_peak = checked_add(
+        "affine WhenBad arbitrary compilation owned logical peak upper bound",
+        source_problem_owned_logical_bytes,
+        compiler_owned_logical_peak_upper_bound,
+    )?;
+    check_limit(
+        "affine WhenBad arbitrary compilation owned logical peak upper bound",
+        global_peak,
+        max_compilation_owned_logical_peak_upper_bound,
+    )
+}
+
+fn observed_arbitrary_certificate_owned_byte_bound(
+    certificate: &AffineWhenBadArbitraryRelativePartitionCertificate,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let mut bytes = size_of::<AffineWhenBadArbitraryRelativePartitionCertificate>();
+    for allocation in [
+        certificate.context_fingerprint.capacity(),
+        checked_mul(
+            "affine WhenBad relative retained bytes",
+            certificate.structural_loci.capacity(),
+            size_of::<ParametricPolynomial>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative retained bytes",
+            certificate.inherited_truths.capacity(),
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        certificate.formula.stats().atom_storage_bytes(),
+        certificate.formula.stats().clause_storage_bytes(),
+        checked_mul(
+            "affine WhenBad relative retained bytes",
+            certificate.splits.capacity(),
+            size_of::<AffineWhenBadArbitraryRelativeSplit>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative retained bytes",
+            certificate.cases.capacity(),
+            size_of::<AffineWhenBadArbitraryRelativeCase>(),
+        )?,
+        checked_mul(
+            "affine WhenBad relative retained bytes",
+            certificate.classifications.capacity(),
+            size_of::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+        )?,
+    ] {
+        bytes = checked_add("affine WhenBad relative retained bytes", bytes, allocation)?;
+    }
+    for polynomial in &certificate.structural_loci {
+        bytes = checked_add(
+            "affine WhenBad relative retained bytes",
+            bytes,
+            polynomial.owned_retained_byte_bound().ok_or(
+                AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                    resource: "affine WhenBad relative retained bytes",
+                },
+            )?,
+        )?;
+    }
+    for case in &certificate.cases {
+        bytes = checked_add(
+            "affine WhenBad relative retained bytes",
+            bytes,
+            checked_mul(
+                "affine WhenBad relative retained bytes",
+                case.predicates.capacity(),
+                size_of::<AffineWhenBadArbitraryRelativePredicate>(),
+            )?,
+        )?;
+    }
+    Ok(bytes)
+}
+
+fn preflight_arbitrary_payload_comparison(
+    certificate: &AffineWhenBadArbitraryRelativePartitionCertificate,
+    limits: AffineWhenBadRelativeCaseLimits,
+) -> Result<(), AffineWhenBadRelativeCaseError> {
+    let (units, bytes, integer_bits) = arbitrary_payload_census(
+        &certificate.context_fingerprint,
+        &certificate.structural_loci,
+        &certificate.inherited_truths,
+        &certificate.formula,
+        &certificate.splits,
+        &certificate.cases,
+        &certificate.classifications,
+    )?;
+    check_limit(
+        "affine WhenBad relative payload comparison units",
+        units,
+        limits.max_payload_comparison_units,
+    )?;
+    check_limit(
+        "affine WhenBad relative payload comparison bytes",
+        bytes,
+        limits.max_payload_comparison_bytes,
+    )?;
+    check_limit(
+        "affine WhenBad relative payload comparison integer bits",
+        integer_bits,
+        limits.max_payload_comparison_integer_bits,
+    )?;
+    if (units, bytes, integer_bits)
+        != (
+            certificate.stats.payload_comparison_units,
+            certificate.stats.payload_comparison_bytes,
+            certificate.stats.payload_comparison_integer_bits,
+        )
+    {
+        return Err(AffineWhenBadRelativeCaseError::ReplayMismatch);
+    }
+    let observed = observed_arbitrary_certificate_owned_byte_bound(certificate)?;
+    check_limit(
+        "affine WhenBad relative retained bytes",
+        certificate.stats.retained_bytes,
+        limits.max_retained_bytes,
+    )?;
+    if observed > certificate.stats.retained_bytes {
+        return Err(
+            AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                observed,
+                admitted: certificate.stats.retained_bytes,
+            },
+        );
+    }
+    Ok(())
 }
 
 fn initial_retained_byte_envelope(
@@ -2421,6 +4338,15 @@ fn check_limit(
     }
 }
 
+fn remaining_limit(
+    resource: &'static str,
+    limit: usize,
+    already_used: usize,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    check_limit(resource, already_used, limit)?;
+    Ok(limit - already_used)
+}
+
 fn checked_bounded_add(
     resource: &'static str,
     current: usize,
@@ -2480,6 +4406,36 @@ mod tests {
         AffineWhenBadRelativePartitionCompiler::compile(
             context,
             conjunction_problem(context),
+            limits,
+        )
+    }
+
+    fn indexed_loci(
+        context: &ParametricCoefficientContext,
+        count: usize,
+    ) -> Vec<ParametricPolynomial> {
+        (0..count)
+            .map(|position| index_polynomial(context, position))
+            .collect()
+    }
+
+    fn compile_arbitrary(
+        context: &ParametricCoefficientContext,
+        structural_loci: Vec<ParametricPolynomial>,
+        inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+        atoms: Vec<AffineWhenBadAtom>,
+        clause_ranges: Vec<Range<usize>>,
+        limits: AffineWhenBadArbitraryRelativeLimits,
+    ) -> Result<AffineWhenBadArbitraryRelativePartitionCertificate, AffineWhenBadRelativeCaseError>
+    {
+        AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            context,
+            AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+                structural_loci,
+                inherited_truths,
+                atoms,
+                clause_ranges,
+            ),
             limits,
         )
     }
@@ -2596,6 +4552,165 @@ mod tests {
             .unwrap(),
             DirectBadFormulaRoute::Bad { clause_ordinal: 1 },
         );
+    }
+
+    #[test]
+    fn arbitrary_three_atom_conjunction_has_table_indexed_equality_first_transcript() {
+        let context = context("affine-relative-arbitrary-width-three", 3);
+        let atoms = vec![
+            AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+            AffineWhenBadAtom::new(1, SymbolicPolynomialPredicateKind::NonZero),
+            AffineWhenBadAtom::new(2, SymbolicPolynomialPredicateKind::EqualZero),
+        ];
+        let certificate = compile_arbitrary(
+            &context,
+            indexed_loci(&context, 3),
+            Vec::new(),
+            atoms,
+            vec![0..3],
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        certificate.replay(&context).unwrap();
+
+        assert_eq!(certificate.splits().len(), 3);
+        assert_eq!(
+            certificate
+                .splits()
+                .iter()
+                .map(|split| {
+                    let trigger = split.trigger();
+                    (
+                        split.parent().value(),
+                        trigger.clause_ordinal(),
+                        trigger.clause_atom_ordinal(),
+                        trigger.atom_ordinal(),
+                        trigger.atom().locus_ordinal(),
+                        split.equal_zero_child().value(),
+                        split.nonzero_child().value(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [
+                (0, 0, 0, 0, 0, 1, 2),
+                (1, 0, 1, 1, 1, 3, 4),
+                (4, 0, 2, 2, 2, 5, 6),
+            ],
+        );
+        assert_eq!(
+            certificate
+                .cases()
+                .iter()
+                .map(|case| case.id().value())
+                .collect::<Vec<_>>(),
+            [2, 3, 5, 6],
+        );
+        assert_eq!(
+            certificate
+                .classifications()
+                .iter()
+                .map(|leaf| (leaf.case().value(), leaf.decisive_clause_ordinal()))
+                .collect::<Vec<_>>(),
+            [(2, None), (3, None), (5, Some(0)), (6, None)],
+        );
+        assert_eq!(
+            certificate.cases()[2]
+                .predicates()
+                .iter()
+                .map(|predicate| (predicate.locus_ordinal(), predicate.kind()))
+                .collect::<Vec<_>>(),
+            [
+                (0, SymbolicPolynomialPredicateKind::EqualZero),
+                (1, SymbolicPolynomialPredicateKind::NonZero),
+                (2, SymbolicPolynomialPredicateKind::EqualZero),
+            ],
+        );
+    }
+
+    #[test]
+    fn arbitrary_empty_formula_empty_conjunction_and_later_true_clause_route_exactly() {
+        let empty_context = context("affine-relative-arbitrary-empty-formula", 1);
+        let empty_formula = compile_arbitrary(
+            &empty_context,
+            indexed_loci(&empty_context, 1),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert!(empty_formula.splits().is_empty());
+        assert_eq!(
+            empty_formula.classifications()[0].decisive_clause_ordinal(),
+            None
+        );
+
+        let empty_clause = compile_arbitrary(
+            &empty_context,
+            indexed_loci(&empty_context, 1),
+            Vec::new(),
+            Vec::new(),
+            vec![0..0],
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert!(empty_clause.splits().is_empty());
+        assert_eq!(
+            empty_clause.classifications()[0].decisive_clause_ordinal(),
+            Some(0)
+        );
+
+        let context = context("affine-relative-arbitrary-later-true", 2);
+        let later_true = compile_arbitrary(
+            &context,
+            indexed_loci(&context, 2),
+            vec![AffineWhenBadInheritedTruth::new(
+                1,
+                SymbolicPolynomialPredicateKind::EqualZero,
+            )],
+            vec![
+                AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+                AffineWhenBadAtom::new(1, SymbolicPolynomialPredicateKind::EqualZero),
+            ],
+            vec![0..1, 1..2],
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert!(later_true.splits().is_empty());
+        assert_eq!(
+            later_true.classifications()[0].decisive_clause_ordinal(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn arbitrary_formula_preserves_repeated_occurrences_and_rejects_malformed_ranges() {
+        let context = context("affine-relative-arbitrary-occurrences", 1);
+        let repeated = AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero);
+        let certificate = compile_arbitrary(
+            &context,
+            indexed_loci(&context, 1),
+            Vec::new(),
+            vec![repeated, repeated, repeated],
+            vec![0..3],
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(certificate.atoms(), [repeated, repeated, repeated]);
+        assert_eq!(certificate.clause_range(0), Some(0..3));
+        assert_eq!(certificate.splits()[0].trigger().atom_ordinal(), 0);
+
+        assert!(matches!(
+            compile_arbitrary(
+                &context,
+                indexed_loci(&context, 1),
+                Vec::new(),
+                vec![repeated],
+                vec![0..0],
+                AffineWhenBadArbitraryRelativeLimits::default(),
+            ),
+            Err(AffineWhenBadRelativeCaseError::MalformedFormulaClause { .. })
+        ));
     }
 
     #[test]
@@ -3156,6 +5271,483 @@ mod tests {
         }
     }
 
+    fn arbitrary_three_atom_problem(
+        context: &ParametricCoefficientContext,
+    ) -> AffineWhenBadArbitraryRelativeProblem {
+        AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+            indexed_loci(context, 3),
+            Vec::new(),
+            vec![
+                AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+                AffineWhenBadAtom::new(1, SymbolicPolynomialPredicateKind::NonZero),
+                AffineWhenBadAtom::new(2, SymbolicPolynomialPredicateKind::EqualZero),
+            ],
+            vec![0..3],
+        )
+    }
+
+    fn arbitrary_single_locus_formula_problem(
+        context: &ParametricCoefficientContext,
+    ) -> AffineWhenBadArbitraryRelativeProblem {
+        AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+            indexed_loci(context, 1),
+            Vec::new(),
+            vec![
+                AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+                AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::NonZero),
+                AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+            ],
+            vec![0..3],
+        )
+    }
+
+    fn arbitrary_divisibility_problem(
+        context: &ParametricCoefficientContext,
+    ) -> AffineWhenBadArbitraryRelativeProblem {
+        AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+            product_loci(context),
+            vec![AffineWhenBadInheritedTruth::new(
+                0,
+                SymbolicPolynomialPredicateKind::EqualZero,
+            )],
+            vec![AffineWhenBadAtom::new(
+                1,
+                SymbolicPolynomialPredicateKind::EqualZero,
+            )],
+            vec![0..1],
+        )
+    }
+
+    fn arbitrary_post_structural_validation_stats(
+        context: &ParametricCoefficientContext,
+        problem: &AffineWhenBadArbitraryRelativeProblem,
+    ) -> AffineWhenBadRelativeCaseStats {
+        let mut stats = AffineWhenBadRelativeCaseStats::default();
+        stats.context_fingerprint_bytes = context.fingerprint().len();
+        stats.retained_bytes = arbitrary_initial_retained_byte_envelope(
+            context.fingerprint().len(),
+            &problem.structural_loci,
+            &problem.inherited_truths,
+        )
+        .unwrap();
+        validate_structural_loci(
+            context,
+            &problem.structural_loci,
+            AffineWhenBadRelativeCaseLimits::default(),
+            &mut stats,
+            None,
+        )
+        .unwrap();
+        stats
+    }
+
+    #[test]
+    fn arbitrary_exact_resource_limits_replay_and_every_new_one_below_limit_rejects() {
+        let context = context("affine-relative-arbitrary-exact-limits", 3);
+        let baseline = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_three_atom_problem(&context),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        let compilation = baseline.compilation_stats();
+        let source_bytes = compilation.source_problem_owned_logical_byte_envelope();
+        let overall_peak = source_bytes
+            .checked_add(compilation.compiler_owned_logical_peak_upper_bound())
+            .unwrap();
+        let exact = AffineWhenBadArbitraryRelativeLimits {
+            relative: exact_limits(baseline.stats()),
+            max_source_problem_owned_logical_bytes: source_bytes,
+            max_formula_retained_owned_logical_bytes: compilation
+                .formula_retained_owned_logical_bytes(),
+            max_formula_compilation_owned_logical_peak_upper_bound: compilation
+                .formula_compilation_owned_logical_peak_upper_bound(),
+            max_work_owned_logical_peak_upper_bound: compilation
+                .work_owned_logical_peak_upper_bound(),
+            max_compiler_owned_logical_peak_upper_bound: compilation
+                .compiler_owned_logical_peak_upper_bound(),
+            max_compilation_owned_logical_peak_upper_bound: overall_peak,
+        };
+        let bounded = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_three_atom_problem(&context),
+            exact,
+        )
+        .unwrap();
+        bounded.replay(&context).unwrap();
+
+        type Setter = fn(&mut AffineWhenBadArbitraryRelativeLimits, usize);
+        let probes: [(&str, usize, Setter); 6] = [
+            (
+                "affine WhenBad arbitrary source problem owned logical bytes",
+                source_bytes,
+                |limits, value| limits.max_source_problem_owned_logical_bytes = value,
+            ),
+            (
+                "affine WhenBad arbitrary formula retained owned logical bytes",
+                compilation.formula_retained_owned_logical_bytes(),
+                |limits, value| limits.max_formula_retained_owned_logical_bytes = value,
+            ),
+            (
+                "affine WhenBad arbitrary formula compilation owned logical peak upper bound",
+                compilation.formula_compilation_owned_logical_peak_upper_bound(),
+                |limits, value| {
+                    limits.max_formula_compilation_owned_logical_peak_upper_bound = value
+                },
+            ),
+            (
+                "affine WhenBad arbitrary work owned logical peak upper bound",
+                compilation.work_owned_logical_peak_upper_bound(),
+                |limits, value| limits.max_work_owned_logical_peak_upper_bound = value,
+            ),
+            (
+                "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                compilation.compiler_owned_logical_peak_upper_bound(),
+                |limits, value| limits.max_compiler_owned_logical_peak_upper_bound = value,
+            ),
+            (
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                overall_peak,
+                |limits, value| limits.max_compilation_owned_logical_peak_upper_bound = value,
+            ),
+        ];
+        for (resource, observed, set) in probes {
+            assert!(observed > 0, "fixture must exercise {resource}");
+            let mut one_below = exact;
+            set(&mut one_below, observed - 1);
+            assert_resource(
+                AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                    &context,
+                    arbitrary_three_atom_problem(&context),
+                    one_below,
+                )
+                .unwrap_err(),
+                resource,
+            );
+        }
+    }
+
+    #[test]
+    fn arbitrary_replay_copy_limits_reject_before_every_problem_allocation() {
+        let context = context("affine-relative-arbitrary-replay-copy-limits", 3);
+        let compile = || {
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                AffineWhenBadArbitraryRelativeLimits::default(),
+            )
+            .unwrap()
+        };
+        let baseline = compile();
+        let source = baseline
+            .compilation_stats()
+            .source_problem_owned_logical_byte_envelope();
+        let compiler = baseline
+            .compilation_stats()
+            .compiler_owned_logical_peak_upper_bound();
+        assert!(source > 0 && compiler > 0);
+
+        let mut source_one_below = compile();
+        source_one_below
+            .limits
+            .max_source_problem_owned_logical_bytes = source - 1;
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        assert_resource(
+            source_one_below.replay(&context).unwrap_err(),
+            "affine WhenBad arbitrary source problem owned logical bytes",
+        );
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 0);
+
+        let mut global_one_below = compile();
+        global_one_below
+            .limits
+            .max_compilation_owned_logical_peak_upper_bound =
+            source.checked_add(compiler).unwrap() - 1;
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        assert_resource(
+            global_one_below.replay(&context).unwrap_err(),
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+        );
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 0);
+
+        let mut exact_limits = AffineWhenBadArbitraryRelativeLimits::default();
+        exact_limits.max_source_problem_owned_logical_bytes = source;
+        exact_limits.max_compiler_owned_logical_peak_upper_bound = compiler;
+        exact_limits.max_compilation_owned_logical_peak_upper_bound =
+            source.checked_add(compiler).unwrap();
+        let exact = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_three_atom_problem(&context),
+            exact_limits,
+        )
+        .unwrap();
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        exact.replay(&context).unwrap();
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 4);
+    }
+
+    #[test]
+    fn arbitrary_replay_copy_envelope_covers_large_gmp_polynomials() {
+        let context = context("affine-relative-arbitrary-replay-large-gmp", 2);
+        let mut huge = context.integer(2);
+        for _ in 0..12 {
+            huge = context.mul(&huge, &huge).unwrap();
+        }
+        let shifted = context.add(&context.index(0).unwrap(), &huge).unwrap();
+        let loci = vec![
+            context.numerator_condition(&shifted).unwrap(),
+            index_polynomial(&context, 1),
+        ];
+        let problem = AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+            loci,
+            vec![AffineWhenBadInheritedTruth::new(
+                1,
+                SymbolicPolynomialPredicateKind::NonZero,
+            )],
+            vec![AffineWhenBadAtom::new(
+                0,
+                SymbolicPolynomialPredicateKind::EqualZero,
+            )],
+            vec![0..1],
+        );
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert!(
+            certificate.structural_loci()[0]
+                .raw()
+                .coefficients
+                .iter()
+                .any(|coefficient| matches!(coefficient, Integer::Large(_)))
+        );
+        assert!(
+            certificate
+                .compilation_stats()
+                .source_problem_owned_logical_byte_envelope()
+                > 0
+        );
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        certificate.replay(&context).unwrap();
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 4);
+    }
+
+    #[test]
+    fn arbitrary_owned_peak_limits_reject_before_each_risky_reserve_seam() {
+        let context = context("affine-relative-arbitrary-pre-reserve-limits", 3);
+        let problem = arbitrary_three_atom_problem(&context);
+        let initial_retained = arbitrary_initial_retained_byte_envelope(
+            context.fingerprint().len(),
+            &problem.structural_loci,
+            &problem.inherited_truths,
+        )
+        .unwrap();
+        assert!(initial_retained > 0);
+
+        let mut before_context = AffineWhenBadArbitraryRelativeLimits::default();
+        before_context.max_compiler_owned_logical_peak_upper_bound = initial_retained - 1;
+        reset_arbitrary_partition_reserve_observations_for_test();
+        assert_resource(
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                before_context,
+            )
+            .unwrap_err(),
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+        );
+        assert_eq!(
+            arbitrary_partition_reserve_observations_for_test(),
+            (false, false, false, false, false, false),
+        );
+
+        let post_structural =
+            arbitrary_post_structural_validation_stats(&context, &problem).retained_bytes;
+        assert!(post_structural > initial_retained);
+        let mut before_canonical = AffineWhenBadArbitraryRelativeLimits::default();
+        before_canonical.max_compiler_owned_logical_peak_upper_bound = post_structural - 1;
+        reset_arbitrary_partition_reserve_observations_for_test();
+        assert_resource(
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                before_canonical,
+            )
+            .unwrap_err(),
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+        );
+        assert_eq!(
+            arbitrary_partition_reserve_observations_for_test(),
+            (true, false, false, false, false, false),
+        );
+
+        let inherited_validation_work =
+            capacity_byte_envelope(problem.structural_loci.len(), size_of::<bool>()).unwrap();
+        assert!(inherited_validation_work > 0);
+        let mut before_seen = AffineWhenBadArbitraryRelativeLimits::default();
+        before_seen.max_work_owned_logical_peak_upper_bound = inherited_validation_work - 1;
+        reset_arbitrary_partition_reserve_observations_for_test();
+        assert_resource(
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                before_seen,
+            )
+            .unwrap_err(),
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+        );
+        assert_eq!(
+            arbitrary_partition_reserve_observations_for_test(),
+            (true, true, false, false, false, false),
+        );
+
+        let baseline = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_three_atom_problem(&context),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        let mut before_formula = AffineWhenBadArbitraryRelativeLimits::default();
+        before_formula.max_formula_compilation_owned_logical_peak_upper_bound = baseline
+            .compilation_stats()
+            .formula_compilation_owned_logical_peak_upper_bound()
+            - 1;
+        reset_arbitrary_partition_reserve_observations_for_test();
+        assert_resource(
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                before_formula,
+            )
+            .unwrap_err(),
+            "affine WhenBad arbitrary formula compilation owned logical peak upper bound",
+        );
+        assert_eq!(
+            arbitrary_partition_reserve_observations_for_test(),
+            (true, true, true, true, false, false),
+        );
+
+        let formula_problem = arbitrary_single_locus_formula_problem(&context);
+        let formula_post_structural =
+            arbitrary_post_structural_validation_stats(&context, &formula_problem).retained_bytes;
+        let formula_source_bytes = formula_problem
+            .retained_owned_logical_byte_bound()
+            .unwrap()
+            .max(
+                arbitrary_replay_source_problem_owned_logical_byte_envelope(
+                    &formula_problem.structural_loci,
+                    formula_problem.inherited_truths.len(),
+                    formula_problem.atoms.len(),
+                    formula_problem.clause_ranges.len(),
+                )
+                .unwrap(),
+            );
+        let formula_preflight = ArbitraryDirectBadFormula::<AffineWhenBadAtom>::preflight_compile(
+            &formula_problem.atoms,
+            &formula_problem.clause_ranges,
+            arbitrary_formula_limits(AffineWhenBadRelativeCaseLimits::default()),
+        )
+        .unwrap();
+        let formula_storage = formula_preflight
+            .atom_storage_bytes()
+            .checked_add(formula_preflight.clause_storage_bytes())
+            .unwrap();
+        let formula_compilation_extra = formula_preflight
+            .compilation_owned_logical_peak_upper_bound()
+            .checked_sub(formula_preflight.retained_owned_logical_bytes())
+            .unwrap();
+        let formula_phase_compiler_peak = formula_post_structural
+            .checked_add(formula_storage)
+            .and_then(|value| value.checked_add(formula_compilation_extra))
+            .unwrap();
+        assert!(formula_phase_compiler_peak > formula_post_structural);
+        for (resource, limits) in [
+            (
+                "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                {
+                    let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+                    limits.max_compiler_owned_logical_peak_upper_bound =
+                        formula_phase_compiler_peak - 1;
+                    limits
+                },
+            ),
+            (
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                {
+                    let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+                    limits.max_compilation_owned_logical_peak_upper_bound = formula_source_bytes
+                        .checked_add(formula_phase_compiler_peak)
+                        .unwrap()
+                        - 1;
+                    limits
+                },
+            ),
+        ] {
+            reset_arbitrary_partition_reserve_observations_for_test();
+            assert_resource(
+                AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                    &context,
+                    arbitrary_single_locus_formula_problem(&context),
+                    limits,
+                )
+                .unwrap_err(),
+                resource,
+            );
+            assert_eq!(
+                arbitrary_partition_reserve_observations_for_test(),
+                (true, true, true, true, false, false),
+            );
+        }
+
+        reset_arbitrary_partition_reserve_observations_for_test();
+        let divisibility = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_divisibility_problem(&context),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(divisibility.stats().locus_divisibility_checks(), 0);
+        assert_eq!(divisibility.stats().locus_divisibility_cache_entries(), 0);
+        assert_eq!(
+            arbitrary_partition_reserve_observations_for_test(),
+            (true, true, true, true, true, false),
+            "the resource-bounded arbitrary path must not enter Symbolica's uninstrumented quotient optimization",
+        );
+    }
+
+    #[test]
+    fn arbitrary_compile_and_replay_panics_are_caught_at_typed_boundaries() {
+        let context = context("affine-relative-arbitrary-panic", 3);
+        inject_arbitrary_partition_compile_panic_for_test();
+        assert!(matches!(
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                AffineWhenBadArbitraryRelativeLimits::default(),
+            ),
+            Err(AffineWhenBadRelativeCaseError::SymbolicaPanic {
+                stage: "arbitrary relative partition compilation",
+            })
+        ));
+
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            arbitrary_three_atom_problem(&context),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        inject_arbitrary_partition_replay_panic_for_test();
+        assert!(matches!(
+            certificate.replay(&context),
+            Err(AffineWhenBadRelativeCaseError::SymbolicaPanic {
+                stage: "arbitrary relative partition replay",
+            })
+        ));
+        certificate.replay(&context).unwrap();
+    }
+
     #[test]
     fn divisibility_limits_are_transactional_and_exact() {
         let context = context("affine-relative-divisibility-limits", 2);
@@ -3235,6 +5827,40 @@ mod tests {
         understated_census.stats.payload_comparison_units -= 1;
         assert!(matches!(
             understated_census.replay(&context),
+            Err(AffineWhenBadRelativeCaseError::ReplayMismatch)
+        ));
+    }
+
+    #[test]
+    fn tampered_arbitrary_occurrence_leaf_and_stats_do_not_replay() {
+        let context = context("affine-relative-arbitrary-tamper", 3);
+        let compile = || {
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                &context,
+                arbitrary_three_atom_problem(&context),
+                AffineWhenBadArbitraryRelativeLimits::default(),
+            )
+            .unwrap()
+        };
+
+        let mut occurrence = compile();
+        occurrence.splits[0].trigger.atom_ordinal = usize::MAX;
+        assert!(matches!(
+            occurrence.replay(&context),
+            Err(AffineWhenBadRelativeCaseError::ReplayMismatch)
+        ));
+
+        let mut leaf = compile();
+        leaf.classifications[0].decisive_clause_ordinal = Some(usize::MAX);
+        assert!(matches!(
+            leaf.replay(&context),
+            Err(AffineWhenBadRelativeCaseError::ReplayMismatch)
+        ));
+
+        let mut stats = compile();
+        stats.stats.payload_comparison_units -= 1;
+        assert!(matches!(
+            stats.replay(&context),
             Err(AffineWhenBadRelativeCaseError::ReplayMismatch)
         ));
     }

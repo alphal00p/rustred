@@ -1998,6 +1998,10 @@ fn precharge_associate_comparison(
             limits.max_associate_rustred_visible_temporary_byte_envelope,
             stats.associate_rustred_visible_temporary_byte_envelope,
         )?,
+        // This older aggregate has independent cumulative component limits.
+        // Their sum is not an owner-wide byte ceiling, so preserve its V1
+        // contract while the newer owner supplies a finite combined limit.
+        max_combined_temporary_byte_envelope: usize::MAX,
     };
     stats.associate_checks = prospective_checks;
     stats.associate_term_units = prospective_terms;

@@ -23,11 +23,11 @@ all of LiteRed.
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
-| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate, with boundary hazards retained for later `WhenBad` partitioning |
-| Project physical-parameter identities, schedule exact Ready condition sources, and materialize their mapped payload | Implemented internally as an owner-bound, non-publishing phase: Symbolica projects both the pre-normalization and normalized denominator identities, and exact lazy hazards are specialized into boundary events with numerator divisibility; relative partitioning and publication remain pending |
+| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate and feed the implemented condition/materialization/partition owners |
+| Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally as owner-bound, non-publishing phases: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is partitioned with replayable provenance; atomic publication remains pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
-| Track published LiteRed notebook parity | Eight LiteRed 1.x examples inventoried with staged acceptance levels; no complete notebook workflow passes yet |
+| Track published LiteRed notebook parity | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
 | Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
 
@@ -289,8 +289,9 @@ The repository currently includes tests for:
   three-valued provenance, plus a source-neutral affine-boundary kernel that
   constructs exact arbitrary-width boundaries, composes compact affine maps,
   and asks Symbolica for exact polynomial divisibility. Its focused licensed
-  default-GMP tests passed 12/12 routing cases and 8/8 boundary cases, and the
-  complete parallel library suite passed 1091/1091. The subsequent owner-bound
+  default-GMP tests passed 12/12 routing cases and 8/8 boundary cases, and that
+  pre-partition checkpoint's complete parallel library suite passed 1091/1091.
+  The subsequent owner-bound
   materialization phase now maps sources in schedule order, retaining the full
   schedule for a partition-ready outcome or the decisive prefix for an
   identically-bad outcome. It keeps distinct physical-parameter projections
@@ -302,8 +303,17 @@ The repository currently includes tests for:
   four retained bad boundaries. Exact/one-below resource, retry-ownership,
   replay, foreign-owner, and global retained/peak accounting gates passed
   16/16 focused tests with default GMP and four Rust test threads. This phase
-  consumes no target and publishes no rule; it does not construct a relative
-  partition, perform a reduction, or establish six-loop support; and
+  consumes no target and publishes no rule. The following owner-bound phase
+  now constructs the relative partition of its current-lineage arbitrary-width
+  OR-of-AND bad formula, retaining every mapped-source/locus/formula occurrence
+  and classifying applicable versus exceptional leaves without topology
+  dispatch. A licensed default-GMP focused run passed all 8 partition-module
+  tests with four Rust test threads. The authoritative post-partition
+  default-GMP `cargo nextest run --workspace --all-targets --test-threads 4`
+  regression ran 1,640 tests and passed all 1,640, with 5 additional configured
+  cases skipped. This phase still
+  performs no target consumption, rule publication, reduction, or six-loop
+  topology solve; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -374,17 +384,36 @@ source-neutral core now also routes arbitrary-width direct formulas and
 specializes lazy affine boundaries by exact Symbolica polynomial divisibility.
 The owner-bound non-publishing materializer binds those kernels into a mapped-
 condition transcript, including both denominator-identity projections and the
-ordered boundary events. The active slice must build complete relative
-`WhenBad` partitions and publish atomically. Graph-
+ordered boundary events. The subsequent move-only owner now builds and replays
+the relative `WhenBad` partition for the assembled current-lineage arbitrary-
+width OR-of-AND formula. The active slice must consume the selected target and
+publish the guarded rule plus exceptional residual work atomically. Graph-
 lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
 
-Alongside that staged algebra migration, pushed checkpoint `c593865` binds one
-explicit `IntegralOrderingPolicy` into every normalized source, including an
-empty-attempt source, and authenticates every present candidate's policy. The
-current checkpoint additionally carries an `Actionable` Direct singleton from
+Two measured architectural scaling blockers remain in this new seam. First, the
+outer first-seen locus interner and the defensive raw-problem validator each
+perform an all-pairs Symbolica associate scan. This is correct and contains no
+RustRed polynomial algebra, but duplicates `O(N^2)` CAS work. The immediate
+source-neutral fix is an authenticated canonical-locus owner/token that lets
+the trusted path skip the second scan while retaining the raw validator as a
+defensive/test entry path. A future censused use of Symbolica's exact monic
+`K[n]` normalization can supply a key for indexed interning, but its current
+normalization API has no fallible workspace census. Second, Symbolica's
+rational-polynomial division and projected `try_div` APIs expose no pre-
+allocation GCD/quotient workspace bound.
+The resource-bounded arbitrary path therefore performs complete exact
+splitting without divisibility-based pruning; the public V1 compatibility path
+retains its historical behavior. Restore that optimization only through a
+censused Symbolica seam and a bounded ordinal-pair index.
+
+Alongside that staged algebra migration, historical pushed checkpoint
+`c593865` binds one explicit `IntegralOrderingPolicy` into every normalized
+source, including an empty-attempt source, and authenticates every present
+candidate's policy. Subsequent current-lineage work additionally carries an
+`Actionable` Direct singleton from
 the allocation-independent terminal stable-value identity through ordering V3,
 physical frame V2, solve-plan V2, and source-profiled exact-session staging and
 recentering. The row span is emitted once through typed identity references;
@@ -402,14 +431,14 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style solver work is to:
 
-1. construct the relative `WhenBad` partition from the implemented owning
-   mapped-condition transcript, close exceptional branches, and atomically
-   publish guarded rules and residual work;
+1. atomically consume the selected target and publish guarded rules plus the
+   exceptional residual work from the implemented owning current-lineage
+   formula partition;
 2. feed solved subsectors into supersectors and iterate residual cases; and
 3. expose a replay-certified complete reduction result.
 
-This checkpoint is not a complete LiteRed port, complete `WhenBad` or rule
-publication, an arbitrary one-loop pentagon reduction, or completion of the
+This current-lineage state is not a complete LiteRed port, complete `WhenBad`
+or rule publication, an arbitrary one-loop pentagon reduction, or completion of the
 two- through six-loop reduction campaign. Concrete multi-loop families
 currently serve only as bounded validation fixtures. Non-vacuum pentagon work
 remains in scope but is behind the vacuum rule-foundry and batch-application
@@ -433,9 +462,9 @@ direct cursor remains millisecond-scale. The 18.51-second source replay and
 validation and are not production direct-search phases. Normalized-source V2
 now carries and authenticates `IntegralOrderingPolicy`; the focused 21/21 and
 14/14 suites, independent 30/30 audit/validation, and policy-bound K21 1/1 run
-listed above passed. This checkpoint's coordinate-affine terminal now has an
-allocation-independent stable-value identity and reaches the source-profiled
-exact session through Direct solve-plan V2, ordering V3, and physical frame V2,
+listed above passed. Subsequent checkpoints add an allocation-independent
+stable-value identity to the coordinate-affine terminal and reach the source-
+profiled exact session through Direct solve-plan V2, ordering V3, and physical frame V2,
 with exact `Arc` ancestry kept separate and no fake inventory. Authenticated
 selector-independent compact affine maps reach the unpublished
 `ReadyForConditions` gate, and the new owner-bound plan schedules its exact
@@ -444,8 +473,10 @@ physical-parameter identity projection, arbitrary-width direct-formula
 routing, and the exact affine-boundary mapping/divisibility kernel are also
 implemented. The current owner-bound materializer maps the scheduled payload,
 retains both denominator projections, and specializes exact boundary events
-without consuming a target or publishing a rule. The immediate gates are
-relative `WhenBad` partitioning and atomic guarded publication. No arity-21
+without consuming a target or publishing a rule. The move-only owner then
+builds and replays the relative `WhenBad` partition of the assembled current-
+lineage arbitrary-width OR-of-AND formula. The
+immediate gate is atomic guarded publication and residual hand-off. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.
 

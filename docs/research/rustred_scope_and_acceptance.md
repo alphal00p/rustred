@@ -4,9 +4,13 @@ Date: 2026-08-13. Reconciled with the LiteRed/Symbolica/Vakint source audits
 on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
 on 2026-08-24. Implementation status was reconciled with pushed checkpoint
 `c593865` and the Direct singleton stable-identity/exact-session Ready-ingress
-checkpoint on 2026-08-25.
-Owner-bound non-publishing mapped-condition materialization and its
-production-derived sector-011 acceptance were reconciled on 2026-08-26.
+checkpoint on 2026-08-25. Owner-bound non-publishing mapped-condition
+materialization, its production-derived sector-011 acceptance, and the
+subsequent current-lineage relative-partition slice were reconciled on
+2026-08-26. The focused partition gate passed 8/8. The authoritative
+post-partition default-GMP
+`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
+1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
 
 ## Reading status
 
@@ -177,12 +181,14 @@ boundary, and FORM-free one-loop Vakint scalar/tensor oracles.  Those concrete
 families validate generation; they do not establish complete LiteRed
 `SolvejSector` parity.
 
-Published LiteRed examples are now a separate, explicit acceptance lane.  The
-eight LiteRed 1.x notebooks and the LiteRed2 example notebooks will be tracked
+Published LiteRed examples are now a separate, explicit acceptance lane. The
+eight LiteRed 1.x notebooks and three LiteRed2 example notebooks are inventoried
+at level 0 and will be tracked
 from input normalization through identity, sector/symmetry, parametric-rule,
 target-reduction, and auxiliary-recurrence parity.  Current ingredient tests
-do not count as complete notebook passes.  The initial inventory and honest
-status baseline are recorded in
+do not count as complete notebook passes, and no translated notebook acceptance
+fixture is checked in yet. The initial inventory and honest status baseline are
+recorded in
 [`litered_examples_acceptance_matrix.md`](litered_examples_acceptance_matrix.md).
 
 The post-cylindrical-elimination library checkpoint is licensed GMP nextest
@@ -292,10 +298,23 @@ retry-owner recovery, replay, foreign-owner rejection, and global retained/
 peak accounting. This materializer consumes no target, publishes no rule, and
 does not establish a reduction.
 
-The immediate generic semantic slice is now the relative `WhenBad` partition
-and atomic guarded-rule/residual publication, followed by solved-subsector
-feedback into supersectors. It must not reconstruct V4, V5, the live-leaf
-queue, or old Boolean/DPLL certificates along the way.
+The following move-only, non-publishing slice is now implemented as well. It
+assembles the current-lineage arbitrary-width OR-of-AND bad formula from the
+mapped owner, interns first-seen structural loci through Symbolica-backed
+exact/associate tests while retaining every occurrence provenance, and builds
+its replayable applicable/exceptional relative partition. A licensed
+default-GMP focused run passed all 8 module tests with four Rust test threads.
+The authoritative post-partition default-GMP
+`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
+1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
+This slice consumes no
+target, publishes no rule, and has no topology or loop-count dispatch. It does
+not establish complete LiteRed `WhenBad` closure.
+
+The immediate generic semantic slice is now atomic guarded-rule/residual
+publication from that owner, followed by solved-subsector feedback into
+supersectors. It must not reconstruct V4, V5, the live-leaf queue, or old
+Boolean/DPLL certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -333,7 +352,9 @@ generated IBP/LI rows
 -> symbolic pivot recentering
 -> owner-bound mapped conditions, dual denominator projections,
    and exact RHS-boundary events                                  [implemented, nonpublishing]
--> relative WhenBad partition and atomic guarded publication      [next]
+-> owner-bound relative partition of the current-lineage
+   arbitrary-width OR-of-AND formula                              [implemented, nonpublishing]
+-> atomic guarded publication and residual hand-off               [next]
 -> exceptional-domain recursion and solved-subsector feedback
 -> replayed coverage certificate
 -> generic provider and descending application
@@ -366,12 +387,9 @@ than an arbitrary non-vacuum pentagon milestone.
 
 ## Legacy loop-specific oracle surface
 
-The current source still exposes authored one-, two-, and three-loop reducers
-and hardcoded IBP weights from `src/lib.rs`.  The canonical-`I2L`
-`VakintTwoLoopAdapter` has been removed from the default surface and is
-available only through the non-default `legacy-authored-oracles` feature.
-Those implementations are regression/oracle fixtures, not admissible
-production derivation.  They must move behind an explicit test-support
-boundary (and ultimately out of the default public library surface).  No
-acceptance milestone may call them on the RustRed subject path; only the
-freshly generated generic rules may produce the result being compared.
+All authored loop/topology reducers and hardcoded IBP weights, including the
+canonical-`I2L` `VakintTwoLoopAdapter`, are excluded from the default surface
+behind the non-default `legacy-authored-oracles` feature. Those implementations
+are regression/oracle fixtures, not admissible production derivation. No
+acceptance milestone may call them on the RustRed subject path; only freshly
+generated generic rules may produce the result being compared.

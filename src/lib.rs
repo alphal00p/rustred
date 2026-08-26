@@ -114,6 +114,7 @@ mod generated_affine_residual_group_exact_session;
 mod generated_affine_residual_group_exact_targets;
 mod generated_affine_residual_group_exact_when_bad_conditions;
 mod generated_affine_residual_group_exact_when_bad_materialization;
+mod generated_affine_residual_group_exact_when_bad_partition;
 mod generated_affine_residual_group_physical_key;
 mod generated_affine_residual_group_ready_publication;
 #[cfg(test)]
