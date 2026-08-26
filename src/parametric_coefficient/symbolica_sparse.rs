@@ -25,6 +25,18 @@ use crate::parametric_elimination::{
     ParametricCoefficientWorkStats,
 };
 
+// This adapter is intentionally private and not integrated into the live
+// database yet. Keeping the allowance here makes that staging explicit while
+// focused tests exercise the complete seam.
+#[allow(dead_code)]
+mod persistent;
+
+#[allow(unused_imports)]
+pub(crate) use persistent::{
+    SymbolicaPersistentSparseLimits, SymbolicaPersistentSparseOutcome,
+    SymbolicaPersistentSparseReducer, SymbolicaPersistentSparseStats,
+};
+
 /// Resource envelope for one temporary native forward-reduction transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SymbolicaParametricSparseLimits {
@@ -294,6 +306,19 @@ pub(crate) enum SymbolicaParametricSparseError {
         previous: usize,
         current: usize,
     },
+    DecreasingColumnInsertions {
+        previous: usize,
+        current: usize,
+    },
+    ColumnInsertionOutOfRange {
+        ordinal: usize,
+        position: usize,
+        physical_columns: usize,
+    },
+    MissingInsertedColumnCandidateEntry {
+        ordinal: usize,
+        final_column: usize,
+    },
     ExplicitZero {
         row: usize,
         column: usize,
@@ -315,6 +340,7 @@ pub(crate) enum SymbolicaParametricSparseError {
     NativeTranscriptMismatch {
         operation: &'static str,
     },
+    NewColumnDependentCandidate,
 }
 
 impl fmt::Display for SymbolicaParametricSparseError {
@@ -354,6 +380,25 @@ impl fmt::Display for SymbolicaParametricSparseError {
                 formatter,
                 "sparse row {row} columns are not strictly increasing at {previous}, {current}"
             ),
+            Self::DecreasingColumnInsertions { previous, current } => write!(
+                formatter,
+                "sparse column insertion positions decrease at {previous}, {current}"
+            ),
+            Self::ColumnInsertionOutOfRange {
+                ordinal,
+                position,
+                physical_columns,
+            } => write!(
+                formatter,
+                "sparse column insertion {ordinal} at old-coordinate position {position} is outside 0..={physical_columns}"
+            ),
+            Self::MissingInsertedColumnCandidateEntry {
+                ordinal,
+                final_column,
+            } => write!(
+                formatter,
+                "sparse column insertion {ordinal} is missing a nonzero candidate entry at final-coordinate column {final_column}"
+            ),
             Self::ExplicitZero { row, column } => {
                 write!(
                     formatter,
@@ -384,6 +429,9 @@ impl fmt::Display for SymbolicaParametricSparseError {
                     "Symbolica returned an invalid sparse {operation} transcript"
                 )
             }
+            Self::NewColumnDependentCandidate => formatter.write_str(
+                "a candidate with a nonzero newly inserted column was classified as dependent",
+            ),
         }
     }
 }

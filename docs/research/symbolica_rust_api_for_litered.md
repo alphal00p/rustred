@@ -691,7 +691,8 @@ onward). RustRed must therefore map the hardest physical integral key to the
 smallest column. The temporary correctness bridge prebuilds the complete
 per-stage key catalog, reverses it so hardest maps to column zero, and uses
 `ncols = K + 1` for the sentinel. `add_cols` is the retained-state seam for the
-planned persistent design, although RustRed does not use that design yet.
+implemented private persistent adapter, although the live database has not yet
+adopted that adapter and its retained complete catalog.
 RustRed owns this physics ordering, but Symbolica owns the pivot arithmetic and
 row reduction.
 
@@ -780,7 +781,8 @@ the committed reducer only after a successful independent outcome. In
 but appends one `L` row containing its elimination factors and no diagonal.
 RustRed can decode that row and discard the trial, keeping the committed state
 unchanged. Thus there is **no upstream functional blocker** to a persistent
-native reducer, but RustRed has **not implemented this persistent path yet**.
+native reducer. RustRed now implements the topology-neutral private adapter;
+the live database transaction does not yet use it.
 
 The local RustRed prerequisite is now implemented. The checked field owns an
 `Arc<ParametricCoefficientContext>` and its clones share an `Arc` controller
@@ -793,16 +795,18 @@ cover owned-context lifetime and `Send + Sync`, rejection outside an active
 stage, sibling-clone serialization, unknown-panic recovery, and deterministic
 typed-abort/retry cleanup.
 
-This ownership/controller slice does not retain native algebra state.
-`forward_reduce_last_row` still constructs a temporary reducer and replays all
-prior pivots on every call, and the exact database does not yet retain the
-complete matching column catalog. Its transitional construction uses
-`Arc::new(context.clone())` once per call. That infallible, potentially
-nontrivial context clone is outside persistent-state memory admission and
-accounting; the retained owner must instead hold one already-admitted context
-`Arc`. Clone-on-stage reducer/catalog integration is the next implementation
-step. Forward reduction within one ordered reducer remains serial; multi-core
-campaign execution should run independent reducers across shards.
+The private `SymbolicaPersistentSparseReducer` now retains native algebra
+state and one already-admitted context `Arc`. A stage clones the committed
+reducer, inserts old-coordinate columns (duplicates included), validates the
+post-insertion remap, submits one final-coordinate candidate, and authenticates
+the complete historical U/L/pivot prefix after native execution. Empty,
+dependent, rejected, and failed trials own no successor. Only an independent
+trial advances state. `forward_reduce_last_row` nevertheless remains the live
+database path and still replays prior pivots on every call because the exact
+database does not yet retain the matching complete easiest-first catalog.
+Reducer/catalog integration is the next implementation step. Forward
+reduction within one ordered reducer remains serial; multi-core campaign
+execution will run independently controlled reducers across case lanes/shards.
 
 The remaining upstream gaps are resource/performance interfaces, not
 correctness blockers. `Clone` deeply copies the vector-backed `U`, `L`, pivots,
@@ -825,7 +829,7 @@ would destroy the state required by later incremental rows and provenance.
 
 **Behavior probe LA-3:** confirm parallel back-substitution output order; the implementation may permute output rows (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:2393-2498`). RustRed artifacts must be sorted semantically regardless.
 
-**Adapter probe LA-4 (live checked boundary):** 13/13 focused licensed
+**Adapter probe LA-4 (live rebuild boundary):** 13/13 focused licensed
 default-GMP tests passed in parallel. They exercise an independent nonmonotone
 `L` trace, dependence at full physical rank through the sentinel, canonical
 empty input, malformed sparse input, borrowed-input behavior, prospective and
@@ -841,6 +845,17 @@ context lifetime and `Send + Sync`, inactive-stage rejection, sibling-stage
 serialization, unknown-panic cleanup/retry, and typed-abort cleanup with fresh
 per-stage accounting. They establish the storage prerequisite only, not the
 persistent reducer/database integration.
+
+**Adapter probe LA-5 (private retained boundary):** 15/15 focused licensed
+default-GMP tests pass with four test threads. They cover front/middle/back and
+duplicate old-coordinate insertions, rational/index coefficients, nonmonotone
+traces, canonical empty/dependent/independent/full-physical-rank outcomes,
+stage-by-stage equality with the rebuilding oracle, base immutability after
+discarded trials, inserted-coverage precedence, independent-rank precedence,
+and exact historical U/L/pivot-prefix rejection. The complete sparse adapter
+suite passes 18/18 and the unchanged live exact database passes 39/39. This
+establishes the retained adapter contract, not its database/catalog integration
+or a physical reduction.
 
 ## 11. Tensor support and the Vakint boundary
 

@@ -3316,11 +3316,15 @@ fn map_symbolica_sparse_error(
         SymbolicaParametricSparseError::EmptyPriorRow { .. }
         | SymbolicaParametricSparseError::ColumnOutOfRange { .. }
         | SymbolicaParametricSparseError::NonIncreasingColumns { .. }
+        | SymbolicaParametricSparseError::DecreasingColumnInsertions { .. }
+        | SymbolicaParametricSparseError::ColumnInsertionOutOfRange { .. }
+        | SymbolicaParametricSparseError::MissingInsertedColumnCandidateEntry { .. }
         | SymbolicaParametricSparseError::ExplicitZero { .. }
         | SymbolicaParametricSparseError::DependentPriorRow { .. }
         | SymbolicaParametricSparseError::PriorRowReplayMismatch { .. }
         | SymbolicaParametricSparseError::UnexpectedFieldOperation { .. }
-        | SymbolicaParametricSparseError::NativeTranscriptMismatch { .. } => {
+        | SymbolicaParametricSparseError::NativeTranscriptMismatch { .. }
+        | SymbolicaParametricSparseError::NewColumnDependentCandidate => {
             GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
         }
     }
