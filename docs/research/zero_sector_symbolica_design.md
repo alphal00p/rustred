@@ -4,7 +4,7 @@ Date: 2026-08-13
 
 Status: implementation-ready source design.  This document specifies the next
 generic RustRed layer; it does not implement it.  It was derived by reading the
-vendored LiteRed Mathematica source, RustRed's authenticated generic-family and
+vendored LiteRed2 Mathematica source, RustRed's authenticated generic-family and
 sector foundations, and the vendored Symbolica Rust API.  No Mathematica or
 FORM process is required by the design or its tests.
 

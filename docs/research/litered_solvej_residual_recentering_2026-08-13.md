@@ -1,11 +1,15 @@
 # LiteRed `SolvejSector`: residual-case recentering contract
 
-This note records the part of LiteRed's Mathematica implementation that must
-govern RustRed after initial parametric IBP/LI generation.  It is a source
-reading of `vendor/LiteRed2/Source/LiteRed2026.m`, principally the
+This note records LiteRed2 behavior that informs RustRed after initial
+parametric IBP/LI generation. It is source analysis rather than an API,
+architecture, scheduling, or bug-compatibility contract. The mathematical
+identities and residual cases identified here are acceptance inputs for a
+better-structured generic RustRed implementation. It is a source reading of
+`vendor/LiteRed2/Source/LiteRed2026.m`, principally the
 `SolvejSector`, `preparepoints`, `WhenBad`, `SmartReduce`, `gatherRules`, and
-`deleteSpecific` definitions.  Mathematica is a specification source only;
-RustRed must implement the behavior with Rust and Symbolica.
+`deleteSpecific` definitions. LiteRed2 is conceptual and mathematical source
+evidence only; RustRed implements the accepted semantics with Rust and
+Symbolica.
 
 ## What LiteRed actually iterates
 

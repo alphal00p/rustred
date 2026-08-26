@@ -1,17 +1,17 @@
-# RustRed source-surface completeness and gap audit
+# RustRed capability-reference and implementation gap audit
 
 Date: 2026-08-14
 
 ## Status and reading rule
 
 This is a source-only audit of the governing RustRed scope against the
-vendored LiteRed, Symbolica, and Vakint trees.  No Cargo command, Mathematica,
+vendored LiteRed2, Symbolica, and Vakint trees.  No Cargo command, Mathematica,
 or FORM was run while preparing it.  Consequently:
 
 - **foundation present** means that a generic, reusable Rust implementation
   with the stated boundary exists in `src/`;
 - **partial** means that useful generic machinery exists but does not yet
-  reproduce the complete referenced behavior;
+  implement the complete adopted mathematical capability;
 - **missing** means that the audited production surface does not provide the
   corresponding behavior; and
 - none of those labels is a test-pass claim.
@@ -19,13 +19,14 @@ or FORM was run while preparing it.  Consequently:
 The acceptance scope remains
 [`rustred_scope_and_acceptance.md`](rustred_scope_and_acceptance.md).  This
 document prevents its requirements from being mistaken for completion
-evidence and supplies a source-by-source closure roadmap.  Priorities order
-implementation work; they do not remove lower-priority LiteRed behavior from
-the final scope.
+evidence and supplies a source-informed closure roadmap.  LiteRed2 entries are
+conceptual and mathematical evidence, not an API, architecture, sequencing,
+ordering, global-state, or bug-compatibility contract.  Priorities order
+implementation work within RustRed's independently stated capability scope.
 
 ## Executive result
 
-### Completed foundations, but not complete LiteRed parity
+### Completed foundations, but not complete RustRed capability coverage
 
 The following foundations are genuinely topology- and loop-count independent:
 
@@ -54,7 +55,7 @@ The following foundations are genuinely topology- and loop-count independent:
 These components are suitable building blocks.  They do **not** collectively
 implement `SolvejSector`, completed `ToAB`, the denominator-set/PF layer, full
 sector and symmetry discovery, the complete Vakint input/application layer,
-or the rest of LiteRed's public behavior.
+or the rest of RustRed's adopted mathematical capabilities.
 
 ### Highest-priority incomplete paths
 
@@ -70,72 +71,77 @@ or the rest of LiteRed's public behavior.
 | P1 | Tensor projection is vacuum-only and not yet scalable to the full Vakint rank surface. | External indexed vectors are rejected at [`generic_tensor_projector.rs:1-17`](../../src/generic_tensor_projector.rs#L1); defaults stop at rank eight/105 pairings at [`generic_tensor_projector.rs:45-91`](../../src/generic_tensor_projector.rs#L45), and orbit reduction is future work at [`generic_tensor_projector.rs:953-956`](../../src/generic_tensor_projector.rs#L953). | Add the external-vector covariant basis, orbit-reduced projector generation, cached exact Gram solves, and rank-10 validation while retaining explicit guards and resource limits. |
 | P2 | Feynman-parametric syzygies, dimensional recurrence, differential systems, denominator-only APIs, and graph utilities are incomplete or absent. | LiteRed source regions are catalogued below. | Implement these after the P0/P1 reduction engine is generic and validated; do not substitute loop-specific formulas. |
 
-## LiteRed public-surface classification roadmap
+## LiteRed2 capability/reference inventory
 
 The public package declaration occupies
 [`LiteRed2026.m:39-303`](../../vendor/LiteRed2/Source/LiteRed2026.m#L39).
-The table below accounts for every uncommented LiteRed-context symbol
-intentionally listed as public-facing in that header.  It excludes private
-setup helpers, the internal `Global` to-do flag, and commented prototypes that
-the source itself says are unimplemented.  It is a semantic classification,
-not a demand to reproduce Mathematica globals literally.
+The table below inventories every uncommented LiteRed-context symbol listed as
+public-facing in that header.  It excludes private setup helpers, the internal
+`Global` to-do flag, and commented prototypes that the source itself says are
+unimplemented.  The inventory is non-normative: rows help identify possible
+capabilities and acceptance oracles, but do not require RustRed to reproduce
+Mathematica names, APIs, globals, internal algorithms, sequencing, or bugs.
 
 Classification keys:
 
-- **C0**: central family/IBP/reduction semantics; blocks the first complete
-  LiteRed-like scalar engine.
-- **C1**: required extended mathematical behavior.
-- **S**: public observable state or configuration; RustRed should expose a
-  typed equivalent and persist it where it affects semantics.
-- **A**: graph, import/export, reporting, or visualization adapter.  It remains
-  in eventual compatibility scope but cannot define the algebraic core.
-- **X**: alternative accelerator entry point.  Results remain required, but
-  the named external executable is not a semantic dependency.
-- **H**: deprecated, raw, or experimental surface.  It must be documented and
-  either compatibly supported or deliberately retired behind a migration
-  decision; it cannot silently disappear from an “exact LiteRed scope” claim.
+- **C0**: central family/IBP/reduction mathematical capability; blocks the
+  first complete RustRed scalar engine.
+- **C1**: adopted extended mathematical capability.
+- **S**: reference state or configuration; a typed RustRed equivalent is
+  required only where it changes mathematical results, artifact identity, or
+  reproducibility.
+- **A**: graph, import/export, reporting, or visualization adapter.  It is an
+  optional product capability unless independently adopted by RustRed and can
+  never define the algebraic core.
+- **X**: alternative accelerator entry point.  There is no compatibility
+  obligation for the named executable; any adopted result capability must
+  remain available through pure Rust and Symbolica.
+- **H**: deprecated, raw, or experimental surface.  It creates no compatibility
+  obligation unless RustRed independently adopts the underlying capability.
 
 | LiteRed public surface | Class / sequence | RustRed acceptance interpretation | Current source-level status | LiteRed source |
 |---|---|---|---|---|
-| `$LiteRedVersion`, `$LiteRedReleaseDate`, `$LiteRedLog`, `$LiteRedMonitor`, `$NamingFunction`, `NamingFunction`, `$LiteRedSyzygy` | S / P3 | Versioned schema, diagnostics policy, deterministic index naming, and syzygy mode in typed configuration. | Partial configuration, no public-surface parity claim. | [`:42-43,243-285`](../../vendor/LiteRed2/Source/LiteRed2026.m#L42) |
+| `$LiteRedVersion`, `$LiteRedReleaseDate`, `$LiteRedLog`, `$LiteRedMonitor`, `$NamingFunction`, `NamingFunction`, `$LiteRedSyzygy` | S / P3 | Versioned schema, diagnostics policy, deterministic index naming, and syzygy mode where these affect adopted semantics or reproducibility. | Partial typed configuration; no Mathematica-surface compatibility goal. | [`:42-43,243-285`](../../vendor/LiteRed2/Source/LiteRed2026.m#L42) |
 | `$ActiveBases`, `BasisDirectory`, `Definitions`, `ExecuteDefinitions`, `CheckDefinitions`, `CurrentState` | S / P1 | Explicit session/catalog object, validated family definitions, and queryable state; no process-global mutable truth. | Partial family objects; complete session/catalog behavior missing. | [`:57,92-98`](../../vendor/LiteRed2/Source/LiteRed2026.m#L57) |
 | `CompleteMomentaFlow`, `GraphToDs`, `GraphToAmplitude` | A+C1 / P2 | Generic graph/routing intake that produces an authenticated family/amplitude. | Missing. | [`:60-62`](../../vendor/LiteRed2/Source/LiteRed2026.m#L60), [`:940-1149`](../../vendor/LiteRed2/Source/LiteRed2026.m#L940) |
-| `PowerShifts` | S+C0 / P0 | Symbolic denominator shifts are family data and participate in fingerprints, mappings, and generated relations. | Foundation present for affine families; full compatibility incomplete. | [`:65`](../../vendor/LiteRed2/Source/LiteRed2026.m#L65) |
+| `PowerShifts` | S+C0 / P0 | Symbolic denominator shifts are family data and participate in fingerprints, mappings, and generated relations. | Foundation present for affine families; downstream capability integration incomplete. | [`:65`](../../vendor/LiteRed2/Source/LiteRed2026.m#L65) |
 | `NewDsSet`, `NewDsBases`, `SetToBasesRule`, `DsSetQ`, `Relations` | C0 / P1 | Dependent/overcomplete denominator-set model, its independent bases, relations, and checked predicates. | Missing beyond independent-family foundations. | [`:68-73`](../../vendor/LiteRed2/Source/LiteRed2026.m#L68) |
 | `GeneratePFGB`, `PFGB`, `PFReduce`, `PFjSubsectors` | C0 / P1 | Reproducible partial-fraction ideal/basis, reduction, and integral-subsector mapping. | Missing. | [`:76-79`](../../vendor/LiteRed2/Source/LiteRed2026.m#L76) |
 | `NewBasis`/`NewDsBasis`, `DsBasisQ` | C0 / P0-P1 | Construct, authenticate, query, persist, and recover generic bases, including short-list ISP completion and denominator-set selection. | Partial: complete affine basis and short independent completion only. | [`:82-83`](../../vendor/LiteRed2/Source/LiteRed2026.m#L82) |
-| `SectorsPattern`, `Ds`, `NDs`, `LMs`, `EMs`, `SPs`, `Parameters`, `MIs` | S+C0 / P0-P1 | Typed, immutable family/sector/master views whose values are included in fingerprints. | Partial typed equivalents; no complete LiteRed state surface. | [`:85-92`](../../vendor/LiteRed2/Source/LiteRed2026.m#L85) |
-| `j`, `Toj`, `Fromj`, `js`, `jSector`, `jSubsectors` | C0 / P0 | Typed integral keys and exact expression conversion, sector and subsector maps, including optional dimension slot semantics. | Generic key/sector foundations present; conversion parity incomplete. | [`:101-108`](../../vendor/LiteRed2/Source/LiteRed2026.m#L101) |
-| `jsSignature`, `jsSignaturePermutations`, `jSignature` | C0 / P1 | Stable polynomial/integral signatures used only as candidate indices, followed by exact verification. | Partial signature/fingerprint machinery; LiteRed behavior not closed. | [`:111-113`](../../vendor/LiteRed2/Source/LiteRed2026.m#L111) |
+| `SectorsPattern`, `Ds`, `NDs`, `LMs`, `EMs`, `SPs`, `Parameters`, `MIs` | S+C0 / P0-P1 | Typed, immutable family/sector/master views whose values are included in fingerprints. | Partial typed equivalents; adopted state capabilities incomplete. | [`:85-92`](../../vendor/LiteRed2/Source/LiteRed2026.m#L85) |
+| `j`, `Toj`, `Fromj`, `js`, `jSector`, `jSubsectors` | C0 / P0 | Typed integral keys and exact expression conversion, sector and subsector maps, including optional dimension slot semantics. | Generic key/sector foundations present; conversion capability incomplete. | [`:101-108`](../../vendor/LiteRed2/Source/LiteRed2026.m#L101) |
+| `jsSignature`, `jsSignaturePermutations`, `jSignature` | C0 / P1 | Stable polynomial/integral signatures used only as candidate indices, followed by exact verification. | Partial signature/fingerprint machinery; adopted signature capability not closed. | [`:111-113`](../../vendor/LiteRed2/Source/LiteRed2026.m#L111) |
 | `ToAB`, `FromAB`, `FromTildeAB`, `AtoLeft`, `A`, `B`, `InverseTildeConjugate`, `TildeConjugate`, `ABIBP`, `ABLI`, `ABIBPLI` | C0 / P0 | Completed noncommutative s-basis conversion, inverse conversions, conjugations, and persisted generated operator systems. | Partial primitive shift-word semantics only; completed `ToAB` missing. | [`:116-119`](../../vendor/LiteRed2/Source/LiteRed2026.m#L116) |
-| `MakeOrderMatrix`, `jsOrder`, `jComplexity`, `jVars`, `Highj`, `Highjs`, `HighjIndex` | C0+S / P0 | Persisted total ordering and exact complexity queries used consistently by elimination, descent, masters, and replay. | Generic ordering foundations present; public and solver-wide parity incomplete. | [`:122-128`](../../vendor/LiteRed2/Source/LiteRed2026.m#L122) |
-| `Collectj`, `CollectjList`, `SimplifyFunction`, `SimplifyAlways`, `jPattern`, `Factor1`, `Factor2`, `Factor3` | H+C1 / P2 | Deterministic collection/factor/simplification boundary with explicit resource/error policy; `Collectj` is marked outdated in source. | Symbolica primitives exist; no compatible RustRed API contract. | [`:131-137`](../../vendor/LiteRed2/Source/LiteRed2026.m#L131) |
+| `MakeOrderMatrix`, `jsOrder`, `jComplexity`, `jVars`, `Highj`, `Highjs`, `HighjIndex` | C0+S / P0 | Persisted total ordering and exact complexity queries used consistently by elimination, descent, masters, and replay. | Generic ordering foundations present; solver-wide ordering authority incomplete. | [`:122-128`](../../vendor/LiteRed2/Source/LiteRed2026.m#L122) |
+| `Collectj`, `CollectjList`, `SimplifyFunction`, `SimplifyAlways`, `jPattern`, `Factor1`, `Factor2`, `Factor3` | H+C1 / P2 | Evidence for deterministic collection/factor/simplification semantics; `Collectj` is marked outdated in source. | Symbolica primitives exist; no reason to reproduce these Mathematica API names. | [`:131-137`](../../vendor/LiteRed2/Source/LiteRed2026.m#L131) |
 | `Solvej`, `SolvejSector`, `SubstituteAlways`, `CheckZeroAlways`, `CheckZeroFunction`, `NMIs`, `RRs`, `NoRules`, `MaxDepth`, `BloodhoundSearch` | C0+S, `BloodhoundSearch` H / P0 | Adaptive guarded recurrence derivation, persistent residual system, configurable substitution/zero checks, honest no-rule outcomes, depth budgets, and diagnostic search. | Strong elimination/rule foundations, but complete recursive sector solver is missing. | [`:141-152`](../../vendor/LiteRed2/Source/LiteRed2026.m#L141) |
 | `GenerateIBP`, `IBP`, `LI`, `IBPLI` | C0 / P0 | Generate all raw parametric ordinary and separate LI relations for arbitrary `L,E`; store their authenticated combined system without applying sector rules. | Foundation present for complete affine families; overcomplete integration and full downstream consumption missing. | [`:155-158`](../../vendor/LiteRed2/Source/LiteRed2026.m#L155), [`:1799-1831`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1799) |
 | `AnalyzeSectors`, `ZeroSectors`, `NonZeroSectors`, `SimpleSectors`, `BasisSectors`, `ZerojRule`, `CutDs`, `BiggestSectors` | C0+S / P1 | Proved sector classification, cut-aware zero rules, and explicit unknown/resource-limited state. | Partial providers; full analysis missing. | [`:161-169`](../../vendor/LiteRed2/Source/LiteRed2026.m#L161), [`:2936-3108`](../../vendor/LiteRed2/Source/LiteRed2026.m#L2936) |
-| `SectorHierarchy`, `SectorLayer`, `jLevel` | C0+S / P1 | Stable hierarchy/layer queries tied to the persisted ordering and cut policy. | Partial sector inventory; parity incomplete. | [`:172,292`](../../vendor/LiteRed2/Source/LiteRed2026.m#L172) |
+| `SectorHierarchy`, `SectorLayer`, `jLevel` | C0+S / P1 | Stable hierarchy/layer queries tied to the persisted ordering and cut policy. | Partial sector inventory; adopted query capability incomplete. | [`:172,292`](../../vendor/LiteRed2/Source/LiteRed2026.m#L172) |
 | `FindShifts`, `FindSymmetries`, `UniqueSectors`, `MappedSectors`, `SectorsMappings`, `jSymmetries`, `jRules`, `SR` | C0+S / P1 | Candidate generation plus exact momentum-map proof, complete orbit classification, and reusable integral rules. | Partial bounded internal-vacuum search; complete candidates/orbits missing. | [`:175-183`](../../vendor/LiteRed2/Source/LiteRed2026.m#L175), [`:3111-3475`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3111) |
-| `ZeroSectorQ`, `NonZeroSectorQ`, `MappedSectorQ`, `UniqueSectorQ` | S+C0 / P1 | Typed four-state-or-better queries that distinguish proved yes/no from unknown/resource-limited. | Partial providers; public parity incomplete. | [`:186-189`](../../vendor/LiteRed2/Source/LiteRed2026.m#L186) |
+| `ZeroSectorQ`, `NonZeroSectorQ`, `MappedSectorQ`, `UniqueSectorQ` | S+C0 / P1 | Typed four-state-or-better queries that distinguish proved yes/no from unknown/resource-limited. | Partial providers; adopted query capability incomplete. | [`:186-189`](../../vendor/LiteRed2/Source/LiteRed2026.m#L186) |
 | `AddjRule`, `RefreshMIs`, `IdentifyMIs`, `ToMIsRule`, `MyMIs`, `ToMyMIs` | C0+S / P1 | Authenticated user rules, recomputed master candidates, user-selected masters, and exact conversions without treating uncovered leaves as masters. | Partial master policy/application foundations; workflow incomplete. | [`:192-196`](../../vendor/LiteRed2/Source/LiteRed2026.m#L192), [`:3626-3798`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3626) |
-| `MIsHierarchyGraph` | A / P3 | Deterministic export of the master hierarchy from semantic state. | Missing as compatibility surface. | [`:199`](../../vendor/LiteRed2/Source/LiteRed2026.m#L199) |
+| `MIsHierarchyGraph` | A / P3 | Possible deterministic export of the master hierarchy from semantic state. | Optional adapter not currently adopted. | [`:199`](../../vendor/LiteRed2/Source/LiteRed2026.m#L199) |
 | `FindExtSymmetries`, `ExtUniqueSectors`, `ExtMappedSectors`, `jExtRules`, `ExtSectorsMappings` | C0+S / P1 | Cross-basis/external symmetry search, exact proof, orbit state, and transport rules. | Partial symbolic transport; complete search/orbit closure missing. | [`:202-206`](../../vendor/LiteRed2/Source/LiteRed2026.m#L202), [`:3476-3520`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3476) |
 | `AttachGraph`, `jGraph`, `GraphSort`, `FeynGraphContract` | A+C1 / P2 | Graph metadata attachment, canonicalization, contraction, and conversion that preserve the underlying family fingerprint. | Missing. | [`:209-212`](../../vendor/LiteRed2/Source/LiteRed2026.m#L209), [`:5527-6042`](../../vendor/LiteRed2/Source/LiteRed2026.m#L5527) |
 | `FeynGraphPlot`, `jGraphPlot`, `jGraphFeynMP`, `SawToothLine`, `WavyLine`, `CurlyLine` | A / P3 | Optional deterministic visualization/export adapters; never a reduction dependency. | Missing. | [`:213-218`](../../vendor/LiteRed2/Source/LiteRed2026.m#L213) |
-| `GenerateFeynParUF`, `FeynParUF`, `FeynParGdG`, `FeynParUVM` | C1+S / P2 | Generic authenticated `U`, `F`, `G`, derivatives/Gram data, and related matrices with exact convention maps. | `U/F/G` foundation present; complete public behavior incomplete. | [`:221-223`](../../vendor/LiteRed2/Source/LiteRed2026.m#L221), [`:4205-4401`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4205), [`:4796-4804`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4796) |
-| `LP`, `GramP`, `GramPFunction`, `GramM` | C1 / P2 | Lee--Pomeransky and Gram utilities over the authenticated coefficient field. | Partial data through family/Feynman code; API parity incomplete. | [`:226-229,295`](../../vendor/LiteRed2/Source/LiteRed2026.m#L226) |
+| `GenerateFeynParUF`, `FeynParUF`, `FeynParGdG`, `FeynParUVM` | C1+S / P2 | Generic authenticated `U`, `F`, `G`, derivatives/Gram data, and related matrices with exact convention maps. | `U/F/G` foundation present; adopted mathematical capability incomplete. | [`:221-223`](../../vendor/LiteRed2/Source/LiteRed2026.m#L221), [`:4205-4401`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4205), [`:4796-4804`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4796) |
+| `LP`, `GramP`, `GramPFunction`, `GramM` | C1 / P2 | Lee--Pomeransky and Gram utilities over the authenticated coefficient field. | Partial data through family/Feynman code; adopted utility capability incomplete. | [`:226-229,295`](../../vendor/LiteRed2/Source/LiteRed2026.m#L226) |
 | `FactorizeFP`, `FactorizejSector`, `PolyNForm`, `PolySignature`, `PolySignaturePermutations`, `CRulesLE` | C1 / P2 | Exact factorization/normal forms/signature candidates followed by exact verification and explicit budgets. | Missing as a coherent public layer. | [`:232-240`](../../vendor/LiteRed2/Source/LiteRed2026.m#L232), [`:4451-4609`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4451) |
 | `DiskSave`, `DiskRecover` | C0 / P0 | Stable authenticated artifacts, atomic recovery, schema and source hashes, guards, provenance, and mandatory replay. | Partial in-memory/replay artifacts; durable Symbolica round trip incomplete. | [`:246-247`](../../vendor/LiteRed2/Source/LiteRed2026.m#L246), [`:1153-1264`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1153) |
 | `IBPReduce`, `IBPSelect` | C0 / P0-P1 | Demand-driven rule selection and bottom-up exact reduction with explicit uncovered leaves and master policy. | Generic application kernel present; discovery/selection integration incomplete. | [`:250-251`](../../vendor/LiteRed2/Source/LiteRed2026.m#L250), [`:3801-4134`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3801) |
-| `FermatIBPReduce`, `SparxIBPReduce` (and commented `FlintIBPReduce`) | X / P3 | Optional acceleration only.  The pure Rust/Symbolica reference path must produce the same exact result and remain independently usable. | No external accelerator required; compatibility names not implemented. | [`:252-255`](../../vendor/LiteRed2/Source/LiteRed2026.m#L252) |
+| `FermatIBPReduce`, `SparxIBPReduce` (and commented `FlintIBPReduce`) | X / P3 | Evidence that optional acceleration can preserve exact results; RustRed's pure Rust/Symbolica path remains authoritative. | External executables and compatibility names are out of scope. | [`:252-255`](../../vendor/LiteRed2/Source/LiteRed2026.m#L252) |
 | `LoweringDRR`, `RaisingDRR`, `LowerDim`, `RaiseDim` | C1 / P2 | Guarded dimensional recurrence and exact dimension-shift rules. | Missing. | [`:258-260`](../../vendor/LiteRed2/Source/LiteRed2026.m#L258), [`:4612-4669`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4612) |
 | `Dinv`, `MakeDSystem` | C1 / P2 | Differential inverse/system construction over exact kinematics with singular-locus guards. | Missing. | [`:263`](../../vendor/LiteRed2/Source/LiteRed2026.m#L263), [`:4670-4739`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4670) |
 | `GenerateFPIBP`, `jsFPIBP`, `FPIBP` | C1 / P2 | Feynman-parametric/syzygy IBP generation using Symbolica-native polynomial algorithms. | Missing. | [`:285-286`](../../vendor/LiteRed2/Source/LiteRed2026.m#L285), [`:1834-1924`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1834) |
 | `ToDShifts`, `FromDShifts`, `NumeratorsToDShifts`, `FindSymmetriesDen`, `UniqueSectorsDen`, `MappedSectorsDen`, `SolvejSectorDen`, `SolvejSectorD`, `jRulesDen`, `jSymmetriesDen`, `IBPReduceDen`, `NumDepth` | C1+S / P2 | Complete denominator-only representation, shift conversion, numerator conversion, symmetry, solving, rule application, and depth state. | Missing as a complete alternative interface. | [`:289`](../../vendor/LiteRed2/Source/LiteRed2026.m#L289), [`:4741-5518`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4741) |
 
-Before declaring “complete LiteRed scope,” each table row needs a linked
-RustRed API, source-level semantic comparison, tests for success and typed
-failure/resource exhaustion, and an explicit status.  A Symbolica primitive
-with similar functionality is not by itself a port of the LiteRed behavior.
+Before declaring RustRed's stated mathematical capability goal complete, each
+adopted C0/C1 capability needs linked RustRed evidence, a mathematical/oracle
+comparison where applicable, tests for success and typed failure/resource
+exhaustion, and an explicit status.  Inventory rows classified S, A, X, or H
+create no name/API compatibility requirement unless RustRed independently
+adopts the underlying behavior.
 
 ## Symbolica API surface that still needs to enter the durable reference
 
@@ -452,7 +458,7 @@ these recurrences into production would fail the governing scope.
 Static inventory shows a large RustRed test surface and concrete one-, two-,
 and three-loop Vakint oracle fixtures, but this audit did not execute it.  The
 existence of those files establishes neither a clean parallel suite nor full
-source parity.  A completion claim must link a reproducible parallel run with
+capability coverage.  A completion claim must link a reproducible parallel run with
 the configured Symbolica license and distinguish:
 
 1. exact generic algebra/unit properties;
@@ -485,7 +491,8 @@ path passes without loop-specific production recurrences.
 6. Close the Symbolica probes and enable only the serialization features proven
    necessary for authenticated artifacts; keep JIT/export optional and outside
    the exact proof path.
-7. Port C1 LiteRed behavior: FPIBP/syzygies, remaining Feynman/Gram/factor
+7. Implement adopted C1 capabilities informed by LiteRed2: FPIBP/syzygies,
+   remaining Feynman/Gram/factor
    utilities, dimensional recurrences, differential systems, denominator-only
    APIs, and graph adapters/visualization.
 8. Run the complete suite in parallel with the configured Symbolica license,

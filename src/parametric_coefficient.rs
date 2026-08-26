@@ -1664,9 +1664,11 @@ impl ParametricPolynomial {
     /// polynomial while retaining the exact Symbolica variable-map allocation.
     ///
     /// Callers must census term, exponent, and integer-bit payload before this
-    /// seam.  The two user-sized backing vectors are reserved before any GMP
-    /// coefficient is cloned; `variables` and the RustRed context identity are
-    /// `Arc`-shared rather than deep-copied.
+    /// seam. The two fixed-length backing vectors are reserved exactly before
+    /// any GMP coefficient is cloned. A successful return guarantees that the
+    /// copied sparse payload retains no more bytes than the source payload;
+    /// `variables` and the RustRed context identity are `Arc`-shared rather
+    /// than deep-copied.
     pub(crate) fn try_copy_authenticated_sparse_payload(&self) -> Result<Self, &'static str> {
         Ok(Self {
             raw: try_copy_authenticated_sparse_polynomial_payload(&self.raw)?,
@@ -1678,16 +1680,40 @@ impl ParametricPolynomial {
 fn try_copy_authenticated_sparse_polynomial_payload(
     source: &CoefficientPolynomial,
 ) -> Result<CoefficientPolynomial, &'static str> {
+    let source_owned = polynomial_owned_retained_byte_bound(source)
+        .ok_or("authenticated polynomial retained byte envelope")?;
     let mut copy = source.zero();
     copy.coefficients
         .try_reserve_exact(source.coefficients.len())
         .map_err(|_| "authenticated polynomial coefficients")?;
+    if size_of::<Integer>() != 0 && copy.coefficients.capacity() != source.coefficients.len() {
+        return Err("authenticated polynomial coefficients exact capacity");
+    }
     copy.exponents
         .try_reserve_exact(source.exponents.len())
         .map_err(|_| "authenticated polynomial exponents")?;
+    if size_of::<u16>() != 0 && copy.exponents.capacity() != source.exponents.len() {
+        return Err("authenticated polynomial exponents exact capacity");
+    }
     copy.coefficients
         .extend(source.coefficients.iter().cloned());
     copy.exponents.extend_from_slice(&source.exponents);
+    for (source_coefficient, copy_coefficient) in source.coefficients.iter().zip(&copy.coefficients)
+    {
+        if let Integer::Large(copy_value) = copy_coefficient {
+            let Integer::Large(source_value) = source_coefficient else {
+                return Err("authenticated polynomial clone GMP representation");
+            };
+            if copy_value.capacity() > source_value.capacity() {
+                return Err("authenticated polynomial clone GMP capacity envelope");
+            }
+        }
+    }
+    let copy_owned = polynomial_owned_retained_byte_bound(&copy)
+        .ok_or("authenticated polynomial retained byte envelope")?;
+    if copy_owned > source_owned {
+        return Err("authenticated polynomial clone retained byte envelope");
+    }
     Ok(copy)
 }
 
@@ -2354,11 +2380,30 @@ fn authenticate_associate_native_product(
 thread_local! {
     static POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_PANIC_FOR_TEST: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    static POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_CALLS_FOR_TEST: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
-fn inject_polynomial_associate_native_boundary_panic_for_test() {
+pub(crate) fn inject_polynomial_associate_native_boundary_panic_for_test() {
     POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+pub(crate) fn reset_polynomial_associate_native_boundary_calls_for_test() {
+    POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_CALLS_FOR_TEST.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn polynomial_associate_native_boundary_calls_for_test() -> usize {
+    POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_CALLS_FOR_TEST.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn mark_polynomial_associate_native_boundary_call_for_test() {
+    POLYNOMIAL_ASSOCIATE_NATIVE_BOUNDARY_CALLS_FOR_TEST.with(|calls| {
+        calls.set(calls.get().checked_add(1).unwrap_or(usize::MAX));
+    });
 }
 
 #[cfg(test)]
@@ -6342,7 +6387,10 @@ impl ParametricCoefficientContext {
         let (left_projection, right_projection) =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 #[cfg(test)]
-                maybe_inject_polynomial_associate_native_boundary_panic_for_test();
+                {
+                    mark_polynomial_associate_native_boundary_call_for_test();
+                    maybe_inject_polynomial_associate_native_boundary_panic_for_test();
+                }
 
                 let left_wide: AssociateBaseCoefficient =
                     left.raw.map_exp(|exponent| u32::from(*exponent)).into();
@@ -15595,6 +15643,45 @@ mod tests {
             source.raw.denominator.exponents.as_ptr(),
             copy.raw.denominator.exponents.as_ptr()
         );
+    }
+
+    #[test]
+    fn authenticated_polynomial_copy_compacts_spare_gmp_and_uses_exact_vectors() {
+        let context = residual_affine_test_context("authenticated-polynomial-spare-gmp-copy");
+        let mut source = context
+            .numerator_condition(&context.index(0).unwrap())
+            .unwrap();
+        source.raw.coefficients = source.raw.coefficients.into_boxed_slice().into_vec();
+        source.raw.exponents = source.raw.exponents.into_boxed_slice().into_vec();
+        assert_eq!(
+            source.raw.coefficients.capacity(),
+            source.raw.coefficients.len()
+        );
+        assert_eq!(source.raw.exponents.capacity(), source.raw.exponents.len());
+
+        let mut reserved = MultiPrecisionInteger::with_capacity(1_000_000);
+        reserved += 1;
+        assert!(reserved.capacity() >= 1_000_000);
+        source.raw.coefficients[0] = Integer::Large(reserved);
+        let source_owned = source.owned_retained_byte_bound().unwrap();
+        let source_gmp_capacity = match &source.raw.coefficients[0] {
+            Integer::Large(value) => value.capacity(),
+            Integer::Single(_) | Integer::Double(_) => unreachable!(),
+        };
+
+        let copy = source.try_copy_authenticated_sparse_payload().unwrap();
+        assert_eq!(copy, source);
+        assert_eq!(
+            copy.raw.coefficients.capacity(),
+            copy.raw.coefficients.len()
+        );
+        assert_eq!(copy.raw.exponents.capacity(), copy.raw.exponents.len());
+        let copy_gmp_capacity = match &copy.raw.coefficients[0] {
+            Integer::Large(value) => value.capacity(),
+            Integer::Single(_) | Integer::Double(_) => unreachable!(),
+        };
+        assert!(copy_gmp_capacity <= source_gmp_capacity);
+        assert!(copy.owned_retained_byte_bound().unwrap() <= source_owned);
     }
 
     fn residual_affine_all_pivot_zero_legacy_map(

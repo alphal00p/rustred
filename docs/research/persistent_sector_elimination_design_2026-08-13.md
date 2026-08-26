@@ -1,6 +1,9 @@
 # Replayable persistent sector-elimination database
 
-Status: architecture plus an isolated replay-reference slice, 2026-08-13.
+Status: historical, non-normative architecture plus an isolated
+replay-reference slice, 2026-08-13. The governing design has since moved to
+typed current-lineage transactions and permits different generic solver and
+pivot policies after exact semantic validation.
 This note is a source-level design for replacing repeated cumulative
 elimination rebuilds in RustRed. The fast incremental kernel and fixed-point
 integration are not implemented yet.
@@ -258,8 +261,9 @@ later pivot priorities.
 
 ## Back-substitution boundary
 
-The persistent database must preserve LiteRed's triangular rule order. There
-are two sound consumers:
+The historical persistent-database proposal preserved LiteRed2's triangular
+rule order as its deterministic replay policy. That is not a global RustRed
+compatibility requirement. Under this proposal there are two sound consumers:
 
 - demand reduction recursively applies an emitted rule and then reduces its
   right-hand-side integrals through the provider stack; or

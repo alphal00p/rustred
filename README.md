@@ -6,13 +6,27 @@ supplies the main exact coefficient algebra and is the required target for all
 remaining production algebra; the status and roadmap below identify the
 pre-existing custom layers that still have to be migrated.
 
+The primary conceptual and mathematical reference is
+**[rnlg/LiteRed2](https://github.com/rnlg/LiteRed2)**, vendored in
+[`vendor/LiteRed2/Source/LiteRed2026.m`](vendor/LiteRed2/Source/LiteRed2026.m).
+LiteRed 1.x is tracked only as a historical source of published notebook
+acceptance oracles; it does not define RustRed's implementation target.
+
+RustRed does not aim for bug-for-bug, source-level, or Mathematica-API
+compatibility with LiteRed2. It preserves the generic mathematical capability
+and validated conventions while deliberately using a typed, Symbolica-native
+Rust architecture, scalable data structures, explicit resource bounds, and
+parallel algorithms. In this repository, “LiteRed parity” means semantic
+agreement for an explicitly stated acceptance surface, not identical
+intermediate rules, pivot order, global state, or implementation quirks.
+
 RustRed does not invoke FORM or a Mathematica kernel. The checked-in build uses
 Symbolica's licensed GMP backend and deliberately does not enable `no_gmp`.
 
 ## Status
 
-RustRed is an active implementation project, not yet a drop-in replacement for
-all of LiteRed.
+RustRed is an active implementation project and does not yet cover LiteRed2's
+complete mathematical workflow.
 
 | Capability | Status |
 |---|---|
@@ -24,12 +38,12 @@ all of LiteRed.
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate and feed the implemented condition/materialization/partition owners |
-| Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally as owner-bound, non-publishing phases: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is partitioned with replayable provenance; atomic publication remains pending |
+| Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally as owner-bound, non-publishing phases: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and one opaque canonical-locus authority carries the current-lineage arbitrary-width OR-of-AND `WhenBad` formula into partition compilation; the nested compiler validates it linearly instead of repeating the outer pairwise scan; atomic publication remains pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
-| Track published LiteRed notebook parity | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
+| Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
-| Reproduce full LiteRed sector solving, `WhenBad` closure, and rule publication | **In progress** |
+| Complete generic guarded sector solving, `WhenBad` closure, and rule publication | **In progress** |
 
 The important distinction is that `derive` constructs universal, fully
 parametric identities for the declared family. It does not choose masters or
@@ -307,11 +321,19 @@ The repository currently includes tests for:
   now constructs the relative partition of its current-lineage arbitrary-width
   OR-of-AND bad formula, retaining every mapped-source/locus/formula occurrence
   and classifying applicable versus exceptional leaves without topology
-  dispatch. A licensed default-GMP focused run passed all 8 partition-module
-  tests with four Rust test threads. The authoritative post-partition
-  default-GMP `cargo nextest run --workspace --all-targets --test-threads 4`
-  regression ran 1,640 tests and passed all 1,640, with 5 additional configured
-  cases skipped. This phase still
+  dispatch. The outer phase proves exact and Symbolica-associate canonicality
+  once and seals the first-seen loci in an opaque, non-cloneable authority. The
+  inner arbitrary-width compiler authenticates that authority and performs only
+  linear payload validation. On both fresh compilation and full terminal
+  replay, outer canonicalization runs exactly once; the nested compiler and its
+  nested replay repeat no pairwise equality/associate scan and make no native
+  associate call. Exact capacity,
+  GMP-copy, duplicate-heavy replay, panic/retry, and aggregate resource
+  ownership are bounded and tested. Licensed default-GMP focused Nextest run
+  `b0217edc-a9e8-4a7d-9c5c-82b824a636b3` passed 19/19 tests with four workers;
+  an independent superset passed 20/20. The preceding authoritative
+  post-partition regression ran 1,640 tests and passed all 1,640, with 5
+  additional configured cases skipped. This phase still
   performs no target consumption, rule publication, reduction, or six-loop
   topology solve; and
 - seven end-to-end numerator-spelling closure pairs in
@@ -352,6 +374,14 @@ events own opaque source recipes and exact evidence, and the owning prepared
 database transition has an infallible commit tail after all fallible work has
 completed.
 
+That correctness-first storage layout is not the final high-loop layout. Each
+current event append copies the preceding event-`Arc` vector, and each target
+successor copies the complete disposition vector. Before the multi-loop
+foundry is scaled, these paths must become a chunked/persistent event log and a
+shared or paged copy-on-write target state. Guarded publication will retain one
+ordered leaf manifest inside its event and expose shallow handles, rather than
+maintaining duplicate deep rule and residual payload vectors.
+
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
 arithmetic and exact matrix inverse, rank, determinant, multiplication, and
@@ -384,26 +414,27 @@ source-neutral core now also routes arbitrary-width direct formulas and
 specializes lazy affine boundaries by exact Symbolica polynomial divisibility.
 The owner-bound non-publishing materializer binds those kernels into a mapped-
 condition transcript, including both denominator-identity projections and the
-ordered boundary events. The subsequent move-only owner now builds and replays
-the relative `WhenBad` partition for the assembled current-lineage arbitrary-
-width OR-of-AND formula. The active slice must consume the selected target and
-publish the guarded rule plus exceptional residual work atomically. Graph-
-lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
+ordered boundary events. The subsequent move-only owner now proves and seals
+canonical loci once per fresh compilation or full proof replay, then builds the
+relative `WhenBad` partition for the assembled current-lineage arbitrary-width
+OR-of-AND formula without a second inner Symbolica-associate scan. The active
+slice must consume the selected target and publish the guarded rule plus
+exceptional residual work atomically. Graph-lifted symmetry discovery and the
+`SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
 
-Two measured architectural scaling blockers remain in this new seam. First, the
-outer first-seen locus interner and the defensive raw-problem validator each
-perform an all-pairs Symbolica associate scan. This is correct and contains no
-RustRed polynomial algebra, but duplicates `O(N^2)` CAS work. The immediate
-source-neutral fix is an authenticated canonical-locus owner/token that lets
-the trusted path skip the second scan while retaining the raw validator as a
-defensive/test entry path. A future censused use of Symbolica's exact monic
-`K[n]` normalization can supply a key for indexed interning, but its current
-normalization API has no fallible workspace census. Second, Symbolica's
-rational-polynomial division and projected `try_div` APIs expose no pre-
-allocation GCD/quotient workspace bound.
+The first of two measured architectural scaling blockers in this seam is now
+closed. Previously, the outer first-seen locus interner and defensive raw-
+problem validator each performed an all-pairs Symbolica associate scan. The
+new authenticated canonical-locus owner lets the trusted nested path skip that
+duplicate `O(N^2)` CAS work while retaining the raw validator as a defensive/
+test entry path. A future censused use of Symbolica's exact monic `K[n]`
+normalization could index the remaining outer interning scan, but its current
+normalization API has no fallible workspace census. The remaining measured
+blocker is that Symbolica's rational-polynomial division and projected
+`try_div` APIs expose no pre-allocation GCD/quotient workspace bound.
 The resource-bounded arbitrary path therefore performs complete exact
 splitting without divisibility-based pruning; the public V1 compatibility path
 retains its historical behavior. Restore that optimization only through a
@@ -437,9 +468,10 @@ remaining generic LiteRed-style solver work is to:
 2. feed solved subsectors into supersectors and iterate residual cases; and
 3. expose a replay-certified complete reduction result.
 
-This current-lineage state is not a complete LiteRed port, complete `WhenBad`
-or rule publication, an arbitrary one-loop pentagon reduction, or completion of the
-two- through six-loop reduction campaign. Concrete multi-loop families
+This current-lineage state does not complete RustRed's stated mathematical
+capability goal, `WhenBad` closure, rule publication, an arbitrary one-loop
+pentagon reduction, or the two- through six-loop reduction campaign. Concrete
+multi-loop families
 currently serve only as bounded validation fixtures. Non-vacuum pentagon work
 remains in scope but is behind the vacuum rule-foundry and batch-application
 critical path.
@@ -473,16 +505,19 @@ physical-parameter identity projection, arbitrary-width direct-formula
 routing, and the exact affine-boundary mapping/divisibility kernel are also
 implemented. The current owner-bound materializer maps the scheduled payload,
 retains both denominator projections, and specializes exact boundary events
-without consuming a target or publishing a rule. The move-only owner then
-builds and replays the relative `WhenBad` partition of the assembled current-
-lineage arbitrary-width OR-of-AND formula. The
+without consuming a target or publishing a rule. A separate opaque move-only
+owner now proves the canonical parametric loci once per fresh compilation or
+full proof replay; the nested relative-`WhenBad` compiler validates that
+authority linearly and performs no duplicate pairwise Symbolica-associate scan.
+The
 immediate gate is atomic guarded publication and residual hand-off. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.
 
-Further LiteRed parity includes broader symmetry discovery, partial fractions
-for dependent or overcomplete propagator lists, master inference, persistent
-proof serialization, dimension shifts, and differential equations.
+Further capability coverage informed by LiteRed2 includes broader symmetry
+discovery, partial fractions for dependent or overcomplete propagator lists,
+master inference, persistent proof serialization, dimension shifts, and
+differential equations.
 
 ## Testing
 

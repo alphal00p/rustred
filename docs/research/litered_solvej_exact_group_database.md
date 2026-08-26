@@ -1,19 +1,22 @@
 # LiteRed `Solvej` semantics and the exact RustRed group database
 
-Status: normative research and implementation reference.
+Status: LiteRed2 source analysis and RustRed design rationale.
 
 Scope: the generic, topology-independent equation database used while deriving
-parametric reduction rules.  This document specifies the LiteRed behavior that
-RustRed must preserve, the exact affine-coordinate bridge already present in
-RustRed, and the transactional/replay additions required for a safe Rust
-implementation.  It does **not** specify a vacuum topology, a loop-count-specific
-recurrence catalogue, or a FORM translation.
+parametric reduction rules. This document records relevant LiteRed2 behavior,
+the exact affine-coordinate bridge already present in RustRed, and the
+transactional/replay design RustRed currently chooses as a versioned policy
+for a safe and efficient Rust implementation. LiteRed2's source organization,
+mutation order, pivot
+order, and incidental behavior are not compatibility requirements. This note
+does **not** specify a vacuum topology, a loop-count-specific recurrence
+catalogue, or a FORM translation.
 
 The primary LiteRed source is
 `vendor/LiteRed2/Source/LiteRed2026.m`.  Vakint is used only as an application
 and validation oracle; its authored FORM recurrences are not RustRed input.
 
-## 1. Normative conclusions
+## 1. Source observations and current RustRed choices
 
 1. LiteRed's default `Solvej[eq, db]` is a **top-reduction** algorithm.  It
    repeatedly inspects the hardest surviving integral.  If that integral is
@@ -25,9 +28,11 @@ and validation oracle; its authored FORM recurrences are not RustRed input.
 3. One database is shared by all targets in one affine-translation group and is
    cleared between groups.  Pivots survive target changes, depth changes, and
    rejected `WhenBad` candidates inside the group.
-4. Generated rows must enter the future database as authenticated **raw source
-   rows**, in source order.  A per-case pre-eliminated pivot list is not an
-   equivalent input.
+4. RustRed currently admits generated rows as authenticated **raw source
+   rows**, in source order. A per-case pre-eliminated pivot list would not be
+   equivalent to this chosen replay contract, although future algorithms may
+   replace the contract if they prove the same accepted mathematics and better
+   performance.
 5. A candidate becomes a public reduction rule only after exact recentering and
    `WhenBad` compilation.  Algebraic pivot discovery and public-rule coverage
    are separate state transitions.
@@ -177,9 +182,10 @@ generation.
 
 For fully numeric cases, LiteRed unions and deduplicates the shell around **all**
 remaining starts and globally sorts the physical points
-(`vendor/LiteRed2/Source/LiteRed2026.m:2682-2695`).  Therefore RustRed must merge
-numeric case schedules by common physical point and source ordinal; merely
-concatenating complete per-case schedules changes row priority.
+(`vendor/LiteRed2/Source/LiteRed2026.m:2682-2695`). Under the current versioned
+replay policy, RustRed merges numeric case schedules by common physical point
+and source ordinal; merely concatenating complete per-case schedules changes
+that policy's row priority.
 
 For symbolic cases, LiteRed uses only the first unresolved start and keeps fixed
 numeric coordinates in the sector
@@ -409,7 +415,7 @@ The current persistent elimination component supplies useful cursor, replay,
 and fail-stop patterns
 (`src/persistent_parametric_elimination.rs:1-16`,
 `src/persistent_parametric_elimination.rs:740-1053`), but its algebraic reducer
-is not the required `Solvej` kernel.
+does not implement this policy's `Solvej` kernel.
 
 ### 5.4 Replay contract
 
@@ -443,7 +449,7 @@ eliminator over parametric relations
 (`src/parametric_elimination.rs:1-13`).  It is valuable infrastructure, but its
 row semantics differ from LiteRed:
 
-| Concern | LiteRed default `Solvej` | Current `ParametricElimination` | Required group DB |
+| Concern | LiteRed default `Solvej` | Current `ParametricElimination` | Current versioned group DB |
 |---|---|---|---|
 | Reduction choice | inspect current hardest term; substitute only if that term is known | iterate through all committed pivots in chronological order | exact hardest-key lookup loop |
 | Stop point | first unknown hardest term | after the complete pivot sweep | first unknown hardest term |
@@ -460,9 +466,10 @@ prior pivot (`src/parametric_elimination.rs:1754-1822`).  Only afterward does
 Reusing that function unchanged would turn the example `B + c A` into
 `B -> -c a`, alter guard propagation, and potentially narrow direct coverage.
 
-Reuse exact coefficient arithmetic, guarded division, sparse relation updates,
-resource accounting, and certificate encoding.  Implement the top-reduction
-control loop and its trace as a separate kernel.
+The current implementation reuses exact coefficient arithmetic, guarded
+division, sparse relation updates, resource accounting, and certificate
+encoding while implementing the top-reduction control loop and its trace as a
+separate kernel.
 
 ## 7. What is never a master-integral proof
 
@@ -551,9 +558,12 @@ The following are deliberate **RustRed additions**:
 
 LiteRed itself uses mutable definitions/lists and disk reservation markers; it
 does not provide these transaction, resource-envelope, allocation-identity, or
-replay guarantees.  RustRed may strengthen safety without changing the
-mathematical row order, pivot choice, recentering formulas, or coverage
-semantics specified above.
+replay guarantees. RustRed deliberately strengthens those properties. The
+row order and pivot policy described above are a versioned RustRed design and
+its current replay contract, not a requirement to reproduce LiteRed2 internals; they
+may be replaced by a demonstrably equivalent or stronger generic algorithm.
+The accepted recentering identities and coverage semantics remain mathematical
+requirements.
 
 ## 10. Implementation acceptance checklist
 

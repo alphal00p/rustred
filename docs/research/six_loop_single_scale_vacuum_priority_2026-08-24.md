@@ -367,6 +367,10 @@ The following policies are critical at five and six loops:
   representative, and cache it behind authenticated bounds.
 - Do not mix discovery state with online reductions.  Persist and version the
   former; keep the latter deterministic and restartable.
+- Do not copy the complete chronological event list or complete target-
+  disposition vector on every published recurrence. Use chunked/persistent
+  event storage, shared or paged copy-on-write target state, and one ordered
+  leaf manifest per event with shallow rule/residual handles.
 - Do not create topology-specific Rust reducers.  Concrete topology names may
   occur in manifests, tests, benchmark labels, and oracle adapters only.
 

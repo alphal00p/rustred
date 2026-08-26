@@ -19,6 +19,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::integer::Integer;
 
+use crate::canonical_parametric_locus_table::{
+    CanonicalLocusTableCopyLimits, CanonicalLocusTableError, CanonicalLocusTableOwner,
+};
 use crate::direct_bad_formula::{
     DirectBadFormulaClause, DirectBadFormulaRoute, DirectBadFormulaTruth, route_direct_bad_formula,
 };
@@ -52,6 +55,10 @@ thread_local! {
         const { std::cell::Cell::new(false) };
     static ARBITRARY_PARTITION_REPLAY_PROBLEM_COPY_STAGE_FOR_TEST: std::cell::Cell<usize> =
         const { std::cell::Cell::new(0) };
+    static AUTHENTICATED_ARBITRARY_PARTITION_POST_VALIDATION_PANIC_FOR_TEST:
+        std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static AUTHENTICATED_ARBITRARY_PARTITION_LINEAR_VALIDATIONS_FOR_TEST:
+        std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -62,6 +69,39 @@ fn inject_arbitrary_partition_compile_panic_for_test() {
 #[cfg(test)]
 fn inject_arbitrary_partition_replay_panic_for_test() {
     ARBITRARY_PARTITION_REPLAY_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn inject_authenticated_arbitrary_partition_post_validation_panic_for_test() {
+    AUTHENTICATED_ARBITRARY_PARTITION_POST_VALIDATION_PANIC_FOR_TEST
+        .with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn maybe_inject_authenticated_arbitrary_partition_post_validation_panic_for_test() {
+    AUTHENTICATED_ARBITRARY_PARTITION_POST_VALIDATION_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected authenticated arbitrary relative partition post-validation panic");
+        }
+    });
+}
+
+#[cfg(test)]
+fn reset_authenticated_arbitrary_partition_linear_validations_for_test() {
+    AUTHENTICATED_ARBITRARY_PARTITION_LINEAR_VALIDATIONS_FOR_TEST
+        .with(|validations| validations.set(0));
+}
+
+#[cfg(test)]
+fn authenticated_arbitrary_partition_linear_validations_for_test() -> usize {
+    AUTHENTICATED_ARBITRARY_PARTITION_LINEAR_VALIDATIONS_FOR_TEST.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn mark_authenticated_arbitrary_partition_linear_validation_for_test() {
+    AUTHENTICATED_ARBITRARY_PARTITION_LINEAR_VALIDATIONS_FOR_TEST.with(|validations| {
+        validations.set(validations.get().checked_add(1).unwrap_or(usize::MAX));
+    });
 }
 
 #[cfg(test)]
@@ -187,6 +227,15 @@ fn mark_arbitrary_partition_replay_problem_copy_stage_for_test(_stage: usize) {}
 #[cfg(not(test))]
 fn reset_arbitrary_partition_replay_problem_copy_stage_for_test() {}
 
+#[cfg(not(test))]
+fn maybe_inject_authenticated_arbitrary_partition_post_validation_panic_for_test() {}
+
+#[cfg(not(test))]
+fn reset_authenticated_arbitrary_partition_linear_validations_for_test() {}
+
+#[cfg(not(test))]
+fn mark_authenticated_arbitrary_partition_linear_validation_for_test() {}
+
 /// Stable schema for the target-relative structural partition core.
 pub const AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA: &str =
     "rustred-affine-when-bad-relative-partition-v1";
@@ -194,6 +243,16 @@ pub const AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA: &str =
 /// Stable schema for the owner-neutral arbitrary-width partition seam.
 pub(crate) const AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA: &str =
     "rustred-affine-when-bad-arbitrary-relative-partition-v1";
+
+/// Stable schema for the arbitrary-width seam when pairwise locus
+/// canonicality is carried by an opaque outer owner.
+///
+/// Keeping this distinct from the raw-input schema prevents a certificate
+/// from silently changing authority kind while retaining a V1 label.  The
+/// raw V1 compiler and its resource transcript remain byte-for-byte
+/// unchanged.
+pub(crate) const AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA: &str =
+    "rustred-affine-when-bad-authenticated-arbitrary-relative-partition-v1";
 
 /// Checked work and retained-transcript budgets for one target-relative root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -862,10 +921,53 @@ impl AffineWhenBadRelativePartitionCertificate {
 /// This certificate owns only canonical loci, inherited truths, the flattened
 /// OR-of-AND formula, and structural routing results.  Semantic source
 /// locators remain exclusively owned by the caller.
+enum AffineWhenBadArbitraryCanonicalLoci {
+    /// Defensive source-neutral input. Replay must repeat the complete
+    /// pairwise equality/associate validation.
+    Raw(Vec<ParametricPolynomial>),
+    /// Opaque proof that a bounded outer canonicalizer has already completed
+    /// that pairwise scan. Replay preserves this authority and performs only
+    /// linear authentication, census, and a bounded sparse-payload copy.
+    Authenticated {
+        expected_schema: &'static str,
+        owner: CanonicalLocusTableOwner,
+    },
+}
+
+impl AffineWhenBadArbitraryCanonicalLoci {
+    fn loci(&self) -> &[ParametricPolynomial] {
+        match self {
+            Self::Raw(loci) => loci,
+            Self::Authenticated { owner, .. } => owner.loci(),
+        }
+    }
+
+    const fn is_authenticated(&self) -> bool {
+        matches!(self, Self::Authenticated { .. })
+    }
+
+    fn semantic_payload_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Raw(left), Self::Raw(right)) => left == right,
+            (
+                Self::Authenticated {
+                    expected_schema: left_schema,
+                    owner: left,
+                },
+                Self::Authenticated {
+                    expected_schema: right_schema,
+                    owner: right,
+                },
+            ) => left_schema == right_schema && left.loci() == right.loci(),
+            _ => false,
+        }
+    }
+}
+
 pub(crate) struct AffineWhenBadArbitraryRelativePartitionCertificate {
     schema: &'static str,
     context_fingerprint: String,
-    structural_loci: Vec<ParametricPolynomial>,
+    canonical_loci: AffineWhenBadArbitraryCanonicalLoci,
     inherited_truths: Vec<AffineWhenBadInheritedTruth>,
     formula: ArbitraryDirectBadFormula<AffineWhenBadAtom>,
     splits: Vec<AffineWhenBadArbitraryRelativeSplit>,
@@ -886,7 +988,7 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
     }
 
     pub(crate) fn structural_loci(&self) -> &[ParametricPolynomial] {
-        &self.structural_loci
+        self.canonical_loci.loci()
     }
 
     pub(crate) fn inherited_truths(&self) -> &[AffineWhenBadInheritedTruth] {
@@ -953,7 +1055,24 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
     ) -> Result<(), AffineWhenBadRelativeCaseError> {
         reset_arbitrary_partition_replay_problem_copy_stage_for_test();
         maybe_inject_arbitrary_partition_replay_panic_for_test();
-        if self.schema != AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA {
+        let expected_certificate_schema = match &self.canonical_loci {
+            AffineWhenBadArbitraryCanonicalLoci::Raw(_) => {
+                AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA
+            }
+            AffineWhenBadArbitraryCanonicalLoci::Authenticated {
+                expected_schema,
+                owner,
+            } => {
+                if owner.schema() != *expected_schema {
+                    return Err(AffineWhenBadRelativeCaseError::SchemaMismatch);
+                }
+                if owner.context_fingerprint() != context.fingerprint() {
+                    return Err(AffineWhenBadRelativeCaseError::ContextMismatch);
+                }
+                AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA
+            }
+        };
+        if self.schema != expected_certificate_schema {
             return Err(AffineWhenBadRelativeCaseError::SchemaMismatch);
         }
         if self.context_fingerprint != context.fingerprint() {
@@ -963,13 +1082,27 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
             .validate_payload()
             .map_err(map_arbitrary_formula_error)?;
         preflight_arbitrary_payload_comparison(self, self.limits.relative)?;
-        let replay_source_problem_owned_logical_byte_envelope =
-            arbitrary_replay_source_problem_owned_logical_byte_envelope(
-                &self.structural_loci,
-                self.inherited_truths.len(),
-                self.formula.atoms().len(),
-                self.formula.clause_count(),
-            )?;
+        let replay_source_problem_owned_logical_byte_envelope = match &self.canonical_loci {
+            AffineWhenBadArbitraryCanonicalLoci::Raw(_) => {
+                arbitrary_replay_source_problem_owned_logical_byte_envelope(
+                    self.structural_loci(),
+                    self.inherited_truths.len(),
+                    self.formula.atoms().len(),
+                    self.formula.clause_count(),
+                )?
+            }
+            AffineWhenBadArbitraryCanonicalLoci::Authenticated {
+                expected_schema: _,
+                owner,
+            } => {
+                authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope_from_parts(
+                    owner,
+                    self.inherited_truths.len(),
+                    self.formula.atoms().len(),
+                    self.formula.clause_count(),
+                )?
+            }
+        };
         if replay_source_problem_owned_logical_byte_envelope
             != self
                 .compilation_stats
@@ -998,12 +1131,31 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
             )?,
             self.limits.max_compilation_owned_logical_peak_upper_bound,
         )?;
-        let problem = self.try_copy_problem(replay_source_problem_owned_logical_byte_envelope)?;
-        let rebuilt = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
-            context,
-            problem,
-            self.limits,
-        )?;
+        let rebuilt = match &self.canonical_loci {
+            AffineWhenBadArbitraryCanonicalLoci::Raw(_) => {
+                let problem =
+                    self.try_copy_raw_problem(replay_source_problem_owned_logical_byte_envelope)?;
+                AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+                    context,
+                    problem,
+                    self.limits,
+                )?
+            }
+            AffineWhenBadArbitraryCanonicalLoci::Authenticated { .. } => {
+                let problem = self.try_copy_authenticated_problem(
+                    context,
+                    replay_source_problem_owned_logical_byte_envelope,
+                )?;
+                match AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+                    context,
+                    problem,
+                    self.limits,
+                ) {
+                    Ok(certificate) => certificate,
+                    Err(failure) => return Err(failure.into_parts().0),
+                }
+            }
+        };
         preflight_arbitrary_payload_comparison(&rebuilt, self.limits.relative)?;
         if self.payload_eq(&rebuilt) {
             Ok(())
@@ -1012,13 +1164,17 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
         }
     }
 
-    fn try_copy_problem(
+    fn try_copy_raw_problem(
         &self,
         admitted_owned_logical_byte_envelope: usize,
     ) -> Result<AffineWhenBadArbitraryRelativeProblem, AffineWhenBadRelativeCaseError> {
+        let AffineWhenBadArbitraryCanonicalLoci::Raw(source_structural_loci) = &self.canonical_loci
+        else {
+            return Err(AffineWhenBadRelativeCaseError::ReplayMismatch);
+        };
         let mut replay_copy_census = AffineWhenBadRelativeCaseStats::default();
         replay_copy_census.retained_bytes = capacity_byte_envelope(
-            self.structural_loci.len(),
+            source_structural_loci.len(),
             size_of::<ParametricPolynomial>(),
         )?;
         check_limit(
@@ -1026,11 +1182,11 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
             replay_copy_census.retained_bytes,
             self.limits.relative.max_retained_bytes,
         )?;
-        for polynomial in &self.structural_loci {
+        for polynomial in source_structural_loci {
             charge_retained_polynomial(polynomial, &mut replay_copy_census, self.limits.relative)?;
         }
         mark_arbitrary_partition_replay_problem_copy_stage_for_test(1);
-        let structural_loci = try_canonicalize_structural_loci(&self.structural_loci)?;
+        let structural_loci = try_canonicalize_structural_loci(source_structural_loci)?;
         mark_arbitrary_partition_replay_problem_copy_stage_for_test(2);
         let inherited_truths = try_canonicalize_inherited_truths(&self.inherited_truths)?;
         let mut atoms = Vec::new();
@@ -1073,10 +1229,86 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
         Ok(problem)
     }
 
+    fn try_copy_authenticated_problem(
+        &self,
+        context: &ParametricCoefficientContext,
+        admitted_owned_logical_byte_envelope: usize,
+    ) -> Result<AffineWhenBadAuthenticatedArbitraryRelativeProblem, AffineWhenBadRelativeCaseError>
+    {
+        let AffineWhenBadArbitraryCanonicalLoci::Authenticated {
+            expected_schema,
+            owner,
+        } = &self.canonical_loci
+        else {
+            return Err(AffineWhenBadRelativeCaseError::ReplayMismatch);
+        };
+        let projected_problem_owned_logical_byte_envelope =
+            authenticated_arbitrary_projected_replay_problem_owned_logical_byte_envelope_from_parts(
+                owner,
+                self.inherited_truths.len(),
+                self.formula.atoms().len(),
+                self.formula.clause_count(),
+            )?;
+        if projected_problem_owned_logical_byte_envelope > admitted_owned_logical_byte_envelope {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed: projected_problem_owned_logical_byte_envelope,
+                    admitted: admitted_owned_logical_byte_envelope,
+                },
+            );
+        }
+        let canonical_loci =
+            try_copy_authenticated_canonical_owner(owner, context, expected_schema, self.limits)?;
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(1);
+        let inherited_truths = try_canonicalize_inherited_truths(&self.inherited_truths)?;
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(2);
+        let mut atoms = Vec::new();
+        try_reserve_exact(
+            "affine WhenBad authenticated arbitrary replay atoms",
+            &mut atoms,
+            self.formula.atoms().len(),
+        )?;
+        atoms.extend_from_slice(self.formula.atoms());
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(3);
+        let mut clause_ranges = Vec::new();
+        try_reserve_exact(
+            "affine WhenBad authenticated arbitrary replay clause ranges",
+            &mut clause_ranges,
+            self.formula.clause_count(),
+        )?;
+        for clause_ordinal in 0..self.formula.clause_count() {
+            clause_ranges.push(
+                self.formula
+                    .clause_range(clause_ordinal)
+                    .ok_or(AffineWhenBadRelativeCaseError::CaseStateMismatch)?,
+            );
+        }
+        mark_arbitrary_partition_replay_problem_copy_stage_for_test(4);
+        let problem = AffineWhenBadAuthenticatedArbitraryRelativeProblem::from_preallocated(
+            canonical_loci,
+            expected_schema,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        );
+        let observed = problem.retained_owned_logical_byte_bound()?;
+        if observed > admitted_owned_logical_byte_envelope {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed,
+                    admitted: admitted_owned_logical_byte_envelope,
+                },
+            );
+        }
+        Ok(problem)
+    }
+
     fn payload_eq(&self, other: &Self) -> bool {
         self.schema == other.schema
             && self.context_fingerprint == other.context_fingerprint
-            && self.structural_loci == other.structural_loci
+            && self
+                .canonical_loci
+                .semantic_payload_eq(&other.canonical_loci)
             && self.inherited_truths == other.inherited_truths
             && self.formula.payload_eq(&other.formula)
             && self.splits == other.splits
@@ -1094,7 +1326,11 @@ impl fmt::Debug for AffineWhenBadArbitraryRelativePartitionCertificate {
             .debug_struct("AffineWhenBadArbitraryRelativePartitionCertificate")
             .field("schema", &self.schema)
             .field("context_fingerprint", &self.context_fingerprint)
-            .field("structural_locus_count", &self.structural_loci.len())
+            .field("structural_locus_count", &self.structural_loci().len())
+            .field(
+                "authenticated_canonical_loci",
+                &self.canonical_loci.is_authenticated(),
+            )
             .field("inherited_truth_count", &self.inherited_truths.len())
             .field("formula", &self.formula)
             .field("split_count", &self.splits.len())
@@ -1334,6 +1570,108 @@ impl AffineWhenBadArbitraryRelativeProblem {
     }
 }
 
+/// Internal arbitrary-width input carrying the opaque proof that its locus
+/// table was canonicalized once by the bounded outer owner.  The owner is not
+/// cloneable and there is no raw constructor for authenticated authority.
+pub(crate) struct AffineWhenBadAuthenticatedArbitraryRelativeProblem {
+    canonical_loci: CanonicalLocusTableOwner,
+    expected_canonical_locus_schema: &'static str,
+    inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+    atoms: Vec<AffineWhenBadAtom>,
+    clause_ranges: Vec<Range<usize>>,
+}
+
+impl AffineWhenBadAuthenticatedArbitraryRelativeProblem {
+    pub(crate) fn from_preallocated(
+        canonical_loci: CanonicalLocusTableOwner,
+        expected_canonical_locus_schema: &'static str,
+        inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+        atoms: Vec<AffineWhenBadAtom>,
+        clause_ranges: Vec<Range<usize>>,
+    ) -> Self {
+        Self {
+            canonical_loci,
+            expected_canonical_locus_schema,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        }
+    }
+
+    pub(crate) const fn canonical_loci(&self) -> &CanonicalLocusTableOwner {
+        &self.canonical_loci
+    }
+
+    pub(crate) fn retained_owned_logical_byte_bound(
+        &self,
+    ) -> Result<usize, AffineWhenBadRelativeCaseError> {
+        let resource = "affine WhenBad authenticated arbitrary source problem retained bytes";
+        let mut bytes = size_of::<Self>();
+        for allocation in [
+            canonical_owner_retained_owned_logical_bytes(&self.canonical_loci)?,
+            checked_mul(
+                resource,
+                self.inherited_truths.capacity(),
+                size_of::<AffineWhenBadInheritedTruth>(),
+            )?,
+            checked_mul(
+                resource,
+                self.atoms.capacity(),
+                size_of::<AffineWhenBadAtom>(),
+            )?,
+            checked_mul(
+                resource,
+                self.clause_ranges.capacity(),
+                size_of::<Range<usize>>(),
+            )?,
+        ] {
+            bytes = checked_add(resource, bytes, allocation)?;
+        }
+        Ok(bytes)
+    }
+}
+
+/// Recoverable authenticated compilation failure. All fallible compilation
+/// borrows the problem, so resource errors and caught panics return the exact
+/// non-Clone canonical owner for a deterministic retry.
+pub(crate) struct AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {
+    error: AffineWhenBadRelativeCaseError,
+    problem: AffineWhenBadAuthenticatedArbitraryRelativeProblem,
+}
+
+impl AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {
+    pub(crate) const fn error(&self) -> &AffineWhenBadRelativeCaseError {
+        &self.error
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        AffineWhenBadRelativeCaseError,
+        AffineWhenBadAuthenticatedArbitraryRelativeProblem,
+    ) {
+        (self.error, self.problem)
+    }
+}
+
+impl fmt::Debug for AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure")
+            .field("error", &self.error)
+            .field("private_problem", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl std::error::Error for AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {}
+
 fn arbitrary_replay_source_problem_owned_logical_byte_envelope(
     structural_loci: &[ParametricPolynomial],
     inherited_truth_count: usize,
@@ -1361,6 +1699,210 @@ fn arbitrary_replay_source_problem_owned_logical_byte_envelope(
         )?;
     }
     Ok(bytes)
+}
+
+fn canonical_owner_retained_owned_logical_bytes(
+    owner: &CanonicalLocusTableOwner,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    owner
+        .retained_owned_logical_byte_bound()
+        .map_err(map_canonical_locus_table_error)?
+        .checked_sub(size_of::<CanonicalLocusTableOwner>())
+        .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+            resource: "affine WhenBad authenticated canonical owner retained bytes",
+        })
+}
+
+fn canonical_owner_projected_compact_owned_logical_bytes(
+    owner: &CanonicalLocusTableOwner,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    owner
+        .projected_compact_copy_owned_logical_byte_bound()
+        .map_err(map_canonical_locus_table_error)
+}
+
+fn canonical_owner_projected_compact_dynamic_owned_logical_bytes(
+    owner: &CanonicalLocusTableOwner,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    canonical_owner_projected_compact_owned_logical_bytes(owner)?
+        .checked_sub(size_of::<CanonicalLocusTableOwner>())
+        .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+            resource: "affine WhenBad authenticated canonical owner retained bytes",
+        })
+}
+
+fn canonical_owner_projected_compact_container_owned_logical_bytes(
+    owner: &CanonicalLocusTableOwner,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let resource = "affine WhenBad authenticated canonical owner retained bytes";
+    let mut dynamic = canonical_owner_projected_compact_dynamic_owned_logical_bytes(owner)?;
+    for polynomial in owner.loci() {
+        dynamic = dynamic
+            .checked_sub(
+                polynomial
+                    .owned_retained_byte_bound()
+                    .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow { resource })?,
+            )
+            .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow { resource })?;
+    }
+    Ok(dynamic)
+}
+
+fn canonical_owner_container_owned_logical_bytes(
+    owner: &CanonicalLocusTableOwner,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let mut dynamic = canonical_owner_retained_owned_logical_bytes(owner)?;
+    for polynomial in owner.loci() {
+        dynamic = dynamic
+            .checked_sub(polynomial.owned_retained_byte_bound().ok_or(
+                AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                    resource: "affine WhenBad authenticated canonical owner retained bytes",
+                },
+            )?)
+            .ok_or(AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                resource: "affine WhenBad authenticated canonical owner retained bytes",
+            })?;
+    }
+    Ok(dynamic)
+}
+
+fn authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope_from_parts(
+    owner: &CanonicalLocusTableOwner,
+    inherited_truth_count: usize,
+    atom_count: usize,
+    clause_count: usize,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let resource = "affine WhenBad arbitrary source problem owned logical bytes";
+    let mut bytes = size_of::<AffineWhenBadAuthenticatedArbitraryRelativeProblem>();
+    for allocation in [
+        canonical_owner_retained_owned_logical_bytes(owner)?,
+        capacity_byte_envelope(
+            inherited_truth_count,
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(atom_count, size_of::<AffineWhenBadAtom>())?,
+        capacity_byte_envelope(clause_count, size_of::<Range<usize>>())?,
+    ] {
+        bytes = checked_add(resource, bytes, allocation)?;
+    }
+    Ok(bytes)
+}
+
+fn authenticated_arbitrary_projected_replay_problem_owned_logical_byte_envelope_from_parts(
+    owner: &CanonicalLocusTableOwner,
+    inherited_truth_count: usize,
+    atom_count: usize,
+    clause_count: usize,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let resource = "affine WhenBad arbitrary source problem owned logical bytes";
+    let mut bytes = size_of::<AffineWhenBadAuthenticatedArbitraryRelativeProblem>();
+    for allocation in [
+        canonical_owner_projected_compact_dynamic_owned_logical_bytes(owner)?,
+        capacity_byte_envelope(
+            inherited_truth_count,
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(atom_count, size_of::<AffineWhenBadAtom>())?,
+        capacity_byte_envelope(clause_count, size_of::<Range<usize>>())?,
+    ] {
+        bytes = checked_add(resource, bytes, allocation)?;
+    }
+    Ok(bytes)
+}
+
+fn authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope(
+    problem: &AffineWhenBadAuthenticatedArbitraryRelativeProblem,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope_from_parts(
+        &problem.canonical_loci,
+        problem.inherited_truths.len(),
+        problem.atoms.len(),
+        problem.clause_ranges.len(),
+    )
+}
+
+fn map_canonical_locus_table_error(
+    error: CanonicalLocusTableError,
+) -> AffineWhenBadRelativeCaseError {
+    match error {
+        CanonicalLocusTableError::SchemaMismatch => AffineWhenBadRelativeCaseError::SchemaMismatch,
+        CanonicalLocusTableError::ContextMismatch => {
+            AffineWhenBadRelativeCaseError::ContextMismatch
+        }
+        CanonicalLocusTableError::IdenticallyZeroLocus
+        | CanonicalLocusTableError::CoefficientFieldLocus => {
+            AffineWhenBadRelativeCaseError::ReplayMismatch
+        }
+        CanonicalLocusTableError::ReservedCapacityExhausted {
+            requested,
+            reserved,
+        } => AffineWhenBadRelativeCaseError::ResourceLimit {
+            resource: "canonical locus table reserved capacity",
+            requested,
+            limit: reserved,
+        },
+        CanonicalLocusTableError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => AffineWhenBadRelativeCaseError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        CanonicalLocusTableError::ResourceCountOverflow { resource } => {
+            AffineWhenBadRelativeCaseError::ResourceCountOverflow { resource }
+        }
+        CanonicalLocusTableError::AllocationFailure {
+            resource,
+            requested,
+        } => AffineWhenBadRelativeCaseError::AllocationFailure {
+            resource,
+            requested,
+        },
+        CanonicalLocusTableError::RetainedByteEnvelopeExceeded { observed, admitted } => {
+            AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded { observed, admitted }
+        }
+        CanonicalLocusTableError::SymbolicaPanic { stage } => {
+            AffineWhenBadRelativeCaseError::SymbolicaPanic { stage }
+        }
+        CanonicalLocusTableError::ParametricCoefficient(error) => {
+            AffineWhenBadRelativeCaseError::ParametricCoefficient(error)
+        }
+    }
+}
+
+fn try_copy_authenticated_canonical_owner(
+    owner: &CanonicalLocusTableOwner,
+    context: &ParametricCoefficientContext,
+    expected_schema: &'static str,
+    limits: AffineWhenBadArbitraryRelativeLimits,
+) -> Result<CanonicalLocusTableOwner, AffineWhenBadRelativeCaseError> {
+    let source_owner_owned_logical_bytes = owner
+        .retained_owned_logical_byte_bound()
+        .map_err(map_canonical_locus_table_error)?;
+    let projected_destination_owned_logical_bytes =
+        canonical_owner_projected_compact_owned_logical_bytes(owner)?;
+    let max_copy_owned_logical_peak_upper_bound = checked_add(
+        "canonical locus authenticated copy owned logical peak upper bound",
+        source_owner_owned_logical_bytes,
+        projected_destination_owned_logical_bytes,
+    )?;
+    let copy_limits = CanonicalLocusTableCopyLimits {
+        exact_algebra: limits.relative.exact_algebra,
+        max_context_fingerprint_bytes: limits.relative.max_context_fingerprint_bytes,
+        max_structural_loci: limits.relative.max_structural_loci,
+        max_retained_polynomial_terms: limits.relative.max_retained_polynomial_terms,
+        max_retained_polynomial_exponent_entries: limits
+            .relative
+            .max_retained_polynomial_exponent_entries,
+        max_retained_polynomial_integer_bits: limits.relative.max_retained_polynomial_integer_bits,
+        max_retained_owned_logical_bytes: projected_destination_owned_logical_bytes,
+        max_copy_owned_logical_peak_upper_bound,
+    };
+    owner
+        .try_copy_authenticated(context, expected_schema, copy_limits)
+        .map_err(map_canonical_locus_table_error)
 }
 
 /// Compatibility input for the original fixed-width, provenance-owning API.
@@ -1778,6 +2320,334 @@ impl AffineWhenBadArbitraryRelativePartitionCompiler {
         })?
     }
 
+    pub(crate) fn compile_authenticated(
+        context: &ParametricCoefficientContext,
+        problem: AffineWhenBadAuthenticatedArbitraryRelativeProblem,
+        limits: AffineWhenBadArbitraryRelativeLimits,
+    ) -> Result<
+        AffineWhenBadArbitraryRelativePartitionCertificate,
+        AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure,
+    > {
+        let prepared = catch_unwind(AssertUnwindSafe(|| {
+            Self::compile_authenticated_inner(context, &problem, limits)
+        }));
+        match prepared {
+            Ok(Ok(certificate)) => Ok(certificate),
+            Ok(Err(error)) => {
+                Err(AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure { error, problem })
+            }
+            Err(_) => Err(
+                AffineWhenBadAuthenticatedArbitraryRelativePartitionFailure {
+                    error: AffineWhenBadRelativeCaseError::SymbolicaPanic {
+                        stage: "authenticated arbitrary relative partition compilation",
+                    },
+                    problem,
+                },
+            ),
+        }
+    }
+
+    fn compile_authenticated_inner(
+        context: &ParametricCoefficientContext,
+        problem: &AffineWhenBadAuthenticatedArbitraryRelativeProblem,
+        arbitrary_limits: AffineWhenBadArbitraryRelativeLimits,
+    ) -> Result<AffineWhenBadArbitraryRelativePartitionCertificate, AffineWhenBadRelativeCaseError>
+    {
+        maybe_inject_arbitrary_partition_compile_panic_for_test();
+        let observed_source_problem_owned_logical_bytes =
+            problem.retained_owned_logical_byte_bound()?;
+        let replay_source_problem_owned_logical_byte_envelope =
+            authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope(problem)?;
+        let source_problem_owned_logical_bytes = observed_source_problem_owned_logical_bytes
+            .max(replay_source_problem_owned_logical_byte_envelope);
+        check_limit(
+            "affine WhenBad arbitrary source problem owned logical bytes",
+            source_problem_owned_logical_bytes,
+            arbitrary_limits.max_source_problem_owned_logical_bytes,
+        )?;
+        let limits = arbitrary_limits.relative;
+        let mut stats = AffineWhenBadRelativeCaseStats::default();
+        stats.context_fingerprint_bytes = context.fingerprint().len();
+        check_limit(
+            "affine WhenBad relative context fingerprint bytes",
+            stats.context_fingerprint_bytes,
+            limits.max_context_fingerprint_bytes,
+        )?;
+        let projected_initial_retained_bytes =
+            authenticated_arbitrary_projected_initial_retained_byte_envelope(
+                context.fingerprint().len(),
+                &problem.canonical_loci,
+                problem.inherited_truths.len(),
+            )?;
+        check_limit(
+            "affine WhenBad relative retained bytes",
+            projected_initial_retained_bytes,
+            limits.max_retained_bytes,
+        )?;
+        let mut pre_partition_compiler_owned_logical_peak_upper_bound =
+            check_arbitrary_owned_peak_limits(
+                projected_initial_retained_bytes,
+                0,
+                source_problem_owned_logical_bytes,
+                arbitrary_limits,
+            )?;
+        mark_arbitrary_partition_context_copy_observed_for_test();
+        let context_fingerprint = try_copy_string(
+            context.fingerprint(),
+            "affine WhenBad authenticated arbitrary relative context fingerprint",
+        )?;
+
+        mark_arbitrary_partition_canonical_copy_observed_for_test();
+        let canonical_loci = try_copy_authenticated_canonical_owner(
+            &problem.canonical_loci,
+            context,
+            problem.expected_canonical_locus_schema,
+            arbitrary_limits,
+        )?;
+        let owner_copy_phase_retained_bytes = checked_add(
+            "affine WhenBad relative retained bytes",
+            checked_add(
+                "affine WhenBad relative retained bytes",
+                size_of::<AffineWhenBadArbitraryRelativePartitionCertificate>(),
+                capacity_byte_envelope(context.fingerprint().len(), size_of::<u8>())?,
+            )?,
+            canonical_owner_retained_owned_logical_bytes(&canonical_loci)?,
+        )?;
+        if owner_copy_phase_retained_bytes > projected_initial_retained_bytes {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed: owner_copy_phase_retained_bytes,
+                    admitted: projected_initial_retained_bytes,
+                },
+            );
+        }
+        // From this point onward every durable census is derived from the
+        // compact owner actually retained by the certificate, never from the
+        // caller's potentially over-reserved construction owner.
+        stats.retained_bytes = authenticated_arbitrary_initial_retained_byte_envelope(
+            context.fingerprint().len(),
+            &canonical_loci,
+            &problem.inherited_truths,
+        )?;
+        check_limit(
+            "affine WhenBad relative retained bytes",
+            stats.retained_bytes,
+            limits.max_retained_bytes,
+        )?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    0,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        let source_structural_loci = canonical_loci.loci();
+        reset_authenticated_arbitrary_partition_linear_validations_for_test();
+        validate_authenticated_structural_loci(
+            context,
+            source_structural_loci,
+            limits,
+            &mut stats,
+        )?;
+        if stats.retained_bytes > projected_initial_retained_bytes {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed: stats.retained_bytes,
+                    admitted: projected_initial_retained_bytes,
+                },
+            );
+        }
+        maybe_inject_authenticated_arbitrary_partition_post_validation_panic_for_test();
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    0,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        let inherited_validation_work_owned_logical_peak_upper_bound =
+            capacity_byte_envelope(source_structural_loci.len(), size_of::<bool>())?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    inherited_validation_work_owned_logical_peak_upper_bound,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        check_limit(
+            "affine WhenBad relative inherited truths",
+            problem.inherited_truths.len(),
+            limits.max_inherited_truths,
+        )?;
+        mark_arbitrary_partition_inherited_validation_reserve_observed_for_test();
+        validate_inherited_truths(
+            &problem.inherited_truths,
+            source_structural_loci.len(),
+            limits,
+            &mut stats,
+        )?;
+        pre_partition_compiler_owned_logical_peak_upper_bound =
+            pre_partition_compiler_owned_logical_peak_upper_bound.max(
+                check_arbitrary_owned_peak_limits(
+                    stats.retained_bytes,
+                    0,
+                    source_problem_owned_logical_bytes,
+                    arbitrary_limits,
+                )?,
+            );
+        mark_arbitrary_partition_inherited_copy_observed_for_test();
+        let inherited_truths = try_canonicalize_inherited_truths(&problem.inherited_truths)?;
+        let formula = validate_and_compile_arbitrary_formula(
+            &problem.atoms,
+            &problem.clause_ranges,
+            source_structural_loci.len(),
+            limits,
+            &mut stats,
+            true,
+            arbitrary_limits,
+            source_problem_owned_logical_bytes,
+            &mut pre_partition_compiler_owned_logical_peak_upper_bound,
+        )?;
+
+        let (splits, cases, classifications) = build_partition_kernel(
+            context,
+            source_structural_loci,
+            &inherited_truths,
+            RelativeDirectFormulaView::Arbitrary(&formula),
+            RelativePartitionRetainedLayout::ArbitraryTableIndexed {
+                max_work_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_work_owned_logical_peak_upper_bound,
+                max_compiler_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_compiler_owned_logical_peak_upper_bound,
+                source_problem_owned_logical_bytes,
+                max_compilation_owned_logical_peak_upper_bound: arbitrary_limits
+                    .max_compilation_owned_logical_peak_upper_bound,
+            },
+            limits,
+            &mut stats,
+        )?;
+        let (payload_units, payload_bytes, payload_integer_bits) =
+            authenticated_arbitrary_payload_census(
+                AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA,
+                problem.expected_canonical_locus_schema,
+                &context_fingerprint,
+                source_structural_loci,
+                &inherited_truths,
+                &formula,
+                &splits,
+                &cases,
+                &classifications,
+            )?;
+        check_limit(
+            "affine WhenBad relative payload comparison units",
+            payload_units,
+            limits.max_payload_comparison_units,
+        )?;
+        check_limit(
+            "affine WhenBad relative payload comparison bytes",
+            payload_bytes,
+            limits.max_payload_comparison_bytes,
+        )?;
+        check_limit(
+            "affine WhenBad relative payload comparison integer bits",
+            payload_integer_bits,
+            limits.max_payload_comparison_integer_bits,
+        )?;
+        stats.payload_comparison_units = payload_units;
+        stats.payload_comparison_bytes = payload_bytes;
+        stats.payload_comparison_integer_bits = payload_integer_bits;
+
+        let partition_work_owned_logical_peak_upper_bound =
+            arbitrary_work_owned_logical_peak_upper_bound(stats)?;
+        let work_owned_logical_peak_upper_bound = partition_work_owned_logical_peak_upper_bound
+            .max(inherited_validation_work_owned_logical_peak_upper_bound);
+        check_limit(
+            "affine WhenBad arbitrary work owned logical peak upper bound",
+            work_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_work_owned_logical_peak_upper_bound,
+        )?;
+        let partition_compiler_owned_logical_peak_upper_bound = checked_add(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            stats.retained_bytes,
+            partition_work_owned_logical_peak_upper_bound,
+        )?;
+        let compiler_owned_logical_peak_upper_bound =
+            partition_compiler_owned_logical_peak_upper_bound
+                .max(pre_partition_compiler_owned_logical_peak_upper_bound);
+        check_limit(
+            "affine WhenBad arbitrary compiler owned logical peak upper bound",
+            compiler_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_compiler_owned_logical_peak_upper_bound,
+        )?;
+        let compilation_owned_logical_peak_upper_bound = checked_add(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            source_problem_owned_logical_bytes,
+            compiler_owned_logical_peak_upper_bound,
+        )?;
+        check_limit(
+            "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            compilation_owned_logical_peak_upper_bound,
+            arbitrary_limits.max_compilation_owned_logical_peak_upper_bound,
+        )?;
+        // The caller-owned problem may retain a much larger reserved locus
+        // capacity than the compact authenticated owner copied into the
+        // certificate (notably after duplicate-heavy first-seen interning).
+        // Keep the larger `source_problem_owned_logical_bytes` above for the
+        // honest construction peak, but persist the deterministic envelope of
+        // the compact replay source. Replaying then reconstructs the same
+        // compact owner without re-running any pairwise canonicality proof.
+        let certificate_replay_source_problem_owned_logical_byte_envelope =
+            authenticated_arbitrary_replay_source_problem_owned_logical_byte_envelope_from_parts(
+                &canonical_loci,
+                inherited_truths.len(),
+                formula.atoms().len(),
+                formula.clause_count(),
+            )?;
+        let compilation_stats = AffineWhenBadArbitraryRelativeCompilationStats {
+            source_problem_owned_logical_byte_envelope:
+                certificate_replay_source_problem_owned_logical_byte_envelope,
+            formula_retained_owned_logical_bytes: formula.stats().retained_owned_logical_bytes(),
+            formula_compilation_owned_logical_peak_upper_bound: formula
+                .stats()
+                .compilation_owned_logical_peak_upper_bound(),
+            work_owned_logical_peak_upper_bound,
+            compiler_owned_logical_peak_upper_bound,
+        };
+
+        let certificate = AffineWhenBadArbitraryRelativePartitionCertificate {
+            schema: AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA,
+            context_fingerprint,
+            canonical_loci: AffineWhenBadArbitraryCanonicalLoci::Authenticated {
+                expected_schema: problem.expected_canonical_locus_schema,
+                owner: canonical_loci,
+            },
+            inherited_truths,
+            formula,
+            splits,
+            cases,
+            classifications,
+            limits: arbitrary_limits,
+            stats,
+            compilation_stats,
+        };
+        let observed = observed_arbitrary_certificate_owned_byte_bound(&certificate)?;
+        if observed > certificate.stats.retained_bytes {
+            return Err(
+                AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                    observed,
+                    admitted: certificate.stats.retained_bytes,
+                },
+            );
+        }
+        Ok(certificate)
+    }
+
     fn compile_inner(
         context: &ParametricCoefficientContext,
         problem: AffineWhenBadArbitraryRelativeProblem,
@@ -1999,7 +2869,7 @@ impl AffineWhenBadArbitraryRelativePartitionCompiler {
         let certificate = AffineWhenBadArbitraryRelativePartitionCertificate {
             schema: AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA,
             context_fingerprint,
-            structural_loci,
+            canonical_loci: AffineWhenBadArbitraryCanonicalLoci::Raw(structural_loci),
             inherited_truths,
             formula,
             splits,
@@ -2244,6 +3114,47 @@ fn validate_structural_loci(
         }
     }
     stats.structural_loci = loci.len();
+    Ok(())
+}
+
+/// Validate a locus table whose pairwise canonicality is carried by an opaque
+/// sealed owner. This deliberately retains every O(N) authentication and
+/// payload census from the raw path while performing no equality comparison,
+/// coefficient-field associate proof, or native Symbolica projection.
+fn validate_authenticated_structural_loci(
+    context: &ParametricCoefficientContext,
+    loci: &[ParametricPolynomial],
+    limits: AffineWhenBadRelativeCaseLimits,
+    stats: &mut AffineWhenBadRelativeCaseStats,
+) -> Result<(), AffineWhenBadRelativeCaseError> {
+    check_limit(
+        "affine WhenBad relative structural loci",
+        loci.len(),
+        limits.max_structural_loci,
+    )?;
+    for (ordinal, polynomial) in loci.iter().enumerate() {
+        mark_authenticated_arbitrary_partition_linear_validation_for_test();
+        context.validate_polynomial_with_limits(polynomial, limits.exact_algebra)?;
+        if polynomial.is_zero() {
+            return Err(
+                AffineWhenBadRelativeCaseError::IdenticallyZeroStructuralLocus {
+                    locus_ordinal: ordinal,
+                },
+            );
+        }
+        if !context.polynomial_depends_on_indices_with_limits(polynomial, limits.exact_algebra)? {
+            return Err(
+                AffineWhenBadRelativeCaseError::CoefficientFieldStructuralLocus {
+                    locus_ordinal: ordinal,
+                },
+            );
+        }
+        charge_retained_polynomial(polynomial, stats, limits)?;
+    }
+    stats.structural_loci = loci.len();
+    debug_assert_eq!(stats.structural_locus_equality_comparisons, 0);
+    debug_assert_eq!(stats.structural_locus_associate_comparisons, 0);
+    debug_assert_eq!(stats.structural_locus_associate_term_pairs, 0);
     Ok(())
 }
 
@@ -3793,6 +4704,60 @@ fn arbitrary_payload_census(
     Ok((units, bytes, integer_bits))
 }
 
+/// Extend the raw arbitrary payload census with the authority-bearing fields
+/// that are compared only by authenticated certificates.
+///
+/// The raw V1 census intentionally remains unchanged.  An authenticated
+/// payload additionally compares its authority discriminant, its distinct
+/// certificate schema, and the expected schema of the opaque canonical-locus
+/// owner.  Polynomial payload is still charged exactly once by
+/// `arbitrary_payload_census`.
+#[allow(clippy::too_many_arguments)]
+fn authenticated_arbitrary_payload_census(
+    certificate_schema: &'static str,
+    expected_canonical_locus_schema: &'static str,
+    context_fingerprint: &str,
+    structural_loci: &[ParametricPolynomial],
+    inherited_truths: &[AffineWhenBadInheritedTruth],
+    formula: &ArbitraryDirectBadFormula<AffineWhenBadAtom>,
+    splits: &[AffineWhenBadArbitraryRelativeSplit],
+    cases: &[AffineWhenBadArbitraryRelativeCase],
+    classifications: &[AffineWhenBadArbitraryRelativeLeafClassification],
+) -> Result<(usize, usize, usize), AffineWhenBadRelativeCaseError> {
+    let (mut units, mut bytes, integer_bits) = arbitrary_payload_census(
+        context_fingerprint,
+        structural_loci,
+        inherited_truths,
+        formula,
+        splits,
+        cases,
+        classifications,
+    )?;
+    units = checked_add(
+        "affine WhenBad relative payload comparison units",
+        units,
+        checked_add(
+            "affine WhenBad relative payload comparison units",
+            scalar_representation_units::<bool>(),
+            checked_mul(
+                "affine WhenBad relative payload comparison units",
+                2,
+                scalar_representation_units::<&'static str>(),
+            )?,
+        )?,
+    )?;
+    bytes = checked_add(
+        "affine WhenBad relative payload comparison bytes",
+        bytes,
+        checked_add(
+            "affine WhenBad relative payload comparison bytes",
+            certificate_schema.len(),
+            expected_canonical_locus_schema.len(),
+        )?,
+    )?;
+    Ok((units, bytes, integer_bits))
+}
+
 fn arbitrary_initial_retained_byte_envelope(
     context_fingerprint_bytes: usize,
     structural_loci: &[ParametricPolynomial],
@@ -3817,6 +4782,71 @@ fn arbitrary_initial_retained_byte_envelope(
         )?,
     ] {
         bytes = checked_add("affine WhenBad relative retained bytes", bytes, allocation)?;
+    }
+    Ok(bytes)
+}
+
+fn authenticated_arbitrary_initial_retained_byte_envelope(
+    context_fingerprint_bytes: usize,
+    owner: &CanonicalLocusTableOwner,
+    inherited_truths: &[AffineWhenBadInheritedTruth],
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let mut bytes = size_of::<AffineWhenBadArbitraryRelativePartitionCertificate>();
+    bytes = checked_add(
+        "affine WhenBad relative retained bytes",
+        bytes,
+        capacity_byte_envelope(context_fingerprint_bytes, size_of::<u8>())?,
+    )?;
+    for allocation in [
+        canonical_owner_container_owned_logical_bytes(owner)?,
+        capacity_byte_envelope(
+            inherited_truths.len(),
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(1, size_of::<AffineWhenBadArbitraryRelativeCase>())?,
+        capacity_byte_envelope(
+            1,
+            size_of::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+        )?,
+    ] {
+        bytes = checked_add("affine WhenBad relative retained bytes", bytes, allocation)?;
+    }
+    Ok(bytes)
+}
+
+/// Full no-allocation projection of the authenticated certificate storage
+/// known before the canonical owner is copied. This includes the compact
+/// destination owner and every retained sparse-polynomial payload, plus the
+/// inherited and mandatory base-case arrays. Later formula and partition
+/// growth is charged independently as it is preflighted.
+fn authenticated_arbitrary_projected_initial_retained_byte_envelope(
+    context_fingerprint_bytes: usize,
+    owner: &CanonicalLocusTableOwner,
+    inherited_truth_count: usize,
+) -> Result<usize, AffineWhenBadRelativeCaseError> {
+    let resource = "affine WhenBad relative retained bytes";
+    let mut bytes = size_of::<AffineWhenBadArbitraryRelativePartitionCertificate>();
+    for allocation in [
+        capacity_byte_envelope(context_fingerprint_bytes, size_of::<u8>())?,
+        canonical_owner_projected_compact_container_owned_logical_bytes(owner)?,
+        capacity_byte_envelope(
+            inherited_truth_count,
+            size_of::<AffineWhenBadInheritedTruth>(),
+        )?,
+        capacity_byte_envelope(1, size_of::<AffineWhenBadArbitraryRelativeCase>())?,
+        capacity_byte_envelope(
+            1,
+            size_of::<AffineWhenBadArbitraryRelativeLeafClassification>(),
+        )?,
+    ] {
+        bytes = checked_add(resource, bytes, allocation)?;
+    }
+    for polynomial in owner.loci() {
+        bytes = checked_add(
+            resource,
+            bytes,
+            deterministic_polynomial_owned_byte_envelope(polynomial)?,
+        )?;
     }
     Ok(bytes)
 }
@@ -3906,11 +4936,6 @@ fn observed_arbitrary_certificate_owned_byte_bound(
         certificate.context_fingerprint.capacity(),
         checked_mul(
             "affine WhenBad relative retained bytes",
-            certificate.structural_loci.capacity(),
-            size_of::<ParametricPolynomial>(),
-        )?,
-        checked_mul(
-            "affine WhenBad relative retained bytes",
             certificate.inherited_truths.capacity(),
             size_of::<AffineWhenBadInheritedTruth>(),
         )?,
@@ -3934,16 +4959,36 @@ fn observed_arbitrary_certificate_owned_byte_bound(
     ] {
         bytes = checked_add("affine WhenBad relative retained bytes", bytes, allocation)?;
     }
-    for polynomial in &certificate.structural_loci {
-        bytes = checked_add(
-            "affine WhenBad relative retained bytes",
-            bytes,
-            polynomial.owned_retained_byte_bound().ok_or(
-                AffineWhenBadRelativeCaseError::ResourceCountOverflow {
-                    resource: "affine WhenBad relative retained bytes",
-                },
-            )?,
-        )?;
+    match &certificate.canonical_loci {
+        AffineWhenBadArbitraryCanonicalLoci::Raw(loci) => {
+            bytes = checked_add(
+                "affine WhenBad relative retained bytes",
+                bytes,
+                checked_mul(
+                    "affine WhenBad relative retained bytes",
+                    loci.capacity(),
+                    size_of::<ParametricPolynomial>(),
+                )?,
+            )?;
+            for polynomial in loci {
+                bytes = checked_add(
+                    "affine WhenBad relative retained bytes",
+                    bytes,
+                    polynomial.owned_retained_byte_bound().ok_or(
+                        AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                            resource: "affine WhenBad relative retained bytes",
+                        },
+                    )?,
+                )?;
+            }
+        }
+        AffineWhenBadArbitraryCanonicalLoci::Authenticated { owner, .. } => {
+            bytes = checked_add(
+                "affine WhenBad relative retained bytes",
+                bytes,
+                canonical_owner_retained_owned_logical_bytes(owner)?,
+            )?;
+        }
     }
     for case in &certificate.cases {
         bytes = checked_add(
@@ -3963,15 +5008,31 @@ fn preflight_arbitrary_payload_comparison(
     certificate: &AffineWhenBadArbitraryRelativePartitionCertificate,
     limits: AffineWhenBadRelativeCaseLimits,
 ) -> Result<(), AffineWhenBadRelativeCaseError> {
-    let (units, bytes, integer_bits) = arbitrary_payload_census(
-        &certificate.context_fingerprint,
-        &certificate.structural_loci,
-        &certificate.inherited_truths,
-        &certificate.formula,
-        &certificate.splits,
-        &certificate.cases,
-        &certificate.classifications,
-    )?;
+    let (units, bytes, integer_bits) = match &certificate.canonical_loci {
+        AffineWhenBadArbitraryCanonicalLoci::Raw(_) => arbitrary_payload_census(
+            &certificate.context_fingerprint,
+            certificate.structural_loci(),
+            &certificate.inherited_truths,
+            &certificate.formula,
+            &certificate.splits,
+            &certificate.cases,
+            &certificate.classifications,
+        )?,
+        AffineWhenBadArbitraryCanonicalLoci::Authenticated {
+            expected_schema,
+            owner: _,
+        } => authenticated_arbitrary_payload_census(
+            certificate.schema,
+            expected_schema,
+            &certificate.context_fingerprint,
+            certificate.structural_loci(),
+            &certificate.inherited_truths,
+            &certificate.formula,
+            &certificate.splits,
+            &certificate.cases,
+            &certificate.classifications,
+        )?,
+    };
     check_limit(
         "affine WhenBad relative payload comparison units",
         units,
@@ -4368,6 +5429,14 @@ fn scalar_representation_units<T>() -> usize {
 mod tests {
     use super::*;
     use crate::CoefficientContext;
+    use crate::canonical_parametric_locus_table::{
+        CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA, CanonicalLocusTableBuilder,
+        CanonicalLocusTableLimits,
+    };
+    use crate::parametric_coefficient::{
+        polynomial_associate_native_boundary_calls_for_test,
+        reset_polynomial_associate_native_boundary_calls_for_test,
+    };
 
     fn context(name: &str, index_count: usize) -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(
@@ -4437,6 +5506,41 @@ mod tests {
                 clause_ranges,
             ),
             limits,
+        )
+    }
+
+    fn canonical_locus_owner(
+        context: &ParametricCoefficientContext,
+        inputs: &[ParametricPolynomial],
+        reserved_slots: usize,
+    ) -> CanonicalLocusTableOwner {
+        let mut builder = CanonicalLocusTableBuilder::try_new(
+            context,
+            CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA,
+            reserved_slots,
+            CanonicalLocusTableLimits::default(),
+        )
+        .unwrap();
+        for polynomial in inputs {
+            builder.try_intern(context, polynomial).unwrap();
+        }
+        builder.seal().unwrap()
+    }
+
+    fn authenticated_problem(
+        context: &ParametricCoefficientContext,
+        inputs: &[ParametricPolynomial],
+        reserved_slots: usize,
+        inherited_truths: Vec<AffineWhenBadInheritedTruth>,
+        atoms: Vec<AffineWhenBadAtom>,
+        clause_ranges: Vec<Range<usize>>,
+    ) -> AffineWhenBadAuthenticatedArbitraryRelativeProblem {
+        AffineWhenBadAuthenticatedArbitraryRelativeProblem::from_preallocated(
+            canonical_locus_owner(context, inputs, reserved_slots),
+            CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA,
+            inherited_truths,
+            atoms,
+            clause_ranges,
         )
     }
 
@@ -5746,6 +6850,467 @@ mod tests {
             })
         ));
         certificate.replay(&context).unwrap();
+    }
+
+    #[test]
+    fn authenticated_arbitrary_matches_raw_partition_without_pairwise_or_native_revalidation() {
+        let context = context("affine-relative-authenticated-vs-raw", 3);
+        let loci = indexed_loci(&context, 3);
+        let atoms = vec![
+            AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+            AffineWhenBadAtom::new(1, SymbolicPolynomialPredicateKind::NonZero),
+            AffineWhenBadAtom::new(2, SymbolicPolynomialPredicateKind::EqualZero),
+        ];
+        // Mint authority before measuring either compiler. Pairwise work is
+        // expected exactly once in this outer construction step.
+        let authenticated_problem = authenticated_problem(
+            &context,
+            &loci,
+            loci.len(),
+            Vec::new(),
+            atoms.clone(),
+            vec![0..3],
+        );
+
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        let raw = AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+            &context,
+            AffineWhenBadArbitraryRelativeProblem::from_preallocated(
+                loci,
+                Vec::new(),
+                atoms,
+                vec![0..3],
+            ),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        let raw_native_calls = polynomial_associate_native_boundary_calls_for_test();
+        assert_eq!(raw_native_calls, 3);
+        assert_eq!(raw.stats().structural_locus_equality_comparisons(), 3);
+        assert_eq!(raw.stats().structural_locus_associate_comparisons(), 3);
+        assert_eq!(
+            raw.schema(),
+            AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA
+        );
+
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        let authenticated = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            authenticated_problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(polynomial_associate_native_boundary_calls_for_test(), 0);
+        assert_eq!(
+            authenticated_arbitrary_partition_linear_validations_for_test(),
+            3
+        );
+        assert_eq!(
+            authenticated
+                .stats()
+                .structural_locus_equality_comparisons(),
+            0
+        );
+        assert_eq!(
+            authenticated
+                .stats()
+                .structural_locus_associate_comparisons(),
+            0
+        );
+        assert_eq!(
+            authenticated.schema(),
+            AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA
+        );
+
+        assert_eq!(authenticated.structural_loci(), raw.structural_loci());
+        assert_eq!(authenticated.inherited_truths(), raw.inherited_truths());
+        assert_eq!(authenticated.atoms(), raw.atoms());
+        assert_eq!(authenticated.clause_count(), raw.clause_count());
+        assert_eq!(authenticated.splits(), raw.splits());
+        assert_eq!(authenticated.cases(), raw.cases());
+        assert_eq!(authenticated.classifications(), raw.classifications());
+
+        let authority_unit_delta = checked_add(
+            "test authenticated authority unit delta",
+            scalar_representation_units::<bool>(),
+            checked_mul(
+                "test authenticated authority unit delta",
+                2,
+                scalar_representation_units::<&'static str>(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            authenticated.stats().payload_comparison_units(),
+            raw.stats().payload_comparison_units() + authority_unit_delta
+        );
+        assert_eq!(
+            authenticated.stats().payload_comparison_bytes(),
+            raw.stats().payload_comparison_bytes()
+                + AFFINE_WHEN_BAD_AUTHENTICATED_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA.len()
+                + CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA.len()
+        );
+
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        authenticated.replay(&context).unwrap();
+        assert_eq!(polynomial_associate_native_boundary_calls_for_test(), 0);
+        assert_eq!(
+            authenticated_arbitrary_partition_linear_validations_for_test(),
+            3
+        );
+    }
+
+    #[test]
+    fn authenticated_arbitrary_failure_and_panic_return_the_exact_owner_for_retry() {
+        let context = context("affine-relative-authenticated-recovery", 2);
+        let loci = indexed_loci(&context, 2);
+        let atoms = vec![AffineWhenBadAtom::new(
+            0,
+            SymbolicPolynomialPredicateKind::EqualZero,
+        )];
+        let problem =
+            authenticated_problem(&context, &loci, loci.len(), Vec::new(), atoms, vec![0..1]);
+        let mut too_small = AffineWhenBadArbitraryRelativeLimits::default();
+        too_small.relative.max_structural_loci = 1;
+        let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context, problem, too_small,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            AffineWhenBadRelativeCaseError::ResourceLimit {
+                resource: "canonical locus authenticated copy structural loci",
+                requested: 2,
+                limit: 1,
+            }
+        ));
+        let (_, problem) = failure.into_parts();
+        assert_eq!(problem.canonical_loci().loci(), loci);
+
+        inject_authenticated_arbitrary_partition_post_validation_panic_for_test();
+        let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            failure.error(),
+            AffineWhenBadRelativeCaseError::SymbolicaPanic {
+                stage: "authenticated arbitrary relative partition compilation",
+            }
+        ));
+        let debug = format!("{failure:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains(context.fingerprint()));
+        assert!(!debug.contains(&format!("{}", loci[0].raw())));
+
+        let (_, problem) = failure.into_parts();
+        assert_eq!(problem.canonical_loci().loci(), loci);
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        certificate.replay(&context).unwrap();
+    }
+
+    #[test]
+    fn authenticated_arbitrary_rejects_schema_and_context_mismatch_without_losing_authority() {
+        let ctx = context("affine-relative-authenticated-identity", 1);
+        let loci = indexed_loci(&ctx, 1);
+        let owner = canonical_locus_owner(&ctx, &loci, 1);
+        let wrong_schema_problem =
+            AffineWhenBadAuthenticatedArbitraryRelativeProblem::from_preallocated(
+                owner,
+                "wrong-canonical-locus-schema",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &ctx,
+            wrong_schema_problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            &AffineWhenBadRelativeCaseError::SchemaMismatch
+        );
+        let (_, recovered) = failure.into_parts();
+        assert_eq!(
+            recovered.canonical_loci().schema(),
+            CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA
+        );
+
+        let AffineWhenBadAuthenticatedArbitraryRelativeProblem {
+            canonical_loci,
+            expected_canonical_locus_schema: _,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        } = recovered;
+        let corrected = AffineWhenBadAuthenticatedArbitraryRelativeProblem::from_preallocated(
+            canonical_loci,
+            CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA,
+            inherited_truths,
+            atoms,
+            clause_ranges,
+        );
+        let foreign = context("affine-relative-authenticated-identity-foreign", 1);
+        let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &foreign,
+            corrected,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            &AffineWhenBadRelativeCaseError::ContextMismatch
+        );
+        let (_, recovered) = failure.into_parts();
+        let mut certificate =
+            AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+                &ctx,
+                recovered,
+                AffineWhenBadArbitraryRelativeLimits::default(),
+            )
+            .unwrap();
+        certificate.schema = AFFINE_WHEN_BAD_ARBITRARY_RELATIVE_PARTITION_V1_SCHEMA;
+        assert_eq!(
+            certificate.replay(&ctx),
+            Err(AffineWhenBadRelativeCaseError::SchemaMismatch)
+        );
+    }
+
+    #[test]
+    fn authenticated_authority_and_schema_census_have_exact_one_below_boundaries() {
+        let context = context("affine-relative-authenticated-authority-census", 1);
+        let loci = indexed_loci(&context, 1);
+        let make_problem = || {
+            authenticated_problem(
+                &context,
+                &loci,
+                1,
+                Vec::new(),
+                vec![AffineWhenBadAtom::new(
+                    0,
+                    SymbolicPolynomialPredicateKind::EqualZero,
+                )],
+                vec![0..1],
+            )
+        };
+        let baseline = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            make_problem(),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        for resource in [
+            "affine WhenBad relative payload comparison units",
+            "affine WhenBad relative payload comparison bytes",
+        ] {
+            let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+            if resource == "affine WhenBad relative payload comparison units" {
+                limits.relative.max_payload_comparison_units =
+                    baseline.stats().payload_comparison_units() - 1;
+            } else {
+                limits.relative.max_payload_comparison_bytes =
+                    baseline.stats().payload_comparison_bytes() - 1;
+            }
+            let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+                &context,
+                make_problem(),
+                limits,
+            )
+            .unwrap_err();
+            assert_resource(failure.into_parts().0, resource);
+        }
+    }
+
+    #[test]
+    fn authenticated_initial_certificate_is_preflighted_before_any_copy() {
+        let context = context("affine-relative-authenticated-initial-preflight", 1);
+        let loci = indexed_loci(&context, 1);
+        let make_problem =
+            || authenticated_problem(&context, &loci, 1, Vec::new(), Vec::new(), Vec::new());
+        let probe = make_problem();
+        let projected = authenticated_arbitrary_projected_initial_retained_byte_envelope(
+            context.fingerprint().len(),
+            probe.canonical_loci(),
+            probe.inherited_truths.len(),
+        )
+        .unwrap();
+        let source = probe.retained_owned_logical_byte_bound().unwrap();
+        drop(probe);
+
+        let mut exact = AffineWhenBadArbitraryRelativeLimits::default();
+        exact.relative.max_retained_bytes = projected;
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            make_problem(),
+            exact,
+        )
+        .unwrap();
+        assert!(certificate.stats().retained_bytes() <= projected);
+
+        for (resource, limits) in [
+            ("affine WhenBad relative retained bytes", {
+                let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+                limits.relative.max_retained_bytes = projected - 1;
+                limits
+            }),
+            (
+                "affine WhenBad arbitrary compiler owned logical peak upper bound",
+                {
+                    let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+                    limits.max_compiler_owned_logical_peak_upper_bound = projected - 1;
+                    limits
+                },
+            ),
+            (
+                "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                {
+                    let mut limits = AffineWhenBadArbitraryRelativeLimits::default();
+                    limits.max_compilation_owned_logical_peak_upper_bound =
+                        source.checked_add(projected).unwrap() - 1;
+                    limits
+                },
+            ),
+        ] {
+            reset_arbitrary_partition_reserve_observations_for_test();
+            let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+                &context,
+                make_problem(),
+                limits,
+            )
+            .unwrap_err();
+            assert_resource(failure.into_parts().0, resource);
+            assert_eq!(
+                arbitrary_partition_reserve_observations_for_test(),
+                (false, false, false, false, false, false),
+                "the full authenticated initial certificate must be rejected before allocation",
+            );
+        }
+    }
+
+    #[test]
+    fn authenticated_replay_owner_copy_has_exact_problem_envelope_boundaries() {
+        let context = context("affine-relative-authenticated-replay-copy-boundary", 2);
+        let loci = indexed_loci(&context, 2);
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            authenticated_problem(
+                &context,
+                &loci,
+                loci.len(),
+                Vec::new(),
+                vec![AffineWhenBadAtom::new(
+                    0,
+                    SymbolicPolynomialPredicateKind::EqualZero,
+                )],
+                vec![0..1],
+            ),
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        let admitted = certificate
+            .compilation_stats()
+            .source_problem_owned_logical_byte_envelope();
+        let AffineWhenBadArbitraryCanonicalLoci::Authenticated { owner, .. } =
+            &certificate.canonical_loci
+        else {
+            unreachable!();
+        };
+        assert_eq!(
+            authenticated_arbitrary_projected_replay_problem_owned_logical_byte_envelope_from_parts(
+                owner,
+                certificate.inherited_truths.len(),
+                certificate.formula.atoms().len(),
+                certificate.formula.clause_count(),
+            )
+            .unwrap(),
+            admitted
+        );
+
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        let exact = certificate
+            .try_copy_authenticated_problem(&context, admitted)
+            .unwrap();
+        assert!(exact.retained_owned_logical_byte_bound().unwrap() <= admitted);
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 4);
+
+        reset_arbitrary_partition_replay_problem_copy_stage_for_test();
+        assert!(matches!(
+            certificate.try_copy_authenticated_problem(&context, admitted - 1),
+            Err(AffineWhenBadRelativeCaseError::RetainedByteEnvelopeExceeded {
+                observed,
+                admitted: limit,
+            }) if observed == admitted && limit == admitted - 1
+        ));
+        assert_eq!(arbitrary_partition_replay_problem_copy_stage_for_test(), 0);
+        certificate.replay(&context).unwrap();
+    }
+
+    #[test]
+    fn duplicate_heavy_authenticated_owner_replays_compactly_but_charges_source_peak() {
+        let context = context("affine-relative-authenticated-duplicate-heavy", 2);
+        let unique = indexed_loci(&context, 2);
+        let mut duplicate_heavy = Vec::new();
+        for _ in 0..24 {
+            duplicate_heavy.push(unique[0].clone());
+            duplicate_heavy.push(unique[1].clone());
+        }
+        let make_problem = || {
+            authenticated_problem(
+                &context,
+                &duplicate_heavy,
+                64,
+                Vec::new(),
+                vec![
+                    AffineWhenBadAtom::new(0, SymbolicPolynomialPredicateKind::EqualZero),
+                    AffineWhenBadAtom::new(1, SymbolicPolynomialPredicateKind::NonZero),
+                ],
+                vec![0..2],
+            )
+        };
+        let source_problem = make_problem();
+        assert_eq!(source_problem.canonical_loci().loci(), unique);
+        let noncompact_source_bytes = source_problem.retained_owned_logical_byte_bound().unwrap();
+
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        let certificate = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            source_problem,
+            AffineWhenBadArbitraryRelativeLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(polynomial_associate_native_boundary_calls_for_test(), 0);
+        assert!(
+            certificate
+                .compilation_stats()
+                .source_problem_owned_logical_byte_envelope()
+                < noncompact_source_bytes
+        );
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        certificate.replay(&context).unwrap();
+        assert_eq!(polynomial_associate_native_boundary_calls_for_test(), 0);
+
+        let mut one_below = AffineWhenBadArbitraryRelativeLimits::default();
+        one_below.max_source_problem_owned_logical_bytes = noncompact_source_bytes - 1;
+        let failure = AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
+            &context,
+            make_problem(),
+            one_below,
+        )
+        .unwrap_err();
+        assert_resource(
+            failure.into_parts().0,
+            "affine WhenBad arbitrary source problem owned logical bytes",
+        );
     }
 
     #[test]

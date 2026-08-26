@@ -1,16 +1,20 @@
 # Exact-group `Solvej` row transaction
 
-Status: authoritative design note and implementation checkpoint.
+Status: authoritative RustRed design note and implementation checkpoint.
 
 Scope: one topology-independent, exact-GMP affine group. This note defines the
-ownership and transaction boundary joining raw-row replay, LiteRed-style
-top-reduction, exact recentering, target selection, `WhenBad`, and publication.
-It does not define loop-specific recurrences, infer master integrals, or permit
-FORM as an implementation dependency.
+ownership and transaction boundary joining raw-row replay, RustRed's current
+versioned hardest-first reduction policy, exact recentering, target selection,
+`WhenBad`, and publication. LiteRed2 motivates mathematical cases here; its architecture,
+mutation sequence, and pivot policy do not constrain future RustRed designs.
+Alternative solver kernels, including finite-field discovery followed by exact
+replay, may replace this policy when they prove the accepted guards, descent,
+coverage, and replay semantics. It does not define loop-specific recurrences,
+infer master integrals, or permit FORM as an implementation dependency.
 
-The broader mathematical contract remains
+The broader source analysis and current versioned design rationale are in
 `docs/research/litered_solvej_exact_group_database.md`. This note narrows that
-contract to the APIs and invariants needed for an atomic implementation.
+design to the APIs and invariants needed for an atomic implementation.
 
 ## Implemented checkpoint (updated 2026-08-25)
 
@@ -239,7 +243,7 @@ arbitrary one-loop pentagon reduction, and the high-throughput two- through
 six-loop single-scale vacuum milestones remain pending behind the generic
 condition/publication/residual pipeline.
 
-## 1. Normative source seams
+## 1. Source-derived design context
 
 LiteRed's default `Solvej[eq, db]` repeatedly substitutes only the current
 hardest known integral; the first unknown hardest integral is normalized and
@@ -269,7 +273,8 @@ authority boundary was necessary:
    ingested it mutably
    (`src/generated_affine_residual_group_exact_database.rs` at the historical
    audit revision).
-   Its hardest-only loop is the required LiteRed algebra
+   Its hardest-only loop is RustRed's current chosen algebraic policy, informed
+   by the corresponding LiteRed2 behavior
    (`src/generated_affine_residual_group_exact_database.rs:637-742`). It
    constructs a normalized pivot and complete replacement buffers
    (`src/generated_affine_residual_group_exact_database.rs:744-847`), but then

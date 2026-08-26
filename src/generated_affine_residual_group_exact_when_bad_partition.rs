@@ -20,8 +20,10 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use symbolica::domains::integer::Integer;
-
+use crate::canonical_parametric_locus_table::{
+    CanonicalLocusTableBuilder, CanonicalLocusTableError, CanonicalLocusTableLimits,
+    CanonicalLocusTableOwner,
+};
 use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSession;
 use crate::generated_affine_residual_group_exact_when_bad_conditions::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
@@ -40,9 +42,9 @@ use crate::generated_affine_residual_group_exact_when_bad_materialization::{
 };
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeLimits, AffineWhenBadArbitraryRelativePartitionCertificate,
-    AffineWhenBadArbitraryRelativePartitionCompiler, AffineWhenBadArbitraryRelativeProblem,
-    AffineWhenBadAtom, AffineWhenBadInheritedTruth, AffineWhenBadRelativeCaseError,
-    AffineWhenBadRelativeCaseLimits,
+    AffineWhenBadArbitraryRelativePartitionCompiler, AffineWhenBadAtom,
+    AffineWhenBadAuthenticatedArbitraryRelativeProblem, AffineWhenBadInheritedTruth,
+    AffineWhenBadRelativeCaseError, AffineWhenBadRelativeCaseLimits,
 };
 use crate::parametric_coefficient::{
     ParametricParameterIdentityClass, ParametricPolynomialAssociateLimits,
@@ -54,6 +56,9 @@ use crate::{
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_PARTITION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-when-bad-partition-v1";
+
+const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_CANONICAL_LOCUS_TABLE_V1_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-when-bad-canonical-locus-table-v1";
 
 #[cfg(test)]
 std::thread_local! {
@@ -1055,18 +1060,27 @@ struct PartitionAssemblyAdmission {
     inherited_truth_occurrences: usize,
     bad_atoms: usize,
     bad_clauses: usize,
+    canonical_locus_slots: usize,
+    canonical_locus_context_fingerprint_bytes: usize,
     transcript_retained_owned_logical_bytes: usize,
     source_problem_container_owned_logical_bytes: usize,
     assembly_container_owned_logical_bytes: usize,
 }
 
 struct PreparedPartitionAssembly {
-    structural_loci: Vec<ParametricPolynomial>,
+    canonical_loci: CanonicalLocusTableOwner,
     inherited_truths: Vec<AffineWhenBadInheritedTruth>,
     atoms: Vec<AffineWhenBadAtom>,
     clause_ranges: Vec<Range<usize>>,
     transcript: GeneratedAffineResidualGroupExactWhenBadPartitionTranscript,
     stats: GeneratedAffineResidualGroupExactWhenBadPartitionStats,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CanonicalLocusAssemblyAccounting {
+    source_problem_noncanonical_owned_logical_bytes: usize,
+    assembly_nonproblem_owned_logical_bytes: usize,
+    builder_owner_header_delta: usize,
 }
 
 fn prepare_partition_terminal(
@@ -1114,12 +1128,12 @@ fn prepare_ready_partition(
     owner: &MaterializedReadyForPartition,
     limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
 ) -> Result<PreparedPartitionTerminal, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    let admission = preflight_partition_assembly(owner, limits)?;
+    let admission = preflight_partition_assembly(context, owner, limits)?;
     let prepared = assemble_partition_problem(context, owner, admission, limits)?;
     maybe_inject_partition_prepare_panic_for_test();
 
     let PreparedPartitionAssembly {
-        structural_loci,
+        canonical_loci,
         inherited_truths,
         atoms,
         clause_ranges,
@@ -1170,8 +1184,16 @@ fn prepare_ready_partition(
         .max_payload_comparison_integer_bits
         .min(limits.max_payload_comparison_integer_bits);
 
-    let problem = AffineWhenBadArbitraryRelativeProblem::from_preallocated(
-        structural_loci,
+    let core_source_problem_owned_logical_byte_envelope =
+        authenticated_core_source_problem_owned_logical_byte_envelope(
+            &canonical_loci,
+            inherited_truths.len(),
+            atoms.len(),
+            clause_ranges.len(),
+        )?;
+    let problem = AffineWhenBadAuthenticatedArbitraryRelativeProblem::from_preallocated(
+        canonical_loci,
+        GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_CANONICAL_LOCUS_TABLE_V1_SCHEMA,
         inherited_truths,
         atoms,
         clause_ranges,
@@ -1209,39 +1231,41 @@ fn prepare_ready_partition(
             .max_partition_compiler_owned_logical_peak_upper_bound,
         max_compilation_owned_logical_peak_upper_bound: core_compilation_peak_allowance,
     };
-    let partition = match AffineWhenBadArbitraryRelativePartitionCompiler::compile(
+    let partition = match AffineWhenBadArbitraryRelativePartitionCompiler::compile_authenticated(
         context,
         problem,
         arbitrary_limits,
     ) {
         Ok(partition) => partition,
-        Err(AffineWhenBadRelativeCaseError::ResourceLimit {
-            resource: "affine WhenBad arbitrary compilation owned logical peak upper bound",
-            requested,
-            ..
-        }) => {
-            return Err(
-                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
-                    resource: "exact WhenBad partition compilation owned logical peak upper bound",
-                    requested: checked_add(
-                        "exact WhenBad partition compilation owned logical peak upper bound",
-                        outer_before_partition,
-                        requested,
-                    )?,
-                    limit: limits.max_compilation_owned_logical_peak_upper_bound,
-                },
-            );
-        }
-        Err(AffineWhenBadRelativeCaseError::ResourceCountOverflow {
-            resource: "affine WhenBad arbitrary compilation owned logical peak upper bound",
-        }) => {
-            return Err(
-                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                    resource: "exact WhenBad partition compilation owned logical peak upper bound",
-                },
-            );
-        }
-        Err(error) => return Err(error.into()),
+        Err(failure) => match failure.into_parts().0 {
+            AffineWhenBadRelativeCaseError::ResourceLimit {
+                resource: "affine WhenBad arbitrary compilation owned logical peak upper bound",
+                requested,
+                ..
+            } => {
+                return Err(
+                    GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
+                        resource: "exact WhenBad partition compilation owned logical peak upper bound",
+                        requested: checked_add(
+                            "exact WhenBad partition compilation owned logical peak upper bound",
+                            outer_before_partition,
+                            requested,
+                        )?,
+                        limit: limits.max_compilation_owned_logical_peak_upper_bound,
+                    },
+                );
+            }
+            AffineWhenBadRelativeCaseError::ResourceCountOverflow {
+                resource: "affine WhenBad arbitrary compilation owned logical peak upper bound",
+            } => {
+                return Err(
+                    GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+                        resource: "exact WhenBad partition compilation owned logical peak upper bound",
+                    },
+                );
+            }
+            error => return Err(error.into()),
+        },
     };
 
     let applicable_leaves = partition
@@ -1261,6 +1285,7 @@ fn prepare_ready_partition(
     let partition_stats = partition.stats();
     let partition_compilation_stats = partition.compilation_stats();
     stats.source_problem_retained_owned_logical_bytes = source_problem_retained
+        .max(core_source_problem_owned_logical_byte_envelope)
         .max(partition_compilation_stats.source_problem_owned_logical_byte_envelope());
     check_limit(
         "exact WhenBad partition source problem retained owned logical bytes",
@@ -1316,6 +1341,7 @@ fn prepare_ready_partition(
 }
 
 fn preflight_partition_assembly(
+    context: &ParametricCoefficientContext,
     owner: &MaterializedReadyForPartition,
     limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
 ) -> Result<PartitionAssemblyAdmission, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
@@ -1501,6 +1527,9 @@ fn preflight_partition_assembly(
         check_limit(resource, requested, limit)?;
     }
 
+    admission.canonical_locus_slots = admission.locus_inputs.min(limits.max_structural_loci);
+    admission.canonical_locus_context_fingerprint_bytes = context.fingerprint().len();
+
     admission.transcript_retained_owned_logical_bytes =
         admitted_transcript_retained_bytes(admission)?;
     check_limit(
@@ -1553,10 +1582,83 @@ fn assemble_partition_problem(
     admission: PartitionAssemblyAdmission,
     limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
 ) -> Result<PreparedPartitionAssembly, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    let mut structural_loci = try_vec_with_exact_capacity(
-        "exact WhenBad partition structural loci",
-        admission.locus_inputs,
+    let assembly_nonproblem_owned_logical_bytes = checked_add(
+        "exact WhenBad partition assembly owned logical bytes",
+        owner.stats().retained_owned_logical_bytes(),
+        checked_add(
+            "exact WhenBad partition assembly owned logical bytes",
+            admission.transcript_retained_owned_logical_bytes,
+            checked_add(
+                "exact WhenBad partition assembly owned logical bytes",
+                size_of::<Vec<u8>>(),
+                admission.locus_inputs,
+            )?,
+        )?,
     )?;
+    let source_problem_noncanonical_owned_logical_bytes =
+        admitted_source_problem_noncanonical_bytes(admission)?;
+    let builder_owner_header_delta = size_of::<CanonicalLocusTableBuilder>()
+        .checked_sub(size_of::<CanonicalLocusTableOwner>())
+        .ok_or(GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch)?;
+    let accounting = CanonicalLocusAssemblyAccounting {
+        source_problem_noncanonical_owned_logical_bytes,
+        assembly_nonproblem_owned_logical_bytes,
+        builder_owner_header_delta,
+    };
+    let owner_retained_allowance = remaining_limit(
+        "exact WhenBad partition source problem retained owned logical bytes",
+        limits.max_source_problem_retained_owned_logical_bytes,
+        source_problem_noncanonical_owned_logical_bytes,
+    )?;
+    let builder_retained_allowance = owner_retained_allowance
+        .checked_add(builder_owner_header_delta)
+        .unwrap_or(usize::MAX);
+    let assembly_builder_base = checked_add(
+        "exact WhenBad partition compilation owned logical peak upper bound",
+        assembly_nonproblem_owned_logical_bytes,
+        source_problem_noncanonical_owned_logical_bytes,
+    )?;
+    let builder_construction_allowance = remaining_limit(
+        "exact WhenBad partition compilation owned logical peak upper bound",
+        limits.max_compilation_owned_logical_peak_upper_bound,
+        assembly_builder_base,
+    )?;
+    let mut builder_associate = limits.associate;
+    builder_associate.exact_algebra =
+        intersect_exact_limits(builder_associate.exact_algebra, limits.exact_algebra);
+    builder_associate.max_rustred_visible_temporary_byte_envelope = builder_associate
+        .max_rustred_visible_temporary_byte_envelope
+        .min(limits.max_intern_associate_rustred_visible_temporary_byte_peak);
+    builder_associate.max_native_workspace_byte_envelope = builder_associate
+        .max_native_workspace_byte_envelope
+        .min(limits.max_intern_associate_native_workspace_byte_peak);
+    let builder_limits = CanonicalLocusTableLimits {
+        exact_algebra: limits.exact_algebra,
+        associate: builder_associate,
+        // The source-neutral compiler owns the public context-fingerprint
+        // limit. This outer owner only authenticates the exact same context.
+        max_context_fingerprint_bytes: usize::MAX,
+        max_structural_loci: limits.max_structural_loci,
+        max_equality_comparisons: limits.max_intern_equality_comparisons,
+        max_equality_term_pairs: limits.max_intern_equality_term_pairs,
+        max_associate_comparisons: limits.max_intern_associate_comparisons,
+        // The established outer API has no separate structural term-pair
+        // ceiling; the exact native proof remains bounded by its own limits.
+        max_associate_term_pairs: usize::MAX,
+        max_associate_native_cross_term_pairs: limits.max_intern_associate_native_cross_term_pairs,
+        max_retained_polynomial_terms: limits.max_retained_polynomial_terms,
+        max_retained_polynomial_exponent_entries: limits.max_retained_polynomial_exponent_entries,
+        max_retained_polynomial_integer_bits: limits.max_retained_polynomial_integer_bits,
+        max_retained_owned_logical_bytes: builder_retained_allowance,
+        max_construction_owned_logical_peak_upper_bound: builder_construction_allowance,
+    };
+    let mut canonical_loci = CanonicalLocusTableBuilder::try_new(
+        context,
+        GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_CANONICAL_LOCUS_TABLE_V1_SCHEMA,
+        admission.canonical_locus_slots,
+        builder_limits,
+    )
+    .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?;
     let mut inherited_truths = try_vec_with_exact_capacity(
         "exact WhenBad partition inherited truths",
         admission.inherited_truth_occurrences,
@@ -1597,31 +1699,23 @@ fn assemble_partition_problem(
             admission.bad_clauses,
         )?,
     };
-    let assembly_nonproblem_owned_logical_bytes = checked_add(
-        "exact WhenBad partition assembly owned logical bytes",
-        owner.stats().retained_owned_logical_bytes(),
-        checked_add(
-            "exact WhenBad partition assembly owned logical bytes",
-            admission.transcript_retained_owned_logical_bytes,
-            checked_add(
-                "exact WhenBad partition assembly owned logical bytes",
-                size_of::<Vec<u8>>(),
-                admission.locus_inputs,
-            )?,
-        )?,
-    )?;
     let mut stats = GeneratedAffineResidualGroupExactWhenBadPartitionStats {
         transcript_retained_owned_logical_bytes: admission.transcript_retained_owned_logical_bytes,
         source_problem_retained_owned_logical_bytes: admission
             .source_problem_container_owned_logical_bytes,
         materialization_retained_owned_logical_bytes: owner.stats().retained_owned_logical_bytes(),
-        compilation_owned_logical_peak_upper_bound: checked_add(
-            "exact WhenBad partition compilation owned logical peak upper bound",
-            assembly_nonproblem_owned_logical_bytes,
-            admission.source_problem_container_owned_logical_bytes,
-        )?,
+        compilation_owned_logical_peak_upper_bound: owner
+            .stats()
+            .retained_owned_logical_bytes()
+            .checked_add(admission.assembly_container_owned_logical_bytes)
+            .ok_or(
+                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+                    resource: "exact WhenBad partition compilation owned logical peak upper bound",
+                },
+            )?,
         ..GeneratedAffineResidualGroupExactWhenBadPartitionStats::default()
     };
+    synchronize_canonical_locus_stats(&canonical_loci, accounting, &mut stats)?;
 
     for (source_ordinal, source) in owner.sources().iter().enumerate() {
         let source_locator = source.source();
@@ -1646,13 +1740,13 @@ fn assemble_partition_problem(
                                     source_ordinal,
                                     source: source_locator,
                                 },
-                                &mut structural_loci,
+                                &mut canonical_loci,
                                 &mut transcript.locus_origins,
                                 limits,
                                 &mut stats,
-                                assembly_nonproblem_owned_logical_bytes,
+                                accounting,
                             )?;
-                            while inherited_truth_seeded.len() < structural_loci.len() {
+                            while inherited_truth_seeded.len() < canonical_loci.loci().len() {
                                 inherited_truth_seeded.push(0);
                             }
                             let seeded = inherited_truth_seeded.get_mut(locus_ordinal).ok_or(
@@ -1696,11 +1790,11 @@ fn assemble_partition_problem(
                                     source_ordinal,
                                     source: source_locator,
                                 },
-                                &mut structural_loci,
+                                &mut canonical_loci,
                                 &mut transcript.locus_origins,
                                 limits,
                                 &mut stats,
-                                assembly_nonproblem_owned_logical_bytes,
+                                accounting,
                             )?;
                             push_bad_atom(
                                 locus_ordinal,
@@ -1786,11 +1880,11 @@ fn assemble_partition_problem(
                                         kind: identity.kind(),
                                         coefficient_locus_ordinal,
                                     },
-                                    &mut structural_loci,
+                                    &mut canonical_loci,
                                     &mut transcript.locus_origins,
                                     limits,
                                     &mut stats,
-                                    assembly_nonproblem_owned_logical_bytes,
+                                    accounting,
                                 )?;
                                 push_bad_atom(
                                     locus_ordinal,
@@ -1862,11 +1956,11 @@ fn assemble_partition_problem(
                         boundary_ordinal: event.ordinal(),
                         source: event.source(),
                     },
-                    &mut structural_loci,
+                    &mut canonical_loci,
                     &mut transcript.locus_origins,
                     limits,
                     &mut stats,
-                    assembly_nonproblem_owned_logical_bytes,
+                    accounting,
                 )?;
                 push_bad_atom(
                     locus_ordinal,
@@ -1903,7 +1997,7 @@ fn assemble_partition_problem(
         );
     }
 
-    if structural_loci.len() > admission.locus_inputs
+    if canonical_loci.loci().len() > admission.locus_inputs
         || transcript.inherited_provenance.len() != admission.inherited_truth_occurrences
         || atoms.len() != admission.bad_atoms
         || clause_ranges.len() != admission.bad_clauses
@@ -1919,7 +2013,7 @@ fn assemble_partition_problem(
     stats.source_transcripts = transcript.source_transcripts.len();
     stats.boundary_transcripts = transcript.boundary_transcripts.len();
     stats.locus_inputs = transcript.locus_origins.len();
-    stats.structural_loci = structural_loci.len();
+    stats.structural_loci = canonical_loci.loci().len();
     stats.inherited_truth_occurrences = transcript.inherited_provenance.len();
     stats.inherited_truths = inherited_truths.len();
     stats.bad_atoms = atoms.len();
@@ -1929,8 +2023,22 @@ fn assemble_partition_problem(
     stats.atom_provenances = transcript.atom_provenance.len();
     stats.clause_provenances = transcript.clause_provenance.len();
 
+    let canonical_loci = canonical_loci
+        .seal()
+        .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?;
+    let observed_source_problem = checked_add(
+        "exact WhenBad partition source problem retained owned logical bytes",
+        accounting.source_problem_noncanonical_owned_logical_bytes,
+        canonical_loci
+            .retained_owned_logical_byte_bound()
+            .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?,
+    )?;
+    if observed_source_problem != stats.source_problem_retained_owned_logical_bytes {
+        return Err(GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch);
+    }
+
     Ok(PreparedPartitionAssembly {
-        structural_loci,
+        canonical_loci,
         inherited_truths,
         atoms,
         clause_ranges,
@@ -1939,326 +2047,234 @@ fn assemble_partition_problem(
     })
 }
 
+fn canonical_builder_retained_as_owner(
+    builder_retained: usize,
+    accounting: CanonicalLocusAssemblyAccounting,
+) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    builder_retained
+        .checked_sub(accounting.builder_owner_header_delta)
+        .ok_or(GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch)
+}
+
+fn canonical_builder_source_problem_bytes(
+    builder_retained: usize,
+    accounting: CanonicalLocusAssemblyAccounting,
+) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    checked_add(
+        "exact WhenBad partition source problem retained owned logical bytes",
+        accounting.source_problem_noncanonical_owned_logical_bytes,
+        canonical_builder_retained_as_owner(builder_retained, accounting)?,
+    )
+}
+
+fn canonical_builder_compilation_peak(
+    builder_peak: usize,
+    accounting: CanonicalLocusAssemblyAccounting,
+) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    checked_add(
+        "exact WhenBad partition compilation owned logical peak upper bound",
+        checked_add(
+            "exact WhenBad partition compilation owned logical peak upper bound",
+            accounting.assembly_nonproblem_owned_logical_bytes,
+            accounting.source_problem_noncanonical_owned_logical_bytes,
+        )?,
+        builder_peak,
+    )
+}
+
+fn synchronize_canonical_locus_stats(
+    canonical_loci: &CanonicalLocusTableBuilder,
+    accounting: CanonicalLocusAssemblyAccounting,
+    stats: &mut GeneratedAffineResidualGroupExactWhenBadPartitionStats,
+) -> Result<(), GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    let table = canonical_loci.stats();
+    stats.structural_loci = table.structural_loci();
+    stats.intern_equality_comparisons = table.equality_comparisons();
+    stats.intern_equality_term_pairs = table.equality_term_pairs();
+    stats.intern_associate_comparisons = table.associate_comparisons();
+    stats.intern_associate_native_cross_term_pairs = table.associate_native_cross_term_pairs();
+    stats.intern_associate_rustred_visible_temporary_byte_peak =
+        table.associate_rustred_visible_temporary_byte_peak();
+    stats.intern_associate_native_workspace_byte_peak =
+        table.associate_native_workspace_byte_peak();
+    stats.retained_polynomial_terms = table.retained_polynomial_terms();
+    stats.retained_polynomial_exponent_entries = table.retained_polynomial_exponent_entries();
+    stats.retained_polynomial_integer_bits = table.retained_polynomial_integer_bits();
+    stats.source_problem_retained_owned_logical_bytes =
+        canonical_builder_source_problem_bytes(table.retained_owned_logical_bytes(), accounting)?;
+    stats.compilation_owned_logical_peak_upper_bound = stats
+        .compilation_owned_logical_peak_upper_bound
+        .max(canonical_builder_compilation_peak(
+            table.construction_owned_logical_peak_upper_bound(),
+            accounting,
+        )?);
+    Ok(())
+}
+
+fn map_canonical_locus_table_resource(resource: &'static str) -> &'static str {
+    match resource {
+        "canonical locus table structural loci" | "canonical locus table reserved capacity" => {
+            "exact WhenBad partition structural loci"
+        }
+        "canonical locus table equality comparisons" => {
+            "exact WhenBad partition intern equality comparisons"
+        }
+        "canonical locus table equality term pairs" => {
+            "exact WhenBad partition intern equality term pairs"
+        }
+        "canonical locus table associate comparisons" => {
+            "exact WhenBad partition intern associate comparisons"
+        }
+        "canonical locus table associate term pairs" => {
+            "exact WhenBad partition intern associate term pairs"
+        }
+        "canonical locus table associate native cross term pairs" => {
+            "exact WhenBad partition intern associate native cross term pairs"
+        }
+        "canonical locus table retained polynomial terms" => {
+            "exact WhenBad partition retained polynomial terms"
+        }
+        "canonical locus table retained polynomial exponent entries" => {
+            "exact WhenBad partition retained polynomial exponent entries"
+        }
+        "canonical locus table retained polynomial integer bits" => {
+            "exact WhenBad partition retained polynomial integer bits"
+        }
+        "canonical locus table context fingerprint bytes" => {
+            "exact WhenBad partition canonical locus context fingerprint bytes"
+        }
+        other => other,
+    }
+}
+
+fn map_canonical_locus_table_error(
+    error: CanonicalLocusTableError,
+    accounting: CanonicalLocusAssemblyAccounting,
+    limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
+) -> GeneratedAffineResidualGroupExactWhenBadPartitionError {
+    match error {
+        CanonicalLocusTableError::SchemaMismatch => {
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch
+        }
+        CanonicalLocusTableError::ContextMismatch
+        | CanonicalLocusTableError::IdenticallyZeroLocus
+        | CanonicalLocusTableError::CoefficientFieldLocus => {
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::MalformedMaterialization
+        }
+        CanonicalLocusTableError::ReservedCapacityExhausted {
+            requested,
+            reserved,
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
+            resource: "exact WhenBad partition structural loci",
+            requested,
+            limit: reserved.min(limits.max_structural_loci),
+        },
+        CanonicalLocusTableError::ResourceLimit {
+            resource: "canonical locus table retained owned logical bytes",
+            requested,
+            ..
+        } => match canonical_builder_source_problem_bytes(requested, accounting) {
+            Ok(requested) => {
+                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
+                    resource: "exact WhenBad partition source problem retained owned logical bytes",
+                    requested,
+                    limit: limits.max_source_problem_retained_owned_logical_bytes,
+                }
+            }
+            Err(error) => error,
+        },
+        CanonicalLocusTableError::ResourceLimit {
+            resource: "canonical locus table construction owned logical peak upper bound",
+            requested,
+            ..
+        } => match canonical_builder_compilation_peak(requested, accounting) {
+            Ok(requested) => {
+                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
+                    resource: "exact WhenBad partition compilation owned logical peak upper bound",
+                    requested,
+                    limit: limits.max_compilation_owned_logical_peak_upper_bound,
+                }
+            }
+            Err(error) => error,
+        },
+        CanonicalLocusTableError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
+            resource: map_canonical_locus_table_resource(resource),
+            requested,
+            limit,
+        },
+        CanonicalLocusTableError::ResourceCountOverflow {
+            resource: "canonical locus table retained owned logical bytes",
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+            resource: "exact WhenBad partition source problem retained owned logical bytes",
+        },
+        CanonicalLocusTableError::ResourceCountOverflow {
+            resource: "canonical locus table construction owned logical peak upper bound",
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+            resource: "exact WhenBad partition compilation owned logical peak upper bound",
+        },
+        CanonicalLocusTableError::ResourceCountOverflow { resource } => {
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+                resource: map_canonical_locus_table_resource(resource),
+            }
+        }
+        CanonicalLocusTableError::AllocationFailure {
+            resource: "canonical locus table structural loci",
+            requested,
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::AllocationFailure {
+            resource: "exact WhenBad partition structural loci",
+            requested,
+        },
+        CanonicalLocusTableError::AllocationFailure {
+            resource: "canonical locus table context fingerprint",
+            requested,
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::AllocationFailure {
+            resource: "exact WhenBad partition canonical locus context fingerprint",
+            requested,
+        },
+        CanonicalLocusTableError::AllocationFailure {
+            resource,
+            requested,
+        } => GeneratedAffineResidualGroupExactWhenBadPartitionError::AllocationFailure {
+            resource,
+            requested,
+        },
+        CanonicalLocusTableError::RetainedByteEnvelopeExceeded { .. } => {
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch
+        }
+        CanonicalLocusTableError::SymbolicaPanic { .. } => {
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::SymbolicaPanic
+        }
+        CanonicalLocusTableError::ParametricCoefficient(error) => error.into(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn intern_locus(
     context: &ParametricCoefficientContext,
     polynomial: &ParametricPolynomial,
     origin: GeneratedAffineResidualGroupExactWhenBadLocusOrigin,
-    structural_loci: &mut Vec<ParametricPolynomial>,
+    canonical_loci: &mut CanonicalLocusTableBuilder,
     origins: &mut Vec<GeneratedAffineResidualGroupExactWhenBadLocusOriginRecord>,
     limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     stats: &mut GeneratedAffineResidualGroupExactWhenBadPartitionStats,
-    assembly_nonproblem_owned_logical_bytes: usize,
+    accounting: CanonicalLocusAssemblyAccounting,
 ) -> Result<(usize, usize), GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    context.validate_polynomial_with_limits(polynomial, limits.exact_algebra)?;
-    if polynomial.is_zero()
-        || !context.polynomial_depends_on_indices_with_limits(polynomial, limits.exact_algebra)?
-    {
-        return Err(
-            GeneratedAffineResidualGroupExactWhenBadPartitionError::MalformedMaterialization,
-        );
-    }
-
-    let mut exact_match = None;
-    for (ordinal, retained) in structural_loci.iter().enumerate() {
-        let term_pairs = checked_mul(
-            "exact WhenBad partition intern equality term pairs",
-            polynomial.term_count(),
-            retained.term_count(),
-        )?;
-        stats.intern_equality_comparisons = checked_bounded_add(
-            "exact WhenBad partition intern equality comparisons",
-            stats.intern_equality_comparisons,
-            1,
-            limits.max_intern_equality_comparisons,
-        )?;
-        stats.intern_equality_term_pairs = checked_bounded_add(
-            "exact WhenBad partition intern equality term pairs",
-            stats.intern_equality_term_pairs,
-            term_pairs,
-            limits.max_intern_equality_term_pairs,
-        )?;
-        if retained == polynomial {
-            exact_match = Some(ordinal);
-            break;
-        }
-    }
-
-    let locus_ordinal = if let Some(ordinal) = exact_match {
-        ordinal
-    } else {
-        let mut associate_match = None;
-        for (ordinal, retained) in structural_loci.iter().enumerate() {
-            stats.intern_associate_comparisons = checked_bounded_add(
-                "exact WhenBad partition intern associate comparisons",
-                stats.intern_associate_comparisons,
-                1,
-                limits.max_intern_associate_comparisons,
-            )?;
-            let mut child = limits.associate;
-            child.exact_algebra = intersect_exact_limits(child.exact_algebra, limits.exact_algebra);
-            let remaining_cross_pairs = remaining_limit(
-                "exact WhenBad partition intern associate native cross term pairs",
-                limits.max_intern_associate_native_cross_term_pairs,
-                stats.intern_associate_native_cross_term_pairs,
-            )?;
-            child.max_native_cross_term_pairs =
-                child.max_native_cross_term_pairs.min(remaining_cross_pairs);
-            child.max_peak_native_cross_term_pairs = child
-                .max_peak_native_cross_term_pairs
-                .min(remaining_cross_pairs);
-            child.max_rustred_visible_temporary_byte_envelope = child
-                .max_rustred_visible_temporary_byte_envelope
-                .min(limits.max_intern_associate_rustred_visible_temporary_byte_peak);
-            child.max_native_workspace_byte_envelope = child
-                .max_native_workspace_byte_envelope
-                .min(limits.max_intern_associate_native_workspace_byte_peak);
-            let configured_visible_limit = child.max_rustred_visible_temporary_byte_envelope;
-            let configured_native_limit = child.max_native_workspace_byte_envelope;
-            let configured_combined_limit = child.max_combined_temporary_byte_envelope;
-            let assembly_live = checked_add(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                assembly_nonproblem_owned_logical_bytes,
-                stats.source_problem_retained_owned_logical_bytes,
-            )?;
-            let remaining_compilation_bytes = remaining_limit(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                limits.max_compilation_owned_logical_peak_upper_bound,
-                assembly_live,
-            )?;
-            let outer_global_owns_combined =
-                remaining_compilation_bytes <= configured_combined_limit;
-            // If the configured combined ceiling is stricter, satisfying it
-            // necessarily satisfies the looser outer aggregate.  Preserve
-            // that child ownership instead of letting a per-component clamp
-            // fire first under `check_associate_stats`' component-first order.
-            if outer_global_owns_combined {
-                child.max_rustred_visible_temporary_byte_envelope = child
-                    .max_rustred_visible_temporary_byte_envelope
-                    .min(remaining_compilation_bytes);
-                child.max_native_workspace_byte_envelope = child
-                    .max_native_workspace_byte_envelope
-                    .min(remaining_compilation_bytes);
-            }
-            child.max_combined_temporary_byte_envelope =
-                configured_combined_limit.min(remaining_compilation_bytes);
-            let result = match context
-                .polynomial_loci_are_associates_with_census(retained, polynomial, child)
-            {
-                Ok(result) => result,
-                Err(ParametricCoefficientError::ResourceLimit {
-                    resource: "polynomial-associate combined temporary byte envelope",
-                    requested,
-                    ..
-                }) if outer_global_owns_combined => {
-                    return Err(map_intern_associate_resource_error(
-                        requested,
-                        assembly_live,
-                        limits.max_compilation_owned_logical_peak_upper_bound,
-                    ));
-                }
-                Err(ParametricCoefficientError::ResourceLimit {
-                    resource: "polynomial-associate RustRed-visible temporary byte envelope",
-                    requested,
-                    ..
-                }) if outer_global_owns_combined
-                    && remaining_compilation_bytes <= configured_visible_limit =>
-                {
-                    return Err(map_intern_associate_resource_error(
-                        requested,
-                        assembly_live,
-                        limits.max_compilation_owned_logical_peak_upper_bound,
-                    ));
-                }
-                Err(ParametricCoefficientError::ResourceLimit {
-                    resource: "polynomial-associate native workspace byte envelope",
-                    requested,
-                    ..
-                }) if outer_global_owns_combined
-                    && remaining_compilation_bytes <= configured_native_limit =>
-                {
-                    return Err(map_intern_associate_resource_error(
-                        requested,
-                        assembly_live,
-                        limits.max_compilation_owned_logical_peak_upper_bound,
-                    ));
-                }
-                Err(ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "polynomial-associate combined temporary byte envelope",
-                }) if outer_global_owns_combined => {
-                    return Err(
-                        GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                            resource: "exact WhenBad partition compilation owned logical peak upper bound",
-                        },
-                    );
-                }
-                Err(ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "polynomial-associate RustRed-visible temporary byte envelope",
-                }) if outer_global_owns_combined
-                    && remaining_compilation_bytes <= configured_visible_limit =>
-                {
-                    return Err(
-                        GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                            resource: "exact WhenBad partition compilation owned logical peak upper bound",
-                        },
-                    );
-                }
-                Err(ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "polynomial-associate native workspace byte envelope",
-                }) if outer_global_owns_combined
-                    && remaining_compilation_bytes <= configured_native_limit =>
-                {
-                    return Err(
-                        GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                            resource: "exact WhenBad partition compilation owned logical peak upper bound",
-                        },
-                    );
-                }
-                Err(error) => return Err(error.into()),
-            };
-            let child_stats = result.stats();
-            stats.intern_associate_native_cross_term_pairs = checked_bounded_add(
-                "exact WhenBad partition intern associate native cross term pairs",
-                stats.intern_associate_native_cross_term_pairs,
-                child_stats.native_cross_term_pairs(),
-                limits.max_intern_associate_native_cross_term_pairs,
-            )?;
-            stats.intern_associate_rustred_visible_temporary_byte_peak = stats
-                .intern_associate_rustred_visible_temporary_byte_peak
-                .max(child_stats.rustred_visible_temporary_byte_envelope());
-            stats.intern_associate_native_workspace_byte_peak = stats
-                .intern_associate_native_workspace_byte_peak
-                .max(child_stats.native_workspace_byte_envelope());
-            // Rust-visible projections overlap native product work, so the
-            // APIs' separate conservative envelopes cannot soundly be joined
-            // by `max`. Their checked sum is conservative (not necessarily
-            // tight), and the child preflights the same sum before native
-            // allocation through its combined limit.
-            let associate_scratch = checked_add(
-                "exact WhenBad partition intern associate combined temporary byte envelope",
-                child_stats.rustred_visible_temporary_byte_envelope(),
-                child_stats.native_workspace_byte_envelope(),
-            )?;
-            let associate_peak = checked_add(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                assembly_live,
-                associate_scratch,
-            )?;
-            check_limit(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                associate_peak,
-                limits.max_compilation_owned_logical_peak_upper_bound,
-            )?;
-            stats.compilation_owned_logical_peak_upper_bound = stats
-                .compilation_owned_logical_peak_upper_bound
-                .max(associate_peak);
-            if result.associated() {
-                associate_match = Some(ordinal);
-                break;
-            }
-        }
-        if let Some(ordinal) = associate_match {
-            ordinal
-        } else {
-            let requested = checked_add(
-                "exact WhenBad partition structural loci",
-                structural_loci.len(),
-                1,
-            )?;
-            check_limit(
-                "exact WhenBad partition structural loci",
-                requested,
-                limits.max_structural_loci,
-            )?;
-            let polynomial_terms = polynomial.term_count();
-            let polynomial_exponents = polynomial.raw().exponents.len();
-            let polynomial_bits = polynomial_integer_bits(polynomial)?;
-            let polynomial_owned = polynomial.owned_retained_byte_bound().ok_or(
-                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                    resource: "exact WhenBad partition source problem retained owned logical bytes",
-                },
-            )?;
-            let prospective_source_problem = checked_add(
-                "exact WhenBad partition source problem retained owned logical bytes",
-                stats.source_problem_retained_owned_logical_bytes,
-                polynomial_owned,
-            )?;
-            check_limit(
-                "exact WhenBad partition source problem retained owned logical bytes",
-                prospective_source_problem,
-                limits.max_source_problem_retained_owned_logical_bytes,
-            )?;
-            let prospective_copy_peak = checked_add(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                assembly_nonproblem_owned_logical_bytes,
-                prospective_source_problem,
-            )?;
-            check_limit(
-                "exact WhenBad partition compilation owned logical peak upper bound",
-                prospective_copy_peak,
-                limits.max_compilation_owned_logical_peak_upper_bound,
-            )?;
-            stats.retained_polynomial_terms = checked_bounded_add(
-                "exact WhenBad partition retained polynomial terms",
-                stats.retained_polynomial_terms,
-                polynomial_terms,
-                limits.max_retained_polynomial_terms,
-            )?;
-            stats.retained_polynomial_exponent_entries = checked_bounded_add(
-                "exact WhenBad partition retained polynomial exponent entries",
-                stats.retained_polynomial_exponent_entries,
-                polynomial_exponents,
-                limits.max_retained_polynomial_exponent_entries,
-            )?;
-            stats.retained_polynomial_integer_bits = checked_bounded_add(
-                "exact WhenBad partition retained polynomial integer bits",
-                stats.retained_polynomial_integer_bits,
-                polynomial_bits,
-                limits.max_retained_polynomial_integer_bits,
-            )?;
-            let copied =
-                polynomial
-                    .try_copy_authenticated_sparse_payload()
-                    .map_err(|resource| {
-                        GeneratedAffineResidualGroupExactWhenBadPartitionError::AllocationFailure {
-                            resource,
-                            requested: polynomial_terms.max(polynomial_exponents),
-                        }
-                    })?;
-            structural_loci.push(copied);
-            stats.source_problem_retained_owned_logical_bytes = prospective_source_problem;
-            stats.compilation_owned_logical_peak_upper_bound = stats
-                .compilation_owned_logical_peak_upper_bound
-                .max(prospective_copy_peak);
-            requested - 1
-        }
-    };
+    let outcome = canonical_loci
+        .try_intern(context, polynomial)
+        .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?;
+    synchronize_canonical_locus_stats(canonical_loci, accounting, stats)?;
 
     let origin_record_ordinal = origins.len();
     origins.push(GeneratedAffineResidualGroupExactWhenBadLocusOriginRecord {
         ordinal: origin_record_ordinal,
-        locus_ordinal,
+        locus_ordinal: outcome.locus_ordinal(),
         origin,
     });
-    Ok((locus_ordinal, origin_record_ordinal))
-}
-
-fn map_intern_associate_resource_error(
-    child_requested: usize,
-    assembly_live: usize,
-    compilation_limit: usize,
-) -> GeneratedAffineResidualGroupExactWhenBadPartitionError {
-    let resource = "exact WhenBad partition compilation owned logical peak upper bound";
-    let Some(requested) = assembly_live.checked_add(child_requested) else {
-        return GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-            resource,
-        };
-    };
-    GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceLimit {
-        resource,
-        requested,
-        limit: compilation_limit,
-    }
+    Ok((outcome.locus_ordinal(), origin_record_ordinal))
 }
 
 fn push_bad_atom(
@@ -2358,20 +2374,7 @@ fn arbitrary_partition_payload_eq(
     left: &AffineWhenBadArbitraryRelativePartitionCertificate,
     right: &AffineWhenBadArbitraryRelativePartitionCertificate,
 ) -> bool {
-    left.schema() == right.schema()
-        && left.context_fingerprint() == right.context_fingerprint()
-        && left.structural_loci() == right.structural_loci()
-        && left.inherited_truths() == right.inherited_truths()
-        && left.atoms() == right.atoms()
-        && left.clause_count() == right.clause_count()
-        && (0..left.clause_count())
-            .all(|ordinal| left.clause_range(ordinal) == right.clause_range(ordinal))
-        && left.splits() == right.splits()
-        && left.cases() == right.cases()
-        && left.classifications() == right.classifications()
-        && left.limits() == right.limits()
-        && left.stats() == right.stats()
-        && left.compilation_stats() == right.compilation_stats()
+    left == right
 }
 
 fn authenticate_final_stats(
@@ -2635,9 +2638,38 @@ fn admitted_transcript_retained_bytes(
 fn admitted_source_problem_container_bytes(
     admission: PartitionAssemblyAdmission,
 ) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    let mut bytes = size_of::<AffineWhenBadArbitraryRelativeProblem>();
+    let mut bytes = admitted_source_problem_noncanonical_bytes(admission)?;
     for (count, element_size) in [
-        (admission.locus_inputs, size_of::<ParametricPolynomial>()),
+        (1, size_of::<CanonicalLocusTableOwner>()),
+        (
+            admission.canonical_locus_context_fingerprint_bytes,
+            size_of::<u8>(),
+        ),
+        (
+            admission.canonical_locus_slots,
+            size_of::<ParametricPolynomial>(),
+        ),
+    ] {
+        bytes = checked_add(
+            "exact WhenBad partition source problem retained owned logical bytes",
+            bytes,
+            checked_mul(
+                "exact WhenBad partition source problem retained owned logical bytes",
+                count,
+                element_size,
+            )?,
+        )?;
+    }
+    Ok(bytes)
+}
+
+fn admitted_source_problem_noncanonical_bytes(
+    admission: PartitionAssemblyAdmission,
+) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    let mut bytes = size_of::<AffineWhenBadAuthenticatedArbitraryRelativeProblem>()
+        .checked_sub(size_of::<CanonicalLocusTableOwner>())
+        .ok_or(GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch)?;
+    for (count, element_size) in [
         (
             admission.inherited_truth_occurrences,
             size_of::<AffineWhenBadInheritedTruth>(),
@@ -2658,15 +2690,74 @@ fn admitted_source_problem_container_bytes(
     Ok(bytes)
 }
 
+fn authenticated_core_source_problem_owned_logical_byte_envelope(
+    canonical_loci: &CanonicalLocusTableOwner,
+    inherited_truths: usize,
+    atoms: usize,
+    clause_ranges: usize,
+) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    let resource = "exact WhenBad partition source problem retained owned logical bytes";
+    let canonical_dynamic = canonical_loci
+        .retained_owned_logical_byte_bound()
+        .map_err(|error| match error {
+            CanonicalLocusTableError::ResourceCountOverflow { .. } => {
+                GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+                    resource,
+                }
+            }
+            _ => GeneratedAffineResidualGroupExactWhenBadPartitionError::ReplayMismatch,
+        })?
+        .checked_sub(size_of::<CanonicalLocusTableOwner>())
+        .ok_or(
+            GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
+                resource,
+            },
+        )?;
+    let mut bytes = checked_add(
+        resource,
+        size_of::<AffineWhenBadAuthenticatedArbitraryRelativeProblem>(),
+        canonical_dynamic,
+    )?;
+    for (count, element_size) in [
+        (inherited_truths, size_of::<AffineWhenBadInheritedTruth>()),
+        (atoms, size_of::<AffineWhenBadAtom>()),
+        (clause_ranges, size_of::<Range<usize>>()),
+    ] {
+        bytes = checked_add(
+            resource,
+            bytes,
+            checked_mul(resource, checked_mul(resource, count, element_size)?, 2)?,
+        )?;
+    }
+    Ok(bytes)
+}
+
 fn admitted_assembly_container_bytes(
     admission: PartitionAssemblyAdmission,
 ) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
+    let canonical_builder_bytes = checked_add(
+        "exact WhenBad partition assembly container owned logical bytes",
+        checked_add(
+            "exact WhenBad partition assembly container owned logical bytes",
+            size_of::<CanonicalLocusTableBuilder>(),
+            admission.canonical_locus_context_fingerprint_bytes,
+        )?,
+        checked_mul(
+            "exact WhenBad partition assembly container owned logical bytes",
+            admission.canonical_locus_slots,
+            size_of::<ParametricPolynomial>(),
+        )?,
+    )?;
     checked_add(
         "exact WhenBad partition assembly container owned logical bytes",
         checked_add(
             "exact WhenBad partition assembly container owned logical bytes",
             admission.transcript_retained_owned_logical_bytes,
-            admission.source_problem_container_owned_logical_bytes,
+            checked_add(
+                "exact WhenBad partition assembly container owned logical bytes",
+                admitted_source_problem_noncanonical_bytes(admission)?,
+                canonical_builder_bytes,
+            )?,
         )?,
         checked_add(
             "exact WhenBad partition assembly container owned logical bytes",
@@ -2694,37 +2785,6 @@ fn transcript_payload_units(
             sum,
             value,
         )
-    })
-}
-
-fn polynomial_integer_bits(
-    polynomial: &ParametricPolynomial,
-) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    polynomial
-        .raw()
-        .coefficients
-        .iter()
-        .try_fold(0usize, |sum, value| {
-            checked_add(
-                "exact WhenBad partition retained polynomial integer bits",
-                sum,
-                integer_magnitude_bits(value)?,
-            )
-        })
-}
-
-fn integer_magnitude_bits(
-    value: &Integer,
-) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadPartitionError> {
-    let bits = match value {
-        Integer::Single(value) => u128::from(i64::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Double(value) => u128::from(i128::BITS - value.unsigned_abs().leading_zeros()),
-        Integer::Large(value) => u128::from(value.significant_bits()),
-    };
-    usize::try_from(bits).map_err(|_| {
-        GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-            resource: "exact WhenBad partition retained polynomial integer bits",
-        }
     })
 }
 
@@ -2839,6 +2899,10 @@ mod tests {
         GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
         GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
     };
+    use crate::parametric_coefficient::{
+        polynomial_associate_native_boundary_calls_for_test,
+        reset_polynomial_associate_native_boundary_calls_for_test,
+    };
 
     fn materialization(
         name: &str,
@@ -2944,11 +3008,61 @@ mod tests {
         GeneratedAffineResidualGroupExactWhenBadPartitionStats,
         GeneratedAffineResidualGroupExactWhenBadPartitionError,
     > {
-        let mut structural_loci = vec![retained.clone()];
+        let builder_owner_header_delta = size_of::<CanonicalLocusTableBuilder>()
+            .checked_sub(size_of::<CanonicalLocusTableOwner>())
+            .unwrap();
+        let accounting = CanonicalLocusAssemblyAccounting {
+            source_problem_noncanonical_owned_logical_bytes: 0,
+            assembly_nonproblem_owned_logical_bytes,
+            builder_owner_header_delta,
+        };
+        let mut associate = limits.associate;
+        associate.exact_algebra =
+            intersect_exact_limits(associate.exact_algebra, limits.exact_algebra);
+        associate.max_rustred_visible_temporary_byte_envelope = associate
+            .max_rustred_visible_temporary_byte_envelope
+            .min(limits.max_intern_associate_rustred_visible_temporary_byte_peak);
+        associate.max_native_workspace_byte_envelope = associate
+            .max_native_workspace_byte_envelope
+            .min(limits.max_intern_associate_native_workspace_byte_peak);
+        let builder_limits = CanonicalLocusTableLimits {
+            exact_algebra: limits.exact_algebra,
+            associate,
+            max_context_fingerprint_bytes: usize::MAX,
+            max_structural_loci: limits.max_structural_loci,
+            max_equality_comparisons: limits.max_intern_equality_comparisons,
+            max_equality_term_pairs: limits.max_intern_equality_term_pairs,
+            max_associate_comparisons: limits.max_intern_associate_comparisons,
+            max_associate_term_pairs: usize::MAX,
+            max_associate_native_cross_term_pairs: limits
+                .max_intern_associate_native_cross_term_pairs,
+            max_retained_polynomial_terms: limits.max_retained_polynomial_terms,
+            max_retained_polynomial_exponent_entries: limits
+                .max_retained_polynomial_exponent_entries,
+            max_retained_polynomial_integer_bits: limits.max_retained_polynomial_integer_bits,
+            max_retained_owned_logical_bytes: limits
+                .max_source_problem_retained_owned_logical_bytes
+                .checked_add(builder_owner_header_delta)
+                .unwrap_or(usize::MAX),
+            max_construction_owned_logical_peak_upper_bound: remaining_limit(
+                "exact WhenBad partition compilation owned logical peak upper bound",
+                limits.max_compilation_owned_logical_peak_upper_bound,
+                assembly_nonproblem_owned_logical_bytes,
+            )?,
+        };
+        let mut canonical_loci = CanonicalLocusTableBuilder::try_new(
+            context,
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_CANONICAL_LOCUS_TABLE_V1_SCHEMA,
+            1,
+            builder_limits,
+        )
+        .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?;
+        canonical_loci
+            .try_intern(context, retained)
+            .map_err(|error| map_canonical_locus_table_error(error, accounting, limits))?;
         let mut origins = Vec::with_capacity(1);
         let mut stats = GeneratedAffineResidualGroupExactWhenBadPartitionStats::default();
-        stats.source_problem_retained_owned_logical_bytes =
-            retained.owned_retained_byte_bound().unwrap();
+        synchronize_canonical_locus_stats(&canonical_loci, accounting, &mut stats)?;
         let (locus_ordinal, origin_ordinal) = intern_locus(
             context,
             candidate,
@@ -2958,26 +3072,44 @@ mod tests {
                     premise_ordinal: 0,
                 },
             },
-            &mut structural_loci,
+            &mut canonical_loci,
             &mut origins,
             limits,
             &mut stats,
-            assembly_nonproblem_owned_logical_bytes,
+            accounting,
         )?;
         assert_eq!((locus_ordinal, origin_ordinal), (0, 0));
-        assert_eq!(structural_loci.len(), 1);
+        assert_eq!(canonical_loci.loci().len(), 1);
         assert_eq!(origins.len(), 1);
         Ok(stats)
     }
 
     #[test]
     fn sector_011_materialization_builds_generic_formula_partition_and_replays() {
-        let (family, context, session, compilation) = compile_sector_011(
-            "exact-when-bad-partition-sector-011",
-            GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default(),
-        )
-        .unwrap();
+        reset_polynomial_associate_native_boundary_calls_for_test();
+        let mut integration_limits =
+            GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default();
+        integration_limits
+            .relative
+            .max_structural_locus_equality_comparisons = 0;
+        integration_limits
+            .relative
+            .max_structural_locus_associate_comparisons = 0;
+        integration_limits
+            .relative
+            .max_structural_locus_associate_term_pairs = 0;
+        let (family, context, session, compilation) =
+            compile_sector_011("exact-when-bad-partition-sector-011", integration_limits).unwrap();
+        let compilation_native_calls = polynomial_associate_native_boundary_calls_for_test();
+        assert!(
+            compilation_native_calls > 0,
+            "the outer first-seen canonicalizer did not cross the Symbolica associate boundary"
+        );
         compilation.replay(&family, &context, &session).unwrap();
+        assert!(
+            polynomial_associate_native_boundary_calls_for_test() > compilation_native_calls,
+            "terminal replay did not independently authenticate the outer canonical-locus table"
+        );
         assert_eq!(compilation.targets_consumed(), 0);
         assert!(!compilation.publishes_rule());
 
@@ -3008,6 +3140,28 @@ mod tests {
         assert!(ready.stats().bad_atoms() >= 8);
         assert!(ready.stats().bad_clauses() >= 8);
         assert!(ready.stats().structural_loci() <= ready.stats().locus_inputs());
+        assert!(ready.stats().intern_associate_comparisons() > 0);
+        assert_eq!(
+            ready
+                .partition()
+                .stats()
+                .structural_locus_equality_comparisons(),
+            0,
+        );
+        assert_eq!(
+            ready
+                .partition()
+                .stats()
+                .structural_locus_associate_comparisons(),
+            0,
+        );
+        assert_eq!(
+            ready
+                .partition()
+                .stats()
+                .structural_locus_associate_term_pairs(),
+            0,
+        );
         assert!(
             ready.stats().compilation_owned_logical_peak_upper_bound()
                 >= ready.stats().retained_owned_logical_bytes()
@@ -3210,8 +3364,6 @@ mod tests {
         let (context, retained, candidate) =
             associate_intern_fixture("exact-when-bad-partition-associate-resource-mapping");
         let assembly_nonproblem = 257usize;
-        let source_problem = retained.owned_retained_byte_bound().unwrap();
-        let assembly_live = assembly_nonproblem.checked_add(source_problem).unwrap();
         let baseline = run_associate_intern(
             &context,
             &retained,
@@ -3220,13 +3372,23 @@ mod tests {
             assembly_nonproblem,
         )
         .unwrap();
+        let assembly_live = assembly_nonproblem
+            .checked_add(baseline.source_problem_retained_owned_logical_bytes())
+            .unwrap();
+        let assembly_builder_live = assembly_live
+            .checked_add(
+                size_of::<CanonicalLocusTableBuilder>()
+                    .checked_sub(size_of::<CanonicalLocusTableOwner>())
+                    .unwrap(),
+            )
+            .unwrap();
         let visible = baseline.intern_associate_rustred_visible_temporary_byte_peak();
         let native = baseline.intern_associate_native_workspace_byte_peak();
         let combined = visible.checked_add(native).unwrap();
         assert!(visible > 0 && native > 0);
         assert_eq!(
             baseline.compilation_owned_logical_peak_upper_bound(),
-            assembly_live.checked_add(combined).unwrap(),
+            assembly_builder_live.checked_add(combined).unwrap(),
         );
 
         // A deep outer-global clamp is allowed to trip either component first;
@@ -3235,7 +3397,7 @@ mod tests {
         let deep_remaining = visible.min(native) - 1;
         let mut deep_global = GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default();
         deep_global.max_compilation_owned_logical_peak_upper_bound =
-            assembly_live.checked_add(deep_remaining).unwrap();
+            assembly_builder_live.checked_add(deep_remaining).unwrap();
         assert!(matches!(
             run_associate_intern(
                 &context,
@@ -3255,7 +3417,7 @@ mod tests {
         // one below is owned by, and therefore named as, the outer limit.
         let mut exact_global = GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default();
         exact_global.max_compilation_owned_logical_peak_upper_bound =
-            assembly_live.checked_add(combined).unwrap();
+            assembly_builder_live.checked_add(combined).unwrap();
         run_associate_intern(
             &context,
             &retained,
@@ -3374,13 +3536,6 @@ mod tests {
                 },
             ),
         );
-
-        assert!(matches!(
-            map_intern_associate_resource_error(usize::MAX, 1, usize::MAX,),
-            GeneratedAffineResidualGroupExactWhenBadPartitionError::ResourceCountOverflow {
-                resource: "exact WhenBad partition compilation owned logical peak upper bound",
-            }
-        ));
     }
 
     #[test]
@@ -3388,8 +3543,6 @@ mod tests {
         let (context, retained, candidate) =
             associate_intern_fixture("exact-when-bad-partition-associate-collisions");
         let assembly_nonproblem = 257usize;
-        let source_problem = retained.owned_retained_byte_bound().unwrap();
-        let assembly_live = assembly_nonproblem.checked_add(source_problem).unwrap();
         let baseline = run_associate_intern(
             &context,
             &retained,
@@ -3398,6 +3551,16 @@ mod tests {
             assembly_nonproblem,
         )
         .unwrap();
+        let assembly_live = assembly_nonproblem
+            .checked_add(baseline.source_problem_retained_owned_logical_bytes())
+            .unwrap();
+        let assembly_builder_live = assembly_live
+            .checked_add(
+                size_of::<CanonicalLocusTableBuilder>()
+                    .checked_sub(size_of::<CanonicalLocusTableOwner>())
+                    .unwrap(),
+            )
+            .unwrap();
         let visible = baseline.intern_associate_rustred_visible_temporary_byte_peak();
         let native = baseline.intern_associate_native_workspace_byte_peak();
         let combined = visible.checked_add(native).unwrap();
@@ -3428,7 +3591,7 @@ mod tests {
                 component_owned.max_intern_associate_native_workspace_byte_peak = component_limit;
             }
             component_owned.max_compilation_owned_logical_peak_upper_bound =
-                assembly_live.checked_add(combined - 1).unwrap();
+                assembly_builder_live.checked_add(combined - 1).unwrap();
             assert!(matches!(
                 run_associate_intern(
                     &context,
@@ -3458,7 +3621,7 @@ mod tests {
                 global_owned.max_intern_associate_native_workspace_byte_peak = component_requested;
             }
             global_owned.max_compilation_owned_logical_peak_upper_bound =
-                assembly_live.checked_add(1).unwrap();
+                assembly_builder_live.checked_add(1).unwrap();
             assert!(matches!(
                 run_associate_intern(
                     &context,
@@ -3483,7 +3646,7 @@ mod tests {
             .associate
             .max_combined_temporary_byte_envelope = visible - 2;
         combined_owned.max_compilation_owned_logical_peak_upper_bound =
-            assembly_live.checked_add(visible - 1).unwrap();
+            assembly_builder_live.checked_add(visible - 1).unwrap();
         let combined_error = run_associate_intern(
             &context,
             &retained,
@@ -3506,7 +3669,7 @@ mod tests {
         let mut global_owned = GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default();
         global_owned.associate.max_combined_temporary_byte_envelope = combined - 1;
         global_owned.max_compilation_owned_logical_peak_upper_bound =
-            assembly_live.checked_add(combined - 1).unwrap();
+            assembly_builder_live.checked_add(combined - 1).unwrap();
         assert!(matches!(
             run_associate_intern(
                 &context,

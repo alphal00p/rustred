@@ -119,9 +119,11 @@ candidate formula, and the global overlay emits ordinary binary polynomial
 splits for those atoms.  This is algebraically sound, but sequential
 composition can repeatedly refine every still-open factor branch.
 
-## 2. Semantic invariant: LiteRed's ordered `noRules` update
+## 2. Versioned V5 invariant: ordered `noRules`-inspired update
 
-Coverage V5 must preserve the current LiteRed-inspired priority semantics.
+Within this versioned V5 replay policy, RustRed preserves the following
+LiteRed2-inspired priority semantics; this ordering is not a global
+compatibility constraint on future solver kernels.
 Candidates are processed in persisted order.  For candidate `i`:
 
 - every region already covered by an earlier candidate remains frozen;

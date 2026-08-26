@@ -6,6 +6,9 @@ This document makes the published LiteRed notebooks a first-class progress
 metric for RustRed.  It supplements, rather than replaces, the generic
 algorithm and Vakint-oracle acceptance criteria.  Passing a notebook fixture
 must never be achieved with a topology-specific production recurrence.
+Agreement levels compare canonical mathematical inputs, identities, domains,
+and results.  They never require the same internal rules, pivots, enumeration
+order, public API, mutable state, or software architecture.
 
 ## Upstream test inventory
 
@@ -81,19 +84,19 @@ Each example is tracked at cumulative, monotonic levels:
 
 0. **Inventoried**: the upstream notebook, an archive URL or immutable vendored
    commit/blob, a content hash, family metadata, and target cells are identified.
-1. **Input parity**: a compact Symbolica or hybrid RustRed fixture normalizes
+1. **Input agreement**: a compact Symbolica or hybrid RustRed fixture normalizes
    to the same loops, external momenta, Gram data, and denominator basis.
-2. **Identity parity**: RustRed derives the expected ordinary-IBP and LI row
+2. **Identity agreement**: RustRed derives the expected ordinary-IBP and LI row
    counts, and every row passes exact specialization/replay checks.
-3. **Sector/symmetry parity**: zero, simple, unique, mapped, internal-symmetry,
+3. **Sector/symmetry agreement**: zero, simple, unique, mapped, internal-symmetry,
    and external/cross-family symmetry data agree up to canonical naming.
-4. **Parametric-rule parity**: generic RustRed sector solving derives guarded
+4. **Parametric-rule agreement**: generic RustRed sector solving derives guarded
    rules equivalent to the saved LiteRed `jRules`, after Symbolica
    normalization and exceptional-locus comparison.
-5. **Target-reduction parity**: every notebook `IBPReduce` target reduces to
+5. **Target-reduction agreement**: every notebook `IBPReduce` target reduces to
    the same unreplaced master combination.  Equivalent numerator spellings
    must also close to the same result.
-6. **Auxiliary parity**: notebook differential derivatives, dimensional
+6. **Auxiliary agreement**: notebook differential derivatives, dimensional
    recurrences, manual-rule hooks, graph metadata, or master-count stopping
    behavior are reproduced where they are part of the example.
 

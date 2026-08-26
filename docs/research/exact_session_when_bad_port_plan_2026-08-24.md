@@ -17,8 +17,10 @@ pre-normalization and normalized denominator projections, and specialize
 admitted lazy hazards into exact boundary events. A subsequent move-only,
 non-publishing owner assembles the current-lineage arbitrary-width OR-of-AND bad
 formula, interns its structural loci with Symbolica-backed associate proofs,
-and builds its replayable relative partition. Its licensed default-GMP focused
-gate passed 8/8 with four Rust test threads. The authoritative post-partition
+and builds its replayable relative partition. Its licensed default-GMP
+relative-partition gate passed 8/8 with four Rust test threads. The subsequent
+authenticated canonical-locus owner gate passed 19/19, with an independent
+20/20 superset. The preceding authoritative post-partition
 default-GMP `cargo nextest run --workspace --all-targets --test-threads 4`
 regression ran 1,640 tests and passed all 1,640, with 5 additional configured
 cases skipped. Atomic publication and subsector feedback remain next;
@@ -270,7 +272,8 @@ rejection. The relative `WhenBad` partition seam for the assembled current-
 lineage arbitrary-width OR-of-AND formula is now implemented without
 reconstructing V4, V5, the live-leaf queue, or Boolean/DPLL certificates. Its
 focused licensed default-GMP gate passed 8/8 with four Rust test threads. The
-authoritative post-partition default-GMP
+subsequent canonical-locus owner gate passed 19/19, with an independent 20/20
+superset. The preceding authoritative post-partition default-GMP
 `cargo nextest run --workspace --all-targets --test-threads 4` regression ran
 1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
 No Direct input has
@@ -283,26 +286,25 @@ residual orchestration, subsector feedback, or replayable current-lineage
 rule/residual handles. The current event ledger, mapped transcript, and
 current-lineage formula partition are complete only for their implemented
 non-publishing dispositions; their schemas and replay must be extended with
-publication and residual manifests. The mature `GeneratedResidualAffine...` implementation
-is an oracle, not production authority for these missing pieces. Full LiteRed
-parity, arbitrary one-loop pentagon reduction, and the high-throughput two-
-through six-loop vacuum milestones therefore remain pending.
+publication and residual manifests. The mature `GeneratedResidualAffine...`
+implementation is an oracle, not production authority for these missing
+pieces. RustRed's stated capability goal, arbitrary one-loop pentagon
+reduction, and the high-throughput two- through six-loop vacuum milestones
+therefore remain pending.
 
-The implemented partition seam still has two explicit high-loop performance
-blockers. The outer first-seen locus interner and the source-neutral raw-problem
-validator both run pairwise Symbolica associate checks, duplicating `O(N^2)`
-CAS work. This is sound and is not a second CAS implementation, but it must be
-removed before high-arity production use. The next source-neutral optimization
-is an authenticated canonical-locus owner/token: the outer bounded proof seals
-the table once, the trusted core skips its duplicate scan, and the raw
-constructor remains a defensive/test path. Symbolica's public monic `K[n]`
-normalization can later provide an indexed canonical key, but currently exposes
-no fallible workspace census. The same API gap affects rational-polynomial and
-projected `K[n]` division. Consequently the resource-bounded arbitrary core
-currently performs complete exact splitting without divisibility-based
-pruning; its public V1 compatibility path is unchanged. A future censused
-Symbolica division seam must feed a bounded ordinal-pair index before this
-optimization is restored.
+One of the implemented partition seam's two explicit high-loop performance
+blockers is now closed. The outer bounded proof seals a non-cloneable,
+schema/context-authenticated canonical-locus table; the trusted nested compiler
+validates it linearly and skips the duplicate pairwise Symbolica-associate
+scan, while the raw constructor remains a defensive/test path. A fresh compile
+or complete proof replay still performs one outer exact/associate proof.
+Symbolica's public monic `K[n]` normalization can later provide an indexed key
+for that remaining scan, but currently exposes no fallible workspace census.
+The same API gap affects rational-polynomial and projected `K[n]` division.
+Consequently the resource-bounded arbitrary core currently performs complete
+exact splitting without divisibility-based pruning; its public V1 compatibility
+path is unchanged. A future censused Symbolica division seam must feed a bounded
+ordinal-pair index before this optimization is restored.
 
 The former `src/exact.rs` blocker is complete: exact scalar and matrix algebra
 now crosses Symbolica's public GMP `Rational` and `Matrix<Q>` APIs. Continued
@@ -556,9 +558,9 @@ Reuse is restricted to mathematics with no old authority payload:
    input/certificate and `Option<&IndexShift>` provenance are not reusable.
    The current bounded implementation projects each locus to `K[n]`, preserves
    deterministic first-seen order, and proves equality/association with exact
-   Symbolica polynomial operations. The immediate optimization is an opaque
-   authenticated canonical-locus owner so the inner compiler can trust the
-   outer proof without repeating the pairwise scan. A monic-keyed hash index is
+   Symbolica polynomial operations. The opaque authenticated canonical-locus
+   owner is now implemented, so the inner compiler trusts the bounded outer
+   proof without repeating the pairwise scan. A monic-keyed hash index remains
    deferred until Symbolica exposes a fallible normalization API with a native
    workspace census: public `make_monic` supplies the mathematics but not the
    resource authority required by this path. No uncensused normalization or
@@ -770,12 +772,21 @@ authenticated candidate was rejected.
 
 ### Phase D: atomic target disposition and publication
 
-Add sealed owner collections for:
+Add sealed owners for:
 
-- chronological committed events;
-- current-lineage guarded rule records;
-- exceptional-domain and exceptional-leak residual records;
+- a chronological committed-event log;
+- one ordered applicable/exceptional leaf manifest retained once by each
+  certified event;
+- shallow current-lineage guarded-rule and residual handles into that event;
 - equality-refinement records.
+
+The present replacement `Vec<Arc<Event>>` and full target-disposition copy are
+correctness scaffolding, not the six-loop storage design: repeated commits make
+the former quadratic in event count and the latter proportional to
+`events * targets`. Replace them with a chunked/persistent event log and shared
+or paged copy-on-write target dispositions before scaling the foundry. The
+publication seam must not add separate deep rule/residual vectors on top of
+those costs.
 
 Add consuming terminal commit APIs. A Certified commit prepares the target
 successor with `Some(retained_ready_target)`, one event, all applicable rule
@@ -862,16 +873,18 @@ Before any mutation, prepare and admit all of:
 - the staged database successor/replacement owned by the transaction;
 - target-state successor, using `Some(Ready)` only for Certified;
 - run-disposition successor;
-- complete event-vector replacement;
-- complete guarded-rule-vector replacement;
-- complete residual/refinement-vector replacement;
+- complete event-log append/replacement for the currently selected storage
+  backend;
+- one ordered leaf manifest and any shallow rule/residual handle buffers;
+- complete residual/refinement scheduling replacement;
 - aggregate statistics and every new retained/peak capacity.
 
 Only after all preparations succeed may the move-only commit tail:
 
 1. commit the staged database row;
 2. swap in the prebuilt target state;
-3. swap in prebuilt events, rules, residuals, run disposition, and statistics;
+3. swap in the prebuilt event log, scheduling state, run disposition, and
+   statistics;
 4. drop predecessor owners.
 
 The tail performs no allocation, Symbolica operation, GMP arithmetic,

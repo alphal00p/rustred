@@ -7,8 +7,9 @@ on 2026-08-24. Implementation status was reconciled with pushed checkpoint
 checkpoint on 2026-08-25. Owner-bound non-publishing mapped-condition
 materialization, its production-derived sector-011 acceptance, and the
 subsequent current-lineage relative-partition slice were reconciled on
-2026-08-26. The focused partition gate passed 8/8. The authoritative
-post-partition default-GMP
+2026-08-26. The relative-partition gate passed 8/8; the subsequent
+canonical-locus owner gate passed 19/19, with an independent 20/20 superset.
+The preceding authoritative post-partition default-GMP
 `cargo nextest run --workspace --all-targets --test-threads 4` regression ran
 1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
 
@@ -23,12 +24,21 @@ are tracked separately in
 
 ## Governing objective
 
-RustRed is a pure-Rust, fully Symbolica implementation of the functionality
-provided by LiteRed.  It must not be a collection of built-in reductions for
-particular loop counts or topologies.  Algorithms may differ from LiteRed
-where Symbolica provides a better exact representation, but the public scope
-and mathematical behavior are defined by the LiteRed implementation vendored
-in `vendor/LiteRed2`.
+RustRed is a pure-Rust, fully Symbolica implementation of the generic
+mathematical capabilities exemplified by LiteRed2.  It must not be a
+collection of built-in reductions for particular loop counts or topologies.
+The vendored `vendor/LiteRed2` source is a conceptual guide, capability map,
+and source of independently checked conventions and acceptance cases; it is
+not a bug-for-bug, source-level, architecture, pivot-order, or Mathematica-API
+compatibility contract. RustRed should choose better typed algorithms and data
+structures whenever they improve generality, auditability, parallelism, or
+runtime efficiency without changing the explicitly accepted mathematical
+semantics.
+
+Throughout this document, “parity” means semantic agreement on the named
+acceptance surface after an explicit convention map. It does not require
+identical intermediate rules, traversal order, mutable global state, or
+implementation quirks.
 
 RustRed also owns tensor-numerator reduction and the application of discovered
 scalar reduction rules.  The behavioral reference for that layer is Vakint
@@ -48,9 +58,13 @@ polishing.  The detailed two-stage architecture and benchmark contract are in
 
 ## Source-of-truth order
 
-1. LiteRed's Mathematica source defines basis construction, scalar-product
-   conversion, fully parametric IBP and LI relations, sectors, symmetries,
-   guarded recurrence discovery, rule application, masters, and persistence.
+1. LiteRed2's vendored
+   [`LiteRed2026.m`](../../vendor/LiteRed2/Source/LiteRed2026.m) source maps the
+   intended capability envelope and supplies mathematical conventions and
+   reference cases for basis construction, scalar-product conversion, fully
+   parametric IBP and LI relations, sectors, symmetries, guarded recurrence
+   discovery, rule application, masters, and persistence. Its implementation
+   accidents are not authoritative.
 2. Symbolica's vendored Rust source defines the exact algebra, patterns,
    substitutions, polynomial/rational-polynomial operations, serialization,
    and performance facilities available to the implementation.
@@ -106,9 +120,12 @@ LiteRed facilities:
   them; and
 - no implicit promotion of an uncovered integral to a proved master.
 
-The first generator milestone is specifically LiteRed `GenerateIBP` parity:
+The first generator milestone is semantic identity-generation agreement with
+LiteRed2 `GenerateIBP`:
 for `L` loops and `E` external momenta it emits `L*(L+E)` ordinary parametric
-relations in contraction-major order, plus `E*(E-1)/2` LI relations.  It
+relations, plus `E*(E-1)/2` LI relations.  RustRed's contraction-major order is
+a documented deterministic convention for reproducible artifacts and oracle
+normalization, not a requirement to mirror LiteRed2's internal enumeration. It
 supports symbolic power shifts, never applies sector/symmetry rules during raw
 generation, and specializes exactly to an independent concrete generator.
 LiteRed's later `GenerateFPIBP` syzygy facility is a distinct eventual scope
@@ -302,12 +319,18 @@ The following move-only, non-publishing slice is now implemented as well. It
 assembles the current-lineage arbitrary-width OR-of-AND bad formula from the
 mapped owner, interns first-seen structural loci through Symbolica-backed
 exact/associate tests while retaining every occurrence provenance, and builds
-its replayable applicable/exceptional relative partition. A licensed
-default-GMP focused run passed all 8 module tests with four Rust test threads.
-The authoritative post-partition default-GMP
-`cargo nextest run --workspace --all-targets --test-threads 4` regression ran
-1,640 tests and passed all 1,640, with 5 additional configured cases skipped.
-This slice consumes no
+its replayable applicable/exceptional relative partition. The canonical locus
+table is an opaque, non-cloneable authority: the outer compiler proves exact
+and associate canonicality once per fresh compilation or full proof replay,
+while authenticated inner compilation and its nested replay perform linear
+validation and no duplicate pairwise/native associate work. Compact
+fixed-capacity copies, spare-GMP payloads, duplicate-heavy
+replay, panic/retry ownership, and exact/one-below aggregate limits are tested.
+Licensed default-GMP focused Nextest run
+`b0217edc-a9e8-4a7d-9c5c-82b824a636b3` passed 19/19 tests with four workers;
+an independent superset passed 20/20. The preceding authoritative
+post-partition regression ran 1,640 tests and passed all 1,640, with 5
+additional configured cases skipped. This slice consumes no
 target, publishes no rule, and has no topology or loop-count dispatch. It does
 not establish complete LiteRed `WhenBad` closure.
 
@@ -315,6 +338,14 @@ The immediate generic semantic slice is now atomic guarded-rule/residual
 publication from that owner, followed by solved-subsector feedback into
 supersectors. It must not reconstruct V4, V5, the live-leaf queue, or old
 Boolean/DPLL certificates along the way.
+
+The current exact-session event replacement and target successor are
+correctness-first, not six-loop-scalable: they copy the prior event-`Arc`
+vector and the full target-disposition vector on every transition. Atomic
+publication must retain one ordered leaf manifest per event without deep
+rule/residual duplication. Before high-loop deployment, session storage must
+move to a chunked/persistent event log and shared or paged copy-on-write target
+dispositions.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -352,8 +383,8 @@ generated IBP/LI rows
 -> symbolic pivot recentering
 -> owner-bound mapped conditions, dual denominator projections,
    and exact RHS-boundary events                                  [implemented, nonpublishing]
--> owner-bound relative partition of the current-lineage
-   arbitrary-width OR-of-AND formula                              [implemented, nonpublishing]
+-> one-shot canonical-locus authority -> owner-bound relative partition
+   of the current-lineage arbitrary-width OR-of-AND formula       [implemented, nonpublishing]
 -> atomic guarded publication and residual hand-off               [next]
 -> exceptional-domain recursion and solved-subsector feedback
 -> replayed coverage certificate

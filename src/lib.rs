@@ -14,6 +14,7 @@
 //! adapter, are excluded from the default surface and are available only
 //! through the `legacy-authored-oracles` feature.
 
+mod canonical_parametric_locus_table;
 mod coverage_decision_dag;
 mod direct_bad_formula;
 mod direct_bad_formula_arbitrary;

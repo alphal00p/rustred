@@ -4,6 +4,8 @@
 > concrete vacuum oracles, but its old milestone recommendations are not the
 > governing scope.  [`litered_full_scope_spec.md`](litered_full_scope_spec.md)
 > supersedes every vacuum-only, fixed-loop, or optional-power-shift statement.
+> This is algorithmic research evidence, not a mandate for LiteRed2 API,
+> architecture, internal sequencing, pivot-order, or bug compatibility.
 
 This report records the LiteRed2 algorithms and conventions that matter for a
 pure-Rust port.  It uses `vendor/LiteRed2/Source/LiteRed2026.m` as the primary

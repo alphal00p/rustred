@@ -2,6 +2,10 @@
 
 Date: 2026-08-13
 
+Status: historical source audit. Its mathematical formula checks remain useful;
+LiteRed2's internal traversal or row order is not a governing RustRed
+compatibility requirement.
+
 ## Scope and method
 
 This is an independent, source-level audit of the first vertical slice in
@@ -18,8 +22,10 @@ No Mathematica or FORM process was run.  No Rust source was changed.
 ## Verdict
 
 The ordinary-IBP equation in the authoritative specification is
-mathematically correct, including its sign, its `n_r + nu_r` multiplier, its
-`e_r` and `e_r-e_t` shifts, and LiteRed's contraction-major row order.  The
+mathematically correct, including its sign, its `n_r + nu_r` multiplier, and
+its `e_r` and `e_r-e_t` shifts. LiteRed2's contraction-major row order was
+correctly recorded as source behavior but is not itself part of mathematical
+correctness. The
 proposed sparse `IndexShift -> ParametricCoefficient` representation is also
 the right core representation.
 

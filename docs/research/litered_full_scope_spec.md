@@ -1,16 +1,17 @@
-# RustRed authoritative LiteRed-scope specification
+# RustRed mathematical capability and acceptance specification
 
 Date: 2026-08-13
 
 ## Status and authority
 
-This document is the governing architecture for the RustRed port.  It
+This document is the governing capability and acceptance specification for
+RustRed.  It
 supersedes any vacuum-only or fixed-loop recommendation in older research
 notes.  In particular, production RustRed must not contain authored
 topology-specific recurrence formulae.  Such formulae may exist only as
 oracles or regression fixtures for rules rediscovered by the generic engine.
 
-The behavioral sources, in descending order of authority, are:
+The mathematical/reference sources, in descending order of authority, are:
 
 1. [`LiteRed2026.m`](../../vendor/LiteRed2/Source/LiteRed2026.m), for the
    scalar-family, parametric-identity, sector-solving, and reduction scope;
@@ -23,10 +24,17 @@ The behavioral sources, in descending order of authority, are:
 
 RustRed is pure Rust plus Symbolica.  It must never invoke Mathematica or FORM.
 
+LiteRed2 defines the conceptual capability target and provides mathematical
+conventions and acceptance cases. It does **not** define RustRed's internal
+architecture, public Rust API, intermediate pivot/rule order, mutable-state
+model, performance characteristics, or accidental behavior. RustRed should
+depart from LiteRed2 whenever a typed, generic, Symbolica-native, parallel, or
+more efficient design preserves the explicitly tested mathematical semantics.
+
 ## 1. What “LiteRed scope” means
 
-The public model is a generic integral family, not a named loop topology.  A
-complete port covers the following connected capabilities:
+The public model is a generic integral family, not a named loop topology.  The
+completed RustRed scope covers the following connected capabilities:
 
 - independent denominator bases, automatic ISP completion, and conversion
   between scalar products and denominator powers;
@@ -198,11 +206,13 @@ The raw identity is then
       \right].
 \]
 
-This yields exactly `L*(L+E)` rows.  To match LiteRed's stable order, the
-contraction momentum is the outer/major coordinate, with differentiated loop
-the inner/minor coordinate.  The implementation in
+This yields exactly `L*(L+E)` rows.  RustRed uses a documented deterministic
+contraction-major order, with differentiated loop the inner/minor coordinate,
+to make artifacts and oracle comparisons reproducible.  Mathematical
+equivalence of the normalized row set is the acceptance invariant; LiteRed2's
+incidental enumeration order is not.  The implementation in
 [`GenerateIBP`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1813) establishes
-the following non-negotiable details:
+the following mathematical invariants:
 
 - `PowerShifts` modify only the coefficient multiplier `n_r + nu_r`;
 - integral keys remain `J(n + delta)` and do not contain `nu_r`;
@@ -390,18 +400,19 @@ recurrences.  Its essential behavior is:
 8. increase search depth for still-symbolic cases; and
 9. record genuinely uncovered points as current master candidates.
 
-The source fixes an important ordering that RustRed must preserve.  For a
-fully numeric point, `SolvejSector` constructs
+LiteRed2 demonstrates one sound sequence.  For a fully numeric point,
+`SolvejSector` constructs
 `Join[ids@@point, SR[basis]@@point] /. ZerojRule[basis]`: exact self-symmetry
 relations are appended to the selected IBP/LI identities and proved zero
 sectors are erased *before* rows enter elimination.  `WhenBad` is applied only
 after a candidate solved row has been shifted back and patternized.  It rejects
 coefficient singularities and any surviving right-hand-side integral whose
-inactive index can enter the sector.  Consequently neither accepting raw
-cross-sector leakage nor post-hoc canonicalizing only the final answer is a
-faithful implementation.  RustRed's compiled zero/symmetry rewrites must be
-proof-bearing and replayable, and elimination/rule validation must consume
-their canonicalized rows.
+inactive index can enter the sector.  RustRed need not reproduce that internal
+sequencing, elimination pivots, or intermediate rule form.  Every published
+rule must nevertheless be proved against zero/symmetry rewrites, singularity
+guards, sector containment, and strict descent.  Its compiled zero/symmetry
+rewrites must be proof-bearing and replayable, and the publication proof must
+show the accepted rule has the same mathematical guarantees.
 
 The rule type must therefore contain:
 
@@ -552,4 +563,5 @@ IntegralFamily(L,E,kinematics,denominators,power_shifts)
 Only after this slice passes does rule discovery begin.  Existing
 `VacuumFamily`, concrete `IbpGenerator`, and loop-specific reducers remain
 temporary compatibility/oracle layers; they do not define the new core and
-must not be presented as completion of the LiteRed port.
+must not be presented as completion of RustRed's stated mathematical
+capability goal.
