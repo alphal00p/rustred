@@ -34,7 +34,9 @@ pub(crate) struct SymbolicaParametricSparseLimits {
     pub(crate) max_rows: usize,
     pub(crate) max_physical_columns: usize,
     pub(crate) max_input_entries: usize,
-    pub(crate) max_native_output_entries: usize,
+    /// Conservative U+L entry envelope admitted before native execution and
+    /// rechecked against the observed output afterward.
+    pub(crate) max_native_output_entry_envelope: usize,
     pub(crate) max_returned_trace_entries: usize,
 }
 
@@ -45,7 +47,7 @@ impl Default for SymbolicaParametricSparseLimits {
             max_rows: 16_000_000,
             max_physical_columns: 16_000_000,
             max_input_entries: 1_000_000_000,
-            max_native_output_entries: 1_000_000_000,
+            max_native_output_entry_envelope: 1_000_000_000,
             max_returned_trace_entries: 16_000_000,
         }
     }
@@ -177,12 +179,17 @@ impl SymbolicaParametricSparseReduction {
     }
 }
 
-/// Exact census of a temporary native reducer reconstruction.
+/// Exact census of a temporary native reducer reconstruction. Coefficient work
+/// includes checked input/output copies and native field callbacks; it excludes
+/// pre-native structural validation and any caller-side differential replay.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SymbolicaParametricSparseStats {
     prior_rows: usize,
+    rows: usize,
     physical_columns: usize,
     input_entries: usize,
+    prospective_native_output_entries: usize,
+    observed_native_output_entries: usize,
     native_u_entries: usize,
     native_l_entries: usize,
     returned_trace_entries: usize,
@@ -194,12 +201,24 @@ impl SymbolicaParametricSparseStats {
         self.prior_rows
     }
 
+    pub(crate) const fn rows(self) -> usize {
+        self.rows
+    }
+
     pub(crate) const fn physical_columns(self) -> usize {
         self.physical_columns
     }
 
     pub(crate) const fn input_entries(self) -> usize {
         self.input_entries
+    }
+
+    pub(crate) const fn prospective_native_output_entries(self) -> usize {
+        self.prospective_native_output_entries
+    }
+
+    pub(crate) const fn observed_native_output_entries(self) -> usize {
+        self.observed_native_output_entries
     }
 
     pub(crate) const fn native_u_entries(self) -> usize {
@@ -881,7 +900,7 @@ pub(crate) fn forward_reduce_last_row(
     check_limit(
         "prospective Symbolica parametric sparse native output entries",
         prospective_native_output_entries,
-        limits.max_native_output_entries,
+        limits.max_native_output_entry_envelope,
     )?;
     for (row_ordinal, row) in prior_rows.iter().enumerate() {
         if row.is_empty() {
@@ -963,7 +982,7 @@ pub(crate) fn forward_reduce_last_row(
     check_limit(
         "Symbolica parametric sparse native output entries",
         native_output_entries,
-        limits.max_native_output_entries,
+        limits.max_native_output_entry_envelope,
     )?;
 
     if candidate.is_empty() {
@@ -978,8 +997,11 @@ pub(crate) fn forward_reduce_last_row(
         let stats = sparse_stats(
             &field,
             prior_rows.len(),
+            rows,
             physical_columns,
             input_entries,
+            prospective_native_output_entries,
+            native_output_entries,
             &reducer,
             0,
         );
@@ -1020,8 +1042,11 @@ pub(crate) fn forward_reduce_last_row(
             let stats = sparse_stats(
                 &field,
                 prior_rows.len(),
+                rows,
                 physical_columns,
                 input_entries,
+                prospective_native_output_entries,
+                native_output_entries,
                 &reducer,
                 returned_trace_entries,
             );
@@ -1100,8 +1125,11 @@ pub(crate) fn forward_reduce_last_row(
             let stats = sparse_stats(
                 &field,
                 prior_rows.len(),
+                rows,
                 physical_columns,
                 input_entries,
+                prospective_native_output_entries,
+                native_output_entries,
                 &reducer,
                 returned_trace_entries,
             );
@@ -1293,15 +1321,26 @@ fn decode_reductions(
 fn sparse_stats(
     field: &CheckedParametricField<'_>,
     prior_rows: usize,
+    rows: usize,
     physical_columns: usize,
     input_entries: usize,
+    prospective_native_output_entries: usize,
+    observed_native_output_entries: usize,
     reducer: &SparseRowReducer<CheckedParametricField<'_>>,
     returned_trace_entries: usize,
 ) -> SymbolicaParametricSparseStats {
+    debug_assert_eq!(rows, prior_rows.saturating_add(1));
+    debug_assert_eq!(
+        reducer.u().nvalues().checked_add(reducer.l().nvalues()),
+        Some(observed_native_output_entries)
+    );
     SymbolicaParametricSparseStats {
         prior_rows,
+        rows,
         physical_columns,
         input_entries,
+        prospective_native_output_entries,
+        observed_native_output_entries,
         native_u_entries: reducer.u().nvalues(),
         native_l_entries: reducer.l().nvalues(),
         returned_trace_entries,
@@ -1437,10 +1476,17 @@ mod tests {
             &context.checked_div(&d, &normalization_divisor).unwrap()
         );
         assert_eq!(stats.prior_rows(), 2);
+        assert_eq!(stats.rows(), 3);
         assert_eq!(stats.physical_columns(), 4);
         assert_eq!(stats.input_entries(), 8);
-        assert!(stats.native_u_entries() >= normalized_row.entries().len());
-        assert!(stats.native_l_entries() >= reductions.len() + 1);
+        assert_eq!(stats.prospective_native_output_entries(), 13);
+        assert_eq!(stats.native_u_entries(), 6);
+        assert_eq!(stats.native_l_entries(), 5);
+        assert_eq!(stats.observed_native_output_entries(), 11);
+        assert_eq!(
+            stats.observed_native_output_entries(),
+            stats.native_u_entries() + stats.native_l_entries()
+        );
         assert_eq!(
             stats.returned_trace_entries(),
             reductions.len() + normalized_row.entries().len() + 1
@@ -1485,6 +1531,14 @@ mod tests {
         );
         assert_eq!(reductions[0].factor(), &context.integer(2));
         assert_eq!(reductions[1].factor(), &context.integer(3));
+        assert_eq!(stats.prior_rows(), 2);
+        assert_eq!(stats.rows(), 3);
+        assert_eq!(stats.physical_columns(), 2);
+        assert_eq!(stats.input_entries(), 4);
+        assert_eq!(stats.prospective_native_output_entries(), 9);
+        assert_eq!(stats.native_u_entries(), 2);
+        assert_eq!(stats.native_l_entries(), 4);
+        assert_eq!(stats.observed_native_output_entries(), 6);
         assert_eq!(stats.returned_trace_entries(), 2);
     }
 
@@ -1500,14 +1554,25 @@ mod tests {
             SymbolicaParametricSparseLimits::default(),
         )
         .unwrap();
-        assert!(matches!(
-            outcome,
-            SymbolicaParametricSparseOutcome::Dependent {
-                canonical_zero_input: true,
-                ref reductions,
-                ..
-            } if reductions.is_empty()
-        ));
+        let SymbolicaParametricSparseOutcome::Dependent {
+            canonical_zero_input,
+            reductions,
+            stats,
+        } = outcome
+        else {
+            panic!("empty candidate must be dependent")
+        };
+        assert!(canonical_zero_input);
+        assert!(reductions.is_empty());
+        assert_eq!(stats.prior_rows(), 1);
+        assert_eq!(stats.rows(), 2);
+        assert_eq!(stats.physical_columns(), 1);
+        assert_eq!(stats.input_entries(), 1);
+        assert_eq!(stats.prospective_native_output_entries(), 5);
+        assert_eq!(stats.native_u_entries(), 1);
+        assert_eq!(stats.native_l_entries(), 1);
+        assert_eq!(stats.observed_native_output_entries(), 2);
+        assert_eq!(stats.returned_trace_entries(), 0);
     }
 
     #[test]
@@ -1677,7 +1742,7 @@ mod tests {
     }
 
     #[test]
-    fn symbolica_sparse_exact_bridge_enforces_exact_native_output_limit() {
+    fn symbolica_sparse_exact_bridge_enforces_exact_prospective_output_envelope() {
         let context = context("symbolica-sparse-native-output-limit");
         let candidate = row(vec![entry(0, context.one()), entry(1, context.one())]);
         let pilot = forward_owned(
@@ -1688,22 +1753,19 @@ mod tests {
             SymbolicaParametricSparseLimits::default(),
         )
         .unwrap();
-        let exact_native_entries = pilot
-            .stats()
-            .native_u_entries()
-            .checked_add(pilot.stats().native_l_entries())
-            .unwrap();
+        let exact_native_entries = pilot.stats().prospective_native_output_entries();
         assert_eq!(exact_native_entries, 3);
+        assert_eq!(pilot.stats().observed_native_output_entries(), 3);
 
         let mut exact = SymbolicaParametricSparseLimits::default();
-        exact.max_native_output_entries = exact_native_entries;
+        exact.max_native_output_entry_envelope = exact_native_entries;
         assert_eq!(
             forward_owned(&context, 2, &[], &candidate, exact),
             Ok(pilot)
         );
 
         let mut one_below = exact;
-        one_below.max_native_output_entries = exact_native_entries - 1;
+        one_below.max_native_output_entry_envelope = exact_native_entries - 1;
         assert!(matches!(
             forward_owned(&context, 2, &[], &candidate, one_below),
             Err(SymbolicaParametricSparseError::ResourceLimit {
@@ -1712,6 +1774,41 @@ mod tests {
                 limit,
             }) if requested == exact_native_entries && limit == exact_native_entries - 1
         ));
+    }
+
+    #[test]
+    fn symbolica_sparse_exact_bridge_distinguishes_output_envelope_from_observed_fill() {
+        let context = context("symbolica-sparse-native-output-envelope");
+        let prior = vec![row(vec![entry(0, context.one())])];
+        let candidate = row(vec![entry(0, context.integer(2))]);
+        let pilot = forward_owned(
+            &context,
+            1,
+            &prior,
+            &candidate,
+            SymbolicaParametricSparseLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(pilot.stats().prospective_native_output_entries(), 5);
+        assert_eq!(pilot.stats().observed_native_output_entries(), 3);
+
+        let mut observed_only = SymbolicaParametricSparseLimits::default();
+        observed_only.max_native_output_entry_envelope = 3;
+        assert!(matches!(
+            forward_owned(&context, 1, &prior, &candidate, observed_only),
+            Err(SymbolicaParametricSparseError::ResourceLimit {
+                resource: "prospective Symbolica parametric sparse native output entries",
+                requested: 5,
+                limit: 3,
+            })
+        ));
+
+        let mut exact_envelope = observed_only;
+        exact_envelope.max_native_output_entry_envelope = 5;
+        assert_eq!(
+            forward_owned(&context, 1, &prior, &candidate, exact_envelope),
+            Ok(pilot)
+        );
     }
 
     #[test]
@@ -1803,16 +1900,20 @@ mod tests {
             SymbolicaParametricSparseLimits::default(),
         )
         .unwrap();
-        let exact_work = pilot.stats().coefficient_work().algebra_work();
-        assert!(exact_work > 0);
+        let exact_work = pilot.stats().coefficient_work();
+        assert!(exact_work.algebra_work() > 0);
+        assert!(exact_work.exponent_entry_work() > 0);
+        assert!(exact_work.integer_bit_work() > 0);
 
         let mut exact = SymbolicaParametricSparseLimits::default();
-        exact.coefficient_work.max_algebra_work = exact_work;
+        exact.coefficient_work.max_algebra_work = exact_work.algebra_work();
+        exact.coefficient_work.max_exponent_entry_work = exact_work.exponent_entry_work();
+        exact.coefficient_work.max_integer_bit_work = exact_work.integer_bit_work();
         let exact_outcome = forward_owned(&context, 3, &prior, &candidate, exact).unwrap();
         assert_eq!(exact_outcome, pilot);
 
         let mut one_below = exact;
-        one_below.coefficient_work.max_algebra_work = exact_work - 1;
+        one_below.coefficient_work.max_algebra_work = exact_work.algebra_work() - 1;
         assert!(matches!(
             forward_owned(&context, 3, &prior, &candidate, one_below),
             Err(SymbolicaParametricSparseError::CoefficientWork(
@@ -1823,10 +1924,45 @@ mod tests {
                         limit,
                     }
                 )
-            )) if requested == exact_work && limit == exact_work - 1
+            )) if requested == exact_work.algebra_work() && limit == exact_work.algebra_work() - 1
         ));
 
-        let retried = forward_owned(&context, 3, &prior, &candidate, exact).unwrap();
-        assert_eq!(retried, pilot);
+        let mut exponent_one_below = exact;
+        exponent_one_below.coefficient_work.max_exponent_entry_work =
+            exact_work.exponent_entry_work() - 1;
+        assert!(matches!(
+            forward_owned(&context, 3, &prior, &candidate, exponent_one_below),
+            Err(SymbolicaParametricSparseError::CoefficientWork(
+                ParametricCoefficientWorkError::Elimination(
+                    crate::parametric_elimination::ParametricEliminationError::ResourceLimit {
+                        resource: "construction coefficient exponent-entry work",
+                        requested,
+                        limit,
+                    }
+                )
+            )) if requested == exact_work.exponent_entry_work()
+                && limit == exact_work.exponent_entry_work() - 1
+        ));
+
+        let mut integer_one_below = exact;
+        integer_one_below.coefficient_work.max_integer_bit_work = exact_work.integer_bit_work() - 1;
+        assert!(matches!(
+            forward_owned(&context, 3, &prior, &candidate, integer_one_below),
+            Err(SymbolicaParametricSparseError::CoefficientWork(
+                ParametricCoefficientWorkError::Elimination(
+                    crate::parametric_elimination::ParametricEliminationError::ResourceLimit {
+                        resource: "construction coefficient integer-bit work",
+                        requested,
+                        limit,
+                    }
+                )
+            )) if requested == exact_work.integer_bit_work()
+                && limit == exact_work.integer_bit_work() - 1
+        ));
+
+        assert_eq!(
+            forward_owned(&context, 3, &prior, &candidate, exact).unwrap(),
+            pilot
+        );
     }
 }

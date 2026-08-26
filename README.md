@@ -207,7 +207,7 @@ The repository currently includes tests for:
   authoritatively supplies the ordered pivot factors and dependent/independent
   outcome; RustRed replays that transcript through the guarded path as an
   independent provenance and differential check. Licensed default-GMP runs
-  with four test threads passed 12/12 focused adapter tests, 35/35 focused exact
+  with four test threads passed 13/13 focused adapter tests, 39/39 focused exact
   database tests, and 2/2 direct-session tests;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
@@ -466,17 +466,20 @@ to authenticate provenance and differentially verify the native result. The
 boundary borrows authenticated coefficient rows, uses shallow `Arc` clones for
 Symbolica's dense scratch, meters native coefficient work separately, and
 turns unused `Field` callbacks into typed failures. Licensed default-GMP runs
-with four test threads passed 12/12 adapter, 35/35 exact-database, and 2/2
+with four test threads passed 13/13 adapter, 39/39 exact-database, and 2/2
 direct-session tests.
 
 This is still a transactional correctness bridge. Every stage reconstructs the
 full reducer, giving a cumulative tendency toward `O(P^2)` work over `P`
 pivots; Symbolica's current reducer also owns an `O(K)` dense scratch vector and
-performs serial forward reduction. Native sparse statistics are returned by
-the adapter but are not yet persisted in database telemetry. These results do
-not establish complete topology reduction, Vakint reproduction, or physical
-six-loop scalability. Persistent reducer ownership, rollback/rebuild semantics,
-and measured scaling remain separate work.
+performs serial forward reduction. Fixed-size committed telemetry now retains
+per-event, componentwise-peak, and saturating cumulative rows, columns, sparse
+input, admitted/observed U+L fill, trace, and native coefficient-work counts.
+It is excluded from replay identity and does not include catalog sorting, wall
+time, or RSS. These results do not establish complete topology reduction,
+Vakint reproduction, or physical six-loop scalability. Persistent reducer
+ownership, rollback/rebuild semantics, and measured physical-family scaling
+remain separate work.
 
 The next vacuum-critical solver milestone is the topology-neutral
 `compact application event -> native Symbolica incremental reducer -> owning
@@ -546,9 +549,10 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. persist and profile native sparse telemetry, evaluate a rollback-safe
-   persistent reducer, and retain exact regenerated-residual checks around the
-   now-live Symbolica transcript authority;
+1. expose the committed native sparse telemetry to campaign benchmark output,
+   profile physical families, evaluate a rollback-safe persistent reducer, and
+   retain exact regenerated-residual checks around the now-live Symbolica
+   transcript authority;
 2. add an owning exactly-once exceptional queue, a sealed committed-
    exceptional source, and rejected-candidate continuation; then integrate
    provider scheduling;

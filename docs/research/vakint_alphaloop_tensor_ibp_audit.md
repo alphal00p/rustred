@@ -1,6 +1,7 @@
 # Vakint/alphaLoop tensor and parametric-IBP audit for RustRed
 
-Status: source-complete audit, 2026-08-13.
+Status: source-complete audit, updated 2026-08-26 with the connected four-loop
+FMFT raw-master acceptance seam.
 
 This report records the Vakint and alphaLoop behavior that constrains RustRed.
 It is based on the checked-in Rust, Symbolica expressions, FORM sources, and
@@ -519,6 +520,40 @@ the requested epsilon series and restores logarithms at `:4416-4433`.
 Structural RustRed/Vakint comparisons must strip or independently apply this
 layer.
 
+### Four-loop FMFT acceptance surface
+
+alphaLoop's `integrateduv.frm` stops at three loops. Vakint's connected
+four-loop equal-mass coverage instead crosses the FMFT bridge. Its canonical
+registry contains the `H` and `X` families with nine denominators and one ISP,
+and the `BMW` and `FG` families with eight denominators and two ISPs
+(`src/topologies.rs:101-220`). These concrete names and routings are
+acceptance inputs, never dispatch keys for RustRed's rule generator.
+
+The strongest exact oracle seam is
+`FMFTOptions { expand_masters: false, susbstitute_masters: false }`
+(`src/lib.rs:1576-1586`, `src/fmft.rs:463-552`). It leaves FMFT's raw
+post-reduction `PR0` through `PR15` master combination, including the
+additional `PR4d`, `PR9d`, `PR9x`, and `PR11d` structures declared in
+`form_src/fmft/fmft.frm:113-116`. Master expansion, fitted constants, and
+Laurent evaluation remain separate, weaker oracles.
+
+No versioned corpus of those raw expressions is checked in. The four-loop
+acceptance lane therefore requires frozen, FORM-free fixtures containing:
+
+- the Vakint revision and exact dimension/mass/measure convention;
+- the canonical family routing and full exponent vector, including ISPs;
+- the scalar or tensor numerator before and after canonical routing;
+- the raw terminal expression and the explicit RustRed-to-FMFT basis map; and
+- sufficient provenance to reproduce the fixture externally, without making
+  FORM a RustRed test or runtime dependency.
+
+RustRed passes this lane only after its generic foundry has published a closed
+all-sector rule bundle for `H`, `X`, `BMW`, and `FG`, every rule exactly replays
+to newly generated IBPs, and representative scalar, dotted, pinched,
+factorized, and numerator targets map to the same raw `PR` combinations.
+Numerical Laurent agreement is useful corroboration but cannot replace that
+exact comparison.
+
 ## Every Vakint Rust test: audit inventory
 
 All test functions under the crate were inspected. The inventory below also
@@ -715,7 +750,7 @@ Perform comparisons in three independently reported layers:
 
 A pass at layer 3 cannot compensate for a failure at layers 1 or 2.
 
-## Advancement to two and three loops
+## Advancement through four loops
 
 Advance only after the full one-loop matrix passes exact symbolic comparison.
 
@@ -738,6 +773,15 @@ at `tests/integral_alphaloop_vs_matad_tests.rs:104-253` and
 `tests/integral_evaluation_analytic_tests.rs:355-579`. Agreement is required
 after canonical family/sector/master mapping; alphaLoop's display names and
 master-value constants need not be reproduced.
+
+At four loops, derive 16 raw IBPs for each completed denominator/ISP family,
+close all sectors and factorization routes, and publish one deterministic
+multi-start bundle covering `H`, `X`, `BMW`, `FG`, and their accepted pinches.
+Exercise the checked-in scalar, rank-four, spectator, dotted, clover, and
+numerator cases, including the multiple representations of `PR9d` and the
+`PR11d` target. Exact raw-`PR` fixture comparison is the acceptance gate;
+existing evaluated Laurent outputs are provisional corroboration until that
+fixture corpus exists.
 
 ## Compatibility checklist
 
@@ -786,6 +830,9 @@ master-value constants need not be reproduced.
 - [ ] Generated 2L rules reproduce all nine alphaLoop guarded recurrences.
 - [ ] Generated 3L rules reproduce the 59 guarded and 14 late-transform oracle
       cases after canonical mapping.
+- [ ] Generated 4L rules close every `H`, `X`, `BMW`, and `FG` sector and
+      reproduce the frozen raw-FMFT master combinations after explicit basis
+      mapping.
 
 ### Output and validation
 
@@ -795,7 +842,7 @@ master-value constants need not be reproduced.
 - [ ] Measure/MS-bar/master-series normalization is a separate adapter layer.
 - [ ] Tensor, reduction, and evaluated comparisons are reported separately.
 - [ ] One-loop scalar and all tensor rows pass before enabling the 2L gate;
-      2L passes before 3L.
+      2L passes before 3L, and 3L before the connected 4L gate.
 - [ ] Numerical Vakint/MATAD/PySecDec agreement supplements but never replaces
       exact symbolic rule replay.
 
@@ -814,6 +861,7 @@ canonical input
 
 The first acceptance target is the complete one-loop matrix above, compared
 structurally with the checked-in Vakint fixtures and the alphaLoop recurrence
-under the explicit normalization map. Only after that exact gate should the
-same generic machinery be exercised on the concrete two-loop and three-loop
-oracles.
+under the explicit normalization map. The same generic machinery then advances
+through the concrete two- and three-loop alphaLoop oracles and finally the
+connected four-loop raw-FMFT fixture corpus; no loop-specific recurrence enters
+production at any gate.

@@ -42,11 +42,13 @@ its immutable pivots in a temporary Symbolica
 pivot factors and dependent/independent disposition; the existing guarded Rust
 path replays the transcript for differential validation and provenance before
 the transaction may commit. Licensed default-GMP runs with four test threads
-passed 12/12 focused adapter tests, 35/35 focused database tests, and 2/2
-direct-session tests. Persistent reducer state and native-statistics retention
-are separate scaling slices. The current full per-stage rebuild tends toward
-cumulative `O(P^2)` work and uses `O(K)` dense scratch; it is not evidence of a
-complete topology reduction, Vakint reproduction, or six-loop scalability.
+passed 13/13 focused adapter tests, 39/39 focused database tests, and 2/2
+direct-session tests. Fixed-size committed last/peak/cumulative native telemetry
+is implemented and excluded from replay identity; exporting it to physical
+campaign benchmarks and persistent reducer state are separate scaling slices.
+The current full per-stage rebuild tends toward cumulative `O(P^2)` work and
+uses `O(K)` dense scratch; it is not evidence of a complete topology reduction,
+Vakint reproduction, or six-loop scalability.
 Bundling and physical six-loop derivation still precede optimized application;
 updated 2026-08-26.
 
@@ -1277,11 +1279,13 @@ Implement in this order:
    authoritative for ordered factors, normalization, and disposition; guarded
    Rust replay compares the factors, normalized row, divisor, and outcome while
    retaining guards and provenance. Licensed default-GMP four-thread suites
-   passed 12/12 adapter, 35/35 exact-database, and 2/2 direct-session tests.
+   passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests.
    Retain RustRed ordering, provenance, transactional failure, and resource
-   admission, not a second elimination engine. Native statistics are not yet
-   persisted, and the temporary rebuild's dense `O(K)` scratch, serial forward
-   pass, and cumulative `O(P^2)` tendency must be profiled rather than
+   admission, not a second elimination engine. Committed native statistics now
+   retain last/peak/cumulative reconstruction and coefficient-work counts while
+   remaining outside replay identity. The temporary rebuild's dense `O(K)`
+   scratch, serial forward pass, and cumulative `O(P^2)` tendency must be
+   exported and profiled rather than
    presented as a complete topology reduction, Vakint reproduction, or
    six-loop scaling result;
 9. add owning exceptional residual scheduling, sealed committed-exceptional

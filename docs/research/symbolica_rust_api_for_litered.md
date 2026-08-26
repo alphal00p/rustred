@@ -706,7 +706,7 @@ unconditionally one `L` row per submitted source:
 is already full rank. RustRed must special-case empty input and retain one
 unused sentinel column while probing the transcript contract.
 
-The isolated adapter in
+The checked adapter in
 [`parametric_coefficient/symbolica_sparse.rs`](../../src/parametric_coefficient/symbolica_sparse.rs)
 now implements this contract over `K(n)`. Its crate-private input rows borrow
 authenticated `ParametricCoefficient` values, so constructing a native shadow
@@ -748,7 +748,7 @@ pivot search or elimination decision and therefore is not a second solver;
 every scalar operation still delegates to Symbolica-backed coefficient APIs.
 
 The public reducer mutates in place, exposes no transactional add-row/rollback,
-and its generic `Field` callback is infallible. The isolated adapter now
+and its generic `Field` callback is infallible. The checked adapter
 contains the native call behind a checked panic bridge. Only the callbacks used
 by serial forward reduction implement arithmetic; `nth`, `pow`, `sample`,
 `rem`, `quot_rem`, and `gcd` fail through a typed
@@ -759,13 +759,12 @@ one dense physical candidate `U` row, one possible candidate factor per prior
 row, and all `L` diagonals. Once the outcome is known, it checks the exact
 returned-trace length before copying the newest `L/U` rows out.
 
-This remains an isolated algebra boundary, not live database authority. The
-next integration must build the physical-key catalog, map hardest keys to the
-lowest columns, submit committed pivots in chronological order, and compare
-the native disposition, factor sequence, normalization divisor, normalized
-row, guards, and source-combination residual with the current exact-database
-path in differential shadow. Only after that passes may the handwritten
-decision path be removed.
+This is now the live generated-affine exact-database transcript authority. Each
+stage builds the complete physical-key catalog, maps hardest keys to the lowest
+columns, submits committed pivots chronologically, and accepts Symbolica's
+ordered factor sequence and disposition only after guarded replay verifies the
+normalization divisor and normalized row. The replay retains provenance; it
+does not select pivots or classify dependence.
 
 The first safe migration still builds a temporary reducer from the immutable
 committed-pivot log inside each non-mutating stage operation; a panic or failed
@@ -789,13 +788,17 @@ or changes provenance needed by the incremental foundry.
 
 **Behavior probe LA-3:** confirm parallel back-substitution output order; the implementation may permute output rows (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:2393-2498`). RustRed artifacts must be sorted semantically regardless.
 
-**Adapter probe LA-4 (complete in isolation):** 12/12 focused licensed
+**Adapter probe LA-4 (live checked boundary):** 13/13 focused licensed
 default-GMP tests passed in parallel. They exercise an independent nonmonotone
 `L` trace, dependence at full physical rank through the sentinel, canonical
 empty input, malformed sparse input, borrowed-input behavior, prospective and
 exact output limits, unused-field-callback failure, exact/one-below work
-admission, and deterministic retry. This probe does not exercise the live exact
-database or establish a physical-topology reduction.
+admission, deterministic retry, and the distinction between conservative
+prospective output admission and observed U+L fill. The live exact-database
+suite passed 39/39 focused cases and the direct-session suite passed 2/2 with
+four threads. Fixed-size committed telemetry retains last/peak/cumulative
+native reconstruction and coefficient-work counts while remaining outside
+replay identity. None of this establishes a physical-topology reduction.
 
 ## 11. Tensor support and the Vakint boundary
 

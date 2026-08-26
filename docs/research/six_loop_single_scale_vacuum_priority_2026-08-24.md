@@ -299,17 +299,20 @@ the immutable normalized pivots with one unused full-rank sentinel, and runs
 nonmonotone pivot factors and the dependent/independent outcome. RustRed's
 guarded subtraction and normalization path replays that transcript to retain
 provenance and differentially validate it; it is not a second algebra engine.
-Licensed default-GMP runs with four test threads passed 12/12 focused adapter
-tests, 35/35 focused exact-database tests, and 2/2 direct-session tests.
+Licensed default-GMP runs with four test threads passed 13/13 focused adapter
+tests, 39/39 focused exact-database tests, and 2/2 direct-session tests.
 
 The live integration remains a correctness bridge: every stage rebuilds prior
 pivots through a serial reducer with `O(K)` dense scratch and a cumulative
 tendency toward `O(P^2)` reconstruction work. Shallow native elements avoid
-duplicating sparse coefficient polynomials across the scratch vector, but the
-adapter's native statistics are not yet persisted in database telemetry. This
-does not establish a complete topology reduction, Vakint reproduction, or a
-six-loop memory or throughput result. Those costs must be measured before a
-persistent rollback/rebuild design is selected.
+duplicating sparse coefficient polynomials across the scratch vector.
+Committed database telemetry now retains last, componentwise-peak, and
+saturating cumulative reconstruction rows/columns/nonzeros, admitted versus
+observed U+L fill, trace, and native coefficient work. It is deliberately
+excluded from replay identity and does not measure catalog sorting, wall time,
+or RSS. This does not establish a complete topology reduction, Vakint
+reproduction, or a six-loop memory or throughput result. Physical-family costs
+must be measured before a persistent rollback/rebuild design is selected.
 
 The topology-wide canonical sector DAG is a separate foundry layer. It is not
 the eager `family_sector_inventory` enumeration, and it need not block the
@@ -650,10 +653,10 @@ or physical-topology calculation.
    `SparseRowReducer`/`LuLMode::Full` authoritative for ordered pivot factors
    and dependent/independent disposition; guarded Rust replay validates
    provenance and the exact native result. Focused licensed default-GMP runs
-   passed 12/12 adapter, 35/35 exact-database, and 2/2 direct-session tests with
+   passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests with
    four threads. Retain the full per-stage rebuild while it is the correctness
-   bridge, persist its native statistics, profile its `O(K)` scratch and
-   cumulative `O(P^2)` tendency, and finish
+   bridge, export its now-committed native telemetry to campaign benchmarks,
+   profile its `O(K)` scratch and cumulative `O(P^2)` tendency, and finish
    `GeneratedFamilySymbolicResidualSolveV1` with exceptional scheduling,
    solved-subsector feedback, a proved coverage fixed point, exact residual
    verification, and the distinct 36-source session batch.

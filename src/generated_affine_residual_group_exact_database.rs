@@ -45,7 +45,7 @@ use crate::parametric_coefficient::insert_parametric_condition;
 use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
     SymbolicaParametricSparseInputRow, SymbolicaParametricSparseLimits,
-    SymbolicaParametricSparseOutcome, forward_reduce_last_row,
+    SymbolicaParametricSparseOutcome, SymbolicaParametricSparseStats, forward_reduce_last_row,
 };
 use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
@@ -170,6 +170,220 @@ impl Default for GeneratedAffineResidualGroupExactDatabaseLimits {
     }
 }
 
+/// Fixed-size observational census for one successfully validated native
+/// sparse stage. It owns no reducer state; its metric values affect neither
+/// algebraic admission nor any database identity. Its fixed inline footprint
+/// remains honestly included in owner byte accounting.
+///
+/// Coefficient-work counters cover the adapter's checked input copies, native
+/// field callbacks, and checked returned-row copies. They exclude pre-native
+/// row validation and the database's separate guarded provenance replay.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactNativeSparseStageStats {
+    rows: usize,
+    physical_columns: usize,
+    input_entries: usize,
+    prospective_native_output_entries: usize,
+    observed_native_output_entries: usize,
+    native_u_entries: usize,
+    native_l_entries: usize,
+    returned_trace_entries: usize,
+    coefficient_algebra_work: usize,
+    coefficient_exponent_entry_work: usize,
+    coefficient_integer_bit_work: usize,
+}
+
+impl GeneratedAffineResidualGroupExactNativeSparseStageStats {
+    fn from_adapter(stats: SymbolicaParametricSparseStats) -> Self {
+        let coefficient_work = stats.coefficient_work();
+        Self {
+            rows: stats.rows(),
+            physical_columns: stats.physical_columns(),
+            input_entries: stats.input_entries(),
+            prospective_native_output_entries: stats.prospective_native_output_entries(),
+            observed_native_output_entries: stats.observed_native_output_entries(),
+            native_u_entries: stats.native_u_entries(),
+            native_l_entries: stats.native_l_entries(),
+            returned_trace_entries: stats.returned_trace_entries(),
+            coefficient_algebra_work: coefficient_work.algebra_work(),
+            coefficient_exponent_entry_work: coefficient_work.exponent_entry_work(),
+            coefficient_integer_bit_work: coefficient_work.integer_bit_work(),
+        }
+    }
+
+    fn componentwise_max(self, other: Self) -> Self {
+        Self {
+            rows: self.rows.max(other.rows),
+            physical_columns: self.physical_columns.max(other.physical_columns),
+            input_entries: self.input_entries.max(other.input_entries),
+            prospective_native_output_entries: self
+                .prospective_native_output_entries
+                .max(other.prospective_native_output_entries),
+            observed_native_output_entries: self
+                .observed_native_output_entries
+                .max(other.observed_native_output_entries),
+            native_u_entries: self.native_u_entries.max(other.native_u_entries),
+            native_l_entries: self.native_l_entries.max(other.native_l_entries),
+            returned_trace_entries: self
+                .returned_trace_entries
+                .max(other.returned_trace_entries),
+            coefficient_algebra_work: self
+                .coefficient_algebra_work
+                .max(other.coefficient_algebra_work),
+            coefficient_exponent_entry_work: self
+                .coefficient_exponent_entry_work
+                .max(other.coefficient_exponent_entry_work),
+            coefficient_integer_bit_work: self
+                .coefficient_integer_bit_work
+                .max(other.coefficient_integer_bit_work),
+        }
+    }
+
+    fn saturating_componentwise_add(self, other: Self) -> (Self, bool) {
+        let mut saturated = false;
+        let mut add = |left: usize, right: usize| match left.checked_add(right) {
+            Some(value) => value,
+            None => {
+                saturated = true;
+                usize::MAX
+            }
+        };
+        let sum = Self {
+            rows: add(self.rows, other.rows),
+            physical_columns: add(self.physical_columns, other.physical_columns),
+            input_entries: add(self.input_entries, other.input_entries),
+            prospective_native_output_entries: add(
+                self.prospective_native_output_entries,
+                other.prospective_native_output_entries,
+            ),
+            observed_native_output_entries: add(
+                self.observed_native_output_entries,
+                other.observed_native_output_entries,
+            ),
+            native_u_entries: add(self.native_u_entries, other.native_u_entries),
+            native_l_entries: add(self.native_l_entries, other.native_l_entries),
+            returned_trace_entries: add(self.returned_trace_entries, other.returned_trace_entries),
+            coefficient_algebra_work: add(
+                self.coefficient_algebra_work,
+                other.coefficient_algebra_work,
+            ),
+            coefficient_exponent_entry_work: add(
+                self.coefficient_exponent_entry_work,
+                other.coefficient_exponent_entry_work,
+            ),
+            coefficient_integer_bit_work: add(
+                self.coefficient_integer_bit_work,
+                other.coefficient_integer_bit_work,
+            ),
+        };
+        (sum, saturated)
+    }
+
+    pub(crate) const fn rows(self) -> usize {
+        self.rows
+    }
+
+    pub(crate) const fn physical_columns(self) -> usize {
+        self.physical_columns
+    }
+
+    pub(crate) const fn input_entries(self) -> usize {
+        self.input_entries
+    }
+
+    pub(crate) const fn prospective_native_output_entries(self) -> usize {
+        self.prospective_native_output_entries
+    }
+
+    pub(crate) const fn observed_native_output_entries(self) -> usize {
+        self.observed_native_output_entries
+    }
+
+    pub(crate) const fn native_u_entries(self) -> usize {
+        self.native_u_entries
+    }
+
+    pub(crate) const fn native_l_entries(self) -> usize {
+        self.native_l_entries
+    }
+
+    pub(crate) const fn returned_trace_entries(self) -> usize {
+        self.returned_trace_entries
+    }
+
+    pub(crate) const fn coefficient_algebra_work(self) -> usize {
+        self.coefficient_algebra_work
+    }
+
+    pub(crate) const fn coefficient_exponent_entry_work(self) -> usize {
+        self.coefficient_exponent_entry_work
+    }
+
+    pub(crate) const fn coefficient_integer_bit_work(self) -> usize {
+        self.coefficient_integer_bit_work
+    }
+}
+
+/// Saturating, allocation-free scaling telemetry sealed into successor stages.
+/// A live database contains only committed events; a staged row exposes the
+/// aggregate that would result from committing it.
+///
+/// `componentwise_peak` is a census of independent maxima, not necessarily one
+/// realizable event. In particular its observed-output maximum need not equal
+/// the sum of its independently maximized U and L components.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+    event_count: usize,
+    cumulative_saturated: bool,
+    last: GeneratedAffineResidualGroupExactNativeSparseStageStats,
+    componentwise_peak: GeneratedAffineResidualGroupExactNativeSparseStageStats,
+    cumulative: GeneratedAffineResidualGroupExactNativeSparseStageStats,
+}
+
+impl GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+    fn with_event(self, event: GeneratedAffineResidualGroupExactNativeSparseStageStats) -> Self {
+        let (event_count, count_saturated) = match self.event_count.checked_add(1) {
+            Some(value) => (value, false),
+            None => (usize::MAX, true),
+        };
+        let (cumulative, cumulative_saturated) =
+            self.cumulative.saturating_componentwise_add(event);
+        Self {
+            event_count,
+            cumulative_saturated: self.cumulative_saturated
+                || count_saturated
+                || cumulative_saturated,
+            last: event,
+            componentwise_peak: self.componentwise_peak.componentwise_max(event),
+            cumulative,
+        }
+    }
+
+    pub(crate) const fn event_count(self) -> usize {
+        self.event_count
+    }
+
+    pub(crate) const fn cumulative_saturated(self) -> bool {
+        self.cumulative_saturated
+    }
+
+    pub(crate) const fn last(self) -> GeneratedAffineResidualGroupExactNativeSparseStageStats {
+        self.last
+    }
+
+    pub(crate) const fn componentwise_peak(
+        self,
+    ) -> GeneratedAffineResidualGroupExactNativeSparseStageStats {
+        self.componentwise_peak
+    }
+
+    pub(crate) const fn cumulative(
+        self,
+    ) -> GeneratedAffineResidualGroupExactNativeSparseStageStats {
+        self.cumulative
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactDatabaseStats {
     retained_database_bytes: usize,
@@ -182,6 +396,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabaseStats {
     last_staged_live_prospective_retained_bytes: usize,
     last_staged_live_observed_retained_bytes: usize,
     peak_staged_live_retained_bytes: usize,
+    native_sparse_scaling: GeneratedAffineResidualGroupExactNativeSparseScalingStats,
 }
 
 impl GeneratedAffineResidualGroupExactDatabaseStats {
@@ -223,6 +438,24 @@ impl GeneratedAffineResidualGroupExactDatabaseStats {
 
     pub(crate) const fn peak_staged_live_retained_bytes(self) -> usize {
         self.peak_staged_live_retained_bytes
+    }
+
+    pub(crate) const fn native_sparse_scaling(
+        self,
+    ) -> GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+        self.native_sparse_scaling
+    }
+
+    /// Compare the replay-relevant resource state while deliberately ignoring
+    /// observational native scaling counters. Their values depend on the
+    /// Symbolica implementation and diagnostic census definition, not only on
+    /// the algebraic database state being replayed.
+    pub(crate) fn replay_semantically_equal(mut self, mut other: Self) -> bool {
+        self.native_sparse_scaling =
+            GeneratedAffineResidualGroupExactNativeSparseScalingStats::default();
+        other.native_sparse_scaling =
+            GeneratedAffineResidualGroupExactNativeSparseScalingStats::default();
+        self == other
     }
 }
 
@@ -887,6 +1120,23 @@ impl GeneratedAffineResidualGroupStagedExactRow {
             | ExactStagedRowPayload::NewPivot {
                 committed_stats, ..
             } => committed_stats.last_staged_live_observed_retained_bytes,
+        }
+    }
+
+    /// Successor telemetry sealed into this stage. Dropping the stage leaves
+    /// the live database's aggregate unchanged. These metrics cover native
+    /// reconstruction volume and native coefficient work, not catalog sorting,
+    /// key-comparison work, Rust metadata allocation, wall time, or RSS.
+    pub(crate) const fn native_sparse_scaling_stats(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+        match &self.payload {
+            ExactStagedRowPayload::Dependent {
+                committed_stats, ..
+            }
+            | ExactStagedRowPayload::NewPivot {
+                committed_stats, ..
+            } => committed_stats.native_sparse_scaling,
         }
     }
 
@@ -2046,6 +2296,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
                         GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
                     );
                 }
+                let native_sparse_event =
+                    GeneratedAffineResidualGroupExactNativeSparseStageStats::from_adapter(
+                        native_transcript.outcome.stats(),
+                    );
+                drop(native_transcript);
                 let prospective_staged_live_retained_bytes = dependent_staged_live_retained_bytes(
                     self.stats.retained_database_bytes,
                     &reductions,
@@ -2072,6 +2327,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     ingress_prospective_retained_bytes,
                     ingress_observed_retained_bytes,
                 );
+                let ingress_stats =
+                    self.stats_with_native_sparse_event(ingress_stats, native_sparse_event);
                 let committed_stats = self.stats_with_staged_live(
                     ingress_stats,
                     prospective_staged_live_retained_bytes,
@@ -2161,6 +2418,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 );
             }
         }
+        let native_sparse_event =
+            GeneratedAffineResidualGroupExactNativeSparseStageStats::from_adapter(
+                native_transcript.outcome.stats(),
+            );
+        drop(native_transcript);
         let pivot_key = terms
             .last()
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::InvalidUnitPivot)?
@@ -2263,6 +2525,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             ingress_prospective_retained_bytes,
             ingress_observed_retained_bytes,
         );
+        let ingress_stats = self.stats_with_native_sparse_event(ingress_stats, native_sparse_event);
         let candidate_stats = GeneratedAffineResidualGroupExactDatabaseStats {
             retained_database_bytes,
             last_candidate_prospective_retained_bytes: prospective_retained_bytes,
@@ -2857,6 +3120,17 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 .stats
                 .peak_staged_live_retained_bytes
                 .max(observed_retained_bytes),
+            ..stats
+        }
+    }
+
+    fn stats_with_native_sparse_event(
+        &self,
+        stats: GeneratedAffineResidualGroupExactDatabaseStats,
+        event: GeneratedAffineResidualGroupExactNativeSparseStageStats,
+    ) -> GeneratedAffineResidualGroupExactDatabaseStats {
+        GeneratedAffineResidualGroupExactDatabaseStats {
+            native_sparse_scaling: stats.native_sparse_scaling.with_event(event),
             ..stats
         }
     }
@@ -5771,13 +6045,16 @@ mod tests {
     }
 
     #[test]
-    fn native_sparse_output_limit_is_exact_transactional_and_retryable() {
+    fn native_sparse_output_envelope_is_exact_transactional_and_retryable() {
         let (_family, context, _plan, _frame, mut database, keys) =
             database_fixture("exact-db-native-sparse-output-limit");
         let key = keys[0].clone();
         let before = database_state_snapshot(&database);
 
-        database.limits.symbolica_sparse.max_native_output_entries = 1;
+        database
+            .limits
+            .symbolica_sparse
+            .max_native_output_entry_envelope = 1;
         assert_eq!(
             database
                 .stage_test_terms(&context, vec![(key.clone(), context.one())], Vec::new(),)
@@ -5790,7 +6067,10 @@ mod tests {
         );
         assert_database_state_unchanged(&database, &before);
 
-        database.limits.symbolica_sparse.max_native_output_entries = 2;
+        database
+            .limits
+            .symbolica_sparse
+            .max_native_output_entry_envelope = 2;
         assert_eq!(
             database
                 .ingest_test_terms(&context, vec![(key, context.one())], Vec::new())
@@ -5845,6 +6125,198 @@ mod tests {
                 pivot_ordinal: 0,
             }
         );
+    }
+
+    #[test]
+    fn native_sparse_telemetry_is_staged_dropped_and_committed_observationally() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-native-sparse-telemetry-stage");
+        let key = keys[0].clone();
+        assert_eq!(database.stats().native_sparse_scaling().event_count(), 0);
+
+        let staged = database
+            .stage_test_terms(&context, vec![(key.clone(), context.one())], Vec::new())
+            .unwrap();
+        let successor = staged.native_sparse_scaling_stats();
+        let event = successor.last();
+        assert_eq!(successor.event_count(), 1);
+        assert!(!successor.cumulative_saturated());
+        assert_eq!(successor.componentwise_peak(), event);
+        assert_eq!(successor.cumulative(), event);
+        assert_eq!(event.rows(), 1);
+        assert_eq!(event.physical_columns(), 1);
+        assert_eq!(event.input_entries(), 1);
+        assert_eq!(event.prospective_native_output_entries(), 2);
+        assert_eq!(event.observed_native_output_entries(), 2);
+        assert_eq!(event.native_u_entries(), 1);
+        assert_eq!(event.native_l_entries(), 1);
+        assert_eq!(event.returned_trace_entries(), 2);
+        assert_eq!(
+            event.observed_native_output_entries(),
+            event.native_u_entries() + event.native_l_entries()
+        );
+        assert!(event.coefficient_algebra_work() > 0);
+        assert!(event.coefficient_exponent_entry_work() > 0);
+        assert!(event.coefficient_integer_bit_work() > 0);
+        assert_eq!(database.stats().native_sparse_scaling().event_count(), 0);
+        drop(staged);
+        assert_eq!(database.stats().native_sparse_scaling().event_count(), 0);
+
+        let staged = database
+            .stage_test_terms(&context, vec![(key, context.one())], Vec::new())
+            .unwrap();
+        let committed_scaling = staged.native_sparse_scaling_stats();
+        database.commit_staged_row_for_test(staged).unwrap();
+        assert_eq!(database.stats().native_sparse_scaling(), committed_scaling);
+        assert_eq!(database.stats().native_sparse_scaling().event_count(), 1);
+    }
+
+    #[test]
+    fn native_sparse_telemetry_aggregates_new_pivot_and_dependent_event_exactly() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-native-sparse-telemetry-aggregate");
+        let key = keys[0].clone();
+        database
+            .ingest_test_terms(&context, vec![(key.clone(), context.one())], Vec::new())
+            .unwrap();
+        let first = database.stats().native_sparse_scaling();
+        assert_eq!(first.event_count(), 1);
+
+        let staged = database
+            .stage_test_terms(&context, vec![(key, context.integer(2))], Vec::new())
+            .unwrap();
+        let successor = staged.native_sparse_scaling_stats();
+        let last = successor.last();
+        assert_eq!(successor.event_count(), 2);
+        assert!(!successor.cumulative_saturated());
+        assert_eq!(last.rows(), 2);
+        assert_eq!(last.physical_columns(), 1);
+        assert_eq!(last.input_entries(), 2);
+        assert_eq!(last.prospective_native_output_entries(), 5);
+        assert_eq!(last.observed_native_output_entries(), 3);
+        assert_eq!(last.native_u_entries(), 1);
+        assert_eq!(last.native_l_entries(), 2);
+        assert_eq!(last.returned_trace_entries(), 1);
+
+        let first_event = first.last();
+        let peak = successor.componentwise_peak();
+        let cumulative = successor.cumulative();
+        macro_rules! assert_aggregate_metric {
+            ($getter:ident) => {{
+                assert_eq!(peak.$getter(), first_event.$getter().max(last.$getter()));
+                assert_eq!(cumulative.$getter(), first_event.$getter() + last.$getter());
+            }};
+        }
+        assert_aggregate_metric!(rows);
+        assert_aggregate_metric!(physical_columns);
+        assert_aggregate_metric!(input_entries);
+        assert_aggregate_metric!(prospective_native_output_entries);
+        assert_aggregate_metric!(observed_native_output_entries);
+        assert_aggregate_metric!(native_u_entries);
+        assert_aggregate_metric!(native_l_entries);
+        assert_aggregate_metric!(returned_trace_entries);
+        assert_aggregate_metric!(coefficient_algebra_work);
+        assert_aggregate_metric!(coefficient_exponent_entry_work);
+        assert_aggregate_metric!(coefficient_integer_bit_work);
+
+        assert!(matches!(
+            database.commit_staged_row_for_test(staged).unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::Dependent { .. }
+        ));
+        assert_eq!(database.stats().native_sparse_scaling(), successor);
+    }
+
+    #[test]
+    fn native_sparse_telemetry_saturates_count_and_every_cumulative_component() {
+        let near_max = GeneratedAffineResidualGroupExactNativeSparseStageStats {
+            rows: usize::MAX - 1,
+            physical_columns: usize::MAX - 1,
+            input_entries: usize::MAX - 1,
+            prospective_native_output_entries: usize::MAX - 1,
+            observed_native_output_entries: usize::MAX - 1,
+            native_u_entries: usize::MAX - 1,
+            native_l_entries: usize::MAX - 1,
+            returned_trace_entries: usize::MAX - 1,
+            coefficient_algebra_work: usize::MAX - 1,
+            coefficient_exponent_entry_work: usize::MAX - 1,
+            coefficient_integer_bit_work: usize::MAX - 1,
+        };
+        let event = GeneratedAffineResidualGroupExactNativeSparseStageStats {
+            rows: 2,
+            physical_columns: 2,
+            input_entries: 2,
+            prospective_native_output_entries: 2,
+            observed_native_output_entries: 2,
+            native_u_entries: 2,
+            native_l_entries: 2,
+            returned_trace_entries: 2,
+            coefficient_algebra_work: 2,
+            coefficient_exponent_entry_work: 2,
+            coefficient_integer_bit_work: 2,
+        };
+        let aggregate = GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+            event_count: usize::MAX,
+            cumulative_saturated: false,
+            last: GeneratedAffineResidualGroupExactNativeSparseStageStats::default(),
+            componentwise_peak: GeneratedAffineResidualGroupExactNativeSparseStageStats::default(),
+            cumulative: near_max,
+        }
+        .with_event(event);
+
+        assert_eq!(aggregate.event_count(), usize::MAX);
+        assert!(aggregate.cumulative_saturated());
+        assert_eq!(aggregate.last(), event);
+        assert_eq!(aggregate.componentwise_peak(), event);
+        let saturated = aggregate.cumulative();
+        for value in [
+            saturated.rows(),
+            saturated.physical_columns(),
+            saturated.input_entries(),
+            saturated.prospective_native_output_entries(),
+            saturated.observed_native_output_entries(),
+            saturated.native_u_entries(),
+            saturated.native_l_entries(),
+            saturated.returned_trace_entries(),
+            saturated.coefficient_algebra_work(),
+            saturated.coefficient_exponent_entry_work(),
+            saturated.coefficient_integer_bit_work(),
+        ] {
+            assert_eq!(value, usize::MAX);
+        }
+        assert!(
+            aggregate
+                .with_event(GeneratedAffineResidualGroupExactNativeSparseStageStats::default())
+                .cumulative_saturated()
+        );
+    }
+
+    #[test]
+    fn native_sparse_telemetry_is_excluded_from_replay_semantic_equality() {
+        let baseline = GeneratedAffineResidualGroupExactDatabaseStats::default();
+        let event = GeneratedAffineResidualGroupExactNativeSparseStageStats {
+            rows: 1,
+            physical_columns: 1,
+            input_entries: 1,
+            prospective_native_output_entries: 2,
+            observed_native_output_entries: 2,
+            native_u_entries: 1,
+            native_l_entries: 1,
+            returned_trace_entries: 2,
+            coefficient_algebra_work: 3,
+            coefficient_exponent_entry_work: 4,
+            coefficient_integer_bit_work: 5,
+        };
+        let telemetry_only = GeneratedAffineResidualGroupExactDatabaseStats {
+            native_sparse_scaling: baseline.native_sparse_scaling.with_event(event),
+            ..baseline
+        };
+        assert!(baseline.replay_semantically_equal(telemetry_only));
+
+        let replay_relevant_difference = GeneratedAffineResidualGroupExactDatabaseStats {
+            retained_database_bytes: 1,
+            ..telemetry_only
+        };
+        assert!(!baseline.replay_semantically_equal(replay_relevant_difference));
     }
 
     #[test]

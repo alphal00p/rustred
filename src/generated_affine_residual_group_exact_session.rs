@@ -35,6 +35,7 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
     GeneratedAffineResidualGroupExactDatabaseLimits,
+    GeneratedAffineResidualGroupExactNativeSparseScalingStats,
     GeneratedAffineResidualGroupExactReductionStep,
     GeneratedAffineResidualGroupPreparedExactRowCommit,
     GeneratedAffineResidualGroupRetainedExactDependentReductions,
@@ -2835,6 +2836,14 @@ impl GeneratedAffineResidualGroupExactSession {
         self.event_stats
     }
 
+    /// Deterministic committed native-reconstruction telemetry for scaling
+    /// harnesses. This diagnostic snapshot is excluded from replay identity.
+    pub(crate) const fn native_sparse_scaling_stats(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactNativeSparseScalingStats {
+        self.database.stats().native_sparse_scaling()
+    }
+
     pub(crate) const fn publishes_rule(&self) -> bool {
         false
     }
@@ -3324,7 +3333,10 @@ impl GeneratedAffineResidualGroupExactSession {
     ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
         if self.database.state_version() != shadow.database.state_version()
             || self.database.pivot_count() != shadow.database.pivot_count()
-            || self.database.stats() != shadow.database.stats()
+            || !self
+                .database
+                .stats()
+                .replay_semantically_equal(shadow.database.stats())
             || self.target_state.stats() != shadow.target_state.stats()
             || self.event_stats != shadow.event_stats
             || self.events.len() != shadow.events.len()
