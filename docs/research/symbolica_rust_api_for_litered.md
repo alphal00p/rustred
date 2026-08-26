@@ -864,6 +864,27 @@ loop-count-specific code, and this checkpoint does not claim that the generic
 whole-family LiteRed solver or the two- through five-loop reductions are
 complete.
 
+### 15.2 Exact affine-boundary specialization
+
+The current source-neutral boundary kernel constructs `n_i - b` with the
+checked coefficient-context operations `integer_exact`, `index`, and
+`sub_with_limits`; it does not implement private integer or polynomial
+arithmetic. Identity maps retain an independently authenticated sparse copy,
+while compact affine maps use the sealed simultaneous Symbolica composition
+boundary. The mapped polynomial is classified as empty, whole-target, or an
+index-dependent affine locus over `K = Q(theta)`.
+
+For a nonzero affine boundary polynomial `L` and normalized coefficient
+numerator `N`, boundary suppression is exactly the question `L | N` in
+`K[n]`. RustRed handles `N = 0` first and delegates the remaining exact checked
+division to `polynomial_divides_with_limits`; physical parameters are field
+variables, so this does not introduce pointwise assumptions such as `d != 0`.
+The wrapper preflights arbitrary-width boundary magnitudes, source and mapped
+term/exponent/integer bounds, retained ownership, construction peaks, and
+division scratch before entering the native boundary. Exact and one-below
+tests cover identity and compact composition, zero/divisible/nondivisible
+numerators, malformed or foreign-context input, and panic recovery.
+
 ## 16. First generic implementation slice
 
 The first code slice should establish correctness infrastructure before attempting one-loop examples:

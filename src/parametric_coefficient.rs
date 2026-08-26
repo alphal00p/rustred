@@ -845,6 +845,493 @@ fn maybe_inject_parameter_identity_native_boundary_panic_for_test() {
     });
 }
 
+/// Complete source-neutral envelope for one exact affine-boundary mapping.
+///
+/// Construction uses the ordinary checked `K(n)` coefficient API.  Optional
+/// compact composition uses the sealed simultaneous Symbolica compositor; an
+/// identity mapping instead retains one independently authenticated sparse
+/// copy.  Every source-derived bound is admitted before the corresponding
+/// execution allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryKernelLimits {
+    pub arithmetic: ParametricArithmeticLimits,
+    pub composition: ResidualUnitAffinePolynomialCompositionLimits,
+    pub max_context_fingerprint_comparison_bytes: usize,
+    pub max_ambient_arity: usize,
+    pub max_boundary_value_integer_bits: usize,
+    pub max_construction_symbolica_calls: usize,
+    pub max_constructed_terms: usize,
+    pub max_constructed_exponent_entries: usize,
+    pub max_constructed_integer_bits: usize,
+    pub max_constructed_source_retained_byte_bound: usize,
+    pub max_mapped_term_bound: usize,
+    pub max_mapped_exponent_entry_bound: usize,
+    pub max_mapped_integer_bit_bound: usize,
+    pub max_affine_authentication_term_visit_bound: usize,
+    pub max_affine_authentication_exponent_entry_visit_bound: usize,
+    pub max_identity_copy_retained_byte_bound: usize,
+    pub max_retained_output_byte_bound: usize,
+    /// Peak RustRed-visible ownership while the prepared source and mapped
+    /// output coexist. Native Symbolica workspace remains governed by the
+    /// nested exact/composition limits.
+    pub max_rustred_visible_compilation_peak_byte_bound: usize,
+}
+
+impl Default for ResidualAffineBoundaryKernelLimits {
+    fn default() -> Self {
+        Self {
+            arithmetic: ParametricArithmeticLimits::default(),
+            composition: ResidualUnitAffinePolynomialCompositionLimits::default(),
+            max_context_fingerprint_comparison_bytes: usize::MAX,
+            max_ambient_arity: usize::MAX,
+            max_boundary_value_integer_bits: usize::MAX,
+            max_construction_symbolica_calls: usize::MAX,
+            max_constructed_terms: usize::MAX,
+            max_constructed_exponent_entries: usize::MAX,
+            max_constructed_integer_bits: usize::MAX,
+            max_constructed_source_retained_byte_bound: usize::MAX,
+            max_mapped_term_bound: usize::MAX,
+            max_mapped_exponent_entry_bound: usize::MAX,
+            max_mapped_integer_bit_bound: usize::MAX,
+            max_affine_authentication_term_visit_bound: usize::MAX,
+            max_affine_authentication_exponent_entry_visit_bound: usize::MAX,
+            max_identity_copy_retained_byte_bound: usize::MAX,
+            max_retained_output_byte_bound: usize::MAX,
+            max_rustred_visible_compilation_peak_byte_bound: usize::MAX,
+        }
+    }
+}
+
+/// Prospective and measured census for one affine-boundary mapping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryKernelStats {
+    context_fingerprint_comparison_bytes: usize,
+    ambient_arity: usize,
+    boundary_value_integer_bits: usize,
+    construction_symbolica_calls: usize,
+    constructed_terms: usize,
+    constructed_exponent_entries: usize,
+    constructed_integer_bits: usize,
+    constructed_source_retained_byte_bound: usize,
+    composition: Option<ResidualUnitAffinePolynomialCompositionStats>,
+    mapped_term_bound: usize,
+    mapped_exponent_entry_bound: usize,
+    mapped_integer_bit_bound: usize,
+    affine_authentication_term_visit_bound: usize,
+    affine_authentication_exponent_entry_visit_bound: usize,
+    identity_copy_retained_byte_bound: usize,
+    retained_output_byte_bound: usize,
+    rustred_visible_compilation_peak_byte_bound: usize,
+    mapped_terms: usize,
+    mapped_exponent_entries: usize,
+    mapped_integer_bits: usize,
+    retained_output_bytes: usize,
+}
+
+macro_rules! residual_affine_boundary_stats_getters {
+    ($($field:ident),+ $(,)?) => {$ (
+        pub(crate) const fn $field(self) -> usize { self.$field }
+    )+ };
+}
+
+impl ResidualAffineBoundaryKernelStats {
+    residual_affine_boundary_stats_getters!(
+        context_fingerprint_comparison_bytes,
+        ambient_arity,
+        boundary_value_integer_bits,
+        construction_symbolica_calls,
+        constructed_terms,
+        constructed_exponent_entries,
+        constructed_integer_bits,
+        constructed_source_retained_byte_bound,
+        mapped_term_bound,
+        mapped_exponent_entry_bound,
+        mapped_integer_bit_bound,
+        affine_authentication_term_visit_bound,
+        affine_authentication_exponent_entry_visit_bound,
+        identity_copy_retained_byte_bound,
+        retained_output_byte_bound,
+        rustred_visible_compilation_peak_byte_bound,
+        mapped_terms,
+        mapped_exponent_entries,
+        mapped_integer_bits,
+        retained_output_bytes,
+    );
+
+    pub(crate) const fn composition(self) -> Option<ResidualUnitAffinePolynomialCompositionStats> {
+        self.composition
+    }
+}
+
+/// Exact image of `n_coordinate - value` on the selected affine target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResidualAffineMappedBoundaryClass {
+    Empty,
+    WholeTarget,
+    IndexDependentAffine { polynomial: ParametricPolynomial },
+}
+
+impl ResidualAffineMappedBoundaryClass {
+    pub(crate) const fn polynomial(&self) -> Option<&ParametricPolynomial> {
+        match self {
+            Self::IndexDependentAffine { polynomial } => Some(polynomial),
+            Self::Empty | Self::WholeTarget => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryMapping {
+    class: ResidualAffineMappedBoundaryClass,
+    stats: ResidualAffineBoundaryKernelStats,
+}
+
+impl ResidualAffineBoundaryMapping {
+    pub(crate) const fn class(&self) -> &ResidualAffineMappedBoundaryClass {
+        &self.class
+    }
+
+    pub(crate) const fn stats(&self) -> ResidualAffineBoundaryKernelStats {
+        self.stats
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        ResidualAffineMappedBoundaryClass,
+        ResidualAffineBoundaryKernelStats,
+    ) {
+        (self.class, self.stats)
+    }
+}
+
+/// Non-Clone sealed execution token.  The exact constructed boundary is owned
+/// by the token while the optional compact plan remains borrowed.
+pub(crate) struct PreparedResidualAffineBoundaryMapping<'prepared> {
+    context: &'prepared ParametricCoefficientContext,
+    source: ParametricPolynomial,
+    plan: Option<&'prepared ResidualAffineCompactCompositionPlan>,
+    limits: ResidualAffineBoundaryKernelLimits,
+    stats: ResidualAffineBoundaryKernelStats,
+}
+
+impl PreparedResidualAffineBoundaryMapping<'_> {
+    pub(crate) const fn stats(&self) -> ResidualAffineBoundaryKernelStats {
+        self.stats
+    }
+
+    pub(crate) fn execute(
+        self,
+    ) -> Result<ResidualAffineBoundaryMapping, ResidualAffineBoundaryKernelError> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.context.execute_residual_affine_boundary_mapping(
+                self.source,
+                self.plan,
+                self.limits,
+                self.stats,
+            )
+        }))
+        .map_err(|_| ResidualAffineBoundaryKernelError::NativePanic {
+            stage: "exact affine-boundary mapping",
+        })?
+    }
+}
+
+/// Bounds for deciding whether an affine boundary suppresses a normalized
+/// numerator.  Exact polynomial division remains governed by `exact_algebra`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryNumeratorLimits {
+    pub exact_algebra: ExactAlgebraLimits,
+    pub max_context_fingerprint_comparison_bytes: usize,
+    pub max_boundary_terms: usize,
+    pub max_boundary_exponent_entries: usize,
+    pub max_boundary_integer_bits: usize,
+    pub max_numerator_terms: usize,
+    pub max_numerator_exponent_entries: usize,
+    pub max_numerator_integer_bits: usize,
+    pub max_affine_authentication_term_visits: usize,
+    pub max_affine_authentication_exponent_entry_visits: usize,
+    pub max_divisibility_input_term_pair_bound: usize,
+    pub max_divisibility_call_bound: usize,
+    /// Peak RustRed-visible source-copy scratch used by exact divisibility.
+    /// This is temporary execution memory, never durable result ownership.
+    pub max_source_copy_temporary_byte_bound: usize,
+    pub max_retained_owned_logical_bytes: usize,
+}
+
+impl Default for ResidualAffineBoundaryNumeratorLimits {
+    fn default() -> Self {
+        Self {
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_context_fingerprint_comparison_bytes: usize::MAX,
+            max_boundary_terms: usize::MAX,
+            max_boundary_exponent_entries: usize::MAX,
+            max_boundary_integer_bits: usize::MAX,
+            max_numerator_terms: usize::MAX,
+            max_numerator_exponent_entries: usize::MAX,
+            max_numerator_integer_bits: usize::MAX,
+            max_affine_authentication_term_visits: usize::MAX,
+            max_affine_authentication_exponent_entry_visits: usize::MAX,
+            max_divisibility_input_term_pair_bound: usize::MAX,
+            max_divisibility_call_bound: usize::MAX,
+            max_source_copy_temporary_byte_bound: usize::MAX,
+            max_retained_owned_logical_bytes: usize::MAX,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryNumeratorStats {
+    context_fingerprint_comparison_bytes: usize,
+    boundary_terms: usize,
+    boundary_exponent_entries: usize,
+    boundary_integer_bits: usize,
+    numerator_terms: usize,
+    numerator_exponent_entries: usize,
+    numerator_integer_bits: usize,
+    affine_authentication_term_visits: usize,
+    affine_authentication_exponent_entry_visits: usize,
+    divisibility_input_term_pair_bound: usize,
+    divisibility_call_bound: usize,
+    /// Peak execution scratch for the two authenticated polynomial copies
+    /// passed into Symbolica's exact quotient.  Outer transactions aggregate
+    /// this by maximum, separately from retained result ownership.
+    source_copy_temporary_byte_bound: usize,
+    retained_owned_logical_bytes: usize,
+    divisibility_calls: usize,
+}
+
+impl ResidualAffineBoundaryNumeratorStats {
+    residual_affine_boundary_stats_getters!(
+        context_fingerprint_comparison_bytes,
+        boundary_terms,
+        boundary_exponent_entries,
+        boundary_integer_bits,
+        numerator_terms,
+        numerator_exponent_entries,
+        numerator_integer_bits,
+        affine_authentication_term_visits,
+        affine_authentication_exponent_entry_visits,
+        divisibility_input_term_pair_bound,
+        divisibility_call_bound,
+        source_copy_temporary_byte_bound,
+        retained_owned_logical_bytes,
+        divisibility_calls,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResidualAffineBoundaryNumeratorDisposition {
+    Suppressed,
+    Retained,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResidualAffineBoundaryNumeratorClassification {
+    disposition: ResidualAffineBoundaryNumeratorDisposition,
+    stats: ResidualAffineBoundaryNumeratorStats,
+}
+
+impl ResidualAffineBoundaryNumeratorClassification {
+    pub(crate) const fn disposition(&self) -> ResidualAffineBoundaryNumeratorDisposition {
+        self.disposition
+    }
+
+    pub(crate) const fn stats(&self) -> ResidualAffineBoundaryNumeratorStats {
+        self.stats
+    }
+
+    pub(crate) const fn into_parts(
+        self,
+    ) -> (
+        ResidualAffineBoundaryNumeratorDisposition,
+        ResidualAffineBoundaryNumeratorStats,
+    ) {
+        (self.disposition, self.stats)
+    }
+}
+
+pub(crate) struct PreparedResidualAffineBoundaryNumeratorClassification<'prepared> {
+    context: &'prepared ParametricCoefficientContext,
+    boundary: &'prepared ParametricPolynomial,
+    numerator: &'prepared ParametricPolynomial,
+    limits: ResidualAffineBoundaryNumeratorLimits,
+    stats: ResidualAffineBoundaryNumeratorStats,
+}
+
+impl PreparedResidualAffineBoundaryNumeratorClassification<'_> {
+    pub(crate) const fn stats(&self) -> ResidualAffineBoundaryNumeratorStats {
+        self.stats
+    }
+
+    pub(crate) fn execute(
+        self,
+    ) -> Result<ResidualAffineBoundaryNumeratorClassification, ResidualAffineBoundaryKernelError>
+    {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.context
+                .execute_residual_affine_boundary_numerator_classification(
+                    self.boundary,
+                    self.numerator,
+                    self.limits,
+                    self.stats,
+                )
+        }))
+        .map_err(|_| ResidualAffineBoundaryKernelError::NativePanic {
+            stage: "exact affine-boundary numerator divisibility",
+        })?
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResidualAffineBoundaryKernelError {
+    Coefficient(ParametricCoefficientError),
+    Composition(ResidualUnitAffineCompositionError),
+    ExpectedIndexDependentAffine,
+    NonAffineIndexDegree {
+        term_ordinal: usize,
+        degree: usize,
+    },
+    ResourceLimit {
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    },
+    ResourceCountOverflow {
+        resource: &'static str,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
+    InvariantViolation {
+        resource: &'static str,
+    },
+    NativePanic {
+        stage: &'static str,
+    },
+}
+
+impl fmt::Display for ResidualAffineBoundaryKernelError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Coefficient(error) => error.fmt(formatter),
+            Self::Composition(error) => error.fmt(formatter),
+            Self::ExpectedIndexDependentAffine => formatter.write_str(
+                "affine-boundary numerator restriction needs an index-dependent affine polynomial",
+            ),
+            Self::NonAffineIndexDegree {
+                term_ordinal,
+                degree,
+            } => write!(
+                formatter,
+                "affine-boundary term {term_ordinal} has index degree {degree}, expected at most one"
+            ),
+            Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => write!(
+                formatter,
+                "affine-boundary {resource} needs {requested} units, exceeding the configured limit {limit}"
+            ),
+            Self::ResourceCountOverflow { resource } => {
+                write!(
+                    formatter,
+                    "affine-boundary {resource} count overflowed usize"
+                )
+            }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "affine-boundary {resource} could not allocate {requested} bounded entries"
+            ),
+            Self::InvariantViolation { resource } => {
+                write!(formatter, "affine-boundary invariant failed for {resource}")
+            }
+            Self::NativePanic { stage } => write!(formatter, "Symbolica panicked during {stage}"),
+        }
+    }
+}
+
+impl std::error::Error for ResidualAffineBoundaryKernelError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Coefficient(error) => Some(error),
+            Self::Composition(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ParametricCoefficientError> for ResidualAffineBoundaryKernelError {
+    fn from(value: ParametricCoefficientError) -> Self {
+        Self::Coefficient(value)
+    }
+}
+
+impl From<ResidualUnitAffineCompositionError> for ResidualAffineBoundaryKernelError {
+    fn from(value: ResidualUnitAffineCompositionError) -> Self {
+        Self::Composition(value)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static RESIDUAL_AFFINE_BOUNDARY_NATIVE_PANIC_FOR_TEST: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn inject_residual_affine_boundary_native_panic_for_test() {
+    RESIDUAL_AFFINE_BOUNDARY_NATIVE_PANIC_FOR_TEST.with(|panic_next| panic_next.set(true));
+}
+
+#[cfg(test)]
+fn maybe_inject_residual_affine_boundary_native_panic_for_test() {
+    RESIDUAL_AFFINE_BOUNDARY_NATIVE_PANIC_FOR_TEST.with(|panic_next| {
+        if panic_next.replace(false) {
+            panic!("injected exact affine-boundary native panic");
+        }
+    });
+}
+
+#[cfg(not(test))]
+fn maybe_inject_residual_affine_boundary_native_panic_for_test() {}
+
+#[cfg(test)]
+thread_local! {
+    static RESIDUAL_AFFINE_BOUNDARY_CONSTRUCTION_CALLS_FOR_TEST: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn reset_residual_affine_boundary_construction_calls_for_test() {
+    RESIDUAL_AFFINE_BOUNDARY_CONSTRUCTION_CALLS_FOR_TEST.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+fn residual_affine_boundary_construction_calls_for_test() -> usize {
+    RESIDUAL_AFFINE_BOUNDARY_CONSTRUCTION_CALLS_FOR_TEST.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn note_residual_affine_boundary_construction_call_for_test() {
+    RESIDUAL_AFFINE_BOUNDARY_CONSTRUCTION_CALLS_FOR_TEST.with(|calls| {
+        calls.set(
+            calls
+                .get()
+                .checked_add(1)
+                .expect("test-only affine-boundary construction-call counter overflow"),
+        );
+    });
+}
+
+#[cfg(not(test))]
+fn note_residual_affine_boundary_construction_call_for_test() {}
+
 /// Canonical sparse equality locus for a partial symbolic specialization.
 /// Positions are sorted increasingly and unique, and the original index
 /// arity is retained so the transcript cannot be replayed in another lattice.
@@ -6284,6 +6771,591 @@ impl ParametricCoefficientContext {
         Ok(ParametricPolynomialAssociateResult { associated, stats })
     }
 
+    /// Construct and preflight the exact source-neutral boundary
+    /// `n_coordinate - value`, optionally mapped through one authenticated
+    /// compact affine plan.
+    ///
+    /// The arbitrary-width integer lift, subtraction, numerator extraction,
+    /// and optional composition all cross existing checked Symbolica seams.
+    /// This layer only authenticates the resulting sparse metadata needed to
+    /// distinguish an empty, whole-target, or index-dependent affine locus.
+    pub(crate) fn prepare_residual_affine_boundary_mapping<'prepared>(
+        &'prepared self,
+        coordinate: usize,
+        value: &Integer,
+        plan: Option<&'prepared ResidualAffineCompactCompositionPlan>,
+        limits: ResidualAffineBoundaryKernelLimits,
+    ) -> Result<PreparedResidualAffineBoundaryMapping<'prepared>, ResidualAffineBoundaryKernelError>
+    {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.prepare_residual_affine_boundary_mapping_inner(coordinate, value, plan, limits)
+        }))
+        .map_err(|_| ResidualAffineBoundaryKernelError::NativePanic {
+            stage: "exact affine-boundary construction preflight",
+        })?
+    }
+
+    fn prepare_residual_affine_boundary_mapping_inner<'prepared>(
+        &'prepared self,
+        coordinate: usize,
+        value: &Integer,
+        plan: Option<&'prepared ResidualAffineCompactCompositionPlan>,
+        limits: ResidualAffineBoundaryKernelLimits,
+    ) -> Result<PreparedResidualAffineBoundaryMapping<'prepared>, ResidualAffineBoundaryKernelError>
+    {
+        if coordinate >= self.index_count() {
+            return Err(ParametricCoefficientError::WrongIndexArity {
+                expected: self.index_count(),
+                actual: coordinate.saturating_add(1),
+            }
+            .into());
+        }
+
+        const CONSTRUCTION_SYMBOLICA_CALLS: usize = 4;
+        let ambient_arity = self.index_count();
+        let boundary_value_integer_bits =
+            usize::try_from(integer_magnitude_bits(value)).map_err(|_| {
+                ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                    resource: "boundary value integer bits",
+                }
+            })?;
+        let constructed_terms = if value.is_numeric_zero() { 1 } else { 2 };
+        let constructed_exponent_entries = residual_affine_boundary_checked_mul(
+            "constructed exponent entries",
+            constructed_terms,
+            self.variables.len(),
+        )?;
+        // The canonical source has one unit coefficient on n_coordinate and,
+        // unless value is zero, one coefficient with exactly value's bit
+        // magnitude.  This is the exact total integer-bit payload.
+        let constructed_integer_bits = residual_affine_boundary_checked_add(
+            "constructed integer bits",
+            boundary_value_integer_bits,
+            1,
+        )?;
+        // Successful construction compares the two subtraction operands and
+        // the extracted numerator with this context. Identity execution adds
+        // the construction and mapped-payload authenticators. Compact
+        // execution additionally validates plan/source once in each of its
+        // sealed preflight passes.
+        let context_comparisons = if plan.is_some() { 10 } else { 6 };
+        let context_fingerprint_comparison_bytes = residual_affine_boundary_checked_mul(
+            "context fingerprint comparison bytes",
+            self.fingerprint().len(),
+            context_comparisons,
+        )?;
+        let variable_count = self.variables.len();
+        let largest_constructed_integer_bits = boundary_value_integer_bits.max(1);
+        let constructed_source_retained_byte_bound = residual_affine_boundary_polynomial_envelope(
+            size_of::<ParametricPolynomial>(),
+            constructed_terms,
+            constructed_exponent_entries,
+            largest_constructed_integer_bits,
+            4,
+            4,
+            0,
+            "constructed source retained bytes",
+        )?;
+        let exact_value_retained_byte_bound = residual_affine_boundary_coefficient_envelope(
+            1,
+            variable_count,
+            largest_constructed_integer_bits,
+            variable_count,
+            "exact boundary value retained bytes",
+        )?;
+        let coordinate_retained_byte_bound = residual_affine_boundary_coefficient_envelope(
+            1,
+            variable_count,
+            1,
+            variable_count,
+            "boundary coordinate retained bytes",
+        )?;
+        let difference_retained_byte_bound = residual_affine_boundary_coefficient_envelope(
+            constructed_terms,
+            constructed_exponent_entries,
+            largest_constructed_integer_bits,
+            variable_count,
+            "constructed boundary difference retained bytes",
+        )?;
+        // All four values remain simultaneously live while numerator
+        // extraction clones the difference into the prepared source.
+        let construction_overlap_byte_bound = [
+            exact_value_retained_byte_bound,
+            coordinate_retained_byte_bound,
+            difference_retained_byte_bound,
+            constructed_source_retained_byte_bound,
+        ]
+        .into_iter()
+        .try_fold(0usize, |sum, bytes| {
+            residual_affine_boundary_checked_add(
+                "RustRed-visible boundary compilation peak bytes",
+                sum,
+                bytes,
+            )
+        })?;
+
+        let mut stats = ResidualAffineBoundaryKernelStats {
+            context_fingerprint_comparison_bytes,
+            ambient_arity,
+            boundary_value_integer_bits,
+            construction_symbolica_calls: CONSTRUCTION_SYMBOLICA_CALLS,
+            constructed_terms,
+            constructed_exponent_entries,
+            constructed_integer_bits,
+            constructed_source_retained_byte_bound,
+            rustred_visible_compilation_peak_byte_bound: construction_overlap_byte_bound,
+            ..ResidualAffineBoundaryKernelStats::default()
+        };
+        check_residual_affine_boundary_mapping_stats(stats, limits)?;
+
+        note_residual_affine_boundary_construction_call_for_test();
+        let exact_value = self.integer_exact(value, limits.arithmetic)?;
+        note_residual_affine_boundary_construction_call_for_test();
+        let coordinate_value = self.index(coordinate)?;
+        note_residual_affine_boundary_construction_call_for_test();
+        let difference = self.sub_with_limits(
+            &coordinate_value,
+            &exact_value,
+            limits.arithmetic.exact_algebra,
+        )?;
+        note_residual_affine_boundary_construction_call_for_test();
+        let source =
+            self.numerator_condition_with_limits(&difference, limits.arithmetic.exact_algebra)?;
+        let constructed_census = self
+            .preflight_polynomial_validation_payload_with_limits(
+                &source,
+                limits.arithmetic.exact_algebra,
+                limits.max_constructed_terms,
+                limits.max_constructed_exponent_entries,
+                limits.max_constructed_integer_bits,
+            )
+            .map_err(residual_affine_boundary_coefficient_error)?;
+        if constructed_census.source_terms() != constructed_terms
+            || constructed_census.source_exponent_entries() != constructed_exponent_entries
+            || constructed_census.source_integer_bits() != constructed_integer_bits
+        {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "canonical n_coordinate - value construction census",
+            });
+        }
+        let observed_source_retained_bytes = source.owned_retained_byte_bound().ok_or(
+            ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                resource: "constructed source retained bytes",
+            },
+        )?;
+        if observed_source_retained_bytes > constructed_source_retained_byte_bound {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "constructed source retained byte bound",
+            });
+        }
+        let observed_construction_overlap_bytes = [
+            exact_value.owned_retained_byte_bound(),
+            coordinate_value.owned_retained_byte_bound(),
+            difference.owned_retained_byte_bound(),
+            source.owned_retained_byte_bound(),
+        ]
+        .into_iter()
+        .try_fold(0usize, |sum, bytes| {
+            residual_affine_boundary_checked_add(
+                "observed RustRed-visible construction overlap bytes",
+                sum,
+                bytes.ok_or(ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                    resource: "observed RustRed-visible construction overlap bytes",
+                })?,
+            )
+        })?;
+        if observed_construction_overlap_bytes > construction_overlap_byte_bound {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "RustRed-visible construction overlap byte bound",
+            });
+        }
+
+        let (composition, mapped_term_bound, mapped_exponent_entry_bound, mapped_integer_bit_bound) =
+            if let Some(plan) = plan {
+                let prepared = self
+                    .prepare_guard_on_residual_affine_compact_composition_plan(
+                        &source,
+                        plan,
+                        limits.composition,
+                    )
+                    .map_err(ResidualAffineBoundaryKernelError::from)?;
+                let composition = prepared.stats();
+                drop(prepared);
+                (
+                    Some(composition),
+                    composition.expanded_contribution_bound(),
+                    composition.output_exponent_entry_bound(),
+                    composition.largest_integer_coefficient_bit_bound(),
+                )
+            } else {
+                (
+                    None,
+                    constructed_terms,
+                    constructed_exponent_entries,
+                    residual_affine_boundary_largest_integer_bits(source.raw())?,
+                )
+            };
+        let affine_authentication_term_visit_bound = mapped_term_bound;
+        let affine_authentication_exponent_entry_visit_bound =
+            residual_affine_boundary_checked_mul(
+                "affine authentication index-exponent visits",
+                mapped_term_bound,
+                ambient_arity,
+            )?;
+        let identity_copy_retained_byte_bound = if plan.is_none() {
+            residual_affine_boundary_authenticated_copy_envelope(
+                source.raw(),
+                size_of::<ParametricPolynomial>(),
+                "identity boundary copy retained bytes",
+            )?
+        } else {
+            0
+        };
+        let mut retained_output_byte_bound = residual_affine_boundary_polynomial_envelope(
+            size_of::<ResidualAffineBoundaryMapping>(),
+            mapped_term_bound,
+            mapped_exponent_entry_bound,
+            mapped_integer_bit_bound,
+            4,
+            4,
+            0,
+            "mapped boundary retained output bytes",
+        )?;
+        if plan.is_none() {
+            let source_bound = size_of::<ResidualAffineBoundaryMapping>()
+                .checked_add(polynomial_owned_retained_byte_bound(source.raw()).ok_or(
+                    ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                        resource: "mapped boundary retained output bytes",
+                    },
+                )?)
+                .ok_or(ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                    resource: "mapped boundary retained output bytes",
+                })?;
+            retained_output_byte_bound = retained_output_byte_bound.max(source_bound);
+        }
+        let source_dynamic_bytes = constructed_source_retained_byte_bound
+            .checked_sub(size_of::<ParametricPolynomial>())
+            .ok_or(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "constructed source retained byte decomposition",
+            })?;
+        let prepared_token_with_source = residual_affine_boundary_checked_add(
+            "RustRed-visible boundary compilation peak bytes",
+            size_of::<PreparedResidualAffineBoundaryMapping<'_>>(),
+            source_dynamic_bytes,
+        )?;
+        let nested_prepared_bytes = if plan.is_some() {
+            size_of::<PreparedResidualAffineCompactGuardComposition<'_>>()
+        } else {
+            0
+        };
+        let execution_peak_byte_bound = residual_affine_boundary_checked_add(
+            "RustRed-visible boundary compilation peak bytes",
+            residual_affine_boundary_checked_add(
+                "RustRed-visible boundary compilation peak bytes",
+                prepared_token_with_source,
+                nested_prepared_bytes,
+            )?,
+            retained_output_byte_bound,
+        )?;
+        let rustred_visible_compilation_peak_byte_bound =
+            construction_overlap_byte_bound.max(execution_peak_byte_bound);
+        stats.composition = composition;
+        stats.mapped_term_bound = mapped_term_bound;
+        stats.mapped_exponent_entry_bound = mapped_exponent_entry_bound;
+        stats.mapped_integer_bit_bound = mapped_integer_bit_bound;
+        stats.affine_authentication_term_visit_bound = affine_authentication_term_visit_bound;
+        stats.affine_authentication_exponent_entry_visit_bound =
+            affine_authentication_exponent_entry_visit_bound;
+        stats.identity_copy_retained_byte_bound = identity_copy_retained_byte_bound;
+        stats.retained_output_byte_bound = retained_output_byte_bound;
+        stats.rustred_visible_compilation_peak_byte_bound =
+            rustred_visible_compilation_peak_byte_bound;
+        check_residual_affine_boundary_mapping_stats(stats, limits)?;
+
+        Ok(PreparedResidualAffineBoundaryMapping {
+            context: self,
+            source,
+            plan,
+            limits,
+            stats,
+        })
+    }
+
+    fn execute_residual_affine_boundary_mapping(
+        &self,
+        source: ParametricPolynomial,
+        plan: Option<&ResidualAffineCompactCompositionPlan>,
+        limits: ResidualAffineBoundaryKernelLimits,
+        mut stats: ResidualAffineBoundaryKernelStats,
+    ) -> Result<ResidualAffineBoundaryMapping, ResidualAffineBoundaryKernelError> {
+        maybe_inject_residual_affine_boundary_native_panic_for_test();
+        let mapped = if let Some(plan) = plan {
+            let prepared = self
+                .prepare_guard_on_residual_affine_compact_composition_plan(
+                    &source,
+                    plan,
+                    limits.composition,
+                )
+                .map_err(ResidualAffineBoundaryKernelError::from)?;
+            if Some(prepared.stats()) != stats.composition {
+                return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                    resource: "sealed compact-composition preflight replay",
+                });
+            }
+            let composed = prepared
+                .execute()
+                .map_err(ResidualAffineBoundaryKernelError::from)?;
+            let (mapped, composition) = composed.into_parts();
+            stats.composition = Some(composition);
+            mapped
+        } else {
+            source
+                .try_copy_authenticated_sparse_payload()
+                .map_err(
+                    |resource| ResidualAffineBoundaryKernelError::AllocationFailure {
+                        resource,
+                        requested: stats.identity_copy_retained_byte_bound,
+                    },
+                )?
+        };
+
+        // Identity mapping was admitted and constructed under the arithmetic
+        // exact limits.  Compact mapping has its own sealed composition
+        // limits.  Never let an unrelated stricter composition limit defer an
+        // identity rejection until after its bounded sparse copy allocation.
+        let mapped_exact_limits = if plan.is_some() {
+            limits.composition.exact_algebra
+        } else {
+            limits.arithmetic.exact_algebra
+        };
+        let census = self
+            .preflight_polynomial_validation_payload_with_limits(
+                &mapped,
+                mapped_exact_limits,
+                stats.mapped_term_bound,
+                stats.mapped_exponent_entry_bound,
+                usize::MAX,
+            )
+            .map_err(residual_affine_boundary_coefficient_error)?;
+        let mapped_integer_bits = residual_affine_boundary_largest_integer_bits(mapped.raw())?;
+        if mapped_integer_bits > stats.mapped_integer_bit_bound {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "mapped integer coefficient bit bound",
+            });
+        }
+        if let Some(composition) = stats.composition {
+            if composition.output_terms() != census.source_terms()
+                || composition.output_exponent_entries() != census.source_exponent_entries()
+            {
+                return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                    resource: "mapped compact-composition output census",
+                });
+            }
+        }
+
+        let retained_output_bytes;
+        let class = if mapped.is_zero() {
+            retained_output_bytes = size_of::<ResidualAffineBoundaryMapping>();
+            ResidualAffineMappedBoundaryClass::WholeTarget
+        } else {
+            let index_dependent = residual_affine_boundary_authenticate_affine_indices(
+                self,
+                &mapped,
+                stats.affine_authentication_term_visit_bound,
+                stats.affine_authentication_exponent_entry_visit_bound,
+            )?;
+            if index_dependent {
+                retained_output_bytes = size_of::<ResidualAffineBoundaryMapping>()
+                    .checked_add(polynomial_owned_retained_byte_bound(mapped.raw()).ok_or(
+                        ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                            resource: "mapped boundary retained output bytes",
+                        },
+                    )?)
+                    .ok_or(ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                        resource: "mapped boundary retained output bytes",
+                    })?;
+                ResidualAffineMappedBoundaryClass::IndexDependentAffine { polynomial: mapped }
+            } else {
+                retained_output_bytes = size_of::<ResidualAffineBoundaryMapping>();
+                ResidualAffineMappedBoundaryClass::Empty
+            }
+        };
+        if retained_output_bytes > stats.retained_output_byte_bound {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "mapped boundary retained output byte bound",
+            });
+        }
+        stats.mapped_terms = census.source_terms();
+        stats.mapped_exponent_entries = census.source_exponent_entries();
+        stats.mapped_integer_bits = mapped_integer_bits;
+        stats.retained_output_bytes = retained_output_bytes;
+        check_residual_affine_boundary_mapping_stats(stats, limits)?;
+        Ok(ResidualAffineBoundaryMapping { class, stats })
+    }
+
+    /// Preflight the exact divisibility decision used to suppress a
+    /// normalized numerator on an already mapped affine boundary.
+    pub(crate) fn prepare_residual_affine_boundary_numerator_classification<'prepared>(
+        &'prepared self,
+        boundary: &'prepared ParametricPolynomial,
+        normalized_numerator: &'prepared ParametricPolynomial,
+        limits: ResidualAffineBoundaryNumeratorLimits,
+    ) -> Result<
+        PreparedResidualAffineBoundaryNumeratorClassification<'prepared>,
+        ResidualAffineBoundaryKernelError,
+    > {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.prepare_residual_affine_boundary_numerator_classification_inner(
+                boundary,
+                normalized_numerator,
+                limits,
+            )
+        }))
+        .map_err(|_| ResidualAffineBoundaryKernelError::NativePanic {
+            stage: "exact affine-boundary numerator preflight",
+        })?
+    }
+
+    fn prepare_residual_affine_boundary_numerator_classification_inner<'prepared>(
+        &'prepared self,
+        boundary: &'prepared ParametricPolynomial,
+        normalized_numerator: &'prepared ParametricPolynomial,
+        limits: ResidualAffineBoundaryNumeratorLimits,
+    ) -> Result<
+        PreparedResidualAffineBoundaryNumeratorClassification<'prepared>,
+        ResidualAffineBoundaryKernelError,
+    > {
+        let boundary_census = self
+            .preflight_polynomial_validation_payload_with_limits(
+                boundary,
+                limits.exact_algebra,
+                limits.max_boundary_terms,
+                limits.max_boundary_exponent_entries,
+                limits.max_boundary_integer_bits,
+            )
+            .map_err(residual_affine_boundary_coefficient_error)?;
+        let numerator_census = self
+            .preflight_polynomial_validation_payload_with_limits(
+                normalized_numerator,
+                limits.exact_algebra,
+                limits.max_numerator_terms,
+                limits.max_numerator_exponent_entries,
+                limits.max_numerator_integer_bits,
+            )
+            .map_err(residual_affine_boundary_coefficient_error)?;
+        let affine_authentication_term_visits = boundary_census.source_terms();
+        let affine_authentication_exponent_entry_visits = residual_affine_boundary_checked_mul(
+            "numerator boundary affine index-exponent visits",
+            boundary_census.source_terms(),
+            self.index_count(),
+        )?;
+        let index_dependent = residual_affine_boundary_authenticate_affine_indices(
+            self,
+            boundary,
+            limits.max_affine_authentication_term_visits,
+            limits.max_affine_authentication_exponent_entry_visits,
+        )?;
+        if boundary.is_zero() || !index_dependent {
+            return Err(ResidualAffineBoundaryKernelError::ExpectedIndexDependentAffine);
+        }
+
+        let numerator_is_zero = normalized_numerator.is_zero();
+        let divisibility_input_term_pair_bound = if numerator_is_zero {
+            0
+        } else {
+            residual_affine_boundary_checked_mul(
+                "divisibility input term pairs",
+                boundary_census.source_terms(),
+                numerator_census.source_terms(),
+            )?
+        };
+        let divisibility_call_bound = usize::from(!numerator_is_zero);
+        let source_copy_temporary_byte_bound = if numerator_is_zero {
+            0
+        } else {
+            residual_affine_boundary_checked_add(
+                "divisibility source-copy retained bytes",
+                residual_affine_boundary_divisibility_source_copy_envelope(
+                    boundary.raw(),
+                    self.variables.len(),
+                    "divisibility boundary source-copy retained bytes",
+                )?,
+                residual_affine_boundary_divisibility_source_copy_envelope(
+                    normalized_numerator.raw(),
+                    self.variables.len(),
+                    "divisibility numerator source-copy retained bytes",
+                )?,
+            )?
+        };
+        let retained_owned_logical_bytes =
+            size_of::<ResidualAffineBoundaryNumeratorClassification>();
+        let context_comparisons = if numerator_is_zero { 3 } else { 5 };
+        let context_fingerprint_comparison_bytes = residual_affine_boundary_checked_mul(
+            "numerator context fingerprint comparison bytes",
+            self.fingerprint().len(),
+            context_comparisons,
+        )?;
+        let stats = ResidualAffineBoundaryNumeratorStats {
+            context_fingerprint_comparison_bytes,
+            boundary_terms: boundary_census.source_terms(),
+            boundary_exponent_entries: boundary_census.source_exponent_entries(),
+            boundary_integer_bits: boundary_census.source_integer_bits(),
+            numerator_terms: numerator_census.source_terms(),
+            numerator_exponent_entries: numerator_census.source_exponent_entries(),
+            numerator_integer_bits: numerator_census.source_integer_bits(),
+            affine_authentication_term_visits,
+            affine_authentication_exponent_entry_visits,
+            divisibility_input_term_pair_bound,
+            divisibility_call_bound,
+            source_copy_temporary_byte_bound,
+            retained_owned_logical_bytes,
+            divisibility_calls: 0,
+        };
+        check_residual_affine_boundary_numerator_stats(stats, limits)?;
+        Ok(PreparedResidualAffineBoundaryNumeratorClassification {
+            context: self,
+            boundary,
+            numerator: normalized_numerator,
+            limits,
+            stats,
+        })
+    }
+
+    fn execute_residual_affine_boundary_numerator_classification(
+        &self,
+        boundary: &ParametricPolynomial,
+        normalized_numerator: &ParametricPolynomial,
+        limits: ResidualAffineBoundaryNumeratorLimits,
+        mut stats: ResidualAffineBoundaryNumeratorStats,
+    ) -> Result<ResidualAffineBoundaryNumeratorClassification, ResidualAffineBoundaryKernelError>
+    {
+        let disposition = if normalized_numerator.is_zero() {
+            ResidualAffineBoundaryNumeratorDisposition::Suppressed
+        } else {
+            maybe_inject_residual_affine_boundary_native_panic_for_test();
+            let divisible = self
+                .polynomial_divides_with_limits(
+                    boundary,
+                    normalized_numerator,
+                    limits.exact_algebra,
+                )
+                .map_err(residual_affine_boundary_coefficient_error)?;
+            stats.divisibility_calls = 1;
+            if divisible {
+                ResidualAffineBoundaryNumeratorDisposition::Suppressed
+            } else {
+                ResidualAffineBoundaryNumeratorDisposition::Retained
+            }
+        };
+        if stats.divisibility_calls > stats.divisibility_call_bound {
+            return Err(ResidualAffineBoundaryKernelError::InvariantViolation {
+                resource: "numerator divisibility call bound",
+            });
+        }
+        check_residual_affine_boundary_numerator_stats(stats, limits)?;
+        Ok(ResidualAffineBoundaryNumeratorClassification { disposition, stats })
+    }
+
     /// Prove exact divisibility in `K[n]`, where base-only polynomials are
     /// units of `K = Q(theta)`.
     ///
@@ -11017,6 +12089,385 @@ fn normalized_factor_envelope_from_source(
     Ok((term_bound, integer_bit_bound))
 }
 
+fn residual_affine_boundary_checked_add(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    left.checked_add(right)
+        .ok_or(ResidualAffineBoundaryKernelError::ResourceCountOverflow { resource })
+}
+
+fn residual_affine_boundary_checked_mul(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    left.checked_mul(right)
+        .ok_or(ResidualAffineBoundaryKernelError::ResourceCountOverflow { resource })
+}
+
+fn check_residual_affine_boundary_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), ResidualAffineBoundaryKernelError> {
+    if requested > limit {
+        Err(ResidualAffineBoundaryKernelError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn residual_affine_boundary_coefficient_error(
+    error: ParametricCoefficientError,
+) -> ResidualAffineBoundaryKernelError {
+    match error {
+        ParametricCoefficientError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => ResidualAffineBoundaryKernelError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        ParametricCoefficientError::ResourceCountOverflow { resource } => {
+            ResidualAffineBoundaryKernelError::ResourceCountOverflow { resource }
+        }
+        error => ResidualAffineBoundaryKernelError::Coefficient(error),
+    }
+}
+
+fn check_residual_affine_boundary_mapping_stats(
+    stats: ResidualAffineBoundaryKernelStats,
+    limits: ResidualAffineBoundaryKernelLimits,
+) -> Result<(), ResidualAffineBoundaryKernelError> {
+    for (resource, requested, limit) in [
+        (
+            "context fingerprint comparison bytes",
+            stats.context_fingerprint_comparison_bytes,
+            limits.max_context_fingerprint_comparison_bytes,
+        ),
+        (
+            "ambient arity",
+            stats.ambient_arity,
+            limits.max_ambient_arity,
+        ),
+        (
+            "boundary value integer bits",
+            stats.boundary_value_integer_bits,
+            limits.max_boundary_value_integer_bits,
+        ),
+        (
+            "construction Symbolica calls",
+            stats.construction_symbolica_calls,
+            limits.max_construction_symbolica_calls,
+        ),
+        (
+            "constructed terms",
+            stats.constructed_terms,
+            limits.max_constructed_terms,
+        ),
+        (
+            "constructed exponent entries",
+            stats.constructed_exponent_entries,
+            limits.max_constructed_exponent_entries,
+        ),
+        (
+            "constructed integer bits",
+            stats.constructed_integer_bits,
+            limits.max_constructed_integer_bits,
+        ),
+        (
+            "constructed source retained bytes",
+            stats.constructed_source_retained_byte_bound,
+            limits.max_constructed_source_retained_byte_bound,
+        ),
+        (
+            "mapped term bound",
+            stats.mapped_term_bound,
+            limits.max_mapped_term_bound,
+        ),
+        (
+            "mapped exponent-entry bound",
+            stats.mapped_exponent_entry_bound,
+            limits.max_mapped_exponent_entry_bound,
+        ),
+        (
+            "mapped integer-bit bound",
+            stats.mapped_integer_bit_bound,
+            limits.max_mapped_integer_bit_bound,
+        ),
+        (
+            "affine authentication term visits",
+            stats.affine_authentication_term_visit_bound,
+            limits.max_affine_authentication_term_visit_bound,
+        ),
+        (
+            "affine authentication index-exponent visits",
+            stats.affine_authentication_exponent_entry_visit_bound,
+            limits.max_affine_authentication_exponent_entry_visit_bound,
+        ),
+        (
+            "identity boundary copy retained bytes",
+            stats.identity_copy_retained_byte_bound,
+            limits.max_identity_copy_retained_byte_bound,
+        ),
+        (
+            "mapped boundary retained output bytes",
+            stats.retained_output_byte_bound,
+            limits.max_retained_output_byte_bound,
+        ),
+        (
+            "RustRed-visible boundary compilation peak bytes",
+            stats.rustred_visible_compilation_peak_byte_bound,
+            limits.max_rustred_visible_compilation_peak_byte_bound,
+        ),
+    ] {
+        check_residual_affine_boundary_limit(resource, requested, limit)?;
+    }
+    Ok(())
+}
+
+fn check_residual_affine_boundary_numerator_stats(
+    stats: ResidualAffineBoundaryNumeratorStats,
+    limits: ResidualAffineBoundaryNumeratorLimits,
+) -> Result<(), ResidualAffineBoundaryKernelError> {
+    for (resource, requested, limit) in [
+        (
+            "numerator context fingerprint comparison bytes",
+            stats.context_fingerprint_comparison_bytes,
+            limits.max_context_fingerprint_comparison_bytes,
+        ),
+        (
+            "numerator boundary terms",
+            stats.boundary_terms,
+            limits.max_boundary_terms,
+        ),
+        (
+            "numerator boundary exponent entries",
+            stats.boundary_exponent_entries,
+            limits.max_boundary_exponent_entries,
+        ),
+        (
+            "numerator boundary integer bits",
+            stats.boundary_integer_bits,
+            limits.max_boundary_integer_bits,
+        ),
+        (
+            "normalized numerator terms",
+            stats.numerator_terms,
+            limits.max_numerator_terms,
+        ),
+        (
+            "normalized numerator exponent entries",
+            stats.numerator_exponent_entries,
+            limits.max_numerator_exponent_entries,
+        ),
+        (
+            "normalized numerator integer bits",
+            stats.numerator_integer_bits,
+            limits.max_numerator_integer_bits,
+        ),
+        (
+            "numerator boundary affine term visits",
+            stats.affine_authentication_term_visits,
+            limits.max_affine_authentication_term_visits,
+        ),
+        (
+            "numerator boundary affine index-exponent visits",
+            stats.affine_authentication_exponent_entry_visits,
+            limits.max_affine_authentication_exponent_entry_visits,
+        ),
+        (
+            "divisibility input term pairs",
+            stats.divisibility_input_term_pair_bound,
+            limits.max_divisibility_input_term_pair_bound,
+        ),
+        (
+            "divisibility calls",
+            stats.divisibility_call_bound,
+            limits.max_divisibility_call_bound,
+        ),
+        (
+            "divisibility source-copy temporary bytes",
+            stats.source_copy_temporary_byte_bound,
+            limits.max_source_copy_temporary_byte_bound,
+        ),
+        (
+            "numerator classification retained logical bytes",
+            stats.retained_owned_logical_bytes,
+            limits.max_retained_owned_logical_bytes,
+        ),
+    ] {
+        check_residual_affine_boundary_limit(resource, requested, limit)?;
+    }
+    Ok(())
+}
+
+fn residual_affine_boundary_largest_integer_bits(
+    polynomial: &CoefficientPolynomial,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    polynomial
+        .coefficients
+        .iter()
+        .try_fold(0usize, |largest, coefficient| {
+            let bits = usize::try_from(integer_magnitude_bits(coefficient)).map_err(|_| {
+                ResidualAffineBoundaryKernelError::ResourceCountOverflow {
+                    resource: "mapped integer coefficient bits",
+                }
+            })?;
+            Ok(largest.max(bits))
+        })
+}
+
+/// Authenticate only sparse metadata after the ordinary map validator has
+/// accepted the polynomial.  No polynomial arithmetic is reimplemented: the
+/// scan establishes that each monomial has total private-index degree at most
+/// one and records whether any private index occurs.
+fn residual_affine_boundary_authenticate_affine_indices(
+    context: &ParametricCoefficientContext,
+    polynomial: &ParametricPolynomial,
+    max_term_visits: usize,
+    max_index_exponent_visits: usize,
+) -> Result<bool, ResidualAffineBoundaryKernelError> {
+    if polynomial.context.as_ref() != context.fingerprint() {
+        return Err(ParametricCoefficientError::WrongContext.into());
+    }
+    let term_visits = polynomial.raw.nterms();
+    let index_exponent_visits = residual_affine_boundary_checked_mul(
+        "affine authentication index-exponent visits",
+        term_visits,
+        context.index_count(),
+    )?;
+    check_residual_affine_boundary_limit(
+        "affine authentication term visits",
+        term_visits,
+        max_term_visits,
+    )?;
+    check_residual_affine_boundary_limit(
+        "affine authentication index-exponent visits",
+        index_exponent_visits,
+        max_index_exponent_visits,
+    )?;
+
+    let first_index = context.base.variables().len();
+    let mut index_dependent = false;
+    for (term_ordinal, exponents) in polynomial.raw.exponents_iter().enumerate() {
+        let mut degree = 0usize;
+        for &exponent in &exponents[first_index..] {
+            degree = residual_affine_boundary_checked_add(
+                "affine monomial index degree",
+                degree,
+                usize::from(exponent),
+            )?;
+            index_dependent |= exponent != 0;
+        }
+        if degree > 1 {
+            return Err(ResidualAffineBoundaryKernelError::NonAffineIndexDegree {
+                term_ordinal,
+                degree,
+            });
+        }
+    }
+    Ok(index_dependent)
+}
+
+fn residual_affine_boundary_polynomial_envelope(
+    wrapper_bytes: usize,
+    terms: usize,
+    exponent_entries: usize,
+    integer_bits: usize,
+    minimum_coefficient_capacity: usize,
+    minimum_exponent_capacity: usize,
+    minimum_per_integer_payload_bytes: usize,
+    resource: &'static str,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    authenticated_polynomial_retained_byte_envelope(
+        wrapper_bytes,
+        terms,
+        exponent_entries,
+        integer_bits,
+        minimum_coefficient_capacity,
+        minimum_exponent_capacity,
+        minimum_per_integer_payload_bytes,
+        resource,
+    )
+    .map_err(residual_affine_boundary_coefficient_error)
+}
+
+fn residual_affine_boundary_coefficient_envelope(
+    numerator_terms: usize,
+    numerator_exponent_entries: usize,
+    numerator_integer_bits: usize,
+    variable_count: usize,
+    resource: &'static str,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    let numerator = residual_affine_boundary_polynomial_envelope(
+        0,
+        numerator_terms,
+        numerator_exponent_entries,
+        numerator_integer_bits,
+        4,
+        4,
+        0,
+        resource,
+    )?;
+    let denominator =
+        residual_affine_boundary_polynomial_envelope(0, 1, variable_count, 1, 4, 4, 0, resource)?;
+    residual_affine_boundary_checked_add(
+        resource,
+        size_of::<ParametricCoefficient>(),
+        residual_affine_boundary_checked_add(resource, numerator, denominator)?,
+    )
+}
+
+fn residual_affine_boundary_authenticated_copy_envelope(
+    polynomial: &CoefficientPolynomial,
+    wrapper_bytes: usize,
+    resource: &'static str,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    residual_affine_boundary_polynomial_envelope(
+        wrapper_bytes,
+        polynomial.nterms(),
+        polynomial.exponents.len(),
+        residual_affine_boundary_largest_integer_bits(polynomial)?,
+        polynomial.coefficients.capacity(),
+        polynomial.exponents.capacity(),
+        largest_integer_owned_capacity_bytes(polynomial)
+            .map_err(residual_affine_boundary_coefficient_error)?,
+        resource,
+    )
+}
+
+fn residual_affine_boundary_divisibility_source_copy_envelope(
+    polynomial: &CoefficientPolynomial,
+    variable_count: usize,
+    resource: &'static str,
+) -> Result<usize, ResidualAffineBoundaryKernelError> {
+    // `polynomial_divides_with_limits` converts each copied integer
+    // polynomial into a complete Symbolica rational coefficient. Charge the
+    // rational wrapper and its freshly materialized denominator-one payload,
+    // not merely the copied numerator polynomial.
+    let numerator_with_coefficient_wrapper = residual_affine_boundary_authenticated_copy_envelope(
+        polynomial,
+        size_of::<Coefficient>(),
+        resource,
+    )?;
+    let denominator_one =
+        residual_affine_boundary_polynomial_envelope(0, 1, variable_count, 1, 4, 4, 0, resource)?;
+    residual_affine_boundary_checked_add(
+        resource,
+        numerator_with_coefficient_wrapper,
+        denominator_one,
+    )
+}
+
 fn authenticated_polynomial_retained_byte_envelope(
     wrapper_bytes: usize,
     terms: usize,
@@ -14341,6 +15792,633 @@ mod tests {
         value: &ParametricCoefficient,
     ) -> ParametricPolynomial {
         context.numerator_condition(value).unwrap()
+    }
+
+    fn residual_affine_constant_coordinate_compact_plan(
+        context: &ParametricCoefficientContext,
+        constant: &Integer,
+    ) -> ResidualAffineCompactCompositionPlan {
+        assert_eq!(context.index_count(), 3);
+        // F(n_1,n_2) = (constant,n_1,n_2).
+        let constants = [constant.clone(), Integer::zero(), Integer::zero()];
+        let free_positions = [1usize, 2];
+        let compact_linear_coefficients = [
+            Integer::zero(),
+            Integer::zero(),
+            Integer::one(),
+            Integer::zero(),
+            Integer::zero(),
+            Integer::one(),
+        ];
+        context
+            .compile_residual_affine_compact_composition_plan(
+                ResidualAffineCompactMapView::new(
+                    context.fingerprint(),
+                    3,
+                    &constants,
+                    &free_positions,
+                    &compact_linear_coefficients,
+                ),
+                ResidualAffineCompactCompositionPlanLimits::default(),
+            )
+            .unwrap()
+    }
+
+    fn exact_residual_affine_boundary_limits(
+        stats: ResidualAffineBoundaryKernelStats,
+    ) -> ResidualAffineBoundaryKernelLimits {
+        ResidualAffineBoundaryKernelLimits {
+            arithmetic: ParametricArithmeticLimits::default(),
+            composition: ResidualUnitAffinePolynomialCompositionLimits::default(),
+            max_context_fingerprint_comparison_bytes: stats.context_fingerprint_comparison_bytes(),
+            max_ambient_arity: stats.ambient_arity(),
+            max_boundary_value_integer_bits: stats.boundary_value_integer_bits(),
+            max_construction_symbolica_calls: stats.construction_symbolica_calls(),
+            max_constructed_terms: stats.constructed_terms(),
+            max_constructed_exponent_entries: stats.constructed_exponent_entries(),
+            max_constructed_integer_bits: stats.constructed_integer_bits(),
+            max_constructed_source_retained_byte_bound: stats
+                .constructed_source_retained_byte_bound(),
+            max_mapped_term_bound: stats.mapped_term_bound(),
+            max_mapped_exponent_entry_bound: stats.mapped_exponent_entry_bound(),
+            max_mapped_integer_bit_bound: stats.mapped_integer_bit_bound(),
+            max_affine_authentication_term_visit_bound: stats
+                .affine_authentication_term_visit_bound(),
+            max_affine_authentication_exponent_entry_visit_bound: stats
+                .affine_authentication_exponent_entry_visit_bound(),
+            max_identity_copy_retained_byte_bound: stats.identity_copy_retained_byte_bound(),
+            max_retained_output_byte_bound: stats.retained_output_byte_bound(),
+            max_rustred_visible_compilation_peak_byte_bound: stats
+                .rustred_visible_compilation_peak_byte_bound(),
+        }
+    }
+
+    fn exact_residual_affine_boundary_numerator_limits(
+        stats: ResidualAffineBoundaryNumeratorStats,
+    ) -> ResidualAffineBoundaryNumeratorLimits {
+        ResidualAffineBoundaryNumeratorLimits {
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_context_fingerprint_comparison_bytes: stats.context_fingerprint_comparison_bytes(),
+            max_boundary_terms: stats.boundary_terms(),
+            max_boundary_exponent_entries: stats.boundary_exponent_entries(),
+            max_boundary_integer_bits: stats.boundary_integer_bits(),
+            max_numerator_terms: stats.numerator_terms(),
+            max_numerator_exponent_entries: stats.numerator_exponent_entries(),
+            max_numerator_integer_bits: stats.numerator_integer_bits(),
+            max_affine_authentication_term_visits: stats.affine_authentication_term_visits(),
+            max_affine_authentication_exponent_entry_visits: stats
+                .affine_authentication_exponent_entry_visits(),
+            max_divisibility_input_term_pair_bound: stats.divisibility_input_term_pair_bound(),
+            max_divisibility_call_bound: stats.divisibility_call_bound(),
+            max_source_copy_temporary_byte_bound: stats.source_copy_temporary_byte_bound(),
+            max_retained_owned_logical_bytes: stats.retained_owned_logical_bytes(),
+        }
+    }
+
+    fn residual_affine_boundary_polynomial_for_test(
+        context: &ParametricCoefficientContext,
+        coordinate: usize,
+        value: &Integer,
+    ) -> ParametricPolynomial {
+        let mapping = context
+            .prepare_residual_affine_boundary_mapping(
+                coordinate,
+                value,
+                None,
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        let (class, _) = mapping.into_parts();
+        let ResidualAffineMappedBoundaryClass::IndexDependentAffine { polynomial } = class else {
+            panic!("an unmapped coordinate boundary must remain index-dependent")
+        };
+        polynomial
+    }
+
+    #[test]
+    fn residual_affine_boundary_identity_supports_arbitrary_width_exact_values() {
+        let context = residual_affine_test_context("affine-boundary-arbitrary-width");
+        let value = (Integer::one() << 4096u32) + Integer::from(19);
+        let prepared = context
+            .prepare_residual_affine_boundary_mapping(
+                2,
+                &value,
+                None,
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap();
+        let preflight = prepared.stats();
+        assert_eq!(preflight.boundary_value_integer_bits(), 4097);
+        assert_eq!(preflight.constructed_terms(), 2);
+        assert_eq!(preflight.construction_symbolica_calls(), 4);
+        assert!(preflight.identity_copy_retained_byte_bound() > 0);
+        assert!(preflight.constructed_source_retained_byte_bound() > 0);
+        assert!(
+            preflight.rustred_visible_compilation_peak_byte_bound()
+                > preflight.retained_output_byte_bound()
+        );
+        let mapping = prepared.execute().unwrap();
+        let (class, stats) = mapping.into_parts();
+        let ResidualAffineMappedBoundaryClass::IndexDependentAffine { polynomial } = class else {
+            panic!("identity mapping must retain n_2-value")
+        };
+        let expected_value = context
+            .integer_exact(&value, ParametricArithmeticLimits::default())
+            .unwrap();
+        let expected = context
+            .sub(&context.index(2).unwrap(), &expected_value)
+            .unwrap();
+        assert_eq!(polynomial, residual_affine_polynomial(&context, &expected));
+        assert!(context.contains_polynomial(&polynomial));
+        assert_eq!(stats.mapped_terms(), polynomial.term_count());
+        assert!(stats.mapped_integer_bits() >= 4097);
+        assert!(stats.retained_output_bytes() <= stats.retained_output_byte_bound());
+    }
+
+    #[test]
+    fn residual_affine_boundary_compact_mapping_classifies_whole_empty_and_dependent() {
+        let context = residual_affine_test_context("affine-boundary-compact-classes");
+        let value = (Integer::one() << 4096u32) + Integer::from(23);
+        let constant_plan = residual_affine_constant_coordinate_compact_plan(&context, &value);
+        let whole = context
+            .prepare_residual_affine_boundary_mapping(
+                0,
+                &value,
+                Some(&constant_plan),
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert!(matches!(
+            whole.class(),
+            ResidualAffineMappedBoundaryClass::WholeTarget
+        ));
+        assert!(whole.stats().composition().is_some());
+
+        let shifted_value = value + Integer::one();
+        let empty = context
+            .prepare_residual_affine_boundary_mapping(
+                0,
+                &shifted_value,
+                Some(&constant_plan),
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert!(matches!(
+            empty.class(),
+            ResidualAffineMappedBoundaryClass::Empty
+        ));
+
+        let affine_plan = residual_affine_compact_test_plan(&context);
+        let dependent = context
+            .prepare_residual_affine_boundary_mapping(
+                0,
+                &Integer::zero(),
+                Some(&affine_plan),
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        let Some(polynomial) = dependent.class().polynomial() else {
+            panic!("2+n_1-n_2 must remain an affine boundary")
+        };
+        assert!(context.polynomial_depends_on_indices(polynomial).unwrap());
+    }
+
+    #[test]
+    fn residual_affine_boundary_numerator_classifies_zero_divisible_and_nondivisible() {
+        let context = residual_affine_test_context("affine-boundary-numerator-classes");
+        let boundary = residual_affine_boundary_polynomial_for_test(&context, 0, &Integer::from(3));
+        let n1_plus_one = context
+            .add(&context.index(1).unwrap(), &context.one())
+            .unwrap();
+        let boundary_coefficient = context
+            .sub(&context.index(0).unwrap(), &context.integer(3))
+            .unwrap();
+        let divisible = residual_affine_polynomial(
+            &context,
+            &context.mul(&boundary_coefficient, &n1_plus_one).unwrap(),
+        );
+        let retained = residual_affine_polynomial(&context, &n1_plus_one);
+        let zero = residual_affine_polynomial(&context, &context.zero());
+
+        let divisible_result = context
+            .prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &divisible,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert_eq!(
+            divisible_result.disposition(),
+            ResidualAffineBoundaryNumeratorDisposition::Suppressed
+        );
+        assert_eq!(divisible_result.stats().divisibility_calls(), 1);
+        assert!(divisible_result.stats().source_copy_temporary_byte_bound() > 0);
+
+        let retained_result = context
+            .prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &retained,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert_eq!(
+            retained_result.disposition(),
+            ResidualAffineBoundaryNumeratorDisposition::Retained
+        );
+        assert_eq!(retained_result.stats().divisibility_calls(), 1);
+
+        let zero_result = context
+            .prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &zero,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            )
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert_eq!(
+            zero_result.disposition(),
+            ResidualAffineBoundaryNumeratorDisposition::Suppressed
+        );
+        assert_eq!(zero_result.stats().divisibility_calls(), 0);
+        assert_eq!(zero_result.stats().divisibility_call_bound(), 0);
+        assert_eq!(zero_result.stats().source_copy_temporary_byte_bound(), 0);
+        assert_eq!(
+            zero_result.stats().retained_owned_logical_bytes(),
+            size_of::<ResidualAffineBoundaryNumeratorClassification>()
+        );
+    }
+
+    #[test]
+    fn residual_affine_boundary_rejects_constant_nonlinear_malformed_and_foreign_inputs() {
+        let context = residual_affine_test_context("affine-boundary-invalid-primary");
+        let foreign = residual_affine_test_context("affine-boundary-invalid-foreign");
+        let boundary = residual_affine_boundary_polynomial_for_test(&context, 0, &Integer::from(3));
+        let numerator = residual_affine_polynomial(&context, &context.one());
+        let foreign_numerator = residual_affine_polynomial(&foreign, &foreign.one());
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &foreign_numerator,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            ),
+            Err(ResidualAffineBoundaryKernelError::Coefficient(
+                ParametricCoefficientError::WrongContext
+            ))
+        ));
+
+        for constant in [
+            residual_affine_polynomial(&context, &context.zero()),
+            residual_affine_polynomial(&context, &context.one()),
+        ] {
+            assert!(matches!(
+                context.prepare_residual_affine_boundary_numerator_classification(
+                    &constant,
+                    &numerator,
+                    ResidualAffineBoundaryNumeratorLimits::default(),
+                ),
+                Err(ResidualAffineBoundaryKernelError::ExpectedIndexDependentAffine)
+            ));
+        }
+
+        let n0 = context.index(0).unwrap();
+        let nonlinear = residual_affine_polynomial(&context, &context.mul(&n0, &n0).unwrap());
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_numerator_classification(
+                &nonlinear,
+                &numerator,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            ),
+            Err(ResidualAffineBoundaryKernelError::NonAffineIndexDegree { degree: 2, .. })
+        ));
+
+        let mut malformed = boundary.clone();
+        malformed.raw.exponents.pop();
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_numerator_classification(
+                &malformed,
+                &numerator,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            ),
+            Err(ResidualAffineBoundaryKernelError::Coefficient(
+                ParametricCoefficientError::ExactAlgebra(
+                    ExactAlgebraError::MalformedExponentLayout { .. }
+                )
+            ))
+        ));
+
+        let foreign_plan = residual_affine_compact_test_plan(&foreign);
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_mapping(
+                0,
+                &Integer::zero(),
+                Some(&foreign_plan),
+                ResidualAffineBoundaryKernelLimits::default(),
+            ),
+            Err(ResidualAffineBoundaryKernelError::Composition(
+                ResidualUnitAffineCompositionError::WrongContext
+            ))
+        ));
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_mapping(
+                context.index_count(),
+                &Integer::zero(),
+                None,
+                ResidualAffineBoundaryKernelLimits::default(),
+            ),
+            Err(ResidualAffineBoundaryKernelError::Coefficient(
+                ParametricCoefficientError::WrongIndexArity { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn residual_affine_boundary_identity_ignores_unrelated_stricter_composition_limits() {
+        let context = residual_affine_test_context("affine-boundary-identity-limit-domains");
+        let mut limits = ResidualAffineBoundaryKernelLimits::default();
+        limits.composition.exact_algebra.max_polynomial_terms = 0;
+        let prepared = context
+            .prepare_residual_affine_boundary_mapping(0, &Integer::from(7), None, limits)
+            .unwrap();
+        assert!(matches!(
+            prepared.execute().unwrap().class(),
+            ResidualAffineMappedBoundaryClass::IndexDependentAffine { .. }
+        ));
+    }
+
+    #[test]
+    fn residual_affine_boundary_catches_native_panics_without_poisoning_later_calls() {
+        let context = residual_affine_test_context("affine-boundary-native-panic");
+        let prepared = context
+            .prepare_residual_affine_boundary_mapping(
+                0,
+                &Integer::from(5),
+                None,
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap();
+        inject_residual_affine_boundary_native_panic_for_test();
+        assert_eq!(
+            prepared.execute().unwrap_err(),
+            ResidualAffineBoundaryKernelError::NativePanic {
+                stage: "exact affine-boundary mapping"
+            }
+        );
+
+        let boundary = residual_affine_boundary_polynomial_for_test(&context, 0, &Integer::from(5));
+        let numerator = residual_affine_polynomial(
+            &context,
+            &context
+                .add(&context.index(1).unwrap(), &context.one())
+                .unwrap(),
+        );
+        let prepared = context
+            .prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &numerator,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            )
+            .unwrap();
+        inject_residual_affine_boundary_native_panic_for_test();
+        assert_eq!(
+            prepared.execute().unwrap_err(),
+            ResidualAffineBoundaryKernelError::NativePanic {
+                stage: "exact affine-boundary numerator divisibility"
+            }
+        );
+        assert!(
+            context
+                .prepare_residual_affine_boundary_numerator_classification(
+                    &boundary,
+                    &numerator,
+                    ResidualAffineBoundaryNumeratorLimits::default(),
+                )
+                .unwrap()
+                .execute()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn residual_affine_boundary_mapping_accepts_exact_and_rejects_every_one_below_limit() {
+        let context = residual_affine_test_context("affine-boundary-mapping-exact-limits");
+        let value = (Integer::one() << 4096u32) + Integer::from(29);
+        let stats = context
+            .prepare_residual_affine_boundary_mapping(
+                1,
+                &value,
+                None,
+                ResidualAffineBoundaryKernelLimits::default(),
+            )
+            .unwrap()
+            .stats();
+        let exact = exact_residual_affine_boundary_limits(stats);
+
+        let mut source_one_below = exact;
+        source_one_below.max_constructed_source_retained_byte_bound =
+            stats.constructed_source_retained_byte_bound() - 1;
+        reset_residual_affine_boundary_construction_calls_for_test();
+        assert!(matches!(
+            context.prepare_residual_affine_boundary_mapping(
+                1,
+                &value,
+                None,
+                source_one_below,
+            ),
+            Err(ResidualAffineBoundaryKernelError::ResourceLimit {
+                requested,
+                limit,
+                ..
+            }) if requested == stats.constructed_source_retained_byte_bound()
+                && limit + 1 == requested
+        ));
+        assert_eq!(residual_affine_boundary_construction_calls_for_test(), 0);
+
+        context
+            .prepare_residual_affine_boundary_mapping(1, &value, None, exact)
+            .unwrap()
+            .execute()
+            .unwrap();
+
+        macro_rules! reject_one_below {
+            ($field:ident, $requested:expr) => {{
+                let requested = $requested;
+                assert!(requested > 0, stringify!($field));
+                let mut one_below = exact;
+                one_below.$field = requested - 1;
+                match context.prepare_residual_affine_boundary_mapping(1, &value, None, one_below) {
+                    Err(ResidualAffineBoundaryKernelError::ResourceLimit {
+                        requested: actual,
+                        limit,
+                        ..
+                    }) => {
+                        assert_eq!(actual, requested, stringify!($field));
+                        assert_eq!(limit, requested - 1, stringify!($field));
+                    }
+                    _ => panic!("{} unexpectedly accepted one below", stringify!($field)),
+                }
+            }};
+        }
+        reject_one_below!(
+            max_context_fingerprint_comparison_bytes,
+            stats.context_fingerprint_comparison_bytes()
+        );
+        reject_one_below!(max_ambient_arity, stats.ambient_arity());
+        reject_one_below!(
+            max_boundary_value_integer_bits,
+            stats.boundary_value_integer_bits()
+        );
+        reject_one_below!(
+            max_construction_symbolica_calls,
+            stats.construction_symbolica_calls()
+        );
+        reject_one_below!(max_constructed_terms, stats.constructed_terms());
+        reject_one_below!(
+            max_constructed_exponent_entries,
+            stats.constructed_exponent_entries()
+        );
+        reject_one_below!(
+            max_constructed_integer_bits,
+            stats.constructed_integer_bits()
+        );
+        reject_one_below!(
+            max_constructed_source_retained_byte_bound,
+            stats.constructed_source_retained_byte_bound()
+        );
+        reject_one_below!(max_mapped_term_bound, stats.mapped_term_bound());
+        reject_one_below!(
+            max_mapped_exponent_entry_bound,
+            stats.mapped_exponent_entry_bound()
+        );
+        reject_one_below!(
+            max_mapped_integer_bit_bound,
+            stats.mapped_integer_bit_bound()
+        );
+        reject_one_below!(
+            max_affine_authentication_term_visit_bound,
+            stats.affine_authentication_term_visit_bound()
+        );
+        reject_one_below!(
+            max_affine_authentication_exponent_entry_visit_bound,
+            stats.affine_authentication_exponent_entry_visit_bound()
+        );
+        reject_one_below!(
+            max_identity_copy_retained_byte_bound,
+            stats.identity_copy_retained_byte_bound()
+        );
+        reject_one_below!(
+            max_retained_output_byte_bound,
+            stats.retained_output_byte_bound()
+        );
+        reject_one_below!(
+            max_rustred_visible_compilation_peak_byte_bound,
+            stats.rustred_visible_compilation_peak_byte_bound()
+        );
+    }
+
+    #[test]
+    fn residual_affine_boundary_numerator_accepts_exact_and_rejects_every_one_below_limit() {
+        let context = residual_affine_test_context("affine-boundary-numerator-exact-limits");
+        let boundary = residual_affine_boundary_polynomial_for_test(&context, 0, &Integer::from(3));
+        let boundary_coefficient = context
+            .sub(&context.index(0).unwrap(), &context.integer(3))
+            .unwrap();
+        let numerator = residual_affine_polynomial(
+            &context,
+            &context
+                .mul(
+                    &boundary_coefficient,
+                    &context
+                        .add(&context.index(1).unwrap(), &context.one())
+                        .unwrap(),
+                )
+                .unwrap(),
+        );
+        let stats = context
+            .prepare_residual_affine_boundary_numerator_classification(
+                &boundary,
+                &numerator,
+                ResidualAffineBoundaryNumeratorLimits::default(),
+            )
+            .unwrap()
+            .stats();
+        let exact = exact_residual_affine_boundary_numerator_limits(stats);
+        context
+            .prepare_residual_affine_boundary_numerator_classification(&boundary, &numerator, exact)
+            .unwrap()
+            .execute()
+            .unwrap();
+
+        macro_rules! reject_one_below {
+            ($field:ident, $requested:expr) => {{
+                let requested = $requested;
+                assert!(requested > 0, stringify!($field));
+                let mut one_below = exact;
+                one_below.$field = requested - 1;
+                match context.prepare_residual_affine_boundary_numerator_classification(
+                    &boundary, &numerator, one_below,
+                ) {
+                    Err(ResidualAffineBoundaryKernelError::ResourceLimit {
+                        requested: actual,
+                        limit,
+                        ..
+                    }) => {
+                        assert_eq!(actual, requested, stringify!($field));
+                        assert_eq!(limit, requested - 1, stringify!($field));
+                    }
+                    _ => panic!("{} unexpectedly accepted one below", stringify!($field)),
+                }
+            }};
+        }
+        reject_one_below!(
+            max_context_fingerprint_comparison_bytes,
+            stats.context_fingerprint_comparison_bytes()
+        );
+        reject_one_below!(max_boundary_terms, stats.boundary_terms());
+        reject_one_below!(
+            max_boundary_exponent_entries,
+            stats.boundary_exponent_entries()
+        );
+        reject_one_below!(max_boundary_integer_bits, stats.boundary_integer_bits());
+        reject_one_below!(max_numerator_terms, stats.numerator_terms());
+        reject_one_below!(
+            max_numerator_exponent_entries,
+            stats.numerator_exponent_entries()
+        );
+        reject_one_below!(max_numerator_integer_bits, stats.numerator_integer_bits());
+        reject_one_below!(
+            max_affine_authentication_term_visits,
+            stats.affine_authentication_term_visits()
+        );
+        reject_one_below!(
+            max_affine_authentication_exponent_entry_visits,
+            stats.affine_authentication_exponent_entry_visits()
+        );
+        reject_one_below!(
+            max_divisibility_input_term_pair_bound,
+            stats.divisibility_input_term_pair_bound()
+        );
+        reject_one_below!(max_divisibility_call_bound, stats.divisibility_call_bound());
+        reject_one_below!(
+            max_source_copy_temporary_byte_bound,
+            stats.source_copy_temporary_byte_bound()
+        );
+        reject_one_below!(
+            max_retained_owned_logical_bytes,
+            stats.retained_owned_logical_bytes()
+        );
     }
 
     #[test]

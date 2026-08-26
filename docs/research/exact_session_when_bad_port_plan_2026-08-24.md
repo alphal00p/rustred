@@ -8,10 +8,12 @@ normalized-source V2 ordering-policy binding, and the K21 evidence were pushed
 at checkpoint `c593865`; the current checkpoint carries the
 allocation-independent Direct identity through ordering V3, physical frame V2,
 solve-plan V2, and source-profiled exact-session Ready analysis without a fake
-inventory. A non-publishing owner-bound Ready condition plan and a
-Symbolica-backed physical-parameter identity projector are now implemented;
-mapped condition composition, boundary specialization, relative partitioning,
-and publication remain next; updated 2026-08-25.
+inventory. A non-publishing owner-bound Ready condition plan, a
+Symbolica-backed physical-parameter identity projector, arbitrary-width direct
+bad-formula routing, and the source-neutral exact affine-boundary
+mapping/divisibility kernel are now implemented. Owner-bound mapped-condition
+materialization, relative partitioning, and publication remain next; updated
+2026-08-25.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -223,21 +225,27 @@ subsequently passed 6/6 focused tests with four Nextest workers; the independent
 parameter-identity projector passed 6/6 focused tests with four Rust test
 threads. Independent combined run
 `f6c4a9e7-fcc1-4c48-ae3c-5f2c0d781e42` passed 22/22 tests with four Nextest
-workers, including affected Ready/session regressions. The next seam is mapped
-condition composition, exact boundary specialization, relative `WhenBad`
-partitioning, and publication. It must not reconstruct V4, V5, the live-leaf
-queue, or Boolean/DPLL certificates. No Direct input has produced a published
-guarded rule or reduced a physical topology, and the successful `K=21` cursor
-fixture still has not reached Ready or established six-loop support.
+workers, including affected Ready/session regressions. Allocation-independent
+arbitrary-width OR-of-AND routing subsequently passed 12/12 focused tests. The
+source-neutral affine-boundary kernel passed 8/8 focused tests for exact
+arbitrary-width values, compact/identity maps, zero/divisible/nondivisible
+numerators, malformed inputs, panic recovery, and exact/one-below limits. A
+licensed default-GMP parallel library run including both kernels passed
+1091/1091. The next seam is owner-bound mapped-condition materialization,
+relative `WhenBad` partitioning, and publication. It must not reconstruct V4,
+V5, the live-leaf queue, or Boolean/DPLL certificates. No Direct input has
+produced a published guarded rule or reduced a physical topology, and the
+successful `K=21` cursor fixture still has not reached Ready or established
+six-loop support.
 
-Not yet implemented are the materialized mapped-condition transcript and
-relative partition, exact affine-boundary divisibility specialization, the
-terminal current-lineage exact `WhenBad` compiler, target-consuming rule
-publication, exceptional residual orchestration, or replayable current-lineage
-rule/residual handles. The current event ledger is a complete transcript only
-for its implemented non-publishing dispositions; its schema and replay must be
-extended with the future `WhenBad`, publication, and residual manifests. The
-mature `GeneratedResidualAffine...`
+Not yet implemented are the owner-bound materialized mapped-condition
+transcript and relative partition, integration of the implemented
+source-neutral boundary/formula kernels into the terminal current-lineage exact
+`WhenBad` compiler, target-consuming rule publication, exceptional residual
+orchestration, or replayable current-lineage rule/residual handles. The current
+event ledger is a complete transcript only for its implemented non-publishing
+dispositions; its schema and replay must be extended with the future `WhenBad`,
+publication, and residual manifests. The mature `GeneratedResidualAffine...`
 implementation is an oracle, not production authority for these missing
 pieces. Full LiteRed parity, arbitrary one-loop pentagon reduction, and the
 high-throughput two- through six-loop vacuum milestones therefore remain
@@ -987,8 +995,10 @@ Implement in this order:
    now enter Ready without sampling away their compact geometry. Focused and
    independent licensed default-GMP tests are green. The owner-bound
    identity/compact condition schedule and Symbolica physical-parameter
-   identity projection are also implemented. Next compose the scheduled
-   conditions, specialize boundaries, build the relative `WhenBad` partition,
+   identity projection are also implemented, as are source-neutral
+   arbitrary-width formula routing and exact affine-boundary
+   mapping/divisibility. Next materialize the scheduled mapped conditions,
+   bind these kernels into the owner, build the relative `WhenBad` partition,
    and publish. This has not reached reduction, publication, or six-loop
    topology support;
    retain the MTBDD only as a
@@ -997,9 +1007,10 @@ Implement in this order:
 7. exact-`Integer` geometry, descent, boundary, condition, and pullback cores —
    selector-independent compact-affine geometry, fixed-chamber descent/lazy
    hazards, an owner-bound transform/source schedule, and physical-parameter
-   identity projection are implemented; coefficient/guard composition,
-   boundary divisibility, formula construction, relative partitioning, and
-   pullback remain pending;
+   identity projection are implemented; arbitrary-width direct formula
+   construction/routing and source-neutral exact affine-boundary divisibility
+   are implemented as reusable kernels. Owner-bound coefficient/guard
+   composition, relative partitioning, and pullback remain pending;
 8. owning current-lineage exact `WhenBad` terminal compiler;
 9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
 10. extend the implemented chronological replay with durable rule/residual
