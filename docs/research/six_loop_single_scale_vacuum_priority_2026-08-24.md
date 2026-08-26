@@ -322,10 +322,10 @@ first one-declared-sector arity-21 Ready gate.
 
 `PreparedPublication` is a move-owned live-session input and must not become a
 serialized interchange type. The durable unit is an immutable, coverage-
-closed shard for one canonical `(family, sector, ordering, coefficient
-specialization, domain)` job. The first format is intentionally disposable and
-carries a simple RustRed/Symbolica revision tag, not a migration promise. A
-shard contains:
+closed shard for one topology-neutral `CampaignJobKey = (convention, family,
+sector, ordering, coefficient specialization, domain, terminal policy)` job.
+The first format is intentionally disposable and carries a simple
+RustRed/Symbolica revision tag, not a migration promise. A shard contains:
 
 - explicit family, unit-mass, routing, sector, ordering, domain, and parameter-
   embedding conventions;
@@ -340,6 +340,15 @@ shard contains:
 - explicitly selected master terminals or independently certified zero and
   factorized terminals, never masters inferred from an uncovered, unsupported,
   resource-limited, or timed-out frontier.
+
+The planned `CampaignPlan` precedes this artifact and is intentionally weaker:
+it will be a non-durable scheduling value containing roots, exact job
+identities, dependencies, and deterministic ready-job antichains, but no rules
+and no `Closed` claim. The first topology-neutral slice will use exact family-
+representation identity and identity ingress, share one strict proper-subsector
+child between parents, and reject cycles or non-descending edges.
+Verified routing and cross-family transports are later extensions of the same
+plan rather than prerequisites for testing its scheduler.
 
 A whole calculation uses a lightweight multi-start campaign bundle. Its root
 table maps every user topology/family/start domain through a verified ingress
@@ -356,18 +365,40 @@ same-rank family/routing maps are collapsed into ingress aliases before DAG
 construction; a cross-family dependency is admitted only with a strict
 well-founded job-rank decrease.
 
+Campaign merge is deterministic and transactional: an equal job key with an
+equal payload deduplicates, while the same key with a different payload is a
+conflict; the same root ID with a different ingress map also conflicts. A
+shared child is one object with multiple incoming edges. Incompatible
+conventions or coefficient contexts remain distinct unless an exact transport
+is verified, and same-rank equivalences remain aliases rather than dependency
+edges. A cycle, non-descending edge, or incomplete shard rejects the proposed
+closed-manifest update.
+
 Closed shards are written atomically and the campaign manifest is installed
 last. Incomplete or interrupted work lives in a separate resumable workspace
-that the reducer cannot open as `Closed`. Loading validates each unique shard
-once before constructing shared in-memory owners, then checks exact rule
-residuals from the compact witnesses and checks dependency descent. Full source
-transcripts, modular samples, reconstruction traces, content addressing,
-canonical byte serialization, and detailed derivation replay are optional
-audit/scaling extensions, not repeated internal authentication. A CLI should
-expose at least `plan`, `derive --resume`, `verify --exact`, `inspect`, and
-later `reduce` phases. Single
+that the reducer cannot open as `Closed`. Finalization, explicit
+`verify --exact`, and first trust of an external artifact check each unique
+shard's exact rule residuals from compact witnesses and verify dependency
+descent. Success may write a local receipt bound to the disposable artifact
+checksum and exact RustRed/Symbolica revisions. Ordinary loading of a locally
+finalized artifact performs lightweight schema/revision, convention, format-
+local checksum, and DAG structural checks and may reuse that receipt. Full
+source transcripts, modular samples, reconstruction traces, content addressing,
+canonical cross-revision byte serialization, signatures, and detailed
+derivation replay remain optional. A CLI should expose at least `plan`,
+`derive --resume`, `verify --exact`, `inspect`, and later `reduce` phases. Single
 `I(...)` input remains the convenient one-root special case; TOML or one
 `Campaign(root(...),root(...))` Symbolica expression supplies multiple starts.
+
+Exact `Closed` admission reconstructs every family and coefficient context,
+replays ingress and dependency maps, regenerates the generic IBP/LI sources and
+proves every rule residual exactly zero in Symbolica, proves strict RHS and
+dependency descent, proves complete declared-domain routing to rules or a
+finite selected/certified terminal set (including finite products), and rejects
+all cycles and unresolved routes. It runs at finalization, explicit exact
+verification, or first external trust; a later local load may use the valid
+receipt. One-worker and multi-worker evaluation must have identical
+mathematical semantics. Full chronological replay is optional.
 
 ## 5. Online batch reduction runtime
 
@@ -484,6 +515,12 @@ four loops with RustRed's raw masters left unsubstituted and must pass
 numerator/denominator cancellation closure. The optimized batch runtime is
 prioritized only after the physical six-loop derivation gate; it is not needed
 to make that gate meaningful.
+
+Vakint acceptance compares the final normalized expression over those
+unsubstituted master/terminal symbols, together with its semantic guard domain
+after the explicit convention map. It does not require RustRed to rediscover
+the same authored FORM recurrence identities, pivot order, or intermediate
+rules.
 
 Vakint is not a generic derivation oracle: its four-loop FMFT-backed outputs
 are frozen compatibility/end-to-end data, and it provides no five- or six-loop
@@ -656,17 +693,22 @@ or physical-topology calculation.
    passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests with
    four threads. Retain the full per-stage rebuild while it is the correctness
    bridge, export its now-committed native telemetry to campaign benchmarks,
-   profile its `O(K)` scratch and cumulative `O(P^2)` tendency, and finish
-   `GeneratedFamilySymbolicResidualSolveV1` with exceptional scheduling,
-   solved-subsector feedback, a proved coverage fixed point, exact residual
-   verification, and the distinct 36-source session batch.
+   and profile its `O(K)` scratch and cumulative `O(P^2)` tendency. Then
+   implement the non-durable topology-neutral `CampaignPlan` slice with exact
+   representation-level deduplication, identity ingress, shared proper-
+   subsector children, cycle/non-descent rejection, and a deterministic ready-
+   job antichain before finishing `GeneratedFamilySymbolicResidualSolveV1` with
+   exceptional scheduling, solved-subsector feedback, a proved coverage fixed
+   point, exact residual verification, and the distinct 36-source session
+   batch.
 10. Replace quadratic session event/target storage and add unit-mass `Q(d)`
     specialization plus modular/reconstruction services through public
     Symbolica finite-field and polynomial APIs.
-11. Add topology-generic graph ingestion, deterministic ISP completion,
-    factorization, graph-lifted symmetry candidates, and the canonical lazy
-    physical-sector dependency DAG; compile immutable closed job shards into
-    deterministic multi-start campaign bundles.
+11. Extend the earlier `CampaignPlan` with topology-generic graph ingestion,
+    deterministic ISP completion, factorization, graph-lifted symmetry
+    candidates, verified routing, and canonical job identity; then build the
+    canonical lazy physical-sector dependency DAG and compile immutable closed
+    job shards into deterministic multi-start campaign bundles.
 12. Derive the complete Vakint one- through four-loop replacement-system
     corpus without FORM or copied recurrences. Use a minimal generic
     application seam to compare normalized reductions with unsubstituted

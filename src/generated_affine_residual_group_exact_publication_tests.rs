@@ -33,6 +33,7 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
     GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
+use crate::native_sparse_scaling::NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA;
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
 fn ready_for_publication(
@@ -167,7 +168,70 @@ fn larger_recentered_row_uses_the_same_compact_publication_and_exact_census() {
     let expected_terms = prepared.ready().terms().len();
     assert!(expected_terms >= 3);
     let expected_publication_bytes = session.publication_retained_bytes_for_test(&prepared);
+    let before_native = session.native_sparse_scaling_stats();
     session.commit_publication(prepared).unwrap();
+    let after_native = session.native_sparse_scaling_stats();
+    assert_eq!(
+        after_native.committed_stage_count(),
+        before_native.committed_stage_count() + 1,
+        "publication must commit exactly the native stage retained by its Ready token"
+    );
+    assert_eq!(
+        after_native.committed_stage_count(),
+        session.event_stats().events(),
+        "every committed exact-session event must have one validated native stage"
+    );
+    assert!(!after_native.cumulative_saturated());
+    let last_native = after_native.last();
+    assert!(last_native.rows() > 0);
+    assert!(last_native.physical_columns() > 0);
+    assert!(last_native.input_entries() > 0);
+    assert_eq!(
+        last_native.observed_native_output_entries(),
+        last_native
+            .native_u_entries()
+            .checked_add(last_native.native_l_entries())
+            .unwrap()
+    );
+    assert!(
+        last_native.prospective_native_output_entries()
+            >= last_native.observed_native_output_entries()
+    );
+    let first_toml = toml::to_string_pretty(&after_native).unwrap();
+    let second_toml = toml::to_string_pretty(&session.native_sparse_scaling_stats()).unwrap();
+    assert_eq!(first_toml.as_bytes(), second_toml.as_bytes());
+    let document: toml::Value = toml::from_str(&first_toml).unwrap();
+    assert_eq!(
+        document["schema"].as_str(),
+        Some(NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA)
+    );
+    assert_eq!(document["scope"].as_str(), Some(after_native.scope()));
+    assert_eq!(
+        document["counter_encoding"].as_str(),
+        Some(after_native.counter_encoding())
+    );
+    let returned_trace_entries = last_native.returned_trace_entries().to_string();
+    let coefficient_algebra_work = last_native.coefficient_algebra_work().to_string();
+    let coefficient_exponent_entry_work = last_native.coefficient_exponent_entry_work().to_string();
+    let coefficient_integer_bit_work = last_native.coefficient_integer_bit_work().to_string();
+    assert_eq!(
+        document["last"]["returned_trace_entries"].as_str(),
+        Some(returned_trace_entries.as_str())
+    );
+    assert_eq!(
+        document["last"]["coefficient_algebra_work"].as_str(),
+        Some(coefficient_algebra_work.as_str())
+    );
+    assert_eq!(
+        document["last"]["coefficient_exponent_entry_work"].as_str(),
+        Some(coefficient_exponent_entry_work.as_str())
+    );
+    assert_eq!(
+        document["last"]["coefficient_integer_bit_work"].as_str(),
+        Some(coefficient_integer_bit_work.as_str())
+    );
+    assert!(document.get("wall_time").is_none());
+    assert!(document.get("rss").is_none());
     assert_eq!(
         session.last_publication_term_count_for_test(),
         Some(expected_terms)

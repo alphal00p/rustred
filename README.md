@@ -502,12 +502,14 @@ the atomic session transition advances the database, consumes one selected
 target, and stores those values with the centered relation terms and target
 locator/offset in one event. It drops derivation-only translation, guards,
 statistics, source recipe, and pivot evidence. Shallow applicable and
-exceptional projections are implemented. The active path must migrate the
-live database to Symbolica's incremental reducer, then schedule residual and
-solved-subsector work and prove a coverage fixed point. Multi-start shard/bundle
+exceptional projections are implemented. The active path must retain and fork
+Symbolica's already-authoritative incremental reducer instead of rebuilding it
+from prior pivots at every stage, add the topology-neutral shared-job campaign
+plan, then schedule residual and solved-subsector work and prove a coverage
+fixed point. Multi-start shard/bundle
 compilation and physical six-loop derivation profiling follow before the
-optimized concrete batch-application runtime. The `SparseRowReducer`
-transcript-equivalence path is now the immediate algebra gate; graph-lifted
+optimized concrete batch-application runtime. The retained `SparseRowReducer`
+transaction is now the immediate algebra-scaling gate; graph-lifted
 symmetry discovery and unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
@@ -553,17 +555,20 @@ remaining generic LiteRed-style foundry work is to:
    profile physical families, evaluate a rollback-safe persistent reducer, and
    retain exact regenerated-residual checks around the now-live Symbolica
    transcript authority;
-2. add an owning exactly-once exceptional queue, a sealed committed-
+2. implement the minimal topology-neutral campaign plan with exact
+   representation-level job deduplication, shared proper-subsector children,
+   and a deterministic ready-job antichain;
+3. add an owning exactly-once exceptional queue, a sealed committed-
    exceptional source, and rejected-candidate continuation; then integrate
    provider scheduling;
-3. feed solved subsectors into supersectors, iterate residual cases, and prove
+4. feed solved subsectors into supersectors, iterate residual cases, and prove
    closure onto a finite enumerated set of selected or independently certified
    terminal keys (or finite products), never a symbolic residual domain;
-4. compile closed family/sector shards into deterministic multi-start campaign
-   bundles with shared dependency nodes;
-5. pass the complete Vakint one- through four-loop replacement-system lane and
+5. extend that plan with verified routing/dependencies and compile closed
+   family/sector shards into deterministic multi-start campaign bundles;
+6. pass the complete Vakint one- through four-loop replacement-system lane and
    derivation-only physical five-/six-loop scalability gates; and
-6. implement optimized application-time specialization plus optional
+7. implement optimized application-time specialization plus optional
    publication audit replay and expose a coverage-backed reduction result.
 
 This current-lineage state does not complete RustRed's stated mathematical
@@ -610,14 +615,20 @@ authority linearly and performs no duplicate pairwise Symbolica-associate scan.
 Compact route preparation is now a single move-only owner transition rather
 than a separately authenticated manifest, and the atomic compact-event commit
 now consumes one selected target. Its shallow event owner exposes applicable
-and exceptional views without copying the row or partition. The immediate gate
-is the physical-key-catalog and differential-shadow integration that makes the
-tested Symbolica adapter authoritative in the exact database, followed by the
-owning exceptional/subsector scheduler and a proved coverage fixed point.
+and exceptional views without copying the row or partition. The complete
+physical-key catalog and differential shadow now make the tested Symbolica
+adapter authoritative in the exact database. Its deterministic committed
+native-sparse snapshot is a crate-private campaign seam; wall time and RSS stay
+outside algebraic state. The immediate gates are physical-family profiling,
+the minimal shared-child campaign plan, then the owning exceptional/subsector
+scheduler and a proved coverage fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
-precede optimized application and optional publication audit replay. No arity-21
-case has reached Ready, no guarded rule has been published, no physical
-topology was reduced, and no complete reduction is claimed.
+precede optimized application and optional publication audit replay. The
+`rustred derive` command remains a raw parametric-IBP/LI generator and does not
+run this closure path or emit native-sparse telemetry. No arity-21 case has
+reached Ready, no coverage-closed durable guarded-rule shard has been
+published, and the current generated-affine exact-session lineage has not
+closed or reduced a complete physical family.
 
 Further capability coverage informed by LiteRed2 includes broader symmetry
 discovery, partial fractions for dependent or overcomplete propagator lists,

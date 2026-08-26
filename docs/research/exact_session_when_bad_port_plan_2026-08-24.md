@@ -66,7 +66,10 @@ Vakint's one- through four-loop FORM-backed replacement systems are therefore
 black-box acceptance oracles and a required coverage target, not an input rule
 source: RustRed must independently derive the corresponding parametric rules,
 apply them natively in Rust/Symbolica, and only then compare normalized
-concrete reductions with the frozen Vakint results.
+concrete reductions with the frozen Vakint results. Acceptance is equality of
+the final expression over unsubstituted master/terminal symbols and its
+semantic guard domain after the explicit convention map, not identity with an
+authored FORM recurrence, pivot order, or intermediate rule sequence.
 
 Private in-memory Rust types are trusted to preserve invariants established by
 their sealed constructors. New forward-path stages must not add schema strings,
@@ -879,9 +882,20 @@ residual domain cannot be declared terminal. An
 unsupported, resource-limited, interrupted, or merely free-column state is a
 resumable incomplete workspace, not a master and not a loadable closed shard.
 
+Before any durable format, the planned `CampaignPlan` is a topology-neutral,
+non-authoritative planning value: it will record requested roots, exact job
+identities, dependencies, and deterministic ready-job antichains, but will
+contain no rules and cannot be opened as `Closed`. Its first implementation
+slice will use exact family-representation identity and identity ingress only,
+deduplicate a shared proper-subsector child, reject non-descending edges, and
+return the same ready antichain independent of root insertion order. Verified
+routing and cross-family transports extend this model later without changing
+that boundary.
+
 Multiple user starting topologies are compiled as one campaign DAG rather than
-one flattened transaction. Each canonical `(family, sector, ordering,
-coefficient specialization, domain)` job owns one immutable closed shard;
+one flattened transaction. The topology-neutral `CampaignJobKey` is
+`(convention, family, sector, ordering, coefficient specialization, domain,
+terminal policy)`. Each canonical job owns one immutable closed shard;
 verified ingress maps preserve every root, and strict dependency edges share
 proper subsectors, factorizations, and rank-decreasing cross-family transports.
 The bundle's canonical family ID is constructed only after verified routing,
@@ -894,19 +908,42 @@ are written independently and the lightweight campaign manifest is installed
 last, so extending a campaign can reuse already closed jobs without rewriting
 unrelated shards.
 
-Durable artifacts are an actual trust boundary. Loading each unique shard
-validates its complete payload once against the current family and coefficient
-context before constructing normal shared in-memory owners. Every closed shard
-retains a compact sparse source-combination/residual witness sufficient to
-check each rule exactly against freshly regenerated generic IBPs; this is
-compiled after closure and does not require the compact live event to retain
-its discarded source recipe or pivot evidence. It need not reproduce every
-internal historical stage, and internal artifact formats may be replaced
-freely during development. Exact mathematical residual checks and dependency
-descent remain mandatory; complete chronological derivation transcripts and
-canonical-byte checksums are optional audit features unless canonical
-serialization is deliberately promised. Only external/stable formats acquire
-explicit versions when they are intentionally published.
+Campaign merge is deterministic and transactional. Equal job keys with equal
+payloads deduplicate; equal keys with different payloads conflict. Reusing a
+root ID with different ingress conflicts. A shared child is stored once with
+multiple incoming edges, while incompatible conventions or coefficient
+contexts remain distinct unless an exact transport is verified. Same-rank
+equivalences are ingress aliases, not dependency edges; a cycle, non-descending
+edge, or incomplete shard rejects the proposed merge without changing the last
+complete manifest.
+
+Durable artifacts are an actual trust boundary. Every closed shard retains a
+compact sparse source-combination/residual witness sufficient to check each
+rule exactly against freshly regenerated generic IBPs; this is compiled after
+closure and does not require the compact live event to retain its discarded
+source recipe or pivot evidence. It need not reproduce every internal
+historical stage, and internal artifact formats may be replaced freely during
+development.
+
+Finalizing `Closed`, an explicit `verify --exact`, and the first trust of an
+external artifact perform the compact exact admission: reconstruct every family
+and coefficient context; replay ingress and dependency maps; regenerate the
+generic IBP/LI sources and prove every rule residual zero in Symbolica; prove
+strict RHS and dependency descent; prove complete routing of every declared
+domain to rules or a finite selected/certified terminal set (including finite
+products); and reject every cycle or unresolved route. Success may write a
+local verification receipt bound to the disposable artifact checksum and exact
+RustRed/Symbolica revisions.
+
+An ordinary load of a locally finalized artifact performs only lightweight
+schema/revision, convention, format-local checksum, and DAG structural checks,
+and may reuse that exact-verification receipt. Any payload, convention, or
+relevant implementation-revision change invalidates the receipt. Full source
+regeneration is not repeated on every local load. Complete chronological
+derivation transcripts, content addressing, canonical cross-revision byte
+serialization, and signatures remain optional; a derivation transcript is not
+an admission requirement. One-worker and multi-worker evaluation must have the
+same mathematical semantics.
 
 ## 7. Condition provenance and ordering
 
@@ -1146,6 +1183,9 @@ defines canonical serialization.
 
 ### Multi-start campaign-bundle gates
 
+- A `CampaignPlan` with two parents sharing one exact proper-subsector job stores
+  one child, exposes the deterministic ready antichain, and remains visibly
+  distinct from any durable `Closed` bundle.
 - Two routing/permutation-equivalent roots produce one canonical shard and two
   verified ingress maps; reversing root order or worker count preserves bundle
   semantics.
@@ -1162,9 +1202,15 @@ defines canonical serialization.
 - Adding a root reuses unaffected shards; changing one child invalidates only
   reachable ancestors; failure before final manifest installation preserves
   the previous complete bundle.
-- A loaded bundle validates each unique external shard once, checks every
-  dependency map and strict descent, and reproduces exact zero residuals for
-  every rule. Detailed source replay remains an optional audit.
+- Equal job keys plus equal payloads merge idempotently; equal keys plus unequal
+  payloads and equal root IDs plus unequal ingress maps are typed conflicts.
+- Finalization, explicit `verify --exact`, or first trust of each unique
+  external shard reconstructs its family/context and verifies ingress maps,
+  strict rule/dependency descent, domain coverage, finite selected/certified
+  terminals, and exact zero residuals against regenerated generic IBP/LI
+  sources. A later ordinary local load may reuse the revision- and checksum-
+  bound receipt after lightweight structural checks. Detailed source replay
+  remains an optional audit.
 - Same-rank routing/family equivalences become aliases before DAG construction;
   a cross-family dependency without a strict well-founded rank decrease, or
   any dependency cycle, is rejected.
@@ -1288,16 +1334,22 @@ Implement in this order:
    exported and profiled rather than
    presented as a complete topology reduction, Vakint reproduction, or
    six-loop scaling result;
-9. add owning exceptional residual scheduling, sealed committed-exceptional
-   source ingress, rejected-candidate continuation, and solved-subsector
-   feedback; then iterate those queues to a proved coverage fixed point with exact regenerated-
-   IBP residuals and a finite enumerated selected/certified terminal-key set;
-   only then construct an immutable closed family/sector shard;
+9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
+   representation-level deduplication, identity ingress, one shared proper-
+   subsector child, cycle/non-descent rejection, and a deterministic ready-job
+   antichain; then add owning exceptional residual scheduling, sealed committed-
+   exceptional source ingress, rejected-candidate continuation, and solved-
+   subsector feedback; iterate those queues to a proved coverage fixed point
+   with exact regenerated-IBP residuals and a finite enumerated selected/
+   certified terminal-key set; only then construct an immutable closed family/
+   sector shard;
 10. replace the quadratic event/target replacement storage, add unit-mass
     specialization and required Symbolica-backed acceleration, and preserve
     resumable incomplete workspaces separately from closed shards;
-11. compile deterministic multi-start campaign bundles with verified ingress
-    maps and shared subsector, factorization, and cross-family dependencies;
+11. extend the earlier `CampaignPlan` with verified routing, canonical job
+    identity, and shared subsector, factorization, and cross-family dependencies;
+    then compile closed shards into deterministic multi-start campaign bundles
+    with verified ingress maps;
 12. derive the complete Vakint one- through four-loop replacement-system
     corpus without FORM or copied recurrences, using a minimal generic
     application seam only for exact external-oracle comparisons;

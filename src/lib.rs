@@ -19,6 +19,7 @@ mod coverage_decision_dag;
 mod direct_bad_formula;
 mod direct_bad_formula_arbitrary;
 mod exact_identity;
+mod native_sparse_scaling;
 mod parametric_sector_formula_affine_terminal;
 mod parametric_sector_formula_ir;
 mod parametric_sector_formula_residual;

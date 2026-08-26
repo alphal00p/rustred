@@ -35,7 +35,6 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
     GeneratedAffineResidualGroupExactDatabaseLimits,
-    GeneratedAffineResidualGroupExactNativeSparseScalingStats,
     GeneratedAffineResidualGroupExactReductionStep,
     GeneratedAffineResidualGroupPreparedExactRowCommit,
     GeneratedAffineResidualGroupRetainedExactDependentReductions,
@@ -74,6 +73,7 @@ use crate::generated_affine_residual_group_solve_plan::{
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
+use crate::native_sparse_scaling::NativeSparseScalingSnapshot;
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
     ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
@@ -2838,10 +2838,8 @@ impl GeneratedAffineResidualGroupExactSession {
 
     /// Deterministic committed native-reconstruction telemetry for scaling
     /// harnesses. This diagnostic snapshot is excluded from replay identity.
-    pub(crate) const fn native_sparse_scaling_stats(
-        &self,
-    ) -> GeneratedAffineResidualGroupExactNativeSparseScalingStats {
-        self.database.stats().native_sparse_scaling()
+    pub(crate) fn native_sparse_scaling_stats(&self) -> NativeSparseScalingSnapshot {
+        self.database.stats().native_sparse_scaling().into()
     }
 
     pub(crate) const fn publishes_rule(&self) -> bool {

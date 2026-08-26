@@ -114,16 +114,28 @@ Concrete topologies and concrete integer powers are permitted only for:
 
 During development, cached rules are disposable revision-tagged artifacts.
 They record explicit family/kinematics/order conventions, domains, guards,
-routes, and dependencies and are validated once when loaded. Full source
-provenance/reconstruction is an optional audit payload. No migration promise
-applies until an external artifact format is intentionally declared stable.
-Every cached rule must remain reproducibly derivable from the generic engine.
+routes, and dependencies. Exact regenerated-IBP validation is mandatory when a
+bundle is finalized as `Closed`, for explicit `verify --exact`, and on first
+trust of an external artifact. Ordinary loading of a locally finalized artifact
+uses lightweight schema/revision, convention, format-local checksum, and DAG
+structural checks and may reuse a checksum- and revision-bound exact-
+verification receipt. Full source provenance and chronological replay remain
+optional audit payloads. No migration promise applies until an external
+artifact format is intentionally declared stable. Every cached rule must remain
+reproducibly derivable from the generic engine; signatures are optional.
 
 `PreparedPublication` is an internal move-owned live-session value, not the
-durable format and not a complete rule set. A durable multi-start campaign
-contains immutable coverage-closed shards keyed by canonical family, sector,
-ordering, coefficient specialization, and declared domain; verified ingress
-maps connect every user root, and a strict DAG shares proper-subsector,
+durable format and not a complete rule set. The planned `CampaignPlan` will
+also not be a durable rule artifact: it is a topology-neutral scheduling value
+containing roots, exact job identities, dependencies, and deterministic ready-
+job antichains, with no rules and no `Closed` claim. Its first implementation
+slice will use exact family-representation identity and identity ingress, share
+strict proper-subsector children, and reject cycles and non-descending edges.
+
+A durable multi-start campaign contains immutable coverage-closed shards keyed
+by the topology-neutral `(convention, family, sector, ordering, coefficient
+specialization, declared domain, terminal policy)` job identity; verified
+ingress maps connect every user root, and a strict DAG shares proper-subsector,
 factorization, and cross-family dependencies. Incomplete, unsupported,
 resource-limited, or interrupted derivations belong to a separate resumable
 workspace type and cannot be opened as a closed reduction bundle. Shards are
@@ -136,6 +148,24 @@ aliases before DAG construction, while cross-family dependency edges require a
 strict well-founded rank decrease. Each closed shard retains a compact sparse
 source-combination/residual witness for exact checking against freshly
 regenerated generic IBPs; full chronological transcripts remain optional.
+
+Campaign merge is deterministic and transactional. Equal job keys with equal
+payloads deduplicate; equal keys with different payloads conflict, as does a
+reused root ID with a different ingress map. A shared child is stored once with
+multiple incoming edges. Incompatible conventions or coefficient contexts
+remain distinct unless an exact transport is verified; same-rank equivalences
+remain ingress aliases. Cycles, non-descending dependencies, and incomplete
+shards reject a proposed closed-manifest update.
+
+Exact `Closed` admission reconstructs every family/context, verifies ingress
+and dependency maps, regenerates generic IBP/LI sources and proves every rule
+residual exactly zero in Symbolica, proves strict RHS/dependency descent, and
+proves complete declared-domain routing to rules or a finite selected/certified
+terminal set (including finite products). Cycles and unresolved routes are
+rejected. It runs at finalization, explicit `verify --exact`, or first external
+trust; a later ordinary local load may reuse the checksum- and revision-bound
+receipt after lightweight structural checks. One-worker and multi-worker
+evaluation must agree semantically; full derivation replay is optional.
 
 ## Required scalar scope
 
@@ -224,7 +254,10 @@ pass this lane:
    input after explicit propagator-power cancellation, before IBP and again on
    the unreplaced-master result and semantic guard loci;
 3. exact normalized reductions against Vakint through its four-loop support,
-   using Vakint only as an external behavioral oracle; and
+   using Vakint only as an external behavioral oracle, comparing the final
+   expression over unsubstituted master/terminal symbols and its semantic guard
+   domain after the convention map—not the identity of authored FORM
+   recurrences, pivot order, or intermediate rules; and
 4. held-out routings, loop bases, numerator shells, primes, and specializations
    beyond that oracle through five and six loops.
 
@@ -485,11 +518,12 @@ generated IBP/LI rows
    -> guarded differential/provenance replay                     [implemented]
 -> committed native sparse telemetry                            [implemented]
 -> benchmark export + persistent-reducer scaling study          [next]
+-> topology-neutral CampaignPlan: shared-child DAG + ready antichain
 -> owning provider/residual scheduling
 -> exceptional-domain recursion and solved-subsector feedback
 -> coverage fixed point (publication replay is an optional audit)
 -> immutable closed family/sector shard
--> deterministic multi-start dependency bundle
+-> exact-gated deterministic multi-start Closed bundle
 -> physical six-loop derivation-only closure and scaling gate
 -> generic provider and descending application
 ```

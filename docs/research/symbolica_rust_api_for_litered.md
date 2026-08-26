@@ -690,9 +690,10 @@ first nonzero/smallest stored column as pivot and normalizes by it (`1855`
 onward). RustRed must therefore map the hardest physical integral key to the
 smallest column. The temporary correctness bridge prebuilds the complete
 per-stage key catalog, reverses it so hardest maps to column zero, and uses
-`ncols = K + 1` for the sentinel. `add_cols` is relevant only to a later
-persistent design. RustRed owns this physics ordering, but Symbolica owns the
-pivot arithmetic and row reduction.
+`ncols = K + 1` for the sentinel. `add_cols` is the retained-state seam for the
+planned persistent design, although RustRed does not use that design yet.
+RustRed owns this physics ordering, but Symbolica owns the pivot arithmetic and
+row reduction.
 
 With `LuLMode::Full`, the public `l()`, `u()`, and `pivots()` accessors retain
 the exact incremental decomposition (`L*U=A`): a nonempty dependent row's new
@@ -747,17 +748,17 @@ not equivalent when intermediate denominators cancel. This replay performs no
 pivot search or elimination decision and therefore is not a second solver;
 every scalar operation still delegates to Symbolica-backed coefficient APIs.
 
-The public reducer mutates in place, exposes no transactional add-row/rollback,
-and its generic `Field` callback is infallible. The checked adapter
-contains the native call behind a checked panic bridge. Only the callbacks used
-by serial forward reduction implement arithmetic; `nth`, `pow`, `sample`,
-`rem`, `quot_rem`, and `gcd` fail through a typed
-`UnexpectedFieldOperation` path if a future Symbolica implementation starts
-calling them. Before construction, the adapter admits a conservative but tight
-native-output entry envelope: the prior rows that must replay verbatim, at most
-one dense physical candidate `U` row, one possible candidate factor per prior
-row, and all `L` diagonals. Once the outcome is known, it checks the exact
-returned-trace length before copying the newest `L/U` rows out.
+The public reducer mutates in place and its generic `Field` callback is
+infallible. The checked adapter contains the native call behind a checked panic
+bridge. Only the callbacks used by serial forward reduction implement
+arithmetic; `nth`, `pow`, `sample`, `rem`, `quot_rem`, and `gcd` fail through a
+typed `UnexpectedFieldOperation` path if a future Symbolica implementation
+starts calling them. Before construction, the adapter admits a conservative
+but tight native-output entry envelope: the prior rows that must replay
+verbatim, at most one dense physical candidate `U` row, one possible candidate
+factor per prior row, and all `L` diagonals. Once the outcome is known, it
+checks the exact returned-trace length before copying the newest `L/U` rows
+out.
 
 This is now the live generated-affine exact-database transcript authority. Each
 stage builds the complete physical-key catalog, maps hardest keys to the lowest
@@ -766,21 +767,42 @@ ordered factor sequence and disposition only after guarded replay verifies the
 normalization divisor and normalized row. The replay retains provenance; it
 does not select pivots or classify dependence.
 
-The first safe migration still builds a temporary reducer from the immutable
-committed-pivot log inside each non-mutating stage operation; a panic or failed
-post-check then discards only the temporary reducer and leaves the live
-database retryable. This rebuild is cumulatively `O(P^2)`. Symbolica's current
-forward reducer is serial and allocates an `O(K)` dense coefficient scratch plus
-an `O(K)` touched bitmap even when submitted rows are sparse. The `Arc` element
-removes deep polynomial duplication from that scratch, but not its column-count
-or serial-work cost. This is a correctness bridge to profile, not the six-loop-
-scalable endpoint. A persistent live reducer may replace it only after
-Symbolica supplies checkpoint/fork/rollback or RustRed defines an append-only
-rebuild/poisoned-state recovery contract. Retaining a private Gaussian solver
-to mimic transaction ceremony is not acceptable.
+The current implementation still rebuilds a temporary reducer from the
+immutable committed-pivot log inside each stage. That is a correctness bridge
+with cumulative `O(P^2)` tendency, not an API necessity. The audited public
+Symbolica 2.2.0 reducer derives `Clone` and preserves `U`, `L`, pivots, mode,
+and scratch; `add_cols` extends the retained column space and `add_row` resumes
+forward elimination. These operations are sufficient for a clone-on-stage
+transaction: clone the committed reducer, add any ordered columns and the
+candidate to the trial, decode and validate its newest transcript, and replace
+the committed reducer only after a successful independent outcome. In
+`LuLMode::Full`, a nonempty dependent candidate leaves `U` and pivots unchanged
+but appends one `L` row containing its elimination factors and no diagonal.
+RustRed can decode that row and discard the trial, keeping the committed state
+unchanged. Thus there is **no upstream functional blocker** to a persistent
+native reducer, but RustRed has **not implemented this persistent path yet**.
 
-`back_substitute` must not be called during forward closure because it clears
-or changes provenance needed by the incremental foundry.
+The prerequisite is local to RustRed: the current checked field borrows its
+coefficient context and shares an `Rc<RefCell<...>>` work ledger across field
+clones. A stored reducer first needs an owned field/context and an explicit
+controller contract that isolates or transactionally accounts each trial's
+work and failures. That refactor is not a reason to wait for a new Symbolica
+algebra API.
+
+The remaining upstream gaps are resource/performance interfaces, not
+correctness blockers. `Clone` deeply copies the vector-backed `U`, `L`, pivots,
+and dense scratch (native coefficient `Arc`s remain shallow), with no fallible
+`try_clone` or copy-on-write snapshot. The private `O(K)` dense row and touched
+bitmap expose no exact scratch-capacity census. `LuLMode::Full` retains all
+historical `L` rows because `add_row` cannot return only the new row-local
+trace, and forward elimination is serial. Useful later additions would be a
+fallible/COW fork, a scratch-capacity census, a row-local trace API without
+retained `L` history, and an explicit scratch pool plus parallel forward path.
+
+`back_substitute` and `back_substitute_parallel` must run only on a clone made
+for final RREF/publication: both mutate `U` and pivots and clear `L`, setting
+the reducer mode to `None`. Calling either on the committed forward reducer
+would destroy the state required by later incremental rows and provenance.
 
 **Compile probe LA-1:** build a tiny exact RP matrix through both dense and sparse APIs with the intended aliases and solve it.
 
