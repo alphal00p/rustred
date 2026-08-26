@@ -94,6 +94,7 @@ pub(crate) struct DeriveArgs {
     pub(crate) output: StreamPath,
     pub(crate) input_format: InputFormat,
     pub(crate) relations: RelationSelection,
+    pub(crate) n_cores: usize,
     pub(crate) force: bool,
 }
 
@@ -178,6 +179,7 @@ pub(crate) fn parse_args(
     let mut output = None;
     let mut input_format = None;
     let mut relations = None;
+    let mut n_cores = None;
     let mut force = false;
     let mut help = false;
     let mut arguments = arguments.peekable();
@@ -226,6 +228,21 @@ pub(crate) fn parse_args(
                     RelationSelection::parse(&value)?,
                 )?;
             }
+            "--n-cores" => {
+                let value = next_utf8_value(&mut arguments, "--n-cores")?;
+                let parsed = value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+                    .then(|| value.parse::<usize>().ok())
+                    .flatten()
+                    .filter(|value| *value > 0)
+                    .ok_or(ArgError::InvalidValue {
+                        option: "--n-cores",
+                        value,
+                        expected: "a positive integer",
+                    })?;
+                set_once(&mut n_cores, "--n-cores", parsed)?;
+            }
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
             _ => return Err(ArgError::UnexpectedArgument(option)),
         }
@@ -238,6 +255,7 @@ pub(crate) fn parse_args(
         output: output.unwrap_or(StreamPath::Stdio),
         input_format: input_format.unwrap_or(InputFormat::Auto),
         relations: relations.unwrap_or(RelationSelection::All),
+        n_cores: n_cores.unwrap_or(1),
         force,
     }))
 }
@@ -287,6 +305,7 @@ OPTIONS:
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --relations <SELECTION>      all, ordinary, or li [default: all]
+    --n-cores <COUNT>            Maximum worker cores for parallel stages [default: 1]
     --force                     Atomically replace an existing output file
     -h, --help                  Print this help
     -V, --version               Print the RustRed version
@@ -313,6 +332,7 @@ mod tests {
                 output: StreamPath::Stdio,
                 input_format: InputFormat::Auto,
                 relations: RelationSelection::All,
+                n_cores: 1,
                 force: false,
             })
         );
@@ -332,6 +352,8 @@ mod tests {
                 "toml",
                 "--relations",
                 "ordinary",
+                "--n-cores",
+                "4",
                 "--force",
             ])
             .unwrap(),
@@ -340,6 +362,7 @@ mod tests {
                 output: StreamPath::File("relations.toml".into()),
                 input_format: InputFormat::Toml,
                 relations: RelationSelection::Ordinary,
+                n_cores: 4,
                 force: true,
             })
         );
@@ -355,5 +378,25 @@ mod tests {
             parse(&["rustred", "derive", "--mystery"]),
             Err(ArgError::UnknownOption("--mystery".to_owned()))
         );
+        assert!(matches!(
+            parse(&["rustred", "derive", "--n-cores", "0"]),
+            Err(ArgError::InvalidValue {
+                option: "--n-cores",
+                ..
+            })
+        ));
+        assert_eq!(
+            parse(&["rustred", "derive", "--n-cores", "2", "--n-cores", "3",]),
+            Err(ArgError::DuplicateOption("--n-cores"))
+        );
+        for invalid in ["-2", "+2", "184467440737095516160"] {
+            assert!(matches!(
+                parse(&["rustred", "derive", "--n-cores", invalid]),
+                Err(ArgError::InvalidValue {
+                    option: "--n-cores",
+                    ..
+                })
+            ));
+        }
     }
 }

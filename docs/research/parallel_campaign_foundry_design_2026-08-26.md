@@ -175,6 +175,10 @@ second barrier. LI rows within that phase may be prepared independently by
 their fixed external-pair ordinals and are assembled in lexicographic order.
 For a six-loop vacuum family the 36 ordinary IBPs are small enough that cross-
 family and cross-sector parallelism is more important than this inner loop.
+The current raw one-family executor already covers this source-generation
+subset with fixed-ordinal collection, an ordinary-before-LI barrier, and tested
+`N=1`/`N=2`/`N=4` relation equality. It is not the campaign executor described
+below.
 
 ## 4. Execution architecture
 
@@ -214,6 +218,31 @@ The coordinator accepts a delta only for the expected job revision. Equal
 keys with unequal payloads are typed conflicts. Pure content-addressable
 results such as a fixed modular sample may be cached even if the producing
 workspace revision has moved; mutable state deltas may not.
+
+The current raw `derive` command already accepts `--n-cores`, owns one private
+pool for one-family source generation and relation rendering, and has no
+campaign workspaces or memory-admission layer. The public execution-width
+contract for the planned campaign remains `--n-cores N`, where `N` is positive
+and is the total core budget for the complete RustRed invocation. It is not
+applied once per root, family, sector, job, case lane, or recursive child. `N=1` runs
+the same task graph entirely on the coordinator and is the serial oracle. For
+`N>1`, the invocation constructs exactly one RustRed-owned local Rayon pool;
+the RustRed-owned scheduler neither reads nor configures Rayon's process-global
+pool. Vendored restricted/unlicensed Symbolica currently initializes a
+one-thread global fallback itself; licensed multicore campaigns do not use
+that fallback. The
+coordinator may perform compute only while holding one of the same `N` leases;
+it never adds an uncounted `(N+1)`th compute thread.
+Any public Symbolica operation admitted to use internal parallelism receives a
+lease from this same total budget, reducing simultaneous outer work rather than
+creating nested oversubscription.
+
+`N` is scheduling policy only. It may be retained in run metadata and telemetry,
+but it is excluded from canonical family/source/job identities, rule and shard
+hashes, checkpoint mathematical state, and final bundle semantic hashes.
+Changing `N` on resume therefore does not create a new mathematical campaign or
+invalidate a compatible checkpoint. Per-stage algebra limits and the campaign
+memory ceiling remain separate explicit policies.
 
 `ready_work` distinguishes intrinsic-source/solve readiness from dependency-
 ready closure, exceptional case lanes, modular samples, and verification
@@ -315,10 +344,14 @@ The public Symbolica audit fixes the available inner seams:
   `add_row`, rational-polynomial arithmetic, or polynomial GCD. Public
   polynomial GCD operations do exist and remain the algebra authority.
 
-When the executor is implemented, Rayon becomes a direct RustRed dependency
-and the campaign owns one bounded pool. RustRed must not rely on Symbolica's
-transitive Rayon dependency or the global pool. Existing compile-time probes
-cover `CheckedParametricField` and
+Rayon is now a direct RustRed dependency, and the implemented raw source
+executor owns its private bounded pool through `ParallelExecution`. The planned
+campaign executor must preserve this ownership rule with one invocation-wide
+bounded pool; it must not rely on Symbolica's transitive Rayon dependency or
+Rayon's global pool. This is a RustRed scheduler guarantee; the restricted
+Symbolica fallback described in section 4.1 remains an upstream embedding
+limitation. Existing compile-time probes cover
+`CheckedParametricField` and
 `SparseRowReducer<CheckedParametricField>`. Before production concurrency,
 RustRed must add direct `Send + Sync` probes for the persistent reducer and
 immutable campaign authorities and at least a `Send` probe for the owning
@@ -342,12 +375,47 @@ merged by its stable key, never arrival order. The worker count, task delays,
 or host scheduling must not change rules, guards, terminals, or typed
 per-job failures.
 
-The first production executor processes each sorted ready antichain with an
-indexed parallel map/collect and then performs one coordinator merge in job-key
-order. If several workers fail, the campaign reports the lowest stable failing
-key rather than whichever failure arrived first. Schedule-dependent private
-database nonces remain in-memory freshness checks and are excluded from rule,
-checkpoint, and publication identity.
+The first production executor freezes each sorted ready antichain as a logical
+key frontier, then processes it through bounded deterministic waves admitted by
+both the core and memory policy in section 4.5. An admitted wave may use an
+indexed parallel map/collect, but the executor never constructs task owners or
+reducer forks for the complete frontier eagerly. Results are durably staged and
+the coordinator performs one stable job-key merge only after the logical
+frontier is settled. If several workers fail, the campaign reports the lowest
+stable failing key rather than whichever failure arrived first. Schedule-
+dependent private database nonces remain in-memory freshness checks and are
+excluded from rule, checkpoint, and publication identity.
+
+Wave packing is specified, not left to completion timing. The coordinator
+scans the completely ordered logical frontier once and applies stable first-fit
+admission to each task's complete resource vector. A task is added when all of
+its core, retained-resident, and transient-peak requirements fit the remaining
+wave envelope; otherwise it remains a compact plan record for the next wave.
+Admitted keys keep frontier order. Because a finite logical frontier must
+settle before newly proposed work is exposed, removing every completed wave
+prevents a skipped large task from starving behind an unbounded stream of new
+small tasks. If no remaining task fits an empty wave, the lowest key receives
+the explicit oversized-task pause outcome instead of spinning.
+
+Every parallel phase follows the same barrier protocol:
+
+1. the coordinator freezes a sorted ready-antichain snapshot of compact plan
+   records, not heavyweight task owners;
+2. it selects the next deterministic bounded wave and acquires both core and
+   memory permits before constructing immutable, index-keyed worker inputs;
+3. completions are buffered under their memory permits or durably staged
+   without exposing newly proposed work; permits are released only after every
+   charged temporary/result owner is dropped or replaced by a small staged
+   descriptor;
+4. waves repeat until the logical snapshot quiesces, then the coordinator
+   merges results in stable key order and reports the lowest stable failing key
+   if necessary; and
+5. only the completed merge exposes the next sorted frontier.
+
+Source generation uses the same rule at its smaller barriers: ordinary rows
+are assembled by `ParametricRowId` before LI construction begins, and LI rows
+are assembled by fixed external-pair ordinal. No cache hit, worker completion,
+or dependency proposal can cross a barrier early.
 
 Avoid nested oversubscription. A task receives an explicit core lease. If a
 public Symbolica parallel operation is used, its thread count comes from that
@@ -367,13 +435,66 @@ must remain separate:
 - concurrent speculative clones of one large reducer are avoided because
   each trial temporarily coexists with the complete base state.
 
-If one task's admitted estimate exceeds the whole campaign memory ceiling, it
+Core and memory admission are conjunctive. A logically ready antichain is not
+an instruction to fork every member. Before constructing a task owner, cloning
+a retained reducer, or allocating its candidate/result buffers, the scheduler
+must atomically acquire both its core lease and its conservative memory
+permits. It dispatches only a bounded deterministic wave selected from the
+sorted ready antichain; unadmitted work remains as small plan records. Memory
+pressure may therefore leave worker threads intentionally idle even when
+`--n-cores` is large. Permits are released only after the worker's charged
+temporary and result owners have been dropped or a durable result has been
+staged and only its small descriptor remains live.
+
+One coordinator owns admission. A worker never holds cores while waiting for
+memory, holds memory while waiting for cores, or recursively obtains an
+unaccounted Symbolica-inner lease. The coordinator reserves the complete
+resource vector atomically before dispatch; move-only RAII reservations return
+transient permits on success, typed failure, cancellation, or recovered panic.
+The shared-controller serial fallback obeys the same admission path.
+
+The governing estimated-residency invariant is
+
+```text
+fixed runtime and safety reserve
++ shared immutable catalogs (charged once)
++ hydrated retained lane reducers
++ sum(in-flight transient peaks)
++ bounded in-memory staged results
+<= --max-memory
+```
+
+A successful clone-on-stage commit transfers the successor reducer's retained
+reservation into the hydrated-lane term; it does not release that memory as if
+the successor disappeared. Replaced base state releases its reservation only
+after it is dropped. The number of hydrated inactive lanes is itself bounded.
+When the next stable wave cannot fit otherwise, inactive lanes are selected by
+a deterministic key/epoch policy, written to a bounded streaming checkpoint,
+authenticated, and dehydrated. Rehydration is admitted and reconstructs one
+native reducer from canonical rows. Shared `Arc` payloads are charged once to
+the campaign baseline rather than once per lane.
+
+The primary high-end target is a roughly 100-core EPYC node with approximately
+1 TiB of physical RAM running six-loop single-scale vacuum campaigns.
+`--n-cores 100` is only the compute ceiling on such a node. The operator sets
+`--max-memory` below physical RAM to reserve explicit headroom for the OS,
+checkpoint I/O, allocator fragmentation, Symbolica's opaque native scratch,
+and thread-local caches. A task estimate includes the live reducer, its
+clone-on-stage successor, prospective column/catalog growth, candidate and
+result payloads, and checkpoint/output buffers. RustRed must prefer fewer live
+heavy reducers over speculative fork-all throughput; unused cores are correct
+when the RAM envelope admits no additional task.
+
+If the fixed baseline plus one task's admitted estimate exceeds the whole
+campaign memory ceiling, it
 does not wait forever. It returns `PausedForMemoryAdmission` with the estimate,
 ceiling, and last checkpoint so the user can change scheduling policy. Memory
 permits bound admitted estimates, not hard RSS: Symbolica's private allocator,
 thread-local caches, and infallible clone/add-column allocations are not fully
 censused. Allocator abort is therefore recovered by restarting from the last
-durable checkpoint, not claimed as a typed in-process error.
+durable checkpoint, not claimed as a typed in-process error. A cgroup or outer
+supervisor is required when the operator needs a hard RSS ceiling;
+`--max-memory` is RustRed's conservative scheduler envelope.
 
 For one campaign resource-policy revision, every task admission estimate is
 frozen deterministically from canonical task data and already committed task-
@@ -384,7 +505,22 @@ discovered tasks; arrival order never does. Observed global RSS is reporting
 data only and cannot change whether a task runs or pauses in the current
 revision. Using it to tune later estimates requires an explicit new resource-
 policy revision. Result channels are bounded; very large immutable results may
-be written to task-local staged files and returned as small descriptors.
+be written to task-local staged files and returned as small descriptors. A
+permit is released after staging only when the descriptor names a durable file
+and binds its content hash, size, and task key. Checkpoint and staged-result
+serialization is streaming/bounded and its buffers are charged.
+
+The estimator is phase-specific and versioned. Checked `u64`/`u128`
+arithmetic combines native U/L nonzero and column counts with serialized
+coefficient/big-integer limb sizes, row/catalog capacities, base-plus-successor
+clone overlap, projected catalog growth, reorder/result/checkpoint buffers,
+worker stack/TLS allowances, and calibrated Symbolica/allocator safety
+multipliers. Overflow is a typed planning failure, never saturation to a small
+estimate. Before a six-loop production claim, isolated representative stages
+record predicted and observed peak deltas, concurrency overhead, fragmentation,
+and the worst ratio; a frozen policy revision selects the safety multiplier.
+Observed RSS remains telemetry for that revision and can influence admission
+only through an explicit later revision.
 
 ## 5. Intrinsic solving, closure, and publication
 
@@ -506,6 +642,15 @@ are not claimed as in-memory rollback.
 Retrying with relaxed local limits creates an explicit resource-policy
 revision; it is never silently reclassified.
 
+Canonical barrier-state identity is separate from the physical execution
+manifest. Worker count, memory ceiling, estimator revision, wave boundaries,
+and hydration history may change physical checkpoint generations without
+changing the mathematical campaign. Cross-resource equivalence compares the
+canonical barrier-state hash and eventual shards/bundle, not byte-identical
+checkpoint files. Each physical generation persists its resolved resource
+policy and estimator version, committed-versus-staged descriptors, and hashes
+for every durable staged delta.
+
 Representative outcomes are:
 
 ```rust,ignore
@@ -541,7 +686,9 @@ resource-limited frontier remains unresolved.
    root permutations/idempotent repeated IDs.
 2. **Bounded in-memory executor:** one owner per job/case lane, shared family
    source catalogs, independently controlled retained Symbolica reducers, and
-   identical 1/2/4-worker results.
+   identical 1/2/4-worker results. Core and memory permits are acquired before
+   any heavyweight owner/reducer clone, so a wide ready frontier remains a
+   compact queue rather than an eager set of live forks.
 3. **Exceptional closure:** owning residual queue, rejected-candidate
    continuation, frozen-epoch affine proposals, solved-subsector feedback from
    allowlisted strict descendants, and joint dependency/exception fixed-point
@@ -572,7 +719,13 @@ The parallel foundry is accepted only after all of the following pass:
 - distinct root IDs that are verified routing aliases retain distinct ingress
   rows but share the identical canonical job/object DAG;
 - two parents sharing one subsector derive that child once;
-- 1/2/4-worker runs yield semantically identical shards and bundles;
+- the `N=1` serial oracle and `N=2`/`N=4` runs yield identical canonical task,
+  barrier-state, shard, and bundle hashes and identical mathematical output;
+  physical checkpoint-generation histories may differ and declare their
+  resource manifests;
+- an instrumented RustRed-owned executor never observes more than `N`
+  simultaneous outer and Symbolica-inner leases, creates no nested pool, and
+  neither reads nor writes Rayon's process-global pool;
 - randomized worker delay and modular arrival order do not change output;
 - candidate row preparation matches sequential ordered reducer submission;
 - one frozen exceptional epoch produces the same semantic deltas through
@@ -586,6 +739,16 @@ The parallel foundry is accepted only after all of the following pass:
   uninterrupted campaign;
 - global memory backpressure changes timing only; an individually oversized
   estimate pauses explicitly rather than deadlocking;
+- a synthetic 100-core/approximately-1-TiB admission test never exceeds its
+  configured estimated-residency ceiling, never eagerly clones the complete
+  ready frontier, transfers persistent successor reservations across commits,
+  dehydrates inactive lanes, and permits idle cores whenever the next
+  deterministic wave would exceed that ceiling;
+- admission instrumentation proves that no heavyweight owner exists before
+  its atomic core-plus-memory reservation, panic/cancellation returns its
+  transient reservation, a huge frontier remains metadata-only, staged output
+  buffers stay bounded, and fixed-baseline-plus-one-task overflow pauses rather
+  than deadlocking;
 - exact-limit and one-below-limit failures are worker-count invariant and
   resumable;
 - a worker error or recoverable panic in a forked trial leaves committed lane
@@ -599,7 +762,11 @@ The parallel foundry is accepted only after all of the following pass:
 The first performance report records named hardware, wall time, peak RSS,
 native U/L fill, coefficient work, ready-antichain width, worker utilization,
 and 1/2/4-worker speedup. A speedup claim is invalid when memory admission
-allows fewer simultaneous reducer owners than the requested worker count.
+allows fewer simultaneous reducer owners than the requested worker count. The
+six-loop report additionally records the 100-core EPYC node's physical RAM,
+configured memory ceiling/headroom, estimated-versus-observed peak per task,
+maximum simultaneous heavyweight owners, and time spent core- versus
+memory-limited.
 
 ## 10. CLI direction
 
@@ -608,12 +775,20 @@ large TOML documents:
 
 ```text
 rustred campaign plan campaign.toml
-rustred campaign derive campaign.toml --jobs 4 --max-memory 120GiB --resume work/
+rustred campaign plan campaign.toml --resource-report
+rustred campaign derive campaign.toml --n-cores 4 --max-memory 120GiB --resume work/
 rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
 One or several compact Symbolica `Family(...)`/`I(...)` expressions may carry
 the topology and target information; TOML supplies campaign-wide resources,
-ordering, terminal policy, and output paths. `--jobs` and memory admission may
-change runtime only, never the semantic bundle.
+ordering, terminal policy, and output paths. `--n-cores` is the total local
+execution budget described above; it and memory admission may change runtime
+and telemetry only, never the semantic bundle.
+
+Before implementation, the CLI contract must freeze accepted binary units,
+zero/overflow rejection, explicit/default/`auto` behavior, TOML-versus-CLI
+precedence, host/cgroup preflight and headroom, pause exit status, staging/work
+directory and disk quota, and the resource report. No default may silently
+promise that the scheduler envelope is a hard RSS cap.

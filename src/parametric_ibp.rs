@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::generic_family::{
     ContractionMomentum, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
 };
+use crate::parallel_execution::ParallelExecution;
 use crate::parametric_coefficient::{
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError,
@@ -222,9 +223,27 @@ impl<'family> ParametricIbpGenerator<'family> {
 
     /// Generate the `L*(L+E)` raw ordinary IBPs.
     pub fn generate_ordinary_ibp(&self) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        self.generate_ordinary_ibp_impl(None)
+    }
+
+    /// Generate ordinary IBPs under one explicitly bounded execution budget.
+    ///
+    /// Rows are independent and use their fixed contraction-major ordinal as
+    /// the work key.  Results, including failures, are consumed in that order,
+    /// so worker completion order cannot change the returned transcript.
+    pub fn generate_ordinary_ibp_with_execution(
+        &self,
+        execution: &ParallelExecution,
+    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        self.generate_ordinary_ibp_impl(Some(execution))
+    }
+
+    fn generate_ordinary_ibp_impl(
+        &self,
+        execution: Option<&ParallelExecution>,
+    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
         let (ordinary_count, _) =
             checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
-        let mut rows = Vec::with_capacity(ordinary_count);
         let dimension = self.context.lift(self.family.dimension())?;
         let powers = (0..self.family.denominator_count())
             .map(|denominator| {
@@ -244,61 +263,94 @@ impl<'family> ParametricIbpGenerator<'family> {
 
         // LiteRed constructs `Outer[..., qms, lms]` and then flattens it:
         // contraction momentum is the major index, differentiated loop minor.
-        for (contraction_index, &contraction) in
-            self.family.contraction_momenta().iter().enumerate()
-        {
-            for differentiated_loop in 0..self.family.loop_count() {
-                let row_id = ParametricRowId::OrdinaryIbp {
-                    contraction_momentum: contraction_index,
-                    differentiated_loop,
-                };
-                let mut row = self.empty_relation(row_id)?;
-                if contraction == ContractionMomentum::Loop(differentiated_loop) {
-                    row.add_term_with_limits(
-                        &self.context,
-                        self.index_space.zero(),
-                        dimension.clone(),
-                        self.config.arithmetic_limits,
-                    )?;
-                }
-
-                for (denominator, power) in powers.iter().enumerate() {
-                    let derivative = self.family.derivative_contraction(
-                        denominator,
-                        differentiated_loop,
-                        contraction,
-                    )?;
-                    self.add_negative_derivative_term(
-                        &mut row,
-                        self.positive_units[denominator].clone(),
-                        power,
-                        derivative.constant(),
-                    )?;
-                    for (target, coefficient) in
-                        derivative.denominator_coefficients().iter().enumerate()
-                    {
-                        let shift = self.positive_units[denominator]
-                            .checked_add(&self.negative_units[target])?;
-                        self.add_negative_derivative_term(&mut row, shift, power, coefficient)?;
-                    }
-                }
-                rows.push(row);
-            }
-        }
+        let generate = |ordinal| self.generate_ordinary_row(ordinal, &dimension, &powers);
+        let staged = match execution {
+            Some(execution) => execution.map_ordered(ordinary_count, generate),
+            None => (0..ordinary_count).map(generate).collect(),
+        };
+        let rows = staged.into_iter().collect::<Result<Vec<_>, _>>()?;
         debug_assert_eq!(rows.len(), ordinary_count);
         Ok(rows)
+    }
+
+    fn generate_ordinary_row(
+        &self,
+        ordinal: usize,
+        dimension: &ParametricCoefficient,
+        powers: &[ParametricCoefficient],
+    ) -> Result<ParametricRelation, ParametricIbpError> {
+        let loops = self.family.loop_count();
+        debug_assert!(loops > 0);
+        let contraction_index = ordinal / loops;
+        let differentiated_loop = ordinal % loops;
+        let contraction = self.family.contraction_momenta()[contraction_index];
+        let row_id = ParametricRowId::OrdinaryIbp {
+            contraction_momentum: contraction_index,
+            differentiated_loop,
+        };
+        let mut row = self.empty_relation(row_id)?;
+        if contraction == ContractionMomentum::Loop(differentiated_loop) {
+            row.add_term_with_limits(
+                &self.context,
+                self.index_space.zero(),
+                dimension.clone(),
+                self.config.arithmetic_limits,
+            )?;
+        }
+
+        for (denominator, power) in powers.iter().enumerate() {
+            let derivative = self.family.derivative_contraction(
+                denominator,
+                differentiated_loop,
+                contraction,
+            )?;
+            self.add_negative_derivative_term(
+                &mut row,
+                self.positive_units[denominator].clone(),
+                power,
+                derivative.constant(),
+            )?;
+            for (target, coefficient) in derivative.denominator_coefficients().iter().enumerate() {
+                let shift =
+                    self.positive_units[denominator].checked_add(&self.negative_units[target])?;
+                self.add_negative_derivative_term(&mut row, shift, power, coefficient)?;
+            }
+        }
+        Ok(row)
     }
 
     /// Generate ordinary and LI rows with their shared authenticated context.
     pub fn generate(&self) -> Result<ParametricIbpRelations, ParametricIbpError> {
         let ordinary_ibp = self.generate_ordinary_ibp()?;
         let lorentz_invariance = self.generate_li_from_ordinary(&ordinary_ibp)?;
-        Ok(ParametricIbpRelations {
+        Ok(self.relations(ordinary_ibp, lorentz_invariance))
+    }
+
+    /// Generate ordinary and LI rows using one owned execution context.
+    ///
+    /// The complete ordinary phase is a barrier before LI work begins because
+    /// LI rows are exact linear combinations of external-contraction IBPs.
+    pub fn generate_with_execution(
+        &self,
+        execution: &ParallelExecution,
+    ) -> Result<ParametricIbpRelations, ParametricIbpError> {
+        let ordinary_ibp = self.generate_ordinary_ibp_with_execution(execution)?;
+        let lorentz_invariance =
+            self.generate_li_from_ordinary_impl(&ordinary_ibp, Some(execution))?;
+        Ok(self.relations(ordinary_ibp, lorentz_invariance))
+    }
+
+    fn relations(
+        &self,
+        ordinary_ibp: Vec<ParametricRelation>,
+        lorentz_invariance: Vec<ParametricRelation>,
+    ) -> ParametricIbpRelations {
+        ParametricIbpRelations {
             family_fingerprint: self.family_fingerprint.clone(),
             context: self.context.clone(),
             ordinary_ibp,
             lorentz_invariance,
-        })
+        }
     }
 
     /// Generate only the LI rows.  Ordinary external-contraction rows are
@@ -306,68 +358,113 @@ impl<'family> ParametricIbpGenerator<'family> {
     pub fn generate_lorentz_invariance(
         &self,
     ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        let (_, li_count) =
+            checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
+        if li_count == 0 {
+            return Ok(Vec::new());
+        }
         let ordinary = self.generate_ordinary_ibp()?;
         self.generate_li_from_ordinary(&ordinary)
+    }
+
+    /// Generate only LI rows under one explicitly bounded execution budget.
+    pub fn generate_lorentz_invariance_with_execution(
+        &self,
+        execution: &ParallelExecution,
+    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        let (_, li_count) =
+            checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
+        if li_count == 0 {
+            return Ok(Vec::new());
+        }
+        let ordinary = self.generate_ordinary_ibp_with_execution(execution)?;
+        self.generate_li_from_ordinary_impl(&ordinary, Some(execution))
     }
 
     fn generate_li_from_ordinary(
         &self,
         ordinary: &[ParametricRelation],
     ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        self.generate_li_from_ordinary_impl(ordinary, None)
+    }
+
+    fn generate_li_from_ordinary_impl(
+        &self,
+        ordinary: &[ParametricRelation],
+        execution: Option<&ParallelExecution>,
+    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
         let (_, li_count) =
             checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
-        let mut rows = Vec::with_capacity(li_count);
+        let mut pairs = Vec::with_capacity(li_count);
         for first_external in 0..self.family.external_count() {
             for second_external in first_external + 1..self.family.external_count() {
-                let row_id = ParametricRowId::LorentzInvariance {
-                    first_external,
-                    second_external,
-                };
-                let mut row = self.empty_relation(row_id.clone())?;
-                for differentiated_loop in 0..self.family.loop_count() {
-                    // M_ba: X_{i b} B_{a i}
-                    let source_a =
-                        self.external_ordinary_row(ordinary, first_external, differentiated_loop)?;
-                    let coordinate_b =
-                        self.family
-                            .coordinate_index(ScalarProductCoordinate::LoopExternal {
-                                loop_index: differentiated_loop,
-                                external_index: second_external,
-                            })?;
-                    let multiplier_b = self.family.scalar_product_expansion(coordinate_b)?;
-                    self.add_weighted_translation(
-                        &mut row,
-                        source_a,
-                        multiplier_b.constant(),
-                        multiplier_b.denominator_coefficients(),
-                        false,
-                        &row_id,
-                    )?;
-
-                    // -M_ab: -X_{i a} B_{b i}
-                    let source_b =
-                        self.external_ordinary_row(ordinary, second_external, differentiated_loop)?;
-                    let coordinate_a =
-                        self.family
-                            .coordinate_index(ScalarProductCoordinate::LoopExternal {
-                                loop_index: differentiated_loop,
-                                external_index: first_external,
-                            })?;
-                    let multiplier_a = self.family.scalar_product_expansion(coordinate_a)?;
-                    self.add_weighted_translation(
-                        &mut row,
-                        source_b,
-                        multiplier_a.constant(),
-                        multiplier_a.denominator_coefficients(),
-                        true,
-                        &row_id,
-                    )?;
-                }
-                rows.push(row);
+                pairs.push((first_external, second_external));
             }
         }
+        let generate = |ordinal| {
+            let (first_external, second_external) = pairs[ordinal];
+            self.generate_li_row(ordinary, first_external, second_external)
+        };
+        let staged = match execution {
+            Some(execution) => execution.map_ordered(li_count, generate),
+            None => (0..li_count).map(generate).collect(),
+        };
+        let rows = staged.into_iter().collect::<Result<Vec<_>, _>>()?;
         debug_assert_eq!(rows.len(), li_count);
         Ok(rows)
+    }
+
+    fn generate_li_row(
+        &self,
+        ordinary: &[ParametricRelation],
+        first_external: usize,
+        second_external: usize,
+    ) -> Result<ParametricRelation, ParametricIbpError> {
+        let row_id = ParametricRowId::LorentzInvariance {
+            first_external,
+            second_external,
+        };
+        let mut row = self.empty_relation(row_id.clone())?;
+        for differentiated_loop in 0..self.family.loop_count() {
+            // M_ba: X_{i b} B_{a i}
+            let source_a =
+                self.external_ordinary_row(ordinary, first_external, differentiated_loop)?;
+            let coordinate_b =
+                self.family
+                    .coordinate_index(ScalarProductCoordinate::LoopExternal {
+                        loop_index: differentiated_loop,
+                        external_index: second_external,
+                    })?;
+            let multiplier_b = self.family.scalar_product_expansion(coordinate_b)?;
+            self.add_weighted_translation(
+                &mut row,
+                source_a,
+                multiplier_b.constant(),
+                multiplier_b.denominator_coefficients(),
+                false,
+                &row_id,
+            )?;
+
+            // -M_ab: -X_{i a} B_{b i}
+            let source_b =
+                self.external_ordinary_row(ordinary, second_external, differentiated_loop)?;
+            let coordinate_a =
+                self.family
+                    .coordinate_index(ScalarProductCoordinate::LoopExternal {
+                        loop_index: differentiated_loop,
+                        external_index: first_external,
+                    })?;
+            let multiplier_a = self.family.scalar_product_expansion(coordinate_a)?;
+            self.add_weighted_translation(
+                &mut row,
+                source_b,
+                multiplier_a.constant(),
+                multiplier_a.denominator_coefficients(),
+                true,
+                &row_id,
+            )?;
+        }
+        Ok(row)
     }
 
     fn external_ordinary_row<'rows>(
@@ -600,10 +697,8 @@ mod tests {
             vec![nu.clone()],
         )
         .unwrap();
-        let generated = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate()
-            .unwrap();
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let generated = generator.generate().unwrap();
 
         assert_eq!(generated.ordinary_ibp().len(), 1);
         assert!(generated.lorentz_invariance().is_empty());
@@ -754,10 +849,8 @@ mod tests {
             ],
         )
         .unwrap();
-        let generated = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate()
-            .unwrap();
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let generated = generator.generate().unwrap();
 
         let ids = generated
             .ordinary_ibp()
@@ -838,6 +931,19 @@ mod tests {
                 .chain(generated.lorentz_invariance())
                 .all(|row| row.arity() == 9 && row.family_fingerprint() == family.fingerprint())
         );
+
+        // This family has ten independent ordinary source rows and three LI
+        // combinations, so it exercises both deterministic parallel phases.
+        let available = std::thread::available_parallelism().unwrap().get();
+        for n_cores in [1, 2, 4].into_iter().filter(|width| *width <= available) {
+            let execution = ParallelExecution::try_new(n_cores).unwrap();
+            let candidate = generator.generate_with_execution(&execution).unwrap();
+            assert_eq!(candidate.ordinary_ibp(), generated.ordinary_ibp());
+            assert_eq!(
+                candidate.lorentz_invariance(),
+                generated.lorentz_invariance()
+            );
+        }
     }
 
     #[test]

@@ -53,7 +53,12 @@ fn derive(arguments: DeriveArgs) -> Result<(), CliError> {
     let source = read_input(&arguments.input)?;
     let prepared = prepare_input(&source, arguments.input_format)?;
     let lowered = lower_project(prepared)?;
-    let output = build_output(lowered, arguments.input_format, arguments.relations)?;
+    let output = build_output(
+        lowered,
+        arguments.input_format,
+        arguments.relations,
+        arguments.n_cores,
+    )?;
     let serialized = serialize_output(&output)?;
     write_output(&arguments.output, serialized.as_bytes(), arguments.force)
 }

@@ -118,8 +118,23 @@ Run the literal checked example from the repository root:
 cargo run --quiet --bin rustred -- derive \
   --input examples/cli/one_loop.symbolica \
   --input-format symbolica \
-  --relations ordinary
+  --relations ordinary \
+  --n-cores 1
 ```
+
+For the current one-family `derive` command, `--n-cores N` is a positive,
+invocation-wide worker budget. `N=1` is the inline deterministic serial oracle;
+`N>1` requires a Symbolica license and creates one private local Rayon pool,
+and the RustRed-owned scheduler neither reads nor configures Rayon's
+process-global pool. Vendored restricted/unlicensed Symbolica itself currently
+initializes a one-thread global fallback; the licensed production path does
+not rely on it. Ordinary rows are
+collected by fixed row ordinal, the complete ordinary phase precedes LI
+construction, and selected relations are rendered through the same execution
+context. Licensed `N=1`, `N=2`, and `N=4` runs are tested to produce
+byte-identical TOML. The current command does not schedule sectors, case lanes,
+or multiple topologies and does not publish rule shards or bundles; the planned
+campaign-wide contract is described in the roadmap below.
 
 The tested output contains these fields:
 
@@ -190,11 +205,22 @@ family declaration
 shows this direct path. Its APIs are still evolving and should not be confused
 with a finished arbitrary-family reducer.
 
+Raw source generation also exposes the public `ParallelExecution` owner. A
+library caller constructs it with `ParallelExecution::try_new(N)` and passes the
+same value to `ParametricIbpGenerator::generate_with_execution`,
+`generate_ordinary_ibp_with_execution`, or
+`generate_lorentz_invariance_with_execution`. The existing methods without an
+execution argument remain the serial library entry points. This bounded source
+executor does not yet constitute the planned multi-topology campaign scheduler.
+
 ## Tested milestones
 
 The repository currently includes tests for:
 
-- generic ordinary IBP and LI generation with exact replay;
+- generic ordinary IBP and LI generation with exact replay and identical
+  relations through the serial API and `N=1`/`N=2`/`N=4` execution contexts;
+- byte-identical `rustred derive` output at `N=1`/`N=2`/`N=4`, including a
+  check that `RAYON_NUM_THREADS` cannot override the private execution context;
 - raw Symbolica, hybrid TOML, and explicit TOML input normalization;
 - parameter inference without a required `parameters(...)` clause;
 - affine denominator-basis completion for independent short lists;
@@ -414,10 +440,19 @@ subsector and factorization antichains will then close bottom-up. One affine
 case lane will own one serial retained Symbolica reducer, while independent
 families and sectors, frozen-epoch exceptional case proposals, fixed modular
 samples, and exact-verification blocks may run concurrently. Case-lane-local
-reducer controllers
-will avoid shared coefficient-ledger serialization. Stable work keys, ordered
+reducer controllers will avoid shared coefficient-ledger serialization. The
+single `--n-cores N` budget covers the complete invocation rather than granting
+`N` workers to every root or lane; inner parallel work must borrow from that
+same lease. Stable work keys, sorted frontier barriers, ordered
 reclassification/merges, strict-descendant closure epochs, and separate
-scheduler memory admission must make 1/2/4-worker output semantically identical.
+scheduler memory admission must make the `N=1` serial oracle and 2/4-core runs
+produce identical semantic hashes and mathematical output.
+For the intended roughly 100-core, 1-TiB EPYC six-loop runs, readiness will
+never mean eager fork-all: a bounded deterministic wave must acquire both core
+leases and conservative memory permits before any reducer clone or other
+heavyweight task owner is constructed. The configured RAM ceiling reserves
+headroom for Symbolica's opaque scratch and the operating system, and memory
+pressure is allowed to leave cores idle.
 See the
 [parallel campaign foundry plan](docs/research/parallel_campaign_foundry_design_2026-08-26.md).
 
@@ -684,7 +719,9 @@ export SYMBOLICA_LICENSE='your-symbolica-license'
 
 Override concurrency with `RUSTRED_TEST_JOBS`. When `cargo-nextest` is
 available, the script runs test binaries concurrently; it otherwise keeps
-Cargo's parallel test workers. No test path enables `no_gmp`.
+Cargo's parallel test workers. This test-runner setting is deliberately
+separate from the RustRed execution contract `--n-cores`; it does not configure
+campaign concurrency. No test path enables `no_gmp`.
 
 ## Documentation
 

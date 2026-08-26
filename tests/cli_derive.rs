@@ -44,10 +44,21 @@ I(
 )
 "#;
 
-fn rustred(arguments: &[&str], input: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_rustred"))
-        .args(arguments)
-        .env("SYMBOLICA_HIDE_BANNER", "1")
+fn rustred_with_environment(
+    arguments: &[&str],
+    input: &str,
+    environment: &[(&str, &str)],
+    remove_symbolica_license: bool,
+) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rustred"));
+    command.args(arguments).env("SYMBOLICA_HIDE_BANNER", "1");
+    for &(name, value) in environment {
+        command.env(name, value);
+    }
+    if remove_symbolica_license {
+        command.env_remove("SYMBOLICA_LICENSE");
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -62,8 +73,31 @@ fn rustred(arguments: &[&str], input: &str) -> Output {
     child.wait_with_output().expect("wait for RustRed")
 }
 
+fn rustred(arguments: &[&str], input: &str) -> Output {
+    rustred_with_environment(arguments, input, &[], false)
+}
+
+fn rustred_without_input(arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .args(arguments)
+        .env("SYMBOLICA_HIDE_BANNER", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run the RustRed CLI")
+}
+
 fn successful_toml(arguments: &[&str], input: &str) -> (Output, toml::Value) {
-    let output = rustred(arguments, input);
+    successful_toml_with_environment(arguments, input, &[])
+}
+
+fn successful_toml_with_environment(
+    arguments: &[&str],
+    input: &str,
+    environment: &[(&str, &str)],
+) -> (Output, toml::Value) {
+    let output = rustred_with_environment(arguments, input, environment, false);
     assert_eq!(
         output.status.code(),
         Some(0),
@@ -91,6 +125,25 @@ fn assert_input_error(output: Output, expected_detail: &str) {
     assert!(
         stderr.contains(expected_detail),
         "missing diagnostic detail {expected_detail:?}: {stderr}"
+    );
+}
+
+fn assert_usage_error(arguments: &[&str], expected_detail: &str) {
+    let output = rustred_without_input(arguments);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.starts_with("rustred: usage:"),
+        "unexpected diagnostic category: {stderr}"
+    );
+    assert!(
+        stderr.contains(expected_detail),
+        "missing diagnostic detail {expected_detail:?}: {stderr}"
+    );
+    assert!(
+        stderr.contains("run `rustred --help` for the command contract"),
+        "usage failure omitted the help hint: {stderr}"
     );
 }
 
@@ -201,6 +254,106 @@ fn raw_symbolica_is_deterministic_and_emits_the_complete_one_loop_ibp() {
     assert_eq!(
         document["target"]["disposition"].as_str(),
         Some("not_processed_by_derive")
+    );
+}
+
+#[test]
+fn licensed_available_core_widths_through_four_are_byte_identical() {
+    let serial_arguments = [
+        "derive",
+        "--input-format",
+        "symbolica",
+        "--relations",
+        "all",
+        "--n-cores",
+        "1",
+    ];
+    let (serial, serial_document) = successful_toml(&serial_arguments, ONE_LOOP_TWO_EXTERNALS);
+    let available = std::thread::available_parallelism().unwrap().get();
+    for n_cores in [2_usize, 4].into_iter().filter(|width| *width <= available) {
+        let n_cores = n_cores.to_string();
+        let parallel_arguments = [
+            "derive",
+            "--input-format",
+            "symbolica",
+            "--relations",
+            "all",
+            "--n-cores",
+            n_cores.as_str(),
+        ];
+        let (parallel, parallel_document) =
+            successful_toml(&parallel_arguments, ONE_LOOP_TWO_EXTERNALS);
+        assert_eq!(
+            parallel.stdout, serial.stdout,
+            "--n-cores {n_cores} changed the canonical derive output"
+        );
+        assert_eq!(parallel_document, serial_document);
+    }
+}
+
+#[test]
+fn rayon_global_environment_cannot_override_explicit_n_cores() {
+    let requested = std::thread::available_parallelism().unwrap().get().min(4);
+    if requested < 2 {
+        return;
+    }
+    let requested = requested.to_string();
+    let serial_arguments = ["derive", "--input-format", "symbolica", "--n-cores", "1"];
+    let parallel_arguments = [
+        "derive",
+        "--input-format",
+        "symbolica",
+        "--n-cores",
+        requested.as_str(),
+    ];
+    let (serial, serial_document) = successful_toml_with_environment(
+        &serial_arguments,
+        ONE_LOOP_TWO_EXTERNALS,
+        &[("RAYON_NUM_THREADS", "32")],
+    );
+    let (parallel, parallel_document) = successful_toml_with_environment(
+        &parallel_arguments,
+        ONE_LOOP_TWO_EXTERNALS,
+        &[("RAYON_NUM_THREADS", "1")],
+    );
+    assert_eq!(parallel.stdout, serial.stdout);
+    assert_eq!(parallel_document, serial_document);
+
+    // The global Rayon setting must not silently downgrade the explicit CLI
+    // request to one core. Removing only the process-local Symbolica license
+    // therefore still makes the multicore request fail its license policy.
+    let unlicensed = rustred_with_environment(
+        &parallel_arguments,
+        ONE_LOOP_TWO_EXTERNALS,
+        &[("RAYON_NUM_THREADS", "1")],
+        true,
+    );
+    assert_eq!(unlicensed.status.code(), Some(8));
+    assert!(unlicensed.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&unlicensed.stderr);
+    assert!(stderr.starts_with("rustred: execution:"), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "--n-cores {requested} requires a Symbolica license"
+        )),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn n_cores_rejects_zero_missing_duplicate_and_malformed_values() {
+    assert_usage_error(
+        &["derive", "--n-cores", "0"],
+        "invalid value \"0\" for --n-cores; expected a positive integer",
+    );
+    assert_usage_error(&["derive", "--n-cores"], "option --n-cores needs a value");
+    assert_usage_error(
+        &["derive", "--n-cores", "2", "--n-cores", "3"],
+        "option --n-cores was supplied twice",
+    );
+    assert_usage_error(
+        &["derive", "--n-cores", "many"],
+        "invalid value \"many\" for --n-cores; expected a positive integer",
     );
 }
 

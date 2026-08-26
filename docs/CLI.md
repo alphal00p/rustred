@@ -27,10 +27,24 @@ Run it from a file or standard input:
 
 ```console
 rustred derive --input examples/cli/one_loop.symbolica \
-  --input-format symbolica --output one_loop.derive.toml
+  --input-format symbolica --output one_loop.derive.toml --n-cores 4
 
 rustred derive --input-format symbolica < examples/cli/one_loop.symbolica
 ```
+
+`--n-cores N` is a positive invocation-wide worker-core budget. The current raw
+one-family `derive` command uses one private bounded Rayon pool for independent
+ordinary IBP rows, then—after an ordinary/LI barrier—independent LI rows and
+relation materialization. `--n-cores 1` stays entirely on the coordinator and
+is the deterministic serial reference. Values greater than one require a
+Symbolica license. The RustRed-owned scheduler never reads or mutates Rayon's
+global pool, and worker count does not enter the semantic output. Vendored
+restricted/unlicensed Symbolica
+currently initializes its own one-thread global fallback, while the licensed
+multicore path does not use it. Integration tests require
+byte-identical output for `N=1`, `N=2`, and `N=4`. The forthcoming
+multi-topology campaign scheduler uses the same option to bound all
+concurrently active topology/sector/case work.
 
 `parameters(d,m2)` is intentionally absent. RustRed infers the scalar
 parameters after excluding declared family identifiers, loop momenta,
@@ -192,8 +206,15 @@ rustred derive [OPTIONS]
 --output <PATH|->         output path or standard output [default: -]
 --input-format <FORMAT>   auto, toml, or symbolica [default: auto]
 --relations <SELECTION>   all, ordinary, or li [default: all]
+--n-cores <COUNT>         maximum worker cores for parallel stages [default: 1]
 --force                   atomically replace an existing output file
 ```
+
+For values above one, `COUNT` may not exceed the logical cores reported as
+available to the process, including operating-system/container restrictions.
+This prevents an accidental request from creating an unbounded OS-thread
+storm; a 100-core request is admitted on a node exposing at least 100 logical
+cores.
 
 Successful standard output contains only the complete TOML document.
 Diagnostics go to standard error. File output is staged, synchronized, and
@@ -211,6 +232,7 @@ Exit status categories are stable for v1:
 | 5 | parametric derivation |
 | 6 | output serialization or size policy |
 | 7 | output I/O |
+| 8 | parallel-execution setup or Symbolica license policy |
 
 Both input and output have finite byte limits. The output is fully rendered
 and checked before any byte is written to stdout, so an error never leaves a
@@ -264,13 +286,21 @@ planned multicore, resumable surface is:
 
 ```text
 rustred campaign plan campaign.toml
-rustred campaign derive campaign.toml --jobs 4 --max-memory 120GiB --resume work/
+rustred campaign derive campaign.toml --n-cores 4 --max-memory 120GiB --resume work/
 rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
 Multiple compact Symbolica family/integral expressions may supply the roots,
-while TOML carries campaign-wide policies and resources. `--jobs` and memory
+while TOML carries campaign-wide policies and resources. `--n-cores` and memory
 admission may change timing only. The deterministic work-unit, closure,
 checkpoint, and multi-start bundle contracts are specified in the
 [parallel campaign foundry design](research/parallel_campaign_foundry_design_2026-08-26.md).
+
+For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
+`--n-cores 100` remains only a ceiling. The campaign executor will acquire a
+core lease and conservative memory permits before cloning any retained reducer
+or constructing another heavyweight task owner. It will keep the unadmitted
+ready frontier compact and may deliberately leave cores idle to respect
+`--max-memory`; operators should set that value below physical RAM to retain
+headroom for the OS and Symbolica memory that its public API cannot census.

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rustred::{
-    CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily,
+    CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily, ParallelExecution,
     ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation, ParametricRowId,
     ScalarProductCoordinate,
 };
@@ -169,6 +169,7 @@ pub(crate) fn build_output(
     project: LoweredCliProject,
     requested_input_format: InputFormat,
     selection: RelationSelection,
+    n_cores: usize,
 ) -> Result<DeriveOutputV1, CliError> {
     let (input_form, input_schema, metadata, lowered) = project.into_parts();
     let normalized = lowered.normalized();
@@ -186,25 +187,36 @@ pub(crate) fn build_output(
     let generator = ParametricIbpGenerator::try_new(&family).map_err(|error| {
         CliError::Derivation(format!("cannot initialize IBP generation: {error}"))
     })?;
+    // The family, complete Symbolica variable map, and every structural
+    // preflight are fixed on the coordinator before any worker is created.
+    // One execution object is then reused by generation and rendering.
+    let execution = ParallelExecution::try_new(n_cores)
+        .map_err(|error| CliError::Execution(error.to_string()))?;
     let (ordinary, li) = match selection {
         RelationSelection::All => {
-            let generated = generator.generate().map_err(|error| {
-                CliError::Derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
-            })?;
+            let generated = generator
+                .generate_with_execution(&execution)
+                .map_err(|error| {
+                    CliError::Derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
+                })?;
             let (_, ordinary, li) = generated.into_parts();
             (ordinary, li)
         }
         RelationSelection::Ordinary => (
-            generator.generate_ordinary_ibp().map_err(|error| {
-                CliError::Derivation(format!("cannot generate parametric IBP rows: {error}"))
-            })?,
+            generator
+                .generate_ordinary_ibp_with_execution(&execution)
+                .map_err(|error| {
+                    CliError::Derivation(format!("cannot generate parametric IBP rows: {error}"))
+                })?,
             Vec::new(),
         ),
         RelationSelection::LorentzInvariance => (
             Vec::new(),
-            generator.generate_lorentz_invariance().map_err(|error| {
-                CliError::Derivation(format!("cannot generate parametric LI rows: {error}"))
-            })?,
+            generator
+                .generate_lorentz_invariance_with_execution(&execution)
+                .map_err(|error| {
+                    CliError::Derivation(format!("cannot generate parametric LI rows: {error}"))
+                })?,
         ),
     };
     preflight_generated_relations(ordinary.iter().chain(&li), payload_census)?;
@@ -218,10 +230,15 @@ pub(crate) fn build_output(
     let relation_count = generated_ordinary
         .checked_add(generated_li)
         .ok_or_else(derivation_bound_overflow)?;
-    let mut relations = Vec::with_capacity(relation_count);
-    for relation in ordinary.iter().chain(&li) {
-        relations.push(relation_output(relations.len(), relation));
-    }
+    let relations: Vec<RelationOutputV1> = execution.map_ordered(relation_count, |ordinal| {
+        let relation = if ordinal < ordinary.len() {
+            &ordinary[ordinal]
+        } else {
+            &li[ordinal - ordinary.len()]
+        };
+        relation_output(ordinal, relation)
+    });
+    debug_assert_eq!(relations.len(), relation_count);
     let coordinates = coordinate_outputs(&family);
     let denominators = denominator_outputs(family, lowered.denominators());
     let external_gram = external_gram_outputs(family);

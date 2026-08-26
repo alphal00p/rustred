@@ -181,6 +181,7 @@ pub mod master_policy;
 pub mod master_product;
 #[cfg(feature = "legacy-authored-oracles")]
 pub mod one_loop;
+pub mod parallel_execution;
 pub mod parametric_coefficient;
 pub mod parametric_elimination;
 pub mod parametric_ibp;
@@ -913,6 +914,7 @@ pub use one_loop::{
     OneLoopTadpoleConfig, OneLoopTadpoleError, OneLoopTadpoleReducer, OneLoopTadpoleReduction,
     OneLoopTadpoleStats,
 };
+pub use parallel_execution::{ParallelExecution, ParallelExecutionError};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
     GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,

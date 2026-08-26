@@ -10,6 +10,7 @@ pub(crate) enum CliError {
     Derivation(String),
     Serialization(String),
     OutputIo(String),
+    Execution(String),
 }
 
 impl CliError {
@@ -21,6 +22,7 @@ impl CliError {
             Self::Derivation(_) => 5,
             Self::Serialization(_) => 6,
             Self::OutputIo(_) => 7,
+            Self::Execution(_) => 8,
         }
     }
 
@@ -32,6 +34,7 @@ impl CliError {
             Self::Derivation(_) => "derivation",
             Self::Serialization(_) => "serialization",
             Self::OutputIo(_) => "output-io",
+            Self::Execution(_) => "execution",
         }
     }
 }
@@ -44,7 +47,8 @@ impl fmt::Display for CliError {
             | Self::Input(message)
             | Self::Derivation(message)
             | Self::Serialization(message)
-            | Self::OutputIo(message) => formatter.write_str(message),
+            | Self::OutputIo(message)
+            | Self::Execution(message) => formatter.write_str(message),
         }
     }
 }
