@@ -774,6 +774,26 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         Arc::ptr_eq(&self.plan, plan)
     }
 
+    /// Borrow the immutable premises of a Ready target after it has been
+    /// consumed from a live target state.  The catalog is immutable; target
+    /// consumption changes only the separate disposition vector.
+    pub(crate) fn ready_target_premises(
+        &self,
+        locator: GeneratedAffineResidualGroupSolveTargetLocator,
+    ) -> Option<&[ParametricNonZeroCondition]> {
+        match self.targets.get(locator.solve_ordinal())? {
+            GeneratedAffineResidualGroupExactTargetOutcome::Ready(target)
+                if target.locator == locator =>
+            {
+                Some(target.domain.premises())
+            }
+            GeneratedAffineResidualGroupExactTargetOutcome::Ready(_)
+            | GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(_) => {
+                None
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn target_uses_exact_plan_authority_allocation_for_test(
         &self,

@@ -9,8 +9,9 @@ use crate::generated_affine_residual_group_exact_publication::{
     publication_route_tag_bytes_for_test,
 };
 use crate::generated_affine_residual_group_exact_session::{
-    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
-    GeneratedAffineResidualGroupExactSessionLimits,
+    CommittedPublicationDomainView, CommittedPublicationEventView, CommittedPublicationLeafView,
+    ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
+    GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
     tests::{
         ExactConditionPlanTestFixture,
         exact_condition_plan_test_fixture_in_sector_with_session_limits,
@@ -32,7 +33,7 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
     GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
-use crate::{IntegralFamily, ParametricCoefficientContext};
+use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
 fn ready_for_publication(
     name: &str,
@@ -117,6 +118,43 @@ fn ready_for_publication_in_sector_with_session_limits(
     (family, context, session, source, ready)
 }
 
+fn assert_event_bound_domain<'event>(
+    event: CommittedPublicationEventView<'event>,
+    leaf_ordinal: usize,
+    domain: CommittedPublicationDomainView<'event>,
+) {
+    assert_eq!(domain.event().event_ordinal(), event.event_ordinal());
+    assert_eq!(
+        domain.target_premises().as_ptr(),
+        event.target_premises().as_ptr()
+    );
+    assert_eq!(
+        domain.target_premises().len(),
+        event.target_premises().len()
+    );
+    assert!(std::ptr::eq(
+        domain.relative_case(),
+        &event.cases_for_test()[leaf_ordinal]
+    ));
+    assert_eq!(
+        domain.predicate_count(),
+        domain.relative_case().predicates().len()
+    );
+    assert_eq!(domain.predicates().len(), domain.predicate_count());
+    for (ordinal, raw) in domain.relative_case().predicates().iter().enumerate() {
+        let resolved = domain
+            .predicate(ordinal)
+            .expect("every committed predicate must resolve through its own event");
+        assert_eq!(resolved.locus_ordinal(), raw.locus_ordinal());
+        assert_eq!(resolved.kind(), raw.kind());
+        assert!(std::ptr::eq(
+            resolved.polynomial(),
+            &event.loci_for_test()[raw.locus_ordinal()]
+        ));
+    }
+    assert!(domain.predicate(domain.predicate_count()).is_none());
+}
+
 #[test]
 fn larger_recentered_row_uses_the_same_compact_publication_and_exact_census() {
     let (_, _, mut session, source, ready) = ready_for_publication_in_sector_with_session_limits(
@@ -147,6 +185,213 @@ fn larger_recentered_row_uses_the_same_compact_publication_and_exact_census() {
         source_weak.upgrade().is_none(),
         "compact publication must not retain the derivation source"
     );
+}
+
+#[test]
+fn committed_event_classifies_zero_copy_rule_and_residual_views_exclusively() {
+    let (family, context, mut session, source, ready) =
+        ready_for_publication("publication-borrowed-routing");
+    let prepared = PreparedPublication::prepare(ready, PublicationLimits::default()).unwrap();
+    let expected_stats = prepared.stats();
+    let expected_source_ordinal = prepared.ready().source_ordinal();
+    let expected_pivot_ordinal = prepared.ready().pivot_ordinal();
+    let expected_pivot_term_ordinal = prepared.pivot_term_ordinal();
+    let expected_target_locator = *prepared.ready().target_locator();
+    let expected_target_premises = prepared.ready().target_premises().as_ptr();
+    let expected_target_premise_count = prepared.ready().target_premises().len();
+    let expected_database_epoch = session.database_epoch();
+    let expected_group_ordinal = session.group_ordinal();
+    let (
+        expected_ambient_arity,
+        expected_free_positions,
+        expected_free_position_count,
+        expected_compact_matrix,
+        expected_compact_matrix_entries,
+        expected_target_offset,
+        expected_target_offset_entries,
+    ) = {
+        let geometry = session
+            .authenticated_ready_geometry(&family, &context, prepared.ready())
+            .unwrap();
+        (
+            geometry.ambient_arity(),
+            geometry.free_positions().as_ptr(),
+            geometry.free_positions().len(),
+            geometry.compact_affine_matrix().as_ptr(),
+            geometry.compact_affine_matrix().len(),
+            geometry.target_offset().as_ptr(),
+            geometry.target_offset().len(),
+        )
+    };
+    let expected_terms = prepared.ready().terms().as_ptr();
+    let expected_loci = prepared.payload().loci().as_ptr();
+    let expected_cases = prepared.payload().cases().as_ptr();
+
+    let receipt = session.commit_publication(prepared).unwrap();
+    assert_eq!(receipt.source_ordinal(), expected_source_ordinal);
+    assert_eq!(receipt.pivot_ordinal(), expected_pivot_ordinal);
+    assert_eq!(receipt.stats(), expected_stats);
+    assert_eq!(receipt.event().event_ordinal(), receipt.event_ordinal());
+    let receipt_event_ordinal = receipt.event_ordinal();
+    let ledger_arc_copies = session.event_stats().ledger_arc_copies();
+
+    for ordinal in 0..receipt_event_ordinal {
+        assert!(session.committed_publication_event(ordinal).is_none());
+    }
+    let event = session
+        .committed_publication_event(receipt_event_ordinal)
+        .expect("the committed receipt must address its compact event");
+    assert_eq!(event.event_ordinal(), receipt_event_ordinal);
+    assert_eq!(event.source_ordinal(), expected_source_ordinal);
+    assert_eq!(event.pivot_ordinal(), expected_pivot_ordinal);
+    assert_eq!(event.family_fingerprint(), family.fingerprint_ref());
+    assert_eq!(event.context_fingerprint(), context.fingerprint());
+    assert_eq!(event.sector().to_bit_string(), "011");
+    assert_eq!(event.ordering(), IntegralOrderingPolicy::RustRedUnshiftedV1);
+    assert_eq!(event.database_epoch(), expected_database_epoch);
+    assert_eq!(event.group_ordinal(), expected_group_ordinal);
+    assert_eq!(event.pivot_term_ordinal(), expected_pivot_term_ordinal);
+    assert_eq!(event.target_locator(), expected_target_locator);
+    assert_eq!(event.target_offset().as_ptr(), expected_target_offset);
+    assert_eq!(event.target_offset().len(), expected_target_offset_entries);
+    assert_eq!(event.target_premises().as_ptr(), expected_target_premises);
+    assert_eq!(event.target_premises().len(), expected_target_premise_count);
+    assert_eq!(event.ambient_arity(), expected_ambient_arity);
+    assert_eq!(event.free_positions().as_ptr(), expected_free_positions);
+    assert_eq!(event.free_positions().len(), expected_free_position_count);
+    assert_eq!(
+        event.compact_affine_matrix().as_ptr(),
+        expected_compact_matrix
+    );
+    assert_eq!(
+        event.compact_affine_matrix().len(),
+        expected_compact_matrix_entries
+    );
+    assert_eq!(event.terms().as_ptr(), expected_terms);
+    assert_eq!(event.loci_for_test().as_ptr(), expected_loci);
+    assert_eq!(event.cases_for_test().as_ptr(), expected_cases);
+    assert_eq!(event.leaf_count(), expected_stats.leaves());
+    assert_eq!(event.leaves().len(), expected_stats.leaves());
+    assert!(event.leaf(event.leaf_count()).is_none());
+    assert_eq!(
+        session.committed_publication_events().count(),
+        1,
+        "the production iterator must omit non-publication ledger events"
+    );
+    assert_eq!(session.committed_publication_event_handles().count(), 1);
+    let retained_from_session = session
+        .committed_publication_event_handle(receipt_event_ordinal)
+        .expect("a committed publication must support a shallow owning handle");
+    assert_eq!(
+        retained_from_session.view().terms().as_ptr(),
+        expected_terms
+    );
+
+    let mut applicable = 0usize;
+    let mut exceptional_domain = 0usize;
+    let mut exceptional_leak = 0usize;
+    let mut classified_leaf_ordinals = Vec::with_capacity(event.leaf_count());
+    let mut applicable_leaf_ordinals = Vec::with_capacity(expected_stats.applicable());
+    let mut exceptional_leaf_ordinals = Vec::with_capacity(expected_stats.exceptional());
+    for leaf in event.leaves() {
+        match leaf {
+            CommittedPublicationLeafView::Applicable(rule) => {
+                applicable += 1;
+                classified_leaf_ordinals.push(rule.leaf_ordinal());
+                applicable_leaf_ordinals.push(rule.leaf_ordinal());
+                assert_eq!(rule.event().event_ordinal(), event.event_ordinal());
+                assert_eq!(rule.event().terms().as_ptr(), expected_terms);
+                assert_eq!(rule.event().loci_for_test().as_ptr(), expected_loci);
+                assert_event_bound_domain(event, rule.leaf_ordinal(), rule.domain());
+            }
+            CommittedPublicationLeafView::Exceptional(residual) => {
+                classified_leaf_ordinals.push(residual.leaf_ordinal());
+                exceptional_leaf_ordinals.push(residual.leaf_ordinal());
+                assert_eq!(residual.event().event_ordinal(), event.event_ordinal());
+                assert_eq!(residual.event().terms().as_ptr(), expected_terms);
+                assert_eq!(residual.event().loci_for_test().as_ptr(), expected_loci);
+                assert_event_bound_domain(event, residual.leaf_ordinal(), residual.domain());
+                match residual.kind() {
+                    ExceptionalResidualKind::Domain => exceptional_domain += 1,
+                    ExceptionalResidualKind::SectorLeak => exceptional_leak += 1,
+                }
+            }
+        }
+    }
+    assert_eq!(
+        classified_leaf_ordinals,
+        (0..event.leaf_count()).collect::<Vec<_>>(),
+        "every leaf must appear exactly once in deterministic partition order"
+    );
+    assert_eq!(applicable, expected_stats.applicable());
+    assert_eq!(exceptional_domain, expected_stats.exceptional_domain());
+    assert_eq!(exceptional_leak, expected_stats.exceptional_leak());
+    assert_eq!(event.applicable_rules().count(), applicable);
+    assert_eq!(
+        event
+            .applicable_rules()
+            .map(|rule| rule.leaf_ordinal())
+            .collect::<Vec<_>>(),
+        applicable_leaf_ordinals
+    );
+    assert_eq!(
+        event.exceptional_residuals().count(),
+        exceptional_domain + exceptional_leak
+    );
+    assert_eq!(
+        event
+            .exceptional_residuals()
+            .map(|residual| residual.leaf_ordinal())
+            .collect::<Vec<_>>(),
+        exceptional_leaf_ordinals
+    );
+    assert_eq!(session.event_stats().ledger_arc_copies(), ledger_arc_copies);
+
+    let publication_state_version = session.state_version();
+    let transaction = session
+        .stage_replayed_row(&family, &context, &source)
+        .unwrap();
+    let classified = session
+        .classify_dependent(transaction)
+        .expect("the published source must reduce through its committed pivot");
+    session
+        .commit_dependent(&family, &context, classified)
+        .unwrap();
+    assert_eq!(session.state_version(), publication_state_version + 1);
+    assert_eq!(
+        retained_from_session.view().terms().as_ptr(),
+        expected_terms,
+        "an owning event handle must remain stable across later session mutation"
+    );
+
+    drop(retained_from_session);
+    let retained_from_receipt = receipt.into_event_handle();
+    drop(session);
+    let retained_event = retained_from_receipt.view();
+    assert_eq!(retained_event.event_ordinal(), receipt_event_ordinal);
+    assert_eq!(
+        retained_event.pivot_term_ordinal(),
+        expected_pivot_term_ordinal
+    );
+    assert_eq!(
+        retained_event.target_premises().as_ptr(),
+        expected_target_premises
+    );
+    assert_eq!(
+        retained_event.target_offset().as_ptr(),
+        expected_target_offset
+    );
+    assert_eq!(
+        retained_event.free_positions().as_ptr(),
+        expected_free_positions
+    );
+    assert_eq!(
+        retained_event.compact_affine_matrix().as_ptr(),
+        expected_compact_matrix
+    );
+    assert_eq!(retained_event.terms().as_ptr(), expected_terms);
+    assert_eq!(retained_event.loci_for_test().as_ptr(), expected_loci);
+    assert_eq!(retained_event.cases_for_test().as_ptr(), expected_cases);
 }
 
 #[test]

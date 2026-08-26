@@ -2300,6 +2300,59 @@ impl GeneratedAffineResidualCaseAuthority {
         }
     }
 
+    /// Borrow geometry already sealed by this in-process authority without
+    /// replaying its source.  This is for adjacent owners such as a committed
+    /// application event; durable/import boundaries must still use the
+    /// authenticated replay API above.
+    pub(crate) fn retained_source_neutral_group_view(
+        &self,
+    ) -> Option<GeneratedAffineResidualInventoryGroupSourceView<'_>> {
+        match &self.source {
+            GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(inventory) => {
+                let group = inventory.groups.get(self.group_ordinal)?;
+                if group.ordinal != self.group_ordinal
+                    || group.case_ordinals.is_empty()
+                    || group.case_ordinals.len() != group.anchor_offsets.len()
+                    || group.case_ordinals.first().copied() != Some(group.anchor_case_ordinal)
+                {
+                    return None;
+                }
+                Some(GeneratedAffineResidualInventoryGroupSourceView {
+                    ordinal: group.ordinal,
+                    ambient_arity: group.ambient_arity,
+                    case_ordinals: &group.case_ordinals,
+                    anchor_case_ordinal: group.anchor_case_ordinal,
+                    free_positions: &group.free_positions,
+                    compact_linear_coefficients: &group.compact_linear_coefficients,
+                    anchor_offsets: &group.anchor_offsets,
+                })
+            }
+            GeneratedAffineResidualCaseAuthoritySource::DirectFormulaSingleton {
+                terminal,
+                anchor_offsets,
+                ..
+            } => {
+                let geometry = terminal.geometry()?;
+                if self.case_ordinal != 0
+                    || self.group_ordinal != 0
+                    || anchor_offsets.len() != 1
+                    || anchor_offsets[0].len() != geometry.ambient_arity()
+                {
+                    return None;
+                }
+                Some(GeneratedAffineResidualInventoryGroupSourceView {
+                    ordinal: 0,
+                    ambient_arity: geometry.ambient_arity(),
+                    case_ordinals: &DIRECT_FORMULA_SINGLETON_CASE_ORDINALS,
+                    anchor_case_ordinal: 0,
+                    free_positions: geometry.free_positions(),
+                    compact_linear_coefficients: geometry.compact_linear_coefficients(),
+                    anchor_offsets: anchor_offsets.as_slice(),
+                })
+            }
+        }
+    }
+
     pub(crate) fn same_group_target_cases<'authority>(
         self: &'authority Arc<Self>,
         family: &IntegralFamily,
@@ -9235,6 +9288,26 @@ mod tests {
         assert_eq!(authority.stats().inventory_replays(), 0);
         assert_eq!(authority.stats().replay_terminals(), 0);
         assert_eq!(authority.stats().replay_cases(), 0);
+        let retained_direct_geometry = authority
+            .retained_source_neutral_group_view()
+            .expect("a sealed Direct singleton must retain its affine geometry");
+        let terminal_geometry = terminal.geometry().unwrap();
+        assert_eq!(retained_direct_geometry.ordinal(), 0);
+        assert_eq!(
+            retained_direct_geometry.ambient_arity(),
+            terminal_geometry.ambient_arity()
+        );
+        assert_eq!(retained_direct_geometry.case_ordinals(), &[0]);
+        assert_eq!(
+            retained_direct_geometry.free_positions().as_ptr(),
+            terminal_geometry.free_positions().as_ptr()
+        );
+        assert_eq!(
+            retained_direct_geometry
+                .compact_linear_coefficients()
+                .as_ptr(),
+            terminal_geometry.compact_linear_coefficients().as_ptr()
+        );
         assert_eq!(authority.stats().replay_groups(), 0);
         assert_eq!(authority.stats().authentication(), Default::default());
         assert_eq!(authority.stats().direct_terminal_replays(), 1);
@@ -9641,6 +9714,23 @@ mod tests {
                 GeneratedAffineResidualCaseAuthorityLimits::default(),
             )
             .unwrap(),
+        );
+        let retained_legacy_geometry = legacy_authority
+            .retained_source_neutral_group_view()
+            .expect("a sealed legacy authority must retain its inventory-group geometry");
+        assert_eq!(
+            retained_legacy_geometry.ordinal(),
+            legacy_authority.group_ordinal()
+        );
+        assert_eq!(
+            retained_legacy_geometry.ambient_arity(),
+            legacy_authority.arity()
+        );
+        assert!(!retained_legacy_geometry.case_ordinals().is_empty());
+        assert_eq!(
+            retained_legacy_geometry.compact_linear_coefficients().len(),
+            retained_legacy_geometry.ambient_arity()
+                * retained_legacy_geometry.free_positions().len()
         );
         assert!(!authority.same_source_allocation_as(&legacy_authority));
         assert!(matches!(

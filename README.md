@@ -40,7 +40,7 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
-| Prepare and atomically commit a compact application event | Implemented internally: one move-only input advances the exact database, consumes one selected target, and stores only centered relation terms, target locator/offset, canonical loci, final cases, and one-byte applicable/domain/leak tags; this is not yet a reusable rule artifact, and shallow rule/residual handles, scheduling, closure, and application remain pending |
+| Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes. An owning exactly-once queue, closure, durable rule artifacts, and application remain pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, and affine-equality transitions in the implemented slices; compact application events are retained for the forward path, but their optional audit replay is pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
@@ -350,8 +350,10 @@ The repository currently includes tests for:
   source recipe, and pivot evidence are not retained by that event. The frozen
   post-commit licensed default-GMP gate used four Nextest workers and passed
   all 1,658 runnable tests, with 5 configured cases skipped; the following
-  doctest phase also passed. No shallow
-  rule/residual handles, provider scheduling, rule application, publication
+  doctest phase also passed. A subsequent focused slice added one shallow
+  event `Arc` plus zero-copy rule/residual projections and retained the
+  already-proved pivot-term ordinal and immutable target domain/geometry. No
+  owning residual queue, provider scheduling, rule application, publication
   audit replay, physical-topology reduction, or six-loop solve is claimed; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
@@ -424,8 +426,10 @@ current event append copies the preceding event-`Arc` vector, and each target
 successor copies the complete disposition vector. Before the multi-loop
 foundry is scaled, these paths must become a chunked/persistent event log and a
 shared or paged copy-on-write target state. The compact application event now
-retains its application payload once. Future rule and residual handles must be
-shallow views into that event rather than duplicate deep payload vectors.
+retains its application payload once, and its rule/residual projections are
+shallow views rather than duplicate deep payload vectors. Exactly-once
+consumption belongs to the future owning work queue; the repeatable inspection
+views do not claim it.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
@@ -442,14 +446,18 @@ since crossed public Symbolica APIs. The latter now delegates determinants,
 transpose, Gram congruence, and denominator-coordinate products through an
 authenticated V2 boundary while retaining an independent physics replay.
 Native Symbolica dense and sparse solves must likewise replace the older
-custom `exact_sparse_elimination` wherever the public API applies. The pinned
-sparse solve has a documented validation caveat, so the production migration
-must use public `SparseRowReducer` together with independent rank/residual and
-transcript checks; RustRed does not extend this into a parallel CAS or matrix
-implementation.
+custom `exact_sparse_elimination`, `parametric_elimination`, and the row
+arithmetic still present in the live generated-affine exact database. The
+pinned sparse solve has a documented validation caveat, so the production
+migration must use public `SparseRowReducer`/`LuLMode::Full` together with
+independent rank/residual and source-combination checks. RustRed owns physical
+column ordering, guards, scheduling, and proofs, not a parallel CAS or matrix
+implementation. The first transactional bridge rebuilds a temporary reducer
+from immutable committed pivots inside each stage; a persistent reducer is not
+admitted until rollback/rebuild semantics and its scaling profile are explicit.
 The next vacuum-critical solver milestone is the topology-neutral
-`compact application event -> shallow rule/residual handles -> residual and
-subsector scheduling -> exactly verified closure` slice. Exact fixed-chamber
+`compact application event -> native Symbolica incremental reducer -> owning
+residual/subsector scheduling -> exactly verified closure` slice. Exact fixed-chamber
 descent and lazy hazard geometry now cover authenticated selector-independent
 compact affine target maps. An owner-bound identity/compact transform and
 deterministic condition-source schedule now preserve the Ready lineage, while
@@ -467,13 +475,14 @@ preparation now distills the application loci, cases, and one-byte leaf tags;
 the atomic session transition advances the database, consumes one selected
 target, and stores those values with the centered relation terms and target
 locator/offset in one event. It drops derivation-only translation, guards,
-statistics, source recipe, and pivot evidence. The active slice must expose
-shallow applicable and exceptional handles, schedule residual and solved-
-subsector work, and prove a coverage fixed point. Multi-start shard/bundle
+statistics, source recipe, and pivot evidence. Shallow applicable and
+exceptional projections are implemented. The active path must migrate the
+live database to Symbolica's incremental reducer, then schedule residual and
+solved-subsector work and prove a coverage fixed point. Multi-start shard/bundle
 compilation and physical six-loop derivation profiling follow before the
-optimized concrete batch-application runtime. Graph-lifted symmetry discovery and the
-`SparseRowReducer` transcript-equivalence
-path follow on the scaling route; unrelated Feynman/non-vacuum algebra
+optimized concrete batch-application runtime. The `SparseRowReducer`
+transcript-equivalence path is now the immediate algebra gate; graph-lifted
+symmetry discovery and unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
 path.
 
@@ -514,16 +523,20 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. expose shallow applicable-rule and exceptional-residual handles into the
-   committed compact event, then integrate provider and residual scheduling;
-2. feed solved subsectors into supersectors, iterate residual cases, and prove
+1. replace handwritten live exact-database elimination with public Symbolica
+   `SparseRowReducer`/`LuLMode::Full`, preserving the tested event surface and
+   independently verifying every source combination and residual;
+2. add an owning exactly-once exceptional queue, a sealed committed-
+   exceptional source, and rejected-candidate continuation; then integrate
+   provider scheduling;
+3. feed solved subsectors into supersectors, iterate residual cases, and prove
    closure onto a finite enumerated set of selected or independently certified
    terminal keys (or finite products), never a symbolic residual domain;
-3. compile closed family/sector shards into deterministic multi-start campaign
+4. compile closed family/sector shards into deterministic multi-start campaign
    bundles with shared dependency nodes;
-4. pass the complete Vakint one- through four-loop replacement-system lane and
+5. pass the complete Vakint one- through four-loop replacement-system lane and
    derivation-only physical five-/six-loop scalability gates; and
-5. implement optimized application-time specialization plus optional
+6. implement optimized application-time specialization plus optional
    publication audit replay and expose a coverage-backed reduction result.
 
 This current-lineage state does not complete RustRed's stated mathematical
@@ -569,9 +582,10 @@ full proof replay; the nested relative-`WhenBad` compiler validates that
 authority linearly and performs no duplicate pairwise Symbolica-associate scan.
 Compact route preparation is now a single move-only owner transition rather
 than a separately authenticated manifest, and the atomic compact-event commit
-now consumes one selected target. The immediate gate is shallow rule/residual
-handles, exceptional and subsector scheduling, and a proved coverage fixed
-point. Closed-shard campaign bundling and a physical six-loop derivation gate
+now consumes one selected target. Its shallow event owner exposes applicable
+and exceptional views without copying the row or partition. The immediate gate
+is native Symbolica incremental row reduction, followed by the owning
+exceptional/subsector scheduler and a proved coverage fixed point. Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.

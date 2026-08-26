@@ -16,8 +16,9 @@ the following doctest phase also passed. Compact publication preparation and
 the internal atomic application-event commit were reconciled on 2026-08-26.
 The frozen licensed default-GMP gate then passed all 1,658 runnable tests with
 four Nextest workers, with 5 configured cases skipped; doctests also passed.
-The handle, scheduling, closure, bundle, application, audit-replay, and
-complete-reduction gates remain open.
+The owning queue, scheduling, closure, bundle, application, audit-replay, and
+complete-reduction gates remain open. Shallow event-bound rule/residual domain
+views are implemented in the subsequent worktree slice.
 
 ## Reading status
 
@@ -85,9 +86,11 @@ two-stage architecture and benchmark contract are in
 2. Symbolica's vendored Rust source defines the exact algebra, patterns,
    substitutions, polynomial/rational-polynomial operations, serialization,
    and performance facilities available to the implementation.
-3. Vakint's Rust, tests, FORM resources, and alphaLoop resources define tensor
-   input/output conventions, tensor projection behavior, topology
-   normalization, and the expected application of parametric rules.
+3. Vakint's Rust tests and tensor FORM routines define tensor input/output
+   conventions, tensor projection behavior, and topology normalization.
+   Vakint/alphaLoop's authored FORM recurrence tables are frozen concrete
+   output oracles only: they must never supply RustRed source rows, weights, or
+   production replacement rules.
 
 No new production implementation begins until the relevant source paths have
 been audited and their semantics recorded with exact references.
@@ -403,16 +406,18 @@ exact database, consumes exactly one selected target, and stores one compact
 application event containing centered relation terms, target locator/offset,
 loci, cases, and the one-byte tags. The publication event does not retain the
 derivation row translation, row guards, derivation statistics, source recipe,
-or pivot evidence. It does not yet expose shallow rule/residual handles,
-schedule exceptional work through the provider, apply a rule, support optional
-publication audit replay, or establish a complete reduction.
+or pivot evidence. One shallow event owner now exposes zero-copy applicable
+and exceptional leaves and event-bound domains containing the parent premises
+and resolved relative predicates. It does not schedule exceptional work
+through the provider, apply a rule, support optional publication audit replay,
+or establish a complete reduction.
 
 The current exact-session event replacement and target successor are
 correctness-first, not six-loop-scalable: they copy the prior event-`Arc`
 vector and the full target-disposition vector on every transition. The compact
-publication payload is retained only once in its event; future handles must be
-shallow views rather than deep rule/residual duplication. Before high-loop
-deployment, session storage must
+publication payload is retained only once in its event, and the implemented
+handles are shallow views rather than deep rule/residual duplication. Before
+high-loop deployment, session storage must
 move to a chunked/persistent event log and shared or paged copy-on-write target
 dispositions.
 
@@ -458,7 +463,9 @@ generated IBP/LI rows
    of the current-lineage arbitrary-width OR-of-AND formula       [implemented, nonpublishing]
 -> move-bound commit state + one-byte-per-leaf route preparation  [implemented]
 -> atomic target consumption + compact application event          [implemented internally]
--> shallow rule/residual handles + provider/residual scheduling   [next]
+-> shallow event-bound rule/residual domains                      [implemented internally]
+-> transactional temporary Symbolica reducer correctness bridge  [next]
+-> owning provider/residual scheduling
 -> exceptional-domain recursion and solved-subsector feedback
 -> coverage fixed point (publication replay is an optional audit)
 -> immutable closed family/sector shard

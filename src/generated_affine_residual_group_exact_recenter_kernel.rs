@@ -490,11 +490,16 @@ pub(crate) struct ExactRecenteredRow {
 /// belong only to derivation and are deliberately dropped at publication.
 pub(crate) struct ExactRecenteredApplicationRow {
     terms: Arc<Vec<ExactRecenteredTerm>>,
+    pivot_term_ordinal: usize,
 }
 
 impl ExactRecenteredApplicationRow {
     pub(crate) fn terms(&self) -> &[ExactRecenteredTerm] {
         &self.terms
+    }
+
+    pub(crate) const fn pivot_term_ordinal(&self) -> usize {
+        self.pivot_term_ordinal
     }
 
     pub(crate) fn deep_owned_retained_byte_bound(&self) -> Result<usize, ExactRecenterKernelError> {
@@ -507,6 +512,7 @@ impl fmt::Debug for ExactRecenteredApplicationRow {
         formatter
             .debug_struct("ExactRecenteredApplicationRow")
             .field("term_count", &self.terms.len())
+            .field("pivot_term_ordinal", &self.pivot_term_ordinal)
             .field("private_terms", &"<redacted>")
             .finish()
     }
@@ -539,8 +545,15 @@ impl ExactRecenteredRow {
     /// Move only the already-centered terms into compact application state.
     /// Every other field is derivation-local and is dropped by this consuming
     /// step.
-    pub(crate) fn into_application_row(self) -> ExactRecenteredApplicationRow {
-        ExactRecenteredApplicationRow { terms: self.terms }
+    pub(crate) fn into_application_row(
+        self,
+        pivot_term_ordinal: usize,
+    ) -> ExactRecenteredApplicationRow {
+        debug_assert!(pivot_term_ordinal < self.terms.len());
+        ExactRecenteredApplicationRow {
+            terms: self.terms,
+            pivot_term_ordinal,
+        }
     }
 
     pub(crate) fn into_parts(

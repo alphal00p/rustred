@@ -7,7 +7,9 @@ loop-count independent; concrete four-, five-, and six-loop graphs are test,
 campaign, and benchmark inputs only. Implementation status below is reconciled
 through the compact atomic application-event checkpoint on 2026-08-26. Its
 licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
-workers, with 5 configured cases skipped; doctests also passed.
+workers, with 5 configured cases skipped; doctests also passed. A subsequent
+worktree slice adds shallow event-bound applicable/exceptional domains; its
+focused licensed parallel gates are recorded in the governing port plan.
 
 Internal RustRed owners trust sealed constructors and move semantics. Add
 runtime validation only at human/file import, durable artifact loading, and the
@@ -270,10 +272,12 @@ source-profiled exact-session recentering without a fake inventory. Stable
 value remains distinct from exact terminal/authority/frame/session `Arc`
 ancestry. Authenticated lower-arity constrained Direct maps now reach
 `ReadyForConditions`; independent default-GMP run
-`b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. Next is
-`WhenBad` closure and publication. No arity-21 Direct input has reached Ready,
-and no Direct input has reached reduction, publication, or six-loop topology
-support.
+`b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. Next is a
+transactional temporary Symbolica-reducer correctness bridge followed by
+owning exceptional and subsector scheduling to close the published domains.
+No arity-21 Direct input has reached Ready,
+and no Direct input has reached reduction, closed/durable guarded-rule
+publication, or six-loop topology support.
 
 The successful `K=21` fixture stops at the first formula-residual path. It is
 not a Ready result, published guarded rule, reduction, or calculation on a
@@ -621,13 +625,15 @@ or physical-topology calculation.
    constrained compact maps now reach `ReadyForConditions`; the production
    regression replays six RHS descent witnesses. This has not reached rule
    publication, reduction, or six-loop topology support.
-9. **Completed through the compact atomic event:** current-lineage condition
+9. **Completed through shallow event-bound domains:** current-lineage condition
    mapping, canonical-locus relative `WhenBad` partitioning, one-pass
    move-bound Ready/route preparation, and atomic database/target/event commit.
-   Finish `GeneratedFamilySymbolicResidualSolveV1` with shallow handles,
-   exceptional scheduling, solved-subsector feedback, a proved coverage fixed
-   point, exact residual verification, and the distinct 36-source session
-   batch.
+   The compact event now exposes shallow applicable/exceptional leaves and the
+   full parent-premise-plus-relative-predicate domain. Migrate live row algebra
+   to Symbolica's native incremental reducer, then finish
+   `GeneratedFamilySymbolicResidualSolveV1` with exceptional scheduling,
+   solved-subsector feedback, a proved coverage fixed point, exact residual
+   verification, and the distinct 36-source session batch.
 10. Replace quadratic session event/target storage and add unit-mass `Q(d)`
     specialization plus modular/reconstruction services through public
     Symbolica finite-field and polynomial APIs.

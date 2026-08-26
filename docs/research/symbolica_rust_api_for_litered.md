@@ -682,7 +682,29 @@ and Feynman-polynomial matrix consumers remain separate migration work.
 
 CSR `SparseMatrix` is defined at `vendor/symbolica/lib/numerica/src/tensors/sparse.rs:230-249`; constructors are at `401-529`. `from_csr` mostly asserts shape lengths, and `from_triplets` relies on a debug assertion for ordering (`495-529`). RustRed must sort triplets, combine duplicates, drop zeros and bounds-check before construction.
 
-Sparse solve/determinant/inversion and parallel solve are at `972-1124`. Incremental `SparseRowReducer` and `LuLMode::{Full,Pattern,None}` are at `1454-1775`; back substitution starts at `1811`. The reducer chooses the first nonzero/smallest stored column as pivot and normalizes by it (`1855` onward). Thus RustRed can encode a fixed integral complexity priority by column order, but not a dynamic coefficient-size/guard-aware pivot score.
+Sparse solve/determinant/inversion and parallel solve are at `972-1124`.
+Incremental `SparseRowReducer` and `LuLMode::{Full,Pattern,None}` are at
+`1454-1775`; dynamic ordered column insertion is provided by `add_cols` at
+`1777-1805`, and back substitution starts at `1811`. The reducer chooses the
+first nonzero/smallest stored column as pivot and normalizes by it (`1855`
+onward). RustRed must therefore map the hardest physical integral key to the
+smallest column. The temporary correctness bridge prebuilds the complete
+per-stage key catalog, reverses it so hardest maps to column zero, and uses
+`ncols = K + 1` for the sentinel. `add_cols` is relevant only to a later
+persistent design. RustRed owns this physics ordering, but Symbolica owns the
+pivot arithmetic and row reduction.
+
+With `LuLMode::Full`, the public `l()`, `u()`, and `pivots()` accessors retain
+the exact incremental decomposition (`L*U=A`): a nonempty dependent row's new
+`L` row carries elimination factors only, while an independent row also has a
+diagonal entry equal to its pre-normalization leader and appends a normalized
+row to `U`. This is the required native seam for RustRed's dependency/new-pivot
+evidence. RustRed must independently replay the source combination and exact
+residual, but must not recompute elimination with a second solver. This is not
+unconditionally one `L` row per submitted source:
+`add_row` returns without appending for an empty sparse row and once the reducer
+is already full rank. RustRed must special-case empty input and retain one
+unused sentinel column while probing the transcript contract.
 
 `SparseMatrix::inv` has the same augmented-row singularity problem as the
 dense inverse (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:1051-1075`).
@@ -690,7 +712,37 @@ It is not a proof oracle.
 
 Important source concern: checked inconsistency detection in sparse row-reducer constructors tests a one-entry final-column row only when that stored coefficient `is_zero` (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:1551-1577` and `1585-1615`). A valid CSR matrix normally omits zeros, so this appears inverted. `SparseMatrix::solve` and its parallel variant depend on these paths (`974-995`, `1084-1110`). Do not use them as a correctness oracle until a focused probe/test resolves this.
 
-Even after that issue is resolved, direct RP-field elimination normalizes by a pivot and therefore loses the assumption that the pivot was nonzero. RustRed needs its own elimination wrapper/layer that records the pivot numerator/nonzero condition before division, carries row/equation provenance, enforces sector applicability and exact-replays emitted rules. Symbolica sparse storage/reduction may still be used for finite-field rank/elimination and carefully wrapped exact systems.
+Direct RP-field elimination normalizes by a pivot and therefore requires a
+semantic wrapper that records the pivot numerator/nonzero condition before
+division, carries row/equation provenance, enforces sector applicability, and
+exact-replays emitted rules. That wrapper delegates every field operation and
+row reduction to Symbolica; it is not permission to retain the handwritten
+eliminators in `exact_sparse_elimination.rs`, `parametric_elimination.rs`, or
+`generated_affine_residual_group_exact_database.rs`.
+
+The first bridge may retain one narrow scalar provenance replay driven solely
+by Symbolica's `L` factors. It reproduces intermediate denominator guards,
+their exact operation/term origins, and historical coefficient-work admission,
+then checks the replayed normalized row against `U`. Final-`U` denominators are
+not equivalent when intermediate denominators cancel. This replay performs no
+pivot search or elimination decision and therefore is not a second solver;
+every scalar operation still delegates to Symbolica-backed coefficient APIs.
+
+The public reducer mutates in place, exposes no transactional add-row/rollback,
+and its generic `Field` callback is infallible. RustRed should reuse/generalize
+the checked coefficient-field panic bridge in
+`src/symbolica_coefficient_matrix.rs`, preflight a row before entry, contain a
+native panic, and independently validate the new `L/U` state. The first safe
+migration must build a temporary reducer from the immutable committed-pivot log
+inside each non-mutating stage operation; a panic or failed post-check then
+discards only the temporary reducer and leaves the live database retryable.
+This rebuild is an explicitly measured O(P^2) cumulative correctness bridge,
+not the six-loop-scalable endpoint. A persistent live reducer may replace it
+only after Symbolica supplies checkpoint/fork/rollback or RustRed defines an
+append-only rebuild/poisoned-state recovery contract. Retaining a private
+Gaussian solver to mimic transaction ceremony is not acceptable.
+`back_substitute` must not be called during forward closure because it clears
+or changes provenance needed by the incremental foundry.
 
 **Compile probe LA-1:** build a tiny exact RP matrix through both dense and sparse APIs with the intended aliases and solve it.
 

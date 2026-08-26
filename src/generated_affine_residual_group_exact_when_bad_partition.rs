@@ -621,6 +621,10 @@ impl GeneratedAffineResidualGroupExactWhenBadReadyForPublication {
         &self.partition
     }
 
+    pub(crate) fn pivot_term_ordinal(&self) -> usize {
+        self.owner.condition_plan().ready().pivot_term_ordinal()
+    }
+
     pub(crate) const fn targets_consumed(&self) -> usize {
         0
     }

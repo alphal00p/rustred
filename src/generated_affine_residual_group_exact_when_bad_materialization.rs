@@ -713,6 +713,10 @@ pub(crate) struct GeneratedAffineResidualGroupExactWhenBadReadyForPartition {
 }
 
 impl GeneratedAffineResidualGroupExactWhenBadReadyForPartition {
+    pub(crate) const fn condition_plan(&self) -> &GeneratedAffineResidualGroupExactConditionPlan {
+        &self.plan
+    }
+
     pub(crate) fn sources(&self) -> &[GeneratedAffineResidualGroupExactMappedSource] {
         &self.sources
     }

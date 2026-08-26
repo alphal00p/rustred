@@ -29,12 +29,18 @@ licensed four-thread preparation suite passed 3/3. The internal atomic commit
 now advances the database, consumes one selected target, and stores a compact
 application event (the internal `Publication` disposition). The frozen
 licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
-workers, with 5 configured cases skipped; doctests also passed. Shallow
-rule/residual handles, scheduling, application, publication audit replay,
-subsector feedback, and complete reduction remain pending. Immediate next work
-is shallow handles, exceptional/subsector scheduling, and coverage closure;
-bundling and physical six-loop derivation precede optimized application;
-updated 2026-08-26.
+workers, with 5 configured cases skipped; doctests also passed. A subsequent
+worktree slice now makes the compact event shallow-ownable through one `Arc`,
+retains the already-proved pivot-term ordinal, and exposes zero-copy applicable
+and exceptional leaf views together with the parent target premises and affine
+geometry. The owning exactly-once work queue, exceptional-source re-entry,
+rejected-candidate continuation, application, publication audit replay,
+subsector feedback, and complete reduction remain pending. Before adding the
+queue, the live exact database's handwritten row arithmetic must migrate to a
+temporary per-stage Symbolica `SparseRowReducer`/`LuLMode::Full` rebuilt from
+the immutable pivot log, so failure remains transactional; persistent reducer
+state is a separate scaling slice. Bundling and physical six-loop derivation
+still precede optimized application; updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -46,6 +52,11 @@ Symbolica. It must not use FORM, Mathematica at runtime, Symbolica's `no_gmp`
 feature, loop-count-specific code, topology-specific recurrences, or
 hard-coded reduction rules. Loop counts and concrete vacuum or scattering
 topologies are validation inputs only; they never select a core algorithm.
+Vakint's one- through four-loop FORM-backed replacement systems are therefore
+black-box acceptance oracles and a required coverage target, not an input rule
+source: RustRed must independently derive the corresponding parametric rules,
+apply them natively in Rust/Symbolica, and only then compare normalized
+concrete reductions with the frozen Vakint results.
 
 Private in-memory Rust types are trusted to preserve invariants established by
 their sealed constructors. New forward-path stages must not add schema strings,
@@ -148,8 +159,10 @@ The current-lineage components below are implemented and tested:
   relative cases, and a one-byte applicable/domain/leak tag per leaf. The
   exact-session commit advances the database, consumes one selected target,
   and stores those values with centered relation terms and target
-  locator/offset in a compact event. This is not yet a rule handle, residual
-  schedule, provider result, or reduction.
+  locator/offset in a compact event. One shallow owner now exposes event-bound
+  rule/residual leaves and complete zero-copy domains (parent premises plus
+  resolved relative predicates). This is not yet an owning residual schedule,
+  provider result, or reduction.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -307,10 +320,12 @@ produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
-The target-consuming compact application-event commit is now implemented, but
-it is not target-consuming rule publication: there are no current-lineage
-rule/residual handles, exceptional-work scheduler, provider application,
-publication-event audit replay, or subsector feedback yet. The mature
+The target-consuming compact application-event commit and its event-owned,
+zero-copy rule/residual projections are now implemented in the worktree, but
+this is not a closed rule publication system: there is no owning exceptional
+work queue, event-derived residual-source ingress, rejected-candidate
+continuation, provider application, publication-event audit replay, or
+subsector feedback yet. The mature
 `GeneratedResidualAffine...` implementation is an oracle, not production
 authority for these missing pieces. RustRed's stated capability goal,
 arbitrary one-loop pentagon reduction, and the high-throughput two- through
@@ -808,11 +823,24 @@ consumes exactly one selected target, and moves one compact application event
 into place. `IdenticallyBad` never enters this API: it keeps the target
 unresolved and publishes no rule.
 
-Rule and residual handles are not implemented yet. They must be shallow views
-into one committed event. The event already owns the centered relation data and
-relative domains needed for application, so normal application must not
-reconstruct them from a derivation recipe. Provider and residual-scheduler
-integration begin from this event and remain pending.
+Rule and residual projections are now shallow views into one committed event.
+`PublicationReceipt` retains one shallow event `Arc`, so work can survive later
+mutable session epochs without cloning the centered row or relative partition.
+The view exposes the immutable parent target premises, affine geometry,
+target offset, pivot-term ordinal, loci, and relative cases. Each in-range
+lookup is a total/exclusive applicable-versus-exceptional classification; it is
+deliberately repeatable and does not claim exactly-once scheduling. After the
+native-reducer migration, the owning queue is compiled as a sealed batch wave
+from explicit `(outer job, exact session, PublicationReceipt)` inputs. It sorts
+owners by `(outer job, exact session, event ordinal)`, consumes exactly one
+event handle per publication slot, rejects duplicate event keys, and stores
+only one byte of handoff state per leaf—never a per-leaf `Arc` or copied
+row/partition. No insertion is allowed after compilation; newly discovered
+work forms the next deterministic wave. A non-Clone ticket addresses
+`(publication slot, leaf ordinal)`, and acknowledgement means only that the
+designated consumer accepted the handoff—never rule application, exceptional
+discharge, coverage, closure, terminal status, zero, or master status. Provider
+and residual-source ingress remain pending.
 
 ### Phase E: provider integration, persistence, and optional audit
 
@@ -903,8 +931,8 @@ representation result; an exception or exhausted limit is operational.
 | `Dependent` | Advance source; no new pivot | Dispositions unchanged; state advances to the prepared successor | Dependent event | None |
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
-| Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event; handle exposure pending | Applicable rule handle/provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event; exceptional scheduling pending | Applicable rule handles/provider pending |
+| Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with zero-copy applicable/exceptional views; owning scheduling pending | Zero-copy applicable-rule views; provider pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -912,9 +940,10 @@ representation result; an exception or exhausted limit is operational.
 A rejected pivot is committed once and is not offered to a second target. A
 later source row is reduced by it and may solve the same unresolved target.
 The persisted first matching target remains final for the current candidate.
-The atomic database/target/event columns of the prepared-publication rows are
-implemented. Rule handles, residual scheduling, and application remain future
-work.
+The atomic database/target/event columns of the prepared-publication rows and
+repeatable shallow rule/residual inspection views are implemented. Operational
+exactly-once residual scheduling, provider integration, and application remain
+future work.
 
 ## 9. Atomic owner transition
 
@@ -931,8 +960,9 @@ Before any mutation, prepare and admit all of:
 - aggregate statistics and every new retained/peak capacity.
 
 Those database, target, event, and statistics preparations are implemented for
-the compact publication event. Shallow handle and residual-scheduling storage
-remain to be added without duplicating its deep payload.
+the compact publication event. Shallow event/domain projections are also
+implemented; owning residual-scheduling storage remains to be added without
+duplicating the deep payload.
 
 Only after all preparations succeed may the move-only commit tail:
 
@@ -973,9 +1003,9 @@ statistics and limits must cover:
 The implemented Ready geometry/descent/hazard checkpoint reports an
 incremental subphase census. Compact publication accounts for the retained
 application event after dropping derivation-only row translation, guards,
-statistics, source recipe, and pivot evidence. Future handle and scheduler
-accounting must cover only their shallow storage and must not charge or copy the
-event payload again.
+statistics, source recipe, and pivot evidence. The implemented views allocate
+no storage. Future queue accounting must cover only its shallow owner slots and
+leaf-state bytes and must not charge or copy the event payload again.
 
 Project every child compiler from the remaining aggregate budget. Never reset
 a child to default limits. Before materializing boundary events, preflight the
@@ -1058,9 +1088,10 @@ unchanged.
 ### State/publication gates
 
 The current atomic milestone covers compact-event commitment, one target
-consumption, freshness/resource failure, and retained-payload accounting. The
-handle, scheduling, specialization, and durable-audit gates below remain
-pending where they depend on those future layers.
+consumption, freshness/resource failure, retained-payload accounting, and
+event-bound zero-copy rule/residual domains. Scheduling, specialization, and
+durable-audit gates below remain pending where they depend on those future
+layers.
 
 - Full transition-table test covering Dependent, NoTarget, equality, prepared
   publication, IdenticallyBad, unsupported representations, and every
@@ -1071,6 +1102,14 @@ pending where they depend on those future layers.
   persisted matching Ready target.
 - Mixed publication commits every applicable leaf and queues every
   exceptional leaf while consuming the coarse target exactly once.
+- Queue construction rejects duplicate `(outer job, exact session, event)`
+  keys but accepts identical local event ordinals from distinct sessions;
+  exact and every-positive-one-below limits return all input receipts intact.
+- Forward/reverse receipt order and forward/reverse acknowledgement order
+  produce the same canonical handoff stream and state statistics. Duplicate,
+  foreign, or unissued acknowledgement is rejected, and acknowledgement alone
+  never changes a leaf's applicable/exceptional classification or proves
+  discharge, coverage, closure, terminal status, or master status.
 - Applicable specialization reproduces the complete exact recentered
   relation coefficient-for-coefficient and shift-for-shift. Exceptional
   specialization is refused by the rule handle and routed to the matching
@@ -1196,7 +1235,8 @@ Implement in this order:
    preparation now distills move-only commit state, loci, cases, and one-byte
    guarded/exceptional tags. The atomic exact-session transition now advances
    the database, consumes one selected target, and stores the compact
-   application event. This has not exposed a rule/residual handle, applied a
+   application event. A shallow event owner now exposes zero-copy rule/residual
+   leaves and complete event-bound domains. This has not queued or applied a
    rule, completed publication audit replay, reduced an integral, or reached
    six-loop topology support;
    retain the MTBDD only as a
@@ -1212,9 +1252,14 @@ Implement in this order:
    owner-bound relative partition of the current-lineage arbitrary-width
    OR-of-AND formula are also implemented. Move-bound compact route preparation
    and the atomic compact application-event commit are implemented;
-8. expose shallow rule/residual handles into that event and add exceptional
-   residual scheduling plus solved-subsector feedback;
-9. iterate those queues to a proved coverage fixed point with exact regenerated-
+8. replace the live exact database's handwritten row arithmetic with a
+   temporary per-stage public Symbolica `SparseRowReducer`/`LuLMode::Full`
+   rebuilt from immutable committed pivots; retain RustRed ordering, guards,
+   provenance, transactional failure, resource admission, and independent
+   residual checks, not a second elimination engine;
+9. add owning exceptional residual scheduling, sealed committed-exceptional
+   source ingress, rejected-candidate continuation, and solved-subsector
+   feedback; then iterate those queues to a proved coverage fixed point with exact regenerated-
    IBP residuals and a finite enumerated selected/certified terminal-key set;
    only then construct an immutable closed family/sector shard;
 10. replace the quadratic event/target replacement storage, add unit-mass

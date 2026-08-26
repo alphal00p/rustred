@@ -43,7 +43,8 @@ use crate::generated_affine_residual_group_exact_database::{
 };
 use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::generated_affine_residual_group_exact_publication::{
-    PreparedPublication, PublicationPayload, PublicationStats,
+    PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
+    PublicationStats,
 };
 use crate::generated_affine_residual_group_exact_recenter_kernel::{
     ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
@@ -69,9 +70,13 @@ use crate::generated_affine_residual_group_physical_key::{
 use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
 };
+use crate::generated_residual_affine_when_bad::{
+    AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
+};
 use crate::{
-    GuardOrigin, IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricNonZeroCondition,
+    GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
+    ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
+    SymbolicPolynomialPredicateKind,
 };
 
 #[cfg(test)]
@@ -1445,7 +1450,471 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
     }
 }
 
-/// Scalar receipt for one committed compact application event.
+/// Shallow owning handle for one committed compact publication event.
+///
+/// Cloning this handle clones one `Arc`, never the centered relation or its
+/// relative partition.  A scheduler may therefore retain an event across
+/// later mutable session epochs and borrow zero-copy projections only while it
+/// inspects that event.
+#[derive(Clone)]
+pub(crate) struct CommittedPublicationEventHandle {
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
+}
+
+impl CommittedPublicationEventHandle {
+    pub(crate) fn view(&self) -> CommittedPublicationEventView<'_> {
+        CommittedPublicationEventView {
+            event: self.event.as_ref(),
+        }
+    }
+}
+
+impl fmt::Debug for CommittedPublicationEventHandle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.view().fmt(formatter)
+    }
+}
+
+/// Borrow-only view of one committed compact publication event.
+///
+/// The event allocation remains the sole deep payload owner, shared shallowly
+/// by the session ledger and any retained event handle. This view performs no
+/// replay, algebra, allocation, or target-state authentication: the atomic
+/// commit has already established those in-process invariants. It is therefore
+/// suitable for the later rule provider and residual scheduler without cloning
+/// the centered row or relative partition.
+#[derive(Clone, Copy)]
+pub(crate) struct CommittedPublicationEventView<'session> {
+    event: &'session GeneratedAffineResidualGroupExactSessionEvent,
+}
+
+impl<'session> CommittedPublicationEventView<'session> {
+    fn from_event(event: &'session GeneratedAffineResidualGroupExactSessionEvent) -> Option<Self> {
+        matches!(
+            (&event.head, &event.disposition),
+            (
+                GeneratedAffineResidualGroupExactSessionEventHead::Publication { .. },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. }
+            )
+        )
+        .then_some(Self { event })
+    }
+
+    fn publication_parts(
+        self,
+    ) -> (
+        usize,
+        &'session ExactTargetOffset,
+        GeneratedAffineResidualGroupSolveTargetLocator,
+        &'session ExactRecenteredApplicationRow,
+        &'session PublicationPayload,
+    ) {
+        match (&self.event.head, &self.event.disposition) {
+            (
+                GeneratedAffineResidualGroupExactSessionEventHead::Publication { pivot_ordinal },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication {
+                    target_offset,
+                    locator,
+                    row,
+                    publication,
+                },
+            ) => (*pivot_ordinal, target_offset, *locator, row, publication),
+            _ => unreachable!("committed publication view lost its publication event"),
+        }
+    }
+
+    pub(crate) const fn event_ordinal(self) -> usize {
+        self.event.event_ordinal
+    }
+
+    pub(crate) const fn source_ordinal(self) -> usize {
+        self.event.source_ordinal
+    }
+
+    pub(crate) fn pivot_ordinal(self) -> usize {
+        self.publication_parts().0
+    }
+
+    pub(crate) fn target_locator(self) -> GeneratedAffineResidualGroupSolveTargetLocator {
+        self.publication_parts().2
+    }
+
+    pub(crate) fn target_offset(self) -> &'session [Integer] {
+        self.publication_parts().1.values()
+    }
+
+    pub(crate) fn terms(self) -> &'session [ExactRecenteredTerm] {
+        self.publication_parts().3.terms()
+    }
+
+    pub(crate) fn pivot_term_ordinal(self) -> usize {
+        self.publication_parts().3.pivot_term_ordinal()
+    }
+
+    pub(crate) fn target_premises(self) -> &'session [ParametricNonZeroCondition] {
+        self.event
+            .authority
+            .catalog
+            .ready_target_premises(self.target_locator())
+            .expect("committed publication lost its immutable Ready-target premises")
+    }
+
+    pub(crate) fn ambient_arity(self) -> usize {
+        self.event
+            .authority
+            .plan
+            .authority()
+            .retained_source_neutral_group_view()
+            .expect("committed publication lost its sealed affine-group geometry")
+            .ambient_arity()
+    }
+
+    pub(crate) fn free_positions(self) -> &'session [usize] {
+        self.event
+            .authority
+            .plan
+            .authority()
+            .retained_source_neutral_group_view()
+            .expect("committed publication lost its sealed affine-group geometry")
+            .free_positions()
+    }
+
+    /// Row-major `ambient_arity * free_positions().len()` exact matrix.
+    pub(crate) fn compact_affine_matrix(self) -> &'session [Integer] {
+        self.event
+            .authority
+            .plan
+            .authority()
+            .retained_source_neutral_group_view()
+            .expect("committed publication lost its sealed affine-group geometry")
+            .compact_linear_coefficients()
+    }
+
+    pub(crate) fn database_epoch(self) -> usize {
+        self.event.authority.database_epoch
+    }
+
+    pub(crate) fn group_ordinal(self) -> usize {
+        self.event.authority.group_ordinal
+    }
+
+    pub(crate) fn family_fingerprint(self) -> &'session str {
+        self.event.authority.plan.authority().family_fingerprint()
+    }
+
+    pub(crate) fn context_fingerprint(self) -> &'session str {
+        self.event.authority.plan.authority().context_fingerprint()
+    }
+
+    pub(crate) fn sector(self) -> &'session SectorMask {
+        self.event.authority.plan.authority().sector()
+    }
+
+    pub(crate) fn ordering(self) -> IntegralOrderingPolicy {
+        self.event.authority.plan.authority().ordering()
+    }
+
+    fn loci(self) -> &'session [ParametricPolynomial] {
+        self.publication_parts().4.loci()
+    }
+
+    fn cases(self) -> &'session [AffineWhenBadArbitraryRelativeCase] {
+        self.publication_parts().4.cases()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn loci_for_test(self) -> &'session [ParametricPolynomial] {
+        self.loci()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cases_for_test(self) -> &'session [AffineWhenBadArbitraryRelativeCase] {
+        self.cases()
+    }
+
+    pub(crate) fn leaf_count(self) -> usize {
+        self.cases().len()
+    }
+
+    pub(crate) fn leaf(self, ordinal: usize) -> Option<CommittedPublicationLeafView<'session>> {
+        let leaf = self.publication_parts().4.leaf(ordinal)?;
+        Some(match leaf.disposition() {
+            PublicationLeafDisposition::Applicable => {
+                CommittedPublicationLeafView::Applicable(ApplicableRuleHandle { event: self, leaf })
+            }
+            PublicationLeafDisposition::ExceptionalDomain => {
+                CommittedPublicationLeafView::Exceptional(ExceptionalResidualHandle {
+                    event: self,
+                    leaf,
+                    kind: ExceptionalResidualKind::Domain,
+                })
+            }
+            PublicationLeafDisposition::ExceptionalLeak => {
+                CommittedPublicationLeafView::Exceptional(ExceptionalResidualHandle {
+                    event: self,
+                    leaf,
+                    kind: ExceptionalResidualKind::SectorLeak,
+                })
+            }
+        })
+    }
+
+    pub(crate) fn leaves(
+        self,
+    ) -> impl ExactSizeIterator<Item = CommittedPublicationLeafView<'session>> + 'session {
+        (0..self.leaf_count()).map(move |ordinal| {
+            self.leaf(ordinal)
+                .expect("committed publication payload lengths diverged")
+        })
+    }
+
+    pub(crate) fn applicable_rules(
+        self,
+    ) -> impl Iterator<Item = ApplicableRuleHandle<'session>> + 'session {
+        self.leaves().filter_map(|leaf| match leaf {
+            CommittedPublicationLeafView::Applicable(rule) => Some(rule),
+            CommittedPublicationLeafView::Exceptional(_) => None,
+        })
+    }
+
+    pub(crate) fn exceptional_residuals(
+        self,
+    ) -> impl Iterator<Item = ExceptionalResidualHandle<'session>> + 'session {
+        self.leaves().filter_map(|leaf| match leaf {
+            CommittedPublicationLeafView::Applicable(_) => None,
+            CommittedPublicationLeafView::Exceptional(residual) => Some(residual),
+        })
+    }
+}
+
+impl fmt::Debug for CommittedPublicationEventView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommittedPublicationEventView")
+            .field("event_ordinal", &self.event_ordinal())
+            .field("source_ordinal", &self.source_ordinal())
+            .field("pivot_ordinal", &self.pivot_ordinal())
+            .field("pivot_term_ordinal", &self.pivot_term_ordinal())
+            .field("target_locator", &self.target_locator())
+            .field("target_premise_count", &self.target_premises().len())
+            .field("ambient_arity", &self.ambient_arity())
+            .field("free_position_count", &self.free_positions().len())
+            .field("database_epoch", &self.database_epoch())
+            .field("group_ordinal", &self.group_ordinal())
+            .field("sector", &self.sector())
+            .field("ordering", &self.ordering())
+            .field("term_count", &self.terms().len())
+            .field("locus_count", &self.loci().len())
+            .field("leaf_count", &self.leaf_count())
+            .field("private_payload", &"<borrowed>")
+            .finish()
+    }
+}
+
+/// One leaf of a committed event, classified exclusively as either an
+/// applicable rule or exceptional residual. Exactly-once queue consumption is
+/// a later scheduler responsibility; these inspection views are repeatable.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CommittedPublicationLeafView<'session> {
+    Applicable(ApplicableRuleHandle<'session>),
+    Exceptional(ExceptionalResidualHandle<'session>),
+}
+
+/// One event-bound relative predicate with its table entry resolved.
+///
+/// The polynomial and predicate kind are minted together from the same
+/// committed event, so a provider cannot accidentally index a case through a
+/// different event's locus table.
+#[derive(Clone, Copy)]
+pub(crate) struct CommittedPublicationPredicateView<'session> {
+    locus_ordinal: usize,
+    kind: SymbolicPolynomialPredicateKind,
+    polynomial: &'session ParametricPolynomial,
+}
+
+impl<'session> CommittedPublicationPredicateView<'session> {
+    pub(crate) const fn locus_ordinal(self) -> usize {
+        self.locus_ordinal
+    }
+
+    pub(crate) const fn kind(self) -> SymbolicPolynomialPredicateKind {
+        self.kind
+    }
+
+    pub(crate) const fn polynomial(self) -> &'session ParametricPolynomial {
+        self.polynomial
+    }
+}
+
+impl fmt::Debug for CommittedPublicationPredicateView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommittedPublicationPredicateView")
+            .field("locus_ordinal", &self.locus_ordinal)
+            .field("kind", &self.kind)
+            .field("private_polynomial", &"<borrowed>")
+            .finish()
+    }
+}
+
+/// Complete zero-copy domain of one committed publication leaf.
+///
+/// The leaf applies on the conjunction of `target_premises()` and every
+/// resolved relative predicate returned by `predicates()`.  Keeping both
+/// projections behind this event-bound view prevents a provider from silently
+/// dropping the parent domain or pairing table indices with another event.
+#[derive(Clone, Copy)]
+pub(crate) struct CommittedPublicationDomainView<'session> {
+    event: CommittedPublicationEventView<'session>,
+    case: &'session AffineWhenBadArbitraryRelativeCase,
+}
+
+impl<'session> CommittedPublicationDomainView<'session> {
+    pub(crate) const fn event(self) -> CommittedPublicationEventView<'session> {
+        self.event
+    }
+
+    pub(crate) fn target_premises(self) -> &'session [ParametricNonZeroCondition] {
+        self.event.target_premises()
+    }
+
+    pub(crate) const fn relative_case(self) -> &'session AffineWhenBadArbitraryRelativeCase {
+        self.case
+    }
+
+    pub(crate) fn predicate_count(self) -> usize {
+        self.case.predicates().len()
+    }
+
+    pub(crate) fn predicate(
+        self,
+        ordinal: usize,
+    ) -> Option<CommittedPublicationPredicateView<'session>> {
+        let predicate = *self.case.predicates().get(ordinal)?;
+        self.resolve_predicate(predicate)
+    }
+
+    pub(crate) fn predicates(
+        self,
+    ) -> impl ExactSizeIterator<Item = CommittedPublicationPredicateView<'session>> + 'session {
+        (0..self.predicate_count()).map(move |ordinal| {
+            self.predicate(ordinal)
+                .expect("committed publication predicate lost its event-local locus")
+        })
+    }
+
+    fn resolve_predicate(
+        self,
+        predicate: AffineWhenBadArbitraryRelativePredicate,
+    ) -> Option<CommittedPublicationPredicateView<'session>> {
+        Some(CommittedPublicationPredicateView {
+            locus_ordinal: predicate.locus_ordinal(),
+            kind: predicate.kind(),
+            polynomial: self.event.loci().get(predicate.locus_ordinal())?,
+        })
+    }
+}
+
+impl fmt::Debug for CommittedPublicationDomainView<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommittedPublicationDomainView")
+            .field("event_ordinal", &self.event.event_ordinal())
+            .field("target_premise_count", &self.target_premises().len())
+            .field("relative_predicate_count", &self.predicate_count())
+            .field("private_domain", &"<borrowed>")
+            .finish()
+    }
+}
+
+/// Shallow handle for one relative case on which the committed relation is
+/// applicable.
+#[derive(Clone, Copy)]
+pub(crate) struct ApplicableRuleHandle<'session> {
+    event: CommittedPublicationEventView<'session>,
+    leaf: PublicationLeaf<'session>,
+}
+
+impl<'session> ApplicableRuleHandle<'session> {
+    pub(crate) const fn event(self) -> CommittedPublicationEventView<'session> {
+        self.event
+    }
+
+    pub(crate) const fn leaf_ordinal(self) -> usize {
+        self.leaf.ordinal()
+    }
+
+    /// Event-bound conjunction of the parent premises and this relative case.
+    pub(crate) const fn domain(self) -> CommittedPublicationDomainView<'session> {
+        CommittedPublicationDomainView {
+            event: self.event,
+            case: self.leaf.case(),
+        }
+    }
+}
+
+impl fmt::Debug for ApplicableRuleHandle<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ApplicableRuleHandle")
+            .field("event_ordinal", &self.event.event_ordinal())
+            .field("leaf_ordinal", &self.leaf_ordinal())
+            .field("private_case", &"<borrowed>")
+            .finish()
+    }
+}
+
+/// Algebra-free classification of one exceptional publication leaf.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExceptionalResidualKind {
+    Domain,
+    SectorLeak,
+}
+
+/// Shallow handle for one exact relative case that must return to the closure
+/// scheduler instead of entering the applicable-rule provider.
+#[derive(Clone, Copy)]
+pub(crate) struct ExceptionalResidualHandle<'session> {
+    event: CommittedPublicationEventView<'session>,
+    leaf: PublicationLeaf<'session>,
+    kind: ExceptionalResidualKind,
+}
+
+impl<'session> ExceptionalResidualHandle<'session> {
+    pub(crate) const fn event(self) -> CommittedPublicationEventView<'session> {
+        self.event
+    }
+
+    pub(crate) const fn leaf_ordinal(self) -> usize {
+        self.leaf.ordinal()
+    }
+
+    pub(crate) const fn kind(self) -> ExceptionalResidualKind {
+        self.kind
+    }
+
+    /// Event-bound conjunction to re-enter through the residual scheduler.
+    pub(crate) const fn domain(self) -> CommittedPublicationDomainView<'session> {
+        CommittedPublicationDomainView {
+            event: self.event,
+            case: self.leaf.case(),
+        }
+    }
+}
+
+impl fmt::Debug for ExceptionalResidualHandle<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExceptionalResidualHandle")
+            .field("event_ordinal", &self.event.event_ordinal())
+            .field("leaf_ordinal", &self.leaf_ordinal())
+            .field("kind", &self.kind)
+            .field("private_case", &"<borrowed>")
+            .finish()
+    }
+}
+
+/// Shallow receipt for one committed compact application event.
 #[derive(Debug)]
 pub(crate) struct PublicationReceipt {
     event_ordinal: usize,
@@ -1453,6 +1922,7 @@ pub(crate) struct PublicationReceipt {
     pivot_ordinal: usize,
     retained_event_bytes: usize,
     stats: PublicationStats,
+    event: CommittedPublicationEventHandle,
 }
 
 impl PublicationReceipt {
@@ -1474,6 +1944,14 @@ impl PublicationReceipt {
 
     pub(crate) const fn stats(&self) -> PublicationStats {
         self.stats
+    }
+
+    pub(crate) fn event(&self) -> CommittedPublicationEventView<'_> {
+        self.event.view()
+    }
+
+    pub(crate) fn into_event_handle(self) -> CommittedPublicationEventHandle {
+        self.event
     }
 }
 
@@ -2254,6 +2732,54 @@ impl GeneratedAffineResidualGroupExactSession {
 
     pub(crate) fn target_count(&self) -> usize {
         self.catalog.len()
+    }
+
+    /// Borrow one committed compact event by its chronological ordinal.
+    /// Non-publication events are deliberately invisible through this seam.
+    pub(crate) fn committed_publication_event(
+        &self,
+        event_ordinal: usize,
+    ) -> Option<CommittedPublicationEventView<'_>> {
+        let event = self.events.get(event_ordinal)?;
+        debug_assert_eq!(event.event_ordinal, event_ordinal);
+        CommittedPublicationEventView::from_event(event)
+    }
+
+    /// Retain one compact event independently of the mutable session epoch.
+    /// The returned owner adds only one shallow `Arc` reference.
+    pub(crate) fn committed_publication_event_handle(
+        &self,
+        event_ordinal: usize,
+    ) -> Option<CommittedPublicationEventHandle> {
+        let event = self.events.get(event_ordinal)?;
+        CommittedPublicationEventView::from_event(event)?;
+        Some(CommittedPublicationEventHandle {
+            event: Arc::clone(event),
+        })
+    }
+
+    /// Iterate committed compact events in deterministic ledger order without
+    /// cloning their rows, partitions, or `Arc` owners.
+    pub(crate) fn committed_publication_events(
+        &self,
+    ) -> impl Iterator<Item = CommittedPublicationEventView<'_>> + '_ {
+        self.events
+            .iter()
+            .filter_map(|event| CommittedPublicationEventView::from_event(event))
+    }
+
+    /// Retain every compact event in deterministic ledger order using one
+    /// shallow `Arc` per event and no leaf- or payload-sized clone.
+    pub(crate) fn committed_publication_event_handles(
+        &self,
+    ) -> impl Iterator<Item = CommittedPublicationEventHandle> + '_ {
+        self.events.iter().filter_map(|event| {
+            CommittedPublicationEventView::from_event(event).map(|_| {
+                CommittedPublicationEventHandle {
+                    event: Arc::clone(event),
+                }
+            })
+        })
     }
 
     #[cfg(test)]
@@ -4259,7 +4785,7 @@ impl GeneratedAffineResidualGroupExactSession {
             pivot_ordinal,
         } = prepared;
         let publication_stats = publication.stats();
-        let (ready, publication) = publication.into_parts_for_session();
+        let (ready, publication, pivot_term_ordinal) = publication.into_parts_for_session();
         let GeneratedAffineResidualGroupExactSessionRecenterReady {
             transaction,
             target,
@@ -4272,7 +4798,7 @@ impl GeneratedAffineResidualGroupExactSession {
         debug_assert_eq!(ready_source_ordinal, source_ordinal);
         debug_assert_eq!(ready_pivot_ordinal, pivot_ordinal);
         let locator = *target.locator();
-        let row = recentered.into_application_row();
+        let row = recentered.into_application_row(pivot_term_ordinal);
         let GeneratedAffineResidualGroupExactSessionStagedTransaction {
             staged,
             target_state: transaction_target_state,
@@ -4310,13 +4836,14 @@ impl GeneratedAffineResidualGroupExactSession {
         drop(transaction_target_state);
         drop(prior_target_state);
         drop(prior_events);
-        drop(event);
+        let event = CommittedPublicationEventHandle { event };
         Ok(PublicationReceipt {
             event_ordinal,
             source_ordinal,
             pivot_ordinal,
             retained_event_bytes: individual_event_retained_bytes,
             stats: publication_stats,
+            event,
         })
     }
 

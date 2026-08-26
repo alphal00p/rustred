@@ -118,6 +118,7 @@ impl PublicationRoute {
 /// One owner-borrowed publication leaf.  Raw packed routes never cross the
 /// module boundary independently of the Ready value they index.  This is an
 /// inspection view; publication authority remains the whole prepared owner.
+#[derive(Clone, Copy)]
 pub(crate) struct PublicationLeaf<'publication> {
     ordinal: usize,
     case: &'publication AffineWhenBadArbitraryRelativeCase,
@@ -166,30 +167,29 @@ impl PublicationPayload {
         )
     }
 
+    pub(crate) fn leaf(&self, ordinal: usize) -> Option<PublicationLeaf<'_>> {
+        let route = self.routes.get(ordinal)?.decode();
+        let case = self.cases.get(ordinal)?;
+        let disposition = match route {
+            DecodedPublicationRoute::Applicable => PublicationLeafDisposition::Applicable,
+            DecodedPublicationRoute::ExceptionalDomain => {
+                PublicationLeafDisposition::ExceptionalDomain
+            }
+            DecodedPublicationRoute::ExceptionalLeak => PublicationLeafDisposition::ExceptionalLeak,
+        };
+        Some(PublicationLeaf {
+            ordinal,
+            case,
+            disposition,
+        })
+    }
+
     pub(crate) fn leaves(&self) -> impl ExactSizeIterator<Item = PublicationLeaf<'_>> + '_ {
-        let cases = self.cases.as_slice();
-        debug_assert_eq!(self.routes.len(), cases.len());
-        self.routes
-            .iter()
-            .copied()
-            .zip(cases)
-            .enumerate()
-            .map(move |(ordinal, (route, case))| {
-                let disposition = match route.decode() {
-                    DecodedPublicationRoute::Applicable => PublicationLeafDisposition::Applicable,
-                    DecodedPublicationRoute::ExceptionalDomain => {
-                        PublicationLeafDisposition::ExceptionalDomain
-                    }
-                    DecodedPublicationRoute::ExceptionalLeak => {
-                        PublicationLeafDisposition::ExceptionalLeak
-                    }
-                };
-                PublicationLeaf {
-                    ordinal,
-                    case,
-                    disposition,
-                }
-            })
+        debug_assert_eq!(self.routes.len(), self.cases.len());
+        (0..self.routes.len()).map(|ordinal| {
+            self.leaf(ordinal)
+                .expect("private publication leaf/case lengths diverged")
+        })
     }
 }
 
@@ -210,6 +210,7 @@ impl fmt::Debug for PublicationPayload {
 pub(crate) struct PreparedPublication {
     ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
     payload: PublicationPayload,
+    pivot_term_ordinal: usize,
     stats: PublicationStats,
 }
 
@@ -223,6 +224,7 @@ impl PreparedPublication {
         // operational errors; doing so would hide bugs behind a retry API.
         match prepare_routes(&ready, limits) {
             Ok((routes, stats)) => {
+                let pivot_term_ordinal = ready.pivot_term_ordinal();
                 let expected_payload_deep =
                     match compact_ready_payload_deep_owned_retained_byte_bound(&ready, routes.len())
                     {
@@ -245,6 +247,7 @@ impl PreparedPublication {
                 Ok(Self {
                     ready,
                     payload,
+                    pivot_term_ordinal,
                     stats,
                 })
             }
@@ -264,6 +267,10 @@ impl PreparedPublication {
         self.stats
     }
 
+    pub(crate) const fn pivot_term_ordinal(&self) -> usize {
+        self.pivot_term_ordinal
+    }
+
     pub(crate) const fn payload(&self) -> &PublicationPayload {
         &self.payload
     }
@@ -273,8 +280,9 @@ impl PreparedPublication {
     ) -> (
         GeneratedAffineResidualGroupExactSessionRecenterReady,
         PublicationPayload,
+        usize,
     ) {
-        (self.ready, self.payload)
+        (self.ready, self.payload, self.pivot_term_ordinal)
     }
 }
 
