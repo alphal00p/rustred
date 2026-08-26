@@ -684,7 +684,7 @@ campaign instead needs those services to form one reusable offline/online
 architecture:
 
 1. **Symbolica-native proof kernels and API hardening**
-   - finish authenticated family/symmetry matrices and the sparse-row API
+   - finish verified family/symmetry maps and the sparse-row API
      spike without retaining a private algebra implementation;
    - keep typed arity/canonicality errors, separate target and seed
      specifications, versioned order, and honest uncertified-table status.
@@ -692,13 +692,15 @@ architecture:
 2. **Reusable guarded parametric-rule publication**
    - finish the generic persistent cylindrical/residual solver;
    - compile `WhenBad` branches, feed solved subsectors upward, prove descent
-     and domain coverage, and publish durable replayable artifacts;
+     and domain coverage, and publish immutable coverage-closed job shards;
+   - keep incomplete/resource-limited workspaces separate so they cannot be
+     loaded as rules or silently promoted to masters;
    - use one-loop through three-loop cases as correctness gates, not as the
      architectural endpoint.
 
 3. **Unit-mass modular acceleration**
-   - fingerprint `m2=1` as a campaign specialization so concrete coefficients
-     live in `Q(d)`;
+   - record `m2=1` in the campaign/job specialization key so concrete
+     coefficients live in `Q(d)`;
    - use Symbolica finite fields for pivot/rank discovery and univariate
      reconstruction in `d`;
    - reconstruct only reachable rules, then require fresh-prime checks and
@@ -711,28 +713,39 @@ architecture:
    - generate symmetry candidates from graph automorphisms/routing maps rather
      than bounded `GL(L,Z)` enumeration, then certify full ISP-aware affine
      maps;
-   - maintain resumable `(family, sector, shell)` derivation artifacts.
+   - maintain resumable `(family, sector, shell)` derivation workspaces;
+   - compile closed jobs into deterministic multi-start campaign bundles with
+     verified root ingress maps and shared subsector, factorization, and cross-
+     family dependency nodes.
 
-5. **Four- and five-loop campaign gates**
-   - reduce every Vakint H/X/BMW/FG contraction and numerator target;
-   - cover multiple general five-loop families, including ISP-rich and
+5. **Vakint through-four-loop foundry and oracle gate**
+   - derive every replacement system needed by the Vakint H/X/BMW/FG corpus
+     without FORM or copied recurrence tables;
+   - use a minimal generic application seam to compare every contraction and
+     numerator target with Vakint while leaving terminals unsubstituted;
+   - require exact regenerated-IBP residuals and cancellation closure
+     independently of the oracle.
+
+6. **Five- and six-loop derivation-only scalability gates**
+   - close multiple general five-loop families, including ISP-rich and
      duplicate-denominator cases rather than only the banana;
-   - profile modular discovery, reconstruction, exact replay, memory, and
-     artifact size separately.
+   - close a pre-run-frozen structurally representative QCD-valid quartic/cubic
+     six-loop corpus and all reachable dependencies, then a small
+     GammaLoop/BPHZ-derived multi-root corpus;
+   - require no reachable unsupported/resource/timeout/uncovered leaf, exact
+     rule residuals, strict dependency descent, deterministic worker-count
+     semantics, and the pre-run numerical time/memory/artifact/parallel-
+     scaling thresholds defined by the six-loop campaign manifest.
 
-6. **Separate high-throughput application runtime**
-   - consume normalized GammaLoop/BPHZ vacuum terms;
+7. **Separate high-throughput application runtime and later online milestone**
+   - consume normalized GammaLoop/BPHZ vacuum terms only after the foundry
+     gates above pass;
    - tensor/scalar lower once, intern/canonicalize integral keys, and apply
      compiled parametric rules in batches;
    - share normal-form and coefficient-specialization caches across numerator
-     terms and parallel workers without mixing discovery into the hot path.
-
-7. **Six-loop declared-corpus milestone**
-   - derive or load every required canonical artifact for a versioned QCD
-     vacuum graph/numerator manifest;
-   - reduce it to unsubstituted masters with no uncovered keys;
-   - publish exact replay evidence and online throughput/parallel-scaling
-     measurements before claiming readiness for the beta-function campaign.
+     terms and parallel workers without mixing discovery into the hot path;
+   - reduce the declared QCD numerator corpus to unsubstituted terminals with
+     no uncovered keys, reporting online throughput separately from derivation.
 
 At every stage, “complete” means complete for an explicit topology and target
 manifest, coefficient domain, and integer coverage domain, with exact

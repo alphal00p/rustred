@@ -629,6 +629,17 @@ impl GeneratedAffineResidualGroupExactWhenBadReadyForPublication {
         false
     }
 
+    /// Strip the final derivation transcript after its classifications have
+    /// been compiled into direct application routes.
+    pub(crate) fn into_publication_parts(
+        self,
+    ) -> (
+        MaterializedReadyForPartition,
+        AffineWhenBadArbitraryRelativePartitionCertificate,
+    ) {
+        (self.owner, self.partition)
+    }
+
     pub(crate) fn replay(
         &self,
         family: &IntegralFamily,
@@ -2918,6 +2929,7 @@ mod tests {
             family,
             context,
             session,
+            source: _,
             ready,
         } = exact_condition_plan_test_fixture_in_sector(name, sector_bits, compact);
         let plan = GeneratedAffineResidualGroupExactConditionPlanCompiler::compile(

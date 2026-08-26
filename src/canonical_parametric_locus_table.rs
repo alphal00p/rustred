@@ -743,6 +743,16 @@ impl CanonicalLocusTableOwner {
         &self.loci
     }
 
+    pub(crate) fn loci_capacity(&self) -> usize {
+        self.loci.capacity()
+    }
+
+    /// Move the canonical polynomial table into an application owner after
+    /// the derivation certificate that established it is no longer retained.
+    pub(crate) fn into_loci(self) -> Vec<ParametricPolynomial> {
+        self.loci
+    }
+
     pub(crate) const fn stats(&self) -> CanonicalLocusTableStats {
         self.stats
     }

@@ -597,6 +597,10 @@ impl AffineWhenBadArbitraryRelativeCase {
     pub(crate) fn predicates(&self) -> &[AffineWhenBadArbitraryRelativePredicate] {
         &self.predicates
     }
+
+    pub(crate) fn predicate_capacity(&self) -> usize {
+        self.predicates.capacity()
+    }
 }
 
 /// One final conjunction relative to the future authenticated target root.
@@ -991,6 +995,15 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
         self.canonical_loci.loci()
     }
 
+    pub(crate) fn structural_loci_capacity(&self) -> usize {
+        match &self.canonical_loci {
+            AffineWhenBadArbitraryCanonicalLoci::Raw(loci) => loci.capacity(),
+            AffineWhenBadArbitraryCanonicalLoci::Authenticated { owner, .. } => {
+                owner.loci_capacity()
+            }
+        }
+    }
+
     pub(crate) fn inherited_truths(&self) -> &[AffineWhenBadInheritedTruth] {
         &self.inherited_truths
     }
@@ -1015,6 +1028,10 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
         &self.cases
     }
 
+    pub(crate) fn cases_capacity(&self) -> usize {
+        self.cases.capacity()
+    }
+
     pub(crate) fn classifications(&self) -> &[AffineWhenBadArbitraryRelativeLeafClassification] {
         &self.classifications
     }
@@ -1036,6 +1053,21 @@ impl AffineWhenBadArbitraryRelativePartitionCertificate {
         id: AffineWhenBadRelativeCaseId,
     ) -> Option<&AffineWhenBadArbitraryRelativeCase> {
         self.cases.iter().find(|case| case.id == id)
+    }
+
+    /// Discard derivation-only formula, split, and replay state while moving
+    /// the canonical loci and final cases into the compact application owner.
+    pub(crate) fn into_application_parts(
+        self,
+    ) -> (
+        Vec<ParametricPolynomial>,
+        Vec<AffineWhenBadArbitraryRelativeCase>,
+    ) {
+        let loci = match self.canonical_loci {
+            AffineWhenBadArbitraryCanonicalLoci::Raw(loci) => loci,
+            AffineWhenBadArbitraryCanonicalLoci::Authenticated { owner, .. } => owner.into_loci(),
+        };
+        (loci, self.cases)
     }
 
     pub(crate) fn replay(

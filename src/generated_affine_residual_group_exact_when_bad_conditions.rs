@@ -273,6 +273,14 @@ impl GeneratedAffineResidualGroupExactConditionPlan {
         &self.ready
     }
 
+    /// Consume the analysis shell after its conditions have been compiled into
+    /// canonical loci and final relative cases. Only the original session
+    /// Ready owner continues into compact application-event preparation;
+    /// mapped-source derivation transcripts are dropped.
+    pub(crate) fn into_ready(self) -> GeneratedAffineResidualGroupReadyForConditions {
+        self.ready
+    }
+
     pub(crate) const fn targets_consumed(&self) -> usize {
         0
     }
@@ -1078,6 +1086,7 @@ mod tests {
             family,
             context,
             session,
+            source: _,
             ready,
         } = fixture;
         match GeneratedAffineResidualGroupExactConditionPlanCompiler::compile(
@@ -1207,6 +1216,7 @@ mod tests {
             family,
             context,
             session,
+            source: _,
             mut ready,
         } = fixture;
         let mut candidates = Vec::new();
@@ -1277,6 +1287,7 @@ mod tests {
             family,
             context,
             session,
+            source: _,
             ready,
         } = exact_condition_plan_test_fixture("exact-condition-plan-panic-recovery", false);
         inject_condition_plan_boundary_panic_for_test();

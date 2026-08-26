@@ -1,31 +1,30 @@
-//! Compact routing prepared together with its sealed exact `WhenBad` owner.
+//! Algebra-free distillation of a sealed exact `WhenBad` owner into compact
+//! application-event state.
 //!
-//! This stage performs no algebra and mutates no session.  It consumes the
-//! already-sealed publication-ready value and, on success, keeps that value
-//! physically paired with one packed routing word per partition leaf.  There
-//! is no separately bindable manifest and no replay or schema ceremony on the
-//! in-memory hot path.  Runtime authentication belongs at import boundaries
-//! and at the later live-session commit boundary.
+//! Preparation retains the session authority, canonical loci, final relative
+//! cases, and one packed outcome tag per partition leaf. It does not mutate a
+//! session.
 
 use std::fmt;
 use std::mem::size_of;
 
+use crate::ParametricPolynomial;
+use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionRecenterReady;
 use crate::generated_affine_residual_group_exact_when_bad_partition::{
-    GeneratedAffineResidualGroupExactWhenBadClauseProvenance,
     GeneratedAffineResidualGroupExactWhenBadClauseSource,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
-use crate::generated_residual_affine_when_bad::AffineWhenBadArbitraryRelativeCase;
+use crate::generated_residual_affine_when_bad::{
+    AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
+};
 
 const DEFAULT_MAX_LEAVES: usize = 4_000_001;
 const DEFAULT_MAX_ADDITIONAL_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_COMBINED_PEAK_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
-const TAG_BITS: u32 = 2;
-const TAG_MASK: usize = 0b11;
-const TAG_APPLICABLE: usize = 0;
-const TAG_EXCEPTIONAL_DOMAIN: usize = 1;
-const TAG_EXCEPTIONAL_LEAK: usize = 2;
+const TAG_APPLICABLE: u8 = 0;
+const TAG_EXCEPTIONAL_DOMAIN: u8 = 1;
+const TAG_EXCEPTIONAL_LEAK: u8 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PublicationLimits {
@@ -87,37 +86,30 @@ impl PublicationStats {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DecodedPublicationRoute {
     Applicable,
-    ExceptionalDomain { clause: usize },
-    ExceptionalLeak { clause: usize },
+    ExceptionalDomain,
+    ExceptionalLeak,
 }
 
-/// Descriptive leaf view whose exceptional variants retain a borrow from the
-/// exact Ready owner.  The raw clause ordinal remains private routing data.
+/// The application-only outcome for one partition leaf.  Derivation
+/// transcripts and derivation-local source ordinals are intentionally absent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PublicationLeafDisposition<'publication> {
+pub(crate) enum PublicationLeafDisposition {
     Applicable,
-    ExceptionalDomain {
-        provenance: &'publication GeneratedAffineResidualGroupExactWhenBadClauseProvenance,
-    },
-    ExceptionalLeak {
-        provenance: &'publication GeneratedAffineResidualGroupExactWhenBadClauseProvenance,
-    },
+    ExceptionalDomain,
+    ExceptionalLeak,
 }
 
-/// One private packed word.  The slice index is the corresponding partition
+/// One private packed tag.  The slice index is the corresponding partition
 /// leaf/case index, so no case identifier is duplicated here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct PublicationRoute(usize);
+struct PublicationRoute(u8);
 
 impl PublicationRoute {
     fn decode(self) -> DecodedPublicationRoute {
-        if self.0 == TAG_APPLICABLE {
-            return DecodedPublicationRoute::Applicable;
-        }
-        let clause = self.0 >> TAG_BITS;
-        match self.0 & TAG_MASK {
-            TAG_EXCEPTIONAL_DOMAIN => DecodedPublicationRoute::ExceptionalDomain { clause },
-            TAG_EXCEPTIONAL_LEAK => DecodedPublicationRoute::ExceptionalLeak { clause },
+        match self.0 {
+            TAG_APPLICABLE => DecodedPublicationRoute::Applicable,
+            TAG_EXCEPTIONAL_DOMAIN => DecodedPublicationRoute::ExceptionalDomain,
+            TAG_EXCEPTIONAL_LEAK => DecodedPublicationRoute::ExceptionalLeak,
             _ => unreachable!("private publication-route encoding invariant"),
         }
     }
@@ -129,7 +121,7 @@ impl PublicationRoute {
 pub(crate) struct PublicationLeaf<'publication> {
     ordinal: usize,
     case: &'publication AffineWhenBadArbitraryRelativeCase,
-    disposition: PublicationLeafDisposition<'publication>,
+    disposition: PublicationLeafDisposition,
 }
 
 impl<'publication> PublicationLeaf<'publication> {
@@ -141,27 +133,83 @@ impl<'publication> PublicationLeaf<'publication> {
         self.case
     }
 
-    pub(crate) const fn disposition(&self) -> PublicationLeafDisposition<'publication> {
+    pub(crate) const fn disposition(&self) -> PublicationLeafDisposition {
         self.disposition
-    }
-
-    pub(crate) const fn provenance(
-        &self,
-    ) -> Option<&'publication GeneratedAffineResidualGroupExactWhenBadClauseProvenance> {
-        match self.disposition {
-            PublicationLeafDisposition::Applicable => None,
-            PublicationLeafDisposition::ExceptionalDomain { provenance }
-            | PublicationLeafDisposition::ExceptionalLeak { provenance } => Some(provenance),
-        }
     }
 }
 
-/// Move-only preparation result.  Keeping the Ready owner and routes in one
-/// value keeps raw route mixing out of the normal API.  The later commit must
-/// consume this whole value rather than rebuilding it from inspection views.
-pub(crate) struct PreparedPublication {
-    ready: GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
+/// Compact event payload after every derivation-only shell has been discarded.
+/// Application needs only the source-neutral relative partition and one
+/// directly encoded outcome per leaf.
+pub(crate) struct PublicationPayload {
+    loci: Vec<ParametricPolynomial>,
+    cases: Vec<AffineWhenBadArbitraryRelativeCase>,
     routes: Box<[PublicationRoute]>,
+}
+
+impl PublicationPayload {
+    pub(crate) fn loci(&self) -> &[ParametricPolynomial] {
+        &self.loci
+    }
+
+    pub(crate) fn cases(&self) -> &[AffineWhenBadArbitraryRelativeCase] {
+        &self.cases
+    }
+
+    pub(crate) fn deep_owned_retained_byte_bound(&self) -> Result<usize, PublicationError> {
+        compact_payload_deep_owned_retained_byte_bound(
+            &self.loci,
+            self.loci.capacity(),
+            &self.cases,
+            self.cases.capacity(),
+            self.routes.len(),
+        )
+    }
+
+    pub(crate) fn leaves(&self) -> impl ExactSizeIterator<Item = PublicationLeaf<'_>> + '_ {
+        let cases = self.cases.as_slice();
+        debug_assert_eq!(self.routes.len(), cases.len());
+        self.routes
+            .iter()
+            .copied()
+            .zip(cases)
+            .enumerate()
+            .map(move |(ordinal, (route, case))| {
+                let disposition = match route.decode() {
+                    DecodedPublicationRoute::Applicable => PublicationLeafDisposition::Applicable,
+                    DecodedPublicationRoute::ExceptionalDomain => {
+                        PublicationLeafDisposition::ExceptionalDomain
+                    }
+                    DecodedPublicationRoute::ExceptionalLeak => {
+                        PublicationLeafDisposition::ExceptionalLeak
+                    }
+                };
+                PublicationLeaf {
+                    ordinal,
+                    case,
+                    disposition,
+                }
+            })
+    }
+}
+
+impl fmt::Debug for PublicationPayload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PublicationPayload")
+            .field("loci", &self.loci.len())
+            .field("cases", &self.cases.len())
+            .field("private_routes", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Move-only preparation result.  The session Ready authority and compact
+/// event payload remain physically paired.  The later commit consumes this
+/// whole value; inspection views carry no publication authority.
+pub(crate) struct PreparedPublication {
+    ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
+    payload: PublicationPayload,
     stats: PublicationStats,
 }
 
@@ -174,58 +222,59 @@ impl PreparedPublication {
         // Programmer panics are deliberately not converted into recoverable
         // operational errors; doing so would hide bugs behind a retry API.
         match prepare_routes(&ready, limits) {
-            Ok((routes, stats)) => Ok(Self {
-                ready,
-                routes,
-                stats,
-            }),
+            Ok((routes, stats)) => {
+                let expected_payload_deep =
+                    match compact_ready_payload_deep_owned_retained_byte_bound(&ready, routes.len())
+                    {
+                        Ok(bytes) => bytes,
+                        Err(error) => return Err(PublicationFailure { error, ready }),
+                    };
+                let (materialized, partition) = ready.into_publication_parts();
+                let (loci, cases) = partition.into_application_parts();
+                let plan = materialized.into_condition_plan_for_publication();
+                let ready = plan.into_ready().into_ready();
+                let payload = PublicationPayload {
+                    loci,
+                    cases,
+                    routes,
+                };
+                debug_assert_eq!(
+                    payload.deep_owned_retained_byte_bound(),
+                    Ok(expected_payload_deep)
+                );
+                Ok(Self {
+                    ready,
+                    payload,
+                    stats,
+                })
+            }
             Err(error) => Err(PublicationFailure { error, ready }),
         }
     }
 
-    pub(crate) const fn ready(
-        &self,
-    ) -> &GeneratedAffineResidualGroupExactWhenBadReadyForPublication {
+    pub(crate) const fn ready(&self) -> &GeneratedAffineResidualGroupExactSessionRecenterReady {
         &self.ready
     }
 
     pub(crate) fn leaves(&self) -> impl ExactSizeIterator<Item = PublicationLeaf<'_>> + '_ {
-        let cases = self.ready.partition().cases();
-        debug_assert_eq!(self.routes.len(), cases.len());
-        let provenance = self.ready.clause_provenance();
-        self.routes
-            .iter()
-            .copied()
-            .zip(cases)
-            .enumerate()
-            .map(move |(ordinal, (route, case))| {
-                let disposition = match route.decode() {
-                    DecodedPublicationRoute::Applicable => PublicationLeafDisposition::Applicable,
-                    DecodedPublicationRoute::ExceptionalDomain { clause } => {
-                        PublicationLeafDisposition::ExceptionalDomain {
-                            provenance: provenance
-                                .get(clause)
-                                .expect("private publication route must retain valid provenance"),
-                        }
-                    }
-                    DecodedPublicationRoute::ExceptionalLeak { clause } => {
-                        PublicationLeafDisposition::ExceptionalLeak {
-                            provenance: provenance
-                                .get(clause)
-                                .expect("private publication route must retain valid provenance"),
-                        }
-                    }
-                };
-                PublicationLeaf {
-                    ordinal,
-                    case,
-                    disposition,
-                }
-            })
+        self.payload.leaves()
     }
 
     pub(crate) const fn stats(&self) -> PublicationStats {
         self.stats
+    }
+
+    pub(crate) const fn payload(&self) -> &PublicationPayload {
+        &self.payload
+    }
+
+    pub(crate) fn into_parts_for_session(
+        self,
+    ) -> (
+        GeneratedAffineResidualGroupExactSessionRecenterReady,
+        PublicationPayload,
+    ) {
+        (self.ready, self.payload)
     }
 }
 
@@ -235,7 +284,7 @@ impl fmt::Debug for PreparedPublication {
             .debug_struct("PreparedPublication")
             .field("stats", &self.stats)
             .field("private_ready", &"<redacted>")
-            .field("private_routes", &"<redacted>")
+            .field("private_payload", &"<redacted>")
             .finish()
     }
 }
@@ -252,9 +301,6 @@ pub(crate) enum PublicationError {
     },
     AllocationFailure {
         requested_leaves: usize,
-    },
-    EncodingOverflow {
-        clause: usize,
     },
 }
 
@@ -279,9 +325,6 @@ impl fmt::Display for PublicationError {
                 formatter,
                 "publication allocation failed for {requested_leaves} leaves",
             ),
-            Self::EncodingOverflow { clause } => {
-                write!(formatter, "publication route cannot encode clause {clause}")
-            }
         }
     }
 }
@@ -320,6 +363,76 @@ impl fmt::Debug for PublicationFailure {
     }
 }
 
+fn compact_ready_payload_deep_owned_retained_byte_bound(
+    ready: &GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
+    route_len: usize,
+) -> Result<usize, PublicationError> {
+    compact_payload_deep_owned_retained_byte_bound(
+        ready.partition().structural_loci(),
+        ready.partition().structural_loci_capacity(),
+        ready.partition().cases(),
+        ready.partition().cases_capacity(),
+        route_len,
+    )
+}
+
+fn compact_payload_deep_owned_retained_byte_bound(
+    loci: &[ParametricPolynomial],
+    locus_capacity: usize,
+    cases: &[AffineWhenBadArbitraryRelativeCase],
+    case_capacity: usize,
+    route_len: usize,
+) -> Result<usize, PublicationError> {
+    let mut bytes = 0usize;
+    bytes = checked_add(
+        bytes,
+        checked_mul(
+            locus_capacity,
+            size_of::<ParametricPolynomial>(),
+            "compact publication locus buffer bytes",
+        )?,
+        "compact publication payload bytes",
+    )?;
+    for locus in loci {
+        let deep = locus
+            .owned_retained_byte_bound()
+            .and_then(|bound| bound.checked_sub(size_of::<ParametricPolynomial>()))
+            .ok_or(PublicationError::ResourceCountOverflow {
+                resource: "compact publication locus payload bytes",
+            })?;
+        bytes = checked_add(bytes, deep, "compact publication payload bytes")?;
+    }
+    bytes = checked_add(
+        bytes,
+        checked_mul(
+            case_capacity,
+            size_of::<AffineWhenBadArbitraryRelativeCase>(),
+            "compact publication case buffer bytes",
+        )?,
+        "compact publication payload bytes",
+    )?;
+    for case in cases {
+        bytes = checked_add(
+            bytes,
+            checked_mul(
+                case.predicate_capacity(),
+                size_of::<AffineWhenBadArbitraryRelativePredicate>(),
+                "compact publication predicate buffer bytes",
+            )?,
+            "compact publication payload bytes",
+        )?;
+    }
+    checked_add(
+        bytes,
+        checked_mul(
+            route_len,
+            size_of::<PublicationRoute>(),
+            "compact publication route payload bytes",
+        )?,
+        "compact publication payload bytes",
+    )
+}
+
 fn prepare_routes(
     ready: &GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
     limits: PublicationLimits,
@@ -335,13 +448,9 @@ fn prepare_routes(
     check_limit("leaves", leaves, limits.max_leaves)?;
 
     let payload_bytes = checked_mul(leaves, size_of::<PublicationRoute>(), "route payload bytes")?;
-    let header_delta = size_of::<PreparedPublication>()
-        .checked_sub(size_of::<
-            GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
-        >())
-        .ok_or(PublicationError::ResourceCountOverflow {
-            resource: "prepared-publication header delta",
-        })?;
+    let header_delta = size_of::<PreparedPublication>().saturating_sub(size_of::<
+        GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
+    >());
     let additional_retained_bytes = checked_add(
         header_delta,
         payload_bytes,
@@ -390,7 +499,18 @@ fn prepare_routes(
     let mut applicable = 0usize;
     let mut exceptional_domain = 0usize;
     let mut exceptional_leak = 0usize;
-    for classification in classifications {
+    let cases = ready.partition().cases();
+    assert_eq!(
+        classifications.len(),
+        cases.len(),
+        "sealed publication classifications and cases diverged"
+    );
+    for (classification, case) in classifications.iter().zip(cases) {
+        assert_eq!(
+            classification.case(),
+            case.id(),
+            "sealed publication route lost its case binding"
+        );
         let route = match classification.decisive_clause_ordinal() {
             None => {
                 applicable = checked_add(applicable, 1, "applicable leaves")?;
@@ -400,19 +520,24 @@ fn prepare_routes(
                 let source = provenance
                     .get(clause)
                     .expect("sealed decisive clause must have provenance");
-                let tag = exceptional_route_tag(source.source());
-                match tag {
-                    TAG_EXCEPTIONAL_DOMAIN => {
+                match source.source() {
+                    GeneratedAffineResidualGroupExactWhenBadClauseSource::RecenteredRowGuard {
+                        ..
+                    }
+                    | GeneratedAffineResidualGroupExactWhenBadClauseSource::DenominatorIdentity {
+                        ..
+                    } => {
                         exceptional_domain =
                             checked_add(exceptional_domain, 1, "exceptional-domain leaves")?;
-                        PublicationRoute(encode_exceptional(clause, tag)?)
+                        PublicationRoute(TAG_EXCEPTIONAL_DOMAIN)
                     }
-                    TAG_EXCEPTIONAL_LEAK => {
+                    GeneratedAffineResidualGroupExactWhenBadClauseSource::RetainedBoundary {
+                        ..
+                    } => {
                         exceptional_leak =
                             checked_add(exceptional_leak, 1, "exceptional-leak leaves")?;
-                        PublicationRoute(encode_exceptional(clause, tag)?)
+                        PublicationRoute(TAG_EXCEPTIONAL_LEAK)
                     }
-                    _ => unreachable!("private exceptional-route tag invariant"),
                 }
             }
         };
@@ -436,25 +561,6 @@ fn prepare_routes(
             combined_preparation_peak_bytes,
         },
     ))
-}
-
-fn exceptional_route_tag(source: GeneratedAffineResidualGroupExactWhenBadClauseSource) -> usize {
-    match source {
-        GeneratedAffineResidualGroupExactWhenBadClauseSource::RecenteredRowGuard { .. }
-        | GeneratedAffineResidualGroupExactWhenBadClauseSource::DenominatorIdentity { .. } => {
-            TAG_EXCEPTIONAL_DOMAIN
-        }
-        GeneratedAffineResidualGroupExactWhenBadClauseSource::RetainedBoundary { .. } => {
-            TAG_EXCEPTIONAL_LEAK
-        }
-    }
-}
-
-fn encode_exceptional(clause: usize, tag: usize) -> Result<usize, PublicationError> {
-    clause
-        .checked_mul(1usize << TAG_BITS)
-        .and_then(|shifted| shifted.checked_add(tag))
-        .ok_or(PublicationError::EncodingOverflow { clause })
 }
 
 fn checked_add(
@@ -491,15 +597,8 @@ fn check_limit(
 }
 
 #[cfg(test)]
-pub(crate) const fn publication_route_word_bytes_for_test() -> usize {
+pub(crate) const fn publication_route_tag_bytes_for_test() -> usize {
     size_of::<PublicationRoute>()
-}
-
-#[cfg(test)]
-pub(crate) fn publication_clause_source_is_domain_for_test(
-    source: GeneratedAffineResidualGroupExactWhenBadClauseSource,
-) -> bool {
-    exceptional_route_tag(source) == TAG_EXCEPTIONAL_DOMAIN
 }
 
 #[cfg(test)]
@@ -507,28 +606,19 @@ mod encoding_tests {
     use super::*;
 
     #[test]
-    fn packed_route_boundary_is_checked_and_round_trips() {
-        let maximum_clause = (usize::MAX - TAG_EXCEPTIONAL_LEAK) / (1usize << TAG_BITS);
+    fn packed_route_tags_round_trip() {
         for (tag, expected) in [
+            (TAG_APPLICABLE, DecodedPublicationRoute::Applicable),
             (
                 TAG_EXCEPTIONAL_DOMAIN,
-                DecodedPublicationRoute::ExceptionalDomain {
-                    clause: maximum_clause,
-                },
+                DecodedPublicationRoute::ExceptionalDomain,
             ),
             (
                 TAG_EXCEPTIONAL_LEAK,
-                DecodedPublicationRoute::ExceptionalLeak {
-                    clause: maximum_clause,
-                },
+                DecodedPublicationRoute::ExceptionalLeak,
             ),
         ] {
-            let encoded = encode_exceptional(maximum_clause, tag).unwrap();
-            assert_eq!(PublicationRoute(encoded).decode(), expected);
+            assert_eq!(PublicationRoute(tag).decode(), expected);
         }
-        assert!(matches!(
-            encode_exceptional(maximum_clause + 1, TAG_EXCEPTIONAL_DOMAIN),
-            Err(PublicationError::EncodingOverflow { .. })
-        ));
     }
 }

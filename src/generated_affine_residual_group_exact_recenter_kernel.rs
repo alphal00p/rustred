@@ -483,6 +483,35 @@ pub(crate) struct ExactRecenteredRow {
     stats: ExactRecenterKernelStats,
 }
 
+/// Minimal already-centered relation retained by a compact application event.
+///
+/// Every coefficient and lattice shift has already been translated.  The
+/// coefficient-translation vector, guard provenance, and construction census
+/// belong only to derivation and are deliberately dropped at publication.
+pub(crate) struct ExactRecenteredApplicationRow {
+    terms: Arc<Vec<ExactRecenteredTerm>>,
+}
+
+impl ExactRecenteredApplicationRow {
+    pub(crate) fn terms(&self) -> &[ExactRecenteredTerm] {
+        &self.terms
+    }
+
+    pub(crate) fn deep_owned_retained_byte_bound(&self) -> Result<usize, ExactRecenterKernelError> {
+        exact_recentered_terms_deep_owned_retained_byte_bound(&self.terms)
+    }
+}
+
+impl fmt::Debug for ExactRecenteredApplicationRow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExactRecenteredApplicationRow")
+            .field("term_count", &self.terms.len())
+            .field("private_terms", &"<redacted>")
+            .finish()
+    }
+}
+
 impl ExactRecenteredRow {
     pub(crate) const fn coefficient_translation(&self) -> &ExactCoefficientTranslation {
         &self.coefficient_translation
@@ -500,6 +529,20 @@ impl ExactRecenteredRow {
         self.stats
     }
 
+    /// Census the application row before consuming this derivation owner.
+    pub(crate) fn application_row_deep_owned_retained_byte_bound(
+        &self,
+    ) -> Result<usize, ExactRecenterKernelError> {
+        exact_recentered_terms_deep_owned_retained_byte_bound(&self.terms)
+    }
+
+    /// Move only the already-centered terms into compact application state.
+    /// Every other field is derivation-local and is dropped by this consuming
+    /// step.
+    pub(crate) fn into_application_row(self) -> ExactRecenteredApplicationRow {
+        ExactRecenteredApplicationRow { terms: self.terms }
+    }
+
     pub(crate) fn into_parts(
         self,
     ) -> (
@@ -515,6 +558,33 @@ impl ExactRecenteredRow {
             self.stats,
         )
     }
+}
+
+fn exact_recentered_terms_deep_owned_retained_byte_bound(
+    terms: &Arc<Vec<ExactRecenteredTerm>>,
+) -> Result<usize, ExactRecenterKernelError> {
+    let mut bytes = arc_vec_retained_bytes_bound::<ExactRecenteredTerm>(terms.capacity())?;
+    for term in terms.iter() {
+        bytes = checked_add(
+            "exact recentered application-row retained bytes",
+            bytes,
+            term.shift.retained_bytes(),
+        )?;
+        bytes = checked_add(
+            "exact recentered application-row retained bytes",
+            bytes,
+            term.coefficient
+                .owned_retained_byte_bound()
+                .ok_or(ExactRecenterKernelError::ResourceCountOverflow {
+                    resource: "exact recentered application-row retained bytes",
+                })?
+                .checked_sub(size_of::<ParametricCoefficient>())
+                .ok_or(ExactRecenterKernelError::ResourceCountOverflow {
+                    resource: "exact recentered application-row retained bytes",
+                })?,
+        )?;
+    }
+    Ok(bytes)
 }
 
 impl fmt::Debug for ExactRecenteredRow {

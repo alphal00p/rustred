@@ -24,9 +24,16 @@ authenticated canonical-locus owner gate passed 19/19, with an independent
 `e9004c32-5a51-4705-a2f9-e39bcac40c49` then used four workers, ran 1,651
 tests, and passed all 1,651 (52 slow), with 5 additional configured cases
 skipped; the following doctest phase also passed. Compact route preparation is
-now implemented as one move-only owner pairing Ready with one packed word per
-leaf; its licensed four-thread focused suite passed 3/3. Atomic target-consuming
-publication and subsector feedback remain next;
+now implemented as one move-only transition retaining one-byte leaf tags; its
+licensed four-thread preparation suite passed 3/3. The internal atomic commit
+now advances the database, consumes one selected target, and stores a compact
+application event (the internal `Publication` disposition). The frozen
+licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
+workers, with 5 configured cases skipped; doctests also passed. Shallow
+rule/residual handles, scheduling, application, publication audit replay,
+subsector feedback, and complete reduction remain pending. Immediate next work
+is shallow handles, exceptional/subsector scheduling, and coverage closure;
+bundling and physical six-loop derivation precede optimized application;
 updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
@@ -93,15 +100,15 @@ The current-lineage components below are implemented and tested:
   target are minted as one capability-gated pair over the same exact
   allocation.
 - The session owns a private append-only event ledger for every consumed
-  source. Current events cover `Dependent`, `NoTarget`, and mandatory
-  affine-equality refinement, share the database's exact source/evidence
-  allocations, and retain authenticated versions, disposition, target data,
-  exact offsets where applicable, and cumulative resource statistics.
-- `replay()` creates a fresh shadow session and restages every opaque source
-  recipe chronologically. It reruns hardest-only reduction, recentering, and
-  target matching; compares exact shared evidence and dispositions; and checks
-  terminal database, target, event, and resource state. Equality-suspension
-  replay additionally authenticates the exact terminal event.
+  source. `Dependent`, `NoTarget`, and mandatory affine-equality events retain
+  their source/evidence allocations. The compact publication event instead
+  stores only centered relation terms, target locator/offset, canonical loci,
+  final relative cases, and one-byte leaf tags; it drops derivation row
+  translation, row guards, derivation statistics, source recipe, and pivot
+  evidence.
+- `replay()` creates a fresh shadow session for `Dependent`, `NoTarget`, and
+  affine-equality events. Publication-event audit replay is not implemented;
+  normal future application will read the compact event directly.
 - `src/generated_affine_residual_group_ready_publication.rs` authenticates the
   sealed Ready/session/target geometry without extracting the transaction. For
   an authenticated selector-independent compact affine map it locates the
@@ -110,8 +117,8 @@ The current-lineage components below are implemented and tested:
   key descent inside the source chamber, and retains finite inactive-orthant
   hazard intervals as Symbolica `Integer` data. Its `ReadyForConditions` result
   is an unpublished, target-preserving typestate. Condition planning,
-  materialization, and relative partitioning are implemented downstream;
-  target-consuming publication remains pending.
+  materialization, relative partitioning, compact preparation, and the internal
+  target-consuming application-event commit are implemented downstream.
 - `src/generated_affine_residual_group_exact_when_bad_conditions.rs` consumes
   that typestate only into a recoverable, non-Clone condition plan. It
   authenticates identity or compact-affine target geometry and retains a
@@ -136,6 +143,13 @@ The current-lineage components below are implemented and tested:
   applicable/exceptional partition. Resource, authentication, allocation, and
   panic failures return the original owner. Both `ReadyForPublication` and
   `IdenticallyBad` consume zero targets and publish zero rules.
+- `src/generated_affine_residual_group_exact_publication.rs` distills
+  `ReadyForPublication` into move-only commit state plus canonical loci, final
+  relative cases, and a one-byte applicable/domain/leak tag per leaf. The
+  exact-session commit advances the database, consumes one selected target,
+  and stores those values with centered relation terms and target
+  locator/offset in a compact event. This is not yet a rule handle, residual
+  schedule, provider result, or reduction.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -293,16 +307,14 @@ produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
-Not yet implemented are target-consuming rule publication, exceptional
-residual orchestration, subsector feedback, or current-lineage rule/residual
-views. The current event ledger, mapped data, and formula partition are
-complete only for their implemented non-publishing dispositions; the live
-event/storage layer must be extended directly, without publication manifests
-or another replay wrapper. The mature `GeneratedResidualAffine...`
-implementation is an oracle, not production authority for these missing
-pieces. RustRed's stated capability goal, arbitrary one-loop pentagon
-reduction, and the high-throughput two- through six-loop vacuum milestones
-therefore remain pending.
+The target-consuming compact application-event commit is now implemented, but
+it is not target-consuming rule publication: there are no current-lineage
+rule/residual handles, exceptional-work scheduler, provider application,
+publication-event audit replay, or subsector feedback yet. The mature
+`GeneratedResidualAffine...` implementation is an oracle, not production
+authority for these missing pieces. RustRed's stated capability goal,
+arbitrary one-loop pentagon reduction, and the high-throughput two- through
+six-loop vacuum milestones therefore remain pending.
 
 One of the implemented partition seam's two explicit high-loop performance
 blockers is now closed. The outer bounded proof seals a non-cloneable,
@@ -596,9 +608,9 @@ implemented foundation
 The typed NoTarget commit, consuming equality suspension, private append-only
 chronological event collection, cumulative resource accounting, and
 fresh-shadow audit described in the checkpoint are the validated foundation of
-this phase. The current private event disposition implements `Dependent`,
-`NoTarget`, and `RequiresAffineEqualityRefinement` only. The event variants
-eventually include:
+this phase. The current private event disposition also includes a compact
+`Publication` event. Publication-event audit replay and the remaining terminal
+variants are still pending:
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactRunDisposition {
@@ -614,7 +626,7 @@ enum GeneratedAffineResidualGroupExactSessionEvent {
     },
     WhenBadIdenticallyBad { /* future sealed candidate */ },
     WhenBadUnsupported { /* future typed representation reason */ },
-    Publication { /* future committed routes */ },
+    Publication { /* compact application payload */ },
 }
 ```
 
@@ -740,11 +752,11 @@ the current-lineage arbitrary-width OR-of-AND bad formula, and returns either
 or its proof-bearing `IdenticallyBad` terminal. These names describe a sealed
 nonpublishing partition result, not a certified or published rule: both consume
 no target and publish no rule. The following compact preparation now consumes
-`ReadyForPublication` and returns one non-`Clone` `PreparedPublication` owning
-both that Ready value and one packed route per leaf. Operational failure returns
-the original Ready owner. There is no standalone manifest authority, schema,
-fingerprint, replay validator, or later binding token. The final
-target-consuming terminal contract below remains to be implemented.
+`ReadyForPublication` and returns one non-`Clone` `PreparedPublication` with
+move-only commit state, canonical loci, final relative cases, and a one-byte
+applicable/domain/leak tag per leaf. Operational failure returns the exact
+input owner. Derivation transcripts are discarded after this application
+payload has been sealed.
 
 Do not add another `Certified` wrapper between preparation and commit. The
 partition compiler has already decided whether the candidate has an applicable
@@ -760,7 +772,7 @@ resource or allocation failures return the move-only input unchanged. A panic
 in callback-free private Rust code is a programmer bug and must not be
 relabelled as a retryable validation result.
 
-### Phase D: atomic target disposition and publication
+### Phase D: atomic target disposition and compact publication event
 
 The hot path accepts only the move-bound `PreparedPublication`. It performs one
 freshness check against the consumed live session/database/target state, admits
@@ -768,12 +780,18 @@ all replacement storage, and then enters an allocation-free infallible move
 tail. Algebraic replay remains an explicit audit/testing operation, not a
 prerequisite repeated by every internal transition.
 
-Store only:
+The implemented commit stores only:
 
 - a chronological committed-event log;
-- the ordered packed routes retained once by each committed event;
-- shallow current-lineage guarded-rule and residual handles into that event;
+- centered relation terms and the selected target locator/offset;
+- canonical loci, final relative cases, and ordered one-byte leaf tags retained
+  once by the committed event;
 - equality-refinement records.
+
+The publication event deliberately drops derivation row translation, row
+guards, derivation statistics, source recipe, and pivot evidence. Those values
+are neither needed to specialize the centered relation nor retained merely for
+provenance. Optional audit replay may reconstruct derivation state later.
 
 The present replacement `Vec<Arc<Event>>` and full target-disposition copy are
 correctness scaffolding, not the six-loop storage design: repeated commits make
@@ -783,18 +801,18 @@ or paged copy-on-write target dispositions before scaling the foundry. The
 publication seam must not add separate deep rule/residual vectors on top of
 those costs.
 
-Add one consuming publication commit API. It takes `PreparedPublication` by
-value, checks that the selected live target/database head is still current,
-prepares the successor storage, then moves one event and all applicable and
-exceptional routes into place. `IdenticallyBad` never enters this API: it keeps
-the target unresolved and publishes no rule.
+The consuming publication commit API is implemented. It takes
+`PreparedPublication` by value, checks that the selected live target/database
+head is still current, prepares successor storage, advances the database,
+consumes exactly one selected target, and moves one compact application event
+into place. `IdenticallyBad` never enters this API: it keeps the target
+unresolved and publishes no rule.
 
-Published handles are shallow views into one committed event. The event owns
-the exact recentered relation data needed to apply the rule; normal application
-does not reconstruct it from a recipe or replay the derivation. A serialized
-locator alone never grants access to live state, and partition locators/counts
-alone are insufficient to apply a reduction. Provider integration happens only
-after the event exists.
+Rule and residual handles are not implemented yet. They must be shallow views
+into one committed event. The event already owns the centered relation data and
+relative domains needed for application, so normal application must not
+reconstruct them from a derivation recipe. Provider and residual-scheduler
+integration begin from this event and remain pending.
 
 ### Phase E: provider integration, persistence, and optional audit
 
@@ -809,12 +827,44 @@ derivation replay. An explicit offline audit may independently reconstruct:
 6. the committed transition identity and target disposition;
 7. published applicable and exceptional locators/counts.
 
-Durable artifacts are an actual trust boundary. Loading one validates its
-complete payload once against the current family and coefficient context before
-constructing normal in-memory owners. It need not reproduce every internal
-historical stage, and internal artifact formats may be replaced freely during
-development. Only external/stable formats acquire explicit versions when they
-are intentionally published.
+`PreparedPublication` remains an internal live-session owner and is never the
+durable output. A sector may emit a durable rule shard only after its committed
+events, exceptional queue, solved-subsector feedback, and declared integer
+domain reach a proved coverage fixed point with a finite explicitly enumerated
+terminal-key set (or finite products). Every terminal is user-selected or
+independently certified zero/factorized; a positive-dimensional or symbolic
+residual domain cannot be declared terminal. An
+unsupported, resource-limited, interrupted, or merely free-column state is a
+resumable incomplete workspace, not a master and not a loadable closed shard.
+
+Multiple user starting topologies are compiled as one campaign DAG rather than
+one flattened transaction. Each canonical `(family, sector, ordering,
+coefficient specialization, domain)` job owns one immutable closed shard;
+verified ingress maps preserve every root, and strict dependency edges share
+proper subsectors, factorizations, and rank-decreasing cross-family transports.
+The bundle's canonical family ID is constructed only after verified routing,
+denominator-order, and parameter canonicalization and excludes user/root names
+and momentum-label aliases; the current label-sensitive family fingerprint
+remains a representation/session identity and is not the cross-root dedup key.
+Verified same-rank routing/family equivalences are collapsed before DAG
+construction and retained as ingress aliases, never dependency edges. Shards
+are written independently and the lightweight campaign manifest is installed
+last, so extending a campaign can reuse already closed jobs without rewriting
+unrelated shards.
+
+Durable artifacts are an actual trust boundary. Loading each unique shard
+validates its complete payload once against the current family and coefficient
+context before constructing normal shared in-memory owners. Every closed shard
+retains a compact sparse source-combination/residual witness sufficient to
+check each rule exactly against freshly regenerated generic IBPs; this is
+compiled after closure and does not require the compact live event to retain
+its discarded source recipe or pivot evidence. It need not reproduce every
+internal historical stage, and internal artifact formats may be replaced
+freely during development. Exact mathematical residual checks and dependency
+descent remain mandatory; complete chronological derivation transcripts and
+canonical-byte checksums are optional audit features unless canonical
+serialization is deliberately promised. Only external/stable formats acquire
+explicit versions when they are intentionally published.
 
 ## 7. Condition provenance and ordering
 
@@ -853,8 +903,8 @@ representation result; an exception or exhausted limit is operational.
 | `Dependent` | Advance source; no new pivot | Dispositions unchanged; state advances to the prepared successor | Dependent event | None |
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
-| Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Publication event; no exceptional leaf | Full applicable rule |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Publication event plus every exceptional child | Every applicable leaf |
+| Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event; handle exposure pending | Applicable rule handle/provider pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event; exceptional scheduling pending | Applicable rule handles/provider pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -862,6 +912,9 @@ representation result; an exception or exhausted limit is operational.
 A rejected pivot is committed once and is not offered to a second target. A
 later source row is reduced by it and may solve the same unresolved target.
 The persisted first matching target remains final for the current candidate.
+The atomic database/target/event columns of the prepared-publication rows are
+implemented. Rule handles, residual scheduling, and application remain future
+work.
 
 ## 9. Atomic owner transition
 
@@ -873,10 +926,13 @@ Before any mutation, prepare and admit all of:
 - run-disposition successor;
 - complete event-log append/replacement for the currently selected storage
   backend;
-- prospective event/handle/scheduling storage into which the already-owned
-  packed routes will move;
-- complete residual/refinement scheduling replacement;
+- prospective compact event storage into which the already-owned application
+  payload will move;
 - aggregate statistics and every new retained/peak capacity.
+
+Those database, target, event, and statistics preparations are implemented for
+the compact publication event. Shallow handle and residual-scheduling storage
+remain to be added without duplicating its deep payload.
 
 Only after all preparations succeed may the move-only commit tail:
 
@@ -902,7 +958,8 @@ statistics and limits must cover:
   `max(staged_live_prospective_retained_bytes,
   staged_live_observed_retained_bytes)`;
 - current target-state and catalog combined ownership;
-- the exact recentered-row owner already retained by Ready;
+- the centered relation terms, target locator/offset, loci, cases, and one-byte
+  leaf tags retained by the compact publication event;
 - exact target constants, centered shifts, physical keys, descent comparisons,
   boundary endpoints/counts/values, and their GMP magnitude bits;
 - Symbolica polynomial normalization, factor inspection, composition, and
@@ -913,12 +970,12 @@ statistics and limits must cover:
 - event/rule/residual/refinement replacement capacities and control blocks;
 - owner-wide combined-live and native-scratch peaks.
 
-The implemented Ready geometry/descent/hazard checkpoint currently reports an
-incremental subphase census and explicitly excludes the pre-existing Ready
-graph. That local limit is useful for exact retry tests but is not the complete
-Phase C owner-wide contract above. The live commit must combine its prospective
-and observed retained/native-work census with the staged transaction, target
-state, Ready owner, and condition/partition children before publication.
+The implemented Ready geometry/descent/hazard checkpoint reports an
+incremental subphase census. Compact publication accounts for the retained
+application event after dropping derivation-only row translation, guards,
+statistics, source recipe, and pivot evidence. Future handle and scheduler
+accounting must cover only their shallow storage and must not charge or copy the
+event payload again.
 
 Project every child compiler from the remaining aggregate budget. Never reset
 a child to default limits. Before materializing boundary events, preflight the
@@ -1000,6 +1057,11 @@ unchanged.
 
 ### State/publication gates
 
+The current atomic milestone covers compact-event commitment, one target
+consumption, freshness/resource failure, and retained-payload accounting. The
+handle, scheduling, specialization, and durable-audit gates below remain
+pending where they depend on those future layers.
+
 - Full transition-table test covering Dependent, NoTarget, equality, prepared
   publication, IdenticallyBad, unsupported representations, and every
   operational-failure class.
@@ -1025,8 +1087,65 @@ later vacuum/scattering topologies may validate the finished generic pipeline,
 including numerator/denominator cancellation closure, but cannot replace the
 topology-neutral unit, property, closure, and boundary tests above.
 Artifact tests additionally compare deterministic single-worker and
-multi-worker checksums while the surrounding test suite remains sharded and
-parallel.
+multi-worker semantics while the surrounding test suite remains sharded and
+parallel. Byte-for-byte equality is required only after RustRed deliberately
+defines canonical serialization.
+
+### Multi-start campaign-bundle gates
+
+- Two routing/permutation-equivalent roots produce one canonical shard and two
+  verified ingress maps; reversing root order or worker count preserves bundle
+  semantics.
+- Two inequivalent parents sharing a proper subsector or factorized component
+  retain one child shard and two strict dependency edges, without flattening
+  incompatible index or coefficient contexts.
+- Parameter spellings deduplicate only through an explicit typed campaign ABI;
+  incompatible metric, propagator-sign, unit-mass, ordering, or domain
+  conventions remain separate or require a verified transport.
+- An uncovered, unsupported, resource-limited, interrupted, or unresolved
+  exceptional leaf prevents a `Closed` bundle and is never renamed a master.
+  An exceptional leaf discharged by a strictly descending closed child or
+  finite selected/certified terminal key is valid closed-shard content.
+- Adding a root reuses unaffected shards; changing one child invalidates only
+  reachable ancestors; failure before final manifest installation preserves
+  the previous complete bundle.
+- A loaded bundle validates each unique external shard once, checks every
+  dependency map and strict descent, and reproduces exact zero residuals for
+  every rule. Detailed source replay remains an optional audit.
+- Same-rank routing/family equivalences become aliases before DAG construction;
+  a cross-family dependency without a strict well-founded rank decrease, or
+  any dependency cycle, is rejected.
+
+### Physical six-loop derivation gate
+
+The synthetic all-36 `K=21` source/frontier fixture remains a unit and stress
+test. It does not satisfy the physical gate. Before optimized concrete
+application is prioritized, the benchmark topology manifest is frozen before
+execution. It uses actual GammaLoop/BPHZ roots when available; the inaugural
+fallback corpus must include a QCD-valid connected 1PI quartic `K5` root
+(10 physical lines, 11 ISPs) and a cubic 10-vertex/15-line representative such
+as Petersen or a lower-symmetry graph (6 ISPs), with multiple non-factorizing
+reachable sectors. Each root must construct its 21-coordinate family, process
+all 36 sources, traverse shared lower dependencies, close every exceptional
+route onto that finite certified or selected terminal set, and emit a
+deterministic multi-start-ready shard DAG. No reachable `Unsupported`,
+resource, timeout, uncovered frontier, or unresolved exceptional route is
+permitted. Every emitted rule is checked by an exact residual against freshly
+regenerated generic IBPs.
+
+The benchmark records named hardware, release/GMP configuration, wall and CPU
+time, peak RSS, rule/event/target/locus/case counts, queue peak, coefficient
+growth, dependency and deduplication counts, artifact bytes, and 1/2/4-worker
+scaling. A declared resource envelope is part of the acceptance result;
+it is numerical, recorded in the frozen manifest before execution, and cannot
+be relaxed post hoc. Exceeding it is a typed failed gate, never a master-
+discovery heuristic. The provisional dedicated-host target is at most 48 GiB
+peak RSS, 24 hours wall time per root, and 48 hours for a three-root bundle.
+When the ready-job antichain exposes at least four independent jobs, four
+workers must achieve at least 2.5x speedup over one; otherwise the manifest must
+predeclare the measured critical-path exception. After the inaugural roots
+close, a small GammaLoop/BPHZ-derived multi-root corpus must prove shared-shard
+reuse and equivalent single-/multi-worker semantics.
 
 ## 13. Completion criteria and integration order
 
@@ -1074,10 +1193,12 @@ Implement in this order:
    projections, and owns exact specialized boundary events. The following
    move-only owner now builds and replays the relative `WhenBad` partition of
    that current-lineage arbitrary-width OR-of-AND formula. One consuming
-   preparation now pairs the sealed owner with compact guarded/exceptional
-   routes without a second authentication layer. Next commit those dispositions
-   atomically. This has
-   not reached reduction, publication, or six-loop topology support;
+   preparation now distills move-only commit state, loci, cases, and one-byte
+   guarded/exceptional tags. The atomic exact-session transition now advances
+   the database, consumes one selected target, and stores the compact
+   application event. This has not exposed a rule/residual handle, applied a
+   rule, completed publication audit replay, reduced an integral, or reached
+   six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
@@ -1090,13 +1211,26 @@ Implement in this order:
    dual denominator projection, exact boundary-event specialization, and the
    owner-bound relative partition of the current-lineage arbitrary-width
    OR-of-AND formula are also implemented. Move-bound compact route preparation
-   is implemented; the final live-session publication commit remains pending;
-8. atomically consume the selected target and seal the guarded rule plus
-   exceptional residual work from the implemented current-lineage terminal;
-9. add concrete application and provider integration; validate durable
-   rule/residual artifacts once at load and keep full derivation replay as an
-   optional audit;
-10. topology-based validation from one loop upward.
+   and the atomic compact application-event commit are implemented;
+8. expose shallow rule/residual handles into that event and add exceptional
+   residual scheduling plus solved-subsector feedback;
+9. iterate those queues to a proved coverage fixed point with exact regenerated-
+   IBP residuals and a finite enumerated selected/certified terminal-key set;
+   only then construct an immutable closed family/sector shard;
+10. replace the quadratic event/target replacement storage, add unit-mass
+    specialization and required Symbolica-backed acceleration, and preserve
+    resumable incomplete workspaces separately from closed shards;
+11. compile deterministic multi-start campaign bundles with verified ingress
+    maps and shared subsector, factorization, and cross-family dependencies;
+12. derive the complete Vakint one- through four-loop replacement-system
+    corpus without FORM or copied recurrences, using a minimal generic
+    application seam only for exact external-oracle comparisons;
+13. pass representative five-loop and then physical nontrivial six-loop
+    derivation-only closure, resource, and parallel-scaling gates before
+    optimizing concrete application;
+14. implement the high-throughput provider/application runtime plus optional
+    publication-event audit replay and continue topology-based validation from
+    one loop upward. Full derivation replay remains an optional audit.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

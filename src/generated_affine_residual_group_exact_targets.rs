@@ -1455,8 +1455,112 @@ impl GeneratedAffineResidualGroupExactTargetState {
         consume: Option<GeneratedAffineResidualGroupRetainedReadyExactTarget>,
     ) -> Result<Arc<Self>, GeneratedAffineResidualGroupExactTargetError> {
         catch_unwind(AssertUnwindSafe(|| {
-            let target_consumptions = usize::from(consume.is_some());
+            let state_version = self
+                .state_version
+                .checked_add(1)
+                .ok_or(GeneratedAffineResidualGroupExactTargetError::StateVersionOverflow)?;
+            if !binding.same_database_allocation(&self.binding) {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongDatabaseAllocation);
+            }
+            if !binding.same_plan_allocation(&self.catalog.plan) {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongPlanAllocation);
+            }
+            if !binding.same_frame_allocation(self.catalog.plan.physical_frame()) {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongFrameAllocation);
+            }
+            if binding.group_ordinal() != self.group_ordinal
+                || binding.group_ordinal() != self.catalog.group_ordinal
+                || binding.group_ordinal() != self.catalog.plan.group_ordinal()
+            {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongGroup);
+            }
+            if binding.database_epoch() != self.database_epoch {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongDatabaseEpoch);
+            }
+            if binding.state_version() != state_version {
+                return Err(GeneratedAffineResidualGroupExactTargetError::WrongStateVersion);
+            }
+            if !binding.is_direct_successor_of(&self.binding) {
+                return Err(
+                    GeneratedAffineResidualGroupExactTargetError::WrongPredecessorTransition,
+                );
+            }
+            let consumed_solve_ordinal = if let Some(target) = consume.as_ref() {
+                if !target.authenticates_source_state(self) {
+                    return Err(
+                        GeneratedAffineResidualGroupExactTargetError::WrongSourceStateAllocation,
+                    );
+                }
+                let solve_ordinal = target.solve_ordinal;
+                if self.dispositions.get(solve_ordinal) != Some(&ExactTargetDisposition::Unresolved)
+                {
+                    return Err(if solve_ordinal >= self.dispositions.len() {
+                        GeneratedAffineResidualGroupExactTargetError::TargetOutOfRange
+                    } else {
+                        GeneratedAffineResidualGroupExactTargetError::TargetConsumed
+                    });
+                }
+                if !matches!(
+                    self.catalog.targets.get(solve_ordinal),
+                    Some(GeneratedAffineResidualGroupExactTargetOutcome::Ready(_))
+                ) {
+                    return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
+                }
+                Some(solve_ordinal)
+            } else {
+                None
+            };
+            self.replay_unwind_boundary(
+                family,
+                context,
+                &self.catalog.plan,
+                self.group_ordinal,
+                self.database_epoch,
+                self.state_version,
+            )?;
+            self.prepare_successor_copy_tail(binding, consumed_solve_ordinal, state_version, 1)
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::SymbolicaPanic)?
+    }
+
+    /// Prepare the publication successor from owners that were already
+    /// algebraically sealed before the live commit boundary.  This path does
+    /// no catalog/Symbolica replay; it performs only checked resource work,
+    /// allocation-bound comparisons, and the successor allocation itself.
+    pub(crate) fn prepare_publication_successor(
+        self: &Arc<Self>,
+        binding: GeneratedAffineResidualGroupExactTargetStateBinding,
+        consume: &GeneratedAffineResidualGroupRetainedReadyExactTarget,
+    ) -> Result<Arc<Self>, GeneratedAffineResidualGroupExactTargetError> {
+        let state_version = self
+            .state_version
+            .checked_add(1)
+            .ok_or(GeneratedAffineResidualGroupExactTargetError::StateVersionOverflow)?;
+        let solve_ordinal = consume.solve_ordinal;
+        debug_assert!(binding.is_direct_successor_of(&self.binding));
+        debug_assert!(consume.authenticates_source_state(self));
+        debug_assert_eq!(
+            self.dispositions.get(solve_ordinal),
+            Some(&ExactTargetDisposition::Unresolved)
+        );
+        self.prepare_successor_copy_tail(binding, Some(solve_ordinal), state_version, 0)
+    }
+
+    fn prepare_successor_copy_tail(
+        self: &Arc<Self>,
+        binding: GeneratedAffineResidualGroupExactTargetStateBinding,
+        consumed_solve_ordinal: Option<usize>,
+        state_version: usize,
+        catalog_replays: usize,
+    ) -> Result<Arc<Self>, GeneratedAffineResidualGroupExactTargetError> {
+        (|| {
+            let target_consumptions = usize::from(consumed_solve_ordinal.is_some());
             for (resource, requested, limit) in [
+                (
+                    "exact target catalog replays",
+                    catalog_replays,
+                    self.limits.max_catalog_replays,
+                ),
                 (
                     "exact target database allocation comparisons",
                     2,
@@ -1510,69 +1614,6 @@ impl GeneratedAffineResidualGroupExactTargetState {
             ] {
                 check_limit(resource, requested, limit)?;
             }
-            if !binding.same_database_allocation(&self.binding) {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongDatabaseAllocation);
-            }
-            if !binding.same_plan_allocation(&self.catalog.plan) {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongPlanAllocation);
-            }
-            if !binding.same_frame_allocation(self.catalog.plan.physical_frame()) {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongFrameAllocation);
-            }
-            if binding.group_ordinal() != self.group_ordinal
-                || binding.group_ordinal() != self.catalog.group_ordinal
-                || binding.group_ordinal() != self.catalog.plan.group_ordinal()
-            {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongGroup);
-            }
-            if binding.database_epoch() != self.database_epoch {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongDatabaseEpoch);
-            }
-            let state_version = self
-                .state_version
-                .checked_add(1)
-                .ok_or(GeneratedAffineResidualGroupExactTargetError::StateVersionOverflow)?;
-            if binding.state_version() != state_version {
-                return Err(GeneratedAffineResidualGroupExactTargetError::WrongStateVersion);
-            }
-            if !binding.is_direct_successor_of(&self.binding) {
-                return Err(
-                    GeneratedAffineResidualGroupExactTargetError::WrongPredecessorTransition,
-                );
-            }
-            let consumed_solve_ordinal = if let Some(target) = consume.as_ref() {
-                if !target.authenticates_source_state(self) {
-                    return Err(
-                        GeneratedAffineResidualGroupExactTargetError::WrongSourceStateAllocation,
-                    );
-                }
-                let solve_ordinal = target.solve_ordinal;
-                if self.dispositions.get(solve_ordinal) != Some(&ExactTargetDisposition::Unresolved)
-                {
-                    return Err(if solve_ordinal >= self.dispositions.len() {
-                        GeneratedAffineResidualGroupExactTargetError::TargetOutOfRange
-                    } else {
-                        GeneratedAffineResidualGroupExactTargetError::TargetConsumed
-                    });
-                }
-                if !matches!(
-                    self.catalog.targets.get(solve_ordinal),
-                    Some(GeneratedAffineResidualGroupExactTargetOutcome::Ready(_))
-                ) {
-                    return Err(GeneratedAffineResidualGroupExactTargetError::ReplayMismatch);
-                }
-                Some(solve_ordinal)
-            } else {
-                None
-            };
-            self.replay_unwind_boundary(
-                family,
-                context,
-                &self.catalog.plan,
-                self.group_ordinal,
-                self.database_epoch,
-                self.state_version,
-            )?;
 
             // Reject a successor whose minimum requested-capacity envelope is
             // already out of policy before retaining its copied disposition
@@ -1655,7 +1696,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
             )?;
             let allocation_nonce = next_exact_target_state_nonce()?;
             let stats = GeneratedAffineResidualGroupExactTargetStateStats {
-                catalog_replays: 1,
+                catalog_replays,
                 database_allocation_comparisons: 2,
                 predecessor_transition_comparisons: 1,
                 plan_allocation_comparisons: 1,
@@ -1691,8 +1732,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
                 limits: self.limits,
                 stats,
             }))
-        }))
-        .map_err(|_| GeneratedAffineResidualGroupExactTargetError::SymbolicaPanic)?
+        })()
     }
 
     /// Prepare one unconsumed successor together with an equality target
@@ -1790,6 +1830,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
         // origin. The validation comparisons performed below authenticate
         // replay itself and are not accumulated into that ledger.
         let (
+            catalog_replays,
             database_allocation_comparisons,
             predecessor_transition_comparisons,
             group_comparisons,
@@ -1799,11 +1840,12 @@ impl GeneratedAffineResidualGroupExactTargetState {
             disposition_copies,
             target_consumptions,
         ) = match self.origin {
-            ExactTargetStateOrigin::Initial => (0, 0, 2, 0, 1, 0, 0, 0),
+            ExactTargetStateOrigin::Initial => (1, 0, 0, 2, 0, 1, 0, 0, 0),
             ExactTargetStateOrigin::Successor {
                 consumed_solve_ordinal,
                 ..
             } => (
+                self.stats.catalog_replays,
                 2,
                 1,
                 3,
@@ -1817,7 +1859,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
         for (resource, requested, limit) in [
             (
                 "exact target catalog replays",
-                1,
+                catalog_replays,
                 self.limits.max_catalog_replays,
             ),
             (
@@ -1987,7 +2029,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
             self.limits.max_successor_peak_retained_byte_envelope,
         )?;
         let stats = GeneratedAffineResidualGroupExactTargetStateStats {
-            catalog_replays: 1,
+            catalog_replays,
             database_allocation_comparisons,
             predecessor_transition_comparisons,
             plan_allocation_comparisons: 1,
@@ -3594,6 +3636,19 @@ mod tests {
             GeneratedAffineResidualGroupExactTargetStateLimits::default(),
         )
         .unwrap();
+        let mut zero_publication_replay_state =
+            GeneratedAffineResidualGroupExactTargetState::try_new(
+                &family,
+                &context,
+                Arc::clone(&catalog),
+                database.initial_target_state_binding_for_test().unwrap(),
+                GeneratedAffineResidualGroupExactTargetStateLimits::default(),
+            )
+            .unwrap();
+        Arc::get_mut(&mut zero_publication_replay_state)
+            .unwrap()
+            .limits
+            .max_catalog_replays = 0;
         let mut copy_limited = GeneratedAffineResidualGroupExactTargetStateLimits::default();
         copy_limited.max_disposition_copies = catalog.len() - 1;
         let copy_limited_state = GeneratedAffineResidualGroupExactTargetState::try_new(
@@ -3745,6 +3800,20 @@ mod tests {
             ),
             Err(GeneratedAffineResidualGroupExactTargetError::WrongSourceStateAllocation)
         ));
+        let zero_replay_handle = GeneratedAffineResidualGroupRetainedReadyExactTarget {
+            state: Arc::clone(&zero_publication_replay_state),
+            solve_ordinal: ready_ordinal,
+        };
+        let zero_replay_successor = zero_publication_replay_state
+            .prepare_publication_successor(
+                database
+                    .successor_target_state_binding_for_test(&staged)
+                    .unwrap(),
+                &zero_replay_handle,
+            )
+            .unwrap();
+        assert_eq!(zero_replay_successor.stats().catalog_replays, 0);
+        assert_eq!(zero_replay_successor.stats().consumed(), 1);
         assert!(matches!(
             copy_limited_state.prepare_successor(
                 &family,

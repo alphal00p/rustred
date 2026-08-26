@@ -735,6 +735,14 @@ impl GeneratedAffineResidualGroupExactWhenBadReadyForPartition {
         false
     }
 
+    /// Drop materialization-only evidence after its conditions have been
+    /// compiled into the source-neutral application partition.
+    pub(crate) fn into_condition_plan_for_publication(
+        self,
+    ) -> GeneratedAffineResidualGroupExactConditionPlan {
+        self.plan
+    }
+
     pub(crate) fn replay(
         &self,
         family: &IntegralFamily,
@@ -4335,6 +4343,7 @@ mod tests {
             family,
             context,
             session,
+            source: _,
             ready,
         } = if sector_bits == "111" {
             exact_condition_plan_test_fixture(name, compact)

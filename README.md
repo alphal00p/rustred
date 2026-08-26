@@ -32,15 +32,16 @@ complete mathematical workflow.
 |---|---|
 | Parse compact integral-family descriptions | Available |
 | Infer scalar parameters from family-defining expressions | Available |
-| Derive generic ordinary parametric IBPs | Available through `rustred derive` and the library |
-| Derive generic Lorentz-invariance identities | Available through `rustred derive` and the library |
+| Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
+| Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
+| Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
-| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate and feed the implemented condition/materialization/partition owners |
-| Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally as owner-bound, non-publishing phases: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and one opaque canonical-locus authority carries the current-lineage arbitrary-width OR-of-AND `WhenBad` formula into partition compilation; the nested compiler validates it linearly instead of repeating the outer pairwise scan; atomic publication remains pending |
-| Prepare compact guarded-publication routing | Implemented internally as one move-only `PreparedPublication` that owns the sealed Ready value and one packed word per leaf; there is no separately bindable manifest, hot-path replay, or schema/fingerprint layer; target-consuming commit remains pending |
-| Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
+| Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
+| Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
+| Prepare and atomically commit a compact application event | Implemented internally: one move-only input advances the exact database, consumes one selected target, and stores only centered relation terms, target locator/offset, canonical loci, final cases, and one-byte applicable/domain/leak tags; this is not yet a reusable rule artifact, and shallow rule/residual handles, scheduling, closure, and application remain pending |
+| Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, and affine-equality transitions in the implemented slices; compact application events are retained for the forward path, but their optional audit replay is pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
@@ -205,12 +206,11 @@ The repository currently includes tests for:
 - typed NoTarget commit and affine-equality suspension: NoTarget commits the
   algebraic pivot while preserving every target, whereas an equality-bearing
   first target commits the pivot and seals the old solve epoch for refinement;
-- an opaque, session-owned recipe for every committed production or synthetic
-  source, with the exact dependent-reduction or new-pivot evidence retained by
-  shared ownership rather than reconstructed from public metadata; production
-  recipes admit the complete uniquely retained physical-row/re-elimination
-  graph while excluding only pointer-proven shared plan/frame/inventory
-  ancestry;
+- an opaque, session-owned recipe for the existing Dependent, NoTarget, and
+  affine-equality transitions, with exact dependent-reduction or new-pivot
+  evidence retained by shared ownership. Compact publication events instead
+  retain only application data and deliberately drop the derivation recipe and
+  pivot evidence;
 - an owning prepared-database commit whose fallible authentication, resource
   accounting, and allocation finish before its infallible commit tail;
 - a private chronological event ledger for the generic generated-affine exact
@@ -339,15 +339,20 @@ The repository currently includes tests for:
   Nextest run `e9004c32-5a51-4705-a2f9-e39bcac40c49` then ran 1,651 tests
   with four workers and passed all 1,651 (52 slow), with 5 additional
   configured cases skipped; the following doctest phase also passed. The next
-  compact preparation step now consumes that sealed Ready owner and physically
-  pairs it with one checked routing word per leaf. It trusts private Rust
-  constructors instead of repeating schema, fingerprint, provenance-census,
-  or replay checks; only resource admission, safe provenance lookup, and packed
-  representation checks remain. Operational failures return the original
-  move-only Ready owner. Its licensed default-GMP focused suite passed 3/3
-  tests with four Rust test threads. This phase still
-  performs no target consumption, rule publication, reduction, or six-loop
-  topology solve; and
+  compact preparation step distills the sealed owner into commit state plus
+  canonical loci, final relative cases, and a one-byte
+  applicable/domain/leak tag per leaf. Operational failures return the exact
+  move-only input; its licensed default-GMP preparation suite passed 3/3 tests
+  with four Rust test threads. The following internal atomic commit advances
+  the exact database, consumes exactly one selected target, and moves the
+  centered relation terms, target locator/offset, loci, cases, and tags into one
+  chronological event. Derivation-only row translation, guards, statistics,
+  source recipe, and pivot evidence are not retained by that event. The frozen
+  post-commit licensed default-GMP gate used four Nextest workers and passed
+  all 1,658 runnable tests, with 5 configured cases skipped; the following
+  doctest phase also passed. No shallow
+  rule/residual handles, provider scheduling, rule application, publication
+  audit replay, physical-topology reduction, or six-loop solve is claimed; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -371,28 +376,56 @@ feature-gated validation material, not production topology dispatch.
 The priority deployment is now a six-loop QCD beta-function campaign after
 GammaLoop's general BPHZ R-operation.  RustRed will keep its full generic
 LiteRed scope, but near-term work emphasizes single-scale massive vacuum
-families with the common mass set to one.  The architecture is deliberately
-two-stage: an offline, topology-generic foundry derives and verifies guarded
+families with the common mass set to one. The target architecture has two
+stages: an offline, topology-generic foundry will derive and verify guarded
 parametric rules for canonical families/sectors; a separate online runtime
 applies the compiled artifacts in batches to the many concrete numerator
 integrals produced by GammaLoop.  See the
 [six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md).
 
+The planned foundry output will be a multi-start campaign bundle, not one
+flattened rule table and not a serialized `PreparedPublication`. Each fully
+coverage-closed canonical `(family, sector, ordering, domain)` job becomes one
+immutable rule shard. User-supplied starting topologies retain small verified
+ingress maps,
+while routing-equivalent roots and shared subsector, factorization, and
+cross-family dependencies reuse the same shards through a strict dependency
+DAG. Incomplete or resource-limited derivations remain resumable workspaces
+and cannot be loaded as closed reduction bundles. Topology/family metadata is
+valid routing and inspection data; it must never select a hardcoded algorithm
+or recurrence.
+
+The optimized online runtime is not the next scalability claim. RustRed must
+first close the topology-neutral foundry, derive complete replacement systems
+for the families and target domains exercised by Vakint's one- through four-
+loop single-scale vacuum corpus, and compare normalized reductions against
+Vakint without invoking FORM or copying its authored rules. Derivation-only
+physical five-/six-loop gates then follow. The six-loop topology and numerical
+resource manifest is frozen before execution and includes representative QCD-
+valid connected 1PI quartic and cubic 21-coordinate vacuum roots. Each reaches
+all 36 IBP sources, closes every reachable exceptional and lower-family
+dependency onto a finite selected or independently certified terminal set,
+verifies every rule by an exact regenerated-IBP residual, and meets predeclared
+wall-time, memory, and parallel-scaling thresholds on named hardware. The
+existing synthetic `K=21` first-residual fixture is only a generator/frontier
+stress test and does not satisfy that gate.
+
 The transactional exact pivot database, hardest-first top reduction,
 session-owned exact recentering, typed NoTarget commit, sealed affine-equality
 suspension, private chronological event ledger, and shadow replay are
-implemented for the generic generated-affine exact-session slice. Committed
-events own opaque source recipes and exact evidence, and the owning prepared
-database transition has an infallible commit tail after all fallible work has
-completed.
+implemented for the generic generated-affine exact-session slice. Dependent,
+NoTarget, and affine-equality events own opaque source recipes and exact
+evidence. A compact application event instead keeps only the data needed by
+future application: centered relation terms, target locator/offset, canonical
+loci, final relative cases, and one-byte leaf tags.
 
 That correctness-first storage layout is not the final high-loop layout. Each
 current event append copies the preceding event-`Arc` vector, and each target
 successor copies the complete disposition vector. Before the multi-loop
 foundry is scaled, these paths must become a chunked/persistent event log and a
-shared or paged copy-on-write target state. Guarded publication will retain the
-packed routes once inside its event and expose shallow handles, rather than
-maintaining duplicate deep rule and residual payload vectors.
+shared or paged copy-on-write target state. The compact application event now
+retains its application payload once. Future rule and residual handles must be
+shallow views into that event rather than duplicate deep payload vectors.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
@@ -415,8 +448,8 @@ must use public `SparseRowReducer` together with independent rank/residual and
 transcript checks; RustRed does not extend this into a parallel CAS or matrix
 implementation.
 The next vacuum-critical solver milestone is the topology-neutral
-`mapped conditions -> relative WhenBad partition -> atomic guarded-rule/
-residual publication -> exactly verified closure` slice. Exact fixed-chamber
+`compact application event -> shallow rule/residual handles -> residual and
+subsector scheduling -> exactly verified closure` slice. Exact fixed-chamber
 descent and lazy hazard geometry now cover authenticated selector-independent
 compact affine target maps. An owner-bound identity/compact transform and
 deterministic condition-source schedule now preserve the Ready lineage, while
@@ -429,12 +462,16 @@ condition transcript, including both denominator-identity projections and the
 ordered boundary events. The subsequent move-only owner now proves and seals
 canonical loci once per fresh compilation or full proof replay, then builds the
 relative `WhenBad` partition for the assembled current-lineage arbitrary-width
-OR-of-AND formula without a second inner Symbolica-associate scan. A compact
-move-only preparation now keeps that Ready owner and its one-word leaf routes
-together without a separate authentication/binding layer. The active slice
-must consume this prepared value and the selected target, then publish the
-guarded rule plus exceptional residual work atomically. Graph-lifted symmetry
-discovery and the
+OR-of-AND formula without a second inner Symbolica-associate scan. Compact
+preparation now distills the application loci, cases, and one-byte leaf tags;
+the atomic session transition advances the database, consumes one selected
+target, and stores those values with the centered relation terms and target
+locator/offset in one event. It drops derivation-only translation, guards,
+statistics, source recipe, and pivot evidence. The active slice must expose
+shallow applicable and exceptional handles, schedule residual and solved-
+subsector work, and prove a coverage fixed point. Multi-start shard/bundle
+compilation and physical six-loop derivation profiling follow before the
+optimized concrete batch-application runtime. Graph-lifted symmetry discovery and the
 `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
@@ -475,14 +512,19 @@ arbitrary-width formula routing and exact affine-boundary specialization are
 implemented as non-publishing kernels. The owner-bound materializer maps the
 scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
-remaining generic LiteRed-style solver work is to:
+remaining generic LiteRed-style foundry work is to:
 
-1. atomically consume the selected target and publish guarded rules plus the
-   exceptional residual work from the implemented owning current-lineage
-   formula partition;
-2. feed solved subsectors into supersectors and iterate residual cases; and
-3. expose a coverage-backed complete reduction result, with full derivation
-   replay available as an optional audit.
+1. expose shallow applicable-rule and exceptional-residual handles into the
+   committed compact event, then integrate provider and residual scheduling;
+2. feed solved subsectors into supersectors, iterate residual cases, and prove
+   closure onto a finite enumerated set of selected or independently certified
+   terminal keys (or finite products), never a symbolic residual domain;
+3. compile closed family/sector shards into deterministic multi-start campaign
+   bundles with shared dependency nodes;
+4. pass the complete Vakint one- through four-loop replacement-system lane and
+   derivation-only physical five-/six-loop scalability gates; and
+5. implement optimized application-time specialization plus optional
+   publication audit replay and expose a coverage-backed reduction result.
 
 This current-lineage state does not complete RustRed's stated mathematical
 capability goal, `WhenBad` closure, rule publication, an arbitrary one-loop
@@ -526,8 +568,11 @@ owner now proves the canonical parametric loci once per fresh compilation or
 full proof replay; the nested relative-`WhenBad` compiler validates that
 authority linearly and performs no duplicate pairwise Symbolica-associate scan.
 Compact route preparation is now a single move-only owner transition rather
-than a separately authenticated manifest. The immediate gate is atomic guarded
-publication and residual hand-off. No arity-21
+than a separately authenticated manifest, and the atomic compact-event commit
+now consumes one selected target. The immediate gate is shallow rule/residual
+handles, exceptional and subsector scheduling, and a proved coverage fixed
+point. Closed-shard campaign bundling and a physical six-loop derivation gate
+precede optimized application and optional publication audit replay. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.
 

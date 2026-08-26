@@ -1157,7 +1157,6 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactTargetStateBinding {
 pub(crate) struct GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
     database: &'a GeneratedAffineResidualGroupExactDatabase,
     staged: &'a GeneratedAffineResidualGroupStagedExactRow,
-    pivot_allocation: &'a Arc<ExactUnitPivot>,
     pivot: &'a ExactUnitPivot,
 }
 
@@ -1248,15 +1247,15 @@ impl<'a> GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a> {
         &self.pivot.normalization_divisor
     }
 
-    /// Retain the exact immutable pivot allocation carried by this
-    /// authenticated stage. The same Arc is installed by prepared commit.
-    pub(crate) fn retain_exact_pivot_evidence_for_session(
+    pub(crate) fn successor_target_state_binding_for_session(
         &self,
         _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
-    ) -> GeneratedAffineResidualGroupRetainedExactUnitPivot {
-        GeneratedAffineResidualGroupRetainedExactUnitPivot {
-            pivot: Arc::clone(self.pivot_allocation),
-        }
+    ) -> GeneratedAffineResidualGroupExactTargetStateBinding {
+        self.database.target_state_binding_at(
+            self.staged.next_state_version,
+            self.staged.next_transition_identity,
+            Some(self.database.transition_identity),
+        )
     }
 
     /// Retained coexistence envelope admitted before this sealed stage was
@@ -2232,7 +2231,6 @@ impl GeneratedAffineResidualGroupExactDatabase {
             GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView {
                 database: self,
                 staged,
-                pivot_allocation: pivot,
                 pivot: pivot.as_ref(),
             },
         )
@@ -2299,6 +2297,24 @@ impl GeneratedAffineResidualGroupExactDatabase {
         prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
     ) {
         drop(self.commit_prepared_staged_row_inner(prepared));
+    }
+
+    /// Final publication-only database move. The exclusive session
+    /// authenticated this exact staged new pivot immediately before all
+    /// recoverable preparation, so the tail moves it directly without
+    /// repackaging duplicate recipe or evidence owners.
+    pub(crate) fn commit_current_staged_new_pivot_for_session(
+        &mut self,
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) {
+        debug_assert_eq!(self.database_nonce, staged.database_nonce);
+        debug_assert_eq!(self.state_version, staged.state_version);
+        debug_assert!(matches!(
+            &staged.payload,
+            ExactStagedRowPayload::NewPivot { .. }
+        ));
+        let _ = self.commit_staged_new_pivot_move_inner(staged);
     }
 
     /// Explicit test-only adapters exercise the owning prepare/abort/commit
@@ -2429,12 +2445,43 @@ impl GeneratedAffineResidualGroupExactDatabase {
             self.prepared_commit_invariants_hold(&prepared),
             "prepared exact database commit invariant violated"
         );
+        self.commit_prepared_staged_row_move_inner(prepared)
+    }
+
+    fn commit_prepared_staged_row_move_inner(
+        &mut self,
+        prepared: GeneratedAffineResidualGroupPreparedExactRowCommit,
+    ) -> GeneratedAffineResidualGroupPreparedExactRowOutcome {
         let GeneratedAffineResidualGroupPreparedExactRowCommit {
             predecessor_transition_identity: _,
             staged,
             source_recipe: _,
             evidence,
         } = prepared;
+        match evidence {
+            PreparedExactRowEvidence::Dependent(evidence) => {
+                let source_ordinal = self.commit_staged_dependent_move_inner(staged);
+                GeneratedAffineResidualGroupPreparedExactRowOutcome::Dependent {
+                    source_ordinal,
+                    evidence,
+                }
+            }
+            PreparedExactRowEvidence::NewPivot(evidence) => {
+                let (source_ordinal, pivot_ordinal) =
+                    self.commit_staged_new_pivot_move_inner(staged);
+                GeneratedAffineResidualGroupPreparedExactRowOutcome::NewPivot {
+                    source_ordinal,
+                    pivot_ordinal,
+                    evidence,
+                }
+            }
+        }
+    }
+
+    fn commit_staged_dependent_move_inner(
+        &mut self,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> usize {
         let GeneratedAffineResidualGroupStagedExactRow {
             next_transition_identity,
             next_state_version,
@@ -2443,62 +2490,64 @@ impl GeneratedAffineResidualGroupExactDatabase {
             payload,
             ..
         } = staged;
-        match (payload, evidence) {
-            (
-                ExactStagedRowPayload::Dependent {
-                    reductions,
-                    committed_stats,
-                },
-                PreparedExactRowEvidence::Dependent(evidence),
-            ) => {
-                self.stats = committed_stats;
-                self.next_source_ordinal = next_source_ordinal;
-                self.state_version = next_state_version;
-                self.transition_identity = next_transition_identity;
-                drop(reductions);
-                GeneratedAffineResidualGroupPreparedExactRowOutcome::Dependent {
-                    source_ordinal,
-                    evidence,
-                }
-            }
-            (
-                ExactStagedRowPayload::NewPivot {
-                    pivot,
-                    pivot_key,
-                    lookup_insertion,
-                    mut committed_pivots,
-                    mut committed_lookup,
-                    committed_stats,
-                },
-                PreparedExactRowEvidence::NewPivot(evidence),
-            ) => {
-                let pivot_ordinal = pivot.ordinal;
-                let mut prior_pivots = std::mem::take(&mut self.pivots);
-                let mut prior_lookup = std::mem::take(&mut self.lookup);
-                committed_pivots.append(&mut prior_pivots);
-                committed_lookup.append(&mut prior_lookup);
-                committed_lookup.insert(
-                    lookup_insertion,
-                    ExactPivotLookupEntry {
-                        key: pivot_key,
-                        pivot_ordinal,
-                    },
-                );
-                committed_pivots.push(pivot);
-                self.pivots = committed_pivots;
-                self.lookup = committed_lookup;
-                self.stats = committed_stats;
-                self.next_source_ordinal = next_source_ordinal;
-                self.state_version = next_state_version;
-                self.transition_identity = next_transition_identity;
-                GeneratedAffineResidualGroupPreparedExactRowOutcome::NewPivot {
-                    source_ordinal,
-                    pivot_ordinal,
-                    evidence,
-                }
-            }
-            _ => unreachable!("prepared database evidence changed staged outcome"),
-        }
+        let ExactStagedRowPayload::Dependent {
+            reductions,
+            committed_stats,
+        } = payload
+        else {
+            unreachable!("prepared dependent evidence changed staged outcome")
+        };
+        self.stats = committed_stats;
+        self.next_source_ordinal = next_source_ordinal;
+        self.state_version = next_state_version;
+        self.transition_identity = next_transition_identity;
+        drop(reductions);
+        source_ordinal
+    }
+
+    fn commit_staged_new_pivot_move_inner(
+        &mut self,
+        staged: GeneratedAffineResidualGroupStagedExactRow,
+    ) -> (usize, usize) {
+        let GeneratedAffineResidualGroupStagedExactRow {
+            next_transition_identity,
+            next_state_version,
+            source_ordinal,
+            next_source_ordinal,
+            payload,
+            ..
+        } = staged;
+        let ExactStagedRowPayload::NewPivot {
+            pivot,
+            pivot_key,
+            lookup_insertion,
+            mut committed_pivots,
+            mut committed_lookup,
+            committed_stats,
+        } = payload
+        else {
+            unreachable!("prepared new-pivot evidence changed staged outcome")
+        };
+        let pivot_ordinal = pivot.ordinal;
+        let mut prior_pivots = std::mem::take(&mut self.pivots);
+        let mut prior_lookup = std::mem::take(&mut self.lookup);
+        committed_pivots.append(&mut prior_pivots);
+        committed_lookup.append(&mut prior_lookup);
+        committed_lookup.insert(
+            lookup_insertion,
+            ExactPivotLookupEntry {
+                key: pivot_key,
+                pivot_ordinal,
+            },
+        );
+        committed_pivots.push(pivot);
+        self.pivots = committed_pivots;
+        self.lookup = committed_lookup;
+        self.stats = committed_stats;
+        self.next_source_ordinal = next_source_ordinal;
+        self.state_version = next_state_version;
+        self.transition_identity = next_transition_identity;
+        (source_ordinal, pivot_ordinal)
     }
 
     /// Allocation-free local assertion predicate for the final prepared tail.

@@ -12,7 +12,12 @@ canonical-locus owner gate passed 19/19, with an independent 20/20 superset.
 Authoritative licensed default-GMP Nextest run
 `e9004c32-5a51-4705-a2f9-e39bcac40c49` used four workers, ran 1,651 tests,
 and passed all 1,651 (52 slow), with 5 additional configured cases skipped;
-the following doctest phase also passed.
+the following doctest phase also passed. Compact publication preparation and
+the internal atomic application-event commit were reconciled on 2026-08-26.
+The frozen licensed default-GMP gate then passed all 1,658 runnable tests with
+four Nextest workers, with 5 configured cases skipped; doctests also passed.
+The handle, scheduling, closure, bundle, application, audit-replay, and
+complete-reduction gates remain open.
 
 ## Reading status
 
@@ -62,7 +67,10 @@ general BPHZ R-operation.  This priority does not permit loop-count or topology
 dispatch in production.  It changes the order of implementation: reusable
 vacuum-family/sector rule derivation and a separate batched rule-application
 runtime take precedence over non-vacuum examples and broad Feynman-parametric
-polishing.  The detailed two-stage architecture and benchmark contract are in
+polishing. The foundry must prove closure, produce reusable multi-start
+campaign bundles, and pass derivation-only physical six-loop scalability gates
+before optimized online application becomes the priority. The detailed
+two-stage architecture and benchmark contract are in
 [`six_loop_single_scale_vacuum_priority_2026-08-24.md`](six_loop_single_scale_vacuum_priority_2026-08-24.md).
 
 ## Source-of-truth order
@@ -107,6 +115,24 @@ routes, and dependencies and are validated once when loaded. Full source
 provenance/reconstruction is an optional audit payload. No migration promise
 applies until an external artifact format is intentionally declared stable.
 Every cached rule must remain reproducibly derivable from the generic engine.
+
+`PreparedPublication` is an internal move-owned live-session value, not the
+durable format and not a complete rule set. A durable multi-start campaign
+contains immutable coverage-closed shards keyed by canonical family, sector,
+ordering, coefficient specialization, and declared domain; verified ingress
+maps connect every user root, and a strict DAG shares proper-subsector,
+factorization, and cross-family dependencies. Incomplete, unsupported,
+resource-limited, or interrupted derivations belong to a separate resumable
+workspace type and cannot be opened as a closed reduction bundle. Shards are
+written independently and the lightweight root manifest is installed last.
+The cross-root canonical family ID is constructed only after verified routing,
+denominator-order, and parameter canonicalization and excludes user/root names
+and momentum-label aliases; the existing label-sensitive family fingerprint
+remains a representation/session identity. Same-rank family maps become ingress
+aliases before DAG construction, while cross-family dependency edges require a
+strict well-founded rank decrease. Each closed shard retains a compact sparse
+source-combination/residual witness for exact checking against freshly
+regenerated generic IBPs; full chronological transcripts remain optional.
 
 ## Required scalar scope
 
@@ -162,23 +188,42 @@ test that case independently.
 
 ## Validation ladder
 
-Validation advances only after the preceding rung passes:
+Validation has a derivation/foundry lane followed by an application/oracle
+lane. The latter must not conceal that the former is incomplete.
 
-1. synthetic generic family and algebra properties;
-2. one-loop parametric relation generation and scalar reductions;
-3. varied one-loop tensor numerators, compared with Vakint while leaving
-   master topologies unsubstituted;
-4. representation-closure checks in which a numerator factor equal to a
+The ordered foundry lane is:
+
+1. synthetic generic family and exact-algebra properties;
+2. coverage-closed one- through three-loop family/sector shards with exact
+   regenerated-source residuals, exceptional recursion, solved-subsector
+   feedback, and a finite explicitly enumerated terminal-key set (or finite
+   products) whose members are user-selected or independently certified;
+3. complete derived replacement systems for Vakint's one- through four-loop
+   single-scale vacuum family corpus, without FORM or copied authored rules;
+4. deterministic multi-start bundles proving routing aliases, shared
+   subsectors/factorizations, strict dependency descent, incremental reuse,
+   and equivalent one-worker/multi-worker semantics;
+5. representative general five-loop families, including ISP-rich and
+   duplicate-denominator cases rather than only the banana;
+6. a pre-run-frozen, structurally representative QCD-valid six-loop corpus
+   spanning quartic and cubic 21-coordinate vacuum roots, with every reachable
+   dependency closed under predeclared numerical time, memory, artifact, and
+   parallel-scaling thresholds; then a small GammaLoop/BPHZ-derived corpus.
+
+Only a closed shard or bundle may satisfy the application/oracle acceptance
+lane. Existing direct-library fixtures remain useful regressions but do not
+pass this lane:
+
+1. scalar and varied tensor/numerator inputs from one loop upward, with masters
+   left unsubstituted;
+2. representation-closure checks in which a numerator factor equal to a
    propagator (for example `q_i^2-m_i^2`) is compared exactly with the same
-   input after explicit propagator-power cancellation, before IBP and again
-   on the unreplaced-master result and semantic guard loci;
-5. two-loop scalar and tensor reductions, including the same cancellation
-   closure checks;
-6. three-loop scalar and tensor reductions, including comparison with the
-   alphaLoop parametric-rule behavior;
-7. four-loop massive-vacuum families; and
-8. general five-loop massive-vacuum families, not only the banana; and
-9. a declared six-loop GammaLoop/BPHZ-derived single-scale vacuum corpus.
+   input after explicit propagator-power cancellation, before IBP and again on
+   the unreplaced-master result and semantic guard loci;
+3. exact normalized reductions against Vakint through its four-loop support,
+   using Vakint only as an external behavioral oracle; and
+4. held-out routings, loop bases, numerator shells, primes, and specializations
+   beyond that oracle through five and six loops.
 
 At every rung, accepted parametric rules must replay symbolically from freshly
 generated source relations.  Agreement at finitely many concrete powers is an
@@ -228,7 +273,7 @@ the refactored typed V2 relation manifest.  It is a regression checkpoint,
 not evidence that the later recentering, `WhenBad`, exceptional recursion, or
 provider seams are complete.
 
-The strongest complete concrete multiloop acceptance remains the equal-mass
+The strongest end-to-end concrete multiloop fixture remains the equal-mass
 three-loop tetrahedron.  Freshly generated rows and discovered `S4`
 symmetries reduce, among other inputs,
 `J(2,1,1,1,1,1)=(d-4)/(4 m2) J(1,1,1,1,1,1)` and reduce the rank-two dotted-B4
@@ -347,30 +392,33 @@ the following doctest phase also passed. This slice consumes no
 target, publishes no rule, and has no topology or loop-count dispatch. It does
 not establish complete LiteRed `WhenBad` closure.
 
-Compact routing preparation is now implemented as a single consuming
-transition. `PreparedPublication` owns the sealed Ready value and one checked
-`usize` route per leaf, so a route table cannot be supplied independently or
-mixed with another Ready owner. It performs one linear routing pass after
-resource admission; it adds no schema, fingerprint, replay validator, or
-binding capability. Typed operational failure returns the original Ready
-owner. The licensed focused suite passed 3/3 tests with four Rust test threads.
-This preparation still consumes no target and publishes no rule.
+Compact routing preparation is now one consuming transition. It distills the
+sealed derivation owner into move-only commit state plus canonical loci, final
+relative cases, and a one-byte applicable/domain/leak tag per leaf. Typed
+operational failure returns the exact input owner. The licensed preparation
+suite passed 3/3 tests with four Rust test threads.
 
-The immediate generic semantic slice is now atomic guarded-rule/residual
-publication from that move-bound prepared owner, followed by solved-subsector
-feedback into supersectors. It must not reconstruct V4, V5, the live-leaf
-queue, or old Boolean/DPLL certificates along the way.
+The following internal atomic commit is also implemented. It advances the
+exact database, consumes exactly one selected target, and stores one compact
+application event containing centered relation terms, target locator/offset,
+loci, cases, and the one-byte tags. The publication event does not retain the
+derivation row translation, row guards, derivation statistics, source recipe,
+or pivot evidence. It does not yet expose shallow rule/residual handles,
+schedule exceptional work through the provider, apply a rule, support optional
+publication audit replay, or establish a complete reduction.
 
 The current exact-session event replacement and target successor are
 correctness-first, not six-loop-scalable: they copy the prior event-`Arc`
-vector and the full target-disposition vector on every transition. Atomic
-publication must move the prepared packed routes into each event without deep
-rule/residual duplication. Before high-loop deployment, session storage must
+vector and the full target-disposition vector on every transition. The compact
+publication payload is retained only once in its event; future handles must be
+shallow views rather than deep rule/residual duplication. Before high-loop
+deployment, session storage must
 move to a chunked/persistent event log and shared or paged copy-on-write target
 dispositions.
 
-The first scaling gate remains one declared arity-21 sector reaching exact
-Ready through that direct hand-off. The successful `K=21` cursor fixture stops
+The next low-level scaling gate remains one declared arity-21 sector reaching
+exact Ready through that direct hand-off, but it is not a foundry scalability
+acceptance by itself. The successful `K=21` cursor fixture stops
 at its first certified formula-residual path: it creates no affine inventory,
 does not enter Ready, publishes no guarded rule, and is not a physical vacuum
 topology. Neither that milestone nor the existing lower-arity fixtures
@@ -383,8 +431,9 @@ row system, preordered persistent elimination, generated `WhenBad` candidates,
 exceptional residual work, and the generic provider.  Its first accepted solve
 mode is an independent integer cylinder; dependent symbolic starts remain a
 typed pending outcome rather than being replaced by an arbitrary integer
-sample.  The artifact may contain no loop-count/topology tag, expected
-recurrence, or inferred master.
+sample. An artifact may carry loop count and topology/family metadata for
+routing, inspection, and benchmark reports. Those values may not dispatch to
+an algorithm, expected recurrence, or inferred master.
 
 The exact first-mode pipeline is:
 
@@ -407,10 +456,14 @@ generated IBP/LI rows
    and exact RHS-boundary events                                  [implemented, nonpublishing]
 -> one-shot canonical-locus authority -> owner-bound relative partition
    of the current-lineage arbitrary-width OR-of-AND formula       [implemented, nonpublishing]
--> move-bound Ready + one-word-per-leaf route preparation         [implemented, nonpublishing]
--> atomic guarded publication and residual hand-off               [next]
+-> move-bound commit state + one-byte-per-leaf route preparation  [implemented]
+-> atomic target consumption + compact application event          [implemented internally]
+-> shallow rule/residual handles + provider/residual scheduling   [next]
 -> exceptional-domain recursion and solved-subsector feedback
--> coverage fixed point (full replay is an optional audit)
+-> coverage fixed point (publication replay is an optional audit)
+-> immutable closed family/sector shard
+-> deterministic multi-start dependency bundle
+-> physical six-loop derivation-only closure and scaling gate
 -> generic provider and descending application
 ```
 
@@ -419,10 +472,11 @@ does not restart elimination.  Finite prepare points discover candidates but
 never prove their symbolic domains.  A failed search remains typed uncovered
 state and is not promoted to either a zero proof or a certified master.
 
-Acceptance first derives the complete one-loop tadpole recurrence family and
-checks powers two through four with only `I(1)` explicitly selected, then
-passes tensor ranks zero, one, two, and four through the Symbolica parser,
-generic projector/lowering, generated provider, and Vakint oracle.  Each
+Acceptance first derives and proves closure of the complete one-loop tadpole
+recurrence family. A minimal generic application seam then checks powers two
+through four with only `I(1)` explicitly selected and passes tensor ranks zero,
+one, two, and four through the Symbolica parser, generic projector/lowering,
+generated provider, and Vakint oracle. Each
 supported numerator rank must also pass a metamorphic cancellation oracle:
 an uncancelled numerator factor equal to a propagator and the explicitly
 power-lowered input independently rebuild and replay their proof graphs, have
@@ -431,13 +485,14 @@ the same semantic domain.  Raw source-origin ordinals are not compared because
 equivalent presentations legitimately have different provenance histories. A
 second one-loop family with an external momentum and automatically completed
 ISP guards against accidentally specializing the solver to vacuum or one
-denominator.  This remains a compact genericity test rather than the next
-deployment feature.  Only after the generic symbolic path replays and passes
-its resource/tamper matrix does validation advance through two and three
-loops, the complete Vakint four-loop corpus, general five-loop families, and a
-declared six-loop GammaLoop/BPHZ corpus.  Engineering effort between those
-gates prioritizes the shared vacuum foundry and batch-application path rather
-than an arbitrary non-vacuum pentagon milestone.
+denominator. This remains a compact genericity test rather than the next
+deployment feature. The foundry then derives complete one- through four-loop
+replacement systems for the Vakint corpus and checks normalized reductions
+against that external oracle without FORM. General five-loop and physical
+six-loop derivation-only closure/profile gates follow before optimization of
+the concrete batch runtime. Engineering effort between those gates prioritizes
+the shared vacuum foundry and multi-start campaign bundles rather than an
+arbitrary non-vacuum pentagon milestone.
 
 ## Legacy loop-specific oracle surface
 

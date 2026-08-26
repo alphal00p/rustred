@@ -42,11 +42,15 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupRetainedExactUnitPivot, GeneratedAffineResidualGroupStagedExactRow,
 };
 use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
+use crate::generated_affine_residual_group_exact_publication::{
+    PreparedPublication, PublicationPayload, PublicationStats,
+};
 use crate::generated_affine_residual_group_exact_recenter_kernel::{
     ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
-    ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset, admit_inert_owner, bounded_add,
-    checked_add, exact_offsets_equal, execute_target_offset, observe_inert_owner,
-    preflight_exact_geometry, translate_centered_row, verify_target_offset_census,
+    ExactRecenteredApplicationRow, ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset,
+    admit_inert_owner, bounded_add, checked_add, exact_offsets_equal, execute_target_offset,
+    observe_inert_owner, preflight_exact_geometry, translate_centered_row,
+    verify_target_offset_census,
 };
 use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
@@ -271,6 +275,7 @@ pub(crate) struct GeneratedAffineResidualGroupExactSessionEventStats {
     target_offset_integer_bits: usize,
     target_offset_retained_bytes: usize,
     equality_predicates: usize,
+    publication_retained_bytes: usize,
     ledger_outer_buffer_bytes: usize,
     ledger_retained_bytes: usize,
     ledger_replacement_peak_bytes: usize,
@@ -287,6 +292,10 @@ impl GeneratedAffineResidualGroupExactSessionEventStats {
 
     pub(crate) const fn source_recipe_allocation_comparisons(self) -> usize {
         self.source_recipe_allocation_comparisons
+    }
+
+    pub(crate) const fn publication_retained_bytes(self) -> usize {
+        self.publication_retained_bytes
     }
 
     pub(crate) const fn target_state_successor_copies(self) -> usize {
@@ -436,6 +445,82 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDatabaseEvidenc
     }
 }
 
+/// Minimal ownership for interpreting one chronological event. Replayable
+/// algebraic transitions retain their exact source/evidence; a compact
+/// application event retains only the coordinate of the pivot installed in
+/// the database by the same atomic transition.
+enum GeneratedAffineResidualGroupExactSessionEventHead {
+    Replayable {
+        source_recipe: GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+        database_evidence: GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
+    },
+    Publication {
+        pivot_ordinal: usize,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum GeneratedAffineResidualGroupExactSessionEventHeadView<'a> {
+    Replayable {
+        source_recipe: &'a GeneratedAffineResidualGroupRetainedExactSourceRecipe,
+        database_evidence: &'a GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
+    },
+    Publication {
+        pivot_ordinal: usize,
+    },
+}
+
+impl GeneratedAffineResidualGroupExactSessionEventHeadView<'_> {
+    fn is_replayable_dependent(self) -> bool {
+        matches!(
+            self,
+            Self::Replayable {
+                database_evidence:
+                    GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_),
+                ..
+            }
+        )
+    }
+
+    fn is_replayable_new_pivot(self) -> bool {
+        matches!(
+            self,
+            Self::Replayable {
+                database_evidence:
+                    GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_),
+                ..
+            }
+        )
+    }
+
+    fn is_publication(self) -> bool {
+        matches!(self, Self::Publication { .. })
+    }
+}
+
+impl GeneratedAffineResidualGroupExactSessionEventHead {
+    fn reduction_count(&self) -> usize {
+        match self {
+            Self::Replayable {
+                database_evidence, ..
+            } => database_evidence.reduction_count(),
+            Self::Publication { .. } => 0,
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventHead {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Replayable { .. } => formatter.write_str("Replayable(<redacted>)"),
+            Self::Publication { pivot_ordinal } => formatter
+                .debug_struct("Publication")
+                .field("pivot_ordinal", pivot_ordinal)
+                .finish(),
+        }
+    }
+}
+
 enum GeneratedAffineResidualGroupExactSessionEventDisposition {
     Dependent,
     NoTarget {
@@ -448,8 +533,67 @@ enum GeneratedAffineResidualGroupExactSessionEventDisposition {
         equality_predicate_ordinals: Vec<usize>,
         stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
     },
+    Publication {
+        target_offset: Arc<ExactTargetOffset>,
+        locator: GeneratedAffineResidualGroupSolveTargetLocator,
+        row: ExactRecenteredApplicationRow,
+        publication: PublicationPayload,
+    },
     #[cfg(test)]
     TestSeedPivot,
+}
+
+/// Borrow-only sizing/classification view used while the exact prepared
+/// publication must remain intact for transactional error recovery.
+#[derive(Clone, Copy)]
+enum GeneratedAffineResidualGroupExactSessionEventDispositionView<'a> {
+    Dependent,
+    NoTarget {
+        target_offset: &'a ExactTargetOffset,
+    },
+    RequiresAffineEqualityRefinement {
+        target_offset: &'a ExactTargetOffset,
+        equality_predicate_ordinals: &'a [usize],
+        equality_predicate_capacity: usize,
+    },
+    Publication {
+        target_offset: &'a ExactTargetOffset,
+        row: &'a ExactRecenteredRow,
+        publication: &'a PublicationPayload,
+    },
+    #[cfg(test)]
+    TestSeedPivot,
+}
+
+impl GeneratedAffineResidualGroupExactSessionEventDisposition {
+    fn view(&self) -> GeneratedAffineResidualGroupExactSessionEventDispositionView<'_> {
+        match self {
+            Self::Dependent => {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::Dependent
+            }
+            Self::NoTarget { target_offset, .. } => {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::NoTarget {
+                    target_offset,
+                }
+            }
+            Self::RequiresAffineEqualityRefinement {
+                target_offset,
+                equality_predicate_ordinals,
+                ..
+            } => GeneratedAffineResidualGroupExactSessionEventDispositionView::RequiresAffineEqualityRefinement {
+                target_offset,
+                equality_predicate_ordinals,
+                equality_predicate_capacity: equality_predicate_ordinals.capacity(),
+            },
+            Self::Publication { .. } => {
+                unreachable!("compact publication uses its dedicated borrowed preflight view")
+            }
+            #[cfg(test)]
+            Self::TestSeedPivot => {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::TestSeedPivot
+            }
+        }
+    }
 }
 
 impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDisposition {
@@ -468,36 +612,52 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDisposition {
                 .field("private_target_offset", &"<redacted>")
                 .field("private_equality_predicates", &"<redacted>")
                 .finish(),
+            Self::Publication {
+                locator,
+                publication,
+                ..
+            } => formatter
+                .debug_struct("Publication")
+                .field("locator", locator)
+                .field("publication", publication)
+                .field("private_target_offset", &"<redacted>")
+                .field("private_row", &"<redacted>")
+                .finish(),
             #[cfg(test)]
             Self::TestSeedPivot => formatter.write_str("TestSeedPivot"),
         }
     }
 }
 
-/// Immutable chronological evidence for one exact stage/commit transition.
+/// Immutable chronological state for one exact commit transition.
 ///
-/// The type is non-Clone; receipts and suspended owners may share only its
-/// exact `Arc`. The database pivot/reduction payloads are likewise the exact
-/// allocations installed by the prepared database transition.
+/// Replayable algebraic variants retain their exact source/evidence
+/// allocations. The compact application variant retains only its installed
+/// pivot ordinal and application payload. The type is non-Clone; receipts and
+/// suspended owners may share only its exact `Arc`.
 struct GeneratedAffineResidualGroupExactSessionEvent {
     authority: Arc<GeneratedAffineResidualGroupExactSessionEventAuthority>,
     event_ordinal: usize,
     source_ordinal: usize,
     predecessor_state_version: usize,
     successor_state_version: usize,
-    source_recipe: GeneratedAffineResidualGroupRetainedExactSourceRecipe,
-    database_evidence: GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
+    head: GeneratedAffineResidualGroupExactSessionEventHead,
     disposition: GeneratedAffineResidualGroupExactSessionEventDisposition,
     retained_bytes: usize,
 }
 
 impl GeneratedAffineResidualGroupExactSessionEvent {
     fn reduction_count(&self) -> usize {
-        self.database_evidence.reduction_count()
+        self.head.reduction_count()
     }
 
     fn has_production_source(&self) -> bool {
-        self.source_recipe.has_production_source()
+        match &self.head {
+            GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                source_recipe, ..
+            } => source_recipe.has_production_source(),
+            GeneratedAffineResidualGroupExactSessionEventHead::Publication { .. } => false,
+        }
     }
 
     fn account_replay_work(
@@ -530,8 +690,11 @@ impl GeneratedAffineResidualGroupExactSessionEvent {
             self.event_ordinal,
             limits.max_replay_ledger_arc_copies,
         )?;
-        if let GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot) =
-            &self.database_evidence
+        if let GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+            database_evidence:
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+            ..
+        } = &self.head
         {
             work.pivot_terms = session_event_bounded_add(
                 "exact session replay pivot terms",
@@ -589,6 +752,9 @@ impl GeneratedAffineResidualGroupExactSessionEvent {
                     limits.max_replay_target_scans,
                 )?;
             }
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. } => {
+                unreachable!("compact publication is rejected before replay accounting")
+            }
             #[cfg(test)]
             GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {}
         }
@@ -601,24 +767,45 @@ impl GeneratedAffineResidualGroupExactSessionEvent {
             || self.predecessor_state_version != other.predecessor_state_version
             || self.successor_state_version != other.successor_state_version
             || self.retained_bytes != other.retained_bytes
-            || !self
-                .source_recipe
-                .same_source_allocation(&other.source_recipe)
         {
             return false;
         }
-        let database_equal = match (&self.database_evidence, &other.database_evidence) {
+        let head_equal = match (&self.head, &other.head) {
             (
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(left),
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(right),
-            ) => left.structurally_equal(right),
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe: left_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(left),
+                },
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe: right_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(right),
+                },
+            ) => left_recipe.same_source_allocation(right_recipe) && left.structurally_equal(right),
             (
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(left),
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(right),
-            ) => left.structurally_equal(right),
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe: left_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(left),
+                },
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe: right_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(right),
+                },
+            ) => left_recipe.same_source_allocation(right_recipe) && left.structurally_equal(right),
+            (
+                GeneratedAffineResidualGroupExactSessionEventHead::Publication {
+                    pivot_ordinal: left,
+                },
+                GeneratedAffineResidualGroupExactSessionEventHead::Publication {
+                    pivot_ordinal: right,
+                },
+            ) => left == right,
             _ => false,
         };
-        if !database_equal {
+        if !head_equal {
             return false;
         }
         match (&self.disposition, &other.disposition) {
@@ -676,9 +863,8 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEvent {
             .field("reduction_count", &self.reduction_count())
             .field("retained_bytes", &self.retained_bytes)
             .field("disposition", &self.disposition)
+            .field("head", &self.head)
             .field("private_authority", &"<redacted>")
-            .field("private_source_recipe", &"<redacted>")
-            .field("private_database_evidence", &"<redacted>")
             .finish()
     }
 }
@@ -1259,6 +1445,55 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady {
     }
 }
 
+/// Scalar receipt for one committed compact application event.
+#[derive(Debug)]
+pub(crate) struct PublicationReceipt {
+    event_ordinal: usize,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    retained_event_bytes: usize,
+    stats: PublicationStats,
+}
+
+impl PublicationReceipt {
+    pub(crate) const fn event_ordinal(&self) -> usize {
+        self.event_ordinal
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) const fn retained_event_bytes(&self) -> usize {
+        self.retained_event_bytes
+    }
+
+    pub(crate) const fn stats(&self) -> PublicationStats {
+        self.stats
+    }
+}
+
+/// Transactional failure retaining the exact prepared publication.
+#[derive(Debug)]
+pub(crate) struct PublicationCommitFailure {
+    error: GeneratedAffineResidualGroupExactSessionError,
+    publication: PreparedPublication,
+}
+
+impl PublicationCommitFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
+        self.error
+    }
+
+    pub(crate) fn into_publication(self) -> PreparedPublication {
+        self.publication
+    }
+}
+
 /// Typed successful result of committing a recentered pivot that matched no
 /// solve target.
 pub(crate) struct GeneratedAffineResidualGroupExactSessionCommittedNoTarget {
@@ -1480,8 +1715,11 @@ impl GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch {
         else {
             return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         };
-        let GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot) =
-            &self.event.database_evidence
+        let GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+            database_evidence:
+                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+            ..
+        } = &self.event.head
         else {
             return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         };
@@ -1583,6 +1821,13 @@ struct PreparedSessionUnconsumedTransition {
     event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
     replacement_events: Vec<Arc<GeneratedAffineResidualGroupExactSessionEvent>>,
     event_stats: GeneratedAffineResidualGroupExactSessionEventStats,
+}
+
+struct PreparedSessionPublicationTransition {
+    successor: Arc<GeneratedAffineResidualGroupExactTargetState>,
+    ledger: PreparedSessionEventLedgerReplacement,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
 }
 
 struct PreparedSessionEventLedgerReplacement {
@@ -1775,11 +2020,13 @@ impl GeneratedAffineResidualGroupExactSessionCommittedDependent {
     }
 
     pub(crate) fn reductions(&self) -> &[GeneratedAffineResidualGroupExactReductionStep] {
-        match &self.event.database_evidence {
-            GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(evidence) => {
-                evidence.reductions()
-            }
-            GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_) => {
+        match &self.event.head {
+            GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                database_evidence:
+                    GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(evidence),
+                ..
+            } => evidence.reductions(),
+            _ => {
                 unreachable!("sealed dependent receipt changed database evidence")
             }
         }
@@ -2009,6 +2256,55 @@ impl GeneratedAffineResidualGroupExactSession {
         self.catalog.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn consumed_target_count(&self) -> usize {
+        self.target_state.stats().consumed()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publication_retained_bytes_for_test(
+        &self,
+        publication: &PreparedPublication,
+    ) -> usize {
+        let ready = publication.ready();
+        ready
+            .recentered
+            .application_row_deep_owned_retained_byte_bound()
+            .unwrap()
+            + publication
+                .payload()
+                .deep_owned_retained_byte_bound()
+                .unwrap()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn authenticate_event_ledger_census_for_test(
+        &self,
+    ) -> Result<usize, GeneratedAffineResidualGroupExactSessionError> {
+        self.authenticate_event_ledger_census()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_publication_payload_for_test(&self) -> Option<&PublicationPayload> {
+        match &self.events.last()?.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Publication {
+                publication,
+                ..
+            } => Some(publication),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_publication_term_count_for_test(&self) -> Option<usize> {
+        match &self.events.last()?.disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Publication {
+                row, ..
+            } => Some(row.terms().len()),
+            _ => None,
+        }
+    }
+
     pub(crate) const fn event_stats(&self) -> GeneratedAffineResidualGroupExactSessionEventStats {
         self.event_stats
     }
@@ -2062,24 +2358,47 @@ impl GeneratedAffineResidualGroupExactSession {
             || last.source_ordinal != last.event_ordinal
             || last.successor_state_version != self.database.state_version()
             || last.predecessor_state_version.checked_add(1) != Some(last.successor_state_version)
-            || last.source_recipe.database_epoch() != self.database_epoch()
-            || last.source_recipe.group_ordinal() != self.group_ordinal()
         {
             return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
         }
-        match (&last.database_evidence, &last.disposition) {
+        match (&last.head, &last.disposition) {
             (
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_),
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_),
+                },
                 GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
-            ) => {}
+            ) if source_recipe.database_epoch() == self.database_epoch()
+                && source_recipe.group_ordinal() == self.group_ordinal() => {}
             (
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    source_recipe,
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                            pivot,
+                        ),
+                },
                 GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
                 | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. },
-            ) if pivot.source_ordinal() == last.source_ordinal => {}
+            ) if source_recipe.database_epoch() == self.database_epoch()
+                && source_recipe.group_ordinal() == self.group_ordinal()
+                && pivot.source_ordinal() == last.source_ordinal => {}
+            (
+                GeneratedAffineResidualGroupExactSessionEventHead::Publication { pivot_ordinal },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. },
+            ) if self.database.pivot(*pivot_ordinal).is_some_and(|pivot| {
+                pivot.source_ordinal() == last.source_ordinal
+            }) => {}
             #[cfg(test)]
             (
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot),
+                GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                    database_evidence:
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                            pivot,
+                        ),
+                    ..
+                },
                 GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
             ) if pivot.source_ordinal() == last.source_ordinal => {}
             _ => return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch),
@@ -2114,8 +2433,6 @@ impl GeneratedAffineResidualGroupExactSession {
                             resource: "exact session authenticated event successor version",
                         },
                     )?
-                || event.source_recipe.database_epoch() != self.database_epoch()
-                || event.source_recipe.group_ordinal() != self.group_ordinal()
             {
                 return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
             }
@@ -2136,31 +2453,103 @@ impl GeneratedAffineResidualGroupExactSession {
                 position,
             )?;
 
-            let mut source_is_new = true;
-            for prior in &self.events[..position] {
-                computed.source_recipe_allocation_comparisons = session_event_bounded_add(
-                    "exact session source-recipe allocation comparisons",
-                    computed.source_recipe_allocation_comparisons,
-                    1,
-                    limits.max_source_recipe_allocation_comparisons,
-                )?;
-                if prior
-                    .source_recipe
-                    .same_source_allocation(&event.source_recipe)
-                {
-                    source_is_new = false;
-                    break;
-                }
-            }
-            let source_recipe_deep_bytes = if source_is_new {
-                session_event_checked_sub(
-                    "exact session authenticated source-recipe retained bytes",
-                    event.source_recipe.retained_byte_bound()?,
-                    size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
-                )?
-            } else {
-                0
-            };
+            let (source_recipe_deep_bytes, dependent_evidence_deep_bytes, reduction_count) =
+                match &event.head {
+                    GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                        source_recipe,
+                        database_evidence,
+                    } => {
+                        if source_recipe.database_epoch() != self.database_epoch()
+                            || source_recipe.group_ordinal() != self.group_ordinal()
+                        {
+                            return Err(
+                                GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                            );
+                        }
+                        let mut source_is_new = true;
+                        for prior in &self.events[..position] {
+                            let GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                                source_recipe: prior_recipe,
+                                ..
+                            } = &prior.head
+                            else {
+                                continue;
+                            };
+                            computed.source_recipe_allocation_comparisons =
+                                session_event_bounded_add(
+                                    "exact session source-recipe allocation comparisons",
+                                    computed.source_recipe_allocation_comparisons,
+                                    1,
+                                    limits.max_source_recipe_allocation_comparisons,
+                                )?;
+                            if prior_recipe.same_source_allocation(source_recipe) {
+                                source_is_new = false;
+                                break;
+                            }
+                        }
+                        let source_recipe_deep_bytes = if source_is_new {
+                            session_event_checked_sub(
+                                "exact session authenticated source-recipe retained bytes",
+                                source_recipe.retained_byte_bound()?,
+                                size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
+                            )?
+                        } else {
+                            0
+                        };
+                        let dependent_evidence_deep_bytes = match (
+                            database_evidence,
+                            &event.disposition,
+                        ) {
+                            (
+                                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                                    evidence,
+                                ),
+                                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent,
+                            ) => evidence.retained_byte_bound()?,
+                            (
+                                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                                    pivot,
+                                ),
+                                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
+                                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. },
+                            ) if pivot.source_ordinal() == event.source_ordinal => 0,
+                            #[cfg(test)]
+                            (
+                                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                                    pivot,
+                                ),
+                                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot,
+                            ) if pivot.source_ordinal() == event.source_ordinal => 0,
+                            _ => {
+                                return Err(
+                                    GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                                );
+                            }
+                        };
+                        (
+                            source_recipe_deep_bytes,
+                            dependent_evidence_deep_bytes,
+                            database_evidence.reduction_count(),
+                        )
+                    }
+                    GeneratedAffineResidualGroupExactSessionEventHead::Publication {
+                        pivot_ordinal,
+                    } => {
+                        if !matches!(
+                            &event.disposition,
+                            GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. }
+                        ) || !self
+                            .database
+                            .pivot(*pivot_ordinal)
+                            .is_some_and(|pivot| pivot.source_ordinal() == event.source_ordinal)
+                        {
+                            return Err(
+                                GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                            );
+                        }
+                        (0, 0, 0)
+                    }
+                };
             computed.unique_source_recipe_retained_bytes = session_event_checked_add(
                 "exact session authenticated unique source-recipe retained bytes",
                 computed.unique_source_recipe_retained_bytes,
@@ -2169,36 +2558,8 @@ impl GeneratedAffineResidualGroupExactSession {
             computed.reduction_steps = session_event_checked_add(
                 "exact session authenticated retained reduction steps",
                 computed.reduction_steps,
-                event.reduction_count(),
+                reduction_count,
             )?;
-
-            let dependent_evidence_deep_bytes = match &event.database_evidence {
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
-                    evidence,
-                ) if matches!(
-                    &event.disposition,
-                    GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent
-                ) => evidence.retained_byte_bound()?,
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot)
-                    if matches!(
-                        &event.disposition,
-                        GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
-                            | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
-                    ) && pivot.source_ordinal() == event.source_ordinal =>
-                {
-                    0
-                }
-                #[cfg(test)]
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(pivot)
-                    if matches!(
-                        &event.disposition,
-                        GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot
-                    ) && pivot.source_ordinal() == event.source_ordinal =>
-                {
-                    0
-                }
-                _ => return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch),
-            };
 
             let (
                 target_offset_components,
@@ -2206,9 +2567,10 @@ impl GeneratedAffineResidualGroupExactSession {
                 target_offset_retained_bytes,
                 equality_predicates,
                 equality_predicate_buffer_bytes,
+                publication_retained_bytes,
             ) = match &event.disposition {
                 GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
-                    (0, 0, 0, 0, 0)
+                    (0, 0, 0, 0, 0, 0)
                 }
                 GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
                     target_offset,
@@ -2221,6 +2583,7 @@ impl GeneratedAffineResidualGroupExactSession {
                         target_offset.values().len(),
                         retained_integer_bits,
                         retained_bytes,
+                        0,
                         0,
                         0,
                     )
@@ -2243,11 +2606,40 @@ impl GeneratedAffineResidualGroupExactSession {
                             equality_predicate_ordinals.capacity(),
                             size_of::<usize>(),
                         )?,
+                        0,
+                    )
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication {
+                    target_offset,
+                    row,
+                    publication,
+                    ..
+                } => {
+                    let (retained_integer_bits, retained_bytes) = target_offset
+                        .authenticate_retained_census()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    let row_deep = row
+                        .deep_owned_retained_byte_bound()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    let payload_deep = publication
+                        .deep_owned_retained_byte_bound()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    (
+                        target_offset.values().len(),
+                        retained_integer_bits,
+                        retained_bytes,
+                        0,
+                        0,
+                        session_event_checked_add(
+                            "exact session authenticated publication retained bytes",
+                            row_deep,
+                            payload_deep,
+                        )?,
                     )
                 }
                 #[cfg(test)]
                 GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
-                    (0, 0, 0, 0, 0)
+                    (0, 0, 0, 0, 0, 0)
                 }
             };
             computed.target_offset_components = session_event_checked_add(
@@ -2270,6 +2662,11 @@ impl GeneratedAffineResidualGroupExactSession {
                 computed.equality_predicates,
                 equality_predicates,
             )?;
+            computed.publication_retained_bytes = session_event_checked_add(
+                "exact session authenticated publication retained bytes",
+                computed.publication_retained_bytes,
+                publication_retained_bytes,
+            )?;
 
             let individual_event_retained_bytes = [
                 session_event_arc_retained_bytes::<GeneratedAffineResidualGroupExactSessionEvent>(
@@ -2278,6 +2675,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 dependent_evidence_deep_bytes,
                 target_offset_retained_bytes,
                 equality_predicate_buffer_bytes,
+                publication_retained_bytes,
             ]
             .into_iter()
             .try_fold(0usize, |total, bytes| {
@@ -2421,6 +2819,16 @@ impl GeneratedAffineResidualGroupExactSession {
     }
 
     fn preflight_replay_work(&self) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        if self.events.iter().any(|recorded| {
+            matches!(
+                &recorded.disposition,
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. }
+            )
+        }) {
+            // Compact publication deliberately retains application data, not
+            // the derivation transcript required by this audit path.
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
         let mut work = GeneratedAffineResidualGroupExactSessionReplayWork::default();
         for recorded in &self.events {
             recorded.account_replay_work(self.target_count(), &mut work, self.limits.events)?;
@@ -2524,14 +2932,18 @@ impl GeneratedAffineResidualGroupExactSession {
             {
                 return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
             }
-            let transaction = shadow.stage_retained_event_recipe_for_replay(
-                family,
-                context,
-                &recorded.source_recipe,
-            )?;
+            let GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                source_recipe,
+                database_evidence,
+            } = &recorded.head
+            else {
+                unreachable!("compact publication was rejected before replay construction")
+            };
+            let transaction =
+                shadow.stage_retained_event_recipe_for_replay(family, context, source_recipe)?;
             match &recorded.disposition {
                 GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
-                    let expected = match &recorded.database_evidence {
+                    let expected = match database_evidence {
                         GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
                             evidence,
                         ) => evidence,
@@ -2624,6 +3036,9 @@ impl GeneratedAffineResidualGroupExactSession {
                         context,
                         &suspended.committed_session,
                     );
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. } => {
+                    unreachable!("compact publication was rejected before replay construction")
                 }
                 #[cfg(test)]
                 GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
@@ -2722,6 +3137,32 @@ impl GeneratedAffineResidualGroupExactSession {
             staged,
             target_state: Arc::clone(&self.target_state),
         })
+    }
+
+    /// Test-only construction of a genuine competing live transition from the
+    /// same predecessor as a prepared publication. Committing it advances the
+    /// session and makes the untouched publication stale without forging any
+    /// scalar identity.
+    #[cfg(test)]
+    pub(crate) fn advance_competing_publication_head_for_test(
+        &mut self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        source: &Arc<GeneratedAffineResidualGroupExactPhysicalRow>,
+        publication: &PreparedPublication,
+    ) -> Result<(), GeneratedAffineResidualGroupExactSessionError> {
+        self.current_publication_pivot(publication)?;
+        let transaction = self.stage_replayed_row(family, context, source)?;
+        let outcome = self
+            .commit_unconsumed(family, context, transaction)
+            .map_err(|failure| failure.error())?;
+        if !matches!(
+            outcome,
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }
+        ) {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        Ok(())
     }
 
     /// Jointly authenticate one staged new pivot and its exact unresolved
@@ -3178,9 +3619,8 @@ impl GeneratedAffineResidualGroupExactSession {
     fn preflight_event_ledger_replacement(
         &self,
         source_ordinal: usize,
-        source_recipe: &GeneratedAffineResidualGroupRetainedExactSourceRecipe,
-        database_evidence: &GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence,
-        disposition: &GeneratedAffineResidualGroupExactSessionEventDisposition,
+        head: GeneratedAffineResidualGroupExactSessionEventHeadView<'_>,
+        disposition: GeneratedAffineResidualGroupExactSessionEventDispositionView<'_>,
     ) -> Result<PreparedSessionEventLedgerReplacement, GeneratedAffineResidualGroupExactSessionError>
     {
         (|| {
@@ -3204,10 +3644,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 event_ordinal,
                 limits.max_ledger_arc_copies,
             )?;
-            if source_ordinal != event_ordinal
-                || source_recipe.database_epoch() != self.database_epoch()
-                || source_recipe.group_ordinal() != self.group_ordinal()
-            {
+            if source_ordinal != event_ordinal {
                 return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
             }
 
@@ -3218,49 +3655,95 @@ impl GeneratedAffineResidualGroupExactSession {
                 1,
             )?;
 
-            let mut source_is_new = true;
-            let mut source_recipe_allocation_comparisons =
-                self.event_stats.source_recipe_allocation_comparisons;
-            for event in &self.events {
-                source_recipe_allocation_comparisons = session_event_bounded_add(
-                    "exact session source-recipe allocation comparisons",
-                    source_recipe_allocation_comparisons,
-                    1,
-                    limits.max_source_recipe_allocation_comparisons,
-                )?;
-                if event.source_recipe.same_source_allocation(source_recipe) {
-                    source_is_new = false;
-                    break;
-                }
-            }
-            let source_recipe_deep_bytes = if source_is_new {
-                session_event_checked_sub(
-                    "exact session source-recipe retained bytes",
-                    source_recipe.retained_byte_bound()?,
-                    size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
-                )?
-            } else {
-                0
-            };
-            let unique_source_recipe_retained_bytes = session_event_bounded_add(
-                "exact session unique source-recipe retained bytes",
-                self.event_stats.unique_source_recipe_retained_bytes,
+            let (
+                source_recipe_allocation_comparisons,
                 source_recipe_deep_bytes,
-                limits.max_source_recipe_retained_bytes,
-            )?;
-
-            let reduction_count = database_evidence.reduction_count();
-            let reduction_steps = session_event_bounded_add(
-                "exact session retained reduction steps",
-                self.event_stats.reduction_steps,
-                reduction_count,
-                limits.max_reduction_steps,
-            )?;
-            let dependent_evidence_deep_bytes = match database_evidence {
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
-                    evidence,
-                ) => evidence.retained_byte_bound()?,
-                GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_) => 0,
+                unique_source_recipe_retained_bytes,
+                reduction_steps,
+                dependent_evidence_deep_bytes,
+            ) = match head {
+                GeneratedAffineResidualGroupExactSessionEventHeadView::Replayable {
+                    source_recipe,
+                    database_evidence,
+                } => {
+                    if source_recipe.database_epoch() != self.database_epoch()
+                        || source_recipe.group_ordinal() != self.group_ordinal()
+                    {
+                        return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+                    }
+                    let mut source_is_new = true;
+                    let mut source_recipe_allocation_comparisons =
+                        self.event_stats.source_recipe_allocation_comparisons;
+                    for event in &self.events {
+                        let GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                            source_recipe: prior_recipe,
+                            ..
+                        } = &event.head
+                        else {
+                            continue;
+                        };
+                        source_recipe_allocation_comparisons = session_event_bounded_add(
+                            "exact session source-recipe allocation comparisons",
+                            source_recipe_allocation_comparisons,
+                            1,
+                            limits.max_source_recipe_allocation_comparisons,
+                        )?;
+                        if prior_recipe.same_source_allocation(source_recipe) {
+                            source_is_new = false;
+                            break;
+                        }
+                    }
+                    let source_recipe_deep_bytes = if source_is_new {
+                        session_event_checked_sub(
+                            "exact session source-recipe retained bytes",
+                            source_recipe.retained_byte_bound()?,
+                            size_of::<GeneratedAffineResidualGroupRetainedExactSourceRecipe>(),
+                        )?
+                    } else {
+                        0
+                    };
+                    let unique_source_recipe_retained_bytes = session_event_bounded_add(
+                        "exact session unique source-recipe retained bytes",
+                        self.event_stats.unique_source_recipe_retained_bytes,
+                        source_recipe_deep_bytes,
+                        limits.max_source_recipe_retained_bytes,
+                    )?;
+                    let reduction_steps = session_event_bounded_add(
+                        "exact session retained reduction steps",
+                        self.event_stats.reduction_steps,
+                        database_evidence.reduction_count(),
+                        limits.max_reduction_steps,
+                    )?;
+                    let dependent_evidence_deep_bytes = match database_evidence {
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(
+                            evidence,
+                        ) => evidence.retained_byte_bound()?,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(
+                            _,
+                        ) => 0,
+                    };
+                    (
+                        source_recipe_allocation_comparisons,
+                        source_recipe_deep_bytes,
+                        unique_source_recipe_retained_bytes,
+                        reduction_steps,
+                        dependent_evidence_deep_bytes,
+                    )
+                }
+                GeneratedAffineResidualGroupExactSessionEventHeadView::Publication {
+                    pivot_ordinal,
+                } => {
+                    if pivot_ordinal != self.database.pivot_count() {
+                        return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+                    }
+                    (
+                        self.event_stats.source_recipe_allocation_comparisons,
+                        0,
+                        self.event_stats.unique_source_recipe_retained_bytes,
+                        self.event_stats.reduction_steps,
+                        0,
+                    )
+                }
             };
 
             let (
@@ -3269,26 +3752,20 @@ impl GeneratedAffineResidualGroupExactSession {
                 new_target_offset_retained_bytes,
                 new_equality_predicates,
                 equality_predicate_buffer_bytes,
+                new_publication_retained_bytes,
             ) = match disposition {
-                GeneratedAffineResidualGroupExactSessionEventDisposition::Dependent => {
-                    if !matches!(
-                        database_evidence,
-                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent(_)
-                    ) {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::Dependent => {
+                    if !head.is_replayable_dependent() {
                         return Err(
                             GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
                         );
                     }
-                    (0, 0, 0, 0, 0)
+                    (0, 0, 0, 0, 0, 0)
                 }
-                GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::NoTarget {
                     target_offset,
-                    ..
                 } => {
-                    if !matches!(
-                        database_evidence,
-                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
-                    ) {
+                    if !head.is_replayable_new_pivot() {
                         return Err(
                             GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
                         );
@@ -3303,17 +3780,15 @@ impl GeneratedAffineResidualGroupExactSession {
                         })?,
                         0,
                         0,
+                        0,
                     )
                 }
-                GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::RequiresAffineEqualityRefinement {
                     target_offset,
                     equality_predicate_ordinals,
-                    ..
+                    equality_predicate_capacity,
                 } => {
-                    if !matches!(
-                        database_evidence,
-                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
-                    ) {
+                    if !head.is_replayable_new_pivot() {
                         return Err(
                             GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
                         );
@@ -3329,22 +3804,59 @@ impl GeneratedAffineResidualGroupExactSession {
                         equality_predicate_ordinals.len(),
                         session_event_checked_mul(
                             "exact session retained equality-predicate bytes",
-                            equality_predicate_ordinals.capacity(),
+                            equality_predicate_capacity,
                             size_of::<usize>(),
                         )?,
+                        0,
                     )
                 }
-                #[cfg(test)]
-                GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => {
-                    if !matches!(
-                        database_evidence,
-                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
-                    ) {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::Publication {
+                    target_offset,
+                    row,
+                    publication,
+                } => {
+                    if !head.is_publication() {
                         return Err(
                             GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
                         );
                     }
-                    (0, 0, 0, 0, 0)
+                    let row_deep = row
+                        .application_row_deep_owned_retained_byte_bound()
+                        .map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                                resource: "exact session publication application-row bytes",
+                            }
+                        })?;
+                    let payload_deep = publication.deep_owned_retained_byte_bound().map_err(|_| {
+                        GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                            resource: "exact session compact publication payload bytes",
+                        }
+                    })?;
+                    (
+                        target_offset.values().len(),
+                        target_offset.retained_integer_bits(),
+                        target_offset.arc_retained_bytes().map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                                resource: "exact session retained target-offset bytes",
+                            }
+                        })?,
+                        0,
+                        0,
+                        session_event_checked_add(
+                            "exact session retained publication bytes",
+                            row_deep,
+                            payload_deep,
+                        )?,
+                    )
+                }
+                #[cfg(test)]
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::TestSeedPivot => {
+                    if !head.is_replayable_new_pivot() {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (0, 0, 0, 0, 0, 0)
                 }
             };
             let target_offset_components = session_event_bounded_add(
@@ -3371,6 +3883,11 @@ impl GeneratedAffineResidualGroupExactSession {
                 new_equality_predicates,
                 limits.max_equality_predicates,
             )?;
+            let publication_retained_bytes = session_event_checked_add(
+                "exact session retained publication bytes",
+                self.event_stats.publication_retained_bytes,
+                new_publication_retained_bytes,
+            )?;
 
             let individual_event_retained_bytes = [
                 session_event_arc_retained_bytes::<GeneratedAffineResidualGroupExactSessionEvent>(
@@ -3379,6 +3896,7 @@ impl GeneratedAffineResidualGroupExactSession {
                 dependent_evidence_deep_bytes,
                 new_target_offset_retained_bytes,
                 equality_predicate_buffer_bytes,
+                new_publication_retained_bytes,
             ]
             .into_iter()
             .try_fold(0usize, |total, bytes| {
@@ -3530,6 +4048,7 @@ impl GeneratedAffineResidualGroupExactSession {
                     target_offset_integer_bits,
                     target_offset_retained_bytes,
                     equality_predicates,
+                    publication_retained_bytes,
                     ledger_outer_buffer_bytes,
                     ledger_retained_bytes,
                     ledger_replacement_peak_bytes,
@@ -3598,6 +4117,9 @@ impl GeneratedAffineResidualGroupExactSession {
             | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. } => database_commit
                 .retain_new_pivot_evidence_for_session(&self.database_capability)
                 .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot),
+            GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. } => {
+                unreachable!("compact publication uses its dedicated transition")
+            }
             #[cfg(test)]
             GeneratedAffineResidualGroupExactSessionEventDisposition::TestSeedPivot => database_commit
                 .retain_new_pivot_evidence_for_session(&self.database_capability)
@@ -3642,9 +4164,11 @@ impl GeneratedAffineResidualGroupExactSession {
         let ledger_preflight = catch_unwind(AssertUnwindSafe(|| {
             self.preflight_event_ledger_replacement(
                 source_ordinal,
-                &source_recipe,
-                &database_evidence,
-                &disposition,
+                GeneratedAffineResidualGroupExactSessionEventHeadView::Replayable {
+                    source_recipe: &source_recipe,
+                    database_evidence: &database_evidence,
+                },
+                disposition.view(),
             )
         }));
         let ledger_preflight = match ledger_preflight {
@@ -3694,8 +4218,10 @@ impl GeneratedAffineResidualGroupExactSession {
             source_ordinal,
             predecessor_state_version,
             successor_state_version,
-            source_recipe,
-            database_evidence,
+            head: GeneratedAffineResidualGroupExactSessionEventHead::Replayable {
+                source_recipe,
+                database_evidence,
+            },
             disposition,
             retained_bytes: individual_event_retained_bytes,
         });
@@ -3707,6 +4233,158 @@ impl GeneratedAffineResidualGroupExactSession {
             event,
             replacement_events,
             event_stats,
+        })
+    }
+
+    /// Atomically commit one already-derived compact application event through
+    /// the ordinary exclusive session API. The commit boundary performs exactly
+    /// one combined live check (current target-state Arc plus current staged
+    /// database head), then only checked resource/allocation preparation.  It
+    /// invokes no Symbolica operation and does not replay the derivation.
+    pub(crate) fn commit_publication(
+        &mut self,
+        publication: PreparedPublication,
+    ) -> Result<PublicationReceipt, PublicationCommitFailure> {
+        let prepared = match self.prepare_publication_transition(&publication) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return Err(PublicationCommitFailure { error, publication });
+            }
+        };
+
+        let PreparedSessionPublicationTransition {
+            successor,
+            ledger,
+            source_ordinal,
+            pivot_ordinal,
+        } = prepared;
+        let publication_stats = publication.stats();
+        let (ready, publication) = publication.into_parts_for_session();
+        let GeneratedAffineResidualGroupExactSessionRecenterReady {
+            transaction,
+            target,
+            target_offset,
+            recentered,
+            source_ordinal: ready_source_ordinal,
+            pivot_ordinal: ready_pivot_ordinal,
+            stats: _,
+        } = ready;
+        debug_assert_eq!(ready_source_ordinal, source_ordinal);
+        debug_assert_eq!(ready_pivot_ordinal, pivot_ordinal);
+        let locator = *target.locator();
+        let row = recentered.into_application_row();
+        let GeneratedAffineResidualGroupExactSessionStagedTransaction {
+            staged,
+            target_state: transaction_target_state,
+        } = transaction;
+        let PreparedSessionEventLedgerReplacement {
+            event_ordinal,
+            predecessor_state_version,
+            successor_state_version,
+            individual_event_retained_bytes,
+            mut replacement_events,
+            event_stats,
+        } = ledger;
+        let event = Arc::new(GeneratedAffineResidualGroupExactSessionEvent {
+            authority: Arc::clone(&self.event_authority),
+            event_ordinal,
+            source_ordinal,
+            predecessor_state_version,
+            successor_state_version,
+            head: GeneratedAffineResidualGroupExactSessionEventHead::Publication { pivot_ordinal },
+            disposition: GeneratedAffineResidualGroupExactSessionEventDisposition::Publication {
+                target_offset,
+                locator,
+                row,
+                publication,
+            },
+            retained_bytes: individual_event_retained_bytes,
+        });
+        replacement_events.push(Arc::clone(&event));
+        drop(target);
+        self.database
+            .commit_current_staged_new_pivot_for_session(&self.database_capability, staged);
+        let prior_target_state = std::mem::replace(&mut self.target_state, successor);
+        let prior_events = std::mem::replace(&mut self.events, replacement_events);
+        self.event_stats = event_stats;
+        drop(transaction_target_state);
+        drop(prior_target_state);
+        drop(prior_events);
+        drop(event);
+        Ok(PublicationReceipt {
+            event_ordinal,
+            source_ordinal,
+            pivot_ordinal,
+            retained_event_bytes: individual_event_retained_bytes,
+            stats: publication_stats,
+        })
+    }
+
+    fn current_publication_pivot<'a>(
+        &'a self,
+        publication: &'a PreparedPublication,
+    ) -> Result<
+        GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView<'a>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let ready = publication.ready();
+        if !Arc::ptr_eq(&ready.transaction.target_state, &self.target_state) {
+            return Err(GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation);
+        }
+        self.database
+            .authenticate_staged_new_pivot_for_session(
+                &self.database_capability,
+                &ready.transaction.staged,
+            )
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation)
+    }
+
+    fn prepare_publication_transition(
+        &self,
+        publication: &PreparedPublication,
+    ) -> Result<PreparedSessionPublicationTransition, GeneratedAffineResidualGroupExactSessionError>
+    {
+        let ready = publication.ready();
+
+        // One recoverable helper checks the predecessor allocation and staged
+        // database head together. The resulting borrow mints every shallow
+        // owner needed by the preflight below.
+        let pivot = self.current_publication_pivot(publication)?;
+        let source_ordinal = pivot.source_ordinal();
+        let pivot_ordinal = pivot.pivot_ordinal();
+        let successor_binding =
+            pivot.successor_target_state_binding_for_session(&self.database_capability);
+        debug_assert_eq!(source_ordinal, ready.source_ordinal);
+        debug_assert_eq!(pivot_ordinal, ready.pivot_ordinal);
+        debug_assert!(
+            ready
+                .target
+                .authenticates_source_state(&ready.transaction.target_state),
+            "sealed publication target changed source state"
+        );
+
+        self.preflight_target_state_successor_copy_work()?;
+        let ledger = self.preflight_event_ledger_replacement(
+            source_ordinal,
+            GeneratedAffineResidualGroupExactSessionEventHeadView::Publication { pivot_ordinal },
+            GeneratedAffineResidualGroupExactSessionEventDispositionView::Publication {
+                target_offset: &ready.target_offset,
+                row: &ready.recentered,
+                publication: publication.payload(),
+            },
+        )?;
+        // Last fallible operation: its process-global allocation nonce is not
+        // consumed before any later recoverable limit/allocation branch.
+        let successor = ready
+            .transaction
+            .target_state
+            .prepare_publication_successor(successor_binding, &ready.target)?;
+        debug_assert_eq!(successor.state_version(), ledger.successor_state_version);
+        Ok(PreparedSessionPublicationTransition {
+            successor,
+            ledger,
+            source_ordinal,
+            pivot_ordinal,
         })
     }
 
@@ -4960,6 +5638,7 @@ pub(crate) mod tests {
         pub(crate) family: IntegralFamily,
         pub(crate) context: ParametricCoefficientContext,
         pub(crate) session: GeneratedAffineResidualGroupExactSession,
+        pub(crate) source: Arc<GeneratedAffineResidualGroupExactPhysicalRow>,
         pub(crate) ready: GeneratedAffineResidualGroupReadyForConditions,
     }
 
@@ -4974,6 +5653,20 @@ pub(crate) mod tests {
         name: &str,
         sector_bits: &str,
         constrained_compact: bool,
+    ) -> ExactConditionPlanTestFixture {
+        exact_condition_plan_test_fixture_in_sector_with_session_limits(
+            name,
+            sector_bits,
+            constrained_compact,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+    }
+
+    pub(crate) fn exact_condition_plan_test_fixture_in_sector_with_session_limits(
+        name: &str,
+        sector_bits: &str,
+        constrained_compact: bool,
+        session_limits: GeneratedAffineResidualGroupExactSessionLimits,
     ) -> ExactConditionPlanTestFixture {
         let coverage = if constrained_compact {
             DirectProductionCoverage::NonemptyAttemptResidual
@@ -4990,7 +5683,7 @@ pub(crate) mod tests {
             &fixture.context,
             Arc::clone(&fixture.plan),
             211,
-            GeneratedAffineResidualGroupExactSessionLimits::default(),
+            session_limits,
         )
         .unwrap();
         for row in &fixture.rows {
@@ -5039,6 +5732,7 @@ pub(crate) mod tests {
                         family: fixture.family,
                         context: fixture.context,
                         session,
+                        source: Arc::clone(row),
                         ready,
                     };
                 }
@@ -6853,10 +7547,9 @@ pub(crate) mod tests {
             ("retain_dependent_evidence_for_session", 1),
             ("retain_new_pivot_evidence_for_session", 1),
             ("plan_for_session", 1),
-            ("retain_exact_pivot_evidence_for_session", 1),
             ("retain_exact_reduction_evidence_for_session", 1),
             ("initial_target_state_binding_for_session", 1),
-            ("successor_target_state_binding_for_session", 1),
+            ("successor_target_state_binding_for_session", 2),
             ("stage_replayed_row_for_session", 1),
             ("stage_retained_source_recipe_for_session", 1),
             ("authenticate_staged_new_pivot_for_session", 1),
@@ -7520,11 +8213,12 @@ pub(crate) mod tests {
         let retained_source = source_weak
             .upgrade()
             .expect("the chronological event must retain its production source");
-        assert!(
-            event
-                .source_recipe
-                .authenticates_production_source_allocation(&retained_source)
-        );
+        let GeneratedAffineResidualGroupExactSessionEventHead::Replayable { source_recipe, .. } =
+            &event.head
+        else {
+            panic!("ordinary committed event lost replayable source")
+        };
+        assert!(source_recipe.authenticates_production_source_allocation(&retained_source));
         drop(retained_source);
         session.replay(&family, &context).unwrap();
         assert!(source_weak.upgrade().is_some());

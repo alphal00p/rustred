@@ -5,8 +5,9 @@ Status: governing deployment priority and implementation plan, adopted
 normative LiteRed scope.  Production algorithms remain topology- and
 loop-count independent; concrete four-, five-, and six-loop graphs are test,
 campaign, and benchmark inputs only. Implementation status below is reconciled
-with pushed checkpoint `c593865` and the Direct singleton stable-identity/
-solve-plan checkpoint on 2026-08-25.
+through the compact atomic application-event checkpoint on 2026-08-26. Its
+licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
+workers, with 5 configured cases skipped; doctests also passed.
 
 Internal RustRed owners trust sealed constructors and move semantics. Add
 runtime validation only at human/file import, durable artifact loading, and the
@@ -46,6 +47,14 @@ The campaign naturally separates into two products:
 Discovery must never run implicitly in the hot application path.  Conversely,
 a fast finite reducer is not evidence that the parametric rules were derived
 generically or that their integer domain is covered.
+
+Foundry closure and scalability precede optimization of the online runtime.
+RustRed does not yet produce a complete closed family rule set: the current
+compact event is one internal transition, not a reusable shard. The next
+campaign claims therefore require exceptional/subsector fixed-point closure,
+multi-start bundle construction, and measured physical six-loop derivation
+before high-throughput application is treated as the critical implementation
+milestone.
 
 ## 2. What unit mass changes
 
@@ -289,22 +298,54 @@ first one-declared-sector arity-21 Ready gate.
 
 ### 4.4 Durable compiled artifact
 
-One artifact unit should be a canonical `(family, sector, order, domain)` job.
-The first implementation is intentionally disposable and carries a simple
-RustRed/Symbolica revision tag, not a migration promise. It contains:
+`PreparedPublication` is a move-owned live-session input and must not become a
+serialized interchange type. The durable unit is an immutable, coverage-
+closed shard for one canonical `(family, sector, ordering, coefficient
+specialization, domain)` job. The first format is intentionally disposable and
+carries a simple RustRed/Symbolica revision tag, not a migration promise. A
+shard contains:
 
-- explicit family, unit-mass, routing, sector, order, and domain conventions;
-- rules, guards, packed exceptional routes, and coverage/dependency data;
-- lower-sector/family dependencies; and
-- master candidates or explicitly user-selected masters, never masters
-  inferred from an uncovered timeout.
+- explicit family, unit-mass, routing, sector, ordering, domain, and parameter-
+  embedding conventions;
+- exact rules, guards, packed exceptional routes, and a proof that the declared
+  domain is completely routed to descending rules or a finite explicitly
+  enumerated terminal-key set (or finite products); no symbolic residual domain
+  may be declared terminal;
+- a compact sparse source-combination/residual witness sufficient to verify
+  every rule exactly against freshly regenerated generic IBPs;
+- strict lower-sector, factorization, and verified rank-decreasing cross-family
+  dependencies; and
+- explicitly selected master terminals or independently certified zero and
+  factorized terminals, never masters inferred from an uncovered, unsupported,
+  resource-limited, or timed-out frontier.
 
-Loading validates that complete payload once before constructing ordinary
-in-memory owners. Source transcripts, modular samples, reconstruction traces,
-content addressing, resumable derivation state, and detailed benchmark census
-are optional audit/scaling extensions, not prerequisites for the first usable
-artifact. Writes must still be atomic. A CLI should expose at least `derive`,
-`verify`, `inspect`, and `reduce` phases.
+A whole calculation uses a lightweight multi-start campaign bundle. Its root
+table maps every user topology/family/start domain through a verified ingress
+map; its object table deduplicates canonical shards; and its dependency DAG
+shares subsectors and factorized lower-loop components between otherwise
+independent roots. Routing/permutation-equivalent roots are aliases, not
+duplicated rule sets. Incompatible coefficient contexts or convention sets
+remain distinct unless an explicit transport is generically verified.
+The bundle canonical family ID is computed only after verified routing,
+denominator-order, and parameter canonicalization and excludes root names and
+momentum-label aliases. The existing label-sensitive family fingerprint remains
+a representation/session identity and is not a cross-root dedup key. Verified
+same-rank family/routing maps are collapsed into ingress aliases before DAG
+construction; a cross-family dependency is admitted only with a strict
+well-founded job-rank decrease.
+
+Closed shards are written atomically and the campaign manifest is installed
+last. Incomplete or interrupted work lives in a separate resumable workspace
+that the reducer cannot open as `Closed`. Loading validates each unique shard
+once before constructing shared in-memory owners, then checks exact rule
+residuals from the compact witnesses and checks dependency descent. Full source
+transcripts, modular samples, reconstruction traces, content addressing,
+canonical byte serialization, and detailed derivation replay are optional
+audit/scaling extensions, not repeated internal authentication. A CLI should
+expose at least `plan`, `derive --resume`, `verify --exact`, `inspect`, and
+later `reduce` phases. Single
+`I(...)` input remains the convenient one-root special case; TOML or one
+`Campaign(root(...),root(...))` Symbolica expression supplies multiple starts.
 
 ## 5. Online batch reduction runtime
 
@@ -397,20 +438,30 @@ optimizations.
 ## 7. Validation and benchmark ladder
 
 Correctness gates remain ordered even though engineering effort is focused on
-the high-loop path:
+the high-loop path. The derivation/foundry lane comes first:
 
-1. generated one-loop parametric rules, tensor/numerator lowering, Vakint
-   comparisons, and cancellation closure;
-2. complete two- and three-loop connected/factorized vacuum corpora with exact
-   source replay;
-3. every frozen Vakint four-loop H/X/BMW/FG contraction, routing, and numerator
-   fixture as a compatibility gate, with RustRed's own raw masters kept
-   unsubstituted;
+1. coverage-closed one- through three-loop rule shards with exact source
+   residuals, exceptional recursion, solved-subsector feedback, and explicit
+   terminals;
+2. complete derived replacement systems for every frozen Vakint four-loop
+   H/X/BMW/FG family, without FORM or copied authored recurrence tables;
+3. deterministic multi-start bundles proving routing aliases, shared
+   subsectors/factorizations, incremental reuse, and equivalent one-worker and
+   multi-worker semantics;
 4. multiple general five-loop families, including ISP-rich and
    duplicate-denominator cases rather than only the banana;
-5. a versioned six-loop GammaLoop/BPHZ-derived QCD vacuum corpus; and
+5. a pre-run-frozen, structurally representative QCD-valid quartic/cubic six-
+   loop corpus from family construction through closed dependency DAGs, then a
+   small versioned GammaLoop/BPHZ-derived multi-root corpus; and
 6. fresh graph routings, edge permutations, loop-basis changes, primes, and
-   held-out numerator shells at every rung.
+   held-out specializations at every rung.
+
+Only closed shards enter the application/oracle lane. A minimal generic seam
+must reproduce scalar and tensor/numerator reductions against Vakint through
+four loops with RustRed's raw masters left unsubstituted and must pass
+numerator/denominator cancellation closure. The optimized batch runtime is
+prioritized only after the physical six-loop derivation gate; it is not needed
+to make that gate meaningful.
 
 Vakint is not a generic derivation oracle: its four-loop FMFT-backed outputs
 are frozen compatibility/end-to-end data, and it provides no five- or six-loop
@@ -426,8 +477,9 @@ independently.
 
 All campaign suites run with licensed, GMP-enabled Symbolica and no `no_gmp`,
 FORM, or Mathematica. Shard in parallel by family/sector/corpus with isolated
-artifact directories, and require deterministic artifact checksums between
-one-worker and multi-worker runs.
+artifact directories, and require equivalent loaded bundle semantics between
+one-worker and multi-worker runs. Byte checksums are required only if canonical
+serialization is deliberately defined.
 
 Each performance report must separate offline derivation from online
 application and record at least:
@@ -441,9 +493,33 @@ application and record at least:
   parallel scaling; and
 - uncovered keys and the exact frontier that produced them.
 
-The first six-loop milestone is not a claimed beta-function result. It is an
-exactly verified reduction of a declared GammaLoop-derived corpus to an
-unsubstituted master basis with reproducible artifacts and measured batch
+The first physical six-loop milestone is derivation-only, not a claimed beta-
+function result and not an online-throughput result. Its topology manifest is
+frozen before execution and uses actual GammaLoop/BPHZ roots when available.
+The inaugural fallback corpus includes a QCD-valid connected 1PI quartic `K5`
+root (10 physical lines, 11 ISPs) and a cubic 10-vertex/15-line representative
+such as Petersen or a lower-symmetry graph (6 ISPs), with multiple non-
+factorizing reachable sectors. Each 21-coordinate family processes all 36
+sources and closes every reachable exceptional, subsector, factorization, and
+rank-decreasing cross-family dependency onto a finite enumerated set of user-
+selected or independently certified terminal keys or products. Every rule has
+zero exact residual against freshly regenerated generic IBPs; every dependency
+strictly descends; no reachable `Unsupported`, resource, timeout, uncovered, or
+unresolved exceptional leaf is accepted. A subsequent small multi-root corpus
+must reuse shared shards deterministically.
+
+That milestone records named hardware, release/GMP configuration, wall and CPU
+time, peak RSS, rule/event/target/locus/case counts, queue peak, coefficient
+growth, dependency/deduplication counts, artifact bytes, and 1/2/4-worker
+scaling. “Reasonable” means a numerical resource envelope frozen before the
+run, not an undocumented or post-hoc timeout. The provisional dedicated-host
+target is at most 48 GiB peak RSS, 24 hours wall time per root, and 48 hours for
+a three-root bundle. If the ready-job antichain exposes at least four
+independent jobs, four workers must reach at least 2.5x one-worker speedup;
+otherwise the manifest must predeclare the measured critical-path exception.
+Exceeding a threshold fails the gate and never discovers a master. The later
+online milestone reduces a declared GammaLoop-derived numerator corpus to
+unsubstituted terminals with reproducible artifacts and measured batch
 throughput.
 
 ## 8. Revised implementation order
@@ -455,10 +531,12 @@ maps, proves physical-key descent inside the source chamber, and retains
 arbitrary-precision inactive-orthant hazard intervals for later partitioning.
 Condition mapping, relative bad-domain partitioning, and compact move-bound
 route preparation are now implemented. The route stage performs one linear
-pass and stores one `usize` per leaf; it trusts its sealed Ready owner rather
-than adding another schema/replay/binding layer. Atomic target-consuming
-publication remains unfinished. This status does not claim a complete family
-reduction or any six-loop result.
+pass and stores one byte per leaf; it trusts its sealed Ready owner rather than
+adding another schema/replay/binding layer. The atomic target-consuming compact
+application-event commit is also implemented. Shallow rule/residual views,
+exceptional scheduling, subsector feedback, a coverage fixed point, durable
+closed shards, and application remain unfinished. This status does not claim a
+complete family reduction or any six-loop result.
 
 The first genuine arity-21 attempt exposed the eager-case blocker before
 Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
@@ -543,23 +621,33 @@ or physical-topology calculation.
    constrained compact maps now reach `ReadyForConditions`; the production
    regression replays six RHS descent witnesses. This has not reached rule
    publication, reduction, or six-loop topology support.
-9. **Completed through compact preparation:** current-lineage condition
-   mapping, canonical-locus relative `WhenBad` partitioning, and one-pass
-   move-bound Ready/route preparation. Finish the generic
-   `GeneratedFamilySymbolicResidualSolveV1` path with the minimal atomic live-
-   session publication boundary, subsector feedback, durable artifacts, and a
-   36-source session batch.
-10. Add unit-mass `Q(d)` family specialization and modular/reconstruction
-   services through public Symbolica finite-field and polynomial APIs.
+9. **Completed through the compact atomic event:** current-lineage condition
+   mapping, canonical-locus relative `WhenBad` partitioning, one-pass
+   move-bound Ready/route preparation, and atomic database/target/event commit.
+   Finish `GeneratedFamilySymbolicResidualSolveV1` with shallow handles,
+   exceptional scheduling, solved-subsector feedback, a proved coverage fixed
+   point, exact residual verification, and the distinct 36-source session
+   batch.
+10. Replace quadratic session event/target storage and add unit-mass `Q(d)`
+    specialization plus modular/reconstruction services through public
+    Symbolica finite-field and polynomial APIs.
 11. Add topology-generic graph ingestion, deterministic ISP completion,
-   factorization, graph-lifted symmetry candidates, and the canonical lazy
-   physical-sector dependency DAG; validate through the complete Vakint
-   four-loop corpus.
-12. Implement the separate batch rule-application runtime and GammaLoop
-   `VacuumIntegralEngine`-style adapter at the existing normalized-integrand
-   seam.
-13. Expand to general five-loop families, then execute and profile the declared
-   six-loop QCD vacuum campaign.
+    factorization, graph-lifted symmetry candidates, and the canonical lazy
+    physical-sector dependency DAG; compile immutable closed job shards into
+    deterministic multi-start campaign bundles.
+12. Derive the complete Vakint one- through four-loop replacement-system
+    corpus without FORM or copied recurrences. Use a minimal generic
+    application seam to compare normalized reductions with unsubstituted
+    terminals against Vakint as an external oracle.
+13. Close and profile multiple general five-loop families, then one physical
+    nontrivial six-loop root and a small multi-root GammaLoop/BPHZ-derived
+    derivation corpus under declared time, memory, and parallel-scaling
+    budgets.
+14. Only after those foundry gates, optimize the separate batch rule-
+    application runtime and GammaLoop `VacuumIntegralEngine`-style adapter at
+    the existing normalized-integrand seam.
+15. Execute the later declared six-loop numerator-reduction campaign and
+    publish online throughput separately from foundry derivation metrics.
 
 Broad non-vacuum tensor bases, arbitrary one-loop pentagons, and
 Feynman-parameter API cleanup resume after the vacuum foundry/runtime can
