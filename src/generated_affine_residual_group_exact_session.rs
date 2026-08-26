@@ -4762,6 +4762,7 @@ pub(crate) mod tests {
     /// order; no test-only physical terms or authored recurrence enter it.
     fn direct_production_fixture(
         name: &str,
+        sector: SectorMask,
         coverage: DirectProductionCoverage,
     ) -> DirectProductionFixture {
         let family = test_family(name);
@@ -4769,7 +4770,6 @@ pub(crate) mod tests {
             .unwrap()
             .context()
             .clone();
-        let sector = SectorMask::try_from_bit_string("111").unwrap();
         let (normalized, request) = match coverage {
             DirectProductionCoverage::NonemptyAttemptResidual => {
                 let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
@@ -4967,12 +4967,24 @@ pub(crate) mod tests {
         name: &str,
         constrained_compact: bool,
     ) -> ExactConditionPlanTestFixture {
+        exact_condition_plan_test_fixture_in_sector(name, "111", constrained_compact)
+    }
+
+    pub(crate) fn exact_condition_plan_test_fixture_in_sector(
+        name: &str,
+        sector_bits: &str,
+        constrained_compact: bool,
+    ) -> ExactConditionPlanTestFixture {
         let coverage = if constrained_compact {
             DirectProductionCoverage::NonemptyAttemptResidual
         } else {
             DirectProductionCoverage::EmptyUncovered
         };
-        let fixture = direct_production_fixture(name, coverage);
+        let fixture = direct_production_fixture(
+            name,
+            SectorMask::try_from_bit_string(sector_bits).unwrap(),
+            coverage,
+        );
         let mut session = GeneratedAffineResidualGroupExactSession::try_new(
             &fixture.family,
             &fixture.context,
@@ -5257,6 +5269,7 @@ pub(crate) mod tests {
     fn natural_direct_constrained_residual_reaches_v2_ready_for_conditions() {
         let fixture = direct_production_fixture(
             "exact-session-direct-production-constrained",
+            SectorMask::try_from_bit_string("111").unwrap(),
             DirectProductionCoverage::NonemptyAttemptResidual,
         );
         assert!(!fixture.normalized.attempts().is_empty());
@@ -5390,6 +5403,7 @@ pub(crate) mod tests {
     fn constrained_direct_v2_ready_proves_nontrivial_rhs_under_free_translation() {
         let fixture = direct_production_fixture(
             "exact-session-direct-constrained-nontrivial-ready",
+            SectorMask::try_from_bit_string("111").unwrap(),
             DirectProductionCoverage::NonemptyAttemptResidual,
         );
         let compact_geometry = fixture.terminal.geometry().unwrap();
@@ -5516,10 +5530,16 @@ pub(crate) mod tests {
     #[test]
     fn natural_direct_uncovered_rows_reach_ready_for_conditions_and_reject_foreign_source() {
         let fixture_name = "exact-session-direct-production-ready";
-        let fixture =
-            direct_production_fixture(fixture_name, DirectProductionCoverage::EmptyUncovered);
-        let foreign =
-            direct_production_fixture(fixture_name, DirectProductionCoverage::EmptyUncovered);
+        let fixture = direct_production_fixture(
+            fixture_name,
+            SectorMask::try_from_bit_string("111").unwrap(),
+            DirectProductionCoverage::EmptyUncovered,
+        );
+        let foreign = direct_production_fixture(
+            fixture_name,
+            SectorMask::try_from_bit_string("111").unwrap(),
+            DirectProductionCoverage::EmptyUncovered,
+        );
         assert!(fixture.normalized.attempts().is_empty());
         assert!(!fixture.normalized.row_span().rows().is_empty());
         assert!(Arc::ptr_eq(

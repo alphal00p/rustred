@@ -5,6 +5,8 @@ on 2026-08-20 and reprioritized for the six-loop single-scale vacuum campaign
 on 2026-08-24. Implementation status was reconciled with pushed checkpoint
 `c593865` and the Direct singleton stable-identity/exact-session Ready-ingress
 checkpoint on 2026-08-25.
+Owner-bound non-publishing mapped-condition materialization and its
+production-derived sector-011 acceptance were reconciled on 2026-08-26.
 
 ## Reading status
 
@@ -275,9 +277,25 @@ partitioning. Replay rebuilds the transcript only after authenticating the
 exact retained target-state allocation. This is still a pre-publication
 boundary, not a reduction result.
 
-The immediate generic semantic slice is now `WhenBad` closure and atomic
-guarded-rule/residual publication. It must not reconstruct V4, V5, the
-live-leaf queue, or old Boolean/DPLL certificates along the way.
+The next owner-bound, non-publishing slice is also implemented. It maps sources
+in condition-plan order, retaining the full schedule for a partition-ready
+outcome or the decisive prefix for an identically-bad outcome. It keeps
+distinct physical-parameter identity projections for the pre-normalization and
+normalized denominators and specializes admitted arbitrary-width hazards into
+ordered exact boundary events through the Symbolica mapping and numerator-
+divisibility kernels. Its
+production-derived sector-011 acceptance owner has seven sources, four hazard
+ranges, and five events: one suppressed by the numerator and four retained bad
+boundaries. The focused default-GMP suite passed 16/16 tests with four Rust
+test threads, including exact/one-below aggregate and boundary limits,
+retry-owner recovery, replay, foreign-owner rejection, and global retained/
+peak accounting. This materializer consumes no target, publishes no rule, and
+does not establish a reduction.
+
+The immediate generic semantic slice is now the relative `WhenBad` partition
+and atomic guarded-rule/residual publication, followed by solved-subsector
+feedback into supersectors. It must not reconstruct V4, V5, the live-leaf
+queue, or old Boolean/DPLL certificates along the way.
 
 The first scaling gate remains one declared arity-21 sector reaching exact
 Ready through that direct hand-off. The successful `K=21` cursor fixture stops
@@ -313,8 +331,10 @@ generated IBP/LI rows
    -> authenticated compact-affine ReadyForConditions             [implemented]
 -> one persistent cylindrical elimination database per residual case
 -> symbolic pivot recentering
--> generated WhenBad with coefficient-pole and RHS-boundary loci  [next]
--> exceptional-domain partition and live-queue recursion
+-> owner-bound mapped conditions, dual denominator projections,
+   and exact RHS-boundary events                                  [implemented, nonpublishing]
+-> relative WhenBad partition and atomic guarded publication      [next]
+-> exceptional-domain recursion and solved-subsector feedback
 -> replayed coverage certificate
 -> generic provider and descending application
 ```

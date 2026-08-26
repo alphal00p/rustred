@@ -24,7 +24,7 @@ all of LiteRed.
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate, with boundary hazards retained for later `WhenBad` partitioning |
-| Project physical-parameter identities and schedule exact Ready condition sources | Implemented internally with Symbolica polynomial projection and an owner-bound identity/compact-affine plan; arbitrary-width direct bad-condition routing and the source-neutral exact affine-boundary mapping/divisibility kernel are also implemented, while owning mapped-condition materialization, relative partitioning, and publication remain pending |
+| Project physical-parameter identities, schedule exact Ready condition sources, and materialize their mapped payload | Implemented internally as an owner-bound, non-publishing phase: Symbolica projects both the pre-normalization and normalized denominator identities, and exact lazy hazards are specialized into boundary events with numerator divisibility; relative partitioning and publication remain pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook parity | Eight LiteRed 1.x examples inventoried with staged acceptance levels; no complete notebook workflow passes yet |
@@ -290,10 +290,20 @@ The repository currently includes tests for:
   constructs exact arbitrary-width boundaries, composes compact affine maps,
   and asks Symbolica for exact polynomial divisibility. Its focused licensed
   default-GMP tests passed 12/12 routing cases and 8/8 boundary cases, and the
-  complete parallel library suite passed 1091/1091. This milestone does not
-  yet materialize all mapped condition sources into an owning transcript,
-  construct a relative partition, publish a rule, perform a reduction, or
-  establish six-loop support; and
+  complete parallel library suite passed 1091/1091. The subsequent owner-bound
+  materialization phase now maps sources in schedule order, retaining the full
+  schedule for a partition-ready outcome or the decisive prefix for an
+  identically-bad outcome. It keeps distinct physical-parameter projections
+  for the pre-normalization and normalized denominators and specializes
+  admitted lazy hazards into exact boundary events with Symbolica-backed
+  numerator classification. Its
+  production-derived sector-011 acceptance owner has seven sources, four
+  hazard ranges, and five ordered events: one suppressed by the numerator and
+  four retained bad boundaries. Exact/one-below resource, retry-ownership,
+  replay, foreign-owner, and global retained/peak accounting gates passed
+  16/16 focused tests with default GMP and four Rust test threads. This phase
+  consumes no target and publishes no rule; it does not construct a relative
+  partition, perform a reduction, or establish six-loop support; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -353,17 +363,19 @@ must use public `SparseRowReducer` together with independent rank/residual and
 transcript checks; RustRed does not extend this into a parallel CAS or matrix
 implementation.
 The next vacuum-critical solver milestone is the topology-neutral
-`Ready -> condition/WhenBad partition -> atomic guarded-rule/residual
-publication -> replay-certified closure` slice. Exact fixed-chamber descent
-and lazy hazard geometry now cover authenticated selector-independent compact
-affine target maps. An owner-bound identity/compact transform and deterministic
-condition-source schedule now preserve the Ready lineage, while Symbolica
-projects physical-parameter identities into exact index-polynomial loci. The
+`mapped conditions -> relative WhenBad partition -> atomic guarded-rule/
+residual publication -> replay-certified closure` slice. Exact fixed-chamber
+descent and lazy hazard geometry now cover authenticated selector-independent
+compact affine target maps. An owner-bound identity/compact transform and
+deterministic condition-source schedule now preserve the Ready lineage, while
+Symbolica projects physical-parameter identities into exact index-polynomial
+loci. The
 source-neutral core now also routes arbitrary-width direct formulas and
 specializes lazy affine boundaries by exact Symbolica polynomial divisibility.
-The active slice must bind those kernels into the owning mapped-condition
-transcript, build complete relative `WhenBad` partitions, and publish
-atomically. Graph-
+The owner-bound non-publishing materializer binds those kernels into a mapped-
+condition transcript, including both denominator-identity projections and the
+ordered boundary events. The active slice must build complete relative
+`WhenBad` partitions and publish atomically. Graph-
 lifted symmetry discovery and the `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
@@ -385,12 +397,14 @@ condition plan authenticates identity and compact maps and schedules premises,
 row guards, pivot/RHS coefficients, and lazy hazard locators; Symbolica-backed
 projection supplies the exact physical-parameter identity clauses. Generic
 arbitrary-width formula routing and exact affine-boundary specialization are
-implemented as non-publishing kernels. The
+implemented as non-publishing kernels. The owner-bound materializer maps the
+scheduled payload, retains both denominator projections, and specializes exact
+boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style solver work is to:
 
-1. materialize the scheduled mapped conditions, bind the boundary/formula
-   kernels into the owning transcript, close `WhenBad` exceptional branches,
-   and atomically publish guarded rules and residual work;
+1. construct the relative `WhenBad` partition from the implemented owning
+   mapped-condition transcript, close exceptional branches, and atomically
+   publish guarded rules and residual work;
 2. feed solved subsectors into supersectors and iterate residual cases; and
 3. expose a replay-certified complete reduction result.
 
@@ -428,11 +442,12 @@ selector-independent compact affine maps reach the unpublished
 condition sources without consuming the target. Symbolica-backed
 physical-parameter identity projection, arbitrary-width direct-formula
 routing, and the exact affine-boundary mapping/divisibility kernel are also
-implemented. The immediate gates are owner-bound mapped-condition
-materialization, relative `WhenBad` partitioning, and atomic guarded
-publication. No arity-21 case has
-reached Ready, no guarded rule has been published, no physical topology was
-reduced, and no complete reduction is claimed.
+implemented. The current owner-bound materializer maps the scheduled payload,
+retains both denominator projections, and specializes exact boundary events
+without consuming a target or publishing a rule. The immediate gates are
+relative `WhenBad` partitioning and atomic guarded publication. No arity-21
+case has reached Ready, no guarded rule has been published, no physical
+topology was reduced, and no complete reduction is claimed.
 
 Further LiteRed parity includes broader symmetry discovery, partial fractions
 for dependent or overcomplete propagator lists, master inference, persistent

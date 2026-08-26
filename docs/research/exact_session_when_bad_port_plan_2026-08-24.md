@@ -11,9 +11,11 @@ solve-plan V2, and source-profiled exact-session Ready analysis without a fake
 inventory. A non-publishing owner-bound Ready condition plan, a
 Symbolica-backed physical-parameter identity projector, arbitrary-width direct
 bad-formula routing, and the source-neutral exact affine-boundary
-mapping/divisibility kernel are now implemented. Owner-bound mapped-condition
-materialization, relative partitioning, and publication remain next; updated
-2026-08-25.
+mapping/divisibility kernel are implemented. The current checkpoint also owns
+and replays mapped conditions and coefficients, retains distinct
+pre-normalization and normalized denominator projections, and specializes
+admitted lazy hazards into exact boundary events. Relative partitioning,
+atomic publication, and subsector feedback remain next; updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -94,7 +96,17 @@ The current-lineage components below are implemented and tested:
   authenticates identity or compact-affine target geometry and retains a
   deterministic schedule of target premises, recentered row guards, the pivot
   and descending RHS coefficients, plus fixed-width lazy hazard locators. It
-  neither materializes a condition nor consumes a target or publishes a rule.
+  does not itself materialize a condition, consumes no target, and publishes
+  no rule.
+- `src/generated_affine_residual_group_exact_when_bad_materialization.rs`
+  consumes that exact plan into an owner-bound, replayable, non-publishing
+  mapped transcript. It maps sources in schedule order, retaining the full
+  schedule for a partition-ready result or the decisive prefix for an
+  identically-bad result. It keeps both the pre-normalization and normalized
+  mapped-denominator identity projections, admits arbitrary-width hazard
+  ranges before expansion, and specializes their exact values into ordered
+  boundary events with Symbolica-backed numerator classification. It still
+  consumes no target and publishes no rule.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -231,25 +243,29 @@ source-neutral affine-boundary kernel passed 8/8 focused tests for exact
 arbitrary-width values, compact/identity maps, zero/divisible/nondivisible
 numerators, malformed inputs, panic recovery, and exact/one-below limits. A
 licensed default-GMP parallel library run including both kernels passed
-1091/1091. The next seam is owner-bound mapped-condition materialization,
-relative `WhenBad` partitioning, and publication. It must not reconstruct V4,
-V5, the live-leaf queue, or Boolean/DPLL certificates. No Direct input has
+1091/1091. The owner-bound materializer then passed 16/16 focused tests with
+default GMP and four Rust test threads. Its production-derived sector-011
+acceptance owner has seven mapped sources, four exact hazard ranges, and five
+ordered boundary events: one suppressed by its numerator and four retained.
+The suite covers exact/one-below owner and boundary limits, global retained and
+compilation-peak accounting, retry ownership, replay, and foreign-owner
+rejection. The next seam is relative `WhenBad` partitioning and publication.
+It must not reconstruct V4, V5, the live-leaf queue, or Boolean/DPLL
+certificates. No Direct input has
 produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
-Not yet implemented are the owner-bound materialized mapped-condition
-transcript and relative partition, integration of the implemented
-source-neutral boundary/formula kernels into the terminal current-lineage exact
-`WhenBad` compiler, target-consuming rule publication, exceptional residual
-orchestration, or replayable current-lineage rule/residual handles. The current
-event ledger is a complete transcript only for its implemented non-publishing
-dispositions; its schema and replay must be extended with the future `WhenBad`,
-publication, and residual manifests. The mature `GeneratedResidualAffine...`
-implementation is an oracle, not production authority for these missing
-pieces. Full LiteRed parity, arbitrary one-loop pentagon reduction, and the
-high-throughput two- through six-loop vacuum milestones therefore remain
-pending.
+Not yet implemented are the relative partition over the materialized
+conditions and boundary events, target-consuming rule publication,
+exceptional residual orchestration, subsector feedback, or replayable current-
+lineage rule/residual handles. The current event ledger and mapped transcript
+are complete only for their implemented non-publishing dispositions; their
+schemas and replay must be extended with future partition, publication, and
+residual manifests. The mature `GeneratedResidualAffine...` implementation is
+an oracle, not production authority for these missing pieces. Full LiteRed
+parity, arbitrary one-loop pentagon reduction, and the high-throughput two-
+through six-loop vacuum milestones therefore remain pending.
 
 The former `src/exact.rs` blocker is complete: exact scalar and matrix algebra
 now crosses Symbolica's public GMP `Rational` and `Matrix<Q>` APIs. Continued
@@ -669,6 +685,14 @@ Ready coefficients and row guards are already centered.
 
 ### Phase C: owning exact `WhenBad` compiler
 
+The first Phase C slice is implemented as a recoverable, owner-bound
+non-publishing materializer. It owns mapped guards and coefficients, dual
+denominator projections, exact specialized boundary events, replay evidence,
+and complete resource statistics. It returns a transcript ready for
+partitioning (or a proof-bearing pre-partition bad outcome), consumes no
+target, and publishes no rule. The relative partition and the final terminal
+contract below remain to be implemented.
+
 Introduce a non-`Clone` current-lineage terminal:
 
 ```rust,ignore
@@ -997,10 +1021,11 @@ Implement in this order:
    identity/compact condition schedule and Symbolica physical-parameter
    identity projection are also implemented, as are source-neutral
    arbitrary-width formula routing and exact affine-boundary
-   mapping/divisibility. Next materialize the scheduled mapped conditions,
-   bind these kernels into the owner, build the relative `WhenBad` partition,
-   and publish. This has not reached reduction, publication, or six-loop
-   topology support;
+   mapping/divisibility. The owner-bound non-publishing materializer now maps
+   the scheduled conditions and coefficients, retains both denominator
+   projections, and owns exact specialized boundary events. Next build the
+   relative `WhenBad` partition and publish atomically. This has not reached
+   reduction, publication, or six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
    budget;
@@ -1009,9 +1034,12 @@ Implement in this order:
    hazards, an owner-bound transform/source schedule, and physical-parameter
    identity projection are implemented; arbitrary-width direct formula
    construction/routing and source-neutral exact affine-boundary divisibility
-   are implemented as reusable kernels. Owner-bound coefficient/guard
-   composition, relative partitioning, and pullback remain pending;
-8. owning current-lineage exact `WhenBad` terminal compiler;
+   are implemented as reusable kernels. Owner-bound coefficient/guard mapping,
+   dual denominator projection, and exact boundary-event specialization are
+   also implemented. Relative partitioning and the final publication binding
+   remain pending;
+8. complete the owning current-lineage exact `WhenBad` terminal compiler with
+   the relative partition and final Certified/rejected dispositions;
 9. atomic Certified/rejected disposition, sealed rules, and exceptional work;
 10. extend the implemented chronological replay with durable rule/residual
    manifest validation, concrete application, and provider integration;
