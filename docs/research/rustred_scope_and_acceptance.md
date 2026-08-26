@@ -283,21 +283,24 @@ independent validation layer, not the proof of a rule.
   validation caveat, RustRed uses a checked borrowed-input adapter over public
   `SparseRowReducer` with independent transcript checks rather than
   implementing another CAS or matrix package. The live generated-affine exact
-  database now constructs a complete stage-local physical-key catalog and
-  rebuilds immutable normalized pivots under `LuLMode::Full`. Symbolica
-  authoritatively supplies ordered pivot factors and dependent/independent
-  disposition; guarded Rust replay validates the factors, divisor, normalized
-  row, and outcome while retaining provenance. Licensed default-GMP runs with
-  four test threads passed 13/13 focused adapter, 39/39 exact-database, and 2/2
-  direct-session tests.
+  database owns a complete easiest-first physical-key catalog and a clone-on-
+  stage `SparseRowReducer` under `LuLMode::Full`. Each trial extends only its
+  ordered native columns, and only an independent outcome carries a move-owned
+  reducer/catalog successor into commit; empty, dependent, rejected, and failed
+  trials leave the committed owner unchanged. Guarded Rust replay authenticates
+  Symbolica's factors and divisor, the complete historical U/L/pivot prefix,
+  and the appended normalized `U` row coefficient-for-coefficient. The rebuild-
+  every-stage exact-database glue/use is a `cfg(test)` oracle; the generic legacy
+  adapter remains compiled outside the live path. Licensed default-GMP runs
+  with four test threads pass 15/15 retained-reducer, 18/18 complete sparse-
+  adapter, and 41/41 exact-database tests.
 
 This live boundary is a correctness milestone, not a closure or scaling
-claim. It rebuilds the complete reducer for each stage, tends toward cumulative
-`O(P^2)` work, and inherits Symbolica's `O(K)` dense scratch. Fixed-size
-committed telemetry retains last, componentwise-peak, and saturating cumulative
-native reconstruction/fill/coefficient-work counts while remaining outside
-replay identity. It does not cover catalog sorting, wall time, or RSS. No
-complete topology reduction, Vakint one- through four-loop reproduction, or
+claim. Every stage still makes a full native reducer clone, forward elimination
+is serial, and Symbolica's native allocation and scratch bytes remain opaque.
+Fixed-size committed telemetry records entry/fill and coefficient-work counts
+but is not an authoritative native-byte, wall-time, or RSS census. No complete
+physical-topology reduction, Vakint one- through four-loop reproduction, or
 physical six-loop scalability result has been demonstrated.
 
 ## Current implementation gate and next generic slice

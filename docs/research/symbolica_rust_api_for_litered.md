@@ -688,11 +688,12 @@ Incremental `SparseRowReducer` and `LuLMode::{Full,Pattern,None}` are at
 `1777-1805`, and back substitution starts at `1811`. The reducer chooses the
 first nonzero/smallest stored column as pivot and normalizes by it (`1855`
 onward). RustRed must therefore map the hardest physical integral key to the
-smallest column. The temporary correctness bridge prebuilds the complete
-per-stage key catalog, reverses it so hardest maps to column zero, and uses
-`ncols = K + 1` for the sentinel. `add_cols` is the retained-state seam for the
-implemented private persistent adapter, although the live database has not yet
-adopted that adapter and its retained complete catalog.
+smallest column. The live generated-affine exact database owns one complete
+easiest-first physical-key catalog and retains a
+`SparseRowReducer<CheckedParametricField>` under `LuLMode::Full`. At the native
+boundary the catalog is reversed so the hardest key occupies the smallest
+column, with one sentinel column retained; `add_cols` extends this retained
+column space when a stage discovers new keys.
 RustRed owns this physics ordering, but Symbolica owns the pivot arithmetic and
 row reduction.
 
@@ -761,28 +762,18 @@ factor per prior row, and all `L` diagonals. Once the outcome is known, it
 checks the exact returned-trace length before copying the newest `L/U` rows
 out.
 
-This is now the live generated-affine exact-database transcript authority. Each
-stage builds the complete physical-key catalog, maps hardest keys to the lowest
-columns, submits committed pivots chronologically, and accepts Symbolica's
-ordered factor sequence and disposition only after guarded replay verifies the
-normalization divisor and normalized row. The replay retains provenance; it
-does not select pivots or classify dependence.
-
-The current implementation still rebuilds a temporary reducer from the
-immutable committed-pivot log inside each stage. That is a correctness bridge
-with cumulative `O(P^2)` tendency, not an API necessity. The audited public
-Symbolica 2.2.0 reducer derives `Clone` and preserves `U`, `L`, pivots, mode,
-and scratch; `add_cols` extends the retained column space and `add_row` resumes
-forward elimination. These operations are sufficient for a clone-on-stage
-transaction: clone the committed reducer, add any ordered columns and the
-candidate to the trial, decode and validate its newest transcript, and replace
-the committed reducer only after a successful independent outcome. In
-`LuLMode::Full`, a nonempty dependent candidate leaves `U` and pivots unchanged
-but appends one `L` row containing its elimination factors and no diagonal.
-RustRed can decode that row and discard the trial, keeping the committed state
-unchanged. Thus there is **no upstream functional blocker** to a persistent
-native reducer. RustRed now implements the topology-neutral private adapter;
-the live database transaction does not yet use it.
+This is now the live generated-affine exact-database transcript authority. The
+database owns the complete easiest-first catalog and the committed Full-L
+Symbolica reducer. A stage clones the committed native reducer, inserts any
+newly discovered ordered columns into the trial, and submits the candidate.
+Symbolica supplies the ordered factors, normalization, pivots, and disposition;
+guarded differential/provenance replay authenticates the normalization divisor,
+the complete historical U/L/pivot prefix, and the appended normalized `U` row
+coefficient-for-coefficient. Empty, dependent, rejected, and failed trials own
+no successor. Only an independent trial returns the move-owned reducer/catalog
+successor that may commit after the sealed checks. The exact-database glue that
+rebuilds every stage is a `cfg(test)` oracle, not a production path; the generic
+legacy adapter remains compiled for other callers.
 
 The local RustRed prerequisite is now implemented. The checked field owns an
 `Arc<ParametricCoefficientContext>` and its clones share an `Arc` controller
@@ -795,28 +786,21 @@ cover owned-context lifetime and `Send + Sync`, rejection outside an active
 stage, sibling-clone serialization, unknown-panic recovery, and deterministic
 typed-abort/retry cleanup.
 
-The private `SymbolicaPersistentSparseReducer` now retains native algebra
-state and one already-admitted context `Arc`. A stage clones the committed
-reducer, inserts old-coordinate columns (duplicates included), validates the
-post-insertion remap, submits one final-coordinate candidate, and authenticates
-the complete historical U/L/pivot prefix after native execution. Empty,
-dependent, rejected, and failed trials own no successor. Only an independent
-trial advances state. `forward_reduce_last_row` nevertheless remains the live
-database path and still replays prior pivots on every call because the exact
-database does not yet retain the matching complete easiest-first catalog.
-Reducer/catalog integration is the next implementation step. Forward
-reduction within one ordered reducer remains serial; multi-core campaign
-execution will run independently controlled reducers across case lanes/shards.
+`SymbolicaPersistentSparseReducer` now backs the live exact database. Its
+former `forward_reduce_last_row` reconstruction glue/use is compiled only under
+`cfg(test)` for stage-by-stage oracle comparison; the generic legacy adapter
+itself remains compiled but is not on the live database path. Forward reduction
+within one ordered reducer remains serial; multi-core campaign execution must
+run independently owned reducers across case lanes or shards.
 
 The remaining upstream gaps are resource/performance interfaces, not
-correctness blockers. `Clone` deeply copies the vector-backed `U`, `L`, pivots,
-and dense scratch (native coefficient `Arc`s remain shallow), with no fallible
-`try_clone` or copy-on-write snapshot. The private `O(K)` dense row and touched
-bitmap expose no exact scratch-capacity census. `LuLMode::Full` retains all
-historical `L` rows because `add_row` cannot return only the new row-local
-trace, and forward elimination is serial. Useful later additions would be a
-fallible/COW fork, a scratch-capacity census, a row-local trace API without
-retained `L` history, and an explicit scratch pool plus parallel forward path.
+correctness blockers. Every stage still deeply clones the native vector-backed
+`U`, `L`, pivots, and dense scratch (coefficient `Arc`s remain shallow); there is
+no fallible/COW fork. RustRed can count retained native entries, but Symbolica's
+allocation layout and scratch bytes remain opaque, so there is no authoritative
+native-byte census. `LuLMode::Full` retains all historical `L` rows, and forward
+elimination is serial. Useful future APIs remain a fallible/COW fork, a row-
+local trace, a byte/scratch census, and a parallel forward path.
 
 `back_substitute` and `back_substitute_parallel` must run only on a clone made
 for final RREF/publication: both mutate `U` and pivots and clear `L`, setting
@@ -829,33 +813,20 @@ would destroy the state required by later incremental rows and provenance.
 
 **Behavior probe LA-3:** confirm parallel back-substitution output order; the implementation may permute output rows (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:2393-2498`). RustRed artifacts must be sorted semantically regardless.
 
-**Adapter probe LA-4 (live rebuild boundary):** 13/13 focused licensed
-default-GMP tests passed in parallel. They exercise an independent nonmonotone
-`L` trace, dependence at full physical rank through the sentinel, canonical
-empty input, malformed sparse input, borrowed-input behavior, prospective and
-exact output limits, unused-field-callback failure, exact/one-below work
-admission, deterministic retry, and the distinction between conservative
-prospective output admission and observed U+L fill. The live exact-database
-suite passed 39/39 focused cases and the direct-session suite passed 2/2 with
-four threads. Fixed-size committed telemetry retains last/peak/cumulative
-native reconstruction and coefficient-work counts while remaining outside
-replay identity. None of this establishes a physical-topology reduction.
-Five additional focused ownership/controller tests are implemented for owned
-context lifetime and `Send + Sync`, inactive-stage rejection, sibling-stage
-serialization, unknown-panic cleanup/retry, and typed-abort cleanup with fresh
-per-stage accounting. They establish the storage prerequisite only, not the
-persistent reducer/database integration.
+**Adapter probe LA-4 (test-only rebuilding oracle):** the exact-database
+rebuild-every-stage glue/use is `cfg(test)` only and checks stage-by-stage
+algebraic transcript equality with the retained production path; it is not used
+by the live database. The generic legacy adapter remains compiled.
 
-**Adapter probe LA-5 (private retained boundary):** 15/15 focused licensed
-default-GMP tests pass with four test threads. They cover front/middle/back and
-duplicate old-coordinate insertions, rational/index coefficients, nonmonotone
-traces, canonical empty/dependent/independent/full-physical-rank outcomes,
-stage-by-stage equality with the rebuilding oracle, base immutability after
-discarded trials, inserted-coverage precedence, independent-rank precedence,
-and exact historical U/L/pivot-prefix rejection. The complete sparse adapter
-suite passes 18/18 and the unchanged live exact database passes 39/39. This
-establishes the retained adapter contract, not its database/catalog integration
-or a physical reduction.
+**Adapter probe LA-5 (live retained boundary):** licensed default-GMP runs with
+four test threads pass 15/15 retained-reducer tests, 18/18 complete sparse-
+adapter tests, and 41/41 live exact-database tests. They cover ordered and
+duplicate column insertion, rational/index coefficients, nonmonotone traces,
+empty/dependent/independent/full-rank outcomes, discarded-trial base
+immutability, exact historical-prefix rejection, rebuilding-oracle equality,
+and coefficient-for-coefficient authentication of the appended normalized `U`
+row. This establishes live reducer/catalog integration, not a physical-
+topology reduction, Vakint reproduction, or a six-loop scaling result.
 
 ## 11. Tensor support and the Vakint boundary
 

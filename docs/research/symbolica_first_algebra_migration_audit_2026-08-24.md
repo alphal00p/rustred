@@ -115,7 +115,7 @@ both sides of that call.
 | B0 (complete) | [`exact.rs`](../../src/exact.rs): formerly fixed-width rational normalization, gcd, inverse, rank, multiply, transpose, determinant | Migrated | `Rational`/`Q`; `Matrix<Q>::inv`, `rank`, `det`, multiplication and `transpose` | The compatibility `ExactRational` wrapper owns only a Symbolica `Rational`; its operators are forwarding adapters, not an arithmetic implementation. |
 | P1 (complete) | [`generic_family.rs:1888-1919`](../../src/generic_family.rs#L1888): symbolic inverse, determinant and inverse verification | Migrated | `Matrix<CheckedCoefficientField>::det`, `inv`, and native matrix multiplication in [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns the determinant, inverse, and both products. RustRed retains the authenticated ordered coefficient context, determinant nonzero condition, resource admission, typed errors, and entrywise two-sided replay. |
 | P1 (complete) | [`automatic_isps.rs`](../../src/automatic_isps.rs): formerly hand-written Gaussian rank | Migrated | Authenticated `Matrix<CheckedCoefficientField>::partial_row_reduce` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every pivot, inverse, multiplication, subtraction, and row reduction. RustRed retains deterministic candidate order, native-operation/resource admission, the rank-progression certificate, and replay. New certificates use the V2 schema because their exact work census describes Symbolica's schedule. |
-| P0 (live correctness bridge and private retained adapter complete; database/catalog integration next) | [`generated_affine_residual_group_exact_database.rs`](../../src/generated_affine_residual_group_exact_database.rs): current-lineage incremental exact row reduction | Migrated to native transcript authority with guarded differential/provenance replay | The live database still builds a complete stage-local physical-key catalog and rebuilds immutable normalized pivots in a temporary `SparseRowReducer<CheckedParametricField>`. A separate private clone-on-stage adapter now owns one admitted context `Arc`, Full-L reducer, and final sentinel; it inserts ordered complete-catalog columns and submits one candidate without replaying historical input rows. Only an independent trial owns a successor. Symbolica authoritatively supplies factors, normalization, pivots, and disposition; RustRed authenticates the complete historical U/L/pivot prefix, sentinel, guards, provenance, and resource ordering. | Licensed default-GMP four-thread runs passed 15/15 retained-adapter, 18/18 complete sparse-adapter, and 39/39 exact-database tests. The retained suite covers front/middle/back and duplicate insertions, rational/index coefficients, nonmonotone traces, empty/dependent/independent/full-rank outcomes, differential rebuild parity, structural-error precedence, rank/fill precedence, base immutability, and historical-prefix corruption. Live integration of the retained reducer plus complete easiest-first catalog remains pending, so `forward_reduce_last_row` still has cumulative `O(P^2)` rebuild tendency and `O(K)` scratch. Planned campaign parallelism is across independently controlled shard/case reducers, not rows of one reducer. This is not evidence of complete topology reduction, Vakint reproduction, or six-loop scalability. |
+| P0 (live retained database integration complete) | [`generated_affine_residual_group_exact_database.rs`](../../src/generated_affine_residual_group_exact_database.rs): current-lineage incremental exact row reduction | Migrated to retained native transcript authority with guarded differential/provenance replay | The live database owns one complete easiest-first physical-key catalog and one clone-on-stage `SparseRowReducer<CheckedParametricField>` with Full L and a final sentinel. A stage inserts only newly discovered catalog columns and submits one candidate without replaying historical pivots. Only an independent trial owns the move-only reducer/catalog successor. Symbolica authoritatively supplies factors, normalization, pivots, and disposition; RustRed authenticates the complete historical U/L/pivot prefix, the appended normalized U row coefficient-for-coefficient, sentinel, guards, provenance, and transaction/resource ordering. | Licensed default-GMP four-thread runs pass 15/15 retained-adapter, 18/18 complete sparse-adapter, and 41/41 exact-database tests. Coverage includes front/middle/back and duplicate insertions, rational/index coefficients, nonmonotone traces, empty/dependent/independent/full-rank outcomes, stage-by-stage rebuild-oracle parity, no-growth catalog reuse, same-shape sibling-successor tampering, structural/limit precedence, retry, and rollback with full U/L coefficient snapshots. The exact-database rebuilding glue/use is test-only; the generic legacy adapter remains compiled outside the live path. Clone-on-stage still copies native state, forward elimination remains serial, and opaque native heap/scratch is entry-bounded rather than byte-censused; this is not yet evidence of complete topology reduction, Vakint reproduction, or six-loop scalability. |
 | P1 | [`exact_sparse_elimination.rs`](../../src/exact_sparse_elimination.rs), [`parametric_elimination.rs`](../../src/parametric_elimination.rs), and [`persistent_parametric_elimination.rs`](../../src/persistent_parametric_elimination.rs): older exact/parametric row engines | Must move algebra native | `SparseRowReducer`/`SparseMatrix` over the checked Symbolica coefficient field, with `LuLMode::Full` where source combinations are required | RustRed may retain ordering, index-shift columns, condition extraction, chronology, persistence, and proof records. It must not retain a second Gaussian engine; guards are recorded before native division and verified independently. |
 | P1 (complete) | [`tensor.rs`](../../src/tensor.rs) and [`generic_tensor_projector.rs`](../../src/generic_tensor_projector.rs): formerly handwritten Gram inversion and binary coefficient exponentiation | Migrated | Authenticated `Matrix<CheckedCoefficientField>::inv` plus determinant/two-sided replay; public `RationalPolynomialField::pow` | Symbolica owns every Gram inverse, verification product, and coefficient power. RustRed retains pairing enumeration, contraction connectivity, determinant/inverse-denominator guards, typed resource admission, and replay. V2 projector schemas replace pivot-schedule provenance with the basis-independent Gram determinant. |
 | P1 (complete) | [`symmetry.rs`](../../src/symmetry.rs): formerly a subset-DP coefficient determinant | Migrated | Authenticated `Matrix<CheckedCoefficientField>::det` through [`symbolica_coefficient_matrix.rs`](../../src/symbolica_coefficient_matrix.rs) | Symbolica owns every nonempty determinant; RustRed retains nonzero guards, typed admission/panic boundaries, and the structural vacuum convention `det(0x0)=1`. V2 certificates report native calls and admitted versus actual work; the legacy subset-state census is always zero. |
@@ -450,7 +450,7 @@ encode semantics that the public matrix API does not expose.
 
 | RustRed owner | Why it remains RustRed-owned | Native differential oracle |
 |---|---|---|
-| [`generated_affine_residual_group_exact_database.rs`](../../src/generated_affine_residual_group_exact_database.rs), [`exact_sparse_elimination.rs:315-595`](../../src/exact_sparse_elimination.rs#L315), and [`exact_sparse_elimination.rs:1399-1637`](../../src/exact_sparse_elimination.rs#L1399) | Their authenticated hardest-first integral-column/source-row controllers and provenance/replay may remain. In the live generated-affine database, the complete stage-local catalog plus `SparseRowReducer` with `LuLMode::Full` now supplies ordered pivots and disposition; guarded replay is differential/provenance validation rather than an independent elimination authority. The older exact sparse engines remain migration debt. | Continue exact regenerated-residual checks and export the committed last/peak/cumulative native telemetry to physical campaign benchmarks. Replace the current rebuild with the audited clone-on-stage persistent reducer after the owned-field/controller refactor described below. Never back-substitute the committed forward state. Apply the same native-authority contract when migrating the older engines. |
+| [`generated_affine_residual_group_exact_database.rs`](../../src/generated_affine_residual_group_exact_database.rs), [`exact_sparse_elimination.rs:315-595`](../../src/exact_sparse_elimination.rs#L315), and [`exact_sparse_elimination.rs:1399-1637`](../../src/exact_sparse_elimination.rs#L1399) | Their authenticated hardest-first integral-column/source-row controllers and provenance/replay may remain. In the live generated-affine database, the retained complete catalog plus `SparseRowReducer` with `LuLMode::Full` supplies ordered pivots and disposition; guarded replay is differential/provenance validation rather than an independent elimination authority. The older exact sparse engines remain migration debt. | Continue exact regenerated-residual checks and export committed last/peak/cumulative native telemetry to physical campaign benchmarks. Never back-substitute the committed forward state. Benchmark clone-on-stage cost and native fill before selecting later COW/fallible-fork work, and apply the same native-authority contract when migrating the older engines. |
 | [`certified_rewrite.rs:1856-2000`](../../src/certified_rewrite.rs#L1856) | Scout reduction discovers the exact integral-order skeleton later replayed by `ExactSparseElimination`; it is pivot planning and certificate construction, not a new coefficient field. | Compare the selected system's rank and source-row dependencies with a public dense/sparse reducer. |
 | [`parametric_elimination.rs:704-1182`](../../src/parametric_elimination.rs#L704), [`parametric_elimination.rs:1765-1924`](../../src/parametric_elimination.rs#L1765), and [`persistent_parametric_elimination.rs`](../../src/persistent_parametric_elimination.rs) | LiteRed ordering, index-shift columns, conditional pivot guards, chronological traces, and clean-prefix persistence are RustRed semantics that may wrap the native reducer. The field arithmetic and Gaussian elimination themselves must migrate to Symbolica. | Record the pivot numerator/nonzero premise before native normalization; compare every decision/source combination and exact regenerated residual, plus generic concrete rank/row-span images. Verify retained guards separately. |
 | [`residual_affine_integer_lattice_kernel.rs:970-1213`](../../src/residual_affine_integer_lattice_kernel.rs#L970) and [`residual_affine_integer_lattice_kernel.rs:1545-1660`](../../src/residual_affine_integer_lattice_kernel.rs#L1545) | Produces the complete integral affine solution lattice and a unimodular transform transcript. Public `Matrix<Z>::solve_fraction_free` returns one determined solution, not a Smith/Hermite-style lattice parameterization. | Check the rational affine span with `Matrix<Q>` and bounded integer-point enumeration; use native gcd inside the wrapper. |
@@ -471,9 +471,13 @@ the committed reducer, extend the trial's ordered columns, submit one row, and
 commit the trial only after transcript and provenance validation. With
 `LuLMode::Full`, a nonempty dependent row appends its elimination factors as a
 new `L` row without changing `U` or pivots, so RustRed can inspect that row and
-discard the trial. The current live database still performs a full per-stage
-rebuild, but the private topology-neutral clone-on-stage adapter is now
-implemented and independently audited; database/catalog integration is next.
+discard the trial. The live database now owns the complete easiest-first
+physical-key catalog together with this Full-L reducer. Each stage clones the
+native state, inserts only newly discovered catalog columns, submits one
+candidate, and commits only an independent move-owned reducer/catalog
+successor. The exact-database rebuilding glue/use is retained only under
+`cfg(test)` as a differential oracle; the generic legacy adapter remains
+compiled but is not on the live database path.
 
 The previously identified RustRed prerequisite is now implemented:
 `CheckedParametricField` owns its coefficient context through `Arc`, and all
@@ -482,13 +486,14 @@ coefficient-work ledger per serialized stage. The stage guard clears the
 ledger after success, typed checked-field abort, or unrelated unwind panic;
 five focused tests exercise owned lifetime and `Send + Sync`, inactive access,
 sibling-clone serialization, panic recovery, and deterministic typed-abort
-retry. The new private retained owner holds one already-admitted context `Arc`,
-clones native state per stage, inserts ordered old-coordinate columns (including
-duplicates), and returns a successor only for an independent row. Its 15
-focused tests include a stage-by-stage differential rebuild oracle and exact
-historical-prefix authentication. `forward_reduce_last_row` remains the live
-database path until the matching complete persistent column catalog is owned
-by the transaction.
+retry. The retained owner holds one already-admitted context `Arc`, clones
+native state per stage, inserts ordered old-coordinate columns (including
+duplicates), and returns a move-owned successor only for an independent row.
+The live database authenticates the complete historical U/L/pivot prefix and
+the appended normalized U row coefficient-for-coefficient before committing
+that successor. Licensed default-GMP four-thread runs pass 15/15 retained-
+adapter, 18/18 complete sparse-adapter, and 41/41 exact-database tests,
+including stage-by-stage equality with the `cfg(test)` rebuilding oracle.
 
 Final RREF must be computed only on a clone: `back_substitute` and
 `back_substitute_parallel` mutate `U`/pivots and clear `L` and its mode. The
@@ -498,8 +503,8 @@ dense scratch, no row-local factor trace without retaining historical `L`,
 and no explicit scratch pool or parallel forward elimination. The retained
 implementation serializes stages within each ordered reducer;
 campaign parallelism belongs across independent reducers/shards. Those future
-upstream additions are useful, but are not prerequisites for clone-on-stage
-integration.
+upstream additions are useful, but were not prerequisites for the now-live
+clone-on-stage integration.
 
 Any retained custom solver must keep a code-local gap comment naming the
 public APIs considered and the missing semantic. A resource limit, preferred
@@ -578,28 +583,22 @@ introduce loop-count or topology dispatch into production rule derivation.
    remain pending.
 5. Migrate the live generated-affine exact database first through a temporary
    per-stage `SparseRowReducer`/`LuLMode::Full` rebuilt from immutable pivots.
-   **Live correctness bridge complete.** The database builds the complete
-   stage-local physical-key catalog; Symbolica authoritatively returns ordered
-   `L` factors, normalization, and dependent/independent disposition; guarded
-   Rust replay validates the native transcript and retains provenance. Licensed
-   default-GMP four-thread suites passed 13/13 adapter, 39/39 exact-database,
-   and 2/2 direct-session tests. Migrate the older exact and parametric row
-   engines afterward. Fixed-size committed last/peak/cumulative telemetry is
-   implemented and excluded from replay identity. Physical benchmark export and
-   live persistent native state remain separate scaling slices. The private
-   clone-on-stage adapter is implemented and audited: it owns the admitted
-   context/Full-L reducer/sentinel, authenticates historical U/L/pivots after
-   column insertion and candidate submission, discards every non-independent
-   trial, and passed 15/15 focused default-GMP tests. Retained reducer plus
-   complete-catalog integration into the database transaction remains next.
-   `forward_reduce_last_row` therefore
-   still reconstructs prior pivots and performs an unaccounted
-   `Arc::new(context.clone())` per call; the persistent owner must retain one
-   already-admitted context `Arc`. The current full rebuild's cumulative
-   `O(P^2)` tendency and `O(K)` scratch make this a correctness result only,
-   not a complete-topology, Vakint, or six-loop scalability result. Run
-   independent shards in parallel; do not imply parallel forward elimination
-   within one ordered reducer.
+   **The historical correctness bridge and its retained successor are now
+   complete.** The live database owns the complete easiest-first catalog and a
+   clone-on-stage Full-L reducer/sentinel. It inserts only new columns, submits
+   one candidate, authenticates the full historical U/L/pivot prefix and an
+   independent trial's appended normalized U row coefficient-for-coefficient,
+   and commits only that move-owned reducer/catalog successor. The rebuilding
+   exact-database glue/use is now a `cfg(test)` differential oracle; the generic
+   adapter remains compiled outside that live path. Licensed default-
+   GMP four-thread suites pass 15/15 retained-adapter, 18/18 complete sparse-
+   adapter, and 41/41 exact-database tests. Fixed-size committed native
+   telemetry remains excluded from replay identity. Migrate the older exact and
+   parametric row engines afterward. Physical benchmark export, full native
+   clone cost per stage, serial forward elimination, and opaque native heap/
+   scratch bytes remain scaling gaps; this is not a complete-topology, Vakint,
+   or six-loop result. Run independent shards in parallel rather than implying
+   parallel forward elimination within one ordered reducer.
 6. Migrate the remaining Feynman, tensor-family, specialization, and
    affine-denominator polynomial operations; then native tensor-expression
    expansion and integer gcd primitives.

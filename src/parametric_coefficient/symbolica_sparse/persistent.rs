@@ -13,11 +13,11 @@ use symbolica::domains::SelfRing;
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
 use super::{
-    CheckedParametricField, ParametricCoefficientContext, ParametricCoefficientWorkLedgerLimits,
-    ParametricCoefficientWorkStats, SymbolicaParametricSparseError,
-    SymbolicaParametricSparseInputRow, SymbolicaParametricSparseReduction,
-    SymbolicaParametricSparseRow, call_native, check_limit, copy_input_row, copy_native_row,
-    decode_reductions, native_row_len, validate_row,
+    CheckedParametricField, ParametricCoefficient, ParametricCoefficientContext,
+    ParametricCoefficientWorkLedgerLimits, ParametricCoefficientWorkStats,
+    SymbolicaParametricSparseError, SymbolicaParametricSparseInputRow,
+    SymbolicaParametricSparseReduction, SymbolicaParametricSparseRow, call_native, check_limit,
+    copy_input_row, copy_native_row, decode_reductions, native_row_len, validate_row,
 };
 
 /// Per-stage resource envelope for one retained reducer fork.
@@ -219,6 +219,75 @@ impl SymbolicaPersistentSparseReducer {
 
     pub(crate) fn native_l_entries(&self) -> usize {
         self.native.l().nvalues()
+    }
+
+    pub(crate) fn pivot_row_for_physical_column(&self, column: usize) -> Option<usize> {
+        if column >= self.physical_columns {
+            return None;
+        }
+        self.native
+            .pivots()
+            .get(column)
+            .copied()
+            .flatten()
+            .map(|row| row as usize)
+    }
+
+    /// Compare one retained normalized `U` row with an allocation-free stream
+    /// of expected native-column/coefficient pairs.
+    ///
+    /// `expected_entries` must be in strictly increasing native-column order.
+    /// `expected_len` is separate so a failed caller-side physical-to-native
+    /// projection cannot disappear through `filter_map` and accidentally make
+    /// a shorter row authenticate. This predicate performs no algebra and does
+    /// not copy any coefficient payload.
+    pub(crate) fn normalized_u_row_matches<'coefficient>(
+        &self,
+        row_ordinal: usize,
+        expected_len: usize,
+        expected_entries: impl IntoIterator<Item = (usize, &'coefficient ParametricCoefficient)>,
+    ) -> bool {
+        let matrix = self.native.u();
+        let Some(next_row_ordinal) = row_ordinal.checked_add(1) else {
+            return false;
+        };
+        let Some((&start, &end)) = matrix
+            .row_ptrs()
+            .get(row_ordinal)
+            .zip(matrix.row_ptrs().get(next_row_ordinal))
+        else {
+            return false;
+        };
+        let Some(columns) = matrix.col_idcs().get(start..end) else {
+            return false;
+        };
+        let Some(values) = matrix.values().get(start..end) else {
+            return false;
+        };
+        if columns.len() != expected_len || values.len() != expected_len {
+            return false;
+        }
+
+        let mut expected_entries = expected_entries.into_iter();
+        for (&column, value) in columns.iter().zip(values) {
+            let Some((expected_column, expected_coefficient)) = expected_entries.next() else {
+                return false;
+            };
+            if column as usize != expected_column || value.0.as_ref() != expected_coefficient {
+                return false;
+            }
+        }
+        expected_entries.next().is_none()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn native_u_semantics_for_test(&self) -> Vec<Vec<(usize, ParametricCoefficient)>> {
+        native_matrix_semantics_for_test(self.native.u())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn native_l_semantics_for_test(&self) -> Vec<Vec<(usize, ParametricCoefficient)>> {
+        native_matrix_semantics_for_test(self.native.l())
     }
 
     pub(crate) fn context_fingerprint(&self) -> &str {
@@ -968,6 +1037,23 @@ fn persistent_stats(
         returned_trace_entries,
         coefficient_work: field.stats(),
     }
+}
+
+#[cfg(test)]
+fn native_matrix_semantics_for_test(
+    matrix: &symbolica::tensors::sparse::SparseMatrix<CheckedParametricField>,
+) -> Vec<Vec<(usize, ParametricCoefficient)>> {
+    matrix
+        .row_ptrs()
+        .windows(2)
+        .map(|bounds| {
+            matrix.col_idcs()[bounds[0]..bounds[1]]
+                .iter()
+                .zip(&matrix.values()[bounds[0]..bounds[1]])
+                .map(|(&column, value)| (column as usize, value.0.as_ref().clone()))
+                .collect()
+        })
+        .collect()
 }
 
 #[cfg(test)]

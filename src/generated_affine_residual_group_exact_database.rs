@@ -44,8 +44,13 @@ use crate::generated_affine_residual_group_solve_plan::{
 use crate::parametric_coefficient::insert_parametric_condition;
 use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
-    SymbolicaParametricSparseInputRow, SymbolicaParametricSparseLimits,
-    SymbolicaParametricSparseOutcome, SymbolicaParametricSparseStats, forward_reduce_last_row,
+    SymbolicaParametricSparseInputRow, SymbolicaPersistentSparseLimits,
+    SymbolicaPersistentSparseOutcome, SymbolicaPersistentSparseReducer,
+    SymbolicaPersistentSparseStats,
+};
+#[cfg(test)]
+use crate::parametric_coefficient::symbolica_sparse::{
+    SymbolicaParametricSparseLimits, SymbolicaParametricSparseOutcome, forward_reduce_last_row,
 };
 use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
@@ -106,12 +111,12 @@ fn take_fail_next_lookup_replacement_allocation_for_test() -> bool {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
-    /// Independent native-algebra envelope for the temporary Symbolica sparse
-    /// reconstruction. This is deliberately separate from `coefficient_work`:
+    /// Independent native-algebra envelope for one retained Symbolica sparse
+    /// fork. This is deliberately separate from `coefficient_work`:
     /// the latter meters the provenance/guard replay that alone may enter the
     /// retained database, while this budget meters Symbolica's differential
     /// authority transcript.
-    pub(crate) symbolica_sparse: SymbolicaParametricSparseLimits,
+    pub(crate) symbolica_sparse: SymbolicaPersistentSparseLimits,
     pub(crate) coefficient_work: ParametricCoefficientWorkLedgerLimits,
     /// Caller-owned budget for authenticating the retained solve plan before
     /// this database accepts its allocation identity. Keeping this inside the
@@ -139,8 +144,10 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
     /// vectors/deep coefficient payload, and empty replacement-buffer
     /// capacities. The complete uniquely retained source pipeline is charged
     /// once even when stage/recipe handles clone its outer `Arc`; plan/frame
-    /// ancestry is pointer-deduplicated. Earlier Symbolica arithmetic scratch
-    /// remains outside this retained-state bound.
+    /// ancestry is pointer-deduplicated. Symbolica's opaque retained reducer
+    /// heap (including the staged successor) and earlier arithmetic scratch
+    /// remain outside this byte bound; native entry counts are bounded by
+    /// `symbolica_sparse` instead.
     pub(crate) max_staged_live_retained_bytes: usize,
 }
 
@@ -148,11 +155,8 @@ impl Default for GeneratedAffineResidualGroupExactDatabaseLimits {
     fn default() -> Self {
         const LARGE_BYTES: usize = 256 * 1024 * 1024 * 1024;
         const MAX_PIVOTS: usize = 16_000_000;
-        let mut symbolica_sparse = SymbolicaParametricSparseLimits::default();
-        // A native forward-reduction request contains every retained pivot
-        // plus the candidate. Keep the candidate admissible when the database
-        // has reached its independent-pivot ceiling.
-        symbolica_sparse.max_rows = MAX_PIVOTS + 1;
+        let mut symbolica_sparse = SymbolicaPersistentSparseLimits::default();
+        symbolica_sparse.max_independent_rows_after = MAX_PIVOTS;
         Self {
             symbolica_sparse,
             coefficient_work: ParametricCoefficientWorkLedgerLimits::default(),
@@ -194,16 +198,16 @@ pub(crate) struct GeneratedAffineResidualGroupExactNativeSparseStageStats {
 }
 
 impl GeneratedAffineResidualGroupExactNativeSparseStageStats {
-    fn from_adapter(stats: SymbolicaParametricSparseStats) -> Self {
+    fn from_adapter(stats: SymbolicaPersistentSparseStats) -> Self {
         let coefficient_work = stats.coefficient_work();
         Self {
-            rows: stats.rows(),
-            physical_columns: stats.physical_columns(),
-            input_entries: stats.input_entries(),
+            rows: stats.independent_rows_before().saturating_add(1),
+            physical_columns: stats.physical_columns_after(),
+            input_entries: stats.candidate_input_entries(),
             prospective_native_output_entries: stats.prospective_native_output_entries(),
             observed_native_output_entries: stats.observed_native_output_entries(),
-            native_u_entries: stats.native_u_entries(),
-            native_l_entries: stats.native_l_entries(),
+            native_u_entries: stats.trial_native_u_entries_after(),
+            native_l_entries: stats.trial_native_l_entries_after(),
             returned_trace_entries: stats.returned_trace_entries(),
             coefficient_algebra_work: coefficient_work.algebra_work(),
             coefficient_exponent_entry_work: coefficient_work.exponent_entry_work(),
@@ -637,13 +641,14 @@ struct ExactUnitPivot {
     normalization_divisor: ParametricCoefficient,
 }
 
-/// Symbolica's owned algebra transcript plus the shallow-cloned physical keys
-/// needed to validate its normalized native row after guarded replay mutates
-/// the candidate. The temporary complete catalog itself contains only
-/// borrowed key pointers and is released before replay begins.
+/// Symbolica's owned algebra transcript plus normalized-key validation clones.
+/// An independent stage also owns the complete successor catalog that may move
+/// into the live database; a no-growth stage continues to borrow the live
+/// catalog and therefore carries no successor allocation.
 struct ExactDatabaseSymbolicaTranscript {
-    outcome: SymbolicaParametricSparseOutcome,
+    outcome: SymbolicaPersistentSparseOutcome,
     normalized_keys_hardest_first: Vec<GeneratedAffineResidualGroupPhysicalKey>,
+    successor_catalog_easiest_first: Option<Vec<GeneratedAffineResidualGroupPhysicalKey>>,
 }
 
 impl fmt::Debug for ExactUnitPivot {
@@ -1062,6 +1067,8 @@ enum ExactStagedRowPayload {
         pivot: Arc<ExactUnitPivot>,
         pivot_key: GeneratedAffineResidualGroupPhysicalKey,
         lookup_insertion: usize,
+        successor_reducer: SymbolicaPersistentSparseReducer,
+        successor_catalog_easiest_first: Option<Vec<GeneratedAffineResidualGroupPhysicalKey>>,
         committed_pivots: Vec<Arc<ExactUnitPivot>>,
         committed_lookup: Vec<ExactPivotLookupEntry>,
         committed_stats: GeneratedAffineResidualGroupExactDatabaseStats,
@@ -1085,6 +1092,7 @@ pub(crate) struct GeneratedAffineResidualGroupStagedExactRow {
     next_source_ordinal: usize,
     pivot_count: usize,
     lookup_len: usize,
+    catalog_len: usize,
     source: ExactStagedSource,
     payload: ExactStagedRowPayload,
 }
@@ -1125,7 +1133,7 @@ impl GeneratedAffineResidualGroupStagedExactRow {
 
     /// Successor telemetry sealed into this stage. Dropping the stage leaves
     /// the live database's aggregate unchanged. These metrics cover native
-    /// reconstruction volume and native coefficient work, not catalog sorting,
+    /// stage shape/fill and native coefficient work, not catalog sorting,
     /// key-comparison work, Rust metadata allocation, wall time, or RSS.
     pub(crate) const fn native_sparse_scaling_stats(
         &self,
@@ -1334,6 +1342,8 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     next_source_ordinal: usize,
     pivots: Vec<Arc<ExactUnitPivot>>,
     lookup: Vec<ExactPivotLookupEntry>,
+    symbolica_reducer: SymbolicaPersistentSparseReducer,
+    symbolica_catalog_easiest_first: Vec<GeneratedAffineResidualGroupPhysicalKey>,
     limits: GeneratedAffineResidualGroupExactDatabaseLimits,
     stats: GeneratedAffineResidualGroupExactDatabaseStats,
 }
@@ -1672,6 +1682,12 @@ impl GeneratedAffineResidualGroupExactDatabase {
             }
             plan.replay_retained_source(family, context, limits.solve_plan_replay)
                 .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::PlanReplay)?;
+            let symbolica_reducer = SymbolicaPersistentSparseReducer::try_new(
+                Arc::new(context.clone()),
+                0,
+                limits.symbolica_sparse,
+            )
+            .map_err(map_symbolica_sparse_error)?;
             let database_nonce = next_exact_database_nonce()?;
             let source_kind = plan.source_kind();
             Ok(Self {
@@ -1687,6 +1703,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 next_source_ordinal: 0,
                 pivots: Vec::new(),
                 lookup: Vec::new(),
+                symbolica_reducer,
+                symbolica_catalog_easiest_first: Vec::new(),
                 limits,
                 stats: GeneratedAffineResidualGroupExactDatabaseStats {
                     retained_database_bytes: size_of::<Self>(),
@@ -2184,7 +2202,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
         let candidate_was_empty = terms.is_empty();
         let native_transcript = symbolica_sparse_transcript(
             context,
-            &self.pivots,
+            &self.symbolica_reducer,
+            &self.symbolica_catalog_easiest_first,
             &terms,
             self.limits.symbolica_sparse,
         )?;
@@ -2287,7 +2306,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
         }
 
         match &native_transcript.outcome {
-            SymbolicaParametricSparseOutcome::Dependent {
+            SymbolicaPersistentSparseOutcome::Dependent {
                 canonical_zero_input,
                 ..
             } => {
@@ -2347,6 +2366,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     next_source_ordinal,
                     pivot_count: self.pivots.len(),
                     lookup_len: self.lookup.len(),
+                    catalog_len: self.symbolica_catalog_easiest_first.len(),
                     source,
                     payload: ExactStagedRowPayload::Dependent {
                         reductions,
@@ -2354,7 +2374,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     },
                 });
             }
-            SymbolicaParametricSparseOutcome::Independent {
+            SymbolicaPersistentSparseOutcome::Independent {
                 normalization_divisor,
                 ..
             } => {
@@ -2388,7 +2408,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             source_ordinal,
             self.limits,
         )?;
-        let SymbolicaParametricSparseOutcome::Independent {
+        let SymbolicaPersistentSparseOutcome::Independent {
             normalized_row,
             normalization_divisor: native_normalization_divisor,
             ..
@@ -2422,7 +2442,20 @@ impl GeneratedAffineResidualGroupExactDatabase {
             GeneratedAffineResidualGroupExactNativeSparseStageStats::from_adapter(
                 native_transcript.outcome.stats(),
             );
-        drop(native_transcript);
+        let ExactDatabaseSymbolicaTranscript {
+            outcome,
+            normalized_keys_hardest_first: _,
+            successor_catalog_easiest_first,
+        } = native_transcript;
+        let SymbolicaPersistentSparseOutcome::Independent {
+            successor: successor_reducer,
+            ..
+        } = outcome
+        else {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        };
         let pivot_key = terms
             .last()
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::InvalidUnitPivot)?
@@ -2461,11 +2494,17 @@ impl GeneratedAffineResidualGroupExactDatabase {
             observed_retained_bytes,
             self.limits.max_candidate_retained_bytes,
         )?;
+        let prospective_catalog_replacement_slots =
+            successor_catalog_easiest_first.as_ref().map_or(0, Vec::len);
+        let prospective_database_catalog_slots = successor_catalog_easiest_first
+            .as_ref()
+            .map_or(self.symbolica_catalog_easiest_first.capacity(), Vec::len);
         let prospective_staged_live_retained_bytes = new_pivot_staged_live_retained_bytes(
             self.stats.retained_database_bytes,
             &pivot,
             requested,
             requested,
+            prospective_catalog_replacement_slots,
             source.unique_retained_bytes()?,
         )?;
         check_limit(
@@ -2477,6 +2516,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             &self.pivots,
             requested,
             requested,
+            prospective_database_catalog_slots,
             Some(&pivot),
         )?;
         check_limit(
@@ -2498,11 +2538,19 @@ impl GeneratedAffineResidualGroupExactDatabase {
             );
         }
         let committed_lookup = try_lookup_replacement_with_capacity(requested)?;
+        let observed_catalog_replacement_slots = successor_catalog_easiest_first
+            .as_ref()
+            .map_or(0, Vec::capacity);
+        let observed_database_catalog_slots = successor_catalog_easiest_first.as_ref().map_or(
+            self.symbolica_catalog_easiest_first.capacity(),
+            Vec::capacity,
+        );
         let observed_staged_live_retained_bytes = new_pivot_staged_live_retained_bytes(
             self.stats.retained_database_bytes,
             &pivot,
             committed_pivots.capacity(),
             committed_lookup.capacity(),
+            observed_catalog_replacement_slots,
             source.unique_retained_bytes()?,
         )?;
         check_limit(
@@ -2514,6 +2562,7 @@ impl GeneratedAffineResidualGroupExactDatabase {
             &self.pivots,
             committed_pivots.capacity(),
             committed_lookup.capacity(),
+            observed_database_catalog_slots,
             Some(&pivot),
         )?;
         check_limit(
@@ -2553,11 +2602,14 @@ impl GeneratedAffineResidualGroupExactDatabase {
             next_source_ordinal,
             pivot_count: self.pivots.len(),
             lookup_len: self.lookup.len(),
+            catalog_len: self.symbolica_catalog_easiest_first.len(),
             source,
             payload: ExactStagedRowPayload::NewPivot {
                 pivot,
                 pivot_key,
                 lookup_insertion: insertion,
+                successor_reducer,
+                successor_catalog_easiest_first,
                 committed_pivots,
                 committed_lookup,
                 committed_stats,
@@ -2895,6 +2947,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
             pivot,
             pivot_key,
             lookup_insertion,
+            successor_reducer,
+            successor_catalog_easiest_first,
             mut committed_pivots,
             mut committed_lookup,
             committed_stats,
@@ -2917,6 +2971,10 @@ impl GeneratedAffineResidualGroupExactDatabase {
         committed_pivots.push(pivot);
         self.pivots = committed_pivots;
         self.lookup = committed_lookup;
+        self.symbolica_reducer = successor_reducer;
+        if let Some(successor_catalog_easiest_first) = successor_catalog_easiest_first {
+            self.symbolica_catalog_easiest_first = successor_catalog_easiest_first;
+        }
         self.stats = committed_stats;
         self.next_source_ordinal = next_source_ordinal;
         self.state_version = next_state_version;
@@ -2941,7 +2999,9 @@ impl GeneratedAffineResidualGroupExactDatabase {
             || self.next_source_ordinal != staged.source_ordinal
             || self.pivots.len() != staged.pivot_count
             || self.lookup.len() != staged.lookup_len
+            || self.symbolica_catalog_easiest_first.len() != staged.catalog_len
             || self.pivots.len() != self.lookup.len()
+            || !self.live_symbolica_shape_is_valid()
             || self.transition_identity != prepared.predecessor_transition_identity
             || staged.next_transition_identity == ExactDatabaseTransitionIdentity::PRISTINE
             || staged.next_transition_identity == prepared.predecessor_transition_identity
@@ -2971,6 +3031,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     pivot,
                     pivot_key,
                     lookup_insertion,
+                    successor_reducer,
+                    successor_catalog_easiest_first,
                     committed_pivots,
                     committed_lookup,
                     ..
@@ -2991,6 +3053,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     && committed_lookup.is_empty()
                     && committed_pivots.capacity() >= requested_pivots
                     && committed_lookup.capacity() >= requested_lookup
+                    && self.staged_symbolica_successor_is_valid(
+                        pivot,
+                        successor_reducer,
+                        successor_catalog_easiest_first.as_deref(),
+                    )
                     && *lookup_insertion <= self.lookup.len()
                     && self
                         .lookup
@@ -3018,12 +3085,13 @@ impl GeneratedAffineResidualGroupExactDatabase {
         if self.group_ordinal != staged.group_ordinal {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::WrongGroup);
         }
-        if self.pivots.len() != self.lookup.len() {
+        if self.pivots.len() != self.lookup.len() || !self.live_symbolica_shape_is_valid() {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow);
         }
         if self.state_version != staged.state_version
             || self.pivots.len() != staged.pivot_count
             || self.lookup.len() != staged.lookup_len
+            || self.symbolica_catalog_easiest_first.len() != staged.catalog_len
         {
             return Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow);
         }
@@ -3049,6 +3117,8 @@ impl GeneratedAffineResidualGroupExactDatabase {
             pivot,
             pivot_key,
             lookup_insertion,
+            successor_reducer,
+            successor_catalog_easiest_first,
             committed_pivots,
             committed_lookup,
             ..
@@ -3071,6 +3141,11 @@ impl GeneratedAffineResidualGroupExactDatabase {
                 || !committed_lookup.is_empty()
                 || committed_pivots.capacity() < requested_pivots
                 || committed_lookup.capacity() < requested_lookup
+                || !self.staged_symbolica_successor_is_valid(
+                    pivot,
+                    successor_reducer,
+                    successor_catalog_easiest_first.as_deref(),
+                )
                 || *lookup_insertion > self.lookup.len()
                 || self
                     .lookup
@@ -3081,6 +3156,93 @@ impl GeneratedAffineResidualGroupExactDatabase {
             }
         }
         Ok(())
+    }
+
+    fn live_symbolica_shape_is_valid(&self) -> bool {
+        self.symbolica_reducer.independent_rows() == self.pivots.len()
+            && self.symbolica_reducer.physical_columns()
+                == self.symbolica_catalog_easiest_first.len()
+            && self
+                .symbolica_catalog_easiest_first
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+    }
+
+    fn staged_symbolica_successor_is_valid(
+        &self,
+        pivot: &ExactUnitPivot,
+        successor: &SymbolicaPersistentSparseReducer,
+        successor_catalog: Option<&[GeneratedAffineResidualGroupPhysicalKey]>,
+    ) -> bool {
+        let Some(expected_rows) = self.pivots.len().checked_add(1) else {
+            return false;
+        };
+        if successor.independent_rows() != expected_rows
+            || successor.context_fingerprint() != self.symbolica_reducer.context_fingerprint()
+        {
+            return false;
+        }
+
+        let missing_keys = pivot
+            .terms
+            .iter()
+            .filter(|term| {
+                self.symbolica_catalog_easiest_first
+                    .binary_search(&term.key)
+                    .is_err()
+            })
+            .count();
+        let catalog = match (missing_keys, successor_catalog) {
+            (0, None) => self.symbolica_catalog_easiest_first.as_slice(),
+            (0, Some(_)) | (_, None) => return false,
+            (_, Some(catalog)) => {
+                if catalog.len()
+                    != self
+                        .symbolica_catalog_easiest_first
+                        .len()
+                        .checked_add(missing_keys)
+                        .unwrap_or(usize::MAX)
+                    || catalog.windows(2).any(|pair| pair[0] >= pair[1])
+                    || self
+                        .symbolica_catalog_easiest_first
+                        .iter()
+                        .any(|key| catalog.binary_search(key).is_err())
+                    || pivot
+                        .terms
+                        .iter()
+                        .any(|term| catalog.binary_search(&term.key).is_err())
+                {
+                    return false;
+                }
+                catalog
+            }
+        };
+        let Some(pivot_key) = pivot.terms.last().map(|term| &term.key) else {
+            return false;
+        };
+        let Ok(easiest_index) = catalog.binary_search(pivot_key) else {
+            return false;
+        };
+        let Some(native_column) = easiest_index
+            .checked_add(1)
+            .and_then(|offset| catalog.len().checked_sub(offset))
+        else {
+            return false;
+        };
+        if successor.physical_columns() != catalog.len()
+            || successor.pivot_row_for_physical_column(native_column) != Some(pivot.ordinal)
+        {
+            return false;
+        }
+
+        let expected_native_row = pivot.terms.iter().rev().filter_map(|term| {
+            let easiest_index = catalog.binary_search(&term.key).ok()?;
+            let native_column = easiest_index
+                .checked_add(1)
+                .and_then(|offset| catalog.len().checked_sub(offset))?;
+            Some((native_column, &term.coefficient))
+        });
+        successor.normalized_u_row_matches(pivot.ordinal, pivot.terms.len(), expected_native_row)
     }
 
     fn lookup_ordinal(&self, key: &GeneratedAffineResidualGroupPhysicalKey) -> Option<usize> {
@@ -3330,94 +3492,130 @@ fn map_symbolica_sparse_error(
     }
 }
 
-/// Reconstruct the retained normalized basis and ask Symbolica for the one
-/// authoritative forward transcript. Physical keys are catalogued globally in
-/// easiest-to-hardest order, while native columns run in the opposite
-/// direction so Symbolica's leftmost pivot is RustRed's hardest term.
+/// Fork the retained Symbolica basis and ask it for one authoritative forward
+/// transcript. The persistent physical catalog follows RustRed's canonical
+/// easiest-to-hardest order, while native columns use the reverse order so
+/// Symbolica's leftmost pivot is RustRed's hardest term. New keys become
+/// ordered native-column insertions; only an independent outcome may carry the
+/// resulting catalog and reducer successor.
 fn symbolica_sparse_transcript(
     context: &ParametricCoefficientContext,
-    pivots: &[Arc<ExactUnitPivot>],
+    reducer: &SymbolicaPersistentSparseReducer,
+    catalog_easiest_first: &[GeneratedAffineResidualGroupPhysicalKey],
     candidate: &[ExactDatabaseTerm],
-    limits: SymbolicaParametricSparseLimits,
+    limits: SymbolicaPersistentSparseLimits,
 ) -> Result<ExactDatabaseSymbolicaTranscript, GeneratedAffineResidualGroupExactDatabaseError> {
-    let prior_input_entries = pivots.iter().try_fold(0usize, |total, pivot| {
-        total.checked_add(pivot.terms.len()).ok_or(
+    if reducer.context_fingerprint() != context.fingerprint()
+        || reducer.physical_columns() != catalog_easiest_first.len()
+        || catalog_easiest_first
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch);
+    }
+    check_limit(
+        "persistent Symbolica sparse candidate input entries",
+        candidate.len(),
+        limits.max_candidate_input_entries,
+    )?;
+
+    let mut new_column_count = 0usize;
+    for term in candidate {
+        if catalog_easiest_first.binary_search(&term.key).is_err() {
+            new_column_count = new_column_count.checked_add(1).ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                    resource: "persistent Symbolica sparse inserted columns",
+                },
+            )?;
+        }
+    }
+    check_limit(
+        "persistent Symbolica sparse inserted columns",
+        new_column_count,
+        limits.max_new_columns,
+    )?;
+    let physical_columns_after = catalog_easiest_first
+        .len()
+        .checked_add(new_column_count)
+        .ok_or(
             GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
-                resource: "Symbolica exact-group prior sparse input entries",
+                resource: "persistent Symbolica sparse physical columns after insertion",
             },
-        )
-    })?;
-    let input_entries = prior_input_entries.checked_add(candidate.len()).ok_or(
-        GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
-            resource: "Symbolica exact-group sparse input entries",
-        },
-    )?;
-    let rows = pivots.len().checked_add(1).ok_or(
-        GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
-            resource: "Symbolica exact-group sparse rows",
-        },
-    )?;
-    check_limit("Symbolica parametric sparse rows", rows, limits.max_rows)?;
+        )?;
     check_limit(
-        "Symbolica parametric sparse input entries",
-        input_entries,
-        limits.max_input_entries,
+        "persistent Symbolica sparse physical columns after insertion",
+        physical_columns_after,
+        limits.max_physical_columns_after,
     )?;
 
-    let mut catalog: Vec<&GeneratedAffineResidualGroupPhysicalKey> = Vec::new();
-    catalog.try_reserve_exact(input_entries).map_err(|_| {
-        GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
-            resource: "Symbolica exact-group physical-key catalog",
+    let mut insertions = Vec::new();
+    insertions
+        .try_reserve_exact(new_column_count)
+        .map_err(
+            |_| GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                resource: "Symbolica exact-group persistent column insertions",
+            },
+        )?;
+    let mut new_keys_easiest_first = Vec::new();
+    new_keys_easiest_first
+        .try_reserve_exact(new_column_count)
+        .map_err(
+            |_| GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                resource: "Symbolica exact-group new physical keys",
+            },
+        )?;
+    for term in candidate {
+        if catalog_easiest_first.binary_search(&term.key).is_err() {
+            new_keys_easiest_first.push(&term.key);
         }
-    })?;
-    for pivot in pivots {
-        catalog.extend(pivot.terms.iter().map(|term| &term.key));
     }
-    catalog.extend(candidate.iter().map(|term| &term.key));
-    catalog.sort_unstable();
-    catalog.dedup();
-    check_limit(
-        "Symbolica parametric sparse physical columns",
-        catalog.len(),
-        limits.max_physical_columns,
-    )?;
+    for key in new_keys_easiest_first.iter().rev() {
+        let easiest_insertion = catalog_easiest_first.partition_point(|old| old < *key);
+        insertions.push(catalog_easiest_first.len() - easiest_insertion);
+    }
 
-    let mut prior_rows = Vec::new();
-    prior_rows.try_reserve_exact(pivots.len()).map_err(|_| {
-        GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
-            resource: "Symbolica exact-group prior sparse rows",
-        }
-    })?;
-    for pivot in pivots {
-        let mut entries = Vec::new();
-        entries.try_reserve_exact(pivot.terms.len()).map_err(|_| {
-            GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
-                resource: "Symbolica exact-group prior sparse-row entries",
+    let successor_catalog_easiest_first = if new_keys_easiest_first.is_empty() {
+        None
+    } else {
+        let mut merged = Vec::new();
+        merged
+            .try_reserve_exact(physical_columns_after)
+            .map_err(
+                |_| GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                    resource: "Symbolica exact-group successor physical-key catalog",
+                },
+            )?;
+        let mut old_ordinal = 0usize;
+        let mut new_ordinal = 0usize;
+        while old_ordinal < catalog_easiest_first.len()
+            && new_ordinal < new_keys_easiest_first.len()
+        {
+            if catalog_easiest_first[old_ordinal] < *new_keys_easiest_first[new_ordinal] {
+                merged.push(catalog_easiest_first[old_ordinal].clone());
+                old_ordinal += 1;
+            } else {
+                merged.push(new_keys_easiest_first[new_ordinal].clone());
+                new_ordinal += 1;
             }
-        })?;
-        for term in pivot.terms.iter().rev() {
-            let easiest_index = catalog
-                .binary_search_by(|key| (*key).cmp(&term.key))
-                .map_err(|_| {
-                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
-                })?;
-            let column = catalog
-                .len()
-                .checked_sub(easiest_index.checked_add(1).ok_or(
-                    GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
-                        resource: "Symbolica exact-group native column",
-                    },
-                )?)
-                .ok_or(
-                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
-                )?;
-            entries.push(SymbolicaParametricSparseInputEntry::new(
-                column,
-                &term.coefficient,
-            ));
         }
-        prior_rows.push(SymbolicaParametricSparseInputRow::new(entries));
-    }
+        merged.extend(catalog_easiest_first[old_ordinal..].iter().cloned());
+        merged.extend(
+            new_keys_easiest_first[new_ordinal..]
+                .iter()
+                .map(|key| (*key).clone()),
+        );
+        if merged.len() != physical_columns_after
+            || merged.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        }
+        Some(merged)
+    };
+    let catalog_after = successor_catalog_easiest_first
+        .as_deref()
+        .unwrap_or(catalog_easiest_first);
 
     let mut candidate_entries = Vec::new();
     candidate_entries
@@ -3428,16 +3626,14 @@ fn symbolica_sparse_transcript(
             },
         )?;
     for term in candidate.iter().rev() {
-        let easiest_index = catalog
-            .binary_search_by(|key| (*key).cmp(&term.key))
-            .map_err(|_| {
-                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
-            })?;
-        let column = catalog
+        let easiest_index = catalog_after.binary_search(&term.key).map_err(|_| {
+            GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+        })?;
+        let column = catalog_after
             .len()
             .checked_sub(easiest_index.checked_add(1).ok_or(
                 GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
-                    resource: "Symbolica exact-group native column",
+                    resource: "Symbolica exact-group native candidate column",
                 },
             )?)
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch)?;
@@ -3448,16 +3644,25 @@ fn symbolica_sparse_transcript(
     }
     let candidate_row = SymbolicaParametricSparseInputRow::new(candidate_entries);
 
-    let outcome =
-        forward_reduce_last_row(context, catalog.len(), &prior_rows, &candidate_row, limits)
-            .map_err(map_symbolica_sparse_error)?;
+    let outcome = reducer
+        .try_stage_row(&insertions, &candidate_row, limits)
+        .map_err(map_symbolica_sparse_error)?;
     let mut normalized_keys_hardest_first = Vec::new();
-    if let SymbolicaParametricSparseOutcome::Independent {
+    if let SymbolicaPersistentSparseOutcome::Independent {
+        successor,
         pivot_column,
         normalized_row,
         ..
     } = &outcome
     {
+        if successor.physical_columns() != catalog_after.len()
+            || successor.independent_rows() != reducer.independent_rows().saturating_add(1)
+            || successor.context_fingerprint() != reducer.context_fingerprint()
+        {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        }
         normalized_keys_hardest_first
             .try_reserve_exact(normalized_row.entries().len())
             .map_err(
@@ -3466,7 +3671,7 @@ fn symbolica_sparse_transcript(
                 },
             )?;
         for entry in normalized_row.entries() {
-            let easiest_index = catalog
+            let easiest_index = catalog_after
                 .len()
                 .checked_sub(entry.column().checked_add(1).ok_or(
                     GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
@@ -3476,12 +3681,12 @@ fn symbolica_sparse_transcript(
                 .ok_or(
                     GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
                 )?;
-            let key = catalog.get(easiest_index).ok_or(
+            let key = catalog_after.get(easiest_index).ok_or(
                 GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
             )?;
-            normalized_keys_hardest_first.push((*key).clone());
+            normalized_keys_hardest_first.push(key.clone());
         }
-        let pivot_easiest_index = catalog
+        let pivot_easiest_index = catalog_after
             .len()
             .checked_sub(pivot_column.checked_add(1).ok_or(
                 GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
@@ -3489,13 +3694,112 @@ fn symbolica_sparse_transcript(
                 },
             )?)
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch)?;
+        if normalized_keys_hardest_first.first() != catalog_after.get(pivot_easiest_index) {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        }
+    } else if successor_catalog_easiest_first.is_some() {
+        return Err(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch);
+    }
+    Ok(ExactDatabaseSymbolicaTranscript {
+        outcome,
+        normalized_keys_hardest_first,
+        successor_catalog_easiest_first,
+    })
+}
+
+/// Test-only glue oracle retaining the former rebuild-every-stage path. It is
+/// deliberately absent from production; integration tests compare only its
+/// algebraic transcript with the persistent path, never its reconstruction
+/// telemetry.
+#[cfg(test)]
+struct ExactDatabaseRebuildingSymbolicaTranscript {
+    outcome: SymbolicaParametricSparseOutcome,
+    normalized_keys_hardest_first: Vec<GeneratedAffineResidualGroupPhysicalKey>,
+}
+
+#[cfg(test)]
+fn rebuilding_symbolica_sparse_transcript(
+    context: &ParametricCoefficientContext,
+    pivots: &[Arc<ExactUnitPivot>],
+    candidate: &[ExactDatabaseTerm],
+) -> Result<
+    ExactDatabaseRebuildingSymbolicaTranscript,
+    GeneratedAffineResidualGroupExactDatabaseError,
+> {
+    let mut catalog: Vec<&GeneratedAffineResidualGroupPhysicalKey> = pivots
+        .iter()
+        .flat_map(|pivot| pivot.terms.iter().map(|term| &term.key))
+        .chain(candidate.iter().map(|term| &term.key))
+        .collect();
+    catalog.sort_unstable();
+    catalog.dedup();
+
+    let mut prior_rows = Vec::with_capacity(pivots.len());
+    for pivot in pivots {
+        let mut entries = Vec::with_capacity(pivot.terms.len());
+        for term in pivot.terms.iter().rev() {
+            let easiest_index = catalog
+                .binary_search_by(|key| (*key).cmp(&term.key))
+                .map_err(|_| {
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+                })?;
+            let column = catalog.len() - 1 - easiest_index;
+            entries.push(SymbolicaParametricSparseInputEntry::new(
+                column,
+                &term.coefficient,
+            ));
+        }
+        prior_rows.push(SymbolicaParametricSparseInputRow::new(entries));
+    }
+
+    let mut candidate_entries = Vec::with_capacity(candidate.len());
+    for term in candidate.iter().rev() {
+        let easiest_index = catalog
+            .binary_search_by(|key| (*key).cmp(&term.key))
+            .map_err(|_| {
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+            })?;
+        candidate_entries.push(SymbolicaParametricSparseInputEntry::new(
+            catalog.len() - 1 - easiest_index,
+            &term.coefficient,
+        ));
+    }
+    let candidate_row = SymbolicaParametricSparseInputRow::new(candidate_entries);
+    let outcome = forward_reduce_last_row(
+        context,
+        catalog.len(),
+        &prior_rows,
+        &candidate_row,
+        SymbolicaParametricSparseLimits::default(),
+    )
+    .map_err(map_symbolica_sparse_error)?;
+    let mut normalized_keys_hardest_first = Vec::new();
+    if let SymbolicaParametricSparseOutcome::Independent {
+        pivot_column,
+        normalized_row,
+        ..
+    } = &outcome
+    {
+        normalized_keys_hardest_first.reserve(normalized_row.entries().len());
+        for entry in normalized_row.entries() {
+            let easiest_index = catalog.len() - 1 - entry.column();
+            normalized_keys_hardest_first.push(
+                (*catalog.get(easiest_index).ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                )?)
+                .clone(),
+            );
+        }
+        let pivot_easiest_index = catalog.len() - 1 - pivot_column;
         if normalized_keys_hardest_first.first() != catalog.get(pivot_easiest_index).copied() {
             return Err(
                 GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
             );
         }
     }
-    Ok(ExactDatabaseSymbolicaTranscript {
+    Ok(ExactDatabaseRebuildingSymbolicaTranscript {
         outcome,
         normalized_keys_hardest_first,
     })
@@ -4052,6 +4356,7 @@ fn new_pivot_staged_live_retained_bytes(
     pivot: &Arc<ExactUnitPivot>,
     pivot_replacement_slots: usize,
     lookup_replacement_slots: usize,
+    catalog_replacement_slots: usize,
     source_unique_retained_bytes: usize,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
     const RESOURCE: &str = "exact-group staged live retained bytes";
@@ -4072,17 +4377,26 @@ fn new_pivot_staged_live_retained_bytes(
                 lookup_replacement_slots,
                 size_of::<ExactPivotLookupEntry>(),
             )?,
+            checked_mul(
+                RESOURCE,
+                catalog_replacement_slots,
+                size_of::<GeneratedAffineResidualGroupPhysicalKey>(),
+            )?,
         ],
     )
 }
 
-/// Complete persistent database ownership under explicit outer-vector
-/// capacities. Deep lookup-key payload is excluded because each lookup key is
-/// a shallow clone of the leader key already charged by its pivot terms.
+/// Rust-visible persistent database ownership under explicit outer-vector
+/// capacities. Deep lookup/catalog-key payload is excluded because those keys
+/// shallow-clone payload already charged by pivot terms. Symbolica's opaque
+/// reducer heap is bounded separately by exact native-entry limits; its private
+/// scratch capacities are not exposed by the public API and are not claimed by
+/// this byte census.
 fn database_retained_bytes_with_candidate(
     pivots: &[Arc<ExactUnitPivot>],
     pivot_capacity: usize,
     lookup_capacity: usize,
+    catalog_capacity: usize,
     candidate: Option<&Arc<ExactUnitPivot>>,
 ) -> Result<usize, GeneratedAffineResidualGroupExactDatabaseError> {
     const RESOURCE: &str = "exact-group database retained bytes";
@@ -4103,6 +4417,11 @@ fn database_retained_bytes_with_candidate(
                 RESOURCE,
                 lookup_capacity,
                 size_of::<ExactPivotLookupEntry>(),
+            )?,
+            checked_mul(
+                RESOURCE,
+                catalog_capacity,
+                size_of::<GeneratedAffineResidualGroupPhysicalKey>(),
             )?,
         ],
     )?;
@@ -4748,6 +5067,15 @@ mod tests {
         pivot_capacity: usize,
         lookup: Vec<ExactPivotLookupEntry>,
         lookup_capacity: usize,
+        symbolica_catalog: Vec<GeneratedAffineResidualGroupPhysicalKey>,
+        symbolica_catalog_capacity: usize,
+        symbolica_physical_columns: usize,
+        symbolica_independent_rows: usize,
+        symbolica_u_entries: usize,
+        symbolica_l_entries: usize,
+        symbolica_u_semantics: Vec<Vec<(usize, ParametricCoefficient)>>,
+        symbolica_l_semantics: Vec<Vec<(usize, ParametricCoefficient)>>,
+        symbolica_pivots: Vec<Option<usize>>,
         stats: GeneratedAffineResidualGroupExactDatabaseStats,
     }
 
@@ -4762,6 +5090,21 @@ mod tests {
             pivot_capacity: database.pivots.capacity(),
             lookup: database.lookup.clone(),
             lookup_capacity: database.lookup.capacity(),
+            symbolica_catalog: database.symbolica_catalog_easiest_first.clone(),
+            symbolica_catalog_capacity: database.symbolica_catalog_easiest_first.capacity(),
+            symbolica_physical_columns: database.symbolica_reducer.physical_columns(),
+            symbolica_independent_rows: database.symbolica_reducer.independent_rows(),
+            symbolica_u_entries: database.symbolica_reducer.native_u_entries(),
+            symbolica_l_entries: database.symbolica_reducer.native_l_entries(),
+            symbolica_u_semantics: database.symbolica_reducer.native_u_semantics_for_test(),
+            symbolica_l_semantics: database.symbolica_reducer.native_l_semantics_for_test(),
+            symbolica_pivots: (0..database.symbolica_reducer.physical_columns())
+                .map(|column| {
+                    database
+                        .symbolica_reducer
+                        .pivot_row_for_physical_column(column)
+                })
+                .collect(),
             stats: database.stats(),
         }
     }
@@ -4777,15 +5120,146 @@ mod tests {
         assert_eq!(database.pivots.capacity(), before.pivot_capacity);
         assert!(database.lookup == before.lookup);
         assert_eq!(database.lookup.capacity(), before.lookup_capacity);
+        assert_eq!(
+            database.symbolica_catalog_easiest_first,
+            before.symbolica_catalog
+        );
+        assert_eq!(
+            database.symbolica_catalog_easiest_first.capacity(),
+            before.symbolica_catalog_capacity
+        );
+        assert_eq!(
+            database.symbolica_reducer.physical_columns(),
+            before.symbolica_physical_columns
+        );
+        assert_eq!(
+            database.symbolica_reducer.independent_rows(),
+            before.symbolica_independent_rows
+        );
+        assert_eq!(
+            database.symbolica_reducer.native_u_entries(),
+            before.symbolica_u_entries
+        );
+        assert_eq!(
+            database.symbolica_reducer.native_l_entries(),
+            before.symbolica_l_entries
+        );
+        assert_eq!(
+            database.symbolica_reducer.native_u_semantics_for_test(),
+            before.symbolica_u_semantics
+        );
+        assert_eq!(
+            database.symbolica_reducer.native_l_semantics_for_test(),
+            before.symbolica_l_semantics
+        );
+        assert_eq!(
+            (0..database.symbolica_reducer.physical_columns())
+                .map(|column| database
+                    .symbolica_reducer
+                    .pivot_row_for_physical_column(column))
+                .collect::<Vec<_>>(),
+            before.symbolica_pivots
+        );
         assert_eq!(database.stats(), before.stats);
     }
 
+    fn exact_candidate(
+        terms: &[(
+            GeneratedAffineResidualGroupPhysicalKey,
+            ParametricCoefficient,
+        )],
+    ) -> Vec<ExactDatabaseTerm> {
+        terms
+            .iter()
+            .map(|(key, coefficient)| ExactDatabaseTerm {
+                key: key.clone(),
+                coefficient: coefficient.clone(),
+            })
+            .collect()
+    }
+
+    fn assert_persistent_matches_rebuilding(
+        database: &GeneratedAffineResidualGroupExactDatabase,
+        context: &ParametricCoefficientContext,
+        terms: &[(
+            GeneratedAffineResidualGroupPhysicalKey,
+            ParametricCoefficient,
+        )],
+    ) {
+        let candidate = exact_candidate(terms);
+        let persistent = symbolica_sparse_transcript(
+            context,
+            &database.symbolica_reducer,
+            &database.symbolica_catalog_easiest_first,
+            &candidate,
+            database.limits.symbolica_sparse,
+        )
+        .unwrap();
+        let rebuilding =
+            rebuilding_symbolica_sparse_transcript(context, &database.pivots, &candidate).unwrap();
+        assert_eq!(
+            persistent.normalized_keys_hardest_first,
+            rebuilding.normalized_keys_hardest_first
+        );
+        match (&persistent.outcome, &rebuilding.outcome) {
+            (
+                SymbolicaPersistentSparseOutcome::Dependent {
+                    reductions: persistent_reductions,
+                    canonical_zero_input: persistent_zero,
+                    ..
+                },
+                SymbolicaParametricSparseOutcome::Dependent {
+                    reductions: rebuilding_reductions,
+                    canonical_zero_input: rebuilding_zero,
+                    ..
+                },
+            ) => {
+                assert_eq!(persistent_reductions, rebuilding_reductions);
+                assert_eq!(persistent_zero, rebuilding_zero);
+            }
+            (
+                SymbolicaPersistentSparseOutcome::Independent {
+                    pivot_column: persistent_pivot,
+                    normalized_row: persistent_row,
+                    reductions: persistent_reductions,
+                    normalization_divisor: persistent_divisor,
+                    ..
+                },
+                SymbolicaParametricSparseOutcome::Independent {
+                    pivot_column: rebuilding_pivot,
+                    normalized_row: rebuilding_row,
+                    reductions: rebuilding_reductions,
+                    normalization_divisor: rebuilding_divisor,
+                    ..
+                },
+            ) => {
+                assert_eq!(persistent_pivot, rebuilding_pivot);
+                assert_eq!(persistent_row, rebuilding_row);
+                assert_eq!(persistent_reductions, rebuilding_reductions);
+                assert_eq!(persistent_divisor, rebuilding_divisor);
+            }
+            _ => panic!("persistent and rebuilding Symbolica paths disagree on disposition"),
+        }
+    }
+
+    fn assert_complete_symbolica_catalog(database: &GeneratedAffineResidualGroupExactDatabase) {
+        let mut expected = database
+            .pivots
+            .iter()
+            .flat_map(|pivot| pivot.terms.iter().map(|term| term.key.clone()))
+            .collect::<Vec<_>>();
+        expected.sort();
+        expected.dedup();
+        assert_eq!(database.symbolica_catalog_easiest_first, expected);
+        assert!(database.live_symbolica_shape_is_valid());
+    }
+
     #[test]
-    fn default_native_row_budget_includes_candidate_at_pivot_ceiling() {
+    fn default_native_rank_budget_matches_pivot_ceiling() {
         let limits = GeneratedAffineResidualGroupExactDatabaseLimits::default();
         assert_eq!(
-            limits.symbolica_sparse.max_rows,
-            limits.max_pivots.checked_add(1).unwrap()
+            limits.symbolica_sparse.max_independent_rows_after,
+            limits.max_pivots
         );
     }
 
@@ -5346,6 +5820,97 @@ mod tests {
             Err(GeneratedAffineResidualGroupExactDatabaseError::StaleStagedRow)
         );
         assert_database_state_unchanged(&database, &committed);
+    }
+
+    #[test]
+    fn staged_row_rejects_same_shape_sibling_successor_swap() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-staged-successor-sibling-swap");
+        let mut first = database
+            .stage_test_terms(
+                &context,
+                vec![
+                    (keys[0].clone(), context.one()),
+                    (keys[1].clone(), context.one()),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+        let mut second = database
+            .stage_test_terms(
+                &context,
+                vec![
+                    (keys[0].clone(), context.integer(2)),
+                    (keys[1].clone(), context.one()),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+
+        assert!(
+            database
+                .authenticate_staged_new_pivot_for_test(&first)
+                .is_ok()
+        );
+        assert!(
+            database
+                .authenticate_staged_new_pivot_for_test(&second)
+                .is_ok()
+        );
+        let (
+            ExactStagedRowPayload::NewPivot {
+                successor_reducer: first_successor,
+                successor_catalog_easiest_first: first_catalog,
+                ..
+            },
+            ExactStagedRowPayload::NewPivot {
+                successor_reducer: second_successor,
+                successor_catalog_easiest_first: second_catalog,
+                ..
+            },
+        ) = (&mut first.payload, &mut second.payload)
+        else {
+            panic!("both unknown hardest keys must stage same-shape pivots")
+        };
+        assert_eq!(first_catalog, second_catalog);
+        assert_eq!(
+            first_successor.physical_columns(),
+            second_successor.physical_columns()
+        );
+        assert_eq!(
+            first_successor.independent_rows(),
+            second_successor.independent_rows()
+        );
+        assert_eq!(
+            first_successor.native_u_entries(),
+            second_successor.native_u_entries()
+        );
+        assert_eq!(
+            first_successor.native_l_entries(),
+            second_successor.native_l_entries()
+        );
+        std::mem::swap(first_successor, second_successor);
+
+        let before = database_state_snapshot(&database);
+        assert!(matches!(
+            database.authenticate_staged_new_pivot_for_test(&first),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
+        ));
+        assert!(matches!(
+            database.authenticate_staged_new_pivot_for_test(&second),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
+        ));
+        assert_database_state_unchanged(&database, &before);
+        assert_eq!(
+            database.commit_staged_row_for_test(first),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
+        );
+        assert_database_state_unchanged(&database, &before);
+        assert_eq!(
+            database.commit_staged_row_for_test(second),
+            Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidStagedRow)
+        );
+        assert_database_state_unchanged(&database, &before);
     }
 
     #[test]
@@ -6058,13 +6623,13 @@ mod tests {
         database
             .limits
             .symbolica_sparse
-            .max_native_output_entry_envelope = 1;
+            .max_prospective_native_output_entries = 1;
         assert_eq!(
             database
                 .stage_test_terms(&context, vec![(key.clone(), context.one())], Vec::new(),)
                 .unwrap_err(),
             GeneratedAffineResidualGroupExactDatabaseError::ResourceLimit {
-                resource: "prospective Symbolica parametric sparse native output entries",
+                resource: "prospective persistent Symbolica sparse native output entries",
                 requested: 2,
                 limit: 1,
             }
@@ -6074,7 +6639,7 @@ mod tests {
         database
             .limits
             .symbolica_sparse
-            .max_native_output_entry_envelope = 2;
+            .max_prospective_native_output_entries = 2;
         assert_eq!(
             database
                 .ingest_test_terms(&context, vec![(key, context.one())], Vec::new())
@@ -6195,7 +6760,9 @@ mod tests {
         assert!(!successor.cumulative_saturated());
         assert_eq!(last.rows(), 2);
         assert_eq!(last.physical_columns(), 1);
-        assert_eq!(last.input_entries(), 2);
+        // Persistent staging copies only the candidate; historical rows stay
+        // resident in Symbolica and are no longer counted as input replay.
+        assert_eq!(last.input_entries(), 1);
         assert_eq!(last.prospective_native_output_entries(), 5);
         assert_eq!(last.observed_native_output_entries(), 3);
         assert_eq!(last.native_u_entries(), 1);
@@ -6365,6 +6932,115 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(easiest, context.integer(-1)), (middle, context.one())]
         );
+    }
+
+    #[test]
+    fn persistent_database_mixed_catalog_sequence_matches_rebuilding_oracle_stage_by_stage() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-persistent-mixed-catalog-oracle");
+        assert!(keys.len() >= 9);
+
+        let empty = Vec::new();
+        let pristine = database_state_snapshot(&database);
+        assert_persistent_matches_rebuilding(&database, &context, &empty);
+        assert_database_state_unchanged(&database, &pristine);
+        assert_complete_symbolica_catalog(&database);
+
+        let index = context.index(0).unwrap();
+        let numerator = context.add(&index, &context.integer(2)).unwrap();
+        let denominator = context.add(&index, &context.integer(1)).unwrap();
+        let rational = context.checked_div(&numerator, &denominator).unwrap();
+        let first = vec![
+            (keys[1].clone(), rational.clone()),
+            (keys[7].clone(), context.one()),
+        ];
+        assert_persistent_matches_rebuilding(&database, &context, &first);
+        assert!(matches!(
+            database
+                .ingest_test_terms(&context, first, Vec::new())
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot { .. }
+        ));
+        assert_eq!(
+            database.symbolica_catalog_easiest_first,
+            [keys[1].clone(), keys[7].clone()]
+        );
+        assert_complete_symbolica_catalog(&database);
+
+        // The known hardest key reduces away and exposes an already catalogued
+        // tail as a new pivot. No catalog replacement or allocation is needed.
+        let catalog_pointer = database.symbolica_catalog_easiest_first.as_ptr();
+        let catalog_capacity = database.symbolica_catalog_easiest_first.capacity();
+        let exposed_tail = vec![
+            (
+                keys[1].clone(),
+                context.add(&rational, &context.one()).unwrap(),
+            ),
+            (keys[7].clone(), context.one()),
+        ];
+        assert_persistent_matches_rebuilding(&database, &context, &exposed_tail);
+        database
+            .ingest_test_terms(&context, exposed_tail, Vec::new())
+            .unwrap();
+        assert_eq!(
+            database.symbolica_catalog_easiest_first.as_ptr(),
+            catalog_pointer
+        );
+        assert_eq!(
+            database.symbolica_catalog_easiest_first.capacity(),
+            catalog_capacity
+        );
+        assert_complete_symbolica_catalog(&database);
+
+        // Both keys enter the same old-catalog gap. The persistent adapter
+        // therefore receives duplicate old-coordinate insertion positions.
+        let same_gap = vec![
+            (keys[3].clone(), context.one()),
+            (keys[4].clone(), context.one()),
+        ];
+        assert_persistent_matches_rebuilding(&database, &context, &same_gap);
+        database
+            .ingest_test_terms(&context, same_gap, Vec::new())
+            .unwrap();
+        assert_eq!(
+            database.symbolica_catalog_easiest_first,
+            [
+                keys[1].clone(),
+                keys[3].clone(),
+                keys[4].clone(),
+                keys[7].clone(),
+            ]
+        );
+        assert_complete_symbolica_catalog(&database);
+
+        let new_easiest = vec![(keys[0].clone(), context.one())];
+        assert_persistent_matches_rebuilding(&database, &context, &new_easiest);
+        database
+            .ingest_test_terms(&context, new_easiest, Vec::new())
+            .unwrap();
+        assert_complete_symbolica_catalog(&database);
+
+        let new_hardest = vec![(keys[8].clone(), context.one())];
+        assert_persistent_matches_rebuilding(&database, &context, &new_hardest);
+        database
+            .ingest_test_terms(&context, new_hardest, Vec::new())
+            .unwrap();
+        assert_complete_symbolica_catalog(&database);
+
+        let multi_pivot_dependent = vec![
+            (keys[0].clone(), context.one()),
+            (keys[8].clone(), context.one()),
+        ];
+        assert_persistent_matches_rebuilding(&database, &context, &multi_pivot_dependent);
+        let outcome = database
+            .ingest_test_terms(&context, multi_pivot_dependent, Vec::new())
+            .unwrap();
+        let GeneratedAffineResidualGroupExactRowOutcome::Dependent { reductions, .. } = outcome
+        else {
+            panic!("the sum of two unit pivots must be dependent")
+        };
+        assert_eq!(reductions.len(), 2);
+        assert_complete_symbolica_catalog(&database);
     }
 
     #[test]
@@ -7000,6 +7676,7 @@ mod tests {
                 &database.pivots,
                 database.pivots.capacity(),
                 database.lookup.capacity(),
+                database.symbolica_catalog_easiest_first.capacity(),
                 None,
             )
             .unwrap()

@@ -25,10 +25,6 @@ use crate::parametric_elimination::{
     ParametricCoefficientWorkStats,
 };
 
-// This adapter is intentionally private and not integrated into the live
-// database yet. Keeping the allowance here makes that staging explicit while
-// focused tests exercise the complete seam.
-#[allow(dead_code)]
 mod persistent;
 
 #[allow(unused_imports)]

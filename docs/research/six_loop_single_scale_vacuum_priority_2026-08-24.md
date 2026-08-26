@@ -283,9 +283,12 @@ source-profiled exact-session recentering without a fake inventory. Stable
 value remains distinct from exact terminal/authority/frame/session `Arc`
 ancestry. Authenticated lower-arity constrained Direct maps now reach
 `ReadyForConditions`; independent default-GMP run
-`b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. Next is a
-transactional temporary Symbolica-reducer correctness bridge followed by
-owning exceptional and subsector scheduling to close the published domains.
+`b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. At that
+historical checkpoint, the next steps were a transactional temporary Symbolica-
+reducer correctness bridge followed by owning exceptional and subsector
+scheduling to close the published domains. Both the bridge and its live retained
+reducer/catalog successor are now complete, so owning exceptional and subsector
+scheduling is the remaining next step.
 No arity-21 Direct input has reached Ready,
 and no Direct input has reached reduction, closed/durable guarded-rule
 publication, or six-loop topology support.
@@ -302,28 +305,28 @@ direct high-loop entry and affine adapter must not invoke it.
 
 Native Symbolica dense and sparse solves must also replace the older custom
 `exact_sparse_elimination` wherever the public API is applicable. The live
-generated-affine exact database now uses the checked borrowed-input boundary
-over public `SparseRowReducer`: each stage constructs the complete
-physical-key catalog, maps hardest keys to the lowest native columns, rebuilds
-the immutable normalized pivots with one unused full-rank sentinel, and runs
-`LuLMode::Full`. Symbolica authoritatively returns the ordered, potentially
-nonmonotone pivot factors and the dependent/independent outcome. RustRed's
-guarded subtraction and normalization path replays that transcript to retain
-provenance and differentially validate it; it is not a second algebra engine.
-Licensed default-GMP runs with four test threads passed 13/13 focused adapter
-tests, 39/39 focused exact-database tests, and 2/2 direct-session tests.
+generated-affine exact database now owns the complete easiest-first physical-
+key catalog and one clone-on-stage public
+`SparseRowReducer<CheckedParametricField>` in `LuLMode::Full`, with the unused
+full-rank sentinel. A stage inserts only newly discovered catalog columns and
+submits one candidate without replaying historical pivots. Only an independent
+trial yields the move-owned reducer/catalog successor that may commit.
+Symbolica authoritatively returns the ordered, potentially nonmonotone pivot
+factors, normalization, and disposition; RustRed authenticates the complete
+historical U/L/pivot prefix and the appended normalized U row coefficient-for-
+coefficient while retaining guards and provenance. The exact-database
+rebuilding glue/use is now only a `cfg(test)` differential oracle; the generic
+legacy adapter remains compiled outside the live path. Licensed default-GMP runs with four test
+threads pass 15/15 retained-adapter, 18/18 complete sparse-adapter, and 41/41
+exact-database tests.
 
-The live integration remains a correctness bridge: every stage rebuilds prior
-pivots through a serial reducer with `O(K)` dense scratch and a cumulative
-tendency toward `O(P^2)` reconstruction work. Shallow native elements avoid
-duplicating sparse coefficient polynomials across the scratch vector.
-Committed database telemetry now retains last, componentwise-peak, and
-saturating cumulative reconstruction rows/columns/nonzeros, admitted versus
-observed U+L fill, trace, and native coefficient work. It is deliberately
-excluded from replay identity and does not measure catalog sorting, wall time,
-or RSS. This does not establish a complete topology reduction, Vakint
-reproduction, or a six-loop memory or throughput result. Physical-family costs
-must be measured before a persistent rollback/rebuild design is selected.
+Committed database telemetry remains outside replay identity. The live path
+still deep-clones the complete native reducer at every stage, forward
+elimination remains serial, and Symbolica's opaque native heap and scratch are
+not byte-censused. This does not establish a complete physical-topology
+reduction, Vakint reproduction, or a six-loop memory or throughput result;
+clone cost, fill, and physical-family memory must be measured before selecting
+later COW, fallible-fork, or scratch-pool work.
 
 The topology-wide canonical sector DAG is a separate foundry layer. It is not
 the eager `family_sector_inventory` enumeration, and it need not block the
@@ -706,16 +709,14 @@ or physical-topology calculation.
    move-bound Ready/route preparation, and atomic database/target/event commit.
    The compact event now exposes shallow applicable/exceptional leaves and the
    full parent-premise-plus-relative-predicate domain. The exact database now
-   builds a complete stage-local physical-key catalog and makes
-   `SparseRowReducer`/`LuLMode::Full` authoritative for ordered pivot factors
-   and dependent/independent disposition; guarded Rust replay validates
-   provenance and the exact native result. Focused licensed default-GMP runs
-   passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests with
-   four threads. A private retained clone-on-stage adapter now passes 15/15
-   focused tests, including insertion-aware differential replay and historical
-   U/L/pivot authentication. Integrate it and the complete easiest-first catalog
-   into the live database, export native telemetry to campaign benchmarks, and
-   profile its `O(K)` scratch and clone/fill behavior. Then implement the
+   owns the complete easiest-first physical-key catalog plus a clone-on-stage
+   Full-L `SparseRowReducer`, commits only independent move-owned reducer/
+   catalog successors, and coefficient-authenticates each appended normalized
+   U row after the historical prefix. The exact-database rebuilding glue/use is a `cfg(test)`
+   oracle. Focused licensed default-GMP four-thread runs pass 15/15 retained-
+   adapter, 18/18 complete sparse-adapter, and 41/41 exact-database tests.
+   Export native telemetry to campaign benchmarks and profile full-clone cost,
+   serial forward elimination, fill, and opaque native memory. Then implement the
    non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, shared proper-
    subsector children, cycle/non-descent rejection, a deterministic ready-job

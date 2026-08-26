@@ -36,23 +36,21 @@ and exceptional leaf views together with the parent target premises and affine
 geometry. The owning exactly-once work queue, exceptional-source re-entry,
 rejected-candidate continuation, application, publication audit replay,
 subsector feedback, and complete reduction remain pending. The live exact
-database now builds a complete stage-local physical-key catalog and rebuilds
-its immutable pivots in a temporary Symbolica
-`SparseRowReducer`/`LuLMode::Full`. Symbolica authoritatively supplies ordered
-pivot factors and dependent/independent disposition; the existing guarded Rust
-path replays the transcript for differential validation and provenance before
-the transaction may commit. Licensed default-GMP runs with four test threads
-passed 13/13 focused adapter tests, 39/39 focused database tests, and 2/2
-direct-session tests. Fixed-size committed last/peak/cumulative native telemetry
-is implemented and excluded from replay identity; exporting it to physical
-campaign benchmarks remains a scaling slice. A private retained clone-on-stage
-adapter is now implemented and independently audited: it owns the admitted
-context, Full-L reducer, and sentinel; authenticates complete historical
-U/L/pivot state; and passed 15/15 focused four-thread tests. The live database
-and complete easiest-first catalog have not adopted it yet.
-The current full per-stage rebuild tends toward cumulative `O(P^2)` work and
-uses `O(K)` dense scratch; it is not evidence of a complete topology reduction,
-Vakint reproduction, or six-loop scalability.
+database now owns the complete easiest-first physical-key catalog and a clone-
+on-stage Full-L Symbolica `SparseRowReducer` with its final sentinel. Each stage
+inserts only new catalog columns and submits one candidate; only an independent
+trial supplies the move-owned reducer/catalog successor that may commit.
+Symbolica authoritatively supplies ordered pivot factors, normalization, and
+disposition. RustRed authenticates the complete historical U/L/pivot prefix and
+the appended normalized U row coefficient-for-coefficient before commit. The
+exact-database rebuilding glue/use is now a `cfg(test)` differential oracle;
+the generic legacy adapter remains compiled outside the live path. Licensed default-GMP
+four-thread runs pass 15/15 retained-adapter, 18/18 complete sparse-adapter, and
+41/41 exact-database tests. Fixed-size native telemetry remains outside replay
+identity. Every stage still deep-clones the full native reducer, forward
+elimination is serial, and opaque native heap/scratch bytes are not censused;
+this is not evidence of physical-topology reduction, Vakint reproduction, or
+six-loop scalability.
 Bundling and physical six-loop derivation still precede optimized application;
 updated 2026-08-26.
 
@@ -372,21 +370,27 @@ Native dense and sparse solves must replace the older custom
 `exact_sparse_elimination` wherever the public API applies. The checked
 `SparseRowReducer` adapter now establishes the required sentinel, ordered-`L`,
 work-limit, and panic contracts and is the live exact-database transcript
-authority. The database constructs the complete stage-local physical-key
-catalog; Symbolica decides ordered reductions and disposition, while guarded
-Rust replay preserves provenance and validates the returned factors, divisor,
-normalized row, and outcome. Independent regenerated-residual checks remain
-mandatory. Its checked field now owns an `Arc` coefficient context and shares a
+authority. The database owns the complete easiest-first physical-key catalog
+and clone-on-stage Full-L reducer; Symbolica decides ordered reductions and
+disposition, while guarded Rust replay preserves provenance and validates the
+returned factors, divisor, normalized row, and outcome. The complete historical
+U/L/pivot prefix and every independent successor's appended normalized U row
+are authenticated coefficient-for-coefficient before the move-owned successor
+commits. Independent regenerated-residual checks remain mandatory. Its checked
+field now owns an `Arc` coefficient context and shares a
 `Send + Sync`, serialized per-stage ledger controller across clones. Stage
 cleanup covers success, typed checked-field abort, and unrelated unwind panic,
 with focused ownership, concurrency, inactive-access, and retry tests. The
-private retained adapter now owns one admitted context `Arc` and validates
-clone-on-stage column insertion and candidate transcripts without replaying
-historical input rows. `forward_reduce_last_row` still reconstructs all prior
-pivots because the live database does not yet retain that reducer or its
-complete column catalog. Parallelism is across independently controlled
-campaign case lanes/shards in the planned executor, not inside one ordered
-reducer. RustRed must not build a second CAS or matrix layer.
+retained adapter now owns one admitted context `Arc` and performs live clone-on-
+stage column insertion and candidate submission without replaying historical
+input rows. The old exact-database rebuilding glue/use is compiled only as a
+`cfg(test)` oracle; the generic legacy adapter remains compiled outside the live
+database path.
+Licensed default-GMP four-thread tests pass 15/15 retained-adapter, 18/18
+complete sparse-adapter, and 41/41 exact-database cases. Parallelism is across
+independently controlled campaign case lanes/shards in the planned executor,
+not inside one ordered reducer. RustRed must not build a second CAS or matrix
+layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -1341,36 +1345,30 @@ Implement in this order:
    owner-bound relative partition of the current-lineage arbitrary-width
    OR-of-AND formula are also implemented. Move-bound compact route preparation
    and the atomic compact application-event commit are implemented;
-8. **Completed as a correctness bridge:** replace the live exact database's
-   handwritten row decisions with a
-   temporary per-stage public Symbolica `SparseRowReducer`/`LuLMode::Full`
-   rebuilt from immutable committed pivots. The live database constructs the
-   complete physical-key catalog, and the borrowed-input checked adapter's
-   native elements use shallow `Arc` clones;
-   the unused sentinel preserves dependent transcripts at full physical rank,
-   nonmonotone chronological `L` row indices retain physical traversal order,
-   the prospective `U/L` output envelope is admitted before native entry, and
-   field callbacks outside serial forward reduction fail typed. Symbolica is
-   authoritative for ordered factors, normalization, and disposition; guarded
-   Rust replay compares the factors, normalized row, divisor, and outcome while
-   retaining guards and provenance. Licensed default-GMP four-thread suites
-   passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests.
-   Retain RustRed ordering, provenance, transactional failure, and resource
-   admission, not a second elimination engine. Committed native statistics now
-   retain last/peak/cumulative reconstruction and coefficient-work counts while
-   remaining outside replay identity. The temporary rebuild's dense `O(K)`
-   scratch, serial forward pass, and cumulative `O(P^2)` tendency must be
-   exported and profiled rather than
-   presented as a complete topology reduction, Vakint reproduction, or
-   six-loop scaling result. The checked field now owns an `Arc` context and a
-   shared `Send + Sync` controller that serializes a fresh ledger per stage and
-   cleans it after success, typed abort, or unwind panic; five focused tests
-   cover this prerequisite. The private retained adapter now owns the admitted
-   context, Full-L reducer, and sentinel, returns a successor only for an
-   independent trial, authenticates historical U/L/pivots, and passes 15/15
-   focused tests. Its integration with the live database and complete catalog
-   remains pending, so `forward_reduce_last_row` still rebuilds prior pivots.
-   Run independently controlled shard/case reducers in parallel rather than
+8. **Completed through live retained native state:** the historical temporary
+   per-stage rebuilding bridge first replaced handwritten row decisions with a
+   public Symbolica `SparseRowReducer`/`LuLMode::Full`; that bridge is now
+   superseded in production and remains only as a `cfg(test)` differential
+   oracle. The live database owns the complete easiest-first physical-key
+   catalog, admitted context, Full-L reducer, and sentinel. A stage clones the
+   native state, inserts only newly discovered columns, submits one candidate,
+   and commits only an independent move-owned reducer/catalog successor. The
+   unused sentinel preserves dependent transcripts at full physical rank;
+   nonmonotone chronological `L` row indices retain physical traversal order;
+   and the prospective `U/L` envelope is admitted before native entry.
+   Symbolica is authoritative for factors, normalization, pivots, and
+   disposition. RustRed authenticates the complete historical U/L/pivot prefix
+   and the independent trial's appended normalized U row coefficient-for-
+   coefficient while retaining guards, provenance, transactional failure, and
+   resource admission. Licensed default-GMP four-thread suites pass 15/15
+   retained-adapter, 18/18 complete sparse-adapter, and 41/41 exact-database
+   tests. The checked field's shared controller still serializes one fresh
+   ledger per stage and cleans it after success, typed abort, or unwind panic.
+   Every stage still deep-clones the full native reducer, forward elimination
+   remains serial, and opaque native heap/scratch bytes are not byte-censused.
+   Export and profile those costs rather than presenting this as physical-
+   topology reduction, Vakint reproduction, or six-loop scaling. Run
+   independently controlled shard/case reducers in parallel rather than
    claiming intra-reducer parallel forward elimination;
 9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, one shared proper-
