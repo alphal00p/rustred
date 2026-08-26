@@ -35,16 +35,20 @@ retains the already-proved pivot-term ordinal, and exposes zero-copy applicable
 and exceptional leaf views together with the parent target premises and affine
 geometry. The owning exactly-once work queue, exceptional-source re-entry,
 rejected-candidate continuation, application, publication audit replay,
-subsector feedback, and complete reduction remain pending. The checked
-borrowed-input adapter over a temporary per-stage Symbolica
-`SparseRowReducer`/`LuLMode::Full` is implemented in isolation, but the live
-exact database still uses its handwritten row decisions. Before adding the
-queue, the next seam must build the hardest-first physical-key catalog and run
-native staging in differential shadow against the immutable pivot log, so
-failure remains transactional and the native transcript is authenticated
-before authority switches. Persistent reducer state is a separate scaling
-slice. Bundling and physical six-loop derivation still precede optimized
-application; updated 2026-08-26.
+subsector feedback, and complete reduction remain pending. The live exact
+database now builds a complete stage-local physical-key catalog and rebuilds
+its immutable pivots in a temporary Symbolica
+`SparseRowReducer`/`LuLMode::Full`. Symbolica authoritatively supplies ordered
+pivot factors and dependent/independent disposition; the existing guarded Rust
+path replays the transcript for differential validation and provenance before
+the transaction may commit. Licensed default-GMP runs with four test threads
+passed 12/12 focused adapter tests, 35/35 focused database tests, and 2/2
+direct-session tests. Persistent reducer state and native-statistics retention
+are separate scaling slices. The current full per-stage rebuild tends toward
+cumulative `O(P^2)` work and uses `O(K)` dense scratch; it is not evidence of a
+complete topology reduction, Vakint reproduction, or six-loop scalability.
+Bundling and physical six-loop derivation still precede optimized application;
+updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -356,12 +360,14 @@ Phase B/C work must keep applying the same Symbolica-first rule. See the
 and the
 [`Symbolica-first algebra migration audit`](symbolica_first_algebra_migration_audit_2026-08-24.md).
 Native dense and sparse solves must replace the older custom
-`exact_sparse_elimination` wherever the public API applies. The isolated
-checked `SparseRowReducer` adapter now establishes the required sentinel,
-ordered-`L`, work-limit, and panic contracts, but it is not yet the live exact
-database authority. Physical-key catalog construction, differential shadow,
-and independent source-combination/residual checks remain mandatory. RustRed
-must not build a second CAS or matrix layer.
+`exact_sparse_elimination` wherever the public API applies. The checked
+`SparseRowReducer` adapter now establishes the required sentinel, ordered-`L`,
+work-limit, and panic contracts and is the live exact-database transcript
+authority. The database constructs the complete stage-local physical-key
+catalog; Symbolica decides ordered reductions and disposition, while guarded
+Rust replay preserves provenance and validates the returned factors, divisor,
+normalized row, and outcome. Independent regenerated-residual checks remain
+mandatory. RustRed must not build a second CAS or matrix layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -1258,21 +1264,26 @@ Implement in this order:
    owner-bound relative partition of the current-lineage arbitrary-width
    OR-of-AND formula are also implemented. Move-bound compact route preparation
    and the atomic compact application-event commit are implemented;
-8. replace the live exact database's handwritten row arithmetic with a
+8. **Completed as a correctness bridge:** replace the live exact database's
+   handwritten row decisions with a
    temporary per-stage public Symbolica `SparseRowReducer`/`LuLMode::Full`
-   rebuilt from immutable committed pivots. The isolated borrowed-input checked
-   adapter is implemented and tested: native elements use shallow `Arc` clones,
+   rebuilt from immutable committed pivots. The live database constructs the
+   complete physical-key catalog, and the borrowed-input checked adapter's
+   native elements use shallow `Arc` clones;
    the unused sentinel preserves dependent transcripts at full physical rank,
    nonmonotone chronological `L` row indices retain physical traversal order,
    the prospective `U/L` output envelope is admitted before native entry, and
-   field callbacks outside serial forward reduction fail typed. It is not wired
-   into the live database. Next build the hardest-first physical-key catalog and
-   a differential shadow that compares disposition, factors, normalized row,
-   divisor, guards, source combination, and exact residual before switching
-   authority. Retain RustRed ordering, provenance, transactional failure, and
-   resource admission, not a second elimination engine. The temporary rebuild's
-   dense `O(K)` scratch, serial forward pass, and cumulative `O(P^2)` cost must
-   be profiled rather than presented as a six-loop scaling result;
+   field callbacks outside serial forward reduction fail typed. Symbolica is
+   authoritative for ordered factors, normalization, and disposition; guarded
+   Rust replay compares the factors, normalized row, divisor, and outcome while
+   retaining guards and provenance. Licensed default-GMP four-thread suites
+   passed 12/12 adapter, 35/35 exact-database, and 2/2 direct-session tests.
+   Retain RustRed ordering, provenance, transactional failure, and resource
+   admission, not a second elimination engine. Native statistics are not yet
+   persisted, and the temporary rebuild's dense `O(K)` scratch, serial forward
+   pass, and cumulative `O(P^2)` tendency must be profiled rather than
+   presented as a complete topology reduction, Vakint reproduction, or
+   six-loop scaling result;
 9. add owning exceptional residual scheduling, sealed committed-exceptional
    source ingress, rejected-candidate continuation, and solved-subsector
    feedback; then iterate those queues to a proved coverage fixed point with exact regenerated-

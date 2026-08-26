@@ -2,9 +2,11 @@
 //!
 //! This owner is deliberately narrower than public rule discovery. It binds
 //! one exact solve-plan/frame allocation and keeps algebraic unit pivots for
-//! the lifetime of that group. For every submitted raw row it inspects only
-//! the current hardest physical key. A known hardest key is substituted; the
-//! first unknown hardest key is normalized and stored immediately. In
+//! the lifetime of that group. For every submitted raw row, Symbolica's sparse
+//! reducer owns the ordered forward-elimination transcript over the complete
+//! physical-key catalog. RustRed replays that transcript through the guarded
+//! provenance path before accepting it. A known hardest key is substituted;
+//! the first unknown hardest key is normalized and stored immediately. In
 //! particular, known easier keys in that new pivot's tail are not rewritten.
 //!
 //! Recentring, target matching, `WhenBad`, rule publication, master inference,
@@ -40,6 +42,11 @@ use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
 };
 use crate::parametric_coefficient::insert_parametric_condition;
+use crate::parametric_coefficient::symbolica_sparse::{
+    SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
+    SymbolicaParametricSparseInputRow, SymbolicaParametricSparseLimits,
+    SymbolicaParametricSparseOutcome, forward_reduce_last_row,
+};
 use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
     ParametricCoefficientWorkPhase,
@@ -99,6 +106,12 @@ fn take_fail_next_lookup_replacement_allocation_for_test() -> bool {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
+    /// Independent native-algebra envelope for the temporary Symbolica sparse
+    /// reconstruction. This is deliberately separate from `coefficient_work`:
+    /// the latter meters the provenance/guard replay that alone may enter the
+    /// retained database, while this budget meters Symbolica's differential
+    /// authority transcript.
+    pub(crate) symbolica_sparse: SymbolicaParametricSparseLimits,
     pub(crate) coefficient_work: ParametricCoefficientWorkLedgerLimits,
     /// Caller-owned budget for authenticating the retained solve plan before
     /// this database accepts its allocation identity. Keeping this inside the
@@ -134,10 +147,17 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabaseLimits {
 impl Default for GeneratedAffineResidualGroupExactDatabaseLimits {
     fn default() -> Self {
         const LARGE_BYTES: usize = 256 * 1024 * 1024 * 1024;
+        const MAX_PIVOTS: usize = 16_000_000;
+        let mut symbolica_sparse = SymbolicaParametricSparseLimits::default();
+        // A native forward-reduction request contains every retained pivot
+        // plus the candidate. Keep the candidate admissible when the database
+        // has reached its independent-pivot ceiling.
+        symbolica_sparse.max_rows = MAX_PIVOTS + 1;
         Self {
+            symbolica_sparse,
             coefficient_work: ParametricCoefficientWorkLedgerLimits::default(),
             solve_plan_replay: GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-            max_pivots: 16_000_000,
+            max_pivots: MAX_PIVOTS,
             max_terms_per_row: 16_000_000,
             max_guards_per_row: 16_000_000,
             max_guard_origins: 64_000_000,
@@ -242,6 +262,7 @@ pub(crate) enum GeneratedAffineResidualGroupExactDatabaseError {
         resource: &'static str,
     },
     SymbolicaPanic,
+    SymbolicaTranscriptMismatch,
 }
 
 impl GeneratedAffineResidualGroupExactDatabaseError {
@@ -273,6 +294,7 @@ impl GeneratedAffineResidualGroupExactDatabaseError {
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
             Self::AllocationFailure { .. } => "AllocationFailure",
             Self::SymbolicaPanic => "SymbolicaPanic",
+            Self::SymbolicaTranscriptMismatch => "SymbolicaTranscriptMismatch",
         }
     }
 }
@@ -380,6 +402,15 @@ struct ExactUnitPivot {
     guards: Vec<ParametricNonZeroCondition>,
     reductions: Arc<Vec<GeneratedAffineResidualGroupExactReductionStep>>,
     normalization_divisor: ParametricCoefficient,
+}
+
+/// Symbolica's owned algebra transcript plus the shallow-cloned physical keys
+/// needed to validate its normalized native row after guarded replay mutates
+/// the candidate. The temporary complete catalog itself contains only
+/// borrowed key pointers and is released before replay begins.
+struct ExactDatabaseSymbolicaTranscript {
+    outcome: SymbolicaParametricSparseOutcome,
+    normalized_keys_hardest_first: Vec<GeneratedAffineResidualGroupPhysicalKey>,
 }
 
 impl fmt::Debug for ExactUnitPivot {
@@ -1900,64 +1931,21 @@ impl GeneratedAffineResidualGroupExactDatabase {
         let source_ordinal = self.next_source_ordinal;
         debug_assert_eq!(source_ordinal.checked_add(1), Some(next_source_ordinal));
         debug_assert_eq!(self.state_version.checked_add(1), Some(next_state_version));
+        let candidate_was_empty = terms.is_empty();
+        let native_transcript = symbolica_sparse_transcript(
+            context,
+            &self.pivots,
+            &terms,
+            self.limits.symbolica_sparse,
+        )?;
+        check_limit(
+            "top-reduction steps in one row",
+            native_transcript.outcome.reductions().len(),
+            self.limits.max_reductions_per_row,
+        )?;
         let mut reductions = Vec::new();
 
-        loop {
-            let Some(hardest) = terms.last() else {
-                let prospective_staged_live_retained_bytes = dependent_staged_live_retained_bytes(
-                    self.stats.retained_database_bytes,
-                    &reductions,
-                    reductions.len(),
-                    source.unique_retained_bytes()?,
-                )?;
-                check_limit(
-                    "exact-group staged live retained bytes",
-                    prospective_staged_live_retained_bytes,
-                    self.limits.max_staged_live_retained_bytes,
-                )?;
-                let observed_staged_live_retained_bytes = dependent_staged_live_retained_bytes(
-                    self.stats.retained_database_bytes,
-                    &reductions,
-                    reductions.capacity(),
-                    source.unique_retained_bytes()?,
-                )?;
-                check_limit(
-                    "exact-group staged live retained bytes",
-                    observed_staged_live_retained_bytes,
-                    self.limits.max_staged_live_retained_bytes,
-                )?;
-                let ingress_stats = self.stats_with_ingress(
-                    ingress_prospective_retained_bytes,
-                    ingress_observed_retained_bytes,
-                );
-                let committed_stats = self.stats_with_staged_live(
-                    ingress_stats,
-                    prospective_staged_live_retained_bytes,
-                    observed_staged_live_retained_bytes,
-                );
-                let next_transition_identity = next_exact_database_transition_identity()?;
-                let reductions = Arc::new(reductions);
-                return Ok(GeneratedAffineResidualGroupStagedExactRow {
-                    database_nonce: self.database_nonce,
-                    next_transition_identity,
-                    database_epoch: self.database_epoch,
-                    group_ordinal: self.group_ordinal,
-                    state_version: self.state_version,
-                    next_state_version,
-                    source_ordinal,
-                    next_source_ordinal,
-                    pivot_count: self.pivots.len(),
-                    lookup_len: self.lookup.len(),
-                    source,
-                    payload: ExactStagedRowPayload::Dependent {
-                        reductions,
-                        committed_stats,
-                    },
-                });
-            };
-            let Some(pivot_ordinal) = self.lookup_ordinal(&hardest.key) else {
-                break;
-            };
+        for native_reduction in native_transcript.outcome.reductions() {
             let requested = reductions.len().checked_add(1).ok_or(
                 GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
                     resource: "top-reduction steps in one row",
@@ -1973,12 +1961,27 @@ impl GeneratedAffineResidualGroupExactDatabase {
                     resource: "top-reduction steps",
                 }
             })?;
+            let hardest = terms.last().ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            )?;
+            let pivot_ordinal = native_reduction.pivot_row();
+            if self.lookup_ordinal(&hardest.key) != Some(pivot_ordinal)
+                || native_reduction.factor() != &hardest.coefficient
+            {
+                return Err(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                );
+            }
             let factor = ledger
-                .try_copy_authenticated(&hardest.coefficient)
+                .try_copy_authenticated(native_reduction.factor())
                 .map_err(|_| GeneratedAffineResidualGroupExactDatabaseError::CoefficientWork)?;
-            let pivot = &self.pivots[pivot_ordinal];
+            let pivot = self.pivots.get(pivot_ordinal).ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            )?;
             if pivot.terms.last().map(|term| &term.key) != Some(&hardest.key) {
-                return Err(GeneratedAffineResidualGroupExactDatabaseError::InvalidUnitPivot);
+                return Err(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                );
             }
             terms.pop();
             merge_guards(
@@ -2033,6 +2036,84 @@ impl GeneratedAffineResidualGroupExactDatabase {
             });
         }
 
+        match &native_transcript.outcome {
+            SymbolicaParametricSparseOutcome::Dependent {
+                canonical_zero_input,
+                ..
+            } => {
+                if !terms.is_empty() || *canonical_zero_input != candidate_was_empty {
+                    return Err(
+                        GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                    );
+                }
+                let prospective_staged_live_retained_bytes = dependent_staged_live_retained_bytes(
+                    self.stats.retained_database_bytes,
+                    &reductions,
+                    reductions.len(),
+                    source.unique_retained_bytes()?,
+                )?;
+                check_limit(
+                    "exact-group staged live retained bytes",
+                    prospective_staged_live_retained_bytes,
+                    self.limits.max_staged_live_retained_bytes,
+                )?;
+                let observed_staged_live_retained_bytes = dependent_staged_live_retained_bytes(
+                    self.stats.retained_database_bytes,
+                    &reductions,
+                    reductions.capacity(),
+                    source.unique_retained_bytes()?,
+                )?;
+                check_limit(
+                    "exact-group staged live retained bytes",
+                    observed_staged_live_retained_bytes,
+                    self.limits.max_staged_live_retained_bytes,
+                )?;
+                let ingress_stats = self.stats_with_ingress(
+                    ingress_prospective_retained_bytes,
+                    ingress_observed_retained_bytes,
+                );
+                let committed_stats = self.stats_with_staged_live(
+                    ingress_stats,
+                    prospective_staged_live_retained_bytes,
+                    observed_staged_live_retained_bytes,
+                );
+                let next_transition_identity = next_exact_database_transition_identity()?;
+                let reductions = Arc::new(reductions);
+                return Ok(GeneratedAffineResidualGroupStagedExactRow {
+                    database_nonce: self.database_nonce,
+                    next_transition_identity,
+                    database_epoch: self.database_epoch,
+                    group_ordinal: self.group_ordinal,
+                    state_version: self.state_version,
+                    next_state_version,
+                    source_ordinal,
+                    next_source_ordinal,
+                    pivot_count: self.pivots.len(),
+                    lookup_len: self.lookup.len(),
+                    source,
+                    payload: ExactStagedRowPayload::Dependent {
+                        reductions,
+                        committed_stats,
+                    },
+                });
+            }
+            SymbolicaParametricSparseOutcome::Independent {
+                normalization_divisor,
+                ..
+            } => {
+                let hardest = terms.last().ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                )?;
+                if native_transcript.normalized_keys_hardest_first.first() != Some(&hardest.key)
+                    || normalization_divisor != &hardest.coefficient
+                {
+                    return Err(
+                        GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                    );
+                }
+            }
+        }
+
         let pivot_ordinal = self.pivots.len();
         let requested = pivot_ordinal.checked_add(1).ok_or(
             GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
@@ -2050,6 +2131,36 @@ impl GeneratedAffineResidualGroupExactDatabase {
             source_ordinal,
             self.limits,
         )?;
+        let SymbolicaParametricSparseOutcome::Independent {
+            normalized_row,
+            normalization_divisor: native_normalization_divisor,
+            ..
+        } = &native_transcript.outcome
+        else {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        };
+        if native_normalization_divisor != &normalization_divisor
+            || normalized_row.entries().len() != terms.len()
+            || native_transcript.normalized_keys_hardest_first.len() != terms.len()
+        {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        }
+        for ((native_entry, native_key), term) in normalized_row
+            .entries()
+            .iter()
+            .zip(&native_transcript.normalized_keys_hardest_first)
+            .zip(terms.iter().rev())
+        {
+            if native_key != &term.key || native_entry.coefficient() != &term.coefficient {
+                return Err(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                );
+            }
+        }
         let pivot_key = terms
             .last()
             .ok_or(GeneratedAffineResidualGroupExactDatabaseError::InvalidUnitPivot)?
@@ -2895,6 +3006,221 @@ impl GeneratedAffineResidualGroupExactDatabase {
         let staged = self.stage_test_terms(context, terms, guards)?;
         self.commit_staged_row_for_test(staged)
     }
+}
+
+fn map_symbolica_sparse_error(
+    error: SymbolicaParametricSparseError,
+) -> GeneratedAffineResidualGroupExactDatabaseError {
+    match error {
+        SymbolicaParametricSparseError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => GeneratedAffineResidualGroupExactDatabaseError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        SymbolicaParametricSparseError::ResourceCountOverflow { resource } => {
+            GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow { resource }
+        }
+        SymbolicaParametricSparseError::AllocationFailure { resource } => {
+            GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure { resource }
+        }
+        SymbolicaParametricSparseError::Coefficient(_)
+        | SymbolicaParametricSparseError::CoefficientWork(_) => {
+            GeneratedAffineResidualGroupExactDatabaseError::CoefficientWork
+        }
+        SymbolicaParametricSparseError::NativePanic { .. } => {
+            GeneratedAffineResidualGroupExactDatabaseError::SymbolicaPanic
+        }
+        SymbolicaParametricSparseError::DimensionOverflow => {
+            GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                resource: "Symbolica parametric sparse dimensions",
+            }
+        }
+        SymbolicaParametricSparseError::EmptyPriorRow { .. }
+        | SymbolicaParametricSparseError::ColumnOutOfRange { .. }
+        | SymbolicaParametricSparseError::NonIncreasingColumns { .. }
+        | SymbolicaParametricSparseError::ExplicitZero { .. }
+        | SymbolicaParametricSparseError::DependentPriorRow { .. }
+        | SymbolicaParametricSparseError::PriorRowReplayMismatch { .. }
+        | SymbolicaParametricSparseError::UnexpectedFieldOperation { .. }
+        | SymbolicaParametricSparseError::NativeTranscriptMismatch { .. } => {
+            GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+        }
+    }
+}
+
+/// Reconstruct the retained normalized basis and ask Symbolica for the one
+/// authoritative forward transcript. Physical keys are catalogued globally in
+/// easiest-to-hardest order, while native columns run in the opposite
+/// direction so Symbolica's leftmost pivot is RustRed's hardest term.
+fn symbolica_sparse_transcript(
+    context: &ParametricCoefficientContext,
+    pivots: &[Arc<ExactUnitPivot>],
+    candidate: &[ExactDatabaseTerm],
+    limits: SymbolicaParametricSparseLimits,
+) -> Result<ExactDatabaseSymbolicaTranscript, GeneratedAffineResidualGroupExactDatabaseError> {
+    let prior_input_entries = pivots.iter().try_fold(0usize, |total, pivot| {
+        total.checked_add(pivot.terms.len()).ok_or(
+            GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                resource: "Symbolica exact-group prior sparse input entries",
+            },
+        )
+    })?;
+    let input_entries = prior_input_entries.checked_add(candidate.len()).ok_or(
+        GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+            resource: "Symbolica exact-group sparse input entries",
+        },
+    )?;
+    let rows = pivots.len().checked_add(1).ok_or(
+        GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+            resource: "Symbolica exact-group sparse rows",
+        },
+    )?;
+    check_limit("Symbolica parametric sparse rows", rows, limits.max_rows)?;
+    check_limit(
+        "Symbolica parametric sparse input entries",
+        input_entries,
+        limits.max_input_entries,
+    )?;
+
+    let mut catalog: Vec<&GeneratedAffineResidualGroupPhysicalKey> = Vec::new();
+    catalog.try_reserve_exact(input_entries).map_err(|_| {
+        GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+            resource: "Symbolica exact-group physical-key catalog",
+        }
+    })?;
+    for pivot in pivots {
+        catalog.extend(pivot.terms.iter().map(|term| &term.key));
+    }
+    catalog.extend(candidate.iter().map(|term| &term.key));
+    catalog.sort_unstable();
+    catalog.dedup();
+    check_limit(
+        "Symbolica parametric sparse physical columns",
+        catalog.len(),
+        limits.max_physical_columns,
+    )?;
+
+    let mut prior_rows = Vec::new();
+    prior_rows.try_reserve_exact(pivots.len()).map_err(|_| {
+        GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+            resource: "Symbolica exact-group prior sparse rows",
+        }
+    })?;
+    for pivot in pivots {
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(pivot.terms.len()).map_err(|_| {
+            GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                resource: "Symbolica exact-group prior sparse-row entries",
+            }
+        })?;
+        for term in pivot.terms.iter().rev() {
+            let easiest_index = catalog
+                .binary_search_by(|key| (*key).cmp(&term.key))
+                .map_err(|_| {
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+                })?;
+            let column = catalog
+                .len()
+                .checked_sub(easiest_index.checked_add(1).ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                        resource: "Symbolica exact-group native column",
+                    },
+                )?)
+                .ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                )?;
+            entries.push(SymbolicaParametricSparseInputEntry::new(
+                column,
+                &term.coefficient,
+            ));
+        }
+        prior_rows.push(SymbolicaParametricSparseInputRow::new(entries));
+    }
+
+    let mut candidate_entries = Vec::new();
+    candidate_entries
+        .try_reserve_exact(candidate.len())
+        .map_err(
+            |_| GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                resource: "Symbolica exact-group candidate sparse-row entries",
+            },
+        )?;
+    for term in candidate.iter().rev() {
+        let easiest_index = catalog
+            .binary_search_by(|key| (*key).cmp(&term.key))
+            .map_err(|_| {
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch
+            })?;
+        let column = catalog
+            .len()
+            .checked_sub(easiest_index.checked_add(1).ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                    resource: "Symbolica exact-group native column",
+                },
+            )?)
+            .ok_or(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch)?;
+        candidate_entries.push(SymbolicaParametricSparseInputEntry::new(
+            column,
+            &term.coefficient,
+        ));
+    }
+    let candidate_row = SymbolicaParametricSparseInputRow::new(candidate_entries);
+
+    let outcome =
+        forward_reduce_last_row(context, catalog.len(), &prior_rows, &candidate_row, limits)
+            .map_err(map_symbolica_sparse_error)?;
+    let mut normalized_keys_hardest_first = Vec::new();
+    if let SymbolicaParametricSparseOutcome::Independent {
+        pivot_column,
+        normalized_row,
+        ..
+    } = &outcome
+    {
+        normalized_keys_hardest_first
+            .try_reserve_exact(normalized_row.entries().len())
+            .map_err(
+                |_| GeneratedAffineResidualGroupExactDatabaseError::AllocationFailure {
+                    resource: "Symbolica exact-group normalized physical-key transcript",
+                },
+            )?;
+        for entry in normalized_row.entries() {
+            let easiest_index = catalog
+                .len()
+                .checked_sub(entry.column().checked_add(1).ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                        resource: "Symbolica exact-group normalized native column",
+                    },
+                )?)
+                .ok_or(
+                    GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+                )?;
+            let key = catalog.get(easiest_index).ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            )?;
+            normalized_keys_hardest_first.push((*key).clone());
+        }
+        let pivot_easiest_index = catalog
+            .len()
+            .checked_sub(pivot_column.checked_add(1).ok_or(
+                GeneratedAffineResidualGroupExactDatabaseError::ResourceCountOverflow {
+                    resource: "Symbolica exact-group native pivot column",
+                },
+            )?)
+            .ok_or(GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch)?;
+        if normalized_keys_hardest_first.first() != catalog.get(pivot_easiest_index).copied() {
+            return Err(
+                GeneratedAffineResidualGroupExactDatabaseError::SymbolicaTranscriptMismatch,
+            );
+        }
+    }
+    Ok(ExactDatabaseSymbolicaTranscript {
+        outcome,
+        normalized_keys_hardest_first,
+    })
 }
 
 fn normalize_unknown_leader(
@@ -4177,6 +4503,15 @@ mod tests {
     }
 
     #[test]
+    fn default_native_row_budget_includes_candidate_at_pivot_ceiling() {
+        let limits = GeneratedAffineResidualGroupExactDatabaseLimits::default();
+        assert_eq!(
+            limits.symbolica_sparse.max_rows,
+            limits.max_pivots.checked_add(1).unwrap()
+        );
+    }
+
+    #[test]
     fn source_profile_rejects_v1_v2_schema_and_kind_cross_tamper_before_binding() {
         let (_family, _context, _plan, _frame, mut legacy, _keys) =
             database_fixture("exact-db-source-profile-legacy");
@@ -5355,6 +5690,205 @@ mod tests {
         assert_eq!(database.lookup_pivot(&b).unwrap().ordinal(), 1);
         assert!(!database.publishes_rule());
         assert!(!database.infers_master());
+    }
+
+    #[test]
+    fn direct_formula_sparse_transcript_normalizes_rational_pivot_and_replays_dependency() {
+        let (_family, context, _plan, mut database) =
+            direct_database_fixture("exact-db-direct-native-rational-transcript");
+        assert_eq!(
+            database.source_kind,
+            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        );
+
+        let mut keys = Vec::new();
+        for first in -4..=4 {
+            let mut values = vec![Integer::from(0); database.frame.arity()];
+            values[0] = Integer::from(first);
+            keys.push(
+                database
+                    .frame
+                    .test_key_for_borrowed_physical_values(&values)
+                    .unwrap(),
+            );
+        }
+        keys.sort();
+        keys.dedup();
+        assert!(keys.len() >= 2);
+        let lower = keys[0].clone();
+        let higher = keys[1].clone();
+
+        let index = context.index(0).unwrap();
+        let numerator = context.add(&index, &context.integer(2)).unwrap();
+        let denominator = context.add(&index, &context.integer(1)).unwrap();
+        let rational = context.checked_div(&numerator, &denominator).unwrap();
+
+        let first = database
+            .ingest_test_terms(
+                &context,
+                vec![
+                    (lower.clone(), rational.clone()),
+                    (higher.clone(), rational.clone()),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+        assert!(matches!(
+            first,
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                pivot_ordinal: 0,
+                ..
+            }
+        ));
+        let pivot = database.pivot(0).unwrap();
+        assert_eq!(pivot.key(), &higher);
+        assert_eq!(pivot.normalization_divisor(), &rational);
+        assert_eq!(
+            pivot
+                .terms()
+                .map(|(key, coefficient)| (key.clone(), coefficient.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (lower.clone(), context.one()),
+                (higher.clone(), context.one())
+            ]
+        );
+
+        let second = database
+            .ingest_test_terms(
+                &context,
+                vec![(lower, rational.clone()), (higher, rational.clone())],
+                Vec::new(),
+            )
+            .unwrap();
+        let GeneratedAffineResidualGroupExactRowOutcome::Dependent { reductions, .. } = second
+        else {
+            panic!("the repeated direct-formula rational row must be dependent")
+        };
+        assert_eq!(reductions.len(), 1);
+        assert_eq!(reductions[0].pivot_ordinal(), 0);
+        assert_eq!(reductions[0].factor(), &rational);
+    }
+
+    #[test]
+    fn native_sparse_output_limit_is_exact_transactional_and_retryable() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-native-sparse-output-limit");
+        let key = keys[0].clone();
+        let before = database_state_snapshot(&database);
+
+        database.limits.symbolica_sparse.max_native_output_entries = 1;
+        assert_eq!(
+            database
+                .stage_test_terms(&context, vec![(key.clone(), context.one())], Vec::new(),)
+                .unwrap_err(),
+            GeneratedAffineResidualGroupExactDatabaseError::ResourceLimit {
+                resource: "prospective Symbolica parametric sparse native output entries",
+                requested: 2,
+                limit: 1,
+            }
+        );
+        assert_database_state_unchanged(&database, &before);
+
+        database.limits.symbolica_sparse.max_native_output_entries = 2;
+        assert_eq!(
+            database
+                .ingest_test_terms(&context, vec![(key, context.one())], Vec::new())
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn native_sparse_coefficient_limit_is_typed_transactional_and_retryable() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-native-sparse-coefficient-limit");
+        let key = keys[0].clone();
+        let before = database_state_snapshot(&database);
+        let exact_algebra = database
+            .limits
+            .symbolica_sparse
+            .coefficient_work
+            .arithmetic
+            .exact_algebra;
+
+        database
+            .limits
+            .symbolica_sparse
+            .coefficient_work
+            .arithmetic
+            .exact_algebra
+            .max_polynomial_terms = 0;
+        assert_eq!(
+            database
+                .stage_test_terms(&context, vec![(key.clone(), context.one())], Vec::new())
+                .unwrap_err(),
+            GeneratedAffineResidualGroupExactDatabaseError::CoefficientWork
+        );
+        assert_database_state_unchanged(&database, &before);
+
+        database
+            .limits
+            .symbolica_sparse
+            .coefficient_work
+            .arithmetic
+            .exact_algebra = exact_algebra;
+        assert_eq!(
+            database
+                .ingest_test_terms(&context, vec![(key, context.one())], Vec::new())
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn complete_native_catalog_exposes_middle_unknown_after_hardest_reduction() {
+        let (_family, context, _plan, _frame, mut database, keys) =
+            database_fixture("exact-db-native-middle-catalog");
+        assert!(keys.len() >= 3);
+        let easiest = keys[0].clone();
+        let middle = keys[1].clone();
+        let hardest = keys[2].clone();
+        assert!(easiest < middle && middle < hardest);
+
+        database
+            .ingest_test_terms(
+                &context,
+                vec![
+                    (easiest.clone(), context.one()),
+                    (hardest.clone(), context.one()),
+                ],
+                Vec::new(),
+            )
+            .unwrap();
+        let staged = database
+            .stage_test_terms(
+                &context,
+                vec![(middle.clone(), context.one()), (hardest, context.one())],
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(staged.reductions().len(), 1);
+        assert_eq!(staged.reductions()[0].pivot_ordinal(), 0);
+        assert_eq!(staged.reductions()[0].factor(), &context.one());
+        let pivot = database
+            .authenticate_staged_new_pivot_for_test(&staged)
+            .unwrap();
+        assert_eq!(pivot.key(), &middle);
+        assert_eq!(pivot.normalization_divisor(), &context.one());
+        assert_eq!(
+            pivot
+                .terms()
+                .map(|(key, coefficient)| (key.clone(), coefficient.clone()))
+                .collect::<Vec<_>>(),
+            vec![(easiest, context.integer(-1)), (middle, context.one())]
+        );
     }
 
     #[test]

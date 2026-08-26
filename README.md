@@ -200,13 +200,15 @@ The repository currently includes tests for:
 - affine denominator-basis completion for independent short lists;
 - zero-sector, symmetry, guarded specialization, and sparse-elimination proof
   components;
-- an isolated checked adapter over Symbolica's public incremental
-  `SparseRowReducer`: input coefficients are borrowed, dense native scratch
-  clones an `Arc`-backed element rather than each sparse polynomial, and the
-  focused licensed default-GMP tests passed 12/12 in parallel, covering
-  nonmonotone `L` factors, the full-physical-rank sentinel case, typed limits,
-  unused field callbacks, and deterministic retry. This adapter is not yet the
-  authority used by the live exact database;
+- a live checked boundary over Symbolica's public incremental
+  `SparseRowReducer`: the exact database builds a complete stage-local
+  physical-key catalog, maps hardest keys to the lowest native columns, and
+  rebuilds its immutable normalized pivots with `LuLMode::Full`. Symbolica
+  authoritatively supplies the ordered pivot factors and dependent/independent
+  outcome; RustRed replays that transcript through the guarded path as an
+  independent provenance and differential check. Licensed default-GMP runs
+  with four test threads passed 12/12 focused adapter tests, 35/35 focused exact
+  database tests, and 2/2 direct-session tests;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
   sealed NoTarget, affine-equality-refinement, or Ready outcomes;
@@ -453,31 +455,28 @@ since crossed public Symbolica APIs. The latter now delegates determinants,
 transpose, Gram congruence, and denominator-coordinate products through an
 authenticated V2 boundary while retaining an independent physics replay.
 Native Symbolica dense and sparse solves must likewise replace the older
-custom `exact_sparse_elimination`, `parametric_elimination`, and the row
-arithmetic still present in the live generated-affine exact database. The
-pinned sparse solve has a documented validation caveat, so the production
-migration uses public `SparseRowReducer`/`LuLMode::Full` together with
-independent residual and source-combination checks. The isolated adapter for
-that migration is implemented: it borrows authenticated coefficient rows,
-uses shallow `Arc` clones for Symbolica's dense scratch, charges the required
-field operations through the exact work ledger, and converts any unused
-`Field` callback into a typed failure. It admits a prospective output envelope
-of prior accepted `U` entries, one candidate physical row, all possible
-candidate `L` factors, and the `L` diagonals before entering native code.
-RustRed owns physical column ordering, guards, scheduling, and proofs, not a
-parallel CAS or matrix implementation.
+custom `exact_sparse_elimination` and `parametric_elimination`. The live
+generated-affine exact database has now crossed the first sparse boundary. For
+each stage it builds the complete physical-key catalog, rebuilds immutable
+normalized pivots plus one unused sentinel column, and calls public
+`SparseRowReducer` with `LuLMode::Full`. Symbolica is authoritative for ordered
+pivot factors, normalization, and the dependent/independent decision. RustRed
+then replays the returned transcript through the existing guarded arithmetic
+to authenticate provenance and differentially verify the native result. The
+boundary borrows authenticated coefficient rows, uses shallow `Arc` clones for
+Symbolica's dense scratch, meters native coefficient work separately, and
+turns unused `Field` callbacks into typed failures. Licensed default-GMP runs
+with four test threads passed 12/12 adapter, 35/35 exact-database, and 2/2
+direct-session tests.
 
-This isolated milestone has not changed the live database authority: its
-handwritten top-reduction loop remains in service. The next seam constructs a
-complete physical-key catalog with hardest keys in the lowest columns, rebuilds
-the immutable pivot rows plus one unused sentinel column, and runs native and
-legacy staging in differential shadow before deleting the legacy decision
-path. The first transactional bridge rebuilds a temporary reducer inside each
-stage; a persistent reducer is not admitted until rollback/rebuild semantics
-and its scaling profile are explicit. Symbolica's current reducer also keeps an
-`O(K)` dense scratch vector and performs serial forward reduction, while the
-per-stage rebuild is cumulatively `O(P^2)`. It is a correctness bridge to
-measure, not evidence of six-loop scalability.
+This is still a transactional correctness bridge. Every stage reconstructs the
+full reducer, giving a cumulative tendency toward `O(P^2)` work over `P`
+pivots; Symbolica's current reducer also owns an `O(K)` dense scratch vector and
+performs serial forward reduction. Native sparse statistics are returned by
+the adapter but are not yet persisted in database telemetry. These results do
+not establish complete topology reduction, Vakint reproduction, or physical
+six-loop scalability. Persistent reducer ownership, rollback/rebuild semantics,
+and measured scaling remain separate work.
 
 The next vacuum-critical solver milestone is the topology-neutral
 `compact application event -> native Symbolica incremental reducer -> owning
@@ -547,10 +546,9 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. wire the isolated `SparseRowReducer`/`LuLMode::Full` adapter through a
-   hardest-first physical-key catalog and differential database shadow, then
-   replace the handwritten live decision path while preserving the tested event
-   surface and independently verifying every source combination and residual;
+1. persist and profile native sparse telemetry, evaluate a rollback-safe
+   persistent reducer, and retain exact regenerated-residual checks around the
+   now-live Symbolica transcript authority;
 2. add an owning exactly-once exceptional queue, a sealed committed-
    exceptional source, and rejected-candidate continuation; then integrate
    provider scheduling;

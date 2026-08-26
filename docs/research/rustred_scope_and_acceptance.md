@@ -245,10 +245,22 @@ independent validation layer, not the proof of a rule.
   apply; older custom `exact_sparse_elimination` code is migration debt, not a
   production algebra authority. Because the pinned sparse solve has a known
   validation caveat, RustRed uses a checked borrowed-input adapter over public
-  `SparseRowReducer` with independent residual and transcript checks rather
-  than implementing another CAS or matrix package. That adapter exists and is
-  tested in isolation; the live generated-affine exact database has not yet
-  switched authority.
+  `SparseRowReducer` with independent transcript checks rather than
+  implementing another CAS or matrix package. The live generated-affine exact
+  database now constructs a complete stage-local physical-key catalog and
+  rebuilds immutable normalized pivots under `LuLMode::Full`. Symbolica
+  authoritatively supplies ordered pivot factors and dependent/independent
+  disposition; guarded Rust replay validates the factors, divisor, normalized
+  row, and outcome while retaining provenance. Licensed default-GMP runs with
+  four test threads passed 12/12 focused adapter, 35/35 exact-database, and 2/2
+  direct-session tests.
+
+This live boundary is a correctness milestone, not a closure or scaling
+claim. It rebuilds the complete reducer for each stage, tends toward cumulative
+`O(P^2)` work, and inherits Symbolica's `O(K)` dense scratch. Native statistics
+are not yet persisted by the database. No complete topology reduction, Vakint
+one- through four-loop reproduction, or physical six-loop scalability result
+has been demonstrated.
 
 ## Current implementation gate and next generic slice
 
@@ -466,8 +478,10 @@ generated IBP/LI rows
 -> move-bound commit state + one-byte-per-leaf route preparation  [implemented]
 -> atomic target consumption + compact application event          [implemented internally]
 -> shallow event-bound rule/residual domains                      [implemented internally]
--> checked borrowed-input temporary Symbolica reducer adapter     [implemented in isolation]
--> physical-key catalog + live differential database shadow      [next]
+-> complete stage-local physical-key catalog
+   -> live Symbolica SparseRowReducer/LuLMode::Full authority
+   -> guarded differential/provenance replay                     [implemented]
+-> native sparse telemetry + persistent-reducer scaling study    [next]
 -> owning provider/residual scheduling
 -> exceptional-domain recursion and solved-subsector feedback
 -> coverage fixed point (publication replay is an optional audit)
