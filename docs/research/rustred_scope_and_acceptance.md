@@ -36,6 +36,14 @@ structures whenever they improve generality, auditability, parallelism, or
 runtime efficiency without changing the explicitly accepted mathematical
 semantics.
 
+Internal forward-path values should use sealed constructors, move ownership,
+and typestate rather than repeated schema/fingerprint/replay authentication.
+Runtime authentication is for untrusted imports, durable artifacts, and live
+mutation boundaries. Backward compatibility of internal formats is explicitly
+not an acceptance requirement during this implementation stage.
+Older internal schema/replay/token layers are historical scaffolding, not a
+design precedent; simplify or remove them when their code is next changed.
+
 Throughout this document, “parity” means semantic agreement on the named
 acceptance surface after an explicit convention map. It does not require
 identical intermediate rules, traversal order, mutable global state, or
@@ -93,9 +101,12 @@ Concrete topologies and concrete integer powers are permitted only for:
 - comparisons against LiteRed examples or Vakint outputs; and
 - performance benchmarks.
 
-Cached discovered rules are allowed only as versioned artifacts carrying the
-family/kinematics/order fingerprint, domains, guards, and replayable source
-provenance.  They must be reproducibly derivable from the generic engine.
+During development, cached rules are disposable revision-tagged artifacts.
+They record explicit family/kinematics/order conventions, domains, guards,
+routes, and dependencies and are validated once when loaded. Full source
+provenance/reconstruction is an optional audit payload. No migration promise
+applies until an external artifact format is intentionally declared stable.
+Every cached rule must remain reproducibly derivable from the generic engine.
 
 ## Required scalar scope
 
@@ -116,7 +127,7 @@ LiteRed facilities:
 - adaptive guarded parametric rule discovery from generated identities;
 - exact rule provenance, exceptional domains, and termination/descent checks;
 - rule application, master candidate handling, and user-selected masters;
-- stable, authenticated persistence and recovery;
+- inspectable persistence with one-time load validation and recovery;
 - Feynman-parametric and dimension-shift facilities where LiteRed exposes
   them; and
 - no implicit promotion of an uncovered integral to a proved master.
@@ -336,15 +347,24 @@ the following doctest phase also passed. This slice consumes no
 target, publishes no rule, and has no topology or loop-count dispatch. It does
 not establish complete LiteRed `WhenBad` closure.
 
+Compact routing preparation is now implemented as a single consuming
+transition. `PreparedPublication` owns the sealed Ready value and one checked
+`usize` route per leaf, so a route table cannot be supplied independently or
+mixed with another Ready owner. It performs one linear routing pass after
+resource admission; it adds no schema, fingerprint, replay validator, or
+binding capability. Typed operational failure returns the original Ready
+owner. The licensed focused suite passed 3/3 tests with four Rust test threads.
+This preparation still consumes no target and publishes no rule.
+
 The immediate generic semantic slice is now atomic guarded-rule/residual
-publication from that owner, followed by solved-subsector feedback into
-supersectors. It must not reconstruct V4, V5, the live-leaf queue, or old
-Boolean/DPLL certificates along the way.
+publication from that move-bound prepared owner, followed by solved-subsector
+feedback into supersectors. It must not reconstruct V4, V5, the live-leaf
+queue, or old Boolean/DPLL certificates along the way.
 
 The current exact-session event replacement and target successor are
 correctness-first, not six-loop-scalable: they copy the prior event-`Arc`
 vector and the full target-disposition vector on every transition. Atomic
-publication must retain one ordered leaf manifest per event without deep
+publication must move the prepared packed routes into each event without deep
 rule/residual duplication. Before high-loop deployment, session storage must
 move to a chunked/persistent event log and shared or paged copy-on-write target
 dispositions.
@@ -357,7 +377,7 @@ topology. Neither that milestone nor the existing lower-arity fixtures
 establishes a complete reduction.
 
 The following publication milestone remains the topology-neutral
-`GeneratedFamilySymbolicResidualSolveV1`.  It will connect the authenticated
+`GeneratedFamilySymbolicResidualSolveV1`.  It will connect the owned
 normalized frontier, cylindrical symbolic start, cumulative translated IBP/LI
 row system, preordered persistent elimination, generated `WhenBad` candidates,
 exceptional residual work, and the generic provider.  Its first accepted solve
@@ -387,9 +407,10 @@ generated IBP/LI rows
    and exact RHS-boundary events                                  [implemented, nonpublishing]
 -> one-shot canonical-locus authority -> owner-bound relative partition
    of the current-lineage arbitrary-width OR-of-AND formula       [implemented, nonpublishing]
+-> move-bound Ready + one-word-per-leaf route preparation         [implemented, nonpublishing]
 -> atomic guarded publication and residual hand-off               [next]
 -> exceptional-domain recursion and solved-subsector feedback
--> replayed coverage certificate
+-> coverage fixed point (full replay is an optional audit)
 -> generic provider and descending application
 ```
 

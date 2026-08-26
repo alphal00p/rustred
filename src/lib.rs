@@ -109,6 +109,9 @@ mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;
 mod generated_affine_residual_group_exact_database;
 mod generated_affine_residual_group_exact_physical_row;
+mod generated_affine_residual_group_exact_publication;
+#[cfg(test)]
+mod generated_affine_residual_group_exact_publication_tests;
 mod generated_affine_residual_group_exact_recenter_kernel;
 mod generated_affine_residual_group_exact_relation;
 mod generated_affine_residual_group_exact_session;

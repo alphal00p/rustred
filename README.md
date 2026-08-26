@@ -39,6 +39,7 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; authenticated selector-independent compact affine maps reach the unpublished `ReadyForConditions` gate and feed the implemented condition/materialization/partition owners |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally as owner-bound, non-publishing phases: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and one opaque canonical-locus authority carries the current-lineage arbitrary-width OR-of-AND `WhenBad` formula into partition compilation; the nested compiler validates it linearly instead of repeating the outer pairwise scan; atomic publication remains pending |
+| Prepare compact guarded-publication routing | Implemented internally as one move-only `PreparedPublication` that owns the sealed Ready value and one packed word per leaf; there is no separately bindable manifest, hot-path replay, or schema/fingerprint layer; target-consuming commit remains pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for both the legacy-inventory slice and the source-profiled Direct singleton slice; rule publication remains pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
@@ -138,6 +139,9 @@ emitted_total = 1
 stable_id = "ordinary-ibp:0:0"
 ```
 
+This `v1` label is an unstable implementation revision, not a backward-
+compatibility promise; development versions may reject or replace it.
+
 That result proves that RustRed parsed the family, inferred `d` and `m2`, and
 derived the one ordinary parametric identity expected for `L=1, E=0`. The
 emitted relation has terms at shifts `[0]` and `[1]`, with coefficients that
@@ -156,8 +160,8 @@ complete reduction of that target.
 
 ## Input modes
 
-The CLI accepts three compact modes which normalize into the same authenticated
-family representation:
+The CLI accepts three compact modes which normalize into the same validated
+typed family representation:
 
 - raw Symbolica `I(...)`, as above;
 - hybrid TOML containing one compact `integral = """I(...)"""` plus metadata;
@@ -334,8 +338,14 @@ The repository currently includes tests for:
   an independent superset passed 20/20. Authoritative licensed default-GMP
   Nextest run `e9004c32-5a51-4705-a2f9-e39bcac40c49` then ran 1,651 tests
   with four workers and passed all 1,651 (52 slow), with 5 additional
-  configured cases skipped; the following doctest phase also passed. This
-  phase still
+  configured cases skipped; the following doctest phase also passed. The next
+  compact preparation step now consumes that sealed Ready owner and physically
+  pairs it with one checked routing word per leaf. It trusts private Rust
+  constructors instead of repeating schema, fingerprint, provenance-census,
+  or replay checks; only resource admission, safe provenance lookup, and packed
+  representation checks remain. Operational failures return the original
+  move-only Ready owner. Its licensed default-GMP focused suite passed 3/3
+  tests with four Rust test threads. This phase still
   performs no target consumption, rule publication, reduction, or six-loop
   topology solve; and
 - seven end-to-end numerator-spelling closure pairs in
@@ -380,8 +390,8 @@ That correctness-first storage layout is not the final high-loop layout. Each
 current event append copies the preceding event-`Arc` vector, and each target
 successor copies the complete disposition vector. Before the multi-loop
 foundry is scaled, these paths must become a chunked/persistent event log and a
-shared or paged copy-on-write target state. Guarded publication will retain one
-ordered leaf manifest inside its event and expose shallow handles, rather than
+shared or paged copy-on-write target state. Guarded publication will retain the
+packed routes once inside its event and expose shallow handles, rather than
 maintaining duplicate deep rule and residual payload vectors.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
@@ -406,7 +416,7 @@ transcript checks; RustRed does not extend this into a parallel CAS or matrix
 implementation.
 The next vacuum-critical solver milestone is the topology-neutral
 `mapped conditions -> relative WhenBad partition -> atomic guarded-rule/
-residual publication -> replay-certified closure` slice. Exact fixed-chamber
+residual publication -> exactly verified closure` slice. Exact fixed-chamber
 descent and lazy hazard geometry now cover authenticated selector-independent
 compact affine target maps. An owner-bound identity/compact transform and
 deterministic condition-source schedule now preserve the Ready lineage, while
@@ -419,9 +429,12 @@ condition transcript, including both denominator-identity projections and the
 ordered boundary events. The subsequent move-only owner now proves and seals
 canonical loci once per fresh compilation or full proof replay, then builds the
 relative `WhenBad` partition for the assembled current-lineage arbitrary-width
-OR-of-AND formula without a second inner Symbolica-associate scan. The active
-slice must consume the selected target and publish the guarded rule plus
-exceptional residual work atomically. Graph-lifted symmetry discovery and the
+OR-of-AND formula without a second inner Symbolica-associate scan. A compact
+move-only preparation now keeps that Ready owner and its one-word leaf routes
+together without a separate authentication/binding layer. The active slice
+must consume this prepared value and the selected target, then publish the
+guarded rule plus exceptional residual work atomically. Graph-lifted symmetry
+discovery and the
 `SparseRowReducer` transcript-equivalence
 path follow on the scaling route; unrelated Feynman/non-vacuum algebra
 migrations stay required but no longer displace the six-loop vacuum critical
@@ -468,7 +481,8 @@ remaining generic LiteRed-style solver work is to:
    exceptional residual work from the implemented owning current-lineage
    formula partition;
 2. feed solved subsectors into supersectors and iterate residual cases; and
-3. expose a replay-certified complete reduction result.
+3. expose a coverage-backed complete reduction result, with full derivation
+   replay available as an optional audit.
 
 This current-lineage state does not complete RustRed's stated mathematical
 capability goal, `WhenBad` closure, rule publication, an arbitrary one-loop
@@ -511,8 +525,9 @@ without consuming a target or publishing a rule. A separate opaque move-only
 owner now proves the canonical parametric loci once per fresh compilation or
 full proof replay; the nested relative-`WhenBad` compiler validates that
 authority linearly and performs no duplicate pairwise Symbolica-associate scan.
-The
-immediate gate is atomic guarded publication and residual hand-off. No arity-21
+Compact route preparation is now a single move-only owner transition rather
+than a separately authenticated manifest. The immediate gate is atomic guarded
+publication and residual hand-off. No arity-21
 case has reached Ready, no guarded rule has been published, no physical
 topology was reduced, and no complete reduction is claimed.
 

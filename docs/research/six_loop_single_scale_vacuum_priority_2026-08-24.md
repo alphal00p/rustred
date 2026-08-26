@@ -8,6 +8,13 @@ campaign, and benchmark inputs only. Implementation status below is reconciled
 with pushed checkpoint `c593865` and the Direct singleton stable-identity/
 solve-plan checkpoint on 2026-08-25.
 
+Internal RustRed owners trust sealed constructors and move semantics. Add
+runtime validation only at human/file import, durable artifact loading, and the
+final mutation of live reduction state. Internal artifact formats are
+disposable and may be replaced without migration during development; detailed
+replay/source transcripts are optional audit data unless mathematics itself
+requires an independent residual check.
+
 ## 1. Deployment objective
 
 The priority deployment is a world-scale six-loop QCD beta-function
@@ -70,10 +77,10 @@ This removes a reconstruction variable and mass powers from every hot
 coefficient, permits univariate sampling/reconstruction in `d`, and makes
 rule artifacts reusable for every numerical choice of the auxiliary UV mass.
 The generic RustRed family API must still support symbolic masses and other
-kinematics; unit mass is a fingerprinted specialization mode, not a hidden
+kinematics; unit mass is an explicitly declared specialization mode, not a hidden
 global assumption.
 
-The denominator sign is a separate fingerprinted convention.  GammaLoop's
+The denominator sign is a separate declared convention.  GammaLoop's
 current Vakint/alphaLoop boundary uses the Minkowski relation
 `D_r=q_r^2-m^2`, while several RustRed vacuum fixtures use a Euclidean
 `q_{E,r}^2+m^2` convention.  Setting the mass magnitude to one does not erase
@@ -88,7 +95,7 @@ the other.
 | Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | The completed explicit `L=6`, 36-row gate validates topology-independent generation and deterministic regeneration only; it does not validate arity-21 cover construction, solving, or reduction. |
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
 | Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
-| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. The foundry needs direct target-frontier search over authenticated normalized formulas, with MTBDD compilation admitted only under an explicit measured budget. |
+| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. The foundry needs direct target-frontier search over owned normalized formulas, with MTBDD compilation admitted only under an explicit measured budget. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
 | Global eager exact Laporta prototypes and loop-authored finite closures | Oracle only | They validate identities but scale poorly and cannot define production rules. High-loop solving must be sector-local, target-driven, modular-first, and exactly replayed. |
 | Vacuum tensor/numerator parsing and scalar-product lowering | Keep on the hot path | GammaLoop supplies many numerator structures. They must be normalized once and converted to integral-key batches before rule application. |
@@ -114,8 +121,8 @@ must state at least:
 - common-mass normalization and denominator sign convention; and
 - maximum numerator/dot demand emitted by the BPHZ calculation.
 
-The production engine accepts any authenticated family.  Exhaustiveness is a
-property of a versioned campaign manifest plus a graph enumerator, not a
+The production engine accepts any validated typed family. Exhaustiveness is a
+property of the current campaign declaration plus a graph enumerator, not a
 loop-count branch in RustRed.
 
 GammaLoop's existing `to_vakint_integrand` boundary already performs the
@@ -142,8 +149,8 @@ For each normalized connected graph, the foundry must:
 2. handle duplicate/dependent physical denominators through the generic
    partial-fraction/overcomplete-family layer;
 3. complete the `K=L(L+1)/2` scalar-product basis with deterministic ISPs;
-4. fingerprint the unit-mass `Q(d)` specialization and all ordering/domain
-   policies;
+4. record the unit-mass `Q(d)` specialization and all ordering/domain
+   policies explicitly;
 5. build the physical-sector dependency DAG;
 6. prove zero sectors and factorized lower-loop components before row
    generation; and
@@ -282,22 +289,21 @@ first one-declared-sector arity-21 Ready gate.
 
 ### 4.4 Durable compiled artifact
 
-One artifact unit should be a canonical `(family, sector, order, domain)`
-job.  It must include:
+One artifact unit should be a canonical `(family, sector, order, domain)` job.
+The first implementation is intentionally disposable and carries a simple
+RustRed/Symbolica revision tag, not a migration promise. It contains:
 
-- schema and RustRed/Symbolica revision;
-- family, unit-mass, routing, sector, symmetry, zero, factorization, and order
-  fingerprints;
-- source parametric-row identities and provenance roots;
-- rules, guards, exceptional branches, descent witnesses, and coverage;
-- dependencies on lower sectors/families;
-- modular samples, reconstruction metadata, and independent replay status;
-- master candidates or explicitly user-selected masters, never inferred from
-  an uncovered timeout; and
-- exact resource/benchmark census.
+- explicit family, unit-mass, routing, sector, order, and domain conventions;
+- rules, guards, packed exceptional routes, and coverage/dependency data;
+- lower-sector/family dependencies; and
+- master candidates or explicitly user-selected masters, never masters
+  inferred from an uncovered timeout.
 
-Artifacts should be atomically written, content addressed, resumable, and
-loadable without rerunning discovery.  A CLI should expose at least `derive`,
+Loading validates that complete payload once before constructing ordinary
+in-memory owners. Source transcripts, modular samples, reconstruction traces,
+content addressing, resumable derivation state, and detailed benchmark census
+are optional audit/scaling extensions, not prerequisites for the first usable
+artifact. Writes must still be atomic. A CLI should expose at least `derive`,
 `verify`, `inspect`, and `reduce` phases.
 
 ## 5. Online batch reduction runtime
@@ -364,13 +370,14 @@ The following policies are critical at five and six loops:
 - Do not perform quadratic pairwise associate tests for every repeated
   condition locus. Project each unique locus once to Symbolica `K[n]`, use
   Symbolica's public monic normalization as the exact associate-class
-  representative, and cache it behind authenticated bounds.
+  representative, and cache it under an owner-held measured budget.
 - Do not mix discovery state with online reductions.  Persist and version the
-  former; keep the latter deterministic and restartable.
+  former with a disposable revision tag until an external format is declared
+  stable; keep the latter deterministic and restartable.
 - Do not copy the complete chronological event list or complete target-
   disposition vector on every published recurrence. Use chunked/persistent
   event storage, shared or paged copy-on-write target state, and one ordered
-  leaf manifest per event with shallow rule/residual handles.
+  packed route array per event with shallow rule/residual handles.
 - Do not create topology-specific Rust reducers.  Concrete topology names may
   occur in manifests, tests, benchmark labels, and oracle adapters only.
 
@@ -407,15 +414,15 @@ the high-loop path:
 
 Vakint is not a generic derivation oracle: its four-loop FMFT-backed outputs
 are frozen compatibility/end-to-end data, and it provides no five- or six-loop
-oracle. Every RustRed rule must still replay against freshly generated generic
-IBPs before publication; neither a topology name nor a frozen master-
-substituted number may authorize production behavior.
+oracle. Every RustRed rule must still have zero exact residual against freshly
+generated generic IBPs before publication; neither a topology name nor a
+frozen master-substituted number may select production behavior.
 
 Specialization closure is a campaign gate: derive/reduce with symbolic `m^2`
-and then set `m^2=1`, and compare with specializing the authenticated family
-and input before reduction. The results must agree after restoring the overall
-mass dimension by homogeneity, with the Wick/sign-convention fingerprint
-checked independently.
+and then set `m^2=1`, and compare with specializing the declared family and
+input before reduction. The results must agree after restoring the overall
+mass dimension by homogeneity, with the explicit Wick/sign convention checked
+independently.
 
 All campaign suites run with licensed, GMP-enabled Symbolica and no `no_gmp`,
 FORM, or Mathematica. Shard in parallel by family/sector/corpus with isolated
@@ -429,13 +436,13 @@ application and record at least:
 - zero/factorization/symmetry reduction ratios;
 - derivation wall time, CPU time, peak memory, prime samples, and artifact
   size;
-- reconstruction and exact-replay time;
+- reconstruction and exact residual-verification time;
 - online integrals/second, terms/second, peak memory, cache hit rate, and
   parallel scaling; and
 - uncovered keys and the exact frontier that produced them.
 
-The first six-loop milestone is not a claimed beta-function result.  It is a
-replay-certified reduction of a declared GammaLoop-derived corpus to an
+The first six-loop milestone is not a claimed beta-function result. It is an
+exactly verified reduction of a declared GammaLoop-derived corpus to an
 unsubstituted master basis with reproducible artifacts and measured batch
 throughput.
 
@@ -446,8 +453,12 @@ first non-publishing slice of generic rule derivation is implemented. Its
 authenticated exact-Ready phase accepts selector-independent compact affine
 maps, proves physical-key descent inside the source chamber, and retains
 arbitrary-precision inactive-orthant hazard intervals for later partitioning.
-Conditions and publication remain unfinished. This status does not claim a
-complete family reduction or any six-loop result.
+Condition mapping, relative bad-domain partitioning, and compact move-bound
+route preparation are now implemented. The route stage performs one linear
+pass and stores one `usize` per leaf; it trusts its sealed Ready owner rather
+than adding another schema/replay/binding layer. Atomic target-consuming
+publication remains unfinished. This status does not claim a complete family
+reduction or any six-loop result.
 
 The first genuine arity-21 attempt exposed the eager-case blocker before
 Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
@@ -532,9 +543,12 @@ or physical-topology calculation.
    constrained compact maps now reach `ReadyForConditions`; the production
    regression replays six RHS descent witnesses. This has not reached rule
    publication, reduction, or six-loop topology support.
-9. Finish the generic `GeneratedFamilySymbolicResidualSolveV1` rule-publication
-   path, including LiteRed-correct `WhenBad`, subsector feedback, atomic
-   publication, durable artifacts, and a 36-source session batch.
+9. **Completed through compact preparation:** current-lineage condition
+   mapping, canonical-locus relative `WhenBad` partitioning, and one-pass
+   move-bound Ready/route preparation. Finish the generic
+   `GeneratedFamilySymbolicResidualSolveV1` path with the minimal atomic live-
+   session publication boundary, subsector feedback, durable artifacts, and a
+   36-source session batch.
 10. Add unit-mass `Q(d)` family specialization and modular/reconstruction
    services through public Symbolica finite-field and polynomial APIs.
 11. Add topology-generic graph ingestion, deterministic ISP completion,

@@ -23,8 +23,10 @@ authenticated canonical-locus owner gate passed 19/19, with an independent
 20/20 superset. Authoritative licensed default-GMP Nextest run
 `e9004c32-5a51-4705-a2f9-e39bcac40c49` then used four workers, ran 1,651
 tests, and passed all 1,651 (52 slow), with 5 additional configured cases
-skipped; the following doctest phase also passed. Atomic publication and
-subsector feedback remain next;
+skipped; the following doctest phase also passed. Compact route preparation is
+now implemented as one move-only owner pairing Ready with one packed word per
+leaf; its licensed four-thread focused suite passed 3/3. Atomic target-consuming
+publication and subsector feedback remain next;
 updated 2026-08-26.
 
 This document specifies the next topology-neutral RustRed seam after
@@ -37,6 +39,14 @@ Symbolica. It must not use FORM, Mathematica at runtime, Symbolica's `no_gmp`
 feature, loop-count-specific code, topology-specific recurrences, or
 hard-coded reduction rules. Loop counts and concrete vacuum or scattering
 topologies are validation inputs only; they never select a core algorithm.
+
+Private in-memory Rust types are trusted to preserve invariants established by
+their sealed constructors. New forward-path stages must not add schema strings,
+fingerprints, replay passes, or binding capabilities merely to revalidate an
+adjacent private owner. Explicit authentication is reserved for untrusted
+input/import, durable cache loading, and the one live-session mutation
+boundary. There is no backward-compatibility requirement during this design
+stage; stale internal formats may be replaced rather than migrated.
 
 The preceding database/recenter ownership contract remains
 `docs/research/exact_group_solve_transaction.md`. This plan is narrower and
@@ -284,11 +294,11 @@ successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
 Not yet implemented are target-consuming rule publication, exceptional
-residual orchestration, subsector feedback, or replayable current-lineage
-rule/residual handles. The current event ledger, mapped transcript, and
-current-lineage formula partition are complete only for their implemented
-non-publishing dispositions; their schemas and replay must be extended with
-publication and residual manifests. The mature `GeneratedResidualAffine...`
+residual orchestration, subsector feedback, or current-lineage rule/residual
+views. The current event ledger, mapped data, and formula partition are
+complete only for their implemented non-publishing dispositions; the live
+event/storage layer must be extended directly, without publication manifests
+or another replay wrapper. The mature `GeneratedResidualAffine...`
 implementation is an oracle, not production authority for these missing
 pieces. RustRed's stated capability goal, arbitrary one-loop pentagon
 reduction, and the high-throughput two- through six-loop vacuum milestones
@@ -474,19 +484,15 @@ consume-once committed pivot/event supplies RustRed's equivalent exclusion.
 
 No outcome in this seam infers a master integral.
 
-## 3. Current authority boundary
+## 3. Current ownership boundary
 
-The only admissible production input to exact `WhenBad` is the owning current
-Ready typestate from
+The only production input to exact `WhenBad` is the current move-only Ready
+typestate from
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready`. It binds:
 
-- the exact session/database allocation and staged transition identity;
-- database epoch, group, state version, source cursor, and pivot identity;
-- the retained post-top-reduction source/replay recipe;
-- the current target-state allocation and first persisted unresolved Ready
-  target;
-- the target locator, affine geometry, and current target-premises certificate;
-- the exact recentered terms, exact centered shifts, and translated row guards.
+- the staged database transition and source cursor;
+- the selected unresolved target and its affine geometry/premises;
+- the exact recentered terms, shifts, and translated row guards.
 
 The concrete premise authorities are
 `GeneratedAffineResidualCasePremisesCertificate` and
@@ -497,21 +503,21 @@ target capabilities are
 `GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget`
 (`src/generated_affine_residual_group_exact_targets.rs:1753-1855`).
 
-Private constructors and non-`Clone` ownership are part of the proof. A public
-constructor from a relation, target ordinal, locator, manifest, physical key,
-or matching visible values is forbidden. Hashes and fingerprints are replay
-evidence, not allocation authority.
+Private constructors and non-`Clone` ownership prevent accidental cross-owner
+mixing. Do not add public constructors from loose ordinals/locators, but also do
+not add hashes, fingerprints, nonces, or binding tokens to duplicate the same
+in-memory guarantee.
 
 The exact compiler consumes Ready and returns a terminal object that continues
 to own it. Dropping Ready or any later terminal commits nothing. Every
 preparation error returns the same owning typestate unchanged.
 
-Mechanically, preparation borrows `&Ready` inside `catch_unwind` and builds a
-separate admitted prepared value. Only after `Ok(prepared)` may code destructure
-or move Ready. Commit preparation similarly borrows `&terminal` and moves the
-terminal owner only after every successor and replacement is ready. This
-borrow-then-move order is required; early destructuring would make exact retry
-ownership impossible even if the public error type claimed otherwise.
+Preparation borrows Ready while admitting resources, then moves it into the
+result. A failed operational preparation returns Ready. Do not require
+`catch_unwind` on callback-free private Rust code; reserve panic conversion for
+actual native/caller callback boundaries. The live commit similarly prepares
+all fallible successor storage before moving the owner into its infallible
+mutation tail.
 
 ## 4. Explicitly forbidden old-authority reuse
 
@@ -553,16 +559,17 @@ Reuse is restricted to mathematics with no old authority payload:
 2. The relative target-domain partition core and
    `AffineWhenBadRelativePartitionCertificate` from
    `src/generated_residual_affine_when_bad.rs:382-518,863-1638`. A new exact
-   outer owner must authenticate its problem and retain the certificate.
+   outer owner consumes the sealed typed input and retains only the partition
+   and mathematical provenance needed downstream.
 3. Canonical Symbolica polynomial validation, associate detection, and
    deterministic first-seen deduplication algorithms from
    `src/generated_residual_affine_condition_accumulator.rs`. Its existing
    input/certificate and `Option<&IndexShift>` provenance are not reusable.
    The current bounded implementation projects each locus to `K[n]`, preserves
    deterministic first-seen order, and proves equality/association with exact
-   Symbolica polynomial operations. The opaque authenticated canonical-locus
-   owner is now implemented, so the inner compiler trusts the bounded outer
-   proof without repeating the pairwise scan. A monic-keyed hash index remains
+   Symbolica polynomial operations. The canonical-locus owner is now
+   implemented, so the inner compiler borrows its result without repeating the
+   pairwise scan. A monic-keyed hash index remains
    deferred until Symbolica exposes a fallible normalization API with a native
    workspace census: public `make_monic` supplies the mathematics but not the
    resource authority required by this path. No uncensused normalization or
@@ -588,10 +595,10 @@ implemented foundation
 
 The typed NoTarget commit, consuming equality suspension, private append-only
 chronological event collection, cumulative resource accounting, and
-fresh-shadow replay described in the checkpoint are the validated foundation
-of this phase. The current private event disposition implements `Dependent`,
-`NoTarget`, and `RequiresAffineEqualityRefinement` only. The target extended
-schema is
+fresh-shadow audit described in the checkpoint are the validated foundation of
+this phase. The current private event disposition implements `Dependent`,
+`NoTarget`, and `RequiresAffineEqualityRefinement` only. The event variants
+eventually include:
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactRunDisposition {
@@ -607,7 +614,7 @@ enum GeneratedAffineResidualGroupExactSessionEvent {
     },
     WhenBadIdenticallyBad { /* future sealed candidate */ },
     WhenBadUnsupported { /* future typed representation reason */ },
-    Certified { /* future publication locator/counts */ },
+    Publication { /* future committed routes */ },
 }
 ```
 
@@ -732,53 +739,39 @@ the current-lineage arbitrary-width OR-of-AND bad formula, and returns either
 `GeneratedAffineResidualGroupExactWhenBadPartitionCompilation::ReadyForPublication`
 or its proof-bearing `IdenticallyBad` terminal. These names describe a sealed
 nonpublishing partition result, not a certified or published rule: both consume
-no target and publish no rule. The final publication terminal contract below
-remains to be implemented.
+no target and publish no rule. The following compact preparation now consumes
+`ReadyForPublication` and returns one non-`Clone` `PreparedPublication` owning
+both that Ready value and one packed route per leaf. Operational failure returns
+the original Ready owner. There is no standalone manifest authority, schema,
+fingerprint, replay validator, or later binding token. The final
+target-consuming terminal contract below remains to be implemented.
 
-The later publication compiler must introduce a distinct non-`Clone`
-current-lineage terminal:
-
-```rust,ignore
-enum GeneratedAffineResidualGroupExactWhenBadCompilation {
-    Certified(GeneratedAffineResidualGroupExactWhenBadCertified),
-    IdenticallyBad(GeneratedAffineResidualGroupExactWhenBadIdenticallyBad),
-    Unsupported(GeneratedAffineResidualGroupExactWhenBadUnsupported),
-}
-```
-
-Every variant owns the complete RecenterReady typestate. The compiler runs
-under `catch_unwind`; on authentication, resource, allocation, arithmetic, or
-panic failure it returns the exact Ready owner. Terminal `Unsupported` is
-reserved for a deterministic, replayable representation limitation after
-valid input authentication. It must not conceal a transient or resource
-failure.
+Do not add another `Certified` wrapper between preparation and commit. The
+partition compiler has already decided whether the candidate has an applicable
+leaf, and `PreparedPublication` already owns everything the commit needs.
+`IdenticallyBad` remains the nonpublishing partition terminal. A deterministic
+unsupported symbolic representation remains a typed result at the phase that
+detects it; it does not justify a new manifest, transcript, or replay layer.
 
 A successfully reproduced LiteRed fail-closed radical/noninteger-power result
-has `B=True` and is therefore `IdenticallyBad`. `Unsupported` applies only
-when RustRed can authenticate and replay a specific representation limitation
-but cannot construct a sound `B` partition; it is not an alternate spelling
-for the literal fail-closed formula.
-
-The future Certified certificate retains current target premises, exact row guards,
-canonical coefficient-denominator conditions, exact descent witnesses,
-boundary/numerator pullbacks, structural loci, and the relative partition
-certificate. An all-exceptional partition is classified `IdenticallyBad`, not
-Certified with zero applicable leaves.
-
-`IdenticallyBad` retains the authenticated literal-true or all-exceptional
-proof, complete condition/descent/pullback transcript, and full resource
-census. `Unsupported` retains its deterministic typed reason, the
-authenticated partial transcript up to the unsupported seam, and its complete
-resource census. Neither may be a reason-only enum that cannot replay why the
-authenticated candidate was rejected.
+has `B=True` and is therefore `IdenticallyBad`. An all-exceptional partition is
+also `IdenticallyBad`, not a zero-leaf publication candidate. Operational
+resource or allocation failures return the move-only input unchanged. A panic
+in callback-free private Rust code is a programmer bug and must not be
+relabelled as a retryable validation result.
 
 ### Phase D: atomic target disposition and publication
 
-Add sealed owners for:
+The hot path accepts only the move-bound `PreparedPublication`. It performs one
+freshness check against the consumed live session/database/target state, admits
+all replacement storage, and then enters an allocation-free infallible move
+tail. Algebraic replay remains an explicit audit/testing operation, not a
+prerequisite repeated by every internal transition.
+
+Store only:
 
 - a chronological committed-event log;
-- one ordered applicable/exceptional leaf manifest retained once by each
-  certified event;
+- the ordered packed routes retained once by each committed event;
 - shallow current-lineage guarded-rule and residual handles into that event;
 - equality-refinement records.
 
@@ -790,36 +783,38 @@ or paged copy-on-write target dispositions before scaling the foundry. The
 publication seam must not add separate deep rule/residual vectors on top of
 those costs.
 
-Add consuming terminal commit APIs. A Certified commit prepares the target
-successor with `Some(retained_ready_target)`, one event, all applicable rule
-leaves, and all exceptional residual leaves. `IdenticallyBad` and
-`Unsupported` use `None`, keep the target unresolved, and publish no rule.
+Add one consuming publication commit API. It takes `PreparedPublication` by
+value, checks that the selected live target/database head is still current,
+prepares the successor storage, then moves one event and all applicable and
+exceptional routes into place. `IdenticallyBad` never enters this API: it keeps
+the target unresolved and publishes no rule.
 
-Published handles name a committed exact-session event/record allocation and
-offer only sealed replay/application views. They do not expose a raw
-`ParametricRelation` or become authoritative merely from a serialized
-locator. Each committed guarded-rule record retains or moves the complete exact
-recentered RHS coefficients and shifts, or an equally complete authenticated
-source recipe from which replay reconstructs those exact values. Partition
-locators and counts alone are insufficient to apply a reduction. Provider
-integration happens only after this owner exists.
+Published handles are shallow views into one committed event. The event owns
+the exact recentered relation data needed to apply the rule; normal application
+does not reconstruct it from a recipe or replay the derivation. A serialized
+locator alone never grants access to live state, and partition locators/counts
+alone are insufficient to apply a reduction. Provider integration happens only
+after the event exists.
 
-### Phase E: replay and provider integration
+### Phase E: provider integration, persistence, and optional audit
 
-Replay must independently reconstruct and verify:
+The normal provider path reads the committed event directly and performs no
+derivation replay. An explicit offline audit may independently reconstruct:
 
-1. authenticated exact physical source row and hardest-only staging;
-2. exact session/database/target predecessor binding;
-3. persisted first unresolved target selection;
+1. the exact physical source row and hardest-only staging;
+2. the session/database/target predecessor state;
+3. first unresolved target selection;
 4. exact recentering and separation of premises from row guards;
 5. condition, descent, pullback, direct-formula, and partition transcripts;
 6. the committed transition identity and target disposition;
 7. published applicable and exceptional locators/counts.
 
-Durable manifests are untrusted inputs. Loading a manifest must rerun replay
-under the current family/context/session authority before minting an in-memory
-sealed handle. Only then may the conditional-rule/provider layer specialize
-or apply it.
+Durable artifacts are an actual trust boundary. Loading one validates its
+complete payload once against the current family and coefficient context before
+constructing normal in-memory owners. It need not reproduce every internal
+historical stage, and internal artifact formats may be replaced freely during
+development. Only external/stable formats acquire explicit versions when they
+are intentionally published.
 
 ## 7. Condition provenance and ordering
 
@@ -855,14 +850,14 @@ representation result; an exception or exhausted limit is operational.
 
 | Typed outcome | Algebra database and cursor | Target state | Events/residuals | Published rule |
 |---|---|---|---|---|
-| `Dependent` | Advance source; no new pivot | Dispositions unchanged; allocation, binding, and version advance to the prepared successor | Dependent event | None |
+| `Dependent` | Advance source; no new pivot | Dispositions unchanged; state advances to the prepared successor | Dependent event | None |
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
-| Certified, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Certified event; no exceptional leaf | Full applicable rule |
-| Certified, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Certified event plus every exceptional child | Every applicable leaf |
+| Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Publication event; no exceptional leaf | Full applicable rule |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Publication event plus every exceptional child | Every applicable leaf |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
-| `Unsupported` | Commit pivot; advance source | Selected target remains unresolved | Typed unsupported event/requeue provenance only; no duplicate exceptional residual leaf | None |
-| Authentication, stale/foreign token, allocation, arithmetic, limit, or panic failure | Commit nothing | Unchanged | None | None |
+| Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
+| Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
 
 A rejected pivot is committed once and is not offered to a second target. A
 later source row is reduced by it and may solve the same unresolved target.
@@ -873,11 +868,13 @@ The persisted first matching target remains final for the current candidate.
 Before any mutation, prepare and admit all of:
 
 - the staged database successor/replacement owned by the transaction;
-- target-state successor, using `Some(Ready)` only for Certified;
+- target-state successor, consuming the selected Ready target only for a
+  prepared publication;
 - run-disposition successor;
 - complete event-log append/replacement for the currently selected storage
   backend;
-- one ordered leaf manifest and any shallow rule/residual handle buffers;
+- prospective event/handle/scheduling storage into which the already-owned
+  packed routes will move;
 - complete residual/refinement scheduling replacement;
 - aggregate statistics and every new retained/peak capacity.
 
@@ -919,11 +916,9 @@ statistics and limits must cover:
 The implemented Ready geometry/descent/hazard checkpoint currently reports an
 incremental subphase census and explicitly excludes the pre-existing Ready
 graph. That local limit is useful for exact retry tests but is not the complete
-Phase C owner-wide contract above. The owning `WhenBad` compiler must project
-this child from a remaining aggregate budget and combine its prospective and
-observed retained/native-work census with the authenticated staged transaction,
-target state, Ready owner, and later condition/partition children before any
-publication can be admitted.
+Phase C owner-wide contract above. The live commit must combine its prospective
+and observed retained/native-work census with the staged transaction, target
+state, Ready owner, and condition/partition children before publication.
 
 Project every child compiler from the remaining aggregate budget. Never reset
 a child to default limits. Before materializing boundary events, preflight the
@@ -942,21 +937,19 @@ one-below transactional rejection test. Failures return the same owning
 typestate with database, cursor, targets, events, capacities, and statistics
 unchanged.
 
-## 11. Replay and redaction invariants
+## 11. Ownership and boundary validation
 
 - Public/debug views expose locators, counts, predicate classes, and resource
-  census only. Private shifts, boundary values, raw conditions, source
-  expressions, and transaction identities remain redacted unless an internal
-  replay view needs them.
-- A rule, residual, or refinement handle is authorized by its retained current
-  owner allocation and committed event, not by equal visible fields.
-- Replay rejects cross-session, cross-database, sibling target-state,
-  abandoned-transition, stale-version, reordered-condition, modified-leaf,
-  or changed-resource transcript substitutions.
-- Replay is deterministic under spare vector capacity, concurrency, and
-  serialization round trips. Nonces remain private and non-wrapping.
-- No application path accepts or returns an unsealed raw
-  `ParametricRelation` as rule authority.
+  census needed by their caller. Exact relation data remains owned by the
+  committed event and is borrowed through application views.
+- Move ownership prevents mixing routes, rules, residuals, and predecessor
+  state from different in-memory candidates; do not add runtime identity tokens
+  where the type system already enforces this.
+- The live commit performs the one freshness check needed to reject a stale
+  database head or already-consumed target.
+- Durable loading validates external bytes before constructing in-memory
+  owners. Optional audit replay and serialization round-trip tests live at that
+  boundary, not in every forward transition.
 
 ## 12. Required implementation gates
 
@@ -966,10 +959,10 @@ unchanged.
   target, emits no rule, and drop remains inert.
 - Equality commits exactly once, retains its locator/refinement proof, emits a
   mandatory refinement event, and prevents further same-epoch staging.
-- Stale, foreign, wrong-allocation, one-below, allocation, and caught-panic
-  paths return the exact input outcome and mutate nothing.
-- Source-surface checks prove there is no transaction extractor or untyped
-  production commit bypass.
+- Stale live-state, one-below, and allocation paths return the exact input
+  outcome and mutate nothing.
+- The normal typed API has no transaction extractor or untyped production
+  commit bypass.
 
 ### Exact `WhenBad` gates
 
@@ -984,7 +977,7 @@ unchanged.
   active-coordinate pinch, inactive-coordinate activation, numerator
   vanishing/nonvanishing on a boundary, and multiple simultaneous hazards.
   Test LiteRed radical/noninteger-power fail-closed behavior separately as
-  `IdenticallyBad`; a deterministic authenticated RustRed representation limit
+  `IdenticallyBad`; a deterministic RustRed representation limit
   is typed `Unsupported`, while limit exhaustion or panic is operational and
   returns the owner unchanged.
 - Empty collected RHS as a valid all-domain zero rule, not a malformed row or
@@ -1000,20 +993,21 @@ unchanged.
 - A topology-neutral arity-21, many-RHS, multiple-hazard Ready/condition stress
   row, without a topology name, loop-count dispatch, or injected recurrence
   coefficient.
-- A generic six-loop family-generation gate proving `L^2=36` independently
-  replayable IBP source rows per seed, followed by a session/scheduler batch
-  gate that consumes 36 authenticated sources. One arity-21 row is not a
+- A generic six-loop family-generation gate proving `L^2=36` IBP source rows
+  per seed, followed by a session/scheduler batch gate that consumes all 36
+  sources. One arity-21 row is not a
   substitute for this distinct source-batch test.
 
 ### State/publication gates
 
-- Full transition-table test covering Dependent, NoTarget, equality,
-  Certified, IdenticallyBad, Unsupported, and every operational-failure class.
+- Full transition-table test covering Dependent, NoTarget, equality, prepared
+  publication, IdenticallyBad, unsupported representations, and every
+  operational-failure class.
 - Rejected pivot remains in the database and reduces a later row that can solve
   the same target.
-- Rejection does not try a second target; Certified consumes only the first
+- Rejection does not try a second target; publication consumes only the first
   persisted matching Ready target.
-- Mixed Certified commit publishes every applicable leaf and queues every
+- Mixed publication commits every applicable leaf and queues every
   exceptional leaf while consuming the coarse target exactly once.
 - Applicable specialization reproduces the complete exact recentered
   relation coefficient-for-coefficient and shift-for-shift. Exceptional
@@ -1022,14 +1016,14 @@ unchanged.
 - Failure injection before each prepared replacement leaves database, cursor,
   targets, run disposition, events, rules, residuals, capacities, and stats
   byte-for-byte unchanged.
-- Tamper, redaction, replay, serialization, concurrency, and abandoned-sibling
-  authority tests.
+- Live-state freshness and concurrency tests, plus tamper/serialization/audit
+  tests only for durable artifacts.
 
 All Rust test gates use licensed, GMP-enabled Symbolica and run in parallel.
 No test or build enables `no_gmp`; no test invokes FORM. Concrete one-loop and
 later vacuum/scattering topologies may validate the finished generic pipeline,
 including numerator/denominator cancellation closure, but cannot replace the
-topology-neutral unit, property, and replay tests above.
+topology-neutral unit, property, closure, and boundary tests above.
 Artifact tests additionally compare deterministic single-worker and
 multi-worker checksums while the surrounding test suite remains sharded and
 parallel.
@@ -1079,8 +1073,10 @@ Implement in this order:
    the scheduled conditions and coefficients, retains both denominator
    projections, and owns exact specialized boundary events. The following
    move-only owner now builds and replays the relative `WhenBad` partition of
-   that current-lineage arbitrary-width OR-of-AND formula.
-   Next publish its guarded and exceptional dispositions atomically. This has
+   that current-lineage arbitrary-width OR-of-AND formula. One consuming
+   preparation now pairs the sealed owner with compact guarded/exceptional
+   routes without a second authentication layer. Next commit those dispositions
+   atomically. This has
    not reached reduction, publication, or six-loop topology support;
    retain the MTBDD only as a
    compact-case/repeated-query backend under its own measured construction
@@ -1093,17 +1089,19 @@ Implement in this order:
    are implemented as reusable kernels. Owner-bound coefficient/guard mapping,
    dual denominator projection, exact boundary-event specialization, and the
    owner-bound relative partition of the current-lineage arbitrary-width
-   OR-of-AND formula are also implemented. The
-   final publication binding remains pending;
+   OR-of-AND formula are also implemented. Move-bound compact route preparation
+   is implemented; the final live-session publication commit remains pending;
 8. atomically consume the selected target and seal the guarded rule plus
    exceptional residual work from the implemented current-lineage terminal;
-9. extend the implemented chronological replay with durable rule/residual
-   manifest validation, concrete application, and provider integration;
+9. add concrete application and provider integration; validate durable
+   rule/residual artifacts once at load and keep full derivation replay as an
+   optional audit;
 10. topology-based validation from one loop upward.
 
 A phase is complete only when its success disposition, retry ownership,
-resource envelope, replay path, source-surface seal, exact/one-below tests, and
-parallel GMP test gate all pass. No phase may bridge a missing proof by
+resource envelope, semantic/ownership tests, exact/one-below tests, and parallel
+GMP test gate all pass. Durable/import boundaries additionally require load and
+optional audit tests. No phase may bridge a missing proof by
 constructing an old-lineage certificate, hard-coding a topology, downcasting
 generated arithmetic, invoking FORM, or treating a failed candidate as a
 master integral.
