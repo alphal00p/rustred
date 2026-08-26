@@ -45,7 +45,11 @@ the transaction may commit. Licensed default-GMP runs with four test threads
 passed 13/13 focused adapter tests, 39/39 focused database tests, and 2/2
 direct-session tests. Fixed-size committed last/peak/cumulative native telemetry
 is implemented and excluded from replay identity; exporting it to physical
-campaign benchmarks and persistent reducer state are separate scaling slices.
+campaign benchmarks remains a scaling slice. A private retained clone-on-stage
+adapter is now implemented and independently audited: it owns the admitted
+context, Full-L reducer, and sentinel; authenticates complete historical
+U/L/pivot state; and passed 15/15 focused four-thread tests. The live database
+and complete easiest-first catalog have not adopted it yet.
 The current full per-stage rebuild tends toward cumulative `O(P^2)` work and
 uses `O(K)` dense scratch; it is not evidence of a complete topology reduction,
 Vakint reproduction, or six-loop scalability.
@@ -375,15 +379,14 @@ normalized row, and outcome. Independent regenerated-residual checks remain
 mandatory. Its checked field now owns an `Arc` coefficient context and shares a
 `Send + Sync`, serialized per-stage ledger controller across clones. Stage
 cleanup covers success, typed checked-field abort, and unrelated unwind panic,
-with focused ownership, concurrency, inactive-access, and retry tests. This is
-only the prerequisite for persistent state: `forward_reduce_last_row` still
-reconstructs all prior pivots, and the database does not yet retain a reducer
-or its complete column catalog. The transitional call also constructs
-`Arc::new(context.clone())`; that infallible context clone is outside
-persistent-state memory admission/accounting and must become one retained,
-already-admitted `Arc`. Parallelism is across independent campaign shards, not
-inside one ordered reducer. RustRed must not build a second CAS or matrix
-layer.
+with focused ownership, concurrency, inactive-access, and retry tests. The
+private retained adapter now owns one admitted context `Arc` and validates
+clone-on-stage column insertion and candidate transcripts without replaying
+historical input rows. `forward_reduce_last_row` still reconstructs all prior
+pivots because the live database does not yet retain that reducer or its
+complete column catalog. Parallelism is across independently controlled
+campaign case lanes/shards in the planned executor, not inside one ordered
+reducer. RustRed must not build a second CAS or matrix layer.
 
 ## 2. Normative LiteRed semantics
 
@@ -932,7 +935,10 @@ Durable artifacts are an actual trust boundary. Every closed shard retains a
 compact sparse source-combination/residual witness sufficient to check each
 rule exactly against freshly regenerated generic IBPs; this is compiled after
 closure and does not require the compact live event to retain its discarded
-source recipe or pivot evidence. It need not reproduce every internal
+source recipe or pivot evidence. A rule composed with solved children also
+retains and recursively replays every child's source witness plus the strict
+subsector/transport path, or an equivalent flattened exact source combination.
+It need not reproduce every internal
 historical stage, and internal artifact formats may be replaced freely during
 development.
 
@@ -940,7 +946,8 @@ Finalizing `Closed`, an explicit `verify --exact`, and the first trust of an
 external artifact perform the compact exact admission: reconstruct every family
 and coefficient context; replay ingress and dependency maps; regenerate the
 generic IBP/LI sources and prove every rule residual zero in Symbolica; prove
-strict RHS and dependency descent; prove complete routing of every declared
+recursive child-source witness closure and strict RHS/dependency descent; prove
+complete routing of every declared
 domain to rules or a finite selected/certified terminal set (including finite
 products); and reject every cycle or unresolved route. Success may write a
 local verification receipt bound to the disposable artifact checksum and exact
@@ -1194,6 +1201,17 @@ defines canonical serialization.
 
 ### Multi-start campaign-bundle gates
 
+The scheduler boundary is specified in the
+[parallel campaign-foundry design](parallel_campaign_foundry_design_2026-08-26.md).
+One independently schedulable affine case lane owns one ordered retained
+Symbolica reducer and mutates it serially. Separate lanes, sectors, families,
+frozen-epoch exceptional case proposals, fixed modular samples, and immutable
+verification blocks may run concurrently with case-lane-local checked-field
+controllers. No additional hash, nonce, or ancestry layer is required at that
+boundary: stable value keys, one workspace revision, move-only lane ownership,
+and validation
+at durable/global mutation boundaries are enough.
+
 - A `CampaignPlan` with two parents sharing one exact proper-subsector job stores
   one child, exposes the deterministic ready antichain, and remains visibly
   distinct from any durable `Closed` bundle.
@@ -1347,12 +1365,13 @@ Implement in this order:
    six-loop scaling result. The checked field now owns an `Arc` context and a
    shared `Send + Sync` controller that serializes a fresh ledger per stage and
    cleans it after success, typed abort, or unwind panic; five focused tests
-   cover this prerequisite. Retained `SparseRowReducer` state and its persistent
-   database catalog remain unimplemented, so `forward_reduce_last_row` still
-   rebuilds prior pivots and performs an unaccounted
-   `Arc::new(context.clone())` per call. The persistent owner must retain one
-   already-admitted context `Arc`. Run independent shard reducers in parallel
-   rather than claiming intra-reducer parallel forward elimination;
+   cover this prerequisite. The private retained adapter now owns the admitted
+   context, Full-L reducer, and sentinel, returns a successor only for an
+   independent trial, authenticates historical U/L/pivots, and passes 15/15
+   focused tests. Its integration with the live database and complete catalog
+   remains pending, so `forward_reduce_last_row` still rebuilds prior pivots.
+   Run independently controlled shard/case reducers in parallel rather than
+   claiming intra-reducer parallel forward elimination;
 9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, one shared proper-
    subsector child, cycle/non-descent rejection, and a deterministic ready-job

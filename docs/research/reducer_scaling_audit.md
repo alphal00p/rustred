@@ -6,6 +6,9 @@ GammaLoop/BPHZ application runtime.  The measurements and failure analysis in
 this audit remain valid.  Section 8 has been revised accordingly; the complete
 architecture is
 [`six_loop_single_scale_vacuum_priority_2026-08-24.md`](six_loop_single_scale_vacuum_priority_2026-08-24.md).
+The deterministic multicore decomposition and multi-start scheduler are
+specified separately in
+[`parallel_campaign_foundry_design_2026-08-26.md`](parallel_campaign_foundry_design_2026-08-26.md).
 
 ## Scope and conclusion
 

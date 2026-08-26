@@ -147,7 +147,10 @@ remains a representation/session identity. Same-rank family maps become ingress
 aliases before DAG construction, while cross-family dependency edges require a
 strict well-founded rank decrease. Each closed shard retains a compact sparse
 source-combination/residual witness for exact checking against freshly
-regenerated generic IBPs; full chronological transcripts remain optional.
+regenerated generic IBPs. Rules composed with solved children additionally
+retain the strict dependency/transport path and recursively replay the child's
+source witness (or an equivalent flattened exact combination); full
+chronological transcripts remain optional.
 
 Campaign merge is deterministic and transactional. Equal job keys with equal
 payloads deduplicate; equal keys with different payloads conflict, as does a
@@ -306,6 +309,19 @@ shifts and external-momentum families, the Symbolica tensor-numerator
 boundary, and FORM-free one-loop Vakint scalar/tensor oracles.  Those concrete
 families validate generation; they do not establish complete LiteRed
 `SolvejSector` parity.
+
+Multi-topology derivation will use the
+[deterministic parallel campaign foundry](parallel_campaign_foundry_design_2026-08-26.md).
+The semantic unit is a canonical family/sector/domain job, not a loop-count or
+topology-specific reducer. Intrinsic sector derivations are independent in the
+LiteRed2 sense and may leave proper-subsector integrals unresolved; shared
+subsector/factorization jobs then close bottom-up. Every concurrently active
+affine case lane owns one serial Symbolica reducer/controller and runs only as
+a staged proposal from a frozen coverage epoch unless independence is proved.
+Campaign acceptance therefore includes invariance under root order,
+idempotence of one repeated `RootId`/payload, distinct ingress rows for distinct
+routing-alias root IDs with one shared job DAG, randomized task delay, and
+1/2/4 workers, plus proof that a shared child was derived once.
 
 Published LiteRed examples are now a separate, explicit acceptance lane. The
 eight LiteRed 1.x notebooks and three LiteRed2 example notebooks are inventoried

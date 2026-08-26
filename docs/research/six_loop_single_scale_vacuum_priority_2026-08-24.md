@@ -174,6 +174,17 @@ complete scalar-product and denominator action.  ISP images may be affine
 linear combinations rather than permutations, so certificates must retain
 the full family map.
 
+Parallel planning and execution follow the governing
+[deterministic campaign-foundry design](parallel_campaign_foundry_design_2026-08-26.md).
+Canonical families share one immutable source catalog, unique sectors derive
+intrinsic rules concurrently while retaining proper subsectors on their
+right-hand sides, and closure later traverses ready dependency-DAG antichains
+bottom-up. Target-driven DAG discovery replaces eager `2^K` sector
+enumeration. One affine case lane remains a serial, single-owner retained
+Symbolica reducer; independent families and sectors, frozen-epoch exceptional
+case proposals, modular samples, and exact-verification blocks are the
+multicore work units.
+
 ### 4.3 Parametric rule derivation
 
 Within each canonical sector, the foundry should follow LiteRed's broad
@@ -474,6 +485,15 @@ The following policies are critical at five and six loops:
   packed route array per event with shallow rule/residual handles.
 - Do not create topology-specific Rust reducers.  Concrete topology names may
   occur in manifests, tests, benchmark labels, and oracle adapters only.
+- Do not let worker completion order select pivots, modular samples, rules, or
+  dependency edges. Stable work keys and canonical merges must make 1/2/4-
+  worker artifacts semantically identical.
+- Do not share one checked-field controller between active reducer workers.
+  Share immutable coefficient contexts and family-source catalogs, but give
+  every concurrently active case lane its own controller and reducer owner.
+- Keep global estimated-memory admission separate from per-job algebra limits.
+  Backpressure may delay work; it must not create worker-count-dependent
+  derivation-contract failures and never has master-discovery semantics.
 
 The 2026-08-26 licensed whole-tree regression exposed a concrete profiling
 target: `equality_target_commits_only_into_a_sealed_refined_epoch_suspension`
@@ -691,13 +711,16 @@ or physical-topology calculation.
    and dependent/independent disposition; guarded Rust replay validates
    provenance and the exact native result. Focused licensed default-GMP runs
    passed 13/13 adapter, 39/39 exact-database, and 2/2 direct-session tests with
-   four threads. Retain the full per-stage rebuild while it is the correctness
-   bridge, export its now-committed native telemetry to campaign benchmarks,
-   and profile its `O(K)` scratch and cumulative `O(P^2)` tendency. Then
-   implement the non-durable topology-neutral `CampaignPlan` slice with exact
+   four threads. A private retained clone-on-stage adapter now passes 15/15
+   focused tests, including insertion-aware differential replay and historical
+   U/L/pivot authentication. Integrate it and the complete easiest-first catalog
+   into the live database, export native telemetry to campaign benchmarks, and
+   profile its `O(K)` scratch and clone/fill behavior. Then implement the
+   non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, shared proper-
-   subsector children, cycle/non-descent rejection, and a deterministic ready-
-   job antichain before finishing `GeneratedFamilySymbolicResidualSolveV1` with
+   subsector children, cycle/non-descent rejection, a deterministic ready-job
+   antichain, and invariant 1/2/4-worker results before finishing
+   `GeneratedFamilySymbolicResidualSolveV1` with
    exceptional scheduling, solved-subsector feedback, a proved coverage fixed
    point, exact residual verification, and the distinct 36-source session
    batch.

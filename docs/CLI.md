@@ -255,3 +255,22 @@ sum(term.coefficient * I(n + term.shift) for term in relation.terms) = 0
 All authoritative expression strings use Symbolica's fully qualified
 `AtomCore::to_canonical_string()` representation. They are independent of
 symbol registration order and can be parsed back to the same expression.
+
+## Planned multi-topology campaign surface
+
+The current `derive` command emits raw generic IBP/LI relations for one family;
+it does not solve sectors or publish a closed replacement-rule bundle. The
+planned multicore, resumable surface is:
+
+```text
+rustred campaign plan campaign.toml
+rustred campaign derive campaign.toml --jobs 4 --max-memory 120GiB --resume work/
+rustred campaign verify bundle/ --exact
+rustred campaign inspect bundle/
+```
+
+Multiple compact Symbolica family/integral expressions may supply the roots,
+while TOML carries campaign-wide policies and resources. `--jobs` and memory
+admission may change timing only. The deterministic work-unit, closure,
+checkpoint, and multi-start bundle contracts are specified in the
+[parallel campaign foundry design](research/parallel_campaign_foundry_design_2026-08-26.md).

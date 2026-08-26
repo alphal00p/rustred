@@ -406,6 +406,21 @@ and cannot be loaded as closed reduction bundles. Topology/family metadata is
 valid routing and inspection data; it must never select a hardcoded algorithm
 or recurrence.
 
+The planned parallel derivation will use a deterministic campaign DAG, not an
+arrival-ordered pool of equations. Generic IBP/LI sources will be generated
+once per canonical family; unique sectors will derive intrinsic rules
+concurrently while leaving proper-subsector terms on the right-hand side; ready
+subsector and factorization antichains will then close bottom-up. One affine
+case lane will own one serial retained Symbolica reducer, while independent
+families and sectors, frozen-epoch exceptional case proposals, fixed modular
+samples, and exact-verification blocks may run concurrently. Case-lane-local
+reducer controllers
+will avoid shared coefficient-ledger serialization. Stable work keys, ordered
+reclassification/merges, strict-descendant closure epochs, and separate
+scheduler memory admission must make 1/2/4-worker output semantically identical.
+See the
+[parallel campaign foundry plan](docs/research/parallel_campaign_foundry_design_2026-08-26.md).
+
 The optimized online runtime is not the next scalability claim. RustRed must
 first close the topology-neutral foundry, derive complete replacement systems
 for the families and target domains exercised by Vakint's one- through four-
@@ -481,21 +496,26 @@ recovery, and deterministic typed-abort/retry cleanup. This makes independent
 reducers safe to schedule across campaign shards; it does not parallelize the
 ordered forward pass inside one reducer.
 
-This is still a transactional correctness bridge. Every stage reconstructs the
-full reducer, giving a cumulative tendency toward `O(P^2)` work over `P`
-pivots; Symbolica's current reducer also owns an `O(K)` dense scratch vector and
-performs serial forward reduction. Fixed-size committed telemetry now retains
-per-event, componentwise-peak, and saturating cumulative rows, columns, sparse
-input, admitted/observed U+L fill, trace, and native coefficient-work counts.
-It is excluded from replay identity and does not include catalog sorting, wall
-time, or RSS. These results do not establish complete topology reduction,
-Vakint reproduction, or physical six-loop scalability. Persistent reducer
-ownership and clone-on-stage database/catalog integration remain separate
-work: `forward_reduce_last_row` still reconstructs every committed pivot in a
-fresh `SparseRowReducer` and constructs `Arc::new(context.clone())` on every
-call. That infallible context clone is not admitted or accounted as persistent-
-state memory; the retained owner must hold one already-admitted context `Arc`.
-Physical-family scaling also remains to be measured.
+The private retained adapter is now implemented. It owns one already-admitted
+context `Arc`, a permanent final sentinel, and a `SparseRowReducer` in Full-L
+mode. Each stage clones the committed native state, inserts complete-catalog
+columns in Symbolica's old-coordinate convention, submits one row, and returns
+a successor only for an independent outcome. Dependent, empty, rejected, and
+failed trials are discarded. Exact post-native validation authenticates the
+entire historical U/L/pivot prefix, duplicate insertion remaps, sentinel,
+normalization, and resource-failure ordering. An insertion-aware differential
+sequence and focused corruption/resource tests pass 15/15; the existing sparse
+bridge passes 18/18 and the exact database passes 39/39 with four test threads.
+
+The live database still uses the reconstructing correctness bridge until the
+retained reducer and complete easiest-first catalog are integrated into its
+transaction. `forward_reduce_last_row` therefore still has a cumulative
+`O(P^2)` tendency, while Symbolica's reducer owns an `O(K)` dense scratch and
+performs serial forward reduction. Clone/add-column allocation is infallible in
+the public Symbolica API and cannot honestly be reported as a typed recoverable
+OOM. Fixed-size telemetry remains outside replay identity and excludes catalog
+sorting, wall time, and RSS. None of this yet establishes complete topology
+reduction, Vakint reproduction, or physical six-loop scalability.
 
 The next vacuum-critical solver milestone is the topology-neutral
 `compact application event -> native Symbolica incremental reducer -> owning
@@ -567,13 +587,15 @@ scheduled payload, retains both denominator projections, and specializes exact
 boundary events without consuming a target or publishing a rule. The
 remaining generic LiteRed-style foundry work is to:
 
-1. integrate the now-owned checked field into a rollback-safe, clone-on-stage
-   retained `SparseRowReducer` and database column catalog, expose its existing
-   telemetry to physical campaign profiles, and retain exact regenerated-
-   residual checks around the now-live Symbolica transcript authority;
+1. integrate the tested private clone-on-stage retained `SparseRowReducer` and
+   complete easiest-first column catalog into the live exact database, expose
+   its telemetry to physical campaign profiles, and retain exact regenerated-
+   residual checks around the Symbolica transcript authority;
 2. implement the minimal topology-neutral campaign plan with exact
    representation-level job deduplication, shared proper-subsector children,
-   and a deterministic ready-job antichain;
+   a deterministic ready-job antichain, and identical plan/results under root
+   permutation and 1/2/4-worker execution; retain one serial Symbolica reducer
+   per independently schedulable affine case lane;
 3. add an owning exactly-once exceptional queue, a sealed committed-
    exceptional source, and rejected-candidate continuation; then integrate
    provider scheduling;
@@ -669,6 +691,7 @@ Cargo's parallel test workers. No test path enables `no_gmp`.
 - [CLI contract and input formats](docs/CLI.md)
 - [RustRed scope and acceptance criteria](docs/research/rustred_scope_and_acceptance.md)
 - [Six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md)
+- [Deterministic parallel campaign foundry](docs/research/parallel_campaign_foundry_design_2026-08-26.md)
 - [Full LiteRed scope specification](docs/research/litered_full_scope_spec.md)
 - [LiteRed example parity acceptance matrix](docs/research/litered_examples_acceptance_matrix.md)
 - [LiteRed2 algorithm report](docs/research/litered2_algorithm_report.md)
