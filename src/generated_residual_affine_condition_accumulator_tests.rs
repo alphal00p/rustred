@@ -554,6 +554,62 @@ fn q_theta_associates_merge_without_replacing_the_first_representative() {
 }
 
 #[test]
+fn base_parameter_loci_remain_distinct_while_rational_units_merge() {
+    let context = ParametricCoefficientContext::try_new(
+        &CoefficientContext::new(["theta"]),
+        "condition-base-rational-associates",
+        2,
+    )
+    .unwrap();
+    let theta = context
+        .lift(&context.base().parameter("theta").unwrap())
+        .unwrap();
+    let theta_plus_one = context.add(&theta, &context.one()).unwrap();
+    let negative_two_theta = context
+        .neg(&context.mul(&context.integer(2), &theta).unwrap())
+        .unwrap();
+    let theta = context.numerator_condition(&theta).unwrap();
+    let theta_plus_one = context.numerator_condition(&theta_plus_one).unwrap();
+    let negative_two_theta = context.numerator_condition(&negative_two_theta).unwrap();
+
+    let certificate = accumulate_generated_residual_affine_conditions(
+        &context,
+        &[0],
+        [
+            candidate_guard(&theta, 0),
+            candidate_guard(&theta_plus_one, 1),
+            candidate_guard(&negative_two_theta, 2),
+        ],
+        GeneratedResidualAffineConditionAccumulatorLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(certificate.rows().len(), 2);
+    assert_eq!(row_ordinal(certificate.inputs()[0].class()), 0);
+    assert_eq!(row_ordinal(certificate.inputs()[1].class()), 1);
+    assert_eq!(row_ordinal(certificate.inputs()[2].class()), 0);
+    assert!(certificate.inputs().iter().all(|input| matches!(
+        input.class(),
+        GeneratedResidualAffineConditionInputClass::BaseAssumption { .. }
+    )));
+    assert_eq!(certificate.rows()[0].source_input_ordinals(), &[0, 2]);
+    assert_eq!(certificate.rows()[1].source_input_ordinals(), &[1]);
+    assert_eq!(certificate.stats().associate_checks(), 2);
+    assert!(certificate.stats().base_associate_native_scale_calls() > 0);
+    assert!(
+        certificate
+            .stats()
+            .base_associate_native_integer_multiplication_bit_work_bound()
+            > 0
+    );
+    assert_eq!(
+        certificate.stats().associate_projection_exponent_entries(),
+        0
+    );
+    assert_eq!(certificate.stats().associate_index_groups(), 0);
+}
+
+#[test]
 fn candidate_first_row_is_promoted_by_inherited_provenance_and_candidate_only_stays_candidate() {
     let fixture = SourceNeutralFixture::new("condition-scope-dominance");
     let certificate = fixture
@@ -1231,6 +1287,215 @@ macro_rules! boundary {
             |limits, value| limits.$field = value,
         );
     };
+}
+
+#[test]
+fn aggregate_base_associate_limits_have_strict_exact_and_one_below_boundaries() {
+    let context = ParametricCoefficientContext::try_new(
+        &CoefficientContext::new(["theta"]),
+        "condition-base-associate-boundaries",
+        2,
+    )
+    .unwrap();
+    let theta = context
+        .lift(&context.base().parameter("theta").unwrap())
+        .unwrap();
+    let theta_plus_one = context.add(&theta, &context.one()).unwrap();
+    let left = context
+        .numerator_condition(&context.mul(&context.integer(2), &theta_plus_one).unwrap())
+        .unwrap();
+    let right = context
+        .numerator_condition(&context.neg(&theta_plus_one).unwrap())
+        .unwrap();
+    let run = |limits| {
+        accumulate_generated_residual_affine_conditions(
+            &context,
+            &[0],
+            [candidate_guard(&left, 0), candidate_guard(&right, 1)],
+            limits,
+        )
+    };
+    let baseline = run(GeneratedResidualAffineConditionAccumulatorLimits::default()).unwrap();
+    let stats = baseline.stats();
+    let exact_only = accumulate_generated_residual_affine_conditions(
+        &context,
+        &[0],
+        [candidate_guard(&left, 0), candidate_guard(&left, 1)],
+        GeneratedResidualAffineConditionAccumulatorLimits::default(),
+    )
+    .unwrap();
+    assert!(
+        stats.context_fingerprint_comparison_bytes()
+            > exact_only.stats().context_fingerprint_comparison_bytes(),
+        "the common context counter must consume the base-associate child census"
+    );
+    assert!(
+        stats.variable_map_entry_comparisons()
+            > exact_only.stats().variable_map_entry_comparisons(),
+        "the common variable-map counter must consume the base-associate child census"
+    );
+
+    boundary!(
+        run,
+        stats,
+        context_fingerprint_comparison_bytes,
+        max_context_fingerprint_comparison_bytes,
+        Accumulator,
+        "affine condition context fingerprint comparison bytes"
+    );
+    boundary!(
+        run,
+        stats,
+        variable_map_entry_comparisons,
+        max_variable_map_entry_comparisons,
+        Accumulator,
+        "affine condition variable-map entry comparisons"
+    );
+
+    boundary!(
+        run,
+        stats,
+        base_associate_validation_terms,
+        max_base_associate_validation_terms,
+        ParametricCoefficient,
+        "base polynomial-associate validation terms"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_validation_exponent_entries,
+        max_base_associate_validation_exponent_entries,
+        ParametricCoefficient,
+        "base polynomial-associate validation exponent entries"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_validation_integer_bits,
+        max_base_associate_validation_integer_bits,
+        ParametricCoefficient,
+        "base polynomial-associate validation integer bits"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_source_owned_bytes,
+        max_base_associate_source_owned_bytes,
+        ParametricCoefficient,
+        "base polynomial-associate source owned bytes"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_index_exponent_entries,
+        max_base_associate_index_exponent_entries,
+        ParametricCoefficient,
+        "base polynomial-associate index exponent entries"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_native_scale_calls,
+        max_base_associate_native_scale_calls,
+        ParametricCoefficient,
+        "base polynomial-associate native scale calls"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_native_coefficient_multiplications,
+        max_base_associate_native_coefficient_multiplications,
+        ParametricCoefficient,
+        "base polynomial-associate native coefficient multiplications"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_native_integer_multiplication_bit_work_bound,
+        max_base_associate_native_integer_multiplication_bit_work_bound,
+        ParametricCoefficient,
+        "base polynomial-associate native integer multiplication bit-work bound"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_output_terms,
+        max_base_associate_output_terms,
+        ParametricCoefficient,
+        "base polynomial-associate output terms"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_output_exponent_entries,
+        max_base_associate_output_exponent_entries,
+        ParametricCoefficient,
+        "base polynomial-associate output exponent entries"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_output_integer_bit_bound,
+        max_base_associate_output_integer_bit_bound,
+        ParametricCoefficient,
+        "base polynomial-associate output integer bit bound"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_output_retained_byte_bound,
+        max_base_associate_output_retained_byte_bound,
+        ParametricCoefficient,
+        "base polynomial-associate output retained byte bound"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_payload_comparison_terms,
+        max_base_associate_payload_comparison_terms,
+        ParametricCoefficient,
+        "base polynomial-associate payload comparison terms"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_payload_comparison_exponent_entries,
+        max_base_associate_payload_comparison_exponent_entries,
+        ParametricCoefficient,
+        "base polynomial-associate payload comparison exponent entries"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_payload_comparison_integer_bit_bound,
+        max_base_associate_payload_comparison_integer_bit_bound,
+        ParametricCoefficient,
+        "base polynomial-associate payload comparison integer bit bound"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_native_workspace_byte_envelope,
+        max_base_associate_native_workspace_byte_envelope,
+        ParametricCoefficient,
+        "base polynomial-associate native workspace byte envelope"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_rustred_visible_temporary_byte_envelope,
+        max_base_associate_rustred_visible_temporary_byte_envelope,
+        ParametricCoefficient,
+        "base polynomial-associate RustRed-visible temporary byte envelope"
+    );
+    boundary!(
+        run,
+        stats,
+        base_associate_combined_temporary_byte_envelope,
+        max_base_associate_combined_temporary_byte_envelope,
+        ParametricCoefficient,
+        "base polynomial-associate combined temporary byte envelope"
+    );
 }
 
 #[test]

@@ -36,7 +36,7 @@ use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCasePremisesCertificate, GeneratedAffineResidualCasePremisesStats,
 };
 use crate::parametric_coefficient::{
-    PreparedResidualAffineCompactCoefficientComposition,
+    ParametricBasePolynomialAssociateLimits, PreparedResidualAffineCompactCoefficientComposition,
     PreparedResidualAffineCompactGuardComposition, ResidualAffineCoefficientComposition,
     ResidualAffineCoefficientCompositionPreflight, ResidualAffineCompactCompositionPlan,
     ResidualAffineCompactCompositionPlanLimits, ResidualAffineCompactCompositionPlanStats,
@@ -103,6 +103,7 @@ pub(crate) struct GeneratedAffineResidualCaseBoundRelationLimits {
     pub(crate) compact_plan: ResidualAffineCompactCompositionPlanLimits,
     pub(crate) translation: ParametricArithmeticLimits,
     pub(crate) polynomial_composition: ResidualUnitAffinePolynomialCompositionLimits,
+    pub(crate) base_polynomial_associate: ParametricBasePolynomialAssociateLimits,
     pub(crate) max_scope_comparison_bytes: usize,
     pub(crate) max_parent_allocation_comparisons: usize,
     pub(crate) max_premise_replays: usize,
@@ -180,6 +181,7 @@ impl Default for GeneratedAffineResidualCaseBoundRelationLimits {
             compact_plan: ResidualAffineCompactCompositionPlanLimits::default(),
             translation: ParametricArithmeticLimits::default(),
             polynomial_composition: ResidualUnitAffinePolynomialCompositionLimits::default(),
+            base_polynomial_associate: ParametricBasePolynomialAssociateLimits::default(),
             max_scope_comparison_bytes: 64 * 1024 * 1024,
             max_parent_allocation_comparisons: 4,
             max_premise_replays: 1,
@@ -2730,6 +2732,12 @@ fn classify_and_retain_condition(
             GeneratedAffineResidualCaseBoundConditionClass::DischargedNonzeroIntegerConstant,
         );
     }
+    // Dependency is semantic for predicate-locus association.  Base-only
+    // assumptions may differ only by a unit of Q, whereas an index-dependent
+    // predicate may differ by a unit of Q(theta).  Compute this before inherited
+    // matching so an unrelated base premise cannot absorb another physical-
+    // parameter locus through the broader coefficient-field relation.
+    let depends_on_indices = condition_depends_on_indices(context, &polynomial, limits)?;
     for (ordinal, inherited) in premises.premises().iter().enumerate() {
         stats.inherited_premise_comparisons = bounded_add(
             "inherited premise comparisons",
@@ -2737,16 +2745,24 @@ fn classify_and_retain_condition(
             1,
             limits.max_inherited_premise_comparisons,
         )?;
-        let matches = &polynomial == inherited.polynomial()
-            || context
-                .polynomial_loci_are_associates_with_limits(
+        // Literal equality remains the allocation-free fast path.  For
+        // distinct payloads, authenticate the inherited dependency class before
+        // choosing the admissible unit group; a class mismatch is simply a
+        // nonmatch and never reaches either associate proof.
+        let matches = if &polynomial == inherited.polynomial() {
+            true
+        } else {
+            let inherited_depends_on_indices =
+                condition_depends_on_indices(context, inherited.polynomial(), limits)?;
+            inherited_depends_on_indices == depends_on_indices
+                && distinct_condition_loci_are_associates(
+                    context,
                     &polynomial,
                     inherited.polynomial(),
-                    limits.polynomial_composition.exact_algebra,
-                )
-                .map_err(|_| {
-                    GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization
-                })?;
+                    depends_on_indices,
+                    limits,
+                )?
+        };
         if matches {
             stats.inherited_premise_matches = bounded_add(
                 "inherited premise matches",
@@ -2759,12 +2775,6 @@ fn classify_and_retain_condition(
             );
         }
     }
-    let depends_on_indices = context
-        .polynomial_depends_on_indices_with_limits(
-            &polynomial,
-            limits.polynomial_composition.exact_algebra,
-        )
-        .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization)?;
     let condition = context
         .nonzero_condition_with_origins_and_origin_limit(
             polynomial,
@@ -2782,15 +2792,13 @@ fn classify_and_retain_condition(
                 limits.max_private_guard_associate_comparisons,
             )?;
             if existing.polynomial() == condition.polynomial()
-                || context
-                    .polynomial_loci_are_associates_with_limits(
-                        existing.polynomial(),
-                        condition.polynomial(),
-                        limits.polynomial_composition.exact_algebra,
-                    )
-                    .map_err(|_| {
-                        GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization
-                    })?
+                || distinct_condition_loci_are_associates(
+                    context,
+                    existing.polynomial(),
+                    condition.polynomial(),
+                    true,
+                    limits,
+                )?
             {
                 return Ok(
                     GeneratedAffineResidualCaseBoundConditionClass::PrivateFreeIndexGuard {
@@ -2823,15 +2831,13 @@ fn classify_and_retain_condition(
                 limits.max_base_assumption_associate_comparisons,
             )?;
             if existing.condition.polynomial() == condition.polynomial()
-                || context
-                    .polynomial_loci_are_associates_with_limits(
-                        existing.condition.polynomial(),
-                        condition.polynomial(),
-                        limits.polynomial_composition.exact_algebra,
-                    )
-                    .map_err(|_| {
-                        GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization
-                    })?
+                || distinct_condition_loci_are_associates(
+                    context,
+                    existing.condition.polynomial(),
+                    condition.polynomial(),
+                    false,
+                    limits,
+                )?
             {
                 return Ok(
                     GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption {
@@ -2852,6 +2858,62 @@ fn classify_and_retain_condition(
         assumptions.push(GeneratedAffineResidualCaseBoundBaseAssumption { condition });
         stats.row_local_base_assumptions = assumptions.len();
         Ok(GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption { ordinal })
+    }
+}
+
+fn condition_depends_on_indices(
+    context: &ParametricCoefficientContext,
+    polynomial: &ParametricPolynomial,
+    limits: GeneratedAffineResidualCaseBoundRelationLimits,
+) -> Result<bool, GeneratedAffineResidualCaseBoundRelationError> {
+    context
+        .polynomial_depends_on_indices_with_limits(
+            polynomial,
+            limits.polynomial_composition.exact_algebra,
+        )
+        .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization)
+}
+
+/// Compare two already-distinct predicates in one authenticated dependency
+/// class. Index-dependent loci live projectively over `Q(theta)*`; base-only
+/// physical-parameter loci use only rational units `Q*`.
+fn distinct_condition_loci_are_associates(
+    context: &ParametricCoefficientContext,
+    left: &ParametricPolynomial,
+    right: &ParametricPolynomial,
+    index_dependent: bool,
+    limits: GeneratedAffineResidualCaseBoundRelationLimits,
+) -> Result<bool, GeneratedAffineResidualCaseBoundRelationError> {
+    if index_dependent {
+        context
+            .polynomial_loci_are_associates_with_limits(
+                left,
+                right,
+                limits.polynomial_composition.exact_algebra,
+            )
+            .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization)
+    } else {
+        let mut child = limits.base_polynomial_associate;
+        child.exact_algebra.max_exponent = child
+            .exact_algebra
+            .max_exponent
+            .min(limits.polynomial_composition.exact_algebra.max_exponent);
+        child.exact_algebra.max_polynomial_terms = child.exact_algebra.max_polynomial_terms.min(
+            limits
+                .polynomial_composition
+                .exact_algebra
+                .max_polynomial_terms,
+        );
+        child.exact_algebra.max_term_operations = child.exact_algebra.max_term_operations.min(
+            limits
+                .polynomial_composition
+                .exact_algebra
+                .max_term_operations,
+        );
+        context
+            .base_polynomial_loci_are_rational_associates_with_census(left, right, child)
+            .map(|result| result.associated())
+            .map_err(|_| GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization)
     }
 }
 
@@ -3950,34 +4012,61 @@ mod tests {
         polynomial: &ParametricPolynomial,
         class: GeneratedAffineResidualCaseBoundConditionClass,
     ) {
-        let associate = |other: &ParametricPolynomial| {
-            polynomial == other
-                || fixture
-                    .context
-                    .polynomial_loci_are_associates_with_limits(
-                        polynomial,
-                        other,
-                        certificate.limits().polynomial_composition.exact_algebra,
-                    )
-                    .unwrap()
+        let index_dependent = fixture
+            .context
+            .polynomial_depends_on_indices_with_limits(
+                polynomial,
+                certificate.limits().polynomial_composition.exact_algebra,
+            )
+            .unwrap();
+        let associate = |other: &ParametricPolynomial, expected_index_dependent: Option<bool>| {
+            if expected_index_dependent.is_some_and(|expected| expected != index_dependent) {
+                return false;
+            }
+            if polynomial == other {
+                return true;
+            }
+            let other_index_dependent = fixture
+                .context
+                .polynomial_depends_on_indices_with_limits(
+                    other,
+                    certificate.limits().polynomial_composition.exact_algebra,
+                )
+                .unwrap();
+            if other_index_dependent != index_dependent {
+                return false;
+            }
+            distinct_condition_loci_are_associates(
+                &fixture.context,
+                polynomial,
+                other,
+                index_dependent,
+                certificate.limits(),
+            )
+            .unwrap()
         };
         match class {
             GeneratedAffineResidualCaseBoundConditionClass::DischargedNonzeroIntegerConstant => {
                 assert!(polynomial.is_nonzero_constant());
             }
             GeneratedAffineResidualCaseBoundConditionClass::InheritedPremise { ordinal } => {
-                assert!(associate(fixture.premises.premises()[ordinal].polynomial()));
+                assert!(associate(
+                    fixture.premises.premises()[ordinal].polynomial(),
+                    None
+                ));
             }
             GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption { ordinal } => {
                 assert!(associate(
                     certificate.base_assumptions()[ordinal]
                         .condition()
-                        .polynomial()
+                        .polynomial(),
+                    Some(false),
                 ));
             }
             GeneratedAffineResidualCaseBoundConditionClass::PrivateFreeIndexGuard { ordinal } => {
                 assert!(associate(
-                    certificate.relation().guarded_nonzero_conditions()[ordinal].polynomial()
+                    certificate.relation().guarded_nonzero_conditions()[ordinal].polynomial(),
+                    Some(true),
                 ));
             }
         }
@@ -5197,7 +5286,23 @@ mod tests {
         GeneratedAffineResidualCaseBoundRelationCompilation,
         GeneratedAffineResidualCaseBoundRelationError,
     > {
-        let limits = GeneratedAffineResidualCaseBoundRelationLimits::default();
+        execute_synthetic_translated_row_with_limits(
+            fixture,
+            oracle,
+            translated,
+            GeneratedAffineResidualCaseBoundRelationLimits::default(),
+        )
+    }
+
+    fn execute_synthetic_translated_row_with_limits(
+        fixture: &NaturalFixture,
+        oracle: &OracleRow,
+        translated: &ParametricRelation,
+        limits: GeneratedAffineResidualCaseBoundRelationLimits,
+    ) -> Result<
+        GeneratedAffineResidualCaseBoundRelationCompilation,
+        GeneratedAffineResidualCaseBoundRelationError,
+    > {
         let prepared = preflight_complete_row_compositions(
             &fixture.context,
             translated,
@@ -5288,6 +5393,153 @@ mod tests {
                 fixture.context.numerator_condition(value).unwrap(),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn base_loci_use_q_star_while_rational_associates_reuse_the_first_row() {
+        let fixture = natural_fixture("bound-v2-base-q-star-private");
+        let oracle = oracle_row(&fixture);
+        let exact = ExactAlgebraLimits::default();
+
+        let is_new_base_locus = |value: &crate::ParametricCoefficient| {
+            let polynomial = fixture.context.numerator_condition(value).unwrap();
+            assert!(
+                !fixture
+                    .context
+                    .polynomial_depends_on_indices_with_limits(&polynomial, exact)
+                    .unwrap()
+            );
+            fixture.premises.premises().iter().all(|inherited| {
+                if &polynomial == inherited.polynomial() {
+                    return false;
+                }
+                if fixture
+                    .context
+                    .polynomial_depends_on_indices_with_limits(inherited.polynomial(), exact)
+                    .unwrap()
+                {
+                    return true;
+                }
+                !fixture
+                    .context
+                    .base_polynomial_loci_are_rational_associates_with_census(
+                        &polynomial,
+                        inherited.polynomial(),
+                        ParametricBasePolynomialAssociateLimits::default(),
+                    )
+                    .unwrap()
+                    .associated()
+            })
+        };
+
+        // Pick two neighboring affine base polynomials outside the inherited
+        // premise table. This keeps the regression stable if the generated
+        // fixture's premise set grows without weakening the Q* distinction.
+        let (first, distinct) = (2..=128)
+            .find_map(|offset| {
+                let first_base = fixture
+                    .context
+                    .base()
+                    .parse(&format!("d+{offset}"))
+                    .unwrap();
+                let distinct_base = fixture
+                    .context
+                    .base()
+                    .parse(&format!("d+{}", offset + 1))
+                    .unwrap();
+                let first = fixture.context.lift(&first_base).unwrap();
+                let distinct = fixture.context.lift(&distinct_base).unwrap();
+                (is_new_base_locus(&first) && is_new_base_locus(&distinct))
+                    .then_some((first, distinct))
+            })
+            .expect("two non-inherited base loci must be available");
+        let rational_associate = fixture
+            .context
+            .mul(&fixture.context.integer(-2), &first)
+            .unwrap();
+
+        let first_polynomial = fixture.context.numerator_condition(&first).unwrap();
+        let distinct_polynomial = fixture.context.numerator_condition(&distinct).unwrap();
+        let rational_associate_polynomial = fixture
+            .context
+            .numerator_condition(&rational_associate)
+            .unwrap();
+        assert!(
+            !fixture
+                .context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &first_polynomial,
+                    &distinct_polynomial,
+                    ParametricBasePolynomialAssociateLimits::default(),
+                )
+                .unwrap()
+                .associated()
+        );
+        assert!(
+            fixture
+                .context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &first_polynomial,
+                    &rational_associate_polynomial,
+                    ParametricBasePolynomialAssociateLimits::default(),
+                )
+                .unwrap()
+                .associated()
+        );
+
+        let mut translated = synthetic_relation(&fixture, "synthetic-base-q-star-input");
+        add_synthetic_guard(&fixture, &mut translated, &first);
+        add_synthetic_guard(&fixture, &mut translated, &distinct);
+        add_synthetic_guard(&fixture, &mut translated, &rational_associate);
+
+        let mut exact_child_limits = GeneratedAffineResidualCaseBoundRelationLimits::default();
+        exact_child_limits
+            .base_polynomial_associate
+            .max_native_scale_calls = 2;
+        let GeneratedAffineResidualCaseBoundRelationCompilation::Retained(certificate) =
+            execute_synthetic_translated_row_with_limits(
+                &fixture,
+                &oracle,
+                &translated,
+                exact_child_limits,
+            )
+            .unwrap()
+        else {
+            panic!("base-only synthetic row unexpectedly became unavailable")
+        };
+        assert_eq!(certificate.base_assumptions().len(), 2);
+        assert!(
+            certificate
+                .relation()
+                .guarded_nonzero_conditions()
+                .is_empty()
+        );
+        assert_eq!(certificate.condition_witnesses().len(), 3);
+        assert_eq!(
+            certificate.condition_witnesses()[0].class(),
+            GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption { ordinal: 0 }
+        );
+        assert_eq!(
+            certificate.condition_witnesses()[1].class(),
+            GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption { ordinal: 1 }
+        );
+        assert_eq!(
+            certificate.condition_witnesses()[2].class(),
+            GeneratedAffineResidualCaseBoundConditionClass::RowLocalBaseAssumption { ordinal: 0 }
+        );
+
+        let mut one_below = exact_child_limits;
+        one_below.base_polynomial_associate.max_native_scale_calls = 1;
+        assert_eq!(
+            execute_synthetic_translated_row_with_limits(
+                &fixture,
+                &oracle,
+                &translated,
+                one_below,
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualCaseBoundRelationError::ConditionMaterialization
+        );
     }
 
     #[test]

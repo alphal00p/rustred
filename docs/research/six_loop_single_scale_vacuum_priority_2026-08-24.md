@@ -17,8 +17,11 @@ master. The following topology-neutral slice consumes a committed same-sector
 Domain leaf into an admitted resident and constructs a genuinely fresh V3 exact
 session from the parent's inherited generic-source authority; its generated
 acceptance stops at affine-equality refinement, keeps the child database empty,
-and imports no parent reducer state. Shared
-ancestry admission and committed-source equality continuation remain pending.
+and imports no parent reducer state. This is a pre-refinement isolation fixture.
+The production continuation consumes the committed resident first, maps the
+remaining `NonZero` domain into a refined-source successor, and constructs the
+fresh child session only afterwards. Shared ancestry admission and that
+committed-source equality continuation remain pending.
 A separate topology-neutral prerequisite now handles one current-target affine
 equality with a literal `+1` or `-1` pivot and composes child geometry through
 Symbolica `Matrix<Z>`; it is authority-neutral, does not yet regenerate child
@@ -522,9 +525,11 @@ The following policies are critical at five and six loops:
 - Do not rebuild lower-loop products in every parent.  Factorize once, retain
   the transformation proof, and depend on the canonical lower-loop artifact.
 - Do not perform quadratic pairwise associate tests for every repeated
-  condition locus. Project each unique locus once to Symbolica `K[n]`, use
-  Symbolica's public monic normalization as the exact associate-class
-  representative, and cache it under an owner-held measured budget.
+  condition locus. Project each unique index-dependent locus once to Symbolica
+  `K[n]`, use Symbolica's public monic normalization as its exact
+  `Q(theta)*`-associate-class representative, and cache it under an owner-held
+  measured budget. Base-only assumptions require a separate `Q*` key or proof;
+  `K[n]` monic normalization would incorrectly collapse all of them.
 - Do not mix discovery state with online reductions.  Persist and version the
   former with a disposable revision tag until an external format is declared
   stable; keep the latter deterministic and restartable.
@@ -614,8 +619,9 @@ The 2026-08-26 licensed whole-tree regression exposed a concrete profiling
 target: `equality_target_commits_only_into_a_sealed_refined_epoch_suspension`
 took 4,069.531 seconds in an otherwise passing 1,651-test run. This is not a
 physics capability failure, but it is unacceptable as an unexamined cost model
-for the six-loop campaign. Profile the equality-refinement fixture, replay, and
-full-vector successor preparation separately before treating the current exact
+for the later generic multi-target suspension seam. It does not block the
+committed-singleton resident-first seam. Profile the suspension fixture,
+replay, and full-vector successor preparation separately before treating that
 session path as performance evidence.
 
 At six loops a complete family has 21 indices and each seed emits 36 rows.
@@ -733,11 +739,16 @@ exceptional-domain ingress slice is also implemented: one committed Domain
 leaf becomes an event-owned singleton, retains/authenticates the generic-source
 authority in a fresh V3 plan/catalog, constructs an empty database/session, and
 reaches typed affine-equality refinement; source-row submission has not begun.
+That path validates isolation only. The production order consumes the
+committed resident before any session, compiles the unit proof from its source,
+maps the surviving `NonZero` ledger, and commits the refined-source successor;
+only the successor creates the child session.
 A separate literal-unit-pivot compiler can now derive and replay the required
 child geometry, and generated bound rows can be completed/physicalized one at a
 time without production `PreorderedParametricElimination` ownership. The next
-step is to bind those two pieces to the committed Domain source, regenerate its
-generic rows under the child geometry, and submit them to the fresh database.
+step is the transient source-neutral mapped-domain certificate, then the
+resident-to-refined-source transform, generic-row regeneration under the child
+geometry, and fresh-database submission.
 A `SectorLeak`
 returns its live lease to separate out-of-sector routing. Equality quotient/re-
 elimination beyond the literal-unit subset (pending a public Symbolica integer
@@ -853,7 +864,9 @@ or physical-topology calculation.
    authentication and state isolation, asserts that the child database is
    empty, and then stops at its equality-refinement target. It keeps the origin
    epoch owner live because the current child census excludes shared parent
-   ancestry; production lineage admission and equality specialization are the
+   ancestry. Treat this as a state-isolation fixture: production equality
+   specialization consumes the resident first, maps the domain, and only then
+   constructs a child session. That transform and lineage admission are the
    next mathematical/resource boundaries.
    Export native telemetry to campaign benchmarks and profile full-clone cost,
    serial forward elimination, fill, and opaque native memory. The

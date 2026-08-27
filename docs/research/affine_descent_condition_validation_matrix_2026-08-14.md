@@ -44,9 +44,11 @@ bounded crate-private typed transcript. The denominator-input count is exactly
 `relation.terms().len()`, so the unit pivot denominator cannot be skipped.
 
 Canonicalization searches every retained row for exact polynomial equality
-before it performs any coefficient-field-associate search. For `[p,p]`, no
-associate call occurs. For `[p,theta*p]`, one `K = Q(theta)` associate proof
-merges the rows. The first polynomial remains the representative. If any
+before it performs an associate search. For `[p,p]`, no associate call occurs.
+For index-dependent `p`, `[p,theta*p]` merges over `K*=Q(theta)*`. For
+base-only inputs, `[theta,2theta]` merges over `Q*`, while
+`[theta,theta+1]` and `[theta,theta^2]` remain distinct. Dependency classes
+never cross-merge. The first polynomial remains the representative. If any
 merged source is inherited, inherited scope dominates while all candidate
 provenance remains attached privately.
 
@@ -82,7 +84,8 @@ limit fails transactionally:
 - retained condition sources and source-shift components;
 - dependency scans;
 - equality comparisons, term units, dense exponent entries, and integer bits;
-- associate dense exponent entries and integer bits; and
+- index-associate projection/native work and base-associate scalar-call,
+  input/output/comparison/temporary envelopes; and
 - retained polynomial terms, exponent entries, integer bits, display bytes,
   and owned bytes.
 

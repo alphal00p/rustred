@@ -524,9 +524,11 @@ crate-private for replay and a future authenticated application engine.
 Process condition inputs in one deterministic order: selected-target guard
 entries, recentered relation guards, the centered-pivot denominator, and then
 RHS denominators in retained relation order. Deduplication first uses exact
-polynomial equality and then bounded coefficient-field-associate recognition
-under the existing coverage policy. The first representative wins and every
-source is merged under explicit origin, comparison, and retention limits.
+polynomial equality and then a dependency-sensitive bounded associate proof:
+base-only assumptions use `Q*`; index-dependent loci use
+`Q(theta)*`; the classes never cross-merge. The first representative wins and
+every source is merged under explicit origin, comparison, and retention
+limits.
 
 Retain a bounded crate-private typed input transcript in that encounter order,
 including inputs which classify as discharged nonzero constants. Canonical
@@ -891,9 +893,11 @@ conditions and pullbacks are added to one target-local structural-locus table
 under bounded exact associate recognition.
 
 Insert canonical condition loci first in condition order, followed by
-boundary and free-index numerator loci in pullback order. The first exact or
-coefficient-field-associate representative owns the local locus ordinal;
-later users retain that ordinal and their own condition/pullback provenance.
+boundary and free-index numerator loci in pullback order. Within this table,
+the first exact or `Q(theta)*`-associate representative of an index-dependent
+structural locus owns the local locus ordinal; later users retain that ordinal
+and their own condition/pullback provenance. Base-only assumptions are
+deduplicated upstream over `Q*` and do not enter this structural-locus table.
 Inherited target facts seed the canonical locus as known nonzero without
 emitting a candidate-failure clause. Preserve one owner-level clause per
 nonfalse boundary event even when two event formulas share loci, because the
@@ -1314,9 +1318,10 @@ Test the target-relative partition independently:
 
 Test the condition accumulator independently:
 
-- exact and coefficient-field-associate forms from a target guard, relation
-  guard, pivot denominator, and RHS denominator produce one canonical row
-  with every typed source;
+- exact and index-dependent coefficient-field-associate forms from a target
+  guard, relation guard, pivot denominator, and RHS denominator produce one
+  canonical row with every typed source; base-only rational associates merge,
+  while distinct physical-parameter loci remain separate;
 - a candidate-first row is promoted to `InheritedTargetPremise` when an
   inherited associate arrives, retains candidate provenance privately, and
   emits no candidate-failure clause;

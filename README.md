@@ -42,7 +42,7 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Complete and physicalize one generated bound row | Implemented internally: one authenticated bound row receives its row-local base assumptions and enters exact physical coordinates directly. Production physical-row ingress owns no `PreorderedParametricElimination`, column order, pivot, or scouting state; the legacy whole-schedule route remains only a differential/test bridge |
-| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. A topology-neutral bridge now borrows the ordered `EqualZero` predicates from the exact premises/source authority, retains that predecessor in every typed outcome, and returns it intact on failure. Multiple/nonlinear/no-unit cases remain typed unsupported outcomes. Long-lived committed-source admission, transformed `NonZero` conditions, and fresh child-row regeneration are still pending |
+| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. A topology-neutral bridge now borrows the ordered `EqualZero` predicates from the exact premises/source authority, retains that predecessor in every typed outcome, and returns it intact on failure. Multiple/nonlinear/no-unit cases remain typed unsupported outcomes. The next production seam consumes the committed exceptional resident before any session, maps the surviving `NonZero` domain, and only then creates the fresh child; long-lived refined-source admission and child-row regeneration are still pending |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
 | Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
@@ -473,18 +473,25 @@ The repository currently includes tests for:
   now constructs the relative partition of its current-lineage arbitrary-width
   OR-of-AND bad formula, retaining every mapped-source/locus/formula occurrence
   and classifying applicable versus exceptional leaves without topology
-  dispatch. The outer phase proves exact and Symbolica-associate canonicality
-  once and seals the first-seen loci in an opaque, non-cloneable authority. The
+  dispatch. The outer phase proves exact and category-sensitive
+  Symbolica-associate canonicality once and seals the first-seen loci in an
+  opaque, non-cloneable authority: base-only assumptions use `Q*`, while
+  index-dependent loci use `Q(theta)*`, and the classes never cross-merge. The
   inner arbitrary-width compiler authenticates that authority and performs only
   linear payload validation. On both fresh compilation and full terminal
   replay, outer canonicalization runs exactly once; the nested compiler and its
   nested replay repeat no pairwise equality/associate scan and make no native
   associate call. Exact capacity,
   GMP-copy, duplicate-heavy replay, panic/retry, and aggregate resource
-  ownership are bounded and tested. Licensed default-GMP focused Nextest run
+  ownership are bounded and tested. Historical pre-category-split
+  ownership/partition runs used default-GMP Symbolica: focused Nextest run
   `b0217edc-a9e8-4a7d-9c5c-82b824a636b3` passed 19/19 tests with four workers;
-  an independent superset passed 20/20. Authoritative licensed default-GMP
-  Nextest run `e9004c32-5a51-4705-a2f9-e39bcac40c49` then ran 1,651 tests
+  an independent superset passed 20/20. The authoritative default-GMP
+  checkpoint gates for the category split passed 25/25 direct `Q*`, 20/20
+  condition-accumulator, and 17/17 bound-relation tests; the three commands ran
+  concurrently and each test binary used four Rust test threads.
+  Historical default-GMP Nextest run
+  `e9004c32-5a51-4705-a2f9-e39bcac40c49` ran 1,651 tests
   with four workers and passed all 1,651 (52 slow), with 5 additional
   configured cases skipped; the following doctest phase also passed. The next
   compact preparation step distills the sealed owner into commit state plus
@@ -796,10 +803,11 @@ statistics, source recipe, and pivot evidence. Shallow applicable and
 exceptional projections are implemented. Generated rows can now enter physical
 coordinates one completed row at a time without retaining scouting elimination
 state, and a separate unit-pivot compiler constructs replayable refined child
-geometry. The active path must bind that geometry to the committed Domain
-source, regenerate and submit the inherited generic rows in the fresh child,
-then schedule residual and solved-subsector work and prove a coverage fixed
-point. Multi-start shard/bundle
+geometry. The active path must consume the committed Domain resident before
+creating any session, compile and map its surviving `NonZero` domain into a
+refined-source successor, and only then regenerate and submit the inherited
+generic rows in the fresh child. It must then schedule residual and
+solved-subsector work and prove a coverage fixed point. Multi-start shard/bundle
 compilation and physical six-loop derivation profiling follow before the
 optimized concrete batch-application runtime. The retained `SparseRowReducer`
 transaction is now the immediate algebra-scaling gate; graph-lifted
@@ -813,9 +821,11 @@ problem validator each performed an all-pairs Symbolica associate scan. The
 new authenticated canonical-locus owner lets the trusted nested path skip that
 duplicate `O(N^2)` CAS work while retaining the raw validator as a defensive/
 test entry path. A future censused use of Symbolica's exact monic `K[n]`
-normalization could index the remaining outer interning scan, but its current
-normalization API has no fallible workspace census. The remaining measured
-blocker is that Symbolica's rational-polynomial division and projected
+normalization could index the remaining index-dependent outer interning scan,
+but it would collapse all nonzero base polynomials and therefore cannot key
+base assumptions; those require a separate `Q*` canonical form or proof. The
+current normalization API also has no fallible workspace census. The remaining
+measured blocker is that Symbolica's rational-polynomial division and projected
 `try_div` APIs expose no pre-allocation GCD/quotient workspace bound.
 The resource-bounded arbitrary path therefore performs complete exact
 splitting without divisibility-based pruning; the public V1 compatibility path
@@ -855,8 +865,12 @@ remaining generic LiteRed-style foundry work is to:
    case lane;
 3. build on the implemented same-database rejected-candidate continuation,
    stable `CampaignWorkKey` result staging/charge transfer, and first sealed
-   same-sector Domain ingress into a fresh narrowed-domain exact session; add
-   affine-equality quotient specialization/re-elimination, a separately
+   same-sector Domain ingress. Consume the committed resident first, compile
+   its bound unit equality and mapped `NonZero` ledger into a refined-source
+   successor, then create the fresh child session and regenerate generic rows;
+   keep the current source-to-empty-session path as an isolation fixture and
+   the consuming suspended-session path as the later generic/multi-target
+   continuation. Add a separately
    admitted shared-lineage owner, independently RAM-admitted applicable-
    provider work/results, and the production exceptional/subsector frontier;
 4. feed solved subsectors into supersectors, iterate residual cases, and prove
@@ -928,12 +942,12 @@ enclosing memory contract, exposes the matching admission baseline, and creates
 zero or exactly `E` workers only after plan consumption. The no-default
 physical-profile contract and pure `campaign preflight` report are now wired;
 the example is deliberately uncalibrated and does not start a frontier. The
-immediate gate is committed-source binding plus generic-row regeneration for
-the implemented unit-pivot equality refinement, followed by separately charged
-shared event ancestry, named-host
-measurements, phase-specific task estimators, and the full plan-consuming
-exceptional/subsector frontier coordinator, followed by a proved coverage
-fixed point.
+immediate gate is a transient source-neutral mapped-`NonZero` certificate,
+then the committed-resident-to-refined-source transform and generic-row
+regeneration for the implemented unit-pivot equality refinement. Separately
+charged shared event ancestry, named-host measurements, phase-specific task
+estimators, and the full plan-consuming exceptional/subsector frontier
+coordinator follow; that coordinator must prove a coverage fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. The
 `rustred derive` command remains a raw parametric-IBP/LI generator and does not

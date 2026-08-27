@@ -56,12 +56,25 @@ allocation-free binding test; they are not claimed as naturally occurring
 end-to-end outcomes of that fixture.
 
 That bridge is deliberately not yet a long-lived committed exceptional
-`Domain` resident. Its complete transitive retained/peak byte envelope, mapped
-remaining `NonZero` domain, V2 durable identity, and refined source-allocation
-contract are the next residence gate. It therefore neither regenerates generic
-IBP/LI rows nor submits completed physical rows to the fresh child database.
-`ProvedEmpty` remains diagnostic and grants no pruning, rule-publication, or
-master-inference authority.
+`Domain` resident. The immediate production seam consumes
+`CampaignResident<CommittedExceptionalSingletonSource>` before constructing
+any exact session. A private, transient source view compiles the authority,
+premises, and bound unit proof; a source-neutral adapter then maps and
+reclassifies every surviving `NonZero` predicate. Only a successfully admitted
+refined-source successor may construct the fresh child plan, catalog, database,
+and session. Failure returns the exact predecessor resident. No parent pivot,
+event history, or sparse-row state is imported.
+
+The first artifact at this seam is intentionally a transient mapped-`NonZero`
+certificate with a complete adapter-local retained/construction/replay census.
+It is not yet campaign-resident and does not need a durable V2 identity.
+Durable identity follows the actual refined-source owner instead of preceding
+it. A consuming suspended-session transition remains a later generic path for
+multi-target sessions whose equality target is discovered only while solving;
+it must converge on the same source-neutral mapper and destroy, never resume,
+the parent session. Generic IBP/LI row regeneration and completed-row
+submission remain pending. `ProvedEmpty` remains diagnostic and grants no
+pruning, rule-publication, or master-inference authority.
 
 ## 1. Decision and completeness boundary
 
@@ -632,6 +645,14 @@ polynomial Q through F1:
    coefficient-field policy requires one.
 3. Otherwise retain the exact source-neutral NonZero condition on every rule
    derived in the next epoch.
+
+Canonicalization is dependency-sensitive. Two base-only assumptions in
+`Z[theta]` share a locus only up to a nonzero rational scalar (`Q*`), whereas
+two index-dependent predicates may share a locus up to a unit of the formal
+coefficient field (`Q(theta)*`). The two classes are never compared across
+lanes. Thus `theta` and `2 theta` share one base assumption, but `theta` and
+`theta+1` remain distinct; `theta(1-n)` and `theta^2(1-n)` share an
+index-dependent locus.
 
 Guard origins created at this layer must use the generated-affine sealed
 origin, not a V1 source-case locator. Replay binds each retained guard back to

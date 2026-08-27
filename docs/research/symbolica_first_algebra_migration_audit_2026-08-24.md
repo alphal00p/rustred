@@ -128,7 +128,7 @@ both sides of that call.
 | P2 | [`coefficient.rs:1260-1331`](../../src/coefficient.rs#L1260): manual exponent-row reconstruction after dropping a parameter | Must replace now | After the existing proof that every dropped exponent is zero, use `evaluate_with_coeff_map` into the target `PolynomialRing<Z,u16>`; map retained variables to target generators and the dropped variable to zero | Preserve malformed-layout, dependence and exponent-range diagnostics. There is no need for a private term copier once absence has been authenticated. |
 | P2 | [`ParametricCoefficientContext::extend_base_polynomial`](../../src/parametric_coefficient.rs): manual extension of every exponent row from the base map to the parametric map | Must replace now | Clone the authenticated base polynomial and call `MultivariatePolynomial::add_variables` with the index variables | Preserve exact variable-order/context validation and retained-memory admission. |
 | B0 (complete) | [`parametric_coefficient.rs`](../../src/parametric_coefficient.rs): affine polynomial composition | Migrated | `MultivariatePolynomial::evaluate_with_coeff_map` on safe mixed-radix inputs; simultaneous `AtomCore::replace_multiple`, direct `expand`, and polynomial conversion otherwise | Production and tests use Symbolica algebra exclusively. The former RustRed weak-composition, Cartesian enumeration, radix sorting, collection, workspace types, and reference entry points were deleted rather than retained as an oracle. |
-| P1 (complete) | [`ParametricCoefficientContext::polynomial_loci_are_associates_with_census`](../../src/parametric_coefficient.rs): strict polynomial-associate proof over `K = Q(theta)` | Migrated | Public `map_exp(u16 -> u32)`, `RationalPolynomial::from`, `to_polynomial(index_variables, true)`, `RationalPolynomialField::mul`, and authenticated exact equality | Symbolica owns projection, arbitrary-precision arithmetic, collection, and comparison. RustRed retains only strict associate semantics, deterministic support/anchor routing, resource admission, authentication, panic containment, provenance, and transactional census propagation. The former private magnitude/limb engine and its counters were deleted. |
+| P1 (complete) | Category-sensitive predicate-locus association in [`parametric_coefficient.rs`](../../src/parametric_coefficient.rs) | Migrated | Index-dependent loci: public `map_exp(u16 -> u32)`, `RationalPolynomial::from`, `to_polynomial(index_variables, true)`, `RationalPolynomialField::mul`, and authenticated equality over `Q(theta)*`. Base-only assumptions: public `MultivariatePolynomial::mul_coeff` for the two leading-coefficient cross-scalings and authenticated equality over `Q*`. | Symbolica owns scalar/polynomial multiplication, projection, arbitrary-precision arithmetic, collection, and comparison. RustRed retains the dependency-class dispatch, deterministic support/anchor routing, resource admission, authentication, panic containment, provenance, and transactional census propagation. The lanes never cross-merge; no private content, GCD, normalization, or limb engine is retained. |
 | P2 | [`ParametricCoefficientContext::permute_polynomial_raw` and `execute_specialize_polynomial_raw`](../../src/parametric_coefficient.rs): manual permutation and full specialization/collection | Must replace now | Simultaneous `evaluate_with_coeff_map` into `PolynomialRing<Z,u16>` | Keep context-map validation and prospective/observed envelopes. Translation and partial specialization already use native `replace_with_poly`/`replace`. |
 | P2 | [`symbolica_tensor_numerator.rs:1044-1180`](../../src/symbolica_tensor_numerator.rs#L1044): tensor-head-aware distributive expansion of `Atom` addition, multiplication and powers | Native-first API-gap migration | Use `AtomCore::expand` or `expand_via_poly` on the smallest authenticated tensor-containing subtree, or a public Symbolica transformer that preserves selective expansion | RustRed deliberately leaves scalar-only powers as opaque weights and enforces limits before allocation, so whole-expression `expand` is not a drop-in. Retain tensor grammar/preflight/decoding. If public composition cannot preserve those semantics, keep only the selective syntax wrapper, document the exact gap locally, and differentially test every admitted input against native expansion. |
 | P1 (next/high) | [`vakint_adapter.rs:652-713`](../../src/vakint_adapter.rs#L652): private `controlled_distribute` Cartesian Atom distribution | Pending native-first migration; not part of the affine-composition milestone | Prefer public `AtomCore::expand_in` for authenticated tensor/topology symbols; alternatively mask Pow/Fun leaves with collision-rejected simultaneous replacements around `AtomCore::expand` | A naked whole-expression `expand` is not semantics-preserving: it expands additive power bases and normalizes/collects terms that the current decoder treats as opaque or distinct. Preserve the admitted Vakint numerator grammar, typed preflight, source provenance, and spectator opacity; differential tests must authenticate the chosen native route before deleting the private distributor. |
@@ -413,20 +413,29 @@ The license was supplied only to each process environment.  No FORM process,
 
 ### Polynomial-associate migration and validation evidence
 
-The strict `K = Q(theta)` associate proof now widens authenticated exponents
-to `u32`, projects the index variables with public Symbolica APIs, and asks
-`RationalPolynomialField::mul` for every projective cross product. Both
-projections and products are authenticated before exact equality is trusted.
+Index-dependent predicates use strict association over `K = Q(theta)`: RustRed
+widens authenticated exponents to `u32`, projects the index variables with
+public Symbolica APIs, and asks `RationalPolynomialField::mul` for every
+projective cross product. Base-only physical-parameter assumptions use the
+strictly smaller unit group `Q*`: after authenticating zero private-index
+exponents, RustRed asks Symbolica for `lc(Q)P` and `lc(P)Q` and compares the
+authenticated products. Consequently `theta` and `2 theta` share one base
+locus, while `theta` and `theta+1` remain distinct even though both are units
+of `Q(theta)`. The condition accumulator and bound-row condition classifier
+dispatch by dependency class and never cross-merge the lanes.
+
 Zero inputs return `false`, and numeric zero validation also covers
-noncanonical `Integer::Double(0)` and `Integer::Large(0)` representations.
-The old magnitude extraction, limb multiplication/accumulation, and scratch
-workspace implementation was deleted. Its resource fields were replaced by
-projection, native multiplication/output/bit-work, native dense-or-heap
-workspace, and RustRed-visible temporary envelopes.
+noncanonical `Integer::Double(0)` and `Integer::Large(0)` representations. The
+old magnitude extraction, limb multiplication/accumulation, and scratch
+workspace implementation remains deleted. Resource fields cover the selected
+native route's projection or scalar calls, input/output/bit work, native
+workspace, retained outputs, comparison payload, and RustRed-visible temporary
+envelopes.
 
 All licensed commands received `SYMBOLICA_LICENSE` only in their process
-environment; the key is not stored in this repository or documentation. The
-final frozen tree passed:
+environment; the key is not stored in this repository or documentation. Before
+the category-sensitive base lane was added, the historical associate-migration
+tree passed:
 
 - `cargo check --lib` and `cargo test --lib --no-run` with default
   GMP-backed Symbolica;
@@ -442,6 +451,15 @@ final frozen tree passed:
   --no-fail-fast`: 945/945 library tests passed, with no skipped or failed
   tests. The suite ran independent test processes concurrently, and nextest
   used four workers throughout.
+
+The later category-sensitive checkpoint was revalidated from the root-owned
+worktree with default-GMP Symbolica: 25/25 direct base-`Q*` tests, 20/20
+condition-accumulator tests, and 17/17 bound-relation tests passed. The three
+commands ran concurrently and each test binary used four Rust test threads.
+`cargo check --tests -j8`, `cargo fmt --all -- --check`, and
+`git diff --check` also passed. An independent source/resource audit reported
+no remaining base-locus or call-site-routing blocker. These are component
+gates; they do not claim a closed exceptional child or a physical reduction.
 
 ## RustRed-owned semantic wrappers that remain justified
 
@@ -557,7 +575,7 @@ must not be needed by the default generic path.
 | Feynman polynomials | Differentially compare `U`, `F`, `G`, all gradients and every tested sector face for one- and two-loop generic families. Verify homogeneity, adjugate identity `A adj(A) = det(A) I`, and native matrix contraction. |
 | Base specialization and polynomial substitution | Compare native evaluation with the old path on zero, constants, sparse multivariate values, rational images and denominator-zero points. Test parameter projection after an authenticated zero-exponent proof, rejection of genuine dropped-parameter dependence, base-map extension, simultaneous permutations with nontrivial cycles and full specializations into a smaller base map. |
 | Affine composition | For V1 and V2 plans, compare the selected Symbolica compositor with independent exact fixtures on constants, translations, mixed affine images and cancellation-heavy inputs. Include differently written equal inputs, the polynomial-evaluator/Atom-fallback stride boundary, GMP cancellation, exact and one-below resource gates, and typed panic boundaries. |
-| Polynomial associates | Test strict equality up to a nonzero `Q(theta)` factor, different index support, zero input, cancellation, large GMP coefficients, multiple base/index variables, noncanonical integer-zero variants, and the `u16::MAX` cross-product boundary after `u32` widening. Require `p` versus `p^2` to be false, authenticate every native projection/product, exercise exact and one-below resource gates and the typed panic boundary, and compare with an independent public-Symbolica quotient oracle in tests. |
+| Polynomial associates | Test both lanes independently. For base-only predicates, require `theta ~ 2 theta`, `theta !~ theta+1`, zero rejection, index-input rejection, GMP coefficients, authenticated Symbolica scalar products, typed panic containment, and exact/one-below input/output/work/temporary bounds. For index-dependent predicates, test equality up to a nonzero `Q(theta)` factor, different support, cancellation, multiple base/index variables, noncanonical zero, and the widened `u16::MAX` boundary; require `p !~ p^2`. Test that dependency classes never cross-merge and that condition/bound-row witnesses retain distinct base assumptions. |
 | Tensor `Atom` expansion | Compile factored, expanded, reordered and differently parenthesized but equal tensor expressions to the same structured numerator. Include opaque scalar weights, reserved heads, powers, malformed inputs and exact/one-below expansion limits. |
 | Symmetry | Compare native determinants and standard matrix products with the previous result; replay external Gram preservation, scalar-product maps and every source denominator independently. Test singular maps and parameter-specialization guard failures. |
 | Integer affine solvers | Differentially compare native and old gcd/Bezout outputs after convention normalization. Replay every row operation, verify all returned lattice basis vectors, and exhaust small integer boxes for completeness. Compare rational rank and satisfiability with `Matrix<Q>`. |
@@ -574,9 +592,11 @@ introduce loop-count or topology dispatch into production rule derivation.
    `Q`/`Matrix<Q>`. **B0 complete.**
 3. Move generated-affine production composition to the selected dual-Symbolica
    polynomial-evaluator/Atom-expansion backends. **Composition complete.**
-   Move the strict associate proof through public exponent widening,
-   `RationalPolynomial::to_polynomial`, and native coefficient-field
-   multiplication/equality. **Associate migration complete.**
+   Move predicate association through the dependency-sensitive public
+   Symbolica routes: leading-coefficient scalar cross-products for base-only
+   `Q*`, and exponent widening/projection/native coefficient-field products for
+   index-dependent `Q(theta)*`. **The associate API, condition accumulator,
+   and bound-row classifier migration is complete.**
 4. Migrate direct matrix consumers. **The generic-family coefficient-matrix,
    automatic-ISP rank, tensor-projector, and affine-family symmetry-verifier
    slices are complete.** Integer symmetry-discovery and Feynman determinants

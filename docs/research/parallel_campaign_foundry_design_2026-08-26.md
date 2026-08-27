@@ -35,10 +35,14 @@ component gates rather than an RSS budget. The following result-batch slice
 now precharges a complete `CampaignWorkKey` table and transfers admitted
 worker output into resident ownership. One committed same-sector Domain leaf
 can then mint an event-owned singleton and enter the existing consuming
-resident-transform executor; the production adapter retains and authenticates
+resident-transform executor; the state-isolation adapter retains and authenticates
 the parent's generic-source authority in a fresh V3 plan/catalog, constructs an
 empty database/session, and stops at typed affine-equality refinement. The
-source rows are not yet submitted to that database. A separate authority-
+source rows are not yet submitted to that database. This path is a
+pre-refinement state-isolation fixture. Production will instead consume the
+committed resident before creating a session, map its surviving `NonZero`
+domain into a refined-source successor, and only then build the fresh child.
+A separate authority-
 neutral core now derives and replays child geometry for one current-target
 affine equality with a literal unit pivot, using Symbolica `Matrix<Z>` for map
 composition; multiple/nonlinear/no-unit cases remain typed unsupported. That
@@ -49,7 +53,10 @@ event-authority/parent ancestry, so the acceptance keeps the origin owner live
 and is not yet an origin-droppable RAM-admitted production lane. Applicable-
 provider work/results, committed-source equality binding/row regeneration,
 shared-lineage
-admission, the frontier coordinator, and closure remain pending. A separate
+admission, the frontier coordinator, and closure remain pending. A consuming
+suspended-session transition remains the later generic/multi-target equality
+path and must converge on the same source-neutral mapper without importing the
+parent pivot. A separate
 current-worktree exact-session
 transition now implements same-database `IdenticallyBad` continuation: it
 replays the complete proof before distillation, retains the rejected pivot,
@@ -859,12 +866,14 @@ consumed into an event-owned singleton resident, its stable value identity
 binds the full child scope independently of allocation coordinates, and a
 charged resident transform retains/authenticates the inherited generic-source
 authority in a fresh V3 plan/catalog before constructing an empty database/
-session. The publication application row is not a source row, the inherited
+session. This validates state isolation but is not the production equality
+continuation order. The publication application row is not a source row, the inherited
 rows have not yet been submitted, and no parent pivot, target disposition, or
-event ledger is imported. The generated fixture stops at typed affine-equality refinement. The
-separate unit-pivot child-geometry compiler does not change that acceptance
-boundary until an adapter binds it to this resident and regenerates/completes
-the inherited rows. The full continuation witness, general integer-normal-
+event ledger is imported. The generated fixture stops at typed affine-equality
+refinement. The immediate adapter must consume the resident first, compile the
+unit proof from its source authority, map every surviving `NonZero`, and commit
+a refined-source successor before a child session exists. The full continuation
+witness, general integer-normal-
 form equality support, shared-ancestry
 admission, multi-child re-entry coordinator, and closure are not implemented.
 
@@ -1013,10 +1022,13 @@ resource-limited frontier remains unresolved.
    any heavyweight owner/reducer clone, so a wide ready frontier remains a
    compact queue rather than an eager set of live forks.
 3. **Exceptional closure:** extend the implemented stable-key result staging,
-   atomic charge transfer, and first same-sector Domain-to-fresh-session ingress
-   by binding the implemented literal-unit equality refinement to its committed
-   source, regenerating and directly completing/submitting child rows, and
-   separately admitting shared ancestry. General no-unit/simultaneous affine
+   atomic charge transfer, and first same-sector Domain ingress with an
+   resident-first transform: compile the implemented literal-unit equality
+   from the committed source, map the surviving `NonZero` ledger, commit the
+   refined-source successor, and only then create the fresh child session and
+   regenerate/directly complete/submit child rows. Separately admit shared
+   ancestry. Keep sealed-session suspension as the later generic multi-target
+   continuation. General no-unit/simultaneous affine
    solving waits on a public Symbolica integer-normal-form/kernel API. Then add
    frozen-epoch affine proposals, applicable providers,
    solved-subsector feedback from allowlisted strict descendants, and joint

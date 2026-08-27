@@ -7,7 +7,9 @@
 //! [`ParametricNonZeroCondition`].  This module makes that boundary explicit.
 //!
 //! Successful `Ready` certificates own the exact case-authority `Arc` and a
-//! first-representative-ordered, associate-deduplicated condition sequence.
+//! first-representative-ordered, category-sensitive associate-deduplicated
+//! condition sequence. Base-only assumptions use `Q*`; index-dependent loci
+//! use `Q(theta)*`; the classes never cross-merge.
 //! The durable provenance of every condition is the single public marker
 //! [`GuardOrigin::GeneratedAffineSealedCondition`].  Source work-item
 //! locators, V1 guard locators, raw private predicates, and affine geometry do
@@ -78,8 +80,8 @@ fn ready_replay_input_allocation_attempts_for_test() -> usize {
 
 /// Aggregate construction and replay envelope.
 ///
-/// `condition_accumulation` bounds the complete equality/associate proof used
-/// to merge duplicate zero loci.  The surrounding fields bound the authority
+/// `condition_accumulation` bounds the complete equality/category-sensitive
+/// associate proof used to merge duplicate zero loci. The surrounding fields bound the authority
 /// navigation, source scan, durable public projection, and overlap with that
 /// temporary canonical table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

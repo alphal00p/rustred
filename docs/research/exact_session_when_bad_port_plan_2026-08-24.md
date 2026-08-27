@@ -109,9 +109,14 @@ and replays the retained unit proof directly, with no second full-certificate
 allocation. Multiple, nonlinear, and no-unit cases return typed unsupported
 outcomes because the pinned Symbolica API has no public
 SNF/HNF/integer-kernel facility. This is still not a refined committed-source
-resident: transformed `NonZero` conditions, complete outer retained/peak
-admission, inherited-row regeneration, and fresh-session submission remain
-pending.
+resident. The immediate production continuation consumes the committed
+exceptional resident before any exact session, compiles the bound unit proof
+from a private source view, maps the remaining `NonZero` domain, and only then
+constructs a fresh child session. The already-tested source-to-empty-session
+adapter is a state-isolation fixture, not an equality-refined continuation.
+The consuming suspended-session route remains the later generic/multi-target
+seam. Complete outer retained/peak admission, inherited-row regeneration, and
+fresh child-session submission remain pending.
 Bundling and physical six-loop derivation still precede optimized application;
 updated 2026-08-27.
 
@@ -474,8 +479,10 @@ validates it linearly and skips the duplicate pairwise Symbolica-associate
 scan, while the raw constructor remains a defensive/test path. A fresh compile
 or complete proof replay still performs one outer exact/associate proof.
 Symbolica's public monic `K[n]` normalization can later provide an indexed key
-for that remaining scan, but currently exposes no fallible workspace census.
-The same API gap affects rational-polynomial and projected `K[n]` division.
+for the index-dependent part of that remaining scan, but it would collapse all
+nonzero base polynomials. Base assumptions therefore require a separate `Q*`
+key or proof. The current normalization API exposes no fallible workspace
+census. The same API gap affects rational-polynomial and projected `K[n]` division.
 Consequently the resource-bounded arbitrary core currently performs complete
 exact splitting without divisibility-based pruning; its public V1 compatibility
 path is unchanged. A future censused Symbolica division seam must feed a bounded
@@ -901,9 +908,11 @@ rejection, nor a solved target.
 The existing unconsumed kernel and database now use owning preparation plus a
 preallocated event/target replacement and infallible final tail. Preserve that
 seam and extend it to prepared rule and residual replacements for later
-`WhenBad` outcomes. The suspended equality owner is itself the immediate
-refinement authority; its chronological event is already recorded/replayed
-without making the committed session resumable.
+`WhenBad` outcomes. A suspended equality owner is a later generic/multi-target
+refinement authority: its chronological event is already recorded/replayed
+without making the committed session resumable, but the immediate
+committed-singleton path consumes the resident and refines its source before
+creating any child session.
 
 ### Phase B: exact target geometry, descent, and hazards
 
@@ -944,7 +953,7 @@ activation values. Active-coordinate pinches are valid subsector terms, and
 
 Accordingly, a committed `SectorLeak` means that a coordinate inactive in the
 parent sector was activated. It is out-of-sector exceptional work for a future
-fresh narrowed-domain epoch, not a proper-subsector edge. A proper subsector is
+out-of-sector exceptional epoch, not a proper-subsector edge. A proper subsector is
 produced by pinching at least one parent-active coordinate without activating
 any parent-inactive coordinate; such terms remain on the applicable right-hand
 side. Provider application and bottom-up proper-subsector feedback for those
@@ -1262,7 +1271,7 @@ representation result; an exception or exhausted limit is operational.
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
 | Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded `Pending -> Issued -> Staged` exceptional-source ownership; an authority-bound compact result batch stages admitted in-memory outputs fail-closed, and a committed Domain resident can transform into a fresh V3 equality-refinement session; post-equality continuation, shared-lineage admission, and durable/general result publication remain pending | Zero-copy applicable-rule views; provider admission/results pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded `Pending -> Issued -> Staged` exceptional-source ownership; an authority-bound compact result batch stages admitted in-memory outputs fail-closed, and a committed Domain resident can enter the resident-first refinement transform. The existing empty-V3-session adapter is only a pre-refinement state-isolation fixture; post-equality continuation, shared-lineage admission, and durable/general result publication remain pending | Zero-copy applicable-rule views; provider admission/results pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -1434,10 +1443,10 @@ freshness/resource failure, retained-payload accounting, event-bound zero-copy
 rule/residual domains, exactly-once acceptance handoff, algebra-free
 applicable/exceptional indexing with bounded retry-only exceptional leases,
 stable-key result staging/charge transfer, and first committed-Domain ingress
-into a fresh equality-refinement session. Applicable-provider admission/
-results, post-equality continuation/specialization, separately admitted shared
-lineage, closure, and durable-audit gates remain pending where they depend on
-those future layers.
+plus the pre-refinement empty-session state-isolation fixture.
+Applicable-provider admission/results, post-equality continuation/
+specialization, separately admitted shared lineage, closure, and durable-audit
+gates remain pending where they depend on those future layers.
 
 - Full transition-table test covering Dependent, NoTarget, equality, prepared
   publication, IdenticallyBad, unsupported representations, and every
@@ -1467,11 +1476,13 @@ those future layers.
 - The subsequent committed-Domain acceptance consumes one lease issuance within
   its epoch-owner allocation, stages the event-owned singleton under the full
   `CampaignWorkKey`, verifies recoverable resident-transform failure, and then
-  constructs a fresh V3 session through the production adapter. It authenticates
-  the inherited generic-source authority, imports no parent reducer/target/event
-  state, leaves the child database empty, routes `SectorLeak` separately, and
-  stops at affine-equality refinement. The
-  origin owner remains live because the local census excludes shared ancestry.
+  exercises the pre-refinement state-isolation adapter. The fixture
+  authenticates the inherited generic-source authority, imports no parent
+  reducer/target/event state, leaves the child database empty, routes
+  `SectorLeak` separately, and stops at affine-equality refinement; it is not
+  the production continuation. The production path must refine the committed
+  source first. The origin owner remains live because the local census excludes
+  shared ancestry.
 - A synthetic width-100/approximately-1-TiB coordinator gate computes `E`
   before pool construction, hydrates only the deterministic admitted
   `CampaignWorkKey` subset, charges shared/transferred allocations once and
@@ -1673,14 +1684,22 @@ Implement in this order:
    claiming intra-reducer parallel forward elimination;
 9. build on the implemented non-durable topology-neutral `CampaignPlan`,
    stable-key exceptional result staging/charge transfer, same-database
-   rejected-candidate continuation, and first sealed committed-Domain ingress
-   into a fresh narrowed-domain exact session. The exact equality-premises
-   authority is now bound to the implemented literal-unit compiler by a
-   recoverable, nonresident adapter. Next, distill that proof into the
-   committed source under complete resident admission, transform every
-   remaining `NonZero` condition through the child Symbolica plan, regenerate
-   and submit the inherited generic rows under the child geometry, and re-enter
-   exact solving.
+   rejected-candidate continuation, and first sealed committed-Domain ingress.
+   The current source-to-empty-session path validates isolation only; its
+   geometry is not yet equality-refined. The exact equality-premises authority
+   is now bound to the literal-unit compiler by a recoverable, nonresident
+   adapter. Next, consume the
+   `CampaignResident<CommittedExceptionalSingletonSource>` through the resident
+   transform, use a private source view to compile authority, premises, and the
+   bound proof, map every surviving `NonZero` condition through the child
+   Symbolica plan, and commit a refined-source successor. Only that successor
+   may construct the fresh child authority/frame/plan/session, regenerate the
+   inherited generic rows under the child geometry, and re-enter exact solving.
+   The first mapped-domain certificate is transient and source-neutral; do not
+   introduce a durable identity before a durable refined owner exists. A later
+   generic multi-target path may start from a sealed equality suspension, but
+   it must consume and destroy the parent session and converge on the same
+   mapper without importing its pivot.
    Extend beyond the typed no-unit/simultaneous boundary only when Symbolica
    exposes the required integer normal-form/kernel API. Then add separately
    admitted shared lineage, applicable providers,
@@ -1735,6 +1754,8 @@ successor charge. The acceptance fixture deliberately requires a nonzero
 opaque-native reserve, checks its enumerated visible census, and verifies that
 the fresh session has no imported pivot, consumed-target, event-ledger, or
 native sparse-row state and may honestly stop at affine-equality refinement.
+This is a pre-refinement isolation fixture, not the production continuation
+order.
 
 The adjacent row/equality prerequisites are now implemented but deliberately
 remain separate. `GeneratedAffineResidualCaseCompletedBoundRow` is the direct
@@ -1744,11 +1765,12 @@ Symbolica-native, and the new bound adapter proves which exact premises/source
 allocation supplied its equality without duplicating the authority handle or
 materializing an intermediate predicate vector. This adapter is transient: it
 does not yet carry the complete resident retained/peak envelope or transform
-the rest of the exceptional domain. The next owner must consume it into the
-committed exceptional source, admit the distilled unit proof and mapped
-`NonZero` ledger, instantiate the refined source authority, regenerate the
-generic IBP/LI rows, and submit completed rows to the fresh database. It must
-not import parent pivots or treat `ProvedEmpty` as branch-pruning evidence.
+the rest of the exceptional domain. The resident transform must retain the
+original committed source for recovery, compile the adapter through a private
+source view, map the `NonZero` ledger, and commit a refined-source successor.
+That successor then regenerates the generic IBP/LI rows and submits completed
+rows to a fresh database. It must not import parent pivots or treat
+`ProvedEmpty` as branch-pruning evidence.
 
 This is not yet a standalone exceptional-lane campaign coordinator or a
 complete RAM estimate. `retained_event_bytes` covers the immutable event
@@ -1779,6 +1801,15 @@ unsupported, with all three refined results replayed. The nonrefined wrappers
 are mapping-tested but are not claimed as naturally occurring outcomes of that
 fixture. `cargo check --tests -j8` passed. These are component gates, not a
 closed exceptional child or a reduction result.
+
+The category-sensitive predicate prerequisite was then revalidated from the
+root-owned worktree with default-GMP Symbolica. Parallel commands passed 25/25
+direct base-`Q*`, 20/20 condition-accumulator, and 17/17 bound-relation tests;
+each test binary used four Rust test threads. `cargo check --tests -j8`,
+`cargo fmt --all -- --check`, and `git diff --check` passed as well. This closes
+the `Q*` versus `Q(theta)*` routing prerequisite only; the source-neutral
+mapped-`NonZero` certificate and refined committed-source successor remain the
+next production seam.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

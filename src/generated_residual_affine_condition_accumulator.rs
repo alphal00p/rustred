@@ -20,6 +20,7 @@ use symbolica::domains::integer::Integer;
 use symbolica::poly::PolyVariable;
 
 use crate::parametric_coefficient::{
+    ParametricBasePolynomialAssociateLimits, ParametricBasePolynomialAssociateStats,
     ParametricPolynomialAssociateLimits, ParametricPolynomialAssociateStats,
 };
 use crate::{
@@ -141,9 +142,10 @@ impl fmt::Debug for GeneratedResidualAffineConditionInput<'_> {
 ///
 /// `exact_algebra` is never reset blindly for an associate proof.  Before
 /// every call the accumulator intersects it with the still-unspent aggregate
-/// associate allowance. Every `max_associate_*` field is stream-aggregate:
-/// even child fields named `peak_*` or `*_envelope` are summed across calls
-/// here so certificate replay has one exact addition law per counter.
+/// associate allowance. Every `max_associate_*` and `max_base_associate_*`
+/// field is stream-aggregate: even child fields named `peak_*` or
+/// `*_envelope` are summed across calls here so certificate replay has one
+/// exact addition law per counter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedResidualAffineConditionAccumulatorLimits {
     pub exact_algebra: ExactAlgebraLimits,
@@ -200,6 +202,24 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorLimits {
     pub max_associate_native_heap_workspace_pair_bound: usize,
     pub max_associate_native_workspace_byte_envelope: usize,
     pub max_associate_rustred_visible_temporary_byte_envelope: usize,
+    pub max_base_associate_validation_terms: usize,
+    pub max_base_associate_validation_exponent_entries: usize,
+    pub max_base_associate_validation_integer_bits: usize,
+    pub max_base_associate_source_owned_bytes: usize,
+    pub max_base_associate_index_exponent_entries: usize,
+    pub max_base_associate_native_scale_calls: usize,
+    pub max_base_associate_native_coefficient_multiplications: usize,
+    pub max_base_associate_native_integer_multiplication_bit_work_bound: usize,
+    pub max_base_associate_output_terms: usize,
+    pub max_base_associate_output_exponent_entries: usize,
+    pub max_base_associate_output_integer_bit_bound: usize,
+    pub max_base_associate_output_retained_byte_bound: usize,
+    pub max_base_associate_payload_comparison_terms: usize,
+    pub max_base_associate_payload_comparison_exponent_entries: usize,
+    pub max_base_associate_payload_comparison_integer_bit_bound: usize,
+    pub max_base_associate_native_workspace_byte_envelope: usize,
+    pub max_base_associate_rustred_visible_temporary_byte_envelope: usize,
+    pub max_base_associate_combined_temporary_byte_envelope: usize,
     pub max_retained_polynomial_terms: usize,
     pub max_retained_polynomial_exponent_entries: usize,
     pub max_retained_polynomial_integer_bits: usize,
@@ -288,6 +308,32 @@ impl Default for GeneratedResidualAffineConditionAccumulatorLimits {
             max_associate_rustred_visible_temporary_byte_envelope: portable_usize(
                 64_000_000_000_000,
             ),
+            max_base_associate_validation_terms: portable_usize(64_000_000_000),
+            max_base_associate_validation_exponent_entries: portable_usize(256_000_000_000),
+            max_base_associate_validation_integer_bits: portable_usize(64_000_000_000_000_000),
+            max_base_associate_source_owned_bytes: portable_usize(64_000_000_000_000),
+            max_base_associate_index_exponent_entries: portable_usize(256_000_000_000),
+            max_base_associate_native_scale_calls: 2_000_000_000,
+            max_base_associate_native_coefficient_multiplications: portable_usize(64_000_000_000),
+            max_base_associate_native_integer_multiplication_bit_work_bound: portable_usize(
+                16_000_000_000_000_000,
+            ),
+            max_base_associate_output_terms: portable_usize(64_000_000_000),
+            max_base_associate_output_exponent_entries: portable_usize(256_000_000_000),
+            max_base_associate_output_integer_bit_bound: portable_usize(64_000_000_000_000_000),
+            max_base_associate_output_retained_byte_bound: portable_usize(64_000_000_000_000),
+            max_base_associate_payload_comparison_terms: portable_usize(64_000_000_000),
+            max_base_associate_payload_comparison_exponent_entries: portable_usize(256_000_000_000),
+            max_base_associate_payload_comparison_integer_bit_bound: portable_usize(
+                64_000_000_000_000_000,
+            ),
+            max_base_associate_native_workspace_byte_envelope: portable_usize(64_000_000_000_000),
+            max_base_associate_rustred_visible_temporary_byte_envelope: portable_usize(
+                64_000_000_000_000,
+            ),
+            max_base_associate_combined_temporary_byte_envelope: portable_usize(
+                128_000_000_000_000,
+            ),
             max_retained_polynomial_terms: 2_000_000_000,
             max_retained_polynomial_exponent_entries: portable_usize(64_000_000_000),
             max_retained_polynomial_integer_bits: portable_usize(16_000_000_000_000_000),
@@ -362,6 +408,24 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorStats {
     associate_native_heap_workspace_pair_bound: usize,
     associate_native_workspace_byte_envelope: usize,
     associate_rustred_visible_temporary_byte_envelope: usize,
+    base_associate_validation_terms: usize,
+    base_associate_validation_exponent_entries: usize,
+    base_associate_validation_integer_bits: usize,
+    base_associate_source_owned_bytes: usize,
+    base_associate_index_exponent_entries: usize,
+    base_associate_native_scale_calls: usize,
+    base_associate_native_coefficient_multiplications: usize,
+    base_associate_native_integer_multiplication_bit_work_bound: usize,
+    base_associate_output_terms: usize,
+    base_associate_output_exponent_entries: usize,
+    base_associate_output_integer_bit_bound: usize,
+    base_associate_output_retained_byte_bound: usize,
+    base_associate_payload_comparison_terms: usize,
+    base_associate_payload_comparison_exponent_entries: usize,
+    base_associate_payload_comparison_integer_bit_bound: usize,
+    base_associate_native_workspace_byte_envelope: usize,
+    base_associate_rustred_visible_temporary_byte_envelope: usize,
+    base_associate_combined_temporary_byte_envelope: usize,
     retained_polynomial_terms: usize,
     retained_polynomial_exponent_entries: usize,
     retained_polynomial_integer_bits: usize,
@@ -445,6 +509,24 @@ impl GeneratedResidualAffineConditionAccumulatorStats {
         associate_native_heap_workspace_pair_bound,
         associate_native_workspace_byte_envelope,
         associate_rustred_visible_temporary_byte_envelope,
+        base_associate_validation_terms,
+        base_associate_validation_exponent_entries,
+        base_associate_validation_integer_bits,
+        base_associate_source_owned_bytes,
+        base_associate_index_exponent_entries,
+        base_associate_native_scale_calls,
+        base_associate_native_coefficient_multiplications,
+        base_associate_native_integer_multiplication_bit_work_bound,
+        base_associate_output_terms,
+        base_associate_output_exponent_entries,
+        base_associate_output_integer_bit_bound,
+        base_associate_output_retained_byte_bound,
+        base_associate_payload_comparison_terms,
+        base_associate_payload_comparison_exponent_entries,
+        base_associate_payload_comparison_integer_bit_bound,
+        base_associate_native_workspace_byte_envelope,
+        base_associate_rustred_visible_temporary_byte_envelope,
+        base_associate_combined_temporary_byte_envelope,
         retained_polynomial_terms,
         retained_polynomial_exponent_entries,
         retained_polynomial_integer_bits,
@@ -1374,14 +1456,35 @@ fn canonical_row(
     } else {
         let mut associated = None;
         for (row_ordinal, row) in rows.iter().enumerate() {
-            let call_limits = precharge_associate_comparison(census, row.census, limits, stats)?;
-            let result = context.polynomial_loci_are_associates_with_census(
-                &row.polynomial,
-                polynomial,
-                call_limits,
-            )?;
-            consume_associate_stats(result.stats(), limits, stats)?;
-            if result.associated() {
+            // Different dependency classes cannot be associates in either
+            // admissible unit group. Skip them before charging or invoking a
+            // child proof; in particular, never send an index row through the
+            // base-only `Q*` boundary.
+            if row.index_dependent != index_dependent {
+                continue;
+            }
+            let is_associated = if index_dependent {
+                let call_limits =
+                    precharge_associate_comparison(census, row.census, limits, stats)?;
+                let result = context.polynomial_loci_are_associates_with_census(
+                    &row.polynomial,
+                    polynomial,
+                    call_limits,
+                )?;
+                consume_associate_stats(result.stats(), limits, stats)?;
+                result.associated()
+            } else {
+                let call_limits =
+                    precharge_base_associate_comparison(census, row.census, limits, stats)?;
+                let result = context.base_polynomial_loci_are_rational_associates_with_census(
+                    &row.polynomial,
+                    polynomial,
+                    call_limits,
+                )?;
+                consume_base_associate_stats(result.stats(), limits, stats)?;
+                result.associated()
+            };
+            if is_associated {
                 associated = Some(row_ordinal);
                 break;
             }
@@ -2010,6 +2113,174 @@ fn precharge_associate_comparison(
     Ok(child_limits)
 }
 
+fn precharge_base_associate_comparison(
+    left: PolynomialCensus,
+    right: PolynomialCensus,
+    limits: GeneratedResidualAffineConditionAccumulatorLimits,
+    stats: &mut GeneratedResidualAffineConditionAccumulatorStats,
+) -> Result<ParametricBasePolynomialAssociateLimits, GeneratedResidualAffineConditionAccumulatorError>
+{
+    let pair = pair_census(left, right)?;
+    let remaining_term_units = remaining(
+        "affine condition associate term units",
+        limits.max_associate_term_units,
+        stats.associate_term_units,
+    )?;
+    check_limit(
+        "affine condition associate term units",
+        pair.terms,
+        remaining_term_units,
+    )?;
+
+    let prospective_checks = bounded_add(
+        "affine condition associate checks",
+        stats.associate_checks,
+        1,
+        limits.max_associate_checks,
+    )?;
+    let prospective_terms = bounded_add(
+        "affine condition associate term units",
+        stats.associate_term_units,
+        pair.terms,
+        limits.max_associate_term_units,
+    )?;
+    let prospective_exponents = bounded_add(
+        "affine condition associate exponent entries",
+        stats.associate_exponent_entries,
+        pair.exponent_entries,
+        limits.max_associate_exponent_entries,
+    )?;
+    let prospective_integer_bits = bounded_add(
+        "affine condition associate integer bits",
+        stats.associate_integer_bits,
+        pair.integer_bits,
+        limits.max_associate_integer_bits,
+    )?;
+    let remaining_native_coefficient_multiplications = remaining(
+        "affine condition base-associate native coefficient multiplications",
+        limits.max_base_associate_native_coefficient_multiplications,
+        stats.base_associate_native_coefficient_multiplications,
+    )?;
+    let exact_algebra = ExactAlgebraLimits {
+        max_exponent: limits.exact_algebra.max_exponent,
+        max_polynomial_terms: limits
+            .exact_algebra
+            .max_polynomial_terms
+            .min(remaining_term_units),
+        max_term_operations: limits
+            .exact_algebra
+            .max_term_operations
+            .min(remaining_native_coefficient_multiplications),
+    };
+    let child_limits = ParametricBasePolynomialAssociateLimits {
+        exact_algebra,
+        max_context_fingerprint_comparison_bytes: remaining(
+            "affine condition context fingerprint comparison bytes",
+            limits.max_context_fingerprint_comparison_bytes,
+            stats.context_fingerprint_comparison_bytes,
+        )?,
+        max_variable_map_entry_comparisons: remaining(
+            "affine condition variable-map entry comparisons",
+            limits.max_variable_map_entry_comparisons,
+            stats.variable_map_entry_comparisons,
+        )?,
+        max_validation_terms: remaining(
+            "affine condition base-associate validation terms",
+            limits.max_base_associate_validation_terms,
+            stats.base_associate_validation_terms,
+        )?
+        .min(pair.terms),
+        max_validation_exponent_entries: remaining(
+            "affine condition base-associate validation exponent entries",
+            limits.max_base_associate_validation_exponent_entries,
+            stats.base_associate_validation_exponent_entries,
+        )?
+        .min(pair.exponent_entries),
+        max_validation_integer_bits: remaining(
+            "affine condition base-associate validation integer bits",
+            limits.max_base_associate_validation_integer_bits,
+            stats.base_associate_validation_integer_bits,
+        )?
+        .min(pair.integer_bits),
+        max_source_owned_bytes: remaining(
+            "affine condition base-associate source owned bytes",
+            limits.max_base_associate_source_owned_bytes,
+            stats.base_associate_source_owned_bytes,
+        )?,
+        max_index_exponent_entries: remaining(
+            "affine condition base-associate index exponent entries",
+            limits.max_base_associate_index_exponent_entries,
+            stats.base_associate_index_exponent_entries,
+        )?,
+        max_native_scale_calls: remaining(
+            "affine condition base-associate native scale calls",
+            limits.max_base_associate_native_scale_calls,
+            stats.base_associate_native_scale_calls,
+        )?,
+        max_native_coefficient_multiplications: remaining_native_coefficient_multiplications,
+        max_native_integer_multiplication_bit_work_bound: remaining(
+            "affine condition base-associate native integer multiplication bit-work bound",
+            limits.max_base_associate_native_integer_multiplication_bit_work_bound,
+            stats.base_associate_native_integer_multiplication_bit_work_bound,
+        )?,
+        max_output_terms: remaining(
+            "affine condition base-associate output terms",
+            limits.max_base_associate_output_terms,
+            stats.base_associate_output_terms,
+        )?,
+        max_output_exponent_entries: remaining(
+            "affine condition base-associate output exponent entries",
+            limits.max_base_associate_output_exponent_entries,
+            stats.base_associate_output_exponent_entries,
+        )?,
+        max_output_integer_bit_bound: remaining(
+            "affine condition base-associate output integer bit bound",
+            limits.max_base_associate_output_integer_bit_bound,
+            stats.base_associate_output_integer_bit_bound,
+        )?,
+        max_output_retained_byte_bound: remaining(
+            "affine condition base-associate output retained byte bound",
+            limits.max_base_associate_output_retained_byte_bound,
+            stats.base_associate_output_retained_byte_bound,
+        )?,
+        max_payload_comparison_terms: remaining(
+            "affine condition base-associate payload comparison terms",
+            limits.max_base_associate_payload_comparison_terms,
+            stats.base_associate_payload_comparison_terms,
+        )?,
+        max_payload_comparison_exponent_entries: remaining(
+            "affine condition base-associate payload comparison exponent entries",
+            limits.max_base_associate_payload_comparison_exponent_entries,
+            stats.base_associate_payload_comparison_exponent_entries,
+        )?,
+        max_payload_comparison_integer_bit_bound: remaining(
+            "affine condition base-associate payload comparison integer bit bound",
+            limits.max_base_associate_payload_comparison_integer_bit_bound,
+            stats.base_associate_payload_comparison_integer_bit_bound,
+        )?,
+        max_native_workspace_byte_envelope: remaining(
+            "affine condition base-associate native workspace byte envelope",
+            limits.max_base_associate_native_workspace_byte_envelope,
+            stats.base_associate_native_workspace_byte_envelope,
+        )?,
+        max_rustred_visible_temporary_byte_envelope: remaining(
+            "affine condition base-associate RustRed-visible temporary byte envelope",
+            limits.max_base_associate_rustred_visible_temporary_byte_envelope,
+            stats.base_associate_rustred_visible_temporary_byte_envelope,
+        )?,
+        max_combined_temporary_byte_envelope: remaining(
+            "affine condition base-associate combined temporary byte envelope",
+            limits.max_base_associate_combined_temporary_byte_envelope,
+            stats.base_associate_combined_temporary_byte_envelope,
+        )?,
+    };
+    stats.associate_checks = prospective_checks;
+    stats.associate_term_units = prospective_terms;
+    stats.associate_exponent_entries = prospective_exponents;
+    stats.associate_integer_bits = prospective_integer_bits;
+    Ok(child_limits)
+}
+
 fn consume_associate_stats(
     child: ParametricPolynomialAssociateStats,
     limits: GeneratedResidualAffineConditionAccumulatorLimits,
@@ -2200,6 +2471,144 @@ fn consume_associate_stats(
         "affine condition associate RustRed-visible temporary byte envelope",
         max_associate_rustred_visible_temporary_byte_envelope
     );
+    Ok(())
+}
+
+fn consume_base_associate_stats(
+    child: ParametricBasePolynomialAssociateStats,
+    limits: GeneratedResidualAffineConditionAccumulatorLimits,
+    stats: &mut GeneratedResidualAffineConditionAccumulatorStats,
+) -> Result<(), GeneratedResidualAffineConditionAccumulatorError> {
+    stats.context_fingerprint_comparison_bytes = bounded_add(
+        "affine condition context fingerprint comparison bytes",
+        stats.context_fingerprint_comparison_bytes,
+        child.context_fingerprint_comparison_bytes(),
+        limits.max_context_fingerprint_comparison_bytes,
+    )?;
+    stats.variable_map_entry_comparisons = bounded_add(
+        "affine condition variable-map entry comparisons",
+        stats.variable_map_entry_comparisons,
+        child.variable_map_entry_comparisons(),
+        limits.max_variable_map_entry_comparisons,
+    )?;
+    macro_rules! consume {
+        ($field:ident, $getter:ident, $resource:literal, $limit:ident) => {
+            stats.$field = bounded_add($resource, stats.$field, child.$getter(), limits.$limit)?;
+        };
+    }
+    consume!(
+        base_associate_validation_terms,
+        validation_terms,
+        "affine condition base-associate validation terms",
+        max_base_associate_validation_terms
+    );
+    consume!(
+        base_associate_validation_exponent_entries,
+        validation_exponent_entries,
+        "affine condition base-associate validation exponent entries",
+        max_base_associate_validation_exponent_entries
+    );
+    consume!(
+        base_associate_validation_integer_bits,
+        validation_integer_bits,
+        "affine condition base-associate validation integer bits",
+        max_base_associate_validation_integer_bits
+    );
+    consume!(
+        base_associate_source_owned_bytes,
+        source_owned_bytes,
+        "affine condition base-associate source owned bytes",
+        max_base_associate_source_owned_bytes
+    );
+    consume!(
+        base_associate_index_exponent_entries,
+        index_exponent_entries,
+        "affine condition base-associate index exponent entries",
+        max_base_associate_index_exponent_entries
+    );
+    consume!(
+        base_associate_native_scale_calls,
+        native_scale_calls,
+        "affine condition base-associate native scale calls",
+        max_base_associate_native_scale_calls
+    );
+    consume!(
+        base_associate_native_coefficient_multiplications,
+        native_coefficient_multiplications,
+        "affine condition base-associate native coefficient multiplications",
+        max_base_associate_native_coefficient_multiplications
+    );
+    consume!(
+        base_associate_native_integer_multiplication_bit_work_bound,
+        native_integer_multiplication_bit_work_bound,
+        "affine condition base-associate native integer multiplication bit-work bound",
+        max_base_associate_native_integer_multiplication_bit_work_bound
+    );
+    consume!(
+        base_associate_output_terms,
+        output_terms,
+        "affine condition base-associate output terms",
+        max_base_associate_output_terms
+    );
+    consume!(
+        base_associate_output_exponent_entries,
+        output_exponent_entries,
+        "affine condition base-associate output exponent entries",
+        max_base_associate_output_exponent_entries
+    );
+    consume!(
+        base_associate_output_integer_bit_bound,
+        output_integer_bit_bound,
+        "affine condition base-associate output integer bit bound",
+        max_base_associate_output_integer_bit_bound
+    );
+    consume!(
+        base_associate_output_retained_byte_bound,
+        output_retained_byte_bound,
+        "affine condition base-associate output retained byte bound",
+        max_base_associate_output_retained_byte_bound
+    );
+    consume!(
+        base_associate_payload_comparison_terms,
+        payload_comparison_terms,
+        "affine condition base-associate payload comparison terms",
+        max_base_associate_payload_comparison_terms
+    );
+    consume!(
+        base_associate_payload_comparison_exponent_entries,
+        payload_comparison_exponent_entries,
+        "affine condition base-associate payload comparison exponent entries",
+        max_base_associate_payload_comparison_exponent_entries
+    );
+    consume!(
+        base_associate_payload_comparison_integer_bit_bound,
+        payload_comparison_integer_bit_bound,
+        "affine condition base-associate payload comparison integer bit bound",
+        max_base_associate_payload_comparison_integer_bit_bound
+    );
+    consume!(
+        base_associate_native_workspace_byte_envelope,
+        native_workspace_byte_envelope,
+        "affine condition base-associate native workspace byte envelope",
+        max_base_associate_native_workspace_byte_envelope
+    );
+    consume!(
+        base_associate_rustred_visible_temporary_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
+        "affine condition base-associate RustRed-visible temporary byte envelope",
+        max_base_associate_rustred_visible_temporary_byte_envelope
+    );
+    let combined = checked_add(
+        "affine condition base-associate combined temporary byte envelope",
+        child.native_workspace_byte_envelope(),
+        child.rustred_visible_temporary_byte_envelope(),
+    )?;
+    stats.base_associate_combined_temporary_byte_envelope = bounded_add(
+        "affine condition base-associate combined temporary byte envelope",
+        stats.base_associate_combined_temporary_byte_envelope,
+        combined,
+        limits.max_base_associate_combined_temporary_byte_envelope,
+    )?;
     Ok(())
 }
 

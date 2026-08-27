@@ -411,6 +411,131 @@ impl ParametricPolynomialAssociateResult {
     }
 }
 
+/// Limits for proving association of two base-only predicates over `Q*`.
+///
+/// This is deliberately distinct from [`ParametricPolynomialAssociateLimits`]:
+/// a physical-parameter polynomial is not allowed to disappear behind an
+/// arbitrary unit of `Q(theta)`.  After authenticating that both inputs are in
+/// `Z[theta]`, RustRed asks Symbolica to form the exact cross-scaled pair
+/// `lc(right) * left` and `lc(left) * right`.  Equality of that pair is
+/// equivalent to association by one nonzero rational number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParametricBasePolynomialAssociateLimits {
+    pub exact_algebra: ExactAlgebraLimits,
+    pub max_context_fingerprint_comparison_bytes: usize,
+    pub max_variable_map_entry_comparisons: usize,
+    pub max_validation_terms: usize,
+    pub max_validation_exponent_entries: usize,
+    pub max_validation_integer_bits: usize,
+    pub max_source_owned_bytes: usize,
+    pub max_index_exponent_entries: usize,
+    pub max_native_scale_calls: usize,
+    pub max_native_coefficient_multiplications: usize,
+    pub max_native_integer_multiplication_bit_work_bound: usize,
+    pub max_output_terms: usize,
+    pub max_output_exponent_entries: usize,
+    pub max_output_integer_bit_bound: usize,
+    pub max_output_retained_byte_bound: usize,
+    pub max_payload_comparison_terms: usize,
+    pub max_payload_comparison_exponent_entries: usize,
+    pub max_payload_comparison_integer_bit_bound: usize,
+    pub max_native_workspace_byte_envelope: usize,
+    pub max_rustred_visible_temporary_byte_envelope: usize,
+    pub max_combined_temporary_byte_envelope: usize,
+}
+
+impl Default for ParametricBasePolynomialAssociateLimits {
+    fn default() -> Self {
+        Self {
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_context_fingerprint_comparison_bytes: usize::MAX,
+            max_variable_map_entry_comparisons: usize::MAX,
+            max_validation_terms: usize::MAX,
+            max_validation_exponent_entries: usize::MAX,
+            max_validation_integer_bits: usize::MAX,
+            max_source_owned_bytes: usize::MAX,
+            max_index_exponent_entries: usize::MAX,
+            max_native_scale_calls: usize::MAX,
+            max_native_coefficient_multiplications: usize::MAX,
+            max_native_integer_multiplication_bit_work_bound: usize::MAX,
+            max_output_terms: usize::MAX,
+            max_output_exponent_entries: usize::MAX,
+            max_output_integer_bit_bound: usize::MAX,
+            max_output_retained_byte_bound: usize::MAX,
+            max_payload_comparison_terms: usize::MAX,
+            max_payload_comparison_exponent_entries: usize::MAX,
+            max_payload_comparison_integer_bit_bound: usize::MAX,
+            max_native_workspace_byte_envelope: usize::MAX,
+            max_rustred_visible_temporary_byte_envelope: usize::MAX,
+            max_combined_temporary_byte_envelope: usize::MAX,
+        }
+    }
+}
+
+/// Complete prospective work and memory census for one `Q*`-associate proof.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ParametricBasePolynomialAssociateStats {
+    context_fingerprint_comparison_bytes: usize,
+    variable_map_entry_comparisons: usize,
+    validation_terms: usize,
+    validation_exponent_entries: usize,
+    validation_integer_bits: usize,
+    source_owned_bytes: usize,
+    index_exponent_entries: usize,
+    native_scale_calls: usize,
+    native_coefficient_multiplications: usize,
+    native_integer_multiplication_bit_work_bound: usize,
+    output_terms: usize,
+    output_exponent_entries: usize,
+    output_integer_bit_bound: usize,
+    output_retained_byte_bound: usize,
+    payload_comparison_terms: usize,
+    payload_comparison_exponent_entries: usize,
+    payload_comparison_integer_bit_bound: usize,
+    native_workspace_byte_envelope: usize,
+    rustred_visible_temporary_byte_envelope: usize,
+}
+
+impl ParametricBasePolynomialAssociateStats {
+    parametric_polynomial_associate_stats_getters!(
+        context_fingerprint_comparison_bytes,
+        variable_map_entry_comparisons,
+        validation_terms,
+        validation_exponent_entries,
+        validation_integer_bits,
+        source_owned_bytes,
+        index_exponent_entries,
+        native_scale_calls,
+        native_coefficient_multiplications,
+        native_integer_multiplication_bit_work_bound,
+        output_terms,
+        output_exponent_entries,
+        output_integer_bit_bound,
+        output_retained_byte_bound,
+        payload_comparison_terms,
+        payload_comparison_exponent_entries,
+        payload_comparison_integer_bit_bound,
+        native_workspace_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ParametricBasePolynomialAssociateResult {
+    associated: bool,
+    stats: ParametricBasePolynomialAssociateStats,
+}
+
+impl ParametricBasePolynomialAssociateResult {
+    pub(crate) const fn associated(self) -> bool {
+        self.associated
+    }
+
+    pub(crate) const fn stats(self) -> ParametricBasePolynomialAssociateStats {
+        self.stats
+    }
+}
+
 /// A polynomial over `K`'s integer polynomial ring, authenticated by its
 /// ordered base variable map.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1922,6 +2047,121 @@ fn check_associate_stats(
         "polynomial-associate combined temporary byte envelope",
         checked_parametric_add(
             "polynomial-associate combined temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            stats.native_workspace_byte_envelope,
+        )?,
+        limits.max_combined_temporary_byte_envelope,
+    )?;
+    Ok(())
+}
+
+fn check_base_polynomial_associate_stats(
+    stats: &ParametricBasePolynomialAssociateStats,
+    limits: ParametricBasePolynomialAssociateLimits,
+) -> Result<(), ParametricCoefficientError> {
+    for (resource, requested, limit) in [
+        (
+            "base polynomial-associate context fingerprint comparison bytes",
+            stats.context_fingerprint_comparison_bytes,
+            limits.max_context_fingerprint_comparison_bytes,
+        ),
+        (
+            "base polynomial-associate variable-map entry comparisons",
+            stats.variable_map_entry_comparisons,
+            limits.max_variable_map_entry_comparisons,
+        ),
+        (
+            "base polynomial-associate validation terms",
+            stats.validation_terms,
+            limits.max_validation_terms,
+        ),
+        (
+            "base polynomial-associate validation exponent entries",
+            stats.validation_exponent_entries,
+            limits.max_validation_exponent_entries,
+        ),
+        (
+            "base polynomial-associate validation integer bits",
+            stats.validation_integer_bits,
+            limits.max_validation_integer_bits,
+        ),
+        (
+            "base polynomial-associate source owned bytes",
+            stats.source_owned_bytes,
+            limits.max_source_owned_bytes,
+        ),
+        (
+            "base polynomial-associate index exponent entries",
+            stats.index_exponent_entries,
+            limits.max_index_exponent_entries,
+        ),
+        (
+            "base polynomial-associate native scale calls",
+            stats.native_scale_calls,
+            limits.max_native_scale_calls,
+        ),
+        (
+            "base polynomial-associate native coefficient multiplications",
+            stats.native_coefficient_multiplications,
+            limits.max_native_coefficient_multiplications,
+        ),
+        (
+            "base polynomial-associate native integer multiplication bit-work bound",
+            stats.native_integer_multiplication_bit_work_bound,
+            limits.max_native_integer_multiplication_bit_work_bound,
+        ),
+        (
+            "base polynomial-associate output terms",
+            stats.output_terms,
+            limits.max_output_terms,
+        ),
+        (
+            "base polynomial-associate output exponent entries",
+            stats.output_exponent_entries,
+            limits.max_output_exponent_entries,
+        ),
+        (
+            "base polynomial-associate output integer bit bound",
+            stats.output_integer_bit_bound,
+            limits.max_output_integer_bit_bound,
+        ),
+        (
+            "base polynomial-associate output retained byte bound",
+            stats.output_retained_byte_bound,
+            limits.max_output_retained_byte_bound,
+        ),
+        (
+            "base polynomial-associate payload comparison terms",
+            stats.payload_comparison_terms,
+            limits.max_payload_comparison_terms,
+        ),
+        (
+            "base polynomial-associate payload comparison exponent entries",
+            stats.payload_comparison_exponent_entries,
+            limits.max_payload_comparison_exponent_entries,
+        ),
+        (
+            "base polynomial-associate payload comparison integer bit bound",
+            stats.payload_comparison_integer_bit_bound,
+            limits.max_payload_comparison_integer_bit_bound,
+        ),
+        (
+            "base polynomial-associate native workspace byte envelope",
+            stats.native_workspace_byte_envelope,
+            limits.max_native_workspace_byte_envelope,
+        ),
+        (
+            "base polynomial-associate RustRed-visible temporary byte envelope",
+            stats.rustred_visible_temporary_byte_envelope,
+            limits.max_rustred_visible_temporary_byte_envelope,
+        ),
+    ] {
+        check_limit(resource, requested, limit)?;
+    }
+    check_limit(
+        "base polynomial-associate combined temporary byte envelope",
+        checked_parametric_add(
+            "base polynomial-associate combined temporary byte envelope",
             stats.rustred_visible_temporary_byte_envelope,
             stats.native_workspace_byte_envelope,
         )?,
@@ -5966,6 +6206,441 @@ impl ParametricCoefficientContext {
             class: ParametricParameterIdentityClass::Conditional { coefficient_loci },
             stats,
         })
+    }
+
+    /// Instrumented proof that two nonzero base-only predicates differ by a
+    /// unit of `Q` rather than by an arbitrary unit of `Q(theta)`.
+    ///
+    /// For `P,Q in Z[theta]`, `P = r Q` for some nonzero `r in Q` exactly when
+    /// `lc(Q) P = lc(P) Q`. After a complete sparse-payload census and a
+    /// base-only authentication pass, both cross-scalings are performed by
+    /// Symbolica's public [`MultivariatePolynomial::mul_coeff`] API. RustRed
+    /// only admits resources and compares the authenticated output payloads;
+    /// it implements no polynomial content, GCD, normalization, or scalar
+    /// arithmetic here.
+    pub(crate) fn base_polynomial_loci_are_rational_associates_with_census(
+        &self,
+        left: &ParametricPolynomial,
+        right: &ParametricPolynomial,
+        limits: ParametricBasePolynomialAssociateLimits,
+    ) -> Result<ParametricBasePolynomialAssociateResult, ParametricCoefficientError> {
+        let resource = "base polynomial-associate preflight";
+        let variable_count = self.variables.len();
+        let base_variable_count = self.base.variables().len();
+        let index_variable_count = variable_count.checked_sub(base_variable_count).ok_or(
+            ParametricCoefficientError::ResourceCountOverflow {
+                resource: "base polynomial-associate index variables",
+            },
+        )?;
+        let validation_terms = checked_parametric_add(
+            "base polynomial-associate validation terms",
+            left.raw.nterms(),
+            right.raw.nterms(),
+        )?;
+        let validation_exponent_entries = checked_parametric_add(
+            "base polynomial-associate validation exponent entries",
+            left.raw.exponents.len(),
+            right.raw.exponents.len(),
+        )?;
+
+        let source_context_comparison_bytes = associate_sum_counts(
+            "base polynomial-associate context fingerprint comparison bytes",
+            [
+                left.authenticated_context_fingerprint().len(),
+                self.fingerprint.len(),
+                right.authenticated_context_fingerprint().len(),
+                self.fingerprint.len(),
+            ],
+        )?;
+        let mut stats = ParametricBasePolynomialAssociateStats {
+            context_fingerprint_comparison_bytes: source_context_comparison_bytes,
+            variable_map_entry_comparisons: checked_parametric_mul(
+                "base polynomial-associate variable-map entry comparisons",
+                variable_count,
+                2,
+            )?,
+            validation_terms,
+            validation_exponent_entries,
+            index_exponent_entries: checked_parametric_mul(
+                "base polynomial-associate index exponent entries",
+                validation_terms,
+                index_variable_count,
+            )?,
+            ..ParametricBasePolynomialAssociateStats::default()
+        };
+
+        // Admit every O(1) sparse-shape count before traversing a user-sized
+        // payload. The ordinary validators then establish the context, map,
+        // sparse layout, coefficient nonzero, ordering, and exponent bounds.
+        check_base_polynomial_associate_stats(&stats, limits)?;
+        self.validate_polynomial_with_limits(left, limits.exact_algebra)?;
+        self.validate_polynomial_with_limits(right, limits.exact_algebra)?;
+
+        let first_index = base_variable_count;
+        if left
+            .raw
+            .exponents_iter()
+            .chain(right.raw.exponents_iter())
+            .any(|exponents| {
+                exponents[first_index..]
+                    .iter()
+                    .any(|exponent| *exponent != 0)
+            })
+        {
+            return Err(ParametricCoefficientError::Symbolica(
+                "base polynomial-associate proof requires base-only polynomials".to_owned(),
+            ));
+        }
+
+        // Only authenticated, base-only payloads reach the integer-magnitude
+        // and retained-capacity scans. Debit the aggregate bit allowance after
+        // every coefficient so an early finite limit bounds this traversal's
+        // admitted prefix as well as its final total.
+        for coefficient in left.raw.coefficients.iter().chain(&right.raw.coefficients) {
+            let prospective = checked_parametric_add(
+                "base polynomial-associate validation integer bits",
+                stats.validation_integer_bits,
+                usize::try_from(integer_magnitude_bits(coefficient)).map_err(|_| {
+                    ParametricCoefficientError::ResourceCountOverflow {
+                        resource: "base polynomial-associate validation integer bits",
+                    }
+                })?,
+            )?;
+            check_limit(
+                "base polynomial-associate validation integer bits",
+                prospective,
+                limits.max_validation_integer_bits,
+            )?;
+            stats.validation_integer_bits = prospective;
+        }
+        stats.source_owned_bytes = checked_parametric_add(
+            "base polynomial-associate source owned bytes",
+            left.owned_retained_byte_bound().ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: "base polynomial-associate source owned bytes",
+                },
+            )?,
+            right.owned_retained_byte_bound().ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: "base polynomial-associate source owned bytes",
+                },
+            )?,
+        )?;
+        check_base_polynomial_associate_stats(&stats, limits)?;
+
+        // Zero has no projective representative and reaches no allocation or
+        // native scale call.
+        if left.is_zero() || right.is_zero() {
+            return Ok(ParametricBasePolynomialAssociateResult {
+                associated: false,
+                stats,
+            });
+        }
+
+        // The two successful output-validation passes each compare the shared
+        // context fingerprint and complete variable map. Charge them only on
+        // the nonzero path that can actually materialize native output.
+        stats.context_fingerprint_comparison_bytes = checked_parametric_add(
+            "base polynomial-associate context fingerprint comparison bytes",
+            stats.context_fingerprint_comparison_bytes,
+            checked_parametric_mul(
+                "base polynomial-associate context fingerprint comparison bytes",
+                self.fingerprint.len(),
+                4,
+            )?,
+        )?;
+        stats.variable_map_entry_comparisons = checked_parametric_add(
+            "base polynomial-associate variable-map entry comparisons",
+            stats.variable_map_entry_comparisons,
+            checked_parametric_mul(
+                "base polynomial-associate variable-map entry comparisons",
+                variable_count,
+                2,
+            )?,
+        )?;
+
+        let left_leading_coefficient = left.raw.coefficients.last().ok_or_else(|| {
+            ParametricCoefficientError::Symbolica(
+                "validated nonzero left base polynomial has no leading coefficient".to_owned(),
+            )
+        })?;
+        let right_leading_coefficient = right.raw.coefficients.last().ok_or_else(|| {
+            ParametricCoefficientError::Symbolica(
+                "validated nonzero right base polynomial has no leading coefficient".to_owned(),
+            )
+        })?;
+        let left_leading_bits =
+            usize::try_from(integer_magnitude_bits(left_leading_coefficient))
+                .map_err(|_| ParametricCoefficientError::ResourceCountOverflow { resource })?;
+        let right_leading_bits = usize::try_from(integer_magnitude_bits(right_leading_coefficient))
+            .map_err(|_| ParametricCoefficientError::ResourceCountOverflow { resource })?;
+
+        stats.native_scale_calls = 2;
+        stats.native_coefficient_multiplications = validation_terms;
+        stats.output_terms = validation_terms;
+        stats.output_exponent_entries = validation_exponent_entries;
+        let mut left_output_integer_bits = 0usize;
+        let mut right_output_integer_bits = 0usize;
+        let mut largest_left_output_integer_bits = 0usize;
+        let mut largest_right_output_integer_bits = 0usize;
+        for coefficient in &left.raw.coefficients {
+            let coefficient_bits = usize::try_from(integer_magnitude_bits(coefficient))
+                .map_err(|_| ParametricCoefficientError::ResourceCountOverflow { resource })?;
+            stats.native_integer_multiplication_bit_work_bound = checked_parametric_add(
+                "base polynomial-associate native integer multiplication bit-work bound",
+                stats.native_integer_multiplication_bit_work_bound,
+                checked_parametric_mul(
+                    "base polynomial-associate native integer multiplication bit-work bound",
+                    coefficient_bits,
+                    right_leading_bits,
+                )?,
+            )?;
+            let output_bits = checked_parametric_add(
+                "base polynomial-associate output integer bit bound",
+                coefficient_bits,
+                right_leading_bits,
+            )?;
+            left_output_integer_bits = checked_parametric_add(
+                "base polynomial-associate output integer bit bound",
+                left_output_integer_bits,
+                output_bits,
+            )?;
+            largest_left_output_integer_bits = largest_left_output_integer_bits.max(output_bits);
+        }
+        for coefficient in &right.raw.coefficients {
+            let coefficient_bits = usize::try_from(integer_magnitude_bits(coefficient))
+                .map_err(|_| ParametricCoefficientError::ResourceCountOverflow { resource })?;
+            stats.native_integer_multiplication_bit_work_bound = checked_parametric_add(
+                "base polynomial-associate native integer multiplication bit-work bound",
+                stats.native_integer_multiplication_bit_work_bound,
+                checked_parametric_mul(
+                    "base polynomial-associate native integer multiplication bit-work bound",
+                    coefficient_bits,
+                    left_leading_bits,
+                )?,
+            )?;
+            let output_bits = checked_parametric_add(
+                "base polynomial-associate output integer bit bound",
+                coefficient_bits,
+                left_leading_bits,
+            )?;
+            right_output_integer_bits = checked_parametric_add(
+                "base polynomial-associate output integer bit bound",
+                right_output_integer_bits,
+                output_bits,
+            )?;
+            largest_right_output_integer_bits = largest_right_output_integer_bits.max(output_bits);
+        }
+        stats.output_integer_bit_bound = checked_parametric_add(
+            "base polynomial-associate output integer bit bound",
+            left_output_integer_bits,
+            right_output_integer_bits,
+        )?;
+
+        let left_output_retained_byte_bound = authenticated_polynomial_retained_byte_envelope(
+            size_of::<ParametricPolynomial>(),
+            left.raw.nterms(),
+            left.raw.exponents.len(),
+            largest_left_output_integer_bits,
+            left.raw.nterms(),
+            left.raw.exponents.len(),
+            largest_integer_owned_capacity_bytes(&left.raw)?.max(integer_limb_payload_byte_bound(
+                largest_left_output_integer_bits,
+                "base polynomial-associate output retained byte bound",
+            )?),
+            "base polynomial-associate output retained byte bound",
+        )?;
+        let right_output_retained_byte_bound = authenticated_polynomial_retained_byte_envelope(
+            size_of::<ParametricPolynomial>(),
+            right.raw.nterms(),
+            right.raw.exponents.len(),
+            largest_right_output_integer_bits,
+            right.raw.nterms(),
+            right.raw.exponents.len(),
+            largest_integer_owned_capacity_bytes(&right.raw)?.max(integer_limb_payload_byte_bound(
+                largest_right_output_integer_bits,
+                "base polynomial-associate output retained byte bound",
+            )?),
+            "base polynomial-associate output retained byte bound",
+        )?;
+        stats.output_retained_byte_bound = checked_parametric_add(
+            "base polynomial-associate output retained byte bound",
+            left_output_retained_byte_bound,
+            right_output_retained_byte_bound,
+        )?;
+        stats.payload_comparison_terms = stats.output_terms;
+        // One complete output/source support comparison per side plus the
+        // final cross-output exponent comparison.
+        stats.payload_comparison_exponent_entries = checked_parametric_mul(
+            "base polynomial-associate payload comparison exponent entries",
+            stats.output_exponent_entries,
+            2,
+        )?;
+        stats.payload_comparison_integer_bit_bound = stats.output_integer_bit_bound;
+
+        let largest_source_integer_capacity_bytes =
+            largest_integer_owned_capacity_bytes(&left.raw)?
+                .max(largest_integer_owned_capacity_bytes(&right.raw)?);
+        let largest_native_output_limb_bytes = integer_limb_payload_byte_bound(
+            largest_left_output_integer_bits.max(largest_right_output_integer_bits),
+            "base polynomial-associate native workspace byte envelope",
+        )?;
+        stats.native_workspace_byte_envelope = checked_parametric_mul(
+            "base polynomial-associate native workspace byte envelope",
+            3,
+            checked_parametric_add(
+                "base polynomial-associate native workspace byte envelope",
+                size_of::<Integer>(),
+                largest_source_integer_capacity_bytes.max(largest_native_output_limb_bytes),
+            )?,
+        )?;
+        let leading_scalar_temporary_bytes = checked_parametric_add(
+            "base polynomial-associate RustRed-visible temporary byte envelope",
+            size_of::<Integer>(),
+            largest_source_integer_capacity_bytes,
+        )?;
+        stats.rustred_visible_temporary_byte_envelope =
+            stats.source_owned_bytes.max(checked_parametric_add(
+                "base polynomial-associate RustRed-visible temporary byte envelope",
+                stats.output_retained_byte_bound,
+                leading_scalar_temporary_bytes,
+            )?);
+
+        check_limit(
+            "base polynomial-associate native coefficient multiplications",
+            stats.native_coefficient_multiplications,
+            limits.exact_algebra.max_term_operations,
+        )?;
+        check_limit(
+            "base polynomial-associate output polynomial terms",
+            left.raw.nterms().max(right.raw.nterms()),
+            limits.exact_algebra.max_polynomial_terms,
+        )?;
+        check_base_polynomial_associate_stats(&stats, limits)?;
+
+        // All user-sized copies and both native products are behind the full
+        // prospective census. Each leading coefficient is cloned immediately
+        // before its consuming native call, so at most one scalar clone is
+        // live beyond the two polynomial payloads.
+        let left_copy = left
+            .try_copy_authenticated_sparse_payload()
+            .map_err(|copy_resource| {
+                ParametricCoefficientError::Symbolica(format!(
+                    "RustRed could not allocate the admitted base polynomial-associate {copy_resource}"
+                ))
+            })?;
+        let right_copy = right
+            .try_copy_authenticated_sparse_payload()
+            .map_err(|copy_resource| {
+                ParametricCoefficientError::Symbolica(format!(
+                    "RustRed could not allocate the admitted base polynomial-associate {copy_resource}"
+                ))
+            })?;
+        let (left_scaled, right_scaled) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                #[cfg(test)]
+                {
+                    mark_polynomial_associate_native_boundary_call_for_test();
+                    maybe_inject_polynomial_associate_native_boundary_panic_for_test();
+                }
+
+                let ParametricPolynomial {
+                    raw: left_raw,
+                    context: left_context,
+                } = left_copy;
+                let left_scaled = ParametricPolynomial {
+                    raw: left_raw.mul_coeff(right.raw.lcoeff()),
+                    context: left_context,
+                };
+                let ParametricPolynomial {
+                    raw: right_raw,
+                    context: right_context,
+                } = right_copy;
+                let right_scaled = ParametricPolynomial {
+                    raw: right_raw.mul_coeff(left.raw.lcoeff()),
+                    context: right_context,
+                };
+                (left_scaled, right_scaled)
+            }))
+            .map_err(|_| {
+                ParametricCoefficientError::Symbolica(
+                    "Symbolica panicked during base polynomial-associate cross-scaling".to_owned(),
+                )
+            })?;
+
+        let left_output_census = self.preflight_polynomial_validation_payload_with_limits(
+            &left_scaled,
+            limits.exact_algebra,
+            stats.output_terms,
+            stats.output_exponent_entries,
+            stats.output_integer_bit_bound,
+        )?;
+        let right_output_census = self.preflight_polynomial_validation_payload_with_limits(
+            &right_scaled,
+            limits.exact_algebra,
+            stats.output_terms,
+            stats.output_exponent_entries,
+            stats.output_integer_bit_bound,
+        )?;
+        let actual_output_terms = checked_parametric_add(
+            "base polynomial-associate authenticated output terms",
+            left_output_census.source_terms(),
+            right_output_census.source_terms(),
+        )?;
+        let actual_output_exponent_entries = checked_parametric_add(
+            "base polynomial-associate authenticated output exponent entries",
+            left_output_census.source_exponent_entries(),
+            right_output_census.source_exponent_entries(),
+        )?;
+        let actual_output_integer_bits = checked_parametric_add(
+            "base polynomial-associate authenticated output integer bits",
+            left_output_census.source_integer_bits(),
+            right_output_census.source_integer_bits(),
+        )?;
+        let actual_output_retained_bytes = checked_parametric_add(
+            "base polynomial-associate authenticated output retained bytes",
+            left_scaled.owned_retained_byte_bound().ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: "base polynomial-associate authenticated output retained bytes",
+                },
+            )?,
+            right_scaled.owned_retained_byte_bound().ok_or(
+                ParametricCoefficientError::ResourceCountOverflow {
+                    resource: "base polynomial-associate authenticated output retained bytes",
+                },
+            )?,
+        )?;
+        if left_output_census.source_terms() != left.raw.nterms()
+            || right_output_census.source_terms() != right.raw.nterms()
+            || left_output_census.source_exponent_entries() != left.raw.exponents.len()
+            || right_output_census.source_exponent_entries() != right.raw.exponents.len()
+            || left_scaled.raw.exponents != left.raw.exponents
+            || right_scaled.raw.exponents != right.raw.exponents
+            || actual_output_terms != stats.output_terms
+            || actual_output_exponent_entries != stats.output_exponent_entries
+            || actual_output_integer_bits > stats.output_integer_bit_bound
+            || actual_output_retained_bytes > stats.output_retained_byte_bound
+        {
+            return Err(ParametricCoefficientError::Symbolica(
+                "Symbolica exceeded the admitted base polynomial-associate output envelope"
+                    .to_owned(),
+            ));
+        }
+
+        // Context, maps, rings, and canonical sparse order were authenticated
+        // above. Numeric `cmp` avoids relying on representation-sensitive
+        // `Integer::Eq` while performing no algebra in RustRed.
+        let associated = left_scaled.raw.exponents == right_scaled.raw.exponents
+            && left_scaled.raw.coefficients.len() == right_scaled.raw.coefficients.len()
+            && left_scaled
+                .raw
+                .coefficients
+                .iter()
+                .zip(&right_scaled.raw.coefficients)
+                .all(|(left_coefficient, right_coefficient)| {
+                    left_coefficient.cmp(right_coefficient) == Ordering::Equal
+                });
+        Ok(ParametricBasePolynomialAssociateResult { associated, stats })
     }
 
     /// Prove the two polynomial zero loci equal up to a unit of the formal
@@ -21567,6 +22242,465 @@ mod tests {
             Err(ParametricCoefficientError::ExactAlgebra(
                 ExactAlgebraError::MalformedExponentLayout { .. }
             ))
+        ));
+    }
+
+    fn base_rational_associate_resource_fixture(
+        scope: &str,
+    ) -> (
+        ParametricCoefficientContext,
+        ParametricPolynomial,
+        ParametricPolynomial,
+    ) {
+        let context =
+            ParametricCoefficientContext::try_new(&CoefficientContext::new(["theta"]), scope, 2)
+                .unwrap();
+        let theta = context
+            .lift(&context.base().parameter("theta").unwrap())
+            .unwrap();
+        let theta_plus_one = context.add(&theta, &context.one()).unwrap();
+        let left = context
+            .numerator_condition(&context.mul(&context.integer(2), &theta_plus_one).unwrap())
+            .unwrap();
+        let right = context
+            .numerator_condition(&context.neg(&theta_plus_one).unwrap())
+            .unwrap();
+        (context, left, right)
+    }
+
+    #[test]
+    fn base_rational_associate_preserves_distinct_parameter_loci_and_merges_q_units() {
+        let context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["theta"]),
+            "base-rational-associate-semantics",
+            2,
+        )
+        .unwrap();
+        let theta = context
+            .lift(&context.base().parameter("theta").unwrap())
+            .unwrap();
+        let theta_plus_one = context.add(&theta, &context.one()).unwrap();
+        let two_theta = context.mul(&context.integer(2), &theta).unwrap();
+        let negative_theta = context.neg(&theta).unwrap();
+        let theta = context.numerator_condition(&theta).unwrap();
+        let theta_plus_one = context.numerator_condition(&theta_plus_one).unwrap();
+        let two_theta = context.numerator_condition(&two_theta).unwrap();
+        let negative_theta = context.numerator_condition(&negative_theta).unwrap();
+
+        let distinct = context
+            .base_polynomial_loci_are_rational_associates_with_census(
+                &theta,
+                &theta_plus_one,
+                ParametricBasePolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(!distinct.associated());
+        assert!(distinct.stats().native_scale_calls() > 0);
+        // The coefficient-field relation remains intentionally different:
+        // both nonzero base polynomials are units in Q(theta).
+        assert!(
+            context
+                .polynomial_loci_are_associates_with_census(
+                    &theta,
+                    &theta_plus_one,
+                    ParametricPolynomialAssociateLimits::default(),
+                )
+                .unwrap()
+                .associated()
+        );
+
+        for (left, right) in [(&two_theta, &negative_theta), (&negative_theta, &two_theta)] {
+            assert!(
+                context
+                    .base_polynomial_loci_are_rational_associates_with_census(
+                        left,
+                        right,
+                        ParametricBasePolynomialAssociateLimits::default(),
+                    )
+                    .unwrap()
+                    .associated()
+            );
+        }
+    }
+
+    #[test]
+    fn base_rational_associate_intersects_exact_algebra_limits_at_exact_boundaries() {
+        let (context, left, right) =
+            base_rational_associate_resource_fixture("base-rational-associate-exact-algebra");
+        let baseline = context
+            .base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &right,
+                ParametricBasePolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        let term_operations = baseline.stats().native_coefficient_multiplications();
+        let polynomial_terms = left.term_count().max(right.term_count());
+
+        let mut exact = ParametricBasePolynomialAssociateLimits::default();
+        exact.exact_algebra.max_term_operations = term_operations;
+        exact.exact_algebra.max_polynomial_terms = polynomial_terms;
+        assert!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        let mut operations_one_below = ParametricBasePolynomialAssociateLimits::default();
+        operations_one_below.exact_algebra.max_term_operations = term_operations - 1;
+        assert_eq!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &left,
+                    &right,
+                    operations_one_below,
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "base polynomial-associate native coefficient multiplications",
+                requested: term_operations,
+                limit: term_operations - 1,
+            }
+        );
+
+        let mut terms_one_below = ParametricBasePolynomialAssociateLimits::default();
+        terms_one_below.exact_algebra.max_polynomial_terms = polynomial_terms - 1;
+        assert_eq!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &left,
+                    &right,
+                    terms_one_below,
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::ResourceLimit {
+                resource: "authenticated polynomial terms",
+                requested: polynomial_terms,
+                limit: polynomial_terms - 1,
+            })
+        );
+    }
+
+    #[test]
+    fn base_rational_associate_rejects_index_inputs_before_native_boundary() {
+        let (context, left, _) =
+            base_rational_associate_resource_fixture("base-rational-associate-index-rejection");
+        let index = context
+            .numerator_condition(&context.index(0).unwrap())
+            .unwrap();
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        assert_eq!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &left,
+                    &index,
+                    ParametricBasePolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::Symbolica(
+                "base polynomial-associate proof requires base-only polynomials".to_owned(),
+            )
+        );
+        assert!(matches!(
+            context.base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &left,
+                ParametricBasePolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::Symbolica(message))
+                if message == "Symbolica panicked during base polynomial-associate cross-scaling"
+        ));
+    }
+
+    #[test]
+    fn base_rational_associate_authenticates_context_and_map_before_native_boundary() {
+        let (context, left, right) =
+            base_rational_associate_resource_fixture("base-rational-associate-authentication");
+        let foreign_context = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["theta"]),
+            "base-rational-associate-foreign-context",
+            2,
+        )
+        .unwrap();
+        let foreign_theta = foreign_context
+            .lift(&foreign_context.base().parameter("theta").unwrap())
+            .unwrap();
+        let foreign = foreign_context.numerator_condition(&foreign_theta).unwrap();
+        assert_eq!(
+            context.base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &foreign,
+                ParametricBasePolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::WrongContext)
+        );
+
+        let foreign_map = ParametricCoefficientContext::try_new(
+            &CoefficientContext::new(["different_parameter"]),
+            "base-rational-associate-foreign-map",
+            2,
+        )
+        .unwrap();
+        let mut forged = left.clone();
+        forged.raw.variables = foreign_map.variables.clone();
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        assert_eq!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(
+                    &forged,
+                    &right,
+                    ParametricBasePolynomialAssociateLimits::default(),
+                )
+                .unwrap_err(),
+            ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::VariableMapMismatch {
+                part: crate::CoefficientPolynomialPart::Numerator,
+            })
+        );
+        assert!(matches!(
+            context.base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &right,
+                ParametricBasePolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::Symbolica(message))
+                if message == "Symbolica panicked during base polynomial-associate cross-scaling"
+        ));
+    }
+
+    #[test]
+    fn base_rational_associate_zero_exits_before_native_boundary() {
+        let (context, left, _) =
+            base_rational_associate_resource_fixture("base-rational-associate-zero");
+        let zero = context.numerator_condition(&context.zero()).unwrap();
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        let result = context
+            .base_polynomial_loci_are_rational_associates_with_census(
+                &zero,
+                &left,
+                ParametricBasePolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        assert!(!result.associated());
+        assert_eq!(result.stats().native_scale_calls(), 0);
+        assert!(matches!(
+            context.base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &left,
+                ParametricBasePolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::Symbolica(message))
+                if message == "Symbolica panicked during base polynomial-associate cross-scaling"
+        ));
+    }
+
+    macro_rules! base_rational_associate_limit_case {
+        ($test_name:ident, $limit_field:ident, $stats_getter:ident, $resource:literal) => {
+            #[test]
+            fn $test_name() {
+                let (context, left, right) =
+                    base_rational_associate_resource_fixture(stringify!($test_name));
+                let baseline = context
+                    .base_polynomial_loci_are_rational_associates_with_census(
+                        &left,
+                        &right,
+                        ParametricBasePolynomialAssociateLimits::default(),
+                    )
+                    .unwrap();
+                assert!(baseline.associated());
+                let requested = baseline.stats().$stats_getter();
+                assert!(requested > 0, "{} must be exercised", $resource);
+
+                let mut exact = ParametricBasePolynomialAssociateLimits::default();
+                exact.$limit_field = requested;
+                let exact_result = context
+                    .base_polynomial_loci_are_rational_associates_with_census(&left, &right, exact)
+                    .unwrap();
+                assert!(exact_result.associated());
+                assert_eq!(exact_result.stats().$stats_getter(), requested);
+
+                let mut one_below = ParametricBasePolynomialAssociateLimits::default();
+                one_below.$limit_field = requested - 1;
+                assert_eq!(
+                    context
+                        .base_polynomial_loci_are_rational_associates_with_census(
+                            &left, &right, one_below,
+                        )
+                        .unwrap_err(),
+                    ParametricCoefficientError::ResourceLimit {
+                        resource: $resource,
+                        requested,
+                        limit: requested - 1,
+                    }
+                );
+            }
+        };
+    }
+
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_context_fingerprint_bytes,
+        max_context_fingerprint_comparison_bytes,
+        context_fingerprint_comparison_bytes,
+        "base polynomial-associate context fingerprint comparison bytes"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_variable_map_comparisons,
+        max_variable_map_entry_comparisons,
+        variable_map_entry_comparisons,
+        "base polynomial-associate variable-map entry comparisons"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_validation_terms,
+        max_validation_terms,
+        validation_terms,
+        "base polynomial-associate validation terms"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_validation_exponent_entries,
+        max_validation_exponent_entries,
+        validation_exponent_entries,
+        "base polynomial-associate validation exponent entries"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_validation_integer_bits,
+        max_validation_integer_bits,
+        validation_integer_bits,
+        "base polynomial-associate validation integer bits"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_source_owned_bytes,
+        max_source_owned_bytes,
+        source_owned_bytes,
+        "base polynomial-associate source owned bytes"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_index_exponent_entries,
+        max_index_exponent_entries,
+        index_exponent_entries,
+        "base polynomial-associate index exponent entries"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_native_scale_calls,
+        max_native_scale_calls,
+        native_scale_calls,
+        "base polynomial-associate native scale calls"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_native_coefficient_multiplications,
+        max_native_coefficient_multiplications,
+        native_coefficient_multiplications,
+        "base polynomial-associate native coefficient multiplications"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_native_integer_multiplication_bit_work,
+        max_native_integer_multiplication_bit_work_bound,
+        native_integer_multiplication_bit_work_bound,
+        "base polynomial-associate native integer multiplication bit-work bound"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_output_terms,
+        max_output_terms,
+        output_terms,
+        "base polynomial-associate output terms"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_output_exponent_entries,
+        max_output_exponent_entries,
+        output_exponent_entries,
+        "base polynomial-associate output exponent entries"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_output_integer_bits,
+        max_output_integer_bit_bound,
+        output_integer_bit_bound,
+        "base polynomial-associate output integer bit bound"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_output_retained_bytes,
+        max_output_retained_byte_bound,
+        output_retained_byte_bound,
+        "base polynomial-associate output retained byte bound"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_payload_comparison_terms,
+        max_payload_comparison_terms,
+        payload_comparison_terms,
+        "base polynomial-associate payload comparison terms"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_payload_comparison_exponents,
+        max_payload_comparison_exponent_entries,
+        payload_comparison_exponent_entries,
+        "base polynomial-associate payload comparison exponent entries"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_payload_comparison_integer_bits,
+        max_payload_comparison_integer_bit_bound,
+        payload_comparison_integer_bit_bound,
+        "base polynomial-associate payload comparison integer bit bound"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_native_workspace_bytes,
+        max_native_workspace_byte_envelope,
+        native_workspace_byte_envelope,
+        "base polynomial-associate native workspace byte envelope"
+    );
+    base_rational_associate_limit_case!(
+        base_rational_associate_limit_visible_temporary_bytes,
+        max_rustred_visible_temporary_byte_envelope,
+        rustred_visible_temporary_byte_envelope,
+        "base polynomial-associate RustRed-visible temporary byte envelope"
+    );
+
+    #[test]
+    fn base_rational_associate_combined_temporary_limit_is_exact_and_precedes_native_work() {
+        let (context, left, right) = base_rational_associate_resource_fixture(
+            "base-rational-associate-combined-temporary-limit",
+        );
+        let baseline = context
+            .base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &right,
+                ParametricBasePolynomialAssociateLimits::default(),
+            )
+            .unwrap();
+        let requested = baseline
+            .stats()
+            .native_workspace_byte_envelope()
+            .checked_add(baseline.stats().rustred_visible_temporary_byte_envelope())
+            .unwrap();
+        assert!(requested > 0);
+
+        let mut exact = ParametricBasePolynomialAssociateLimits::default();
+        exact.max_combined_temporary_byte_envelope = requested;
+        assert!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(&left, &right, exact)
+                .unwrap()
+                .associated()
+        );
+
+        inject_polynomial_associate_native_boundary_panic_for_test();
+        let mut one_below = ParametricBasePolynomialAssociateLimits::default();
+        one_below.max_combined_temporary_byte_envelope = requested - 1;
+        assert_eq!(
+            context
+                .base_polynomial_loci_are_rational_associates_with_census(&left, &right, one_below,)
+                .unwrap_err(),
+            ParametricCoefficientError::ResourceLimit {
+                resource: "base polynomial-associate combined temporary byte envelope",
+                requested,
+                limit: requested - 1,
+            }
+        );
+        assert!(matches!(
+            context.base_polynomial_loci_are_rational_associates_with_census(
+                &left,
+                &right,
+                ParametricBasePolynomialAssociateLimits::default(),
+            ),
+            Err(ParametricCoefficientError::Symbolica(message))
+                if message == "Symbolica panicked during base polynomial-associate cross-scaling"
         ));
     }
 

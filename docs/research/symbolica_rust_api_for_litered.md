@@ -432,30 +432,50 @@ coefficient arithmetic, including arbitrary-precision multiplication and
 collection, stays inside Symbolica. RustRed does not export magnitudes, pack
 private limbs, or maintain a second integer-arithmetic engine.
 
-The polynomial-associate relation is strict association over
-`K = Q(theta)`. For nonzero `P,Q in Z[theta,n]`,
+Predicate-locus interning uses two different associate relations. They must
+not be cross-dispatched:
 
 ```text
-P ~ Q  iff  P = u Q for some nonzero u in Q(theta).
+base-only P,Q in Z[theta]:
+    P ~base Q  iff  P = c Q for some nonzero c in Q;
+
+index-dependent P,Q in Z[theta,n]:
+    P ~index Q  iff  P = u Q for some nonzero u in Q(theta).
 ```
 
-Writing the inputs as `P = sum_a P_a(theta) n^a` and
-`Q = sum_a Q_a(theta) n^a`, equal index support is necessary. After choosing
-a deterministic nonzero anchor `0`, the exact projective criterion is
+This distinction is semantic, not an optimization. Although every nonzero
+base polynomial is invertible in the formal coefficient field, the physical
+parameter assumptions `theta != 0` and `theta + 1 != 0` describe different
+domains. Thus `theta ~base 2 theta`, while `theta` is not base-associated to
+`theta + 1` or `theta^2`. Conversely, an index-dependent locus may discard a
+nonzero base-field factor: `theta (1-n) ~index theta^2 (1-n)`, whereas
+`1-n` is not associated to `(1-n)^2`. Zero has no projective class in either
+lane.
+
+For the base-only lane, RustRed first authenticates that every private-index
+exponent is zero. It then asks Symbolica to form the two exact scalar products
+`lc(Q) P` and `lc(P) Q` through
+`MultivariatePolynomial::mul_coeff`; authenticated equality of those products
+is equivalent to association over `Q*`. This avoids a private content, GCD, or
+primitive-normalization implementation.
+
+For the index-dependent lane, write the inputs as
+`P = sum_a P_a(theta) n^a` and `Q = sum_a Q_a(theta) n^a`. Equal index support
+is necessary. After choosing a deterministic nonzero anchor `0`, the exact
+projective criterion is
 
 ```text
 P_a Q_0 = Q_a P_0 for every index-monomial group a.
 ```
 
-This proves association by a base-field unit. It is deliberately stricter
-than equality of radicals or vanishing sets: for example, `p` and `p^2` are
-not associates. Zero has no projective class, so either zero input returns
-`false` before any native projection or multiplication. At every integer
+This proves association by a base-field unit. Both lanes are deliberately
+stricter than equality of radicals or vanishing sets. At every integer
 boundary, numerical comparison with canonical zero is required; the
 representation-sensitive Symbolica zero predicates do not by themselves
 reject noncanonical `Double(0)` or `Large(0)` coefficients.
 
-The implemented algebra route uses public Symbolica APIs end to end:
+The implemented index-dependent algebra route uses public Symbolica APIs end
+to end:
 
 1. Authenticate both context fingerprints, complete ordered variable maps,
    sparse shapes, canonical monomial order, exponent ranges, and integer
@@ -476,19 +496,23 @@ The implemented algebra route uses public Symbolica APIs end to end:
    Authenticate each native product against its prospective output envelope,
    then use exact Symbolica equality.
 
-RustRed owns only the associate semantics, deterministic support/anchor
-routing, admission, authentication, panic containment, provenance, and
-transactional census propagation. Symbolica owns projection, polynomial
-multiplication, integer arithmetic, collection, and equality. No private
-cross-product implementation is retained as a production or test oracle.
+RustRed owns only the category-sensitive associate semantics, deterministic
+support/anchor routing, admission, authentication, panic containment,
+provenance, and transactional census propagation. Symbolica owns scalar and
+polynomial multiplication, projection, integer arithmetic, collection, and
+equality. No private normalization, GCD, or cross-product implementation is
+retained as a production or test oracle.
 
-Resource staging is part of the boundary contract. Before `map_exp`,
-`to_polynomial`, or `mul`, RustRed admits validation payloads, widened and
+Resource staging is part of the boundary contract. The base-only lane admits
+both sparse copies, the two scalar calls, coefficient/bit work, native
+workspace, cross-scaled outputs, and comparison payload before either native
+call. The index-dependent lane admits validation payloads, widened and
 projected exponent storage, actual GMP capacities, projection grouping and
 sorting work, native cross-term and integer-bit work, native dense/heap
-dispatch workspace, output envelopes, and RustRed-visible temporary storage.
-After each native call it reauthenticates maps, denominators, term counts,
-exponents, integer bits, and canonical ordering against those bounds.
+dispatch workspace, output envelopes, and RustRed-visible temporary storage
+before `map_exp`, `to_polynomial`, or `mul`. After each native call RustRed
+reauthenticates maps, denominators where applicable, term counts, exponents,
+integer bits, and canonical ordering against those bounds.
 Resource failures retain exact `resource`, `requested`, and `limit`
 attribution. Outer condition compilation passes only the remaining allowance
 to each child and transactionally accumulates the new projection/native
