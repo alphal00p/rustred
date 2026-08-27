@@ -47,11 +47,14 @@ remains pure Rust + Symbolica.
   lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
   in parallel with the higher-loop foundry work. It is developed, committed,
   and pushed on a dedicated `vakint_rustred` feature branch created in the
-  GammaLoop repository, never folded into a RustRed commit. Vakint's Cargo
-  manifest depends on the RustRed GitHub repository at an explicitly pinned,
-  validated RustRed revision; milestone updates advance that pin deliberately.
-  Full six-loop artifact deployment and the production GammaLoop boundary
-  remain later gates.
+  GammaLoop repository, never folded into a RustRed commit. During active local
+  co-development, Vakint's Cargo manifest may use a relative path dependency
+  to this RustRed checkout so uncommitted RustRed changes are exercised
+  immediately. Before a reproducible GammaLoop milestone is committed/pushed
+  or cited as oracle evidence, the dependency is switched to the RustRed
+  GitHub repository at the exact validated revision; milestone updates advance
+  that pin deliberately. Full six-loop artifact deployment and the production
+  GammaLoop boundary remain later gates.
 - **Milestone discipline:** make frequent rollback-sized commits and push each
   relevant intermediate milestone after its declared checks pass. Do not let
   unrelated architectural, solver, or cross-repository changes accumulate in
@@ -552,9 +555,12 @@ production evaluation chain and six-loop shipped-library deployment:
 All Vakint changes from Phase 4 onward are made in the GammaLoop repository on
 the dedicated `vakint_rustred` branch, with rollback-sized commits and
 milestone pushes to that branch. The branch is created when this workstream
-begins. Its `crates/vakint/Cargo.toml` points to the RustRed GitHub repository
-at the exact validated RustRed commit used by that milestone, rather than an
-unreviewed moving local path. RustRed changes remain in the RustRed repository.
+begins. While iterating locally, `crates/vakint/Cargo.toml` may point to the
+local RustRed checkout for immediate cross-repository feedback. Before each
+reproducible pushed milestone, CI run, frozen oracle comparison, or published
+artifact claim, it points to the RustRed GitHub repository at the exact
+validated RustRed commit used by that milestone. Machine-specific absolute
+paths are never committed. RustRed changes remain in the RustRed repository.
 Before every commit, both repositories' scopes are checked independently so no
 path under `FOR_REFERENCE_ONLY_DO_NOT_PUSH/` enters RustRed history.
 
