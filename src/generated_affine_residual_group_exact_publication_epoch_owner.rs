@@ -12,10 +12,13 @@
 //! result buffers, and RSS headroom belong to the global deduplicated campaign
 //! envelope and are deliberately excluded here.
 //!
-//! Only exceptional-source leases are admitted at this boundary. A future
-//! applicable-rule provider must independently bound its live work and result
-//! buffers. This module does not implement the `CampaignWorkKey` result table,
-//! atomic result-charge transfer, or a RAM-bounded re-entry coordinator.
+//! Exceptional-source results can be staged by the compact companion batch in
+//! `result_batch`; it transfers admitted outputs into `CampaignResident`
+//! ownership without copying algebraic payload. Applicable-provider admission
+//! and the RAM-bounded mathematical re-entry coordinator remain separate.
+
+#[path = "generated_affine_residual_group_exact_publication_epoch_result_batch.rs"]
+pub(crate) mod result_batch;
 
 use std::fmt;
 use std::mem::size_of;
@@ -29,10 +32,11 @@ use crate::generated_affine_residual_group_exact_session::{
     CommittedPublicationLeafView, ExceptionalResidualHandle, ExceptionalResidualKind,
 };
 use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolveTargetLocator;
-use crate::{CampaignJobKey, IntegralOrderingPolicy, SectorMask};
+use crate::{CampaignJobKey, CampaignWorkKey, IntegralOrderingPolicy, SectorMask};
 
 const SOURCE_PENDING: u8 = 0;
 const SOURCE_ISSUED: u8 = 1;
+const SOURCE_STAGED: u8 = 2;
 const _: () = assert!(size_of::<AtomicU8>() == 1);
 
 const fn portable_byte_limit(value: u128) -> usize {
@@ -146,6 +150,7 @@ impl ExactPublicationEpochStats {
 pub(crate) struct ExactPublicationEpochSourceStateStats {
     pending: usize,
     issued: usize,
+    staged: usize,
 }
 
 impl ExactPublicationEpochSourceStateStats {
@@ -154,6 +159,9 @@ impl ExactPublicationEpochSourceStateStats {
     }
     pub(crate) const fn issued(self) -> usize {
         self.issued
+    }
+    pub(crate) const fn staged(self) -> usize {
+        self.staged
     }
 }
 
@@ -194,6 +202,17 @@ impl<'owner> ExactPublicationEpochSchedulingKey<'owner> {
     }
     pub(crate) const fn leaf_ordinal(self) -> u64 {
         self.leaf_ordinal
+    }
+
+    pub(crate) fn to_campaign_work_key(self) -> CampaignWorkKey {
+        CampaignWorkKey::exact_publication_exceptional_leaf(
+            self.job.clone(),
+            self.context_fingerprint,
+            self.closure_epoch_ordinal,
+            self.session_lane_ordinal,
+            self.event_ordinal,
+            self.leaf_ordinal,
+        )
     }
 }
 
@@ -324,6 +343,7 @@ impl fmt::Debug for ExactPublicationEpochSourceLocator<'_> {
 pub(crate) struct ExactPublicationEpochSourceLease<'owner> {
     owner: &'owner ExactPublicationEpochOwner,
     source_ordinal: usize,
+    active: bool,
 }
 
 impl ExactPublicationEpochSourceLease<'_> {
@@ -334,6 +354,9 @@ impl ExactPublicationEpochSourceLease<'_> {
 
 impl Drop for ExactPublicationEpochSourceLease<'_> {
     fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
         if self.owner.exceptional_source_states[self.source_ordinal]
             .compare_exchange(
                 SOURCE_ISSUED,
@@ -343,6 +366,7 @@ impl Drop for ExactPublicationEpochSourceLease<'_> {
             )
             .is_ok()
         {
+            self.active = false;
             self.owner.release_in_flight_source();
         }
     }
@@ -398,9 +422,13 @@ pub(crate) enum ExactPublicationEpochError {
     UnknownSource,
     NotIssued,
     AlreadyIssued,
+    AlreadyStaged,
     SourceIssuanceInvariantMismatch {
         issued: usize,
         in_flight: usize,
+    },
+    SourceStateInvariantMismatch {
+        observed: u8,
     },
     InFlightSourceLimit {
         requested: usize,
@@ -463,9 +491,16 @@ impl fmt::Display for ExactPublicationEpochError {
             Self::UnknownSource => formatter.write_str("exceptional source is out of range"),
             Self::NotIssued => formatter.write_str("exceptional source is not issued"),
             Self::AlreadyIssued => formatter.write_str("exceptional source was already issued"),
+            Self::AlreadyStaged => {
+                formatter.write_str("exceptional source already has a staged result")
+            }
             Self::SourceIssuanceInvariantMismatch { issued, in_flight } => write!(
                 formatter,
                 "exceptional-source issued-state count {issued} differs from in-flight count {in_flight}"
+            ),
+            Self::SourceStateInvariantMismatch { observed } => write!(
+                formatter,
+                "exceptional source had invalid state byte {observed}"
             ),
             Self::InFlightSourceLimit { requested, limit } => write!(
                 formatter,
@@ -506,8 +541,9 @@ impl fmt::Debug for ExactPublicationEpochFailure {
 /// Frozen owner of the accepted leaves from one exact closure epoch.
 ///
 /// The input handoff acknowledgement proves only no-loss ownership transfer.
-/// Exceptional-source leases have no terminal state in this seam: staging or
-/// merging one requires a separately RAM-admitted result owner.
+/// Exceptional sources move from `Pending` to `Issued`; the companion result
+/// batch can terminalize an admitted charged output as `Staged`. Mathematical
+/// re-entry, merging, and durable publication remain separate responsibilities.
 pub(crate) struct ExactPublicationEpochOwner {
     closure_epoch_ordinal: u64,
     slots: Vec<ExactPublicationHandoffSlot>,
@@ -561,6 +597,7 @@ impl ExactPublicationEpochOwner {
             match state.load(AtomicOrdering::Acquire) {
                 SOURCE_PENDING => stats.pending += 1,
                 SOURCE_ISSUED => stats.issued += 1,
+                SOURCE_STAGED => stats.staged += 1,
                 _ => unreachable!("sealed publication epoch has an invalid source state"),
             }
         }
@@ -569,10 +606,9 @@ impl ExactPublicationEpochOwner {
 
     /// Barrier-only recovery for leases deliberately forgotten by safe code.
     ///
-    /// Exclusive access proves that no usable lease borrow remains. This
-    /// seam cannot stage results, so resetting `Issued` to `Pending` cannot
-    /// duplicate an accepted result. A future staging owner must replace this
-    /// contract atomically rather than calling recovery after accepting work.
+    /// Exclusive access proves that no usable lease borrow remains. Only
+    /// `Issued` is recovered. `Staged` is terminal for this epoch and is
+    /// never made retryable by lease recovery.
     pub(crate) fn recover_stranded_exceptional_sources(
         &mut self,
     ) -> Result<usize, ExactPublicationEpochError> {
@@ -658,11 +694,19 @@ impl ExactPublicationEpochOwner {
                 self.release_in_flight_source();
                 return Err(ExactPublicationEpochError::AlreadyIssued);
             }
-            _ => unreachable!("sealed publication epoch has an invalid source state"),
+            Err(SOURCE_STAGED) => {
+                self.release_in_flight_source();
+                return Err(ExactPublicationEpochError::AlreadyStaged);
+            }
+            Ok(observed) | Err(observed) => {
+                self.release_in_flight_source();
+                return Err(ExactPublicationEpochError::SourceStateInvariantMismatch { observed });
+            }
         }
         Ok(ExactPublicationEpochSourceLease {
             owner: self,
             source_ordinal: locator.source_ordinal,
+            active: true,
         })
     }
 
@@ -677,6 +721,7 @@ impl ExactPublicationEpochOwner {
         match self.exceptional_source_states[lease.source_ordinal].load(AtomicOrdering::Acquire) {
             SOURCE_ISSUED => {}
             SOURCE_PENDING => return Err(ExactPublicationEpochError::NotIssued),
+            SOURCE_STAGED => return Err(ExactPublicationEpochError::AlreadyStaged),
             _ => unreachable!("sealed publication epoch has an invalid source state"),
         }
         let flat_leaf_index = *self
@@ -731,6 +776,115 @@ impl ExactPublicationEpochOwner {
         let slot = self.slots.get(slot_index)?;
         let leaf_ordinal = flat_leaf_index.checked_sub(slot.first_leaf_state)?;
         (leaf_ordinal < slot.leaf_count).then_some((slot, leaf_ordinal))
+    }
+
+    pub(super) fn exceptional_source_work_key(
+        &self,
+        source_ordinal: usize,
+    ) -> Result<CampaignWorkKey, ExactPublicationEpochError> {
+        Ok(self
+            .exceptional_source_scheduling_key(source_ordinal)?
+            .to_campaign_work_key())
+    }
+
+    pub(super) fn exceptional_source_scheduling_key(
+        &self,
+        source_ordinal: usize,
+    ) -> Result<ExactPublicationEpochSchedulingKey<'_>, ExactPublicationEpochError> {
+        let flat_leaf_index = *self
+            .exceptional_flat_leaf_indexes
+            .get(source_ordinal)
+            .ok_or(ExactPublicationEpochError::UnknownSource)?;
+        let (slot, leaf_ordinal) = self
+            .resolve_flat_leaf(flat_leaf_index)
+            .ok_or(ExactPublicationEpochError::UnknownSource)?;
+        Ok(scheduling_key(
+            self.closure_epoch_ordinal,
+            slot,
+            leaf_ordinal,
+        ))
+    }
+
+    pub(super) fn exceptional_source_is_staged(&self, source_ordinal: usize) -> bool {
+        self.exceptional_source_states
+            .get(source_ordinal)
+            .is_some_and(|state| state.load(AtomicOrdering::Acquire) == SOURCE_STAGED)
+    }
+
+    pub(super) fn preflight_stage_lease(
+        &self,
+        lease: &ExactPublicationEpochSourceLease<'_>,
+        source_ordinal: usize,
+    ) -> Result<(), ExactPublicationEpochError> {
+        if !std::ptr::eq(self, lease.owner) {
+            return Err(ExactPublicationEpochError::ForeignLease);
+        }
+        if lease.source_ordinal != source_ordinal {
+            return Err(ExactPublicationEpochError::UnknownSource);
+        }
+        if !lease.active {
+            return Err(ExactPublicationEpochError::NotIssued);
+        }
+        let state = self
+            .exceptional_source_states
+            .get(source_ordinal)
+            .ok_or(ExactPublicationEpochError::UnknownSource)?;
+        match state.load(AtomicOrdering::Acquire) {
+            SOURCE_ISSUED => Ok(()),
+            SOURCE_PENDING => Err(ExactPublicationEpochError::NotIssued),
+            SOURCE_STAGED => Err(ExactPublicationEpochError::AlreadyStaged),
+            observed => Err(ExactPublicationEpochError::SourceStateInvariantMismatch { observed }),
+        }
+    }
+
+    /// Terminalize one already installed, charged result. This tail performs
+    /// no allocation, user callback, payload destruction, panicking indexing,
+    /// or panicking invariant assertion. Any impossible mismatch is left
+    /// fail-closed in `Staged` while the batch retains the resident result.
+    pub(super) fn terminalize_staged_result(
+        &self,
+        lease: &mut ExactPublicationEpochSourceLease<'_>,
+    ) -> Result<(), ExactPublicationEpochError> {
+        let Some(state) = self.exceptional_source_states.get(lease.source_ordinal) else {
+            lease.active = false;
+            return Err(ExactPublicationEpochError::UnknownSource);
+        };
+        let transition = state.compare_exchange(
+            SOURCE_ISSUED,
+            SOURCE_STAGED,
+            AtomicOrdering::AcqRel,
+            AtomicOrdering::Acquire,
+        );
+        lease.active = false;
+        match transition {
+            Ok(_) => {
+                if self
+                    .in_flight_sources
+                    .fetch_update(AtomicOrdering::AcqRel, AtomicOrdering::Acquire, |current| {
+                        current.checked_sub(1)
+                    })
+                    .is_ok()
+                {
+                    Ok(())
+                } else {
+                    Err(
+                        ExactPublicationEpochError::SourceIssuanceInvariantMismatch {
+                            issued: 1,
+                            in_flight: 0,
+                        },
+                    )
+                }
+            }
+            Err(SOURCE_STAGED) => Err(ExactPublicationEpochError::AlreadyStaged),
+            Err(SOURCE_PENDING) => {
+                state.store(SOURCE_STAGED, AtomicOrdering::Release);
+                Err(ExactPublicationEpochError::NotIssued)
+            }
+            Err(observed) => {
+                state.store(SOURCE_STAGED, AtomicOrdering::Release);
+                Err(ExactPublicationEpochError::SourceStateInvariantMismatch { observed })
+            }
+        }
     }
 
     fn reserve_in_flight_source(&self) -> Result<(), ExactPublicationEpochError> {
@@ -1359,7 +1513,7 @@ mod tests {
         assert_eq!(wave.state_stats().acknowledged(), wave.stats().leaves());
     }
 
-    fn fully_acknowledged_handoff(
+    pub(super) fn fully_acknowledged_handoff(
         name: &str,
         lanes_in_input_order: &[usize],
     ) -> ExactPublicationHandoffWave {
@@ -1645,6 +1799,7 @@ mod tests {
             ExactPublicationEpochSourceStateStats {
                 pending: expected_exceptional.len(),
                 issued: 0,
+                staged: 0,
             }
         );
     }

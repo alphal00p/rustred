@@ -139,6 +139,7 @@ struct CampaignAdmissionState {
     core_capacity: usize,
     max_memory: CampaignBytes,
     fixed_and_shared: CampaignBytes,
+    reserved_fixed_components: CampaignBytes,
     staged_results: CampaignBytes,
     resident_retained: CampaignBytes,
     in_flight_cores: usize,
@@ -170,6 +171,7 @@ impl CampaignAdmissionController {
                     core_capacity,
                     max_memory,
                     fixed_and_shared,
+                    reserved_fixed_components: CampaignBytes::ZERO,
                     staged_results,
                     resident_retained: CampaignBytes::ZERO,
                     in_flight_cores: 0,
@@ -399,8 +401,13 @@ impl CampaignAdmissionController {
     ) -> Result<(), CampaignAdmissionError> {
         let mut state = self.shared.lock();
         state.ensure_quiescent()?;
-        let next_baseline = CampaignBaselineMemory::try_new(
+        let fixed_with_reserved = bytes_add(
             fixed_and_shared,
+            state.reserved_fixed_components,
+            "campaign configured plus reserved fixed components",
+        )?;
+        let next_baseline = CampaignBaselineMemory::try_new(
+            fixed_with_reserved,
             state.resident_retained,
             state.staged_results,
         )?;
@@ -419,8 +426,13 @@ impl CampaignAdmissionController {
     ) -> Result<(), CampaignAdmissionError> {
         let mut state = self.shared.lock();
         state.ensure_quiescent()?;
-        let next_baseline = CampaignBaselineMemory::try_new(
+        let fixed_with_reserved = bytes_add(
             state.fixed_and_shared,
+            state.reserved_fixed_components,
+            "campaign configured plus reserved fixed components",
+        )?;
+        let next_baseline = CampaignBaselineMemory::try_new(
+            fixed_with_reserved,
             state.resident_retained,
             staged_results,
         )?;
@@ -431,6 +443,65 @@ impl CampaignAdmissionController {
             state.generation = next_generation;
         }
         Ok(())
+    }
+
+    /// Atomically reserve one move-owned fixed-component envelope.
+    ///
+    /// Construction-time consumers acquire this guard at a quiescent barrier
+    /// before allocating their retained buffers. The separate counter cannot
+    /// be overwritten by the absolute fixed/shared setter, and the guard's
+    /// private shared authority can authenticate every task later admitted to
+    /// the component.
+    pub(crate) fn try_reserve_fixed_component(
+        &mut self,
+        upper_bound: CampaignBytes,
+    ) -> Result<CampaignFixedComponentReservation, CampaignAdmissionError> {
+        let mut state = self.shared.lock();
+        state.ensure_quiescent()?;
+        let usage = state.try_usage()?;
+        let available = bytes_sub(
+            state.max_memory,
+            usage.total_charged_memory,
+            "campaign fixed-component available memory",
+        )?;
+        if upper_bound > available {
+            return Err(CampaignAdmissionError::MemoryCapacityUnavailable {
+                requested: upper_bound,
+                available,
+            });
+        }
+        let next_reserved = bytes_add(
+            state.reserved_fixed_components,
+            upper_bound,
+            "campaign fixed-component reservation",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            state.fixed_and_shared,
+            next_reserved,
+            "campaign configured plus reserved fixed components",
+        )?;
+        let next_baseline = CampaignBaselineMemory::try_new(
+            fixed_with_reserved,
+            state.resident_retained,
+            state.staged_results,
+        )?;
+        state.check_baseline_capacity(next_baseline)?;
+        let next_generation = if upper_bound == CampaignBytes::ZERO {
+            state.generation
+        } else {
+            state.try_next_generation()?
+        };
+
+        // All arithmetic and capacity checks precede this infallible state
+        // transition. Arc cloning below does not allocate.
+        state.reserved_fixed_components = next_reserved;
+        state.generation = next_generation;
+        drop(state);
+        Ok(CampaignFixedComponentReservation {
+            shared: Arc::clone(&self.shared),
+            bytes: upper_bound,
+            active: true,
+        })
     }
 
     pub fn try_reserve_wave(
@@ -602,6 +673,81 @@ impl CampaignAdmissionController {
     }
 }
 
+/// Move-only charge for one dynamically retained fixed campaign component.
+///
+/// The authority and byte count are private: consumers can neither forge a
+/// charge nor detach it from the controller that admitted their worker tasks.
+pub(crate) struct CampaignFixedComponentReservation {
+    shared: Arc<CampaignAdmissionShared>,
+    bytes: CampaignBytes,
+    active: bool,
+}
+
+impl CampaignFixedComponentReservation {
+    pub(crate) const fn bytes(&self) -> CampaignBytes {
+        self.bytes
+    }
+
+    /// Release unused construction headroom after the retained representation
+    /// has been measured. Every check completes before accounting mutation.
+    pub(crate) fn try_shrink(
+        &mut self,
+        retained: CampaignBytes,
+    ) -> Result<(), CampaignAdmissionError> {
+        if !self.active || retained > self.bytes {
+            return Err(CampaignAdmissionError::AccountingInvariantBroken);
+        }
+        if retained == self.bytes {
+            return Ok(());
+        }
+        let released = bytes_sub(
+            self.bytes,
+            retained,
+            "campaign fixed-component reservation shrink",
+        )?;
+        let mut state = self.shared.lock();
+        state.ensure_quiescent()?;
+        let next_reserved = bytes_sub(
+            state.reserved_fixed_components,
+            released,
+            "campaign fixed-component reservation shrink",
+        )?;
+        let next_generation = state.try_next_generation()?;
+
+        state.reserved_fixed_components = next_reserved;
+        state.generation = next_generation;
+        self.bytes = retained;
+        Ok(())
+    }
+
+    pub(crate) fn belongs_to_admitted<T>(&self, admitted: &CampaignAdmittedTask<T>) -> bool {
+        self.active
+            && admitted
+                .reservation
+                .as_ref()
+                .is_some_and(|reservation| Arc::ptr_eq(&self.shared, &reservation.shared))
+    }
+}
+
+impl fmt::Debug for CampaignFixedComponentReservation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignFixedComponentReservation")
+            .field("bytes", &self.bytes)
+            .field("active", &self.active)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for CampaignFixedComponentReservation {
+    fn drop(&mut self) {
+        if self.active {
+            self.active = false;
+            self.shared.release_fixed_component(self.bytes);
+        }
+    }
+}
+
 impl CampaignAdmissionShared {
     fn lock(&self) -> MutexGuard<'_, CampaignAdmissionState> {
         match self.state.lock() {
@@ -645,8 +791,13 @@ impl CampaignAdmissionState {
     }
 
     fn try_baseline(&self) -> Result<CampaignBaselineMemory, CampaignAdmissionError> {
-        Ok(CampaignBaselineMemory::try_new(
+        let fixed_with_reserved = bytes_add(
             self.fixed_and_shared,
+            self.reserved_fixed_components,
+            "campaign configured plus reserved fixed components",
+        )?;
+        Ok(CampaignBaselineMemory::try_new(
+            fixed_with_reserved,
             self.resident_retained,
             self.staged_results,
         )?)
@@ -1742,7 +1893,7 @@ impl<T> CampaignResident<T> {
     /// The returned unit owner is an internal charge shell used only while a
     /// consuming resident transformation runs. Cloning the compact token here
     /// avoids unsafe field extraction from a type with a custom destructor.
-    fn split_owner_charge(mut self) -> (T, CampaignResident<()>) {
+    pub(crate) fn split_owner_charge(mut self) -> (T, CampaignResident<()>) {
         let retained_output = self
             .retained_output
             .take()
@@ -1761,7 +1912,7 @@ impl<T> CampaignResident<T> {
 }
 
 impl CampaignResident<()> {
-    fn restore_owner<T>(mut self, retained_output: T) -> CampaignResident<T> {
+    pub(crate) fn restore_owner<T>(mut self, retained_output: T) -> CampaignResident<T> {
         let restored = CampaignResident {
             retained_output: Some(retained_output),
             shared: Arc::clone(&self.shared),
@@ -1899,8 +2050,13 @@ impl CampaignAdmissionShared {
             retained,
             "campaign retained-transfer preflight",
         )?;
-        let next_baseline = CampaignBaselineMemory::try_new(
+        let fixed_with_reserved = bytes_add(
             state.fixed_and_shared,
+            state.reserved_fixed_components,
+            "campaign configured plus reserved fixed components",
+        )?;
+        let next_baseline = CampaignBaselineMemory::try_new(
+            fixed_with_reserved,
             next_resident,
             state.staged_results,
         )?;
@@ -1982,6 +2138,27 @@ impl CampaignAdmissionShared {
             return;
         };
         state.resident_retained = next_resident;
+        state.advance_generation_in_drop();
+    }
+
+    fn release_fixed_component(&self, memory: CampaignBytes) {
+        if memory == CampaignBytes::ZERO {
+            return;
+        }
+        let mut state = self.lock();
+        if state.invariant_broken {
+            return;
+        }
+        let Some(next_reserved) = state
+            .reserved_fixed_components
+            .get()
+            .checked_sub(memory.get())
+            .map(CampaignBytes::new)
+        else {
+            state.invariant_broken = true;
+            return;
+        };
+        state.reserved_fixed_components = next_reserved;
         state.advance_generation_in_drop();
     }
 }

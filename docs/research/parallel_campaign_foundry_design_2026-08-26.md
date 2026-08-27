@@ -691,15 +691,18 @@ permit is released after staging only when the descriptor names a durable file
 and binds its content hash, size, and task key. Checkpoint and staged-result
 serialization is streaming/bounded and its buffers are charged.
 
-Two production pieces remain deliberately unimplemented: the stable
-`CampaignWorkKey`-indexed result table and the atomic memory-charge transfer
-from an in-flight worker result into either a resident successor owner or a
-durable staged-result descriptor. The current low-level executor, exact
-publication handoff, and algebra-free publication-epoch owner do not establish
-either contract. Until the coordinator
-owns this transition, it must not release the worker result permit merely
-because a result was sent on a channel, and it must not claim that staged
-outputs are covered by the campaign envelope.
+The internal exact-publication path now implements the first bounded in-memory
+slice of this contract. A compact table is indexed by the complete
+`CampaignWorkKey`, precharges its retained representation against the same
+invocation-wide admission authority before allocation, and transfers each
+admitted worker output into `CampaignResident` ownership without copying its
+algebraic payload. Foreign authorities reject before commit; a postcommit
+terminalization error permanently poisons extraction while retaining the
+resident charge. This is not yet the general production result database or a
+durable staged-result descriptor. Until the coordinator owns those remaining
+transitions, it must not release a worker permit merely because a result was
+sent on a channel, and it must not claim that an uncharged channel or spill
+file is covered by the campaign envelope.
 
 The estimator is phase-specific and versioned. Checked `u64`/`u128`
 arithmetic combines native U/L stored-entry, row, and column counts with serialized

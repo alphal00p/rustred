@@ -50,11 +50,11 @@ and the 16/16 parent handoff-module superset with four test threads, and
 diagnostic reached 1,214 passes and 2 skips; the sole remaining pre-existing
 equality-suspension test was deliberately interrupted after 1,834.832 seconds,
 so this checkpoint makes no new complete full-library-gate claim.
-Applicable-provider admission/results, stable
-`CampaignWorkKey` result staging and charge transfer, event-derived fresh
-narrowed-domain re-entry, rejected-candidate continuation, rule application,
-publication audit replay, subsector feedback, closure, and physical reduction
-remain pending. The live exact
+Applicable-provider admission/results, general `CampaignWorkKey` result
+publication, durable spill support, event-derived fresh narrowed-domain
+re-entry, rejected-candidate continuation, rule application, publication audit
+replay, subsector feedback, closure, and physical reduction remain pending. The
+live exact
 database now owns the complete easiest-first physical-key catalog and a clone-
 on-stage Full-L Symbolica `SparseRowReducer` with its final sentinel. Each stage
 inserts only new catalog columns and submits one candidate; only an independent
@@ -1139,7 +1139,7 @@ representation result; an exception or exhausted limit is operational.
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
 | Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded retry-only exceptional-source leases; fresh mathematical ingress/results pending | Zero-copy applicable-rule views; provider admission/results pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded `Pending -> Issued -> Staged` exceptional-source ownership; an authority-bound compact result batch stages admitted in-memory outputs fail-closed, while fresh mathematical ingress and durable/general result publication remain pending | Zero-copy applicable-rule views; provider admission/results pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -1150,7 +1150,9 @@ The persisted first matching target remains final for the current candidate.
 The atomic database/target/event columns of the prepared-publication rows,
 repeatable shallow rule/residual inspection views, exactly-once acceptance
 handoff, and bounded algebra-free exceptional-source lease owner are
-implemented. Applicable-provider admission/results, stable-key result staging,
+implemented. The compact exceptional path has authority-bound stable-key
+in-memory result staging and atomic worker-to-resident charge transfer.
+Applicable-provider admission/results, durable/general result publication,
 fresh narrowed-domain mathematical ingress, same-database rejected-candidate
 continuation, rule application, and closure remain future work.
 
