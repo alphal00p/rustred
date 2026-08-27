@@ -38,6 +38,10 @@ Also never escalate commands but find workaround if sanbox is being hit.
 - **Cross-repository boundary:** Vakint/GammaLoop implementation is deferred to
   Phase 6. It will be developed, committed, and pushed on a dedicated feature
   branch in the GammaLoop repository, never folded into a RustRed commit.
+- **Milestone discipline:** make frequent rollback-sized commits and push each
+  relevant intermediate milestone after its declared checks pass. Do not let
+  unrelated architectural, solver, or cross-repository changes accumulate in
+  one opaque commit.
 - **Immediate posture:** the first substantive step is to restructure the
   current RustRed code cleanly around the stated end goal. Complete the
   mandatory heavy structural refactor before resuming the exact solver
@@ -240,6 +244,12 @@ core services; it must not duplicate their algebra or silently fall back to
 FORM. The CLI and Python package remain parallel first-class interfaces for
 fine-grained generic work rather than compatibility shells around Vakint.
 
+The four-package layout is a disciplined baseline, not a prohibition on
+additional subcrates. Introduce another crate when it creates a demonstrable,
+acyclic ownership or dependency boundary, materially improves independent
+testing/compilation, and avoids a new dumping ground. Do not create transport-
+only or one-file microcrates merely to make the tree look modular.
+
 Within the core, dependency direction must be explicit and acyclic across
 these conceptual areas:
 
@@ -260,10 +270,22 @@ rustred-app adapters and, later, Vakint's user-facing `RustRed` mode
 ```
 
 Private implementation names and files should describe mathematical roles,
-not historical implementation chronology. Giant inline test campaigns move
-beside integration fixtures. Public re-exports are narrowed. Semantic solver
-changes are not mixed into mechanical file moves. Git is the archive; stale
-code and documentation are deleted after their unique evidence is retained.
+not historical implementation chronology. Code is factored to the highest
+professional standard practical for this project: cohesive modules, narrow
+interfaces, explicit owners, acyclic dependencies, minimal visibility, and no
+duplicated authority. Giant inline test campaigns move beside integration
+fixtures. Public re-exports are narrowed. Semantic solver changes are not
+mixed into mechanical file moves. Git is the archive; stale code and
+documentation are deleted after their unique evidence is retained.
+
+Legacy paths are transitional evidence, not permanent architecture. Remove
+obsolete compatibility layers, V1/V2 bridges, handwritten production algebra,
+loop-authored reducers, dead modules, and stale tests/docs once their unique
+fixtures or differential evidence have moved to the appropriate current
+boundary. Retain something in `rustred-legacy-oracles` only when it has a
+specific continuing oracle purpose, cannot yet be replaced by a smaller data
+fixture, is unreachable from default production, and has an explicit retention
+or deletion decision. “Legacy” is never an acceptable production dependency.
 
 ## Execution roadmap
 
@@ -275,6 +297,11 @@ rollback-sized tranche. Its purpose is to turn the current large, historically
 layered codebase into a professional base whose production call graph,
 ownership, CAS authority, test boundaries, and future Vakint-facing services
 can be understood and optimized independently.
+
+Each coherent package extraction, module-tree move, visibility tightening,
+legacy removal, and documentation consolidation is committed and pushed after
+its focused and workspace gates pass. Mechanical moves remain independently
+reviewable from semantic changes.
 
 1. Treat the completed `rustred-app` transport-neutral boundary as the fixed
    starting point.
@@ -543,6 +570,9 @@ Benchmarks and acceptance fixtures are data, never production dispatch. Tests
 must not initialize FORM or Mathematica. Reference-only trees must remain
 untracked. Milestones are committed and pushed only after their declared gate
 passes; partial work is reported honestly and is not relabeled as closure.
+Intermediate commits are frequent enough to remain bisectable and
+rollback-sized; passing work is pushed rather than left as a long-lived local
+stack.
 
 ## Governing reading set and authority
 
