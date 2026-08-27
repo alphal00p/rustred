@@ -9,13 +9,13 @@ use rustred::{
     CampaignEstimatorRevision, CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits,
     CampaignResident, CampaignResidentToken, CampaignResidentTransformBuildFailure,
     CampaignResidentTransformExecution, CampaignRootSpec, CampaignTaskExecution,
-    CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate, CampaignWavePlanner,
+    CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate, CampaignWavePlanner, CampaignWorkKey,
     CoefficientContext, IntegralFamily, IntegralOrderingPolicy, ParallelExecution, SectorMask,
 };
 
 const REVISION: u64 = 1;
 
-fn jobs(count: usize) -> Vec<rustred::CampaignJobKey> {
+fn jobs(count: usize) -> Vec<CampaignWorkKey> {
     assert!((1..=7).contains(&count));
     let coefficients = CoefficientContext::new(["d"]);
     let family = Arc::new(
@@ -66,7 +66,10 @@ fn jobs(count: usize) -> Vec<rustred::CampaignJobKey> {
     .unwrap()
     .intrinsic_jobs()
     .take(count)
-    .cloned()
+    .enumerate()
+    .map(|(lane, job)| {
+        CampaignWorkKey::job_lane(job.clone(), "campaign-admission-context", lane as u64)
+    })
     .collect()
 }
 
@@ -100,25 +103,25 @@ fn estimate(cores: usize, retained: u64, transient: u64) -> CampaignTaskResource
 }
 
 fn one_request(
-    job: &rustred::CampaignJobKey,
+    work: &CampaignWorkKey,
     retained: u64,
     transient: u64,
-) -> BTreeMap<rustred::CampaignJobKey, CampaignTaskResourceEstimate> {
-    BTreeMap::from([(job.clone(), estimate(1, retained, transient))])
+) -> BTreeMap<CampaignWorkKey, CampaignTaskResourceEstimate> {
+    BTreeMap::from([(work.clone(), estimate(1, retained, transient))])
 }
 
 fn reserve_one(
     controller: &mut CampaignAdmissionController,
-    job: &rustred::CampaignJobKey,
+    work: &CampaignWorkKey,
     retained: u64,
     transient: u64,
     predecessor: Option<CampaignResidentToken>,
 ) -> rustred::CampaignTaskReservation {
     let snapshot = controller.try_snapshot().unwrap();
-    let requests = one_request(job, retained, transient);
+    let requests = one_request(work, retained, transient);
     let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
     let predecessors = predecessor
-        .map(|token| BTreeMap::from([(job.clone(), token)]))
+        .map(|token| BTreeMap::from([(work.clone(), token)]))
         .unwrap_or_default();
     controller
         .try_reserve_wave_with_predecessors(&snapshot, &plan, &requests, &predecessors)
@@ -130,11 +133,11 @@ fn reserve_one(
 
 fn commit_initial<T>(
     controller: &mut CampaignAdmissionController,
-    job: &rustred::CampaignJobKey,
+    work: &CampaignWorkKey,
     retained: u64,
     owner: T,
 ) -> CampaignResident<T> {
-    reserve_one(controller, job, retained, 0, None)
+    reserve_one(controller, work, retained, 0, None)
         .bind(owner)
         .try_commit_initial()
         .unwrap()
@@ -188,7 +191,7 @@ fn whole_wave_is_atomic_and_old_snapshots_cannot_be_replayed() {
         (jobs[2].clone(), estimate(1, 10, 10)),
     ]);
     let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
-    assert_eq!(plan.jobs(), &[jobs[0].clone(), jobs[1].clone()]);
+    assert_eq!(plan.work(), &[jobs[0].clone(), jobs[1].clone()]);
 
     let subset = BTreeMap::from([(jobs[0].clone(), estimate(1, 100, 50))]);
     let mismatched = CampaignWavePlanner::try_plan(snapshot.policy(), &subset).unwrap();
@@ -234,6 +237,88 @@ fn whole_wave_is_atomic_and_old_snapshots_cannot_be_replayed() {
         controller.try_reserve_wave(&snapshot, &plan, &requests),
         Err(CampaignAdmissionError::StaleSnapshot { .. })
     ));
+}
+
+#[test]
+fn same_job_exceptional_leaf_units_keep_distinct_reservations_and_resident_tokens() {
+    let planned_job = jobs(1).remove(0).job().clone();
+    let left = CampaignWorkKey::exact_publication_exceptional_leaf(
+        planned_job.clone(),
+        "same-context",
+        8,
+        2,
+        13,
+        4,
+    );
+    let right = CampaignWorkKey::exact_publication_exceptional_leaf(
+        planned_job.clone(),
+        "same-context",
+        8,
+        2,
+        13,
+        5,
+    );
+    let mut controller = controller(2, 1_000, 100);
+    let snapshot = controller.try_snapshot().unwrap();
+    let requests = BTreeMap::from([
+        (right.clone(), estimate(1, 100, 50)),
+        (left.clone(), estimate(1, 100, 50)),
+    ]);
+    let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
+    assert_eq!(plan.work(), &[left.clone(), right.clone()]);
+
+    let wave = controller
+        .try_reserve_wave(&snapshot, &plan, &requests)
+        .unwrap();
+    assert_eq!(
+        wave.tasks()
+            .iter()
+            .map(rustred::CampaignTaskReservation::work)
+            .collect::<Vec<_>>(),
+        vec![&left, &right]
+    );
+    let mut residents = wave
+        .into_tasks()
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, reservation)| reservation.bind(ordinal).try_commit_initial().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(residents[0].token().work(), &left);
+    assert_eq!(residents[1].token().work(), &right);
+    assert_eq!(residents[0].token().job(), &planned_job);
+    assert_eq!(residents[1].token().job(), &planned_job);
+    assert_ne!(
+        residents[0].token().generation(),
+        residents[1].token().generation()
+    );
+
+    let snapshot = controller.try_snapshot().unwrap();
+    let retry_requests = one_request(&right, 100, 50);
+    let retry_plan = CampaignWavePlanner::try_plan(snapshot.policy(), &retry_requests).unwrap();
+    let wrong_predecessor = BTreeMap::from([(right.clone(), residents[0].token().clone())]);
+    let before_rejection = controller.try_usage().unwrap();
+    assert!(matches!(
+        controller.try_reserve_wave_with_predecessors(
+            &snapshot,
+            &retry_plan,
+            &retry_requests,
+            &wrong_predecessor,
+        ),
+        Err(CampaignAdmissionError::ResidentWorkMismatch { expected, actual })
+            if expected == right && actual == left
+    ));
+    assert_eq!(controller.try_usage().unwrap(), before_rejection);
+
+    residents.clear();
+    assert_eq!(
+        controller
+            .try_usage()
+            .unwrap()
+            .baseline()
+            .hydrated_retained(),
+        CampaignBytes::ZERO
+    );
 }
 
 #[test]
@@ -604,7 +689,7 @@ fn empty_waves_are_noops_and_unselected_predecessors_are_rejected() {
             &requests,
             &predecessors,
         ),
-        Err(CampaignAdmissionError::UnexpectedPredecessorToken { job }) if job == jobs[1]
+        Err(CampaignAdmissionError::UnexpectedPredecessorToken { work }) if work == jobs[1]
     ));
     assert_eq!(controller.try_usage().unwrap(), before_rejection);
     drop(resident);
@@ -642,7 +727,7 @@ fn admitted_executor_moves_guards_to_owned_workers_and_returns_stable_outcomes()
             let barrier = Arc::clone(&barrier);
             let drops = Arc::clone(&drops);
             move |task| -> Result<CountedOwner, CountedOwner> {
-                let ordinal = ordinals[task.job()];
+                let ordinal = ordinals[task.work()];
                 barrier.wait();
                 match ordinal {
                     1 => Err(CountedOwner {
@@ -665,7 +750,7 @@ fn admitted_executor_moves_guards_to_owned_workers_and_returns_stable_outcomes()
     assert_eq!(
         outcomes
             .iter()
-            .map(CampaignTaskExecution::job)
+            .map(CampaignTaskExecution::work)
             .collect::<Vec<_>>(),
         jobs.iter().collect::<Vec<_>>()
     );
@@ -765,7 +850,7 @@ fn admitted_executor_rejects_weighted_tasks_until_inner_parallelism_is_controlle
     assert!(matches!(
         failure.error(),
         CampaignAdmissionError::UnsupportedExecutorCoreWidth {
-            job: rejected,
+            work: rejected,
             requested: 2,
         } if rejected == &job
     ));
@@ -918,7 +1003,7 @@ fn resident_transform_executor_rejects_foreign_tasks_before_moving_the_owner() {
     };
     assert!(matches!(
         failure.error(),
-        CampaignAdmissionError::ForeignTaskReservation { job: rejected } if rejected == &job
+        CampaignAdmissionError::ForeignTaskReservation { work: rejected } if rejected == &job
     ));
     assert_eq!(callbacks.load(Ordering::SeqCst), 0);
     assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -969,7 +1054,7 @@ fn resident_transform_executor_canonicalizes_reversed_input_and_completion() {
     let mut transforms = reservations
         .into_iter()
         .map(|reservation| {
-            let job = reservation.job().clone();
+            let job = reservation.work().clone();
             reservation
                 .try_bind_resident_transform(residents.remove(&job).unwrap())
                 .unwrap()
@@ -1002,7 +1087,7 @@ fn resident_transform_executor_canonicalizes_reversed_input_and_completion() {
     assert_eq!(
         outcomes
             .iter()
-            .map(CampaignResidentTransformExecution::job)
+            .map(CampaignResidentTransformExecution::work)
             .collect::<Vec<_>>(),
         jobs.iter().collect::<Vec<_>>()
     );
@@ -1268,7 +1353,7 @@ fn resident_transform_rejects_weighted_tasks_before_moving_the_owner() {
     assert!(matches!(
         failure.error(),
         CampaignAdmissionError::UnsupportedExecutorCoreWidth {
-            job: rejected,
+            work: rejected,
             requested: 2,
         } if rejected == &job
     ));

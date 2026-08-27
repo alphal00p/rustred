@@ -43,6 +43,7 @@ pub mod base_specialization;
 pub mod campaign_admission;
 pub mod campaign_plan;
 pub mod campaign_resources;
+pub mod campaign_work;
 pub mod certified_rewrite;
 pub mod certified_rule_provider;
 pub mod certified_symmetry_provider;
@@ -306,6 +307,7 @@ pub use campaign_resources::{
     CampaignResourcePolicy, CampaignResourceWavePlan, CampaignTaskMemoryEnvelope,
     CampaignTaskResourceEstimate, CampaignWavePlanner,
 };
+pub use campaign_work::{CampaignWorkKey, CampaignWorkUnitKey};
 pub use certified_rewrite::{
     CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA, CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA,
     CERTIFIED_ZERO_REDUCTION_V1_SCHEMA, CertifiedConcreteRewrite, CertifiedConcreteRewriteProof,

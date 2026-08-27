@@ -6412,6 +6412,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let job = campaign.intrinsic_jobs().next().unwrap().clone();
+        let work = crate::CampaignWorkKey::job_lane(job, fixture.context.fingerprint(), 0);
         let revision = CampaignEstimatorRevision::try_new(1).unwrap();
         let mut controller = CampaignAdmissionController::try_new(
             ParallelExecution::try_new(2).unwrap(),
@@ -6449,10 +6450,10 @@ pub(crate) mod tests {
                        request: CampaignTaskResourceEstimate,
                        predecessor: Option<crate::CampaignResidentToken>| {
             let snapshot = controller.try_snapshot().unwrap();
-            let requests = BTreeMap::from([(job.clone(), request)]);
+            let requests = BTreeMap::from([(work.clone(), request)]);
             let wave = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
             let predecessors = predecessor
-                .map(|token| BTreeMap::from([(job.clone(), token)]))
+                .map(|token| BTreeMap::from([(work.clone(), token)]))
                 .unwrap_or_default();
             controller
                 .try_reserve_wave_with_predecessors(&snapshot, &wave, &requests, &predecessors)

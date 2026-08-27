@@ -22,7 +22,7 @@ use crate::{
     CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignJobKey,
     CampaignMemoryEstimate, CampaignResourceError, CampaignResourcePolicy,
     CampaignResourceWavePlan, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-    CampaignWavePlanner, ParallelExecution,
+    CampaignWavePlanner, CampaignWorkKey, ParallelExecution,
 };
 
 pub const CAMPAIGN_ADMISSION_V1_SCHEMA: &str = "rustred.campaign-admission.v1";
@@ -193,10 +193,10 @@ impl CampaignAdmissionController {
     /// Every move-only reservation is transferred to exactly one worker. The
     /// callback borrows the reservation as a read-only task context, so only
     /// this executor can bind a successful retained output or keep a failure
-    /// payload paired with its charge. Results preserve the wave's stable job
-    /// order regardless of worker completion order. All jobs settle before this
-    /// method returns, which provides the deterministic wave barrier required
-    /// by campaign planning.
+    /// payload paired with its charge. Results preserve the wave's stable work
+    /// order regardless of worker completion order. All work units settle
+    /// before this method returns, which provides the deterministic wave
+    /// barrier required by campaign planning.
     ///
     /// A typed build failure and a recovered panic both retain the complete task
     /// charge until their payload has been dropped. This matters because an
@@ -222,7 +222,7 @@ impl CampaignAdmissionController {
         if let Some(task) = wave.tasks().iter().find(|task| task.cores() != 1) {
             return Err(CampaignWaveExecutionAdmissionFailure {
                 error: CampaignAdmissionError::UnsupportedExecutorCoreWidth {
-                    job: task.job().clone(),
+                    work: task.work().clone(),
                     requested: task.cores(),
                 },
                 wave,
@@ -290,12 +290,12 @@ impl CampaignAdmissionController {
             + Sync,
     {
         tasks.sort_unstable_by(|left, right| {
-            left.reservation().job().cmp(right.reservation().job())
+            left.reservation().work().cmp(right.reservation().work())
         });
         if let Some(task) = tasks.iter().find(|task| !task.belongs_to(&self.shared)) {
             return Err(CampaignResidentTransformBatchAdmissionFailure {
                 error: CampaignAdmissionError::ForeignTaskReservation {
-                    job: task.reservation().job().clone(),
+                    work: task.reservation().work().clone(),
                 },
                 tasks,
             });
@@ -303,7 +303,7 @@ impl CampaignAdmissionController {
         if let Some(task) = tasks.iter().find(|task| task.reservation().cores() != 1) {
             return Err(CampaignResidentTransformBatchAdmissionFailure {
                 error: CampaignAdmissionError::UnsupportedExecutorCoreWidth {
-                    job: task.reservation().job().clone(),
+                    work: task.reservation().work().clone(),
                     requested: task.reservation().cores(),
                 },
                 tasks,
@@ -349,9 +349,9 @@ impl CampaignAdmissionController {
 
         // Workers finish before this loop. The executor-owned successor
         // transfers and direct predecessor replacements therefore occur in
-        // canonical job order, never completion order. This low-level generic
-        // API remains cooperative: an arbitrary callback payload could itself
-        // contain some unrelated admission guard and drop it on a worker.
+        // canonical work-key order, never completion order. This low-level
+        // generic API remains cooperative: an arbitrary callback payload could
+        // itself contain some unrelated admission guard and drop it on a worker.
         // Crate-owned production adapters must be guard-free apart from the
         // predecessor explicitly split above.
         Ok(prepared
@@ -437,24 +437,24 @@ impl CampaignAdmissionController {
         &mut self,
         snapshot: &CampaignAdmissionSnapshot,
         plan: &CampaignResourceWavePlan,
-        requests: &BTreeMap<CampaignJobKey, CampaignTaskResourceEstimate>,
+        requests: &BTreeMap<CampaignWorkKey, CampaignTaskResourceEstimate>,
     ) -> Result<CampaignWaveReservation, CampaignAdmissionError> {
         self.try_reserve_wave_with_predecessors(snapshot, plan, requests, &BTreeMap::new())
     }
 
     /// Revalidate and atomically charge one complete statically selected wave.
     ///
-    /// `predecessors` contains opaque, non-owning tokens for jobs whose output
-    /// will replace an existing resident owner. The actual move-only resident
-    /// is still required at commit. Omitting a token declares an initial
-    /// resident output; uniqueness of that declaration belongs to the campaign
-    /// workspace until it is integrated with this resource layer.
+    /// `predecessors` contains opaque, non-owning tokens for work units whose
+    /// output will replace an existing resident owner. The actual move-only
+    /// resident is still required at commit. Omitting a token declares an
+    /// initial resident output; uniqueness of that declaration belongs to the
+    /// campaign workspace until it is integrated with this resource layer.
     pub fn try_reserve_wave_with_predecessors(
         &mut self,
         snapshot: &CampaignAdmissionSnapshot,
         plan: &CampaignResourceWavePlan,
-        requests: &BTreeMap<CampaignJobKey, CampaignTaskResourceEstimate>,
-        predecessors: &BTreeMap<CampaignJobKey, CampaignResidentToken>,
+        requests: &BTreeMap<CampaignWorkKey, CampaignTaskResourceEstimate>,
+        predecessors: &BTreeMap<CampaignWorkKey, CampaignResidentToken>,
     ) -> Result<CampaignWaveReservation, CampaignAdmissionError> {
         if !snapshot.belongs_to(&self.shared) {
             return Err(CampaignAdmissionError::ForeignSnapshot);
@@ -465,19 +465,18 @@ impl CampaignAdmissionController {
         }
 
         let mut tasks = Vec::new();
-        tasks.try_reserve_exact(plan.jobs().len()).map_err(|_| {
+        tasks.try_reserve_exact(plan.work().len()).map_err(|_| {
             CampaignAdmissionError::AllocationFailure {
                 resource: "campaign task reservations",
-                requested: plan.jobs().len(),
+                requested: plan.work().len(),
             }
         })?;
         let mut sealed_cores = 0usize;
         let mut sealed_memory = CampaignBytes::ZERO;
-        for job in plan.jobs() {
-            let request = requests
-                .get(job)
-                .copied()
-                .ok_or_else(|| CampaignAdmissionError::MissingTaskEstimate { job: job.clone() })?;
+        for work in plan.work() {
+            let request = requests.get(work).copied().ok_or_else(|| {
+                CampaignAdmissionError::MissingTaskEstimate { work: work.clone() }
+            })?;
             sealed_cores = sealed_cores.checked_add(request.cores()).ok_or(
                 CampaignAdmissionError::CoreCountOverflow {
                     operation: "campaign wave estimate sealing",
@@ -488,13 +487,13 @@ impl CampaignAdmissionController {
                 request.memory().peak_additional(),
                 "campaign wave estimate sealing",
             )?;
-            let predecessor = predecessors.get(job).cloned();
+            let predecessor = predecessors.get(work).cloned();
             if let Some(token) = &predecessor {
-                token.validate_for(&self.shared, job)?;
+                token.validate_for(&self.shared, work)?;
             }
             tasks.push(CampaignTaskReservation::inactive(
                 Arc::clone(&self.shared),
-                job.clone(),
+                work.clone(),
                 request,
                 predecessor,
                 0,
@@ -505,11 +504,11 @@ impl CampaignAdmissionController {
         {
             return Err(CampaignAdmissionError::WavePlanMismatch);
         }
-        if let Some((job, _)) = predecessors
+        if let Some((work, _)) = predecessors
             .iter()
-            .find(|(job, _)| plan.jobs().binary_search(job).is_err())
+            .find(|(work, _)| plan.work().binary_search(work).is_err())
         {
-            return Err(CampaignAdmissionError::UnexpectedPredecessorToken { job: job.clone() });
+            return Err(CampaignAdmissionError::UnexpectedPredecessorToken { work: work.clone() });
         }
 
         let mut state = self.shared.lock();
@@ -751,13 +750,17 @@ fn bytes_sub(
 #[derive(Clone)]
 pub struct CampaignResidentToken {
     authority: Weak<CampaignAdmissionShared>,
-    job: CampaignJobKey,
+    work: CampaignWorkKey,
     generation: NonZeroU64,
 }
 
 impl CampaignResidentToken {
+    pub const fn work(&self) -> &CampaignWorkKey {
+        &self.work
+    }
+
     pub const fn job(&self) -> &CampaignJobKey {
-        &self.job
+        self.work.job()
     }
 
     pub const fn generation(&self) -> u64 {
@@ -767,15 +770,15 @@ impl CampaignResidentToken {
     fn validate_for(
         &self,
         shared: &Arc<CampaignAdmissionShared>,
-        job: &CampaignJobKey,
+        work: &CampaignWorkKey,
     ) -> Result<(), CampaignAdmissionError> {
         if !Weak::ptr_eq(&self.authority, &Arc::downgrade(shared)) {
-            return Err(CampaignAdmissionError::ForeignResidentToken { job: job.clone() });
+            return Err(CampaignAdmissionError::ForeignResidentToken { work: work.clone() });
         }
-        if &self.job != job {
-            return Err(CampaignAdmissionError::ResidentJobMismatch {
-                expected: job.clone(),
-                actual: self.job.clone(),
+        if &self.work != work {
+            return Err(CampaignAdmissionError::ResidentWorkMismatch {
+                expected: work.clone(),
+                actual: self.work.clone(),
             });
         }
         Ok(())
@@ -783,7 +786,7 @@ impl CampaignResidentToken {
 
     fn exact_match(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.authority, &other.authority)
-            && self.job == other.job
+            && self.work == other.work
             && self.generation == other.generation
     }
 }
@@ -792,7 +795,7 @@ impl fmt::Debug for CampaignResidentToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignResidentToken")
-            .field("job", &self.job)
+            .field("work", &self.work)
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
@@ -877,6 +880,10 @@ pub struct CampaignTaskContext<'task> {
 }
 
 impl<'task> CampaignTaskContext<'task> {
+    pub const fn work(self) -> &'task CampaignWorkKey {
+        self.reservation.work()
+    }
+
     pub const fn job(self) -> &'task CampaignJobKey {
         self.reservation.job()
     }
@@ -898,7 +905,7 @@ impl fmt::Debug for CampaignTaskContext<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignTaskContext")
-            .field("job", &self.reservation.job())
+            .field("work", &self.reservation.work())
             .field("cores", &self.reservation.cores())
             .field("memory", &self.reservation.memory())
             .field("has_predecessor", &self.reservation.predecessor().is_some())
@@ -918,12 +925,16 @@ pub enum CampaignTaskExecution<Output, BuildError> {
 }
 
 impl<Output, BuildError> CampaignTaskExecution<Output, BuildError> {
-    pub fn job(&self) -> &CampaignJobKey {
+    pub fn work(&self) -> &CampaignWorkKey {
         match self {
-            Self::Built(admitted) => admitted.reservation().job(),
-            Self::Failed(failure) => failure.reservation().job(),
-            Self::Panicked(panic) => panic.reservation().job(),
+            Self::Built(admitted) => admitted.reservation().work(),
+            Self::Failed(failure) => failure.reservation().work(),
+            Self::Panicked(panic) => panic.reservation().work(),
         }
+    }
+
+    pub fn job(&self) -> &CampaignJobKey {
+        self.work().job()
     }
 }
 
@@ -932,7 +943,7 @@ impl<Output, BuildError> fmt::Debug for CampaignTaskExecution<Output, BuildError
         match self {
             Self::Built(admitted) => formatter
                 .debug_struct("Built")
-                .field("job", admitted.reservation().job())
+                .field("work", admitted.reservation().work())
                 .finish_non_exhaustive(),
             Self::Failed(failure) => fmt::Debug::fmt(failure, formatter),
             Self::Panicked(panic) => fmt::Debug::fmt(panic, formatter),
@@ -970,7 +981,7 @@ impl<BuildError> fmt::Debug for CampaignTaskFailure<BuildError> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Failed")
-            .field("job", self.reservation().job())
+            .field("work", self.reservation().work())
             .finish_non_exhaustive()
     }
 }
@@ -1023,7 +1034,7 @@ impl fmt::Debug for CampaignTaskPanic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Panicked")
-            .field("job", self.reservation().job())
+            .field("work", self.reservation().work())
             .field("message", &self.message())
             .finish_non_exhaustive()
     }
@@ -1043,7 +1054,7 @@ impl Drop for CampaignTaskPanic {
 /// One move-only task charge split from an atomically reserved wave.
 pub struct CampaignTaskReservation {
     shared: Arc<CampaignAdmissionShared>,
-    job: CampaignJobKey,
+    work: CampaignWorkKey,
     request: CampaignTaskResourceEstimate,
     predecessor: Option<CampaignResidentToken>,
     successor_token: u64,
@@ -1056,14 +1067,14 @@ pub struct CampaignTaskReservation {
 impl CampaignTaskReservation {
     fn inactive(
         shared: Arc<CampaignAdmissionShared>,
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         request: CampaignTaskResourceEstimate,
         predecessor: Option<CampaignResidentToken>,
         successor_token: u64,
     ) -> Self {
         Self {
             shared,
-            job,
+            work,
             request,
             predecessor,
             successor_token,
@@ -1074,8 +1085,12 @@ impl CampaignTaskReservation {
         }
     }
 
+    pub const fn work(&self) -> &CampaignWorkKey {
+        &self.work
+    }
+
     pub const fn job(&self) -> &CampaignJobKey {
-        &self.job
+        self.work.job()
     }
 
     pub const fn cores(&self) -> usize {
@@ -1133,7 +1148,7 @@ impl CampaignTaskReservation {
     fn successor_token(&self) -> CampaignResidentToken {
         CampaignResidentToken {
             authority: Arc::downgrade(&self.shared),
-            job: self.job.clone(),
+            work: self.work.clone(),
             generation: NonZeroU64::new(self.successor_token)
                 .expect("active task reservations have a nonzero successor token"),
         }
@@ -1157,7 +1172,7 @@ impl fmt::Debug for CampaignTaskReservation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignTaskReservation")
-            .field("job", &self.job)
+            .field("work", &self.work)
             .field("cores", &self.request.cores())
             .field("memory", &self.request.memory())
             .field("has_predecessor", &self.predecessor.is_some())
@@ -1286,7 +1301,7 @@ impl<T> fmt::Debug for CampaignResidentTransformTask<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignResidentTransformTask")
-            .field("job", self.reservation().job())
+            .field("work", self.reservation().work())
             .field("predecessor", self.predecessor().token())
             .finish_non_exhaustive()
     }
@@ -1328,7 +1343,7 @@ impl<T> fmt::Debug for CampaignResidentTransformBindFailure<T> {
         formatter
             .debug_struct("CampaignResidentTransformBindFailure")
             .field("error", &self.error)
-            .field("job", self.reservation.job())
+            .field("work", self.reservation.work())
             .finish_non_exhaustive()
     }
 }
@@ -1393,13 +1408,17 @@ enum CampaignResidentTransformPrepared<Predecessor, Successor, BuildError> {
 impl<Predecessor, Successor, BuildError>
     CampaignResidentTransformExecution<Predecessor, Successor, BuildError>
 {
-    pub fn job(&self) -> &CampaignJobKey {
+    pub fn work(&self) -> &CampaignWorkKey {
         match self {
-            Self::Committed(resident) => resident.token().job(),
-            Self::BuildFailed(failure) => failure.task().reservation().job(),
-            Self::Panicked(panic) => panic.reservation().job(),
-            Self::CommitFailed(failure) => failure.admitted.reservation().job(),
+            Self::Committed(resident) => resident.token().work(),
+            Self::BuildFailed(failure) => failure.task().reservation().work(),
+            Self::Panicked(panic) => panic.reservation().work(),
+            Self::CommitFailed(failure) => failure.admitted.reservation().work(),
         }
+    }
+
+    pub fn job(&self) -> &CampaignJobKey {
+        self.work().job()
     }
 }
 
@@ -1410,7 +1429,7 @@ impl<Predecessor, Successor, BuildError> fmt::Debug
         match self {
             Self::Committed(resident) => formatter
                 .debug_struct("Committed")
-                .field("job", resident.token().job())
+                .field("work", resident.token().work())
                 .finish_non_exhaustive(),
             Self::BuildFailed(failure) => fmt::Debug::fmt(failure, formatter),
             Self::Panicked(panic) => fmt::Debug::fmt(panic, formatter),
@@ -1456,7 +1475,7 @@ impl<T, BuildError> fmt::Debug for CampaignResidentTransformFailure<T, BuildErro
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignResidentTransformBuildFailed")
-            .field("job", self.task().reservation().job())
+            .field("work", self.task().reservation().work())
             .finish_non_exhaustive()
     }
 }
@@ -1500,7 +1519,7 @@ impl fmt::Debug for CampaignResidentTransformPanic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CampaignResidentTransformPanicked")
-            .field("job", self.reservation().job())
+            .field("work", self.reservation().work())
             .field("message", &self.message())
             .finish_non_exhaustive()
     }
@@ -1652,7 +1671,7 @@ fn validate_predecessor<Previous>(
     if let Some(actual) = predecessor {
         actual
             .token()
-            .validate_for(&reservation.shared, &reservation.job)?;
+            .validate_for(&reservation.shared, &reservation.work)?;
     }
     let expected = reservation.predecessor.as_ref();
     let actual = predecessor.map(CampaignResident::token);
@@ -1660,17 +1679,17 @@ fn validate_predecessor<Previous>(
         (None, None) => Ok(()),
         (Some(expected), Some(actual)) if expected.exact_match(actual) => Ok(()),
         (Some(expected), Some(actual)) => Err(CampaignAdmissionError::ResidentGenerationMismatch {
-            job: expected.job.clone(),
+            work: expected.work.clone(),
             expected: expected.generation.get(),
             actual: Some(actual.generation.get()),
         }),
         (Some(expected), None) => Err(CampaignAdmissionError::ResidentGenerationMismatch {
-            job: expected.job.clone(),
+            work: expected.work.clone(),
             expected: expected.generation.get(),
             actual: None,
         }),
         (None, Some(actual)) => Err(CampaignAdmissionError::UnexpectedResidentPredecessor {
-            job: actual.job.clone(),
+            work: actual.work.clone(),
             generation: actual.generation.get(),
         }),
     }
@@ -1972,10 +1991,10 @@ pub enum CampaignAdmissionError {
     ForeignSnapshot,
     ForeignWaveReservation,
     ForeignTaskReservation {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
     },
     UnsupportedExecutorCoreWidth {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         requested: usize,
     },
     StaleSnapshot {
@@ -1988,25 +2007,25 @@ pub enum CampaignAdmissionError {
     },
     WavePlanMismatch,
     MissingTaskEstimate {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
     },
     UnexpectedPredecessorToken {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
     },
     ForeignResidentToken {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
     },
-    ResidentJobMismatch {
-        expected: CampaignJobKey,
-        actual: CampaignJobKey,
+    ResidentWorkMismatch {
+        expected: CampaignWorkKey,
+        actual: CampaignWorkKey,
     },
     ResidentGenerationMismatch {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         expected: u64,
         actual: Option<u64>,
     },
     UnexpectedResidentPredecessor {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         generation: u64,
     },
     CoreCapacityUnavailable {
@@ -2043,15 +2062,15 @@ impl fmt::Display for CampaignAdmissionError {
             }
             Self::ForeignWaveReservation => formatter
                 .write_str("campaign wave reservation belongs to another admission controller"),
-            Self::ForeignTaskReservation { job } => write!(
+            Self::ForeignTaskReservation { work } => write!(
                 formatter,
-                "campaign executor task for sector {} belongs to another admission controller",
-                job.sector()
+                "campaign executor work unit for sector {} belongs to another admission controller",
+                work.job().sector()
             ),
-            Self::UnsupportedExecutorCoreWidth { job, requested } => write!(
+            Self::UnsupportedExecutorCoreWidth { work, requested } => write!(
                 formatter,
                 "campaign executor task for sector {} requests {requested} cores; the current controlled outer executor supports exactly one core per task",
-                job.sector()
+                work.job().sector()
             ),
             Self::StaleSnapshot {
                 expected_generation,
@@ -2070,41 +2089,40 @@ impl fmt::Display for CampaignAdmissionError {
             Self::WavePlanMismatch => formatter.write_str(
                 "campaign wave differs from deterministic selection replay for its snapshot",
             ),
-            Self::MissingTaskEstimate { job } => write!(
+            Self::MissingTaskEstimate { work } => write!(
                 formatter,
-                "campaign wave has no resource estimate for sector {}",
-                job.sector()
+                "campaign wave has no resource estimate for work unit in sector {}",
+                work.job().sector()
             ),
-            Self::UnexpectedPredecessorToken { job } => write!(
+            Self::UnexpectedPredecessorToken { work } => write!(
                 formatter,
-                "campaign predecessor token was supplied for unselected sector {}",
-                job.sector()
+                "campaign predecessor token was supplied for an unselected work unit in sector {}",
+                work.job().sector()
             ),
-            Self::ForeignResidentToken { job } => write!(
+            Self::ForeignResidentToken { work } => write!(
                 formatter,
-                "resident token for sector {} belongs to another admission controller",
-                job.sector()
+                "resident token for a work unit in sector {} belongs to another admission controller",
+                work.job().sector()
             ),
-            Self::ResidentJobMismatch { expected, actual } => write!(
+            Self::ResidentWorkMismatch { expected, actual } => write!(
                 formatter,
-                "resident sector {} does not match expected sector {}",
-                actual.sector(),
-                expected.sector()
+                "resident work unit {:?} does not match expected work unit {:?}",
+                actual, expected
             ),
             Self::ResidentGenerationMismatch {
-                job,
+                work,
                 expected,
                 actual,
             } => write!(
                 formatter,
-                "resident sector {} generation {:?} does not match sealed predecessor generation {expected}",
-                job.sector(),
+                "resident work unit in sector {} generation {:?} does not match sealed predecessor generation {expected}",
+                work.job().sector(),
                 actual
             ),
-            Self::UnexpectedResidentPredecessor { job, generation } => write!(
+            Self::UnexpectedResidentPredecessor { work, generation } => write!(
                 formatter,
-                "initial resident commit for sector {} unexpectedly received generation {generation}",
-                job.sector()
+                "initial resident commit for a work unit in sector {} unexpectedly received generation {generation}",
+                work.job().sector()
             ),
             Self::CoreCapacityUnavailable {
                 requested,

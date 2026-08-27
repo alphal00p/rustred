@@ -5,8 +5,8 @@ use rustred::{
     AffineDenominator, CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision,
     CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResourceError,
     CampaignResourcePolicy, CampaignRootSpec, CampaignTaskMemoryEnvelope,
-    CampaignTaskResourceEstimate, CampaignWavePlanner, CoefficientContext, IntegralFamily,
-    IntegralOrderingPolicy, SectorMask,
+    CampaignTaskResourceEstimate, CampaignWavePlanner, CampaignWorkKey, CoefficientContext,
+    IntegralFamily, IntegralOrderingPolicy, SectorMask,
 };
 
 fn family() -> Arc<IntegralFamily> {
@@ -43,7 +43,7 @@ fn family() -> Arc<IntegralFamily> {
     )
 }
 
-fn jobs() -> Vec<rustred::CampaignJobKey> {
+fn jobs() -> Vec<CampaignWorkKey> {
     let family = family();
     let roots = ["100", "010", "001"]
         .into_iter()
@@ -64,11 +64,18 @@ fn jobs() -> Vec<rustred::CampaignJobKey> {
     )
     .unwrap()
     .intrinsic_jobs()
-    .cloned()
+    .enumerate()
+    .map(|(lane, job)| {
+        CampaignWorkKey::job_lane(job.clone(), "campaign-resource-context", lane as u64)
+    })
     .collect()
 }
 
-fn wide_jobs(count: usize) -> Vec<rustred::CampaignJobKey> {
+fn one_job() -> rustred::CampaignJobKey {
+    jobs().remove(0).job().clone()
+}
+
+fn wide_jobs(count: usize) -> Vec<CampaignWorkKey> {
     assert!(count <= 1_023);
     let coefficients = CoefficientContext::new(["d"]);
     let scalar_products = 10usize;
@@ -109,7 +116,10 @@ fn wide_jobs(count: usize) -> Vec<rustred::CampaignJobKey> {
     )
     .unwrap()
     .intrinsic_jobs()
-    .cloned()
+    .enumerate()
+    .map(|(lane, job)| {
+        CampaignWorkKey::job_lane(job.clone(), "campaign-resource-wide-context", lane as u64)
+    })
     .collect()
 }
 
@@ -149,7 +159,7 @@ fn stable_first_fit_leaves_cores_idle_when_memory_is_the_bottleneck() {
         CampaignTaskResourceEstimate::try_new(revision, 1, memory(150, 150)).unwrap(),
     );
     let wave = CampaignWavePlanner::try_plan(policy, &requests).unwrap();
-    assert_eq!(wave.jobs(), &[jobs[0].clone()]);
+    assert_eq!(wave.work(), &[jobs[0].clone()]);
     assert_eq!(wave.selected_cores(), 1);
     assert_eq!(
         wave.selected_peak_additional_memory(),
@@ -184,6 +194,40 @@ fn wave_is_independent_of_request_insertion_order() {
         CampaignWavePlanner::try_plan(policy, &left).unwrap(),
         CampaignWavePlanner::try_plan(policy, &right).unwrap()
     );
+}
+
+#[test]
+fn same_planned_job_can_select_distinct_exceptional_leaf_work_units() {
+    let job = one_job();
+    let left = CampaignWorkKey::exact_publication_exceptional_leaf(
+        job.clone(),
+        "same-context",
+        4,
+        1,
+        9,
+        2,
+    );
+    let right =
+        CampaignWorkKey::exact_publication_exceptional_leaf(job, "same-context", 4, 1, 9, 3);
+    let revision = CampaignEstimatorRevision::try_new(11).unwrap();
+    let policy = CampaignResourcePolicy::try_new(
+        revision,
+        2,
+        CampaignBytes::new(1_000),
+        CampaignBaselineMemory::try_new(
+            CampaignBytes::ZERO,
+            CampaignBytes::ZERO,
+            CampaignBytes::ZERO,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let estimate = CampaignTaskResourceEstimate::try_new(revision, 1, memory(10, 10)).unwrap();
+    let requests = BTreeMap::from([(right.clone(), estimate), (left.clone(), estimate)]);
+
+    let wave = CampaignWavePlanner::try_plan(policy, &requests).unwrap();
+    assert_eq!(wave.work(), &[left, right]);
+    assert_eq!(wave.selected_cores(), 2);
 }
 
 #[test]
@@ -243,7 +287,7 @@ fn oversized_jobs_are_skipped_while_an_admissible_wave_exists() {
         ),
     ]);
     let wave = CampaignWavePlanner::try_plan(policy, &requests).unwrap();
-    assert_eq!(wave.jobs(), &[jobs[1].clone(), jobs[2].clone()]);
+    assert_eq!(wave.work(), &[jobs[1].clone(), jobs[2].clone()]);
     assert_eq!(wave.selected_cores(), 2);
     assert_eq!(
         wave.selected_peak_additional_memory(),
@@ -316,13 +360,13 @@ fn hundred_core_one_tibibyte_wave_keeps_idle_cores_under_ram_pressure() {
         .collect::<BTreeMap<_, _>>();
 
     let wave = CampaignWavePlanner::try_plan(policy, &requests).unwrap();
-    assert_eq!(wave.jobs().len(), 57);
+    assert_eq!(wave.work().len(), 57);
     assert_eq!(wave.selected_cores(), 57);
     assert_eq!(
         wave.selected_peak_additional_memory(),
         CampaignBytes::new(912 * GIB)
     );
-    assert!(wave.jobs().len() <= policy.cores());
+    assert!(wave.work().len() <= policy.cores());
     assert!(
         policy.baseline().total().get() + wave.selected_peak_additional_memory().get()
             <= policy.max_memory().get()
@@ -335,7 +379,7 @@ fn hundred_core_one_tibibyte_wave_keeps_idle_cores_under_ram_pressure() {
         CampaignResourcePolicy::try_new(revision, 100, CampaignBytes::new(900 * GIB), baseline)
             .unwrap();
     let headroom_wave = CampaignWavePlanner::try_plan(headroom_policy, &requests).unwrap();
-    assert_eq!(headroom_wave.jobs().len(), 50);
+    assert_eq!(headroom_wave.work().len(), 50);
     assert_eq!(headroom_wave.selected_cores(), 50);
     assert_eq!(
         headroom_wave.selected_peak_additional_memory(),
@@ -385,7 +429,7 @@ fn selection_handles_empty_exact_boundary_and_aggregate_u64_nonfit() {
         ),
     ]);
     let exact = CampaignWavePlanner::try_plan(exact_policy, &exact_requests).unwrap();
-    assert_eq!(exact.jobs().len(), 2);
+    assert_eq!(exact.work().len(), 2);
     assert_eq!(exact.selected_cores(), 4);
     assert_eq!(
         exact.selected_peak_additional_memory(),
@@ -415,7 +459,7 @@ fn selection_handles_empty_exact_boundary_and_aggregate_u64_nonfit() {
         ),
     ]);
     let huge = CampaignWavePlanner::try_plan(huge_policy, &huge_requests).unwrap();
-    assert_eq!(huge.jobs(), &[jobs[0].clone()]);
+    assert_eq!(huge.work(), &[jobs[0].clone()]);
 }
 
 #[test]
@@ -447,7 +491,7 @@ fn core_oversized_job_is_skipped_until_it_is_the_only_remaining_work() {
     assert_eq!(
         CampaignWavePlanner::try_plan(policy, &mixed)
             .unwrap()
-            .jobs(),
+            .work(),
         &[jobs[1].clone()]
     );
     let impossible = BTreeMap::from([(

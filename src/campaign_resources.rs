@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::num::{NonZeroU64, NonZeroUsize};
 
-use crate::CampaignJobKey;
+use crate::CampaignWorkKey;
 
 pub const CAMPAIGN_RESOURCE_POLICY_V1_SCHEMA: &str = "rustred.campaign-resource-policy.v1";
 
@@ -281,14 +281,14 @@ impl CampaignResourcePolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CampaignResourceWavePlan {
-    jobs: Vec<CampaignJobKey>,
+    work: Vec<CampaignWorkKey>,
     selected_cores: usize,
     selected_peak_additional_memory: CampaignBytes,
 }
 
 impl CampaignResourceWavePlan {
-    pub fn jobs(&self) -> &[CampaignJobKey] {
-        &self.jobs
+    pub fn work(&self) -> &[CampaignWorkKey] {
+        &self.work
     }
 
     pub const fn selected_cores(&self) -> usize {
@@ -300,7 +300,7 @@ impl CampaignResourceWavePlan {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.jobs.is_empty()
+        self.work.is_empty()
     }
 }
 
@@ -309,44 +309,45 @@ pub struct CampaignWavePlanner;
 impl CampaignWavePlanner {
     /// Stable first-fit over an already sorted logical frontier. Only selected
     /// compact keys are copied; heavyweight task owners remain unconstructed.
-    /// Individually impossible jobs remain skipped while any admissible work
-    /// exists. Once an empty wave contains only impossible jobs, its lowest
-    /// stable key produces a typed pause/error instead of a scheduling spin.
+    /// Individually impossible work units remain skipped while any admissible
+    /// work exists. Once an empty wave contains only impossible work units,
+    /// its lowest stable key produces a typed pause/error instead of a
+    /// scheduling spin.
     /// This is a pure calculation, not a runtime resource reservation.
     /// Its output is advisory: an executor must revalidate the current
     /// baseline and atomically acquire the complete selected vector before it
     /// constructs task owners, replanning if this snapshot became stale.
     pub fn try_plan(
         policy: CampaignResourcePolicy,
-        requests: &BTreeMap<CampaignJobKey, CampaignTaskResourceEstimate>,
+        requests: &BTreeMap<CampaignWorkKey, CampaignTaskResourceEstimate>,
     ) -> Result<CampaignResourceWavePlan, CampaignResourceError> {
-        for (job, request) in requests {
+        for (work, request) in requests {
             if request.estimator_revision != policy.estimator_revision {
                 return Err(CampaignResourceError::EstimatorRevisionMismatch {
-                    job: job.clone(),
+                    work: work.clone(),
                     expected: policy.estimator_revision,
                     actual: request.estimator_revision,
                 });
             }
         }
 
-        let mut jobs = Vec::new();
-        let maximum_jobs = requests.len().min(policy.cores.get());
-        jobs.try_reserve_exact(maximum_jobs).map_err(|_| {
+        let mut work = Vec::new();
+        let maximum_work_units = requests.len().min(policy.cores.get());
+        work.try_reserve_exact(maximum_work_units).map_err(|_| {
             CampaignResourceError::AllocationFailure {
-                resource: "campaign wave job keys",
-                requested: maximum_jobs,
+                resource: "campaign wave work keys",
+                requested: maximum_work_units,
             }
         })?;
         let mut selected_cores = 0usize;
         let mut selected_memory = CampaignBytes::ZERO;
         let available_memory = policy.max_memory.checked_sub(policy.baseline.total())?;
         let mut lowest_impossible = None;
-        for (job, request) in requests {
+        for (work_key, request) in requests {
             if request.cores.get() > policy.cores.get() {
                 lowest_impossible.get_or_insert_with(|| {
                     CampaignResourceError::TaskCoreRequestExceedsCapacity {
-                        job: job.clone(),
+                        work: work_key.clone(),
                         requested: request.cores.get(),
                         capacity: policy.cores.get(),
                     }
@@ -356,7 +357,7 @@ impl CampaignWavePlanner {
             if request.memory.peak_additional() > available_memory {
                 lowest_impossible.get_or_insert_with(|| {
                     CampaignResourceError::TaskMemoryRequestExceedsCapacity {
-                        job: job.clone(),
+                        work: work_key.clone(),
                         baseline: policy.baseline.total(),
                         additional: request.memory.peak_additional(),
                         capacity: policy.max_memory,
@@ -369,7 +370,7 @@ impl CampaignWavePlanner {
             if request.cores.get() <= remaining_cores
                 && request.memory.peak_additional() <= remaining_memory
             {
-                jobs.push(job.clone());
+                work.push(work_key.clone());
                 selected_cores = selected_cores.checked_add(request.cores.get()).ok_or(
                     CampaignResourceError::CoreCountOverflow {
                         operation: "campaign wave core selection",
@@ -378,13 +379,13 @@ impl CampaignWavePlanner {
                 selected_memory = selected_memory.checked_add(request.memory.peak_additional())?;
             }
         }
-        if !requests.is_empty() && jobs.is_empty() {
+        if !requests.is_empty() && work.is_empty() {
             return Err(
                 lowest_impossible.unwrap_or(CampaignResourceError::NoSelectableTaskInvariant)
             );
         }
         Ok(CampaignResourceWavePlan {
-            jobs,
+            work,
             selected_cores,
             selected_peak_additional_memory: selected_memory,
         })
@@ -408,17 +409,17 @@ pub enum CampaignResourceError {
         capacity: CampaignBytes,
     },
     EstimatorRevisionMismatch {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         expected: CampaignEstimatorRevision,
         actual: CampaignEstimatorRevision,
     },
     TaskCoreRequestExceedsCapacity {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         requested: usize,
         capacity: usize,
     },
     TaskMemoryRequestExceedsCapacity {
-        job: CampaignJobKey,
+        work: CampaignWorkKey,
         baseline: CampaignBytes,
         additional: CampaignBytes,
         capacity: CampaignBytes,
@@ -456,34 +457,34 @@ impl fmt::Display for CampaignResourceError {
                 "campaign baseline {baseline} exceeds memory capacity {capacity}"
             ),
             Self::EstimatorRevisionMismatch {
-                job,
+                work,
                 expected,
                 actual,
             } => write!(
                 formatter,
                 "campaign sector {} uses estimator revision {}, expected {}",
-                job.sector(),
+                work.job().sector(),
                 actual.get(),
                 expected.get()
             ),
             Self::TaskCoreRequestExceedsCapacity {
-                job,
+                work,
                 requested,
                 capacity,
             } => write!(
                 formatter,
                 "campaign sector {} requests {requested} cores, exceeding capacity {capacity}",
-                job.sector()
+                work.job().sector()
             ),
             Self::TaskMemoryRequestExceedsCapacity {
-                job,
+                work,
                 baseline,
                 additional,
                 capacity,
             } => write!(
                 formatter,
                 "campaign sector {} needs baseline {baseline} plus {additional}, exceeding capacity {capacity}",
-                job.sector()
+                work.job().sector()
             ),
             Self::AllocationFailure {
                 resource,
