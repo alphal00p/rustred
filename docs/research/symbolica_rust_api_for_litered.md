@@ -680,6 +680,44 @@ symmetry/transport/oracle runs each passed 36/36 tests. The all-feature/all-
 target compile check passed as well. Integer symmetry-discovery determinants
 and Feynman-polynomial matrix consumers remain separate migration work.
 
+#### 10.1.2 Integer affine maps and the normal-form boundary
+
+Public `Matrix<IntegerRing>` supports rectangular construction and ordinary
+exact multiplication, so compact affine-map composition must use native
+`&left * &right`. A RustRed adapter may authenticate dimensions and integer
+payloads, admit operation/retained-memory envelopes, contain panics, and replay
+the resulting geometry; it must not implement the matrix dot products.
+
+The implemented adapter also exposes an algebra-free borrowed-entry preflight.
+Virtual parent/substitution matrices can therefore enforce entry, operation,
+GMP-bit, input-retained-byte, and conservative prospective-output-byte limits
+before any dense staging allocation. The actual product still occurs exactly
+once through Symbolica, after which the output's canonical integer variants,
+bit lengths, and exact retained capacities are authenticated. This resource
+surface is not a second matrix implementation.
+
+An exhaustive source search of the public dense/sparse matrix, solving,
+polynomial, Groebner, and domain APIs found no Smith normal form, Hermite
+normal form, integer nullspace/kernel basis, or complete underdetermined
+integer-affine parameterization. `Matrix<Z>::solve_fraction_free` is not such
+an API. Consequently exceptional equality refinement currently supports only
+a Symbolica-normalized affine row with a literal `+1` or `-1` coefficient on
+an active free coordinate. No-unit and simultaneous-general cases return a
+typed `RequiresIntegerNormalForm` unsupported boundary; they do not call the
+RustRed integer-lattice prototypes.
+
+The 2026-08-27 licensed default-GMP gate passed 37/37 matrix-boundary tests and
+19/19 unit-equality tests in one eight-worker Nextest run (56/56, run
+`c2f7ff6f-03dc-430c-95c7-554fdcecd95e`). The latter includes current-target
+non-double-mapping, both unit signs, deterministic pivot choice, nontrivial
+parent composition, physical-parameter factors, a genuine GMP-sized constant,
+sign-aware `i128::MIN` promotion, typed completeness boundaries, replay
+tampering, and exact/one-below pre-allocation resource admission. Matrix tests
+pin the signed 127-bit inline cutoff and the two retained-capacity limbs needed
+by the vendored Symbolica/Rug/default-GMP multi-term accumulation path; that
+backend-specific capacity rule must be re-audited when the pinned backend
+changes.
+
 ### 10.2 Sparse matrices and row reduction
 
 CSR `SparseMatrix` is defined at `vendor/symbolica/lib/numerica/src/tensors/sparse.rs:230-249`; constructors are at `401-529`. `from_csr` mostly asserts shape lengths, and `from_triplets` relies on a debug assertion for ordering (`495-529`). RustRed must sort triplets, combine duplicates, drop zeros and bounds-check before construction.
@@ -982,6 +1020,8 @@ Performance rules for the first implementation:
 | Integral rule matching | Pattern iterators/replacements | Outer structural dispatch only; typed matching and guards own correctness |
 | Coefficients | `MultivariatePolynomial`, `RationalPolynomial<Z,E>` | Primary exact backend under one validated map |
 | Generic-family coefficient matrices | `Matrix<CheckedCoefficientField>` over rational-polynomial elements | Completed P1 slice: native determinant, inverse, and products behind contextual admission, determinant guard, authentication, and entrywise two-sided replay |
+| Integer affine-map composition | `Matrix<IntegerRing>` over GMP-backed `Integer` | Native rectangular product behind shape/bit/memory admission and exact geometry replay; no RustRed matrix arithmetic |
+| General integer affine-lattice parameterization | No public SNF/HNF or integer-kernel API found | Typed unsupported boundary beyond the literal-unit-pivot subset; never substitute a RustRed-authored CAS |
 | Partial RP substitution | polynomial `evaluate_with_coeff_map` into `RationalPolynomialField` | Wrap with full point length, map checks and explicit denominator guards |
 | Variable remap | `unify_variables`, `rename_variable`, `from_coefficient_list` | Never accept implicit extension; explicit checked exponent permutation |
 | Factorized denominators | `FactorizedRationalPolynomial` | Optimization only; not canonical/persistent truth |

@@ -12,11 +12,12 @@ feature.
 > operation in RustRed, search Symbolica's public Rust API, its public
 > rustdocs, examples, tests, and its internal production call sites. A public
 > Symbolica operation is mandatory whenever it can supply the required exact
-> operation. RustRed may implement algebra itself only when a required
-> LiteRed semantic is blocked by a documented and audited public-API gap.
-> Such a gap must identify the searched APIs and evidence, the missing
-> semantic, why composition around the public operation is insufficient, and
-> the tests that validate the replacement.
+> operation. When a required LiteRed semantic is blocked by a documented and
+> audited public-API gap, production stops at a typed unsupported boundary;
+> the gap is not permission to grow a second CAS in RustRed. Such a record
+> must identify the searched APIs and evidence, the missing semantic, why
+> composition around the public operation is insufficient, and the exact
+> upstream capability needed to remove the boundary.
 
 Performance preference, familiarity with an existing RustRed routine, or a
 desire for a different representation is not by itself a gap. RustRed may and
@@ -349,6 +350,13 @@ changes.
 
 - Small exact integer and rational systems can use dense `Matrix<Z>` with
   fraction-free operations or `Matrix<Q>` with field operations.
+- Exact affine-map composition can use ordinary rectangular `Matrix<Z>`
+  multiplication. RustRed authenticates shapes, integer payloads, resources,
+  and output geometry; it does not implement matrix dot products. The current
+  boundary additionally supports allocation-free borrowed-entry admission, so
+  a virtual affine matrix is checked before dense GMP staging, and a
+  conservative prospective output-byte envelope is checked before the native
+  product. Exact output capacity is authenticated afterwards.
 - Small parametric systems can use
   `Matrix<RationalPolynomialField<Z, E>>`. This is the natural independent
   oracle for RustRed's typed coefficient elimination.
@@ -402,12 +410,19 @@ LiteRed/RustRed semantics:
    field algorithm that normalizes pivots; the public sparse surface does not
    expose a fraction-free Euclidean-domain reducer analogous to the dense
    one.
+8. **Complete integer affine-lattice parameterization.** Exhaustive searches
+   of the public dense/sparse matrix, polynomial, solving, and domain APIs found
+   no Smith normal form, Hermite normal form, integer nullspace/kernel basis,
+   or complete underdetermined affine-lattice parameterization. `Matrix<Z>`
+   fraction-free solve supplies a determined solution, not the integral
+   solution lattice. RustRed may use `Matrix<Z>` multiplication for a literal
+   unit-pivot specialization, but a general no-unit or simultaneous-equality
+   case must return a typed `RequiresIntegerNormalForm` unsupported result.
 
-These gaps justify RustRed-owned semantic layers and may justify a narrowly
-scoped custom elimination mechanism only after composition with the public
-operations has been documented as insufficient. They do not justify custom
-integer, rational, polynomial, rational-function, determinant, matrix, or
-finite-field arithmetic.
+These gaps justify RustRed-owned semantic layers and typed completeness
+boundaries. They do not justify custom integer, rational, polynomial,
+rational-function, determinant, matrix, lattice-normal-form, or finite-field
+arithmetic.
 
 ## Decision record for future algebra work
 

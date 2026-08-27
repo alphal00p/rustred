@@ -38,11 +38,17 @@ can then mint an event-owned singleton and enter the existing consuming
 resident-transform executor; the production adapter retains and authenticates
 the parent's generic-source authority in a fresh V3 plan/catalog, constructs an
 empty database/session, and stops at typed affine-equality refinement. The
-source rows are not yet submitted to that database. `SectorLeak` returns its live lease for
+source rows are not yet submitted to that database. A separate authority-
+neutral core now derives and replays child geometry for one current-target
+affine equality with a literal unit pivot, using Symbolica `Matrix<Z>` for map
+composition; multiple/nonlinear/no-unit cases remain typed unsupported. That
+core is not yet bound to the committed Domain resident and has not regenerated
+the child source rows. `SectorLeak` returns its live lease for
 separate out-of-sector routing. The local child census excludes the shared
 event-authority/parent ancestry, so the acceptance keeps the origin owner live
 and is not yet an origin-droppable RAM-admitted production lane. Applicable-
-provider work/results, equality quotient/re-elimination, shared-lineage
+provider work/results, committed-source equality binding/row regeneration,
+shared-lineage
 admission, the frontier coordinator, and closure remain pending. A separate
 current-worktree exact-session
 transition now implements same-database `IdenticallyBad` continuation: it
@@ -856,7 +862,10 @@ authority in a fresh V3 plan/catalog before constructing an empty database/
 session. The publication application row is not a source row, the inherited
 rows have not yet been submitted, and no parent pivot, target disposition, or
 event ledger is imported. The generated fixture stops at typed affine-equality refinement. The
-full continuation witness, equality quotient/re-elimination, shared-ancestry
+separate unit-pivot child-geometry compiler does not change that acceptance
+boundary until an adapter binds it to this resident and regenerates/completes
+the inherited rows. The full continuation witness, general integer-normal-
+form equality support, shared-ancestry
 admission, multi-child re-entry coordinator, and closure are not implemented.
 
 `IdenticallyBad` is deliberately separate. It publishes no good or exceptional
@@ -1005,8 +1014,11 @@ resource-limited frontier remains unresolved.
    compact queue rather than an eager set of live forks.
 3. **Exceptional closure:** extend the implemented stable-key result staging,
    atomic charge transfer, and first same-sector Domain-to-fresh-session ingress
-   with affine-equality quotient/re-elimination and separately admitted shared
-   ancestry; then add frozen-epoch affine proposals, applicable providers,
+   by binding the implemented literal-unit equality refinement to its committed
+   source, regenerating and directly completing/submitting child rows, and
+   separately admitting shared ancestry. General no-unit/simultaneous affine
+   solving waits on a public Symbolica integer-normal-form/kernel API. Then add
+   frozen-epoch affine proposals, applicable providers,
    solved-subsector feedback from allowlisted strict descendants, and joint
    dependency/exception fixed-point admission. Integrate the already
    implemented separate same-database rejected-candidate transition into that

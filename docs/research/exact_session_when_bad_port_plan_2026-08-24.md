@@ -91,8 +91,23 @@ identity. Every stage still deep-clones the full native reducer, forward
 elimination is serial, and opaque native heap/scratch bytes are not censused;
 this is not evidence of physical-topology reduction, Vakint reproduction, or
 six-loop scalability.
+The latest topology-neutral row-ingress slice completes exactly one generated
+bound row by attaching its row-local base assumptions, then physicalizes that
+row without retaining a `PreorderedParametricElimination`, column order, pivot,
+or scouting state. Legacy whole-schedule re-elimination remains only a
+`cfg(test)`/differential bridge. A separate authority-neutral equality core now
+recognizes one current-target affine predicate, deterministically solves a
+literal `+1` or `-1` free-coordinate pivot, composes the parent and child maps
+through one public Symbolica `Matrix<Z>` product, and verifies exact zero
+substitution. Borrowed sparse/GMP and virtual matrix payloads are admitted
+before cloning/staging, and the native output has a prospective byte envelope.
+Multiple, nonlinear, and no-unit cases return typed unsupported outcomes
+because the pinned Symbolica API has no public SNF/HNF/integer-kernel facility.
+This equality core is not yet committed-source authority: it has not been
+connected to the event-derived Domain resident, regenerated the inherited
+generic rows under the child map, or submitted them to a fresh child session.
 Bundling and physical six-loop derivation still precede optimized application;
-updated 2026-08-26.
+updated 2026-08-27.
 
 This document specifies the next topology-neutral RustRed seam after
 `GeneratedAffineResidualGroupExactSessionRecenterOutcome`. It joins the
@@ -1653,8 +1668,12 @@ Implement in this order:
 9. build on the implemented non-durable topology-neutral `CampaignPlan`,
    stable-key exceptional result staging/charge transfer, same-database
    rejected-candidate continuation, and first sealed committed-Domain ingress
-   into a fresh narrowed-domain exact session; add affine-equality quotient/re-
-   elimination, separately admitted shared lineage, applicable providers,
+   into a fresh narrowed-domain exact session; bind the implemented literal-
+   unit equality compiler to that committed source, regenerate and submit the
+   inherited generic rows under the child geometry, and re-enter exact solving.
+   Extend beyond the typed no-unit/simultaneous boundary only when Symbolica
+   exposes the required integer normal-form/kernel API. Then add separately
+   admitted shared lineage, applicable providers,
    solved-subsector feedback, and the production campaign frontier, then
    iterate those queues to a proved coverage fixed point
    with exact regenerated-IBP residuals and a finite enumerated selected/
@@ -1707,6 +1726,18 @@ opaque-native reserve, checks its enumerated visible census, and verifies that
 the fresh session has no imported pivot, consumed-target, event-ledger, or
 native sparse-row state and may honestly stop at affine-equality refinement.
 
+The adjacent row/equality prerequisites are now implemented but deliberately
+remain separate. `GeneratedAffineResidualCaseCompletedBoundRow` is the direct
+production seam from one authenticated bound row to physical ingress; it owns
+no scouting elimination. The unit-equality certificate is replayable and
+Symbolica-native for the literal-unit subset, but its compiler accepts only a
+borrowed current-target geometry and predicate. The next adapter must consume
+the committed exceptional resident, retain whatever event/source proof is
+mathematically required, instantiate the refined source authority, regenerate
+the generic IBP/LI rows, and submit completed rows to the fresh database. It
+must not import parent pivots or treat the authority-neutral `ProvedEmpty`
+diagnostic as branch-pruning evidence.
+
 This is not yet a standalone exceptional-lane campaign coordinator or a
 complete RAM estimate. `retained_event_bytes` covers the immutable event
 allocation and event-local payload, but not the separately shared event
@@ -1721,6 +1752,18 @@ The root-owned milestone gate used the licensed default-GMP build. The complete
 handoff/epoch-owner/result-batch superset passed 28/28 tests with eight Rust
 test threads; `cargo check --tests -j8`, `cargo fmt --check`, and
 `git diff --check` also passed.
+
+The row/equality prerequisite gate also used licensed default-GMP Symbolica.
+Focused completed-row, physical-row, database-ingress, schedule-differential,
+and guarded-assumption runs passed 1/1, 7/7, 2/2, 1/1, and 1/1 respectively. An
+independent combined eight-worker ingress expression passed 14/14 (run
+`12eb7c94-5627-4aa2-a69d-877f312df036`). A parallel Nextest run passed all 19
+unit-equality and 37 Symbolica matrix tests (56/56, run
+`c2f7ff6f-03dc-430c-95c7-554fdcecd95e`), including exact/one-below
+pre-allocation bounds, arbitrary-precision GMP input, sign-changing
+`i128::MIN` promotion, and the pinned two-limb output-capacity boundary.
+`cargo check --tests -j8` passed. These are component gates, not a closed
+exceptional child or a reduction result.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

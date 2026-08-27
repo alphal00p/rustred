@@ -6947,7 +6947,7 @@ pub(crate) mod tests {
                 continue;
             }
             rows.push(Arc::new(
-                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile_from_reelimination_for_test(
                     &family,
                     &context,
                     Arc::clone(&certificate),
@@ -7533,7 +7533,7 @@ pub(crate) mod tests {
                 .filter(|witness| witness.outcome().is_retained())
                 .count();
             return Arc::new(
-                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile_from_reelimination_for_test(
                     family,
                     context,
                     certificate,

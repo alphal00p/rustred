@@ -18,7 +18,13 @@ Domain leaf into an admitted resident and constructs a genuinely fresh V3 exact
 session from the parent's inherited generic-source authority; its generated
 acceptance stops at affine-equality refinement, keeps the child database empty,
 and imports no parent reducer state. Shared
-ancestry admission and equality quotient/re-elimination remain pending. The
+ancestry admission and committed-source equality continuation remain pending.
+A separate topology-neutral prerequisite now handles one current-target affine
+equality with a literal `+1` or `-1` pivot and composes child geometry through
+Symbolica `Matrix<Z>`; it is authority-neutral, does not yet regenerate child
+IBPs, and returns typed unsupported for no-unit/multiple/nonlinear cases. A
+direct completed-row seam also physicalizes one generated row without retaining
+scouting elimination state. The
 sector-`011` regression is a topology-neutral hybrid session test with test-
 staged terms, not a fully generated-row or physical-vacuum acceptance claim.
 
@@ -727,9 +733,15 @@ exceptional-domain ingress slice is also implemented: one committed Domain
 leaf becomes an event-owned singleton, retains/authenticates the generic-source
 authority in a fresh V3 plan/catalog, constructs an empty database/session, and
 reaches typed affine-equality refinement; source-row submission has not begun.
+A separate literal-unit-pivot compiler can now derive and replay the required
+child geometry, and generated bound rows can be completed/physicalized one at a
+time without production `PreorderedParametricElimination` ownership. The next
+step is to bind those two pieces to the committed Domain source, regenerate its
+generic rows under the child geometry, and submit them to the fresh database.
 A `SectorLeak`
 returns its live lease to separate out-of-sector routing. Equality quotient/re-
-elimination, shared event-ancestry admission, applicable providers, bottom-up
+elimination beyond the literal-unit subset (pending a public Symbolica integer
+normal-form/kernel API), shared event-ancestry admission, applicable providers, bottom-up
 subsector feedback, a coverage fixed point, durable closed shards, and physical
 application remain unfinished. `SectorLeak` is parent-inactive activation and
 future out-of-sector exceptional work, never a proper-subsector dependency.

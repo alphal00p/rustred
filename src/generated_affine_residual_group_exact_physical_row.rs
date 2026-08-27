@@ -1,7 +1,7 @@
 //! Sealed, unrecentered exact rows for generated affine group elimination.
 //!
 //! This topology-neutral ingress converts every compact case-local
-//! [`IndexShift`](crate::IndexShift) in one authenticated re-elimination row
+//! [`IndexShift`](crate::IndexShift) in one authenticated completed bound row
 //! into the common arbitrary-precision physical coordinates retained by a
 //! [`GeneratedAffineResidualGroupPhysicalFrame`]. It deliberately performs
 //! no pivot selection, row normalization, cross-row elimination, target
@@ -15,7 +15,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use crate::generated_affine_residual_case_reelimination::GeneratedAffineResidualCaseReeliminationCertificate;
+use crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRow;
 use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError,
@@ -24,15 +24,14 @@ use crate::{
     IntegralFamily, ParametricCoefficient, ParametricCoefficientContext, ParametricNonZeroCondition,
 };
 
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V1_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-exact-physical-row-v1";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V2_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-physical-row-v2";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactPhysicalRowLimits {
-    pub(crate) max_reelimination_replays: usize,
+    pub(crate) max_completed_row_replays: usize,
     pub(crate) max_frame_replays: usize,
     pub(crate) max_parent_allocation_comparisons: usize,
-    pub(crate) max_witnesses: usize,
     pub(crate) max_arity: usize,
     pub(crate) max_terms: usize,
     pub(crate) max_guards: usize,
@@ -64,10 +63,9 @@ impl Default for GeneratedAffineResidualGroupExactPhysicalRowLimits {
         const LARGE: usize = 64_000_000_000;
         const VERY_LARGE: usize = 4_000_000_000_000_000_000;
         Self {
-            max_reelimination_replays: 1,
+            max_completed_row_replays: 1,
             max_frame_replays: 1,
             max_parent_allocation_comparisons: 6,
-            max_witnesses: 100_000_000,
             max_arity: 1_000_000,
             max_terms: 16_000_000,
             max_guards: 16_000_000,
@@ -98,10 +96,9 @@ impl Default for GeneratedAffineResidualGroupExactPhysicalRowLimits {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualGroupExactPhysicalRowStats {
-    reelimination_replays: usize,
+    completed_row_replays: usize,
     frame_replays: usize,
     parent_allocation_comparisons: usize,
-    witnesses: usize,
     arity: usize,
     terms: usize,
     guards: usize,
@@ -140,10 +137,9 @@ macro_rules! stats_getters {
 
 impl GeneratedAffineResidualGroupExactPhysicalRowStats {
     stats_getters!(
-        reelimination_replays,
+        completed_row_replays,
         frame_replays,
         parent_allocation_comparisons,
-        witnesses,
         arity,
         terms,
         guards,
@@ -183,11 +179,10 @@ pub(crate) enum GeneratedAffineResidualGroupExactPhysicalRowError {
     WrongParentAllocation,
     WrongCaseBinding,
     WrongGroupBinding,
-    WrongWitnessBinding,
+    CompletedRow,
     EmptyRelation,
     DuplicatePhysicalKey,
     ReplayMismatch,
-    Reelimination,
     PhysicalKey,
     ResourceLimit {
         resource: &'static str,
@@ -212,11 +207,10 @@ impl GeneratedAffineResidualGroupExactPhysicalRowError {
             Self::WrongParentAllocation => "WrongParentAllocation",
             Self::WrongCaseBinding => "WrongCaseBinding",
             Self::WrongGroupBinding => "WrongGroupBinding",
-            Self::WrongWitnessBinding => "WrongWitnessBinding",
+            Self::CompletedRow => "CompletedRow",
             Self::EmptyRelation => "EmptyRelation",
             Self::DuplicatePhysicalKey => "DuplicatePhysicalKey",
             Self::ReplayMismatch => "ReplayMismatch",
-            Self::Reelimination => "Reelimination",
             Self::PhysicalKey => "PhysicalKey",
             Self::ResourceLimit { .. } => "ResourceLimit",
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
@@ -275,12 +269,15 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactPhysicalTerm {
 #[derive(Clone)]
 pub(crate) struct GeneratedAffineResidualGroupExactPhysicalRow {
     schema: &'static str,
-    source: Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
+    source: Arc<GeneratedAffineResidualCaseCompletedBoundRow>,
     frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
     source_case_ordinal: usize,
     group_ordinal: usize,
-    retained_row_ordinal: usize,
-    witness_ordinal: usize,
+    expanded_ordinal: usize,
+    layer_ordinal: usize,
+    point_depth: usize,
+    point_ordinal: usize,
+    source_row_ordinal: usize,
     terms: Arc<Vec<GeneratedAffineResidualGroupExactPhysicalTerm>>,
     guards: Arc<Vec<ParametricNonZeroCondition>>,
     limits: GeneratedAffineResidualGroupExactPhysicalRowLimits,
@@ -294,8 +291,11 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactPhysicalRow {
             .field("schema", &self.schema)
             .field("source_case_ordinal", &self.source_case_ordinal)
             .field("group_ordinal", &self.group_ordinal)
-            .field("retained_row_ordinal", &self.retained_row_ordinal)
-            .field("witness_ordinal", &self.witness_ordinal)
+            .field("expanded_ordinal", &self.expanded_ordinal)
+            .field("layer_ordinal", &self.layer_ordinal)
+            .field("point_depth", &self.point_depth)
+            .field("point_ordinal", &self.point_ordinal)
+            .field("source_row_ordinal", &self.source_row_ordinal)
             .field("term_count", &self.terms.len())
             .field("guard_count", &self.guards.len())
             .field("stats", &self.stats)
@@ -327,8 +327,8 @@ impl fmt::Debug for GeneratedAffineResidualGroupReplayedExactPhysicalRow<'_> {
             .debug_struct("GeneratedAffineResidualGroupReplayedExactPhysicalRow")
             .field("source_case_ordinal", &self.source_case_ordinal())
             .field("group_ordinal", &self.group_ordinal())
-            .field("retained_row_ordinal", &self.retained_row_ordinal())
-            .field("witness_ordinal", &self.witness_ordinal())
+            .field("expanded_ordinal", &self.expanded_ordinal())
+            .field("source_row_ordinal", &self.source_row_ordinal())
             .field("term_count", &self.row.terms.len())
             .field("guard_count", &self.row.guards.len())
             .field("private_payload", &"<redacted>")
@@ -350,12 +350,12 @@ impl<'a> GeneratedAffineResidualGroupReplayedExactPhysicalRow<'a> {
         self.row.group_ordinal
     }
 
-    pub(crate) const fn retained_row_ordinal(&self) -> usize {
-        self.row.retained_row_ordinal
+    pub(crate) const fn expanded_ordinal(&self) -> usize {
+        self.row.expanded_ordinal
     }
 
-    pub(crate) const fn witness_ordinal(&self) -> usize {
-        self.row.witness_ordinal
+    pub(crate) const fn source_row_ordinal(&self) -> usize {
+        self.row.source_row_ordinal
     }
 
     pub(crate) fn term_count(&self) -> usize {
@@ -419,12 +419,24 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
         self.group_ordinal
     }
 
-    pub(crate) const fn retained_row_ordinal(&self) -> usize {
-        self.retained_row_ordinal
+    pub(crate) const fn expanded_ordinal(&self) -> usize {
+        self.expanded_ordinal
     }
 
-    pub(crate) const fn witness_ordinal(&self) -> usize {
-        self.witness_ordinal
+    pub(crate) const fn layer_ordinal(&self) -> usize {
+        self.layer_ordinal
+    }
+
+    pub(crate) const fn point_depth(&self) -> usize {
+        self.point_depth
+    }
+
+    pub(crate) const fn point_ordinal(&self) -> usize {
+        self.point_ordinal
+    }
+
+    pub(crate) const fn source_row_ordinal(&self) -> usize {
+        self.source_row_ordinal
     }
 
     pub(crate) fn term_count(&self) -> usize {
@@ -441,8 +453,8 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
 
     /// Conservative unique-owner graph retained by a staged raw-row recipe.
     ///
-    /// This includes the physical-row and re-elimination `Arc` allocations and
-    /// every uniquely reachable re-elimination child. The physical frame and
+    /// This includes the physical-row and completed-row `Arc` allocations and
+    /// every uniquely reachable completed-row child. The physical frame and
     /// common retained source are shared with the exact solve plan and excluded.
     /// Only exact authority pointer identity with that frame suppresses the
     /// source-authority allocation; a non-anchor authority which merely shares
@@ -454,9 +466,7 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
         let mut bytes = self.stats.owner_retained_bytes();
         for contribution in [
             arc_control_and_padding_byte_bound::<Self>()?,
-            arc_control_and_padding_byte_bound::<
-                GeneratedAffineResidualCaseReeliminationCertificate,
-            >()?,
+            arc_control_and_padding_byte_bound::<GeneratedAffineResidualCaseCompletedBoundRow>()?,
             self.source
                 .retained_source_graph_byte_bound(charge_source_authority)?,
         ] {
@@ -466,15 +476,15 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
     }
 
     #[cfg(test)]
-    pub(crate) const fn reelimination_source_for_retained_graph_test(
+    pub(crate) const fn completed_source_for_retained_graph_test(
         &self,
-    ) -> &Arc<GeneratedAffineResidualCaseReeliminationCertificate> {
+    ) -> &Arc<GeneratedAffineResidualCaseCompletedBoundRow> {
         &self.source
     }
 
     pub(crate) fn same_parent_allocations(
         &self,
-        source: &Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
+        source: &Arc<GeneratedAffineResidualCaseCompletedBoundRow>,
         frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
     ) -> bool {
         Arc::ptr_eq(&self.source, source) && Arc::ptr_eq(&self.frame, frame)
@@ -521,11 +531,11 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
-        source: &Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
+        source: &Arc<GeneratedAffineResidualCaseCompletedBoundRow>,
         frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
     ) -> Result<(), GeneratedAffineResidualGroupExactPhysicalRowError> {
         catch_unwind(AssertUnwindSafe(|| {
-            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V1_SCHEMA {
+            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V2_SCHEMA {
                 return Err(GeneratedAffineResidualGroupExactPhysicalRowError::ReplayMismatch);
             }
             if !self.same_parent_allocations(source, frame) {
@@ -537,8 +547,6 @@ impl GeneratedAffineResidualGroupExactPhysicalRow {
                 family,
                 context,
                 Arc::clone(source),
-                self.retained_row_ordinal,
-                self.witness_ordinal,
                 Arc::clone(frame),
                 self.limits,
             )?;
@@ -564,9 +572,7 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
     pub(crate) fn compile(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
-        source: Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        retained_row_ordinal: usize,
-        witness_ordinal: usize,
+        source: Arc<GeneratedAffineResidualCaseCompletedBoundRow>,
         frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
         limits: GeneratedAffineResidualGroupExactPhysicalRowLimits,
     ) -> Result<
@@ -574,15 +580,7 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
         GeneratedAffineResidualGroupExactPhysicalRowError,
     > {
         catch_unwind(AssertUnwindSafe(|| {
-            Self::compile_inner(
-                family,
-                context,
-                source,
-                retained_row_ordinal,
-                witness_ordinal,
-                frame,
-                limits,
-            )
+            Self::compile_inner(family, context, source, frame, limits)
         }))
         .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::SymbolicaPanic)?
     }
@@ -590,27 +588,25 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
     fn compile_inner(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
-        source: Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        retained_row_ordinal: usize,
-        witness_ordinal: usize,
+        source: Arc<GeneratedAffineResidualCaseCompletedBoundRow>,
         frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
         limits: GeneratedAffineResidualGroupExactPhysicalRowLimits,
     ) -> Result<
         GeneratedAffineResidualGroupExactPhysicalRow,
         GeneratedAffineResidualGroupExactPhysicalRowError,
     > {
-        const REELIMINATION_REPLAYS: usize = 1;
+        const COMPLETED_ROW_REPLAYS: usize = 1;
         const FRAME_REPLAYS: usize = 1;
-        // Four source-parent `Arc` checks in re-elimination replay, one exact
+        // Four source-parent `Arc` checks in completed-row replay, one exact
         // shared-source allocation comparison in the frame source seam, and
         // one retained anchor-authority comparison in frame replay.
         const PARENT_ALLOCATION_COMPARISONS: usize = 6;
 
         for (resource, requested, limit) in [
             (
-                "exact physical-row re-elimination replays",
-                REELIMINATION_REPLAYS,
-                limits.max_reelimination_replays,
+                "exact physical-row completed-row replays",
+                COMPLETED_ROW_REPLAYS,
+                limits.max_completed_row_replays,
             ),
             (
                 "exact physical-row frame replays",
@@ -622,11 +618,6 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
                 PARENT_ALLOCATION_COMPARISONS,
                 limits.max_parent_allocation_comparisons,
             ),
-            (
-                "exact physical-row witnesses",
-                source.witnesses().len(),
-                limits.max_witnesses,
-            ),
         ] {
             check_limit(resource, requested, limit)?;
         }
@@ -636,15 +627,13 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
                 family,
                 context,
                 source.authority(),
-                source.premises(),
                 source.ordering(),
                 source.schedule(),
+                source.premises(),
+                source.bound(),
             )
-            .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::Reelimination)?;
-        let authenticated = source
-            .authenticate_retained_source_row(retained_row_ordinal, witness_ordinal)
-            .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::WrongWitnessBinding)?;
-        let relation = authenticated.relation();
+            .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::CompletedRow)?;
+        let relation = source.relation();
         let authority = source.authority();
 
         if family.fingerprint_ref() != authority.family_fingerprint()
@@ -774,10 +763,9 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
         }
 
         let mut stats = GeneratedAffineResidualGroupExactPhysicalRowStats {
-            reelimination_replays: REELIMINATION_REPLAYS,
+            completed_row_replays: COMPLETED_ROW_REPLAYS,
             frame_replays: FRAME_REPLAYS,
             parent_allocation_comparisons: PARENT_ALLOCATION_COMPARISONS,
-            witnesses: source.witnesses().len(),
             arity,
             terms,
             guards,
@@ -1091,14 +1079,22 @@ impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
             return Err(GeneratedAffineResidualGroupExactPhysicalRowError::ReplayMismatch);
         }
 
+        let expanded_ordinal = source.expanded_ordinal();
+        let layer_ordinal = source.layer_ordinal();
+        let point_depth = source.point_depth();
+        let point_ordinal = source.point_ordinal();
+        let source_row_ordinal = source.source_row_ordinal();
         Ok(GeneratedAffineResidualGroupExactPhysicalRow {
-            schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V1_SCHEMA,
+            schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_PHYSICAL_ROW_V2_SCHEMA,
             source,
             frame,
             source_case_ordinal,
             group_ordinal,
-            retained_row_ordinal,
-            witness_ordinal,
+            expanded_ordinal,
+            layer_ordinal,
+            point_depth,
+            point_ordinal,
+            source_row_ordinal,
             terms: Arc::new(exact_terms),
             guards: Arc::new(exact_guards),
             limits,
@@ -1136,8 +1132,11 @@ fn exact_physical_rows_equal(
         && Arc::ptr_eq(&left.frame, &right.frame)
         && left.source_case_ordinal == right.source_case_ordinal
         && left.group_ordinal == right.group_ordinal
-        && left.retained_row_ordinal == right.retained_row_ordinal
-        && left.witness_ordinal == right.witness_ordinal
+        && left.expanded_ordinal == right.expanded_ordinal
+        && left.layer_ordinal == right.layer_ordinal
+        && left.point_depth == right.point_depth
+        && left.point_ordinal == right.point_ordinal
+        && left.source_row_ordinal == right.source_row_ordinal
         && left.terms == right.terms
         && left.guards == right.guards
         && left.limits == right.limits
@@ -1418,6 +1417,37 @@ fn ceil_log2(value: usize) -> usize {
 }
 
 #[cfg(test)]
+impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
+    /// Legacy/scouting compatibility used only by differential tests. The
+    /// returned physical row owns only the completed per-row certificate.
+    pub(crate) fn compile_from_reelimination_for_test(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        source: Arc<
+            crate::generated_affine_residual_case_reelimination::GeneratedAffineResidualCaseReeliminationCertificate,
+        >,
+        retained_row_ordinal: usize,
+        witness_ordinal: usize,
+        frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+        limits: GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactPhysicalRow,
+        GeneratedAffineResidualGroupExactPhysicalRowError,
+    > {
+        let completed = source
+            .compile_completed_retained_source_row(
+                family,
+                context,
+                retained_row_ordinal,
+                witness_ordinal,
+                crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+            )
+            .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::CompletedRow)?;
+        Self::compile(family, context, Arc::new(completed), frame, limits)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -1434,6 +1464,10 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
+    use crate::generated_affine_residual_case_completed_bound_row::{
+        GeneratedAffineResidualCaseCompletedBoundRow,
+        GeneratedAffineResidualCaseCompletedBoundRowLimits,
+    };
     use crate::generated_affine_residual_case_inventory::{
         GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCertificate,
@@ -1444,6 +1478,7 @@ mod tests {
         compile_generated_affine_residual_case_premises,
     };
     use crate::generated_affine_residual_case_reelimination::{
+        GeneratedAffineResidualCaseReeliminationCertificate,
         GeneratedAffineResidualCaseReeliminationCompilation,
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
@@ -1640,15 +1675,49 @@ mod tests {
     fn production_source_for_case(
         fixture: &Fixture,
         case_ordinal: usize,
-    ) -> Option<(
-        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        usize,
-        usize,
-    )> {
+    ) -> Option<Arc<GeneratedAffineResidualCaseCompletedBoundRow>> {
         production_source_for_case_at_depth(fixture, case_ordinal, 0)
     }
 
     fn production_source_for_case_at_depth(
+        fixture: &Fixture,
+        case_ordinal: usize,
+        maximum_depth: usize,
+    ) -> Option<Arc<GeneratedAffineResidualCaseCompletedBoundRow>> {
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new(
+                &fixture.family,
+                &fixture.context,
+                Arc::clone(&fixture.inventory),
+                case_ordinal,
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        production_source_for_authority_at_depth(fixture, authority, maximum_depth)
+    }
+
+    fn production_source_for_authority_at_depth(
+        fixture: &Fixture,
+        authority: Arc<GeneratedAffineResidualCaseAuthority>,
+        maximum_depth: usize,
+    ) -> Option<Arc<GeneratedAffineResidualCaseCompletedBoundRow>> {
+        let (certificate, retained_row_ordinal, witness_ordinal) =
+            legacy_source_for_authority_at_depth(fixture, authority, maximum_depth)?;
+        Some(Arc::new(
+            certificate
+                .compile_completed_retained_source_row(
+                    &fixture.family,
+                    &fixture.context,
+                    retained_row_ordinal,
+                    witness_ordinal,
+                    GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+                )
+                .unwrap(),
+        ))
+    }
+
+    fn legacy_source_for_case_at_depth(
         fixture: &Fixture,
         case_ordinal: usize,
         maximum_depth: usize,
@@ -1667,10 +1736,10 @@ mod tests {
             )
             .unwrap(),
         );
-        production_source_for_authority_at_depth(fixture, authority, maximum_depth)
+        legacy_source_for_authority_at_depth(fixture, authority, maximum_depth)
     }
 
-    fn production_source_for_authority_at_depth(
+    fn legacy_source_for_authority_at_depth(
         fixture: &Fixture,
         authority: Arc<GeneratedAffineResidualCaseAuthority>,
         maximum_depth: usize,
@@ -1739,13 +1808,7 @@ mod tests {
         Some((certificate, retained_row_ordinal, witness_ordinal))
     }
 
-    fn production_source(
-        fixture: &Fixture,
-    ) -> (
-        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        usize,
-        usize,
-    ) {
+    fn production_source(fixture: &Fixture) -> Arc<GeneratedAffineResidualCaseCompletedBoundRow> {
         fixture
             .frame
             .case_ordinals()
@@ -1756,14 +1819,10 @@ mod tests {
 
     fn production_guarded_source(
         fixture: &Fixture,
-    ) -> (
-        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        usize,
-        usize,
-    ) {
+    ) -> Arc<GeneratedAffineResidualCaseCompletedBoundRow> {
         for &case_ordinal in fixture.frame.case_ordinals() {
             let Some((certificate, _, _)) =
-                production_source_for_case_at_depth(fixture, case_ordinal, 1)
+                legacy_source_for_case_at_depth(fixture, case_ordinal, 1)
             else {
                 continue;
             };
@@ -1783,7 +1842,17 @@ mod tests {
                         .guarded_nonzero_conditions()
                         .is_empty()
                     {
-                        return (certificate, retained_row_ordinal, witness_ordinal);
+                        return Arc::new(
+                            certificate
+                                .compile_completed_retained_source_row(
+                                    &fixture.family,
+                                    &fixture.context,
+                                    retained_row_ordinal,
+                                    witness_ordinal,
+                                    GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+                                )
+                                .unwrap(),
+                        );
                     }
                 }
                 retained_row_ordinal += 1;
@@ -1795,7 +1864,7 @@ mod tests {
     #[test]
     fn retained_source_graph_deduplicates_exact_frame_authority_allocation() {
         let fixture = fixture("exact-physical-row-shared-anchor-memory");
-        let (source, retained_row_ordinal, witness_ordinal) =
+        let source =
             production_source_for_authority_at_depth(&fixture, Arc::clone(&fixture.anchor), 0)
                 .expect("the concrete anchor case must produce an authenticated retained row");
         assert!(fixture.frame.same_authority_allocation(source.authority()));
@@ -1805,8 +1874,6 @@ mod tests {
                 &fixture.family,
                 &fixture.context,
                 Arc::clone(&source),
-                retained_row_ordinal,
-                witness_ordinal,
                 Arc::clone(&fixture.frame),
                 GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
             )
@@ -1831,7 +1898,7 @@ mod tests {
             .and_then(|bytes| {
                 bytes.checked_add(
                     arc_control_and_padding_byte_bound::<
-                        GeneratedAffineResidualCaseReeliminationCertificate,
+                        GeneratedAffineResidualCaseCompletedBoundRow,
                     >()
                     .unwrap(),
                 )
@@ -1851,20 +1918,13 @@ mod tests {
             rescaled_equal_mass_two_loop_family("exact-physical-row-copy-private"),
             None,
         );
-        let (source, retained_row_ordinal, witness_ordinal) = production_guarded_source(&fixture);
-        let authenticated = source
-            .authenticate_retained_source_row(retained_row_ordinal, witness_ordinal)
-            .unwrap();
-        let relation = authenticated.relation();
+        let source = production_guarded_source(&fixture);
+        let relation = source.relation();
         assert!(
             !relation.guarded_nonzero_conditions().is_empty(),
             "the concrete guard-copy oracle must not be vacuous"
         );
-        let GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(bound) =
-            source.witnesses()[witness_ordinal].outcome()
-        else {
-            unreachable!()
-        };
+        let bound = source.bound();
         assert!(!bound.base_assumptions().is_empty());
         for assumption in bound.base_assumptions() {
             assert!(relation.guarded_nonzero_conditions().iter().any(|guard| {
@@ -1886,8 +1946,6 @@ mod tests {
             &fixture.family,
             &fixture.context,
             Arc::clone(&source),
-            retained_row_ordinal,
-            witness_ordinal,
             Arc::clone(&fixture.frame),
             GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
         )
@@ -1937,8 +1995,11 @@ mod tests {
         );
         assert_eq!(row.source_case_ordinal(), source_case.ordinal());
         assert_eq!(row.group_ordinal(), group.ordinal());
-        assert_eq!(row.retained_row_ordinal(), retained_row_ordinal);
-        assert_eq!(row.witness_ordinal(), witness_ordinal);
+        assert_eq!(row.expanded_ordinal(), source.expanded_ordinal());
+        assert_eq!(row.layer_ordinal(), source.layer_ordinal());
+        assert_eq!(row.point_depth(), source.point_depth());
+        assert_eq!(row.point_ordinal(), source.point_ordinal());
+        assert_eq!(row.source_row_ordinal(), source.source_row_ordinal());
         assert_eq!(row.term_count(), relation.terms().len());
         assert_eq!(
             row.guard_count(),
@@ -1962,9 +2023,8 @@ mod tests {
             .copied()
             .find(|case| *case != fixture.frame.anchor_case_ordinal())
             .expect("fixture group has a concrete non-anchor case");
-        let (source, retained_row_ordinal, witness_ordinal) =
-            production_source_for_case(&fixture, non_anchor_case)
-                .expect("concrete non-anchor case must retain a generated row");
+        let source = production_source_for_case(&fixture, non_anchor_case)
+            .expect("concrete non-anchor case must retain a generated row");
         assert_eq!(source.authority().case_ordinal(), non_anchor_case);
         let source_case = source
             .authority()
@@ -1976,17 +2036,12 @@ mod tests {
             .unwrap();
         let offset = group.anchor_offsets()[source_case.ordinal_within_group()].as_slice();
         assert!(offset.iter().any(|value| !value.is_zero()));
-        let relation = source
-            .authenticate_retained_source_row(retained_row_ordinal, witness_ordinal)
-            .unwrap();
-        let relation = relation.relation();
+        let relation = source.relation();
 
         let row = GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
             &fixture.family,
             &fixture.context,
             Arc::clone(&source),
-            retained_row_ordinal,
-            witness_ordinal,
             Arc::clone(&fixture.frame),
             GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
         )
@@ -2017,13 +2072,11 @@ mod tests {
     #[test]
     fn production_auth_replay_and_exact_parent_allocations_are_mandatory() {
         let fixture = fixture("exact-physical-row-auth-private");
-        let (source, retained_row_ordinal, witness_ordinal) = production_source(&fixture);
+        let source = production_source(&fixture);
         let row = GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
             &fixture.family,
             &fixture.context,
             Arc::clone(&source),
-            retained_row_ordinal,
-            witness_ordinal,
             Arc::clone(&fixture.frame),
             GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
         )
@@ -2031,21 +2084,15 @@ mod tests {
         row.replay(&fixture.family, &fixture.context, &source, &fixture.frame)
             .unwrap();
 
-        let wrong_witness = witness_ordinal
-            .checked_add(1)
-            .filter(|ordinal| *ordinal < source.witnesses().len())
-            .unwrap_or(usize::MAX);
+        let foreign_source = Arc::new(source.as_ref().clone());
         assert!(matches!(
-            GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+            row.replay(
                 &fixture.family,
                 &fixture.context,
-                Arc::clone(&source),
-                retained_row_ordinal,
-                wrong_witness,
-                Arc::clone(&fixture.frame),
-                GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+                &foreign_source,
+                &fixture.frame,
             ),
-            Err(GeneratedAffineResidualGroupExactPhysicalRowError::WrongWitnessBinding)
+            Err(GeneratedAffineResidualGroupExactPhysicalRowError::WrongParentAllocation)
         ));
 
         let value_equal_frame = Arc::new(fixture.frame.as_ref().clone());
@@ -2066,8 +2113,6 @@ mod tests {
                 &fixture.family,
                 &fixture.context,
                 Arc::clone(&source),
-                retained_row_ordinal,
-                witness_ordinal,
                 Arc::clone(&fixture.frame),
                 limits,
             )
@@ -2162,19 +2207,19 @@ mod tests {
             rescaled_equal_mass_two_loop_family("exact-physical-row-database-view-private"),
             None,
         );
-        let (source, retained_row_ordinal, witness_ordinal) = production_guarded_source(&fixture);
+        let source = production_guarded_source(&fixture);
         let row = GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
             &fixture.family,
             &fixture.context,
             Arc::clone(&source),
-            retained_row_ordinal,
-            witness_ordinal,
             Arc::clone(&fixture.frame),
             GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
         )
         .unwrap();
 
         assert!(!row.guards.is_empty());
+        let source_expanded_ordinal = source.expanded_ordinal();
+        let source_row_ordinal = source.source_row_ordinal();
         let source_weak = Arc::downgrade(&source);
         drop(source);
         let source_owners = Arc::strong_count(&row.source);
@@ -2192,8 +2237,8 @@ mod tests {
 
         assert_eq!(view.source_case_ordinal(), row.source_case_ordinal());
         assert_eq!(view.group_ordinal(), row.group_ordinal());
-        assert_eq!(view.retained_row_ordinal(), retained_row_ordinal);
-        assert_eq!(view.witness_ordinal(), witness_ordinal);
+        assert_eq!(view.expanded_ordinal(), source_expanded_ordinal);
+        assert_eq!(view.source_row_ordinal(), source_row_ordinal);
         assert_eq!(view.term_count(), row.term_count());
         assert_eq!(view.guard_count(), row.guard_count());
         let borrowed_terms = view.terms();
@@ -2282,6 +2327,8 @@ mod tests {
             "Vakint",
             "FORM",
             "SectorMask::try_from_bit_string",
+            "PreorderedParametricElimination",
+            "reelimination",
         ] {
             assert!(
                 !production.contains(forbidden),

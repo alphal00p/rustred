@@ -41,6 +41,8 @@ complete mathematical workflow.
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
+| Complete and physicalize one generated bound row | Implemented internally: one authenticated bound row receives its row-local base assumptions and enters exact physical coordinates directly. Production physical-row ingress owns no `PreorderedParametricElimination`, column order, pivot, or scouting state; the legacy whole-schedule route remains only a differential/test bridge |
+| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. Multiple/nonlinear/no-unit cases return typed unsupported outcomes. This compiler is authority-neutral and is not yet bound to a committed exceptional source or fresh child-row regeneration |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
 | Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
@@ -319,6 +321,27 @@ The repository currently includes tests for:
   independent provenance and differential check. Licensed default-GMP runs
   with four test threads passed 13/13 focused adapter tests, 39/39 focused exact
   database tests, and 2/2 direct-session tests;
+- a direct completed-bound-row ingress: row-local base assumptions are attached
+  to exactly one authenticated generated row before physicalization, and the
+  production physical row retains no preordered elimination or pivot state.
+  Licensed default-GMP focused gates passed the completed-row test (1/1), all
+  physical-row tests (7/7), production database-ingress/source-graph tests
+  (2/2), the natural-schedule differential oracle (1/1), and guarded
+  row-local-assumption physicalization (1/1), using eight-way test execution.
+  An independent combined Nextest expression then passed all 14 affected
+  completed-row/physical-row/database tests (14/14) and confirmed the default
+  Symbolica `gmp` feature with no `no_gmp`;
+- a topology-neutral unit-equality refinement core for one current-target
+  affine predicate with a literal `+1` or `-1` free-coordinate pivot. It
+  preflights the borrowed sparse/GMP payload before copying, preflights virtual
+  integer matrices before dense staging, including sign-changing inline-to-GMP
+  promotion, delegates the sole matrix product to Symbolica `Matrix<Z>`, and
+  replays exact zero substitution. A parallel licensed default-GMP Nextest gate
+  passed all 19 refinement and 37 Symbolica coefficient/integer-matrix tests
+  (56/56, run `c2f7ff6f-03dc-430c-95c7-554fdcecd95e`). General no-unit,
+  simultaneous, and nonlinear equalities remain typed completeness boundaries,
+  and this core is not yet committed-source authority or a fresh-row
+  continuation;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
   sealed NoTarget, affine-equality-refinement, or Ready outcomes;
@@ -663,10 +686,12 @@ authority in a fresh physical frame, solve plan, and catalog, then constructs
 an empty database and exact session. The source rows are not yet submitted to
 that child database. This first child is profile-isolated from the publication-
 producing database and stops at the typed affine-equality-refinement boundary.
-It does not yet
-specialize that equality, carry the complete monotone candidate-exclusion
-continuation through a campaign fixed point, charge shared parent ancestry
-independently of the origin owner, or close an exceptional domain.
+A separate authority-neutral core can now specialize one current-target affine
+equality with a literal unit pivot, but it is not yet bound to this committed
+source and does not regenerate or submit the child's generic rows. The path
+also does not yet carry the complete monotone candidate-exclusion continuation
+through a campaign fixed point, charge shared parent ancestry independently of
+the origin owner, or close an exceptional domain.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
@@ -731,13 +756,13 @@ normalization, and resource-failure ordering. An insertion-aware differential
 sequence and focused corruption/resource tests pass 15/15; the existing sparse
 bridge passes 18/18 and the exact database passes 39/39 with four test threads.
 
-The live database still uses the reconstructing correctness bridge until the
-retained reducer and complete easiest-first catalog are integrated into its
-transaction. `forward_reduce_last_row` therefore still has a cumulative
-`O(P^2)` tendency, while Symbolica's reducer owns an `O(K)` dense scratch and
-performs serial forward reduction. Clone/add-column allocation is infallible in
-the public Symbolica API and cannot honestly be reported as a typed recoverable
-OOM. Fixed-size telemetry remains outside replay identity and excludes catalog
+The live database now owns the retained reducer and complete easiest-first
+catalog; the reconstructing bridge remains `cfg(test)` differential machinery.
+Each prospective independent stage still deep-clones the committed native
+reducer, while Symbolica owns an `O(K)` dense scratch and performs serial
+forward reduction. Clone/add-column allocation is infallible in the public
+Symbolica API and cannot honestly be reported as a typed recoverable OOM.
+Fixed-size telemetry remains outside replay identity and excludes catalog
 sorting, wall time, and RSS. None of this yet establishes complete topology
 reduction, Vakint reproduction, or physical six-loop scalability.
 
@@ -762,11 +787,13 @@ the atomic session transition advances the database, consumes one selected
 target, and stores those values with the centered relation terms and target
 locator/offset in one event. It drops derivation-only translation, guards,
 statistics, source recipe, and pivot evidence. Shallow applicable and
-exceptional projections are implemented. The active path must retain and fork
-Symbolica's already-authoritative incremental reducer instead of rebuilding it
-from prior pivots at every stage, add the topology-neutral shared-job campaign
-plan, then schedule residual and solved-subsector work and prove a coverage
-fixed point. Multi-start shard/bundle
+exceptional projections are implemented. Generated rows can now enter physical
+coordinates one completed row at a time without retaining scouting elimination
+state, and a separate unit-pivot compiler constructs replayable refined child
+geometry. The active path must bind that geometry to the committed Domain
+source, regenerate and submit the inherited generic rows in the fresh child,
+then schedule residual and solved-subsector work and prove a coverage fixed
+point. Multi-start shard/bundle
 compilation and physical six-loop derivation profiling follow before the
 optimized concrete batch-application runtime. The retained `SparseRowReducer`
 transaction is now the immediate algebra-scaling gate; graph-lifted
@@ -895,8 +922,9 @@ enclosing memory contract, exposes the matching admission baseline, and creates
 zero or exactly `E` workers only after plan consumption. The no-default
 physical-profile contract and pure `campaign preflight` report are now wired;
 the example is deliberately uncalibrated and does not start a frontier. The
-immediate gates are affine-equality refinement of the newly admitted fresh
-Domain session, separately charged shared event ancestry, named-host
+immediate gate is committed-source binding plus generic-row regeneration for
+the implemented unit-pivot equality refinement, followed by separately charged
+shared event ancestry, named-host
 measurements, phase-specific task estimators, and the full plan-consuming
 exceptional/subsector frontier coordinator, followed by a proved coverage
 fixed point.

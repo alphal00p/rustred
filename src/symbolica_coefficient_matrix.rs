@@ -14,6 +14,12 @@
 //! Typed scalar failures cross Symbolica's infallible field traits through a
 //! private unwind payload.  This boundary therefore requires Rust's
 //! `panic = "unwind"`; `panic = "abort"` builds cannot recover a typed failure.
+//!
+//! Integer affine-map composition has a separate, smaller boundary below.
+//! Symbolica's public `Matrix<IntegerRing>` owns the multiplication itself;
+//! RustRed only admits shapes and scalar resources, validates exact integer
+//! payloads before and after the native call, and transports native panics as
+//! typed errors.
 
 #[cfg(not(panic = "unwind"))]
 compile_error!(
@@ -23,6 +29,7 @@ compile_error!(
 use std::cell::RefCell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::rc::Rc;
 
@@ -41,6 +48,7 @@ const DEFAULT_MAX_LIVE_MATRIX_ENTRIES: usize = 32_000_000;
 pub(crate) const DEFAULT_MAX_EXACT_OPERATIONS: usize = 100_000_000;
 pub(crate) const DEFAULT_MAX_INPUT_RETAINED_BYTES: usize = 1024 * 1024 * 1024;
 pub(crate) const DEFAULT_MAX_OUTPUT_RETAINED_BYTES: usize = 1024 * 1024 * 1024;
+const DEFAULT_MAX_INTEGER_BITS: usize = 1024 * 1024;
 
 /// Admission policy for one bounded Symbolica coefficient or matrix session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -411,6 +419,345 @@ impl fmt::Display for SymbolicaCoefficientMatrixError {
 }
 
 impl std::error::Error for SymbolicaCoefficientMatrixError {}
+
+/// Admission policy for one Symbolica-native integer matrix product.
+///
+/// Entry limits bound dense native storage.  Retained-byte limits census each
+/// inline `Integer` slot plus the allocated capacity of every GMP payload.
+/// `max_integer_bits` applies to every input and output value and to a
+/// conservative magnitude envelope for all products and partial sums formed
+/// by the native dot products.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SymbolicaIntegerMatrixLimits {
+    pub(crate) max_single_matrix_entries: usize,
+    pub(crate) max_live_matrix_entries: usize,
+    pub(crate) max_scalar_multiplications: usize,
+    pub(crate) max_scalar_additions: usize,
+    pub(crate) max_integer_bits: usize,
+    pub(crate) max_input_retained_bytes: usize,
+    /// Conservative retained-byte envelope for the native output, computed
+    /// from the admitted dot-product magnitude before native allocation.
+    pub(crate) max_prospective_output_retained_bytes: usize,
+    pub(crate) max_output_retained_bytes: usize,
+}
+
+impl Default for SymbolicaIntegerMatrixLimits {
+    fn default() -> Self {
+        Self {
+            max_single_matrix_entries: DEFAULT_MAX_SINGLE_MATRIX_ENTRIES,
+            max_live_matrix_entries: DEFAULT_MAX_LIVE_MATRIX_ENTRIES,
+            max_scalar_multiplications: DEFAULT_MAX_EXACT_OPERATIONS,
+            max_scalar_additions: DEFAULT_MAX_EXACT_OPERATIONS,
+            max_integer_bits: DEFAULT_MAX_INTEGER_BITS,
+            max_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
+            max_prospective_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
+            max_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
+        }
+    }
+}
+
+/// Exact admission and output census for one integer matrix product.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SymbolicaIntegerMatrixStats {
+    input_entries: usize,
+    output_entries: usize,
+    authenticated_output_entries: usize,
+    admitted_single_matrix_entries: usize,
+    admitted_peak_live_entries: usize,
+    admitted_scalar_multiplications: usize,
+    admitted_scalar_additions: usize,
+    input_retained_bytes: usize,
+    prospective_output_retained_bytes: usize,
+    output_retained_bytes: usize,
+    maximum_input_integer_bits: usize,
+    admitted_intermediate_integer_bits: usize,
+    maximum_output_integer_bits: usize,
+    product_calls: usize,
+}
+
+impl SymbolicaIntegerMatrixStats {
+    pub(crate) const fn input_entries(self) -> usize {
+        self.input_entries
+    }
+
+    pub(crate) const fn output_entries(self) -> usize {
+        self.output_entries
+    }
+
+    pub(crate) const fn authenticated_output_entries(self) -> usize {
+        self.authenticated_output_entries
+    }
+
+    pub(crate) const fn admitted_single_matrix_entries(self) -> usize {
+        self.admitted_single_matrix_entries
+    }
+
+    pub(crate) const fn admitted_peak_live_entries(self) -> usize {
+        self.admitted_peak_live_entries
+    }
+
+    pub(crate) const fn admitted_scalar_multiplications(self) -> usize {
+        self.admitted_scalar_multiplications
+    }
+
+    pub(crate) const fn admitted_scalar_additions(self) -> usize {
+        self.admitted_scalar_additions
+    }
+
+    pub(crate) const fn input_retained_bytes(self) -> usize {
+        self.input_retained_bytes
+    }
+
+    pub(crate) const fn output_retained_bytes(self) -> usize {
+        self.output_retained_bytes
+    }
+
+    pub(crate) const fn prospective_output_retained_bytes(self) -> usize {
+        self.prospective_output_retained_bytes
+    }
+
+    pub(crate) const fn maximum_input_integer_bits(self) -> usize {
+        self.maximum_input_integer_bits
+    }
+
+    pub(crate) const fn admitted_intermediate_integer_bits(self) -> usize {
+        self.admitted_intermediate_integer_bits
+    }
+
+    pub(crate) const fn maximum_output_integer_bits(self) -> usize {
+        self.maximum_output_integer_bits
+    }
+
+    pub(crate) const fn product_calls(self) -> usize {
+        self.product_calls
+    }
+}
+
+/// Allocation-free admission result for one prospective native integer
+/// matrix product.  This is resource accounting only: Symbolica remains the
+/// sole owner of the actual matrix algebra.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SymbolicaIntegerMatrixProductPreflight {
+    input_entries: usize,
+    output_entries: usize,
+    admitted_single_matrix_entries: usize,
+    admitted_peak_live_entries: usize,
+    admitted_scalar_multiplications: usize,
+    admitted_scalar_additions: usize,
+    input_retained_bytes: usize,
+    prospective_output_retained_bytes: usize,
+    maximum_input_integer_bits: usize,
+    admitted_intermediate_integer_bits: usize,
+}
+
+impl SymbolicaIntegerMatrixProductPreflight {
+    pub(crate) const fn input_entries(self) -> usize {
+        self.input_entries
+    }
+
+    pub(crate) const fn output_entries(self) -> usize {
+        self.output_entries
+    }
+
+    pub(crate) const fn admitted_single_matrix_entries(self) -> usize {
+        self.admitted_single_matrix_entries
+    }
+
+    pub(crate) const fn admitted_peak_live_entries(self) -> usize {
+        self.admitted_peak_live_entries
+    }
+
+    pub(crate) const fn admitted_scalar_multiplications(self) -> usize {
+        self.admitted_scalar_multiplications
+    }
+
+    pub(crate) const fn admitted_scalar_additions(self) -> usize {
+        self.admitted_scalar_additions
+    }
+
+    pub(crate) const fn input_retained_bytes(self) -> usize {
+        self.input_retained_bytes
+    }
+
+    pub(crate) const fn prospective_output_retained_bytes(self) -> usize {
+        self.prospective_output_retained_bytes
+    }
+
+    pub(crate) const fn maximum_input_integer_bits(self) -> usize {
+        self.maximum_input_integer_bits
+    }
+
+    pub(crate) const fn admitted_intermediate_integer_bits(self) -> usize {
+        self.admitted_intermediate_integer_bits
+    }
+}
+
+/// Which exact integer payload failed validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SymbolicaIntegerMatrixPayload {
+    LeftInput,
+    RightInput,
+    Output,
+}
+
+/// One borrowed logical matrix entry for allocation-free resource admission.
+/// `Negated` records the value that will be produced through Symbolica's
+/// integer-ring negation after admission; it is needed because negating
+/// `Integer::Double(i128::MIN)` promotes the result to GMP-backed `Large`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SymbolicaIntegerMatrixEntryRef<'value> {
+    Borrowed(&'value Integer),
+    Negated(&'value Integer),
+}
+
+impl<'value> SymbolicaIntegerMatrixEntryRef<'value> {
+    const fn source(self) -> &'value Integer {
+        match self {
+            Self::Borrowed(value) | Self::Negated(value) => value,
+        }
+    }
+}
+
+impl fmt::Display for SymbolicaIntegerMatrixPayload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LeftInput => formatter.write_str("left input"),
+            Self::RightInput => formatter.write_str("right input"),
+            Self::Output => formatter.write_str("output"),
+        }
+    }
+}
+
+/// Typed failures at the Symbolica integer-matrix boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SymbolicaIntegerMatrixError {
+    EmptyMatrix {
+        payload: SymbolicaIntegerMatrixPayload,
+    },
+    RaggedMatrix {
+        payload: SymbolicaIntegerMatrixPayload,
+        row: usize,
+        expected_columns: usize,
+        actual_columns: usize,
+    },
+    ShapeMismatch {
+        left_rows: usize,
+        left_columns: usize,
+        right_rows: usize,
+        right_columns: usize,
+    },
+    DimensionOverflow {
+        rows: usize,
+        columns: usize,
+    },
+    ResourceCountOverflow {
+        resource: &'static str,
+    },
+    ResourceLimit {
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
+    IntegerBitLimit {
+        payload: SymbolicaIntegerMatrixPayload,
+        row: usize,
+        column: usize,
+        requested: usize,
+        limit: usize,
+    },
+    NonCanonicalInteger {
+        payload: SymbolicaIntegerMatrixPayload,
+        row: usize,
+        column: usize,
+    },
+    NativePanic {
+        operation: &'static str,
+    },
+    InternalShapeFailure {
+        operation: &'static str,
+    },
+}
+
+impl fmt::Display for SymbolicaIntegerMatrixError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyMatrix { payload } => {
+                write!(formatter, "the {payload} integer matrix cannot be empty")
+            }
+            Self::RaggedMatrix {
+                payload,
+                row,
+                expected_columns,
+                actual_columns,
+            } => write!(
+                formatter,
+                "the {payload} integer matrix row {row} has {actual_columns} columns, expected {expected_columns}"
+            ),
+            Self::ShapeMismatch {
+                left_rows,
+                left_columns,
+                right_rows,
+                right_columns,
+            } => write!(
+                formatter,
+                "integer matrix shapes {left_rows}x{left_columns} and {right_rows}x{right_columns} are incompatible"
+            ),
+            Self::DimensionOverflow { rows, columns } => write!(
+                formatter,
+                "integer matrix shape {rows}x{columns} exceeds Symbolica's native representation"
+            ),
+            Self::ResourceCountOverflow { resource } => {
+                write!(formatter, "{resource} count overflowed usize")
+            }
+            Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => write!(
+                formatter,
+                "{resource} needs {requested} units, exceeding the configured limit {limit}"
+            ),
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(formatter, "failed to reserve {requested} {resource}"),
+            Self::IntegerBitLimit {
+                payload,
+                row,
+                column,
+                requested,
+                limit,
+            } => write!(
+                formatter,
+                "the {payload} integer matrix entry ({row},{column}) needs {requested} magnitude bits, exceeding the configured limit {limit}"
+            ),
+            Self::NonCanonicalInteger {
+                payload,
+                row,
+                column,
+            } => write!(
+                formatter,
+                "the {payload} integer matrix entry ({row},{column}) is not in Symbolica's canonical Integer representation"
+            ),
+            Self::NativePanic { operation } => {
+                write!(
+                    formatter,
+                    "Symbolica panicked while computing integer matrix {operation}"
+                )
+            }
+            Self::InternalShapeFailure { operation } => write!(
+                formatter,
+                "Symbolica returned an incompatible shape from integer matrix {operation}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SymbolicaIntegerMatrixError {}
 
 /// A determinant, inverse, and native two-sided replay certificate.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1922,6 +2269,602 @@ pub(crate) fn verify_coefficient_matrix_inverse(
     Ok(stats)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct IntegerMatrixShape {
+    rows: usize,
+    columns: usize,
+    rows_u32: u32,
+    columns_u32: u32,
+    entries: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct IntegerPayloadCensus {
+    retained_bytes: usize,
+    maximum_bits: usize,
+}
+
+fn checked_integer_add(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    left.checked_add(right)
+        .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow { resource })
+}
+
+fn checked_integer_mul(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    left.checked_mul(right)
+        .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow { resource })
+}
+
+fn check_integer_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), SymbolicaIntegerMatrixError> {
+    if requested > limit {
+        Err(SymbolicaIntegerMatrixError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn checked_integer_shape(
+    rows: usize,
+    columns: usize,
+) -> Result<IntegerMatrixShape, SymbolicaIntegerMatrixError> {
+    let rows_u32 = u32::try_from(rows)
+        .map_err(|_| SymbolicaIntegerMatrixError::DimensionOverflow { rows, columns })?;
+    let columns_u32 = u32::try_from(columns)
+        .map_err(|_| SymbolicaIntegerMatrixError::DimensionOverflow { rows, columns })?;
+    let entries =
+        rows.checked_mul(columns)
+            .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow {
+                resource: "integer matrix entries",
+            })?;
+    rows_u32
+        .checked_mul(columns_u32)
+        .ok_or(SymbolicaIntegerMatrixError::DimensionOverflow { rows, columns })?;
+    Ok(IntegerMatrixShape {
+        rows,
+        columns,
+        rows_u32,
+        columns_u32,
+        entries,
+    })
+}
+
+fn inspect_integer_rows(
+    rows: &[Vec<Integer>],
+    payload: SymbolicaIntegerMatrixPayload,
+) -> Result<IntegerMatrixShape, SymbolicaIntegerMatrixError> {
+    if rows.is_empty() || rows[0].is_empty() {
+        return Err(SymbolicaIntegerMatrixError::EmptyMatrix { payload });
+    }
+    let columns = rows[0].len();
+    if let Some((row, actual_columns)) = rows
+        .iter()
+        .enumerate()
+        .find_map(|(row, values)| (values.len() != columns).then_some((row, values.len())))
+    {
+        return Err(SymbolicaIntegerMatrixError::RaggedMatrix {
+            payload,
+            row,
+            expected_columns: columns,
+            actual_columns,
+        });
+    }
+    checked_integer_shape(rows.len(), columns)
+}
+
+fn integer_magnitude_bits_for_matrix(
+    value: &Integer,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    let bits = match value {
+        Integer::Single(value) => u128::from(i64::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Double(value) => u128::from(i128::BITS - value.unsigned_abs().leading_zeros()),
+        Integer::Large(value) => u128::from(value.significant_bits()),
+    };
+    usize::try_from(bits).map_err(|_| SymbolicaIntegerMatrixError::ResourceCountOverflow {
+        resource: "integer matrix magnitude bits",
+    })
+}
+
+fn integer_is_canonical_for_matrix(value: &Integer) -> bool {
+    match value {
+        Integer::Single(_) => true,
+        Integer::Double(value) => *value < i128::from(i64::MIN) || *value > i128::from(i64::MAX),
+        Integer::Large(value) => value.to_i128().is_none(),
+    }
+}
+
+fn integer_retained_bytes_for_matrix(
+    value: &Integer,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    let heap_bytes = match value {
+        Integer::Single(_) | Integer::Double(_) => 0,
+        Integer::Large(value) => {
+            usize::try_from(value.capacity())
+                .map_err(|_| SymbolicaIntegerMatrixError::ResourceCountOverflow {
+                    resource: "integer matrix retained bytes",
+                })?
+                .checked_add(7)
+                .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow {
+                    resource: "integer matrix retained bytes",
+                })?
+                / 8
+        }
+    };
+    size_of::<Integer>().checked_add(heap_bytes).ok_or(
+        SymbolicaIntegerMatrixError::ResourceCountOverflow {
+            resource: "integer matrix retained bytes",
+        },
+    )
+}
+
+fn prospective_gmp_heap_byte_bound(
+    maximum_bits: usize,
+    extra_limbs: usize,
+    resource: &'static str,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    // The vendored default-GMP backend used by this crate is pinned to the
+    // 64-bit `mp_limb_t` ABI. Keeping this explicit avoids conflating GMP limbs
+    // with Rust pointer width in the resource contract.
+    const PINNED_GMP_LIMB_BITS: usize = 64;
+    const PINNED_GMP_LIMB_BYTES: usize = 8;
+    let limb_bits = PINNED_GMP_LIMB_BITS;
+    let rounded_limbs = maximum_bits
+        .checked_add(limb_bits - 1)
+        .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow { resource })?
+        / limb_bits;
+    let limbs = checked_integer_add(resource, rounded_limbs, extra_limbs)?;
+    checked_integer_mul(resource, limbs, PINNED_GMP_LIMB_BYTES)
+}
+
+fn logical_integer_entry_retained_bytes(
+    entry: SymbolicaIntegerMatrixEntryRef<'_>,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    match entry {
+        // This is the sole canonical inline value whose negation crosses the
+        // i128 boundary and becomes GMP-backed. Include the two-limb retained
+        // capacity reserve observed for the pinned default-GMP backend before
+        // constructing that value.
+        SymbolicaIntegerMatrixEntryRef::Negated(Integer::Double(value)) if *value == i128::MIN => {
+            checked_integer_add(
+                "integer matrix retained bytes",
+                size_of::<Integer>(),
+                prospective_gmp_heap_byte_bound(
+                    i128::BITS as usize,
+                    2,
+                    "integer matrix retained bytes",
+                )?,
+            )
+        }
+        SymbolicaIntegerMatrixEntryRef::Borrowed(value)
+        | SymbolicaIntegerMatrixEntryRef::Negated(value) => {
+            integer_retained_bytes_for_matrix(value)
+        }
+    }
+}
+
+fn census_integer_entries_with_accessor<'value>(
+    shape: IntegerMatrixShape,
+    payload: SymbolicaIntegerMatrixPayload,
+    max_integer_bits: usize,
+    mut entry: impl FnMut(usize, usize) -> SymbolicaIntegerMatrixEntryRef<'value>,
+) -> Result<IntegerPayloadCensus, SymbolicaIntegerMatrixError> {
+    let mut census = IntegerPayloadCensus::default();
+    for row in 0..shape.rows {
+        for column in 0..shape.columns {
+            let entry = entry(row, column);
+            let value = entry.source();
+            if !integer_is_canonical_for_matrix(value) {
+                return Err(SymbolicaIntegerMatrixError::NonCanonicalInteger {
+                    payload,
+                    row,
+                    column,
+                });
+            }
+            let bits = integer_magnitude_bits_for_matrix(value)?;
+            if bits > max_integer_bits {
+                return Err(SymbolicaIntegerMatrixError::IntegerBitLimit {
+                    payload,
+                    row,
+                    column,
+                    requested: bits,
+                    limit: max_integer_bits,
+                });
+            }
+            census.maximum_bits = census.maximum_bits.max(bits);
+            census.retained_bytes = checked_integer_add(
+                "integer matrix retained bytes",
+                census.retained_bytes,
+                logical_integer_entry_retained_bytes(entry)?,
+            )?;
+        }
+    }
+    Ok(census)
+}
+
+fn census_native_integer_matrix(
+    matrix: &Matrix<IntegerRing>,
+    payload: SymbolicaIntegerMatrixPayload,
+    max_integer_bits: usize,
+) -> Result<IntegerPayloadCensus, SymbolicaIntegerMatrixError> {
+    let columns = matrix.ncols();
+    let mut census = IntegerPayloadCensus::default();
+    for (offset, value) in matrix.iter().enumerate() {
+        if !integer_is_canonical_for_matrix(value) {
+            return Err(SymbolicaIntegerMatrixError::NonCanonicalInteger {
+                payload,
+                row: offset / columns,
+                column: offset % columns,
+            });
+        }
+        let bits = integer_magnitude_bits_for_matrix(value)?;
+        if bits > max_integer_bits {
+            return Err(SymbolicaIntegerMatrixError::IntegerBitLimit {
+                payload,
+                row: offset / columns,
+                column: offset % columns,
+                requested: bits,
+                limit: max_integer_bits,
+            });
+        }
+        census.maximum_bits = census.maximum_bits.max(bits);
+        census.retained_bytes = checked_integer_add(
+            "integer matrix retained bytes",
+            census.retained_bytes,
+            integer_retained_bytes_for_matrix(value)?,
+        )?;
+    }
+    Ok(census)
+}
+
+fn integer_dot_product_bit_bound(
+    left_bits: usize,
+    right_bits: usize,
+    inner: usize,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    if left_bits == 0 || right_bits == 0 {
+        return Ok(0);
+    }
+    // If the input magnitudes occupy at most `l` and `r` bits, every product
+    // is strictly smaller than 2^(l+r).  The triangle inequality bounds every
+    // signed partial sum by `inner` such products; opposite signs and exact
+    // cancellation can only reduce that magnitude.  Thus ceil(log2(inner))
+    // additional bits cover the complete native accumulation schedule.
+    let sum_bits = checked_integer_add(
+        "Symbolica integer matrix intermediate bits",
+        left_bits,
+        right_bits,
+    )?;
+    let accumulation_bits = if inner <= 1 {
+        0
+    } else {
+        usize::BITS as usize - (inner - 1).leading_zeros() as usize
+    };
+    checked_integer_add(
+        "Symbolica integer matrix intermediate bits",
+        sum_bits,
+        accumulation_bits,
+    )
+}
+
+fn prospective_integer_output_retained_byte_bound(
+    entries: usize,
+    maximum_bits: usize,
+) -> Result<usize, SymbolicaIntegerMatrixError> {
+    // Positive canonical Symbolica integers through 127 magnitude bits remain
+    // inline; a 128-bit positive magnitude already exceeds `i128::MAX` and is
+    // GMP-backed. The pinned default-GMP `IntegerRing::add_mul_assign` path can
+    // retain two allocation/carry limbs beyond the mathematical result
+    // envelope. Round up the complete admitted dot-product bound and include
+    // both before the native product exists. This covers final retained
+    // capacity; opaque native scratch remains a separate deployment reserve.
+    let heap_bytes = if maximum_bits <= (i128::BITS as usize - 1) {
+        0
+    } else {
+        prospective_gmp_heap_byte_bound(
+            maximum_bits,
+            2,
+            "prospective integer matrix output retained bytes",
+        )?
+    };
+    let bytes_per_entry = checked_integer_add(
+        "prospective integer matrix output retained bytes",
+        size_of::<Integer>(),
+        heap_bytes,
+    )?;
+    checked_integer_mul(
+        "prospective integer matrix output retained bytes",
+        entries,
+        bytes_per_entry,
+    )
+}
+
+/// Pre-admit a prospective Symbolica integer matrix product through borrowed
+/// entry accessors.  No matrix-shaped buffer and no algebraic result is
+/// created by this function.  Callers with virtual matrices can therefore
+/// apply the same shape, operation, integer-bit, and byte policy before they
+/// clone any GMP payload into dense staging storage.
+pub(crate) fn preflight_integer_matrix_product_with_accessors<'left, 'right>(
+    left_rows: usize,
+    left_columns: usize,
+    mut left_entry: impl FnMut(usize, usize) -> SymbolicaIntegerMatrixEntryRef<'left>,
+    right_rows: usize,
+    right_columns: usize,
+    mut right_entry: impl FnMut(usize, usize) -> SymbolicaIntegerMatrixEntryRef<'right>,
+    limits: SymbolicaIntegerMatrixLimits,
+) -> Result<SymbolicaIntegerMatrixProductPreflight, SymbolicaIntegerMatrixError> {
+    if left_rows == 0 || left_columns == 0 {
+        return Err(SymbolicaIntegerMatrixError::EmptyMatrix {
+            payload: SymbolicaIntegerMatrixPayload::LeftInput,
+        });
+    }
+    if right_rows == 0 || right_columns == 0 {
+        return Err(SymbolicaIntegerMatrixError::EmptyMatrix {
+            payload: SymbolicaIntegerMatrixPayload::RightInput,
+        });
+    }
+    let left_shape = checked_integer_shape(left_rows, left_columns)?;
+    let right_shape = checked_integer_shape(right_rows, right_columns)?;
+    if left_shape.columns != right_shape.rows {
+        return Err(SymbolicaIntegerMatrixError::ShapeMismatch {
+            left_rows: left_shape.rows,
+            left_columns: left_shape.columns,
+            right_rows: right_shape.rows,
+            right_columns: right_shape.columns,
+        });
+    }
+    let output_shape = checked_integer_shape(left_shape.rows, right_shape.columns)?;
+    let single_entries = left_shape
+        .entries
+        .max(right_shape.entries)
+        .max(output_shape.entries);
+    let live_entries = checked_integer_add(
+        "live Symbolica integer matrix entries",
+        checked_integer_add(
+            "live Symbolica integer matrix entries",
+            left_shape.entries,
+            right_shape.entries,
+        )?,
+        output_shape.entries,
+    )?;
+    check_integer_limit(
+        "single Symbolica integer matrix entries",
+        single_entries,
+        limits.max_single_matrix_entries,
+    )?;
+    check_integer_limit(
+        "live Symbolica integer matrix entries",
+        live_entries,
+        limits.max_live_matrix_entries,
+    )?;
+
+    let scalar_calls = checked_integer_mul(
+        "Symbolica integer matrix scalar operations",
+        checked_integer_mul(
+            "Symbolica integer matrix scalar operations",
+            left_shape.rows,
+            left_shape.columns,
+        )?,
+        right_shape.columns,
+    )?;
+    check_integer_limit(
+        "Symbolica integer matrix scalar multiplications",
+        scalar_calls,
+        limits.max_scalar_multiplications,
+    )?;
+    check_integer_limit(
+        "Symbolica integer matrix scalar additions",
+        scalar_calls,
+        limits.max_scalar_additions,
+    )?;
+
+    let left_census = census_integer_entries_with_accessor(
+        left_shape,
+        SymbolicaIntegerMatrixPayload::LeftInput,
+        limits.max_integer_bits,
+        &mut left_entry,
+    )?;
+    let right_census = census_integer_entries_with_accessor(
+        right_shape,
+        SymbolicaIntegerMatrixPayload::RightInput,
+        limits.max_integer_bits,
+        &mut right_entry,
+    )?;
+    let input_retained_bytes = checked_integer_add(
+        "integer matrix input retained bytes",
+        left_census.retained_bytes,
+        right_census.retained_bytes,
+    )?;
+    check_integer_limit(
+        "integer matrix input retained bytes",
+        input_retained_bytes,
+        limits.max_input_retained_bytes,
+    )?;
+    let intermediate_bits = integer_dot_product_bit_bound(
+        left_census.maximum_bits,
+        right_census.maximum_bits,
+        left_shape.columns,
+    )?;
+    check_integer_limit(
+        "Symbolica integer matrix intermediate bits",
+        intermediate_bits,
+        limits.max_integer_bits,
+    )?;
+    let prospective_output_retained_bytes =
+        prospective_integer_output_retained_byte_bound(output_shape.entries, intermediate_bits)?;
+    check_integer_limit(
+        "prospective integer matrix output retained bytes",
+        prospective_output_retained_bytes,
+        limits.max_prospective_output_retained_bytes,
+    )?;
+
+    Ok(SymbolicaIntegerMatrixProductPreflight {
+        input_entries: checked_integer_add(
+            "integer matrix input entries",
+            left_shape.entries,
+            right_shape.entries,
+        )?,
+        output_entries: output_shape.entries,
+        admitted_single_matrix_entries: single_entries,
+        admitted_peak_live_entries: live_entries,
+        admitted_scalar_multiplications: scalar_calls,
+        admitted_scalar_additions: scalar_calls,
+        input_retained_bytes,
+        prospective_output_retained_bytes,
+        maximum_input_integer_bits: left_census.maximum_bits.max(right_census.maximum_bits),
+        admitted_intermediate_integer_bits: intermediate_bits,
+    })
+}
+
+fn call_integer_native<T>(
+    operation: &'static str,
+    callback: impl FnOnce() -> T,
+) -> Result<T, SymbolicaIntegerMatrixError> {
+    catch_unwind(AssertUnwindSafe(callback))
+        .map_err(|_| SymbolicaIntegerMatrixError::NativePanic { operation })
+}
+
+fn integer_matrix_from_rows(
+    rows: &[Vec<Integer>],
+    shape: IntegerMatrixShape,
+) -> Result<Matrix<IntegerRing>, SymbolicaIntegerMatrixError> {
+    let mut data = Vec::new();
+    data.try_reserve_exact(shape.entries).map_err(|_| {
+        SymbolicaIntegerMatrixError::AllocationFailure {
+            resource: "integer matrix entries",
+            requested: shape.entries,
+        }
+    })?;
+    for row in rows {
+        data.extend(row.iter().cloned());
+    }
+    call_integer_native("construction", || {
+        Matrix::from_linear(data, shape.rows_u32, shape.columns_u32, Z)
+    })?
+    .map_err(|_| SymbolicaIntegerMatrixError::InternalShapeFailure {
+        operation: "construction",
+    })
+}
+
+fn native_integer_matrix_into_rows(
+    matrix: Matrix<IntegerRing>,
+) -> Result<Vec<Vec<Integer>>, SymbolicaIntegerMatrixError> {
+    let rows = matrix.nrows();
+    let columns = matrix.ncols();
+    let entries =
+        rows.checked_mul(columns)
+            .ok_or(SymbolicaIntegerMatrixError::ResourceCountOverflow {
+                resource: "integer matrix output entries",
+            })?;
+    let mut output = Vec::new();
+    output
+        .try_reserve_exact(rows)
+        .map_err(|_| SymbolicaIntegerMatrixError::AllocationFailure {
+            resource: "integer matrix output rows",
+            requested: rows,
+        })?;
+    let mut data = matrix.into_vec().into_iter();
+    for _ in 0..rows {
+        let mut row = Vec::new();
+        row.try_reserve_exact(columns).map_err(|_| {
+            SymbolicaIntegerMatrixError::AllocationFailure {
+                resource: "integer matrix output entries",
+                requested: columns,
+            }
+        })?;
+        row.extend(data.by_ref().take(columns));
+        output.push(row);
+    }
+    if data.next().is_some() || output.iter().map(Vec::len).sum::<usize>() != entries {
+        return Err(SymbolicaIntegerMatrixError::InternalShapeFailure {
+            operation: "output conversion",
+        });
+    }
+    Ok(output)
+}
+
+/// Multiply two rectangular integer matrices through Symbolica's public exact
+/// `Matrix<IntegerRing>` product.
+///
+/// RustRed does not implement a dot product here.  It validates both input
+/// payloads, admits the exact dense operation count and a conservative integer
+/// magnitude envelope, invokes native `&left * &right` once, then validates and
+/// extracts the native output.
+pub(crate) fn multiply_integer_matrices(
+    left: &[Vec<Integer>],
+    right: &[Vec<Integer>],
+    limits: SymbolicaIntegerMatrixLimits,
+) -> Result<(Vec<Vec<Integer>>, SymbolicaIntegerMatrixStats), SymbolicaIntegerMatrixError> {
+    let left_shape = inspect_integer_rows(left, SymbolicaIntegerMatrixPayload::LeftInput)?;
+    let right_shape = inspect_integer_rows(right, SymbolicaIntegerMatrixPayload::RightInput)?;
+    let preflight = preflight_integer_matrix_product_with_accessors(
+        left_shape.rows,
+        left_shape.columns,
+        |row, column| SymbolicaIntegerMatrixEntryRef::Borrowed(&left[row][column]),
+        right_shape.rows,
+        right_shape.columns,
+        |row, column| SymbolicaIntegerMatrixEntryRef::Borrowed(&right[row][column]),
+        limits,
+    )?;
+    let output_shape = checked_integer_shape(left_shape.rows, right_shape.columns)?;
+
+    let mut stats = SymbolicaIntegerMatrixStats {
+        input_entries: preflight.input_entries,
+        output_entries: preflight.output_entries,
+        admitted_single_matrix_entries: preflight.admitted_single_matrix_entries,
+        admitted_peak_live_entries: preflight.admitted_peak_live_entries,
+        admitted_scalar_multiplications: preflight.admitted_scalar_multiplications,
+        admitted_scalar_additions: preflight.admitted_scalar_additions,
+        input_retained_bytes: preflight.input_retained_bytes,
+        prospective_output_retained_bytes: preflight.prospective_output_retained_bytes,
+        maximum_input_integer_bits: preflight.maximum_input_integer_bits,
+        admitted_intermediate_integer_bits: preflight.admitted_intermediate_integer_bits,
+        ..SymbolicaIntegerMatrixStats::default()
+    };
+
+    let left_native = integer_matrix_from_rows(left, left_shape)?;
+    let right_native = integer_matrix_from_rows(right, right_shape)?;
+    stats.product_calls = stats.product_calls.checked_add(1).ok_or(
+        SymbolicaIntegerMatrixError::ResourceCountOverflow {
+            resource: "Symbolica integer matrix product calls",
+        },
+    )?;
+    let product = call_integer_native("product", || &left_native * &right_native)?;
+    if product.nrows() != output_shape.rows || product.ncols() != output_shape.columns {
+        return Err(SymbolicaIntegerMatrixError::InternalShapeFailure {
+            operation: "product",
+        });
+    }
+    let output_census = census_native_integer_matrix(
+        &product,
+        SymbolicaIntegerMatrixPayload::Output,
+        limits.max_integer_bits,
+    )?;
+    check_integer_limit(
+        "integer matrix output retained bytes",
+        output_census.retained_bytes,
+        limits.max_output_retained_bytes,
+    )?;
+    stats.authenticated_output_entries = output_shape.entries;
+    stats.output_retained_bytes = output_census.retained_bytes;
+    stats.maximum_output_integer_bits = output_census.maximum_bits;
+    let product = native_integer_matrix_into_rows(product)?;
+    Ok((product, stats))
+}
+
 /// Multiply two authenticated matrices through Symbolica.
 pub(crate) fn multiply_coefficient_matrices(
     context: &CoefficientContext,
@@ -2261,6 +3204,387 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    #[test]
+    fn rectangular_integer_product_is_one_symbolica_native_call() {
+        let left = vec![
+            vec![Integer::from(1), Integer::from(2), Integer::from(3)],
+            vec![Integer::from(4), Integer::from(5), Integer::from(6)],
+        ];
+        let right = vec![
+            vec![Integer::from(7), Integer::from(8)],
+            vec![Integer::from(9), Integer::from(10)],
+            vec![Integer::from(11), Integer::from(12)],
+        ];
+        let (product, stats) =
+            multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                .unwrap();
+        assert_eq!(
+            product,
+            vec![
+                vec![Integer::from(58), Integer::from(64)],
+                vec![Integer::from(139), Integer::from(154)],
+            ]
+        );
+        assert_eq!(stats.input_entries(), 12);
+        assert_eq!(stats.output_entries(), 4);
+        assert_eq!(stats.authenticated_output_entries(), 4);
+        assert_eq!(stats.admitted_single_matrix_entries(), 6);
+        assert_eq!(stats.admitted_peak_live_entries(), 16);
+        assert_eq!(stats.admitted_scalar_multiplications(), 12);
+        assert_eq!(stats.admitted_scalar_additions(), 12);
+        assert_eq!(stats.maximum_input_integer_bits(), 4);
+        assert_eq!(stats.admitted_intermediate_integer_bits(), 9);
+        assert_eq!(stats.maximum_output_integer_bits(), 8);
+        assert_eq!(stats.product_calls(), 1);
+        assert!(stats.input_retained_bytes() > 0);
+        assert!(stats.prospective_output_retained_bytes() >= stats.output_retained_bytes());
+        assert!(stats.output_retained_bytes() > 0);
+    }
+
+    #[test]
+    fn integer_product_preserves_default_gmp_payloads() {
+        let huge = Integer::from(1) << 4096_u32;
+        assert!(matches!(&huge, Integer::Large(_)));
+        let left = vec![vec![huge.clone(), Integer::from(3)]];
+        let right = vec![vec![Integer::from(2)], vec![huge.clone()]];
+        let (product, stats) =
+            multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                .unwrap();
+        assert_eq!(product, vec![vec![Integer::from(5) << 4096_u32]]);
+        assert!(matches!(product[0][0], Integer::Large(_)));
+        assert_eq!(stats.maximum_input_integer_bits(), 4097);
+        assert_eq!(stats.admitted_intermediate_integer_bits(), 8195);
+        assert_eq!(stats.maximum_output_integer_bits(), 4099);
+        assert_eq!(stats.product_calls(), 1);
+        assert!(stats.input_retained_bytes() > 5 * size_of::<Integer>());
+        assert!(stats.output_retained_bytes() > size_of::<Integer>());
+    }
+
+    #[test]
+    fn prospective_output_bytes_cover_default_gmp_capacity_at_limb_boundaries() {
+        let limb_boundary = Integer::from(1) << 128_u32;
+        assert!(matches!(&limb_boundary, Integer::Large(_)));
+        for (left, right) in [
+            (
+                vec![vec![limb_boundary.clone()]],
+                vec![vec![Integer::from(1)]],
+            ),
+            (
+                vec![vec![limb_boundary.clone()]],
+                vec![vec![limb_boundary.clone()]],
+            ),
+        ] {
+            let (product, stats) =
+                multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                    .unwrap();
+            assert!(matches!(product[0][0], Integer::Large(_)));
+            assert!(
+                stats.prospective_output_retained_bytes() >= stats.output_retained_bytes(),
+                "prospective output bytes must cover retained GMP capacity"
+            );
+
+            let exact = SymbolicaIntegerMatrixLimits {
+                max_prospective_output_retained_bytes: stats.prospective_output_retained_bytes(),
+                ..SymbolicaIntegerMatrixLimits::default()
+            };
+            let (_, replayed) = multiply_integer_matrices(&left, &right, exact).unwrap();
+            assert_eq!(replayed, stats);
+            assert!(matches!(
+                multiply_integer_matrices(
+                    &left,
+                    &right,
+                    SymbolicaIntegerMatrixLimits {
+                        max_prospective_output_retained_bytes: stats
+                            .prospective_output_retained_bytes()
+                            - 1,
+                        ..exact
+                    },
+                ),
+                Err(SymbolicaIntegerMatrixError::ResourceLimit {
+                    resource: "prospective integer matrix output retained bytes",
+                    ..
+                })
+            ));
+        }
+
+        // At this multi-term limb boundary the pinned native product retains
+        // more capacity than rounding the envelope and adding only one limb.
+        // The public preflight therefore carries the empirically required
+        // two-limb reserve.
+        let two_to_64 = Integer::from(1) << 64_u32;
+        let two_to_128 = Integer::from(1) << 128_u32;
+        let left = vec![vec![two_to_64.clone(), two_to_64]];
+        let right = vec![vec![two_to_128.clone()], vec![two_to_128]];
+        let (product, stats) =
+            multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                .unwrap();
+        assert!(matches!(product[0][0], Integer::Large(_)));
+        let one_extra_limb_bytes = size_of::<Integer>()
+            + prospective_gmp_heap_byte_bound(
+                stats.admitted_intermediate_integer_bits(),
+                1,
+                "one-extra-limb regression",
+            )
+            .unwrap();
+        assert!(stats.output_retained_bytes() > one_extra_limb_bytes);
+        assert!(stats.prospective_output_retained_bytes() >= stats.output_retained_bytes());
+
+        // The conservative dot-product envelope is exactly 128 bits here,
+        // while the positive result exceeds i128::MAX. This pins the signed
+        // inline boundary independently of the wider GMP cases above.
+        let two_to_64_minus_one = Integer::from(u64::MAX);
+        let two_to_63_minus_one = Integer::from(i64::MAX);
+        let left = vec![vec![two_to_64_minus_one.clone(), two_to_64_minus_one]];
+        let right = vec![vec![two_to_63_minus_one.clone()], vec![two_to_63_minus_one]];
+        let (product, stats) =
+            multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                .unwrap();
+        assert_eq!(stats.admitted_intermediate_integer_bits(), 128);
+        assert!(matches!(product[0][0], Integer::Large(_)));
+        assert!(stats.prospective_output_retained_bytes() >= stats.output_retained_bytes());
+    }
+
+    #[test]
+    fn signed_integer_dot_product_bound_covers_exact_cancellation() {
+        let huge = Integer::from(1) << 512_u32;
+        let left = vec![vec![huge.clone(), Z.neg(&huge)]];
+        let right = vec![vec![Integer::from(1)], vec![Integer::from(1)]];
+        let (product, stats) = multiply_integer_matrices(
+            &left,
+            &right,
+            SymbolicaIntegerMatrixLimits {
+                max_integer_bits: 515,
+                ..SymbolicaIntegerMatrixLimits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(product, vec![vec![Integer::from(0)]]);
+        assert_eq!(stats.maximum_input_integer_bits(), 513);
+        assert_eq!(stats.admitted_intermediate_integer_bits(), 515);
+        assert_eq!(stats.maximum_output_integer_bits(), 0);
+        assert!(matches!(
+            multiply_integer_matrices(
+                &left,
+                &right,
+                SymbolicaIntegerMatrixLimits {
+                    max_integer_bits: 514,
+                    ..SymbolicaIntegerMatrixLimits::default()
+                },
+            ),
+            Err(SymbolicaIntegerMatrixError::ResourceLimit {
+                resource: "Symbolica integer matrix intermediate bits",
+                requested: 515,
+                limit: 514,
+            })
+        ));
+    }
+
+    #[test]
+    fn integer_product_rejects_noncanonical_symbolica_variants() {
+        use symbolica::domains::integer::MultiPrecisionInteger;
+
+        let right = vec![vec![Integer::from(1)]];
+        for noncanonical in [
+            Integer::Double(0),
+            Integer::Large(MultiPrecisionInteger::from(0)),
+        ] {
+            assert_eq!(
+                multiply_integer_matrices(
+                    &[vec![noncanonical]],
+                    &right,
+                    SymbolicaIntegerMatrixLimits::default(),
+                ),
+                Err(SymbolicaIntegerMatrixError::NonCanonicalInteger {
+                    payload: SymbolicaIntegerMatrixPayload::LeftInput,
+                    row: 0,
+                    column: 0,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn integer_product_rejects_empty_ragged_and_incompatible_shapes() {
+        let one = Integer::from(1);
+        assert_eq!(
+            multiply_integer_matrices(
+                &[],
+                &[vec![one.clone()]],
+                SymbolicaIntegerMatrixLimits::default(),
+            ),
+            Err(SymbolicaIntegerMatrixError::EmptyMatrix {
+                payload: SymbolicaIntegerMatrixPayload::LeftInput,
+            })
+        );
+        assert_eq!(
+            multiply_integer_matrices(
+                &[vec![one.clone()]],
+                &[vec![]],
+                SymbolicaIntegerMatrixLimits::default(),
+            ),
+            Err(SymbolicaIntegerMatrixError::EmptyMatrix {
+                payload: SymbolicaIntegerMatrixPayload::RightInput,
+            })
+        );
+        assert_eq!(
+            multiply_integer_matrices(
+                &[vec![one.clone()], vec![one.clone(), one.clone()]],
+                &[vec![one.clone()]],
+                SymbolicaIntegerMatrixLimits::default(),
+            ),
+            Err(SymbolicaIntegerMatrixError::RaggedMatrix {
+                payload: SymbolicaIntegerMatrixPayload::LeftInput,
+                row: 1,
+                expected_columns: 1,
+                actual_columns: 2,
+            })
+        );
+        assert!(matches!(
+            multiply_integer_matrices(
+                &[vec![one.clone(), one.clone()]],
+                &[vec![one]],
+                SymbolicaIntegerMatrixLimits::default(),
+            ),
+            Err(SymbolicaIntegerMatrixError::ShapeMismatch {
+                left_rows: 1,
+                left_columns: 2,
+                right_rows: 1,
+                right_columns: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn integer_product_resource_limits_have_exact_boundaries() {
+        let left = vec![
+            vec![Integer::from(1), Integer::from(2), Integer::from(3)],
+            vec![Integer::from(4), Integer::from(5), Integer::from(6)],
+        ];
+        let right = vec![
+            vec![Integer::from(7)],
+            vec![Integer::from(8)],
+            vec![Integer::from(9)],
+        ];
+        let (_, stats) =
+            multiply_integer_matrices(&left, &right, SymbolicaIntegerMatrixLimits::default())
+                .unwrap();
+        let exact = SymbolicaIntegerMatrixLimits {
+            max_single_matrix_entries: stats.admitted_single_matrix_entries(),
+            max_live_matrix_entries: stats.admitted_peak_live_entries(),
+            max_scalar_multiplications: stats.admitted_scalar_multiplications(),
+            max_scalar_additions: stats.admitted_scalar_additions(),
+            max_integer_bits: stats.admitted_intermediate_integer_bits(),
+            max_input_retained_bytes: stats.input_retained_bytes(),
+            max_prospective_output_retained_bytes: stats.prospective_output_retained_bytes(),
+            max_output_retained_bytes: stats.output_retained_bytes(),
+        };
+        let (_, replayed) = multiply_integer_matrices(&left, &right, exact).unwrap();
+        assert_eq!(replayed, stats);
+
+        for (limits, resource) in [
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_single_matrix_entries: exact.max_single_matrix_entries - 1,
+                    ..exact
+                },
+                "single Symbolica integer matrix entries",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_live_matrix_entries: exact.max_live_matrix_entries - 1,
+                    ..exact
+                },
+                "live Symbolica integer matrix entries",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_scalar_multiplications: exact.max_scalar_multiplications - 1,
+                    ..exact
+                },
+                "Symbolica integer matrix scalar multiplications",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_scalar_additions: exact.max_scalar_additions - 1,
+                    ..exact
+                },
+                "Symbolica integer matrix scalar additions",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_integer_bits: exact.max_integer_bits - 1,
+                    ..exact
+                },
+                "Symbolica integer matrix intermediate bits",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_input_retained_bytes: exact.max_input_retained_bytes - 1,
+                    ..exact
+                },
+                "integer matrix input retained bytes",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_prospective_output_retained_bytes: exact
+                        .max_prospective_output_retained_bytes
+                        - 1,
+                    ..exact
+                },
+                "prospective integer matrix output retained bytes",
+            ),
+            (
+                SymbolicaIntegerMatrixLimits {
+                    max_output_retained_bytes: exact.max_output_retained_bytes - 1,
+                    ..exact
+                },
+                "integer matrix output retained bytes",
+            ),
+        ] {
+            assert!(matches!(
+                multiply_integer_matrices(&left, &right, limits),
+                Err(SymbolicaIntegerMatrixError::ResourceLimit {
+                    resource: actual,
+                    ..
+                }) if actual == resource
+            ));
+        }
+
+        assert!(matches!(
+            multiply_integer_matrices(
+                &left,
+                &right,
+                SymbolicaIntegerMatrixLimits {
+                    max_integer_bits: 3,
+                    ..SymbolicaIntegerMatrixLimits::default()
+                },
+            ),
+            Err(SymbolicaIntegerMatrixError::IntegerBitLimit {
+                payload: SymbolicaIntegerMatrixPayload::RightInput,
+                row: 1,
+                column: 0,
+                requested: 4,
+                limit: 3,
+            })
+        ));
+    }
+
+    #[test]
+    fn unexpected_integer_native_panic_is_typed_and_redacted() {
+        struct UnexpectedIntegerPanic;
+        let error = call_integer_native("panic test", || {
+            resume_unwind(Box::new(UnexpectedIntegerPanic));
+        })
+        .unwrap_err();
+        assert_eq!(
+            error,
+            SymbolicaIntegerMatrixError::NativePanic {
+                operation: "panic test",
+            }
+        );
+        assert!(!error.to_string().contains("UnexpectedIntegerPanic"));
     }
 
     #[test]

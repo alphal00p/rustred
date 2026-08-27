@@ -48,6 +48,11 @@ use crate::generated_affine_residual_case_bound_relation::{
     GeneratedAffineResidualCaseBoundRelationStats,
     GeneratedAffineResidualCaseBoundUnavailableCertificate,
 };
+use crate::generated_affine_residual_case_completed_bound_row::{
+    GeneratedAffineResidualCaseCompletedBoundRow,
+    GeneratedAffineResidualCaseCompletedBoundRowCompiler,
+    GeneratedAffineResidualCaseCompletedBoundRowLimits,
+};
 use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
 };
@@ -604,6 +609,52 @@ impl GeneratedAffineResidualCaseReeliminationCertificate {
         GeneratedAffineResidualCaseReeliminationError,
     > {
         authenticate_retained_source_row(self, retained_row_ordinal, witness_ordinal)
+    }
+
+    /// Compile the witness-selected row through the standalone completed-row
+    /// seam.  This bridge exists for differential/scouting users of the
+    /// legacy whole-schedule elimination certificate; the returned owner has
+    /// no pointer to this certificate or its `PreorderedParametricElimination`.
+    #[cfg(test)]
+    pub(crate) fn compile_completed_retained_source_row(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        retained_row_ordinal: usize,
+        witness_ordinal: usize,
+        limits: GeneratedAffineResidualCaseCompletedBoundRowLimits,
+    ) -> Result<
+        GeneratedAffineResidualCaseCompletedBoundRow,
+        GeneratedAffineResidualCaseReeliminationError,
+    > {
+        let authenticated =
+            authenticate_retained_source_row(self, retained_row_ordinal, witness_ordinal)?;
+        let witness = self
+            .witnesses
+            .get(witness_ordinal)
+            .ok_or(GeneratedAffineResidualCaseReeliminationError::WrongRetainedSourceBinding)?;
+        let GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(bound) = &witness.outcome
+        else {
+            return Err(GeneratedAffineResidualCaseReeliminationError::WrongRetainedSourceBinding);
+        };
+        let completed = GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+            family,
+            context,
+            Arc::clone(&self.parents.authority),
+            Arc::clone(&self.parents.ordering),
+            Arc::clone(&self.parents.schedule),
+            Arc::clone(&self.parents.premises),
+            Arc::clone(bound),
+            limits,
+        )
+        .map_err(|_| GeneratedAffineResidualCaseReeliminationError::Row)?;
+        if !authenticated
+            .relation()
+            .has_identical_guard_provenance(completed.relation())
+        {
+            return Err(GeneratedAffineResidualCaseReeliminationError::WrongRetainedSourceBinding);
+        }
+        Ok(completed)
     }
 
     pub(crate) fn elimination_for_case_target_matching(&self) -> &PreorderedParametricElimination {
@@ -1236,22 +1287,25 @@ fn compile_inner(
     for row in pending {
         let (retained_support, outcome) = match row.outcome {
             PendingOutcome::Retained(retained) => {
-                let support = copy_support(retained.relation().terms().keys())?;
-                let mut relation = retained.relation().clone();
-                for assumption in retained.base_assumptions() {
-                    relation.add_guarded_nonzero_condition_with_limits(
-                        context,
-                        assumption.condition().clone(),
-                        limits.elimination.arithmetic,
-                    )?;
-                }
+                let bound = Arc::new(retained);
+                let completed = GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+                    family,
+                    context,
+                    Arc::clone(&parents.authority),
+                    Arc::clone(&parents.ordering),
+                    Arc::clone(&parents.schedule),
+                    Arc::clone(&parents.premises),
+                    Arc::clone(&bound),
+                    completed_row_limits(limits),
+                )
+                .map_err(|_| GeneratedAffineResidualCaseReeliminationError::Row)?;
+                let support = copy_support(completed.relation().terms().keys())?;
+                let relation = completed.relation().clone();
                 accumulate_actual_elimination_input(&mut stats, &relation, limits)?;
                 source_rows.push(relation);
                 (
                     Some(Arc::new(support)),
-                    GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(Arc::new(
-                        retained,
-                    )),
+                    GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(bound),
                 )
             }
             PendingOutcome::Unavailable(unavailable) => (
@@ -1291,6 +1345,32 @@ fn compile_inner(
         stats,
     };
     Ok(GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate))
+}
+
+fn completed_row_limits(
+    limits: GeneratedAffineResidualCaseReeliminationLimits,
+) -> GeneratedAffineResidualCaseCompletedBoundRowLimits {
+    GeneratedAffineResidualCaseCompletedBoundRowLimits {
+        arithmetic: limits.elimination.arithmetic,
+        max_terms: limits
+            .max_elimination_input_terms
+            .min(limits.elimination.max_input_terms),
+        max_inherited_guards: limits
+            .max_elimination_input_guards
+            .min(limits.elimination.max_input_guards),
+        max_row_local_base_assumptions: limits.max_row_local_base_assumptions,
+        max_guard_origin_occurrences: limits
+            .max_elimination_input_guard_origins
+            .min(limits.elimination.max_input_guard_origins),
+        max_completed_guards: limits
+            .max_elimination_input_guards
+            .min(limits.elimination.max_input_guards),
+        max_relation_clone_byte_envelope: limits.max_elimination_input_byte_envelope,
+        max_completed_relation_retained_bytes: limits.max_elimination_input_bytes,
+        max_owner_retained_bytes: limits.max_owner_retained_bytes,
+        max_peak_scratch_bytes: limits.max_peak_scratch_bytes,
+        ..GeneratedAffineResidualCaseCompletedBoundRowLimits::default()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3236,6 +3316,109 @@ mod tests {
                 &fixture.schedule,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn completed_bound_row_matches_legacy_input_and_seals_replay_foreign_and_resource_boundaries() {
+        let fixture = natural_fixture("completed-bound-row-differential", 1);
+        let limits = GeneratedAffineResidualCaseReeliminationLimits::default();
+        let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
+            fixture.compile(limits).unwrap()
+        else {
+            panic!("natural generated case had no retained row")
+        };
+        let certificate = Arc::new(certificate);
+        let witness_ordinal = certificate
+            .witnesses()
+            .iter()
+            .position(|witness| witness.outcome().is_retained())
+            .unwrap();
+        let retained_row_ordinal = certificate.witnesses()[..witness_ordinal]
+            .iter()
+            .filter(|witness| witness.outcome().is_retained())
+            .count();
+        let GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(bound) =
+            certificate.witnesses()[witness_ordinal].outcome()
+        else {
+            unreachable!()
+        };
+        assert!(!bound.relation().terms().is_empty());
+
+        let completed = GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.authority),
+            Arc::clone(&fixture.ordering),
+            Arc::clone(&fixture.schedule),
+            Arc::clone(&fixture.premises),
+            Arc::clone(bound),
+            GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+        )
+        .unwrap();
+        assert!(completed.relation().has_identical_guard_provenance(
+            &certificate.source_rows_for_case_target_matching()[retained_row_ordinal]
+        ));
+        assert_eq!(completed.expanded_ordinal(), witness_ordinal);
+        assert_eq!(
+            completed.layer_ordinal(),
+            certificate.witnesses()[witness_ordinal].layer_ordinal()
+        );
+        assert_eq!(
+            completed.point_depth(),
+            certificate.witnesses()[witness_ordinal].depth()
+        );
+        assert_eq!(
+            completed.point_ordinal(),
+            certificate.witnesses()[witness_ordinal].prepare_point_ordinal()
+        );
+        assert_eq!(
+            completed.source_row_ordinal(),
+            certificate.witnesses()[witness_ordinal].source_row_ordinal()
+        );
+        completed
+            .replay(
+                &fixture.family,
+                &fixture.context,
+                &fixture.authority,
+                &fixture.ordering,
+                &fixture.schedule,
+                &fixture.premises,
+                bound,
+            )
+            .unwrap();
+
+        let foreign_ordering = Arc::new(fixture.ordering.as_ref().clone());
+        assert!(matches!(
+            completed.replay(
+                &fixture.family,
+                &fixture.context,
+                &fixture.authority,
+                &foreign_ordering,
+                &fixture.schedule,
+                &fixture.premises,
+                bound,
+            ),
+            Err(crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRowError::WrongParentAllocation)
+        ));
+
+        let mut too_small = GeneratedAffineResidualCaseCompletedBoundRowLimits::default();
+        too_small.max_terms = bound.relation().terms().len() - 1;
+        assert!(matches!(
+            GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+                &fixture.family,
+                &fixture.context,
+                Arc::clone(&fixture.authority),
+                Arc::clone(&fixture.ordering),
+                Arc::clone(&fixture.schedule),
+                Arc::clone(&fixture.premises),
+                Arc::clone(bound),
+                too_small,
+            ),
+            Err(crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRowError::ResourceLimit {
+                resource: "completed bound-row terms",
+                ..
+            })
+        ));
     }
 
     #[test]

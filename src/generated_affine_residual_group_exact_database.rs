@@ -4763,7 +4763,6 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationCompilation,
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
-        GeneratedAffineResidualCaseReeliminationRowOutcome,
     };
     use crate::generated_affine_residual_group_exact_physical_row::{
         GeneratedAffineResidualGroupExactPhysicalRowCompiler,
@@ -5102,7 +5101,7 @@ mod tests {
                 .filter(|witness| witness.outcome().is_retained())
                 .count();
             return Arc::new(
-                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile_from_reelimination_for_test(
                     family,
                     context,
                     certificate,
@@ -6276,14 +6275,13 @@ mod tests {
         let exact_unique_production_owner_bound = source
             .unique_retained_source_graph_byte_bound()
             .expect("the finite production source graph must fit in usize");
-        let reelimination = source.reelimination_source_for_retained_graph_test();
+        let completed = source.completed_source_for_retained_graph_test();
         let descendant_floor = checked_sum(
             "test production source descendant floor",
             [
                 source.stats().owner_retained_bytes(),
-                reelimination.stats().owner_retained_bytes(),
-                reelimination.stats().cumulative_bound_row_retained_bytes(),
-                reelimination.elimination_stats().retained_bytes(),
+                completed.stats().owner_retained_bytes(),
+                completed.bound().stats().retained_bytes(),
             ],
         )
         .unwrap();
@@ -6475,28 +6473,14 @@ mod tests {
         );
 
         let weak_source = Arc::downgrade(&source);
-        let reelimination = source.reelimination_source_for_retained_graph_test();
-        let weak_reelimination = Arc::downgrade(reelimination);
-        let source_authority_is_plan_anchor =
-            Arc::ptr_eq(reelimination.authority(), plan.authority());
-        let weak_authority = Arc::downgrade(reelimination.authority());
-        let weak_premises = Arc::downgrade(reelimination.premises());
-        let weak_ordering = Arc::downgrade(reelimination.ordering());
-        let weak_schedule = Arc::downgrade(reelimination.schedule());
-        let weak_elimination = reelimination.elimination_weak_for_retained_graph_test();
-        let mut weak_retained_rows = Vec::new();
-        let mut weak_unavailable_rows = Vec::new();
-        for witness in reelimination.witnesses() {
-            match witness.outcome() {
-                GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(row) => {
-                    weak_retained_rows.push(Arc::downgrade(row));
-                }
-                GeneratedAffineResidualCaseReeliminationRowOutcome::Unavailable(row) => {
-                    weak_unavailable_rows.push(Arc::downgrade(row));
-                }
-            }
-        }
-        assert!(!weak_retained_rows.is_empty());
+        let completed = source.completed_source_for_retained_graph_test();
+        let weak_completed = Arc::downgrade(completed);
+        let source_authority_is_plan_anchor = Arc::ptr_eq(completed.authority(), plan.authority());
+        let weak_authority = Arc::downgrade(completed.authority());
+        let weak_premises = Arc::downgrade(completed.premises());
+        let weak_ordering = Arc::downgrade(completed.ordering());
+        let weak_schedule = Arc::downgrade(completed.schedule());
+        let weak_bound = Arc::downgrade(completed.bound());
 
         drop(source);
         drop(exact_stage);
@@ -6504,38 +6488,25 @@ mod tests {
         drop(probe_database);
         for alive in [
             weak_source.upgrade().is_some(),
-            weak_reelimination.upgrade().is_some(),
+            weak_completed.upgrade().is_some(),
             weak_authority.upgrade().is_some(),
             weak_premises.upgrade().is_some(),
             weak_ordering.upgrade().is_some(),
             weak_schedule.upgrade().is_some(),
-            weak_elimination.upgrade().is_some(),
+            weak_bound.upgrade().is_some(),
         ] {
             assert!(
                 alive,
                 "the opaque retained recipe must own the complete source graph"
             );
         }
-        assert!(weak_retained_rows.iter().all(|row| row.upgrade().is_some()));
-        assert!(
-            weak_unavailable_rows
-                .iter()
-                .all(|row| row.upgrade().is_some())
-        );
-
         drop(recipe);
         assert!(weak_source.upgrade().is_none());
-        assert!(weak_reelimination.upgrade().is_none());
+        assert!(weak_completed.upgrade().is_none());
         assert!(weak_premises.upgrade().is_none());
         assert!(weak_ordering.upgrade().is_none());
         assert!(weak_schedule.upgrade().is_none());
-        assert!(weak_elimination.upgrade().is_none());
-        assert!(weak_retained_rows.iter().all(|row| row.upgrade().is_none()));
-        assert!(
-            weak_unavailable_rows
-                .iter()
-                .all(|row| row.upgrade().is_none())
-        );
+        assert!(weak_bound.upgrade().is_none());
         if source_authority_is_plan_anchor {
             assert!(
                 weak_authority.upgrade().is_some(),

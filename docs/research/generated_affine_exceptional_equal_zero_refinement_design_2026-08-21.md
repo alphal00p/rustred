@@ -2,9 +2,47 @@
 
 Date: 2026-08-21
 
-Status: implementation-ready design. This document specifies a topology-neutral
-refinement stage. It does not authorize topology-specific recurrences, special
-loop-count formulas, or hard-coded vacuum families.
+Status: long-term semantic design, with its generalized integer-lattice kernel
+superseded as an implementation prescription on 2026-08-27. This document
+still specifies the topology-neutral result RustRed ultimately needs. It does
+not authorize topology-specific recurrences, special loop-count formulas, or
+hard-coded vacuum families.
+
+The current production policy is stricter than the historical construction in
+sections 4--8. The vendored Symbolica public Rust API has polynomial content/
+primitive normalization and exact integer-matrix multiplication, but no
+Smith/Hermite normal form or complete integer-kernel/affine-lattice
+parameterization. RustRed must not fill that API gap with its own CAS. The
+first production refinement therefore accepts one normalized integer-affine
+equality only when an active free coordinate has literal coefficient `+1` or
+`-1`; it delegates geometry composition to Symbolica and returns a typed
+typed `RequiresIntegerNormalForm` unsupported outcome otherwise. The broader
+semantics below remain an acceptance target for a future public Symbolica
+normal-form API, not permission to promote the existing handwritten prototype.
+
+Implemented checkpoint (2026-08-27):
+`generated_affine_residual_case_unit_equality_refinement.rs` realizes that
+strict subset in current-target coordinates. It performs a borrowed atom-row
+logical-memory/GMP census before copying the predicate, prospects both virtual
+integer matrices before dense staging, delegates the only map product to
+Symbolica `Matrix<IntegerRing>`, and verifies the equality maps to zero through
+the existing Symbolica-backed compact substitution plan. The matrix boundary
+also admits a conservative prospective output retained-byte envelope before
+native multiplication and authenticates exact output capacity afterwards. Its
+virtual-entry census is sign-aware, records the prospective input envelope
+separately from the native census, and covers `-i128::MIN` promotion. The pinned
+default-GMP output bound treats only positive magnitudes through 127 bits as
+inline and reserves two capacity limbs beyond the rounded dot-product envelope.
+Parallel licensed default-GMP validation passed all 19 refinement tests and 37
+matrix-boundary tests (56/56), including a genuine GMP-sized constant,
+`i128::MIN` promotion, the signed 128-bit inline boundary, the two-limb
+multi-term capacity boundary, and exact/one-below resource limits.
+
+This certificate remains authority-neutral. It is not yet attached to a
+committed exceptional Domain resident, and it neither regenerates generic
+IBP/LI rows nor submits completed physical rows to the fresh child database.
+`ProvedEmpty` is diagnostic until that future adapter retains and replays the
+event-bound proof needed for pruning.
 
 ## 1. Decision and completeness boundary
 
@@ -20,12 +58,12 @@ coefficient that is known to vanish on the exceptional branch remains
 syntactically nonzero and the next elimination repeats the failed generic
 pivot.
 
-This stage is complete for simultaneous integer-affine equalities over
-arbitrary-precision Symbolica integers. It must handle equations with no
-original-coordinate unit pivot, including congruence and divisibility cases.
-It is not a substitute for the later polynomial-ideal stage needed for general
-nonlinear EqualZero predicates. An unresolved nonlinear predicate is a typed
-completeness boundary; it is neither an empty branch nor a master integral.
+The eventual stage must be complete for simultaneous integer-affine equalities
+over arbitrary-precision Symbolica integers, including congruence and
+divisibility cases. That completeness is not implemented at the present
+Symbolica API boundary. Today, multiple equalities, nonlinear equalities, and
+an affine equality without a literal unit pivot are typed completeness
+boundaries; none is an empty branch or a master integral.
 
 NonZero predicates are not equations. They remain guards, except when exact
 composition proves them contradictory or discharges them as nonzero constants.
@@ -95,7 +133,7 @@ firewall and neutral guard-origin rule are documented in
 docs/research/generated_affine_residual_inventory_v2_design_2026-08-21.md:23-33
 and 143-181.
 
-### 3.2 Existing integer-system compiler
+### 3.2 Existing integer-system prototype (non-production)
 
 ResidualAffineIntegerMap is currently an ambient-square map
 
@@ -105,7 +143,7 @@ with identity rows at free_positions and solved expressions at pivot_positions.
 Its contract requires A squared equal to A and A b equal to zero; see
 src/residual_affine_integer_system.rs:630-711.
 
-The current DFS is intentionally a unit-pivot cylinder solver. It searches only
+The historical DFS is intentionally a unit-pivot cylinder solver. It searches only
 eligible original-coordinate unit columns and returns
 GeneralCongruenceCaseNotSupported when none produces a complete path; see
 src/residual_affine_integer_system.rs:2293-2351. It already detects a nonzero
@@ -114,9 +152,11 @@ src/residual_affine_integer_system.rs:2359-2408.
 
 The test at src/residual_affine_integer_system.rs:6068-6100 makes the boundary
 explicit: a row with coefficients (2,1) is accepted because it has a unit
-original column, whereas 2 n0 + 3 n1 = 0 is typed unsupported. The new
-refinement must solve the latter. The V1 compiler and schema should remain
-unchanged; the generalized result needs a new type and schema.
+original column, whereas 2 n0 + 3 n1 = 0 is typed unsupported. The eventual
+generalized refinement must solve the latter, but the production path must
+pause there until an adequate public Symbolica normal-form/kernel API exists.
+The V1 compiler and schema remain isolated prototype material and must not be
+imported by the production exceptional-child ingress.
 
 RustRed already has bounded exact arithmetic suitable for reuse:
 src/residual_affine_integer_system.rs:3038-3098 implements bounded gcd and
@@ -124,7 +164,15 @@ extended gcd over Symbolica Integer and verifies the reconstructed Bezout
 identity. The Budget arithmetic and prospective integer-bit checks around
 src/residual_affine_integer_system.rs:1493-1818 are the model for every new GMP
 operation. A field-style Gaussian matrix solver is not an integer-lattice
-solver and must not replace this logic.
+solver and must not replace this logic. Nor may the prototype logic itself
+become production authority under the Symbolica-only algebra rule.
+
+Sections 4--8 describe a sound mathematical route based on explicit Bezout
+and unimodular transforms. They are retained as requirements and upstream-API
+guidance only, not as an implementation recipe for RustRed. Production may not
+author or replay those lattice transforms itself. The implemented fast path is
+the strict literal-unit-pivot subset, with all matrix products performed by
+Symbolica.
 
 ### 3.3 Affine recognition and polynomial composition
 
@@ -853,7 +901,7 @@ Neither unsupported case may be pruned or labeled a master.
 
 ## 13. Required scope versus optional optimization
 
-Required for affine recursive completeness:
+Ultimate requirements for affine recursive completeness:
 
 - compose every EqualZero predicate through the inherited map;
 - solve all simultaneous integer-affine equations exactly, including
@@ -871,11 +919,24 @@ Required later for full LiteRed parity, but a separate implementation seam:
 - saturation-aware NonZero reasoning;
 - integer inhabitation beyond affine lattices.
 
-Optional optimizations:
+Permitted current production subset:
+
+- one already-current-coordinate affine `EqualZero` predicate;
+- Symbolica-backed primitive-row recognition/normalization;
+- a deterministic literal `+1` or `-1` pivot on an active free coordinate;
+- Symbolica-native integer-matrix composition with compact-map replay;
+- exact verification that the consumed equality maps to zero;
+- typed `AlreadySatisfied`, `ProvedEmpty`, nonlinear/multiple-equality, and
+  `RequiresIntegerNormalForm` unsupported outcomes.
+
+The existing RustRed integer-system and integer-lattice-kernel modules are not
+production authorities. A no-unit case must not silently call them.
+
+Optional optimizations after the missing public Symbolica capability exists:
 
 - a batch Smith or Hermite normal-form implementation;
 - canonical lattice keys for merging geometrically equal children;
-- the current unit-pivot compiler as a proven fast path;
+- retaining the unit-pivot compiler as a proven fast path;
 - eliminating redundant compact support columns;
 - synthetic minimal parameter variables;
 - cached but independently authenticated composition plans.
