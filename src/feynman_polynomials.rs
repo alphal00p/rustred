@@ -24,6 +24,9 @@ use crate::{
 pub type RawFeynmanPolynomial =
     MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u16>;
 
+/// Symbolica's native polynomial-ring adapter for the natural `K[x]` domain.
+type FeynmanPolynomialRing = PolynomialRing<RationalPolynomialField<IntegerRing, u16>, u16>;
+
 /// Checked work and representation budgets for one `U/F/G` construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeynmanPolynomialLimits {
@@ -35,11 +38,25 @@ pub struct FeynmanPolynomialLimits {
     /// polynomial operation.  Symbolica stores one exponent for every
     /// `(term, parameter)` pair even when most exponents are zero.
     pub max_exponent_entries: usize,
-    /// Aggregate polynomial-term work for one public construction,
-    /// differentiation, or face-restriction call.
+    /// Aggregate RustRed-observable polynomial-term work for one public
+    /// construction, differentiation, or face-restriction call.  Symbolica's
+    /// native determinant does not expose its intermediate term census; its
+    /// structural ring calls are bounded separately below and its retained
+    /// result is authenticated against the polynomial representation limits.
     pub max_term_operations: usize,
-    pub max_determinant_states: usize,
-    pub max_determinant_operations: usize,
+    /// Maximum structural entries in one square matrix handed to Symbolica's
+    /// native determinant implementation.  This is not an RSS bound: campaign
+    /// admission must separately charge the resident caller input, RustRed's
+    /// input clone, Symbolica's full Bareiss matrix clone for sizes at least
+    /// four, intermediate polynomial/coefficient swell, exact-division and GCD
+    /// temporaries, allocator/TLS scratch, and any adjugate-minor clones.
+    pub max_determinant_matrix_entries: usize,
+    /// Aggregate conservative count of structural arithmetic ring calls made
+    /// by Symbolica determinants. Sizes two and three use the exact native
+    /// formulas; larger sizes use the public fraction-free Bareiss structure.
+    /// Pivot zero probes are excluded, and one counted polynomial operation can
+    /// own substantial opaque native algebra and memory.
+    pub max_determinant_ring_operations: usize,
     pub max_adjugate_minors: usize,
 }
 
@@ -52,8 +69,8 @@ impl Default for FeynmanPolynomialLimits {
             max_polynomial_terms: 4_000_000,
             max_exponent_entries: 64_000_000,
             max_term_operations: 16_000_000,
-            max_determinant_states: 1_048_576,
-            max_determinant_operations: 16_000_000,
+            max_determinant_matrix_entries: 1_048_576,
+            max_determinant_ring_operations: 16_000_000,
             max_adjugate_minors: 1_048_576,
         }
     }
@@ -69,6 +86,12 @@ pub enum FeynmanPolynomialError {
     },
     ResourceCountOverflow {
         resource: &'static str,
+    },
+    /// The RustRed-owned outer allocation named by `resource` failed. Native
+    /// Symbolica clones and arithmetic temporaries remain opaque to this error.
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
     },
     ParameterExponentOverflow {
         variable: usize,
@@ -108,6 +131,13 @@ impl fmt::Display for FeynmanPolynomialError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} units for {resource}"
+            ),
             Self::ParameterExponentOverflow {
                 variable,
                 requested,
@@ -171,7 +201,7 @@ pub struct FeynmanPolynomialContext {
 #[derive(Clone, Copy, Debug)]
 struct FeynmanWorkBudget {
     term_operations: usize,
-    determinant_operations: usize,
+    determinant_ring_operations: usize,
     limits: FeynmanPolynomialLimits,
 }
 
@@ -179,7 +209,7 @@ impl FeynmanWorkBudget {
     fn new(limits: FeynmanPolynomialLimits) -> Self {
         Self {
             term_operations: 0,
-            determinant_operations: 0,
+            determinant_ring_operations: 0,
             limits,
         }
     }
@@ -197,19 +227,19 @@ impl FeynmanWorkBudget {
         )
     }
 
-    fn charge_determinant_operations(
+    fn charge_determinant_ring_operations(
         &mut self,
         requested: usize,
     ) -> Result<(), FeynmanPolynomialError> {
-        self.determinant_operations = checked_add(
-            self.determinant_operations,
+        self.determinant_ring_operations = checked_add(
+            self.determinant_ring_operations,
             requested,
-            "aggregate determinant operations",
+            "aggregate Symbolica determinant ring operations",
         )?;
         check_limit(
-            "aggregate determinant operations",
-            self.determinant_operations,
-            self.limits.max_determinant_operations,
+            "aggregate Symbolica determinant ring operations",
+            self.determinant_ring_operations,
+            self.limits.max_determinant_ring_operations,
         )
     }
 }
@@ -639,14 +669,6 @@ impl FeynmanPolynomialContext {
         self.from_terms(terms)
     }
 
-    fn neg(
-        &self,
-        polynomial: &FeynmanPolynomial,
-        work: &mut FeynmanWorkBudget,
-    ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
-        self.scale(polynomial, &self.coefficients.integer(-1), work)
-    }
-
     fn term_map(&self, polynomial: &FeynmanPolynomial) -> BTreeMap<Vec<u16>, Coefficient> {
         polynomial
             .raw
@@ -732,6 +754,22 @@ impl FeynmanPolynomialContext {
             raw,
             context: self.family_fingerprint.clone(),
         }
+    }
+
+    /// Bind one native Symbolica result back to this context's ordered
+    /// variable map.  `PolynomialRing::zero()` deliberately has an empty
+    /// variable map, so an identically-zero native result must use the
+    /// authenticated template zero instead.
+    fn rebind_native_result(
+        &self,
+        raw: RawFeynmanPolynomial,
+    ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
+        if raw.is_zero() {
+            return Ok(self.zero());
+        }
+        let polynomial = self.wrap(raw);
+        self.authenticate(&polynomial)?;
+        Ok(polynomial)
     }
 }
 
@@ -985,59 +1023,128 @@ fn checked_determinant(
     if size == 0 {
         return context.one();
     }
-    if size >= usize::BITS as usize {
-        return Err(FeynmanPolynomialError::ResourceCountOverflow {
-            resource: "determinant subset states",
+
+    let matrix_entries = checked_mul(size, size, "Symbolica determinant matrix entries")?;
+    check_limit(
+        "Symbolica determinant matrix entries",
+        matrix_entries,
+        context.limits.max_determinant_matrix_entries,
+    )?;
+    work.charge_determinant_ring_operations(determinant_ring_operations(size)?)?;
+
+    let native_size =
+        u32::try_from(size).map_err(|_| FeynmanPolynomialError::ResourceCountOverflow {
+            resource: "Symbolica determinant matrix dimension",
+        })?;
+    let native_matrix_entries = native_size.checked_mul(native_size).ok_or(
+        FeynmanPolynomialError::ResourceCountOverflow {
+            resource: "Symbolica determinant u32 matrix entries",
+        },
+    )?;
+    if native_matrix_entries as usize != matrix_entries {
+        return Err(FeynmanPolynomialError::InternalVerificationFailure {
+            detail: "Symbolica determinant matrix dimensions failed checked replay".to_owned(),
         });
     }
-    let states =
-        1_usize
-            .checked_shl(size as u32)
-            .ok_or(FeynmanPolynomialError::ResourceCountOverflow {
-                resource: "determinant subset states",
-            })?;
-    check_limit(
-        "determinant subset states",
-        states,
-        context.limits.max_determinant_states,
-    )?;
-    let operations =
-        size.checked_mul(states / 2)
-            .ok_or(FeynmanPolynomialError::ResourceCountOverflow {
-                resource: "determinant operations",
-            })?;
-    check_limit(
-        "determinant operations",
-        operations,
-        context.limits.max_determinant_operations,
-    )?;
-    work.charge_determinant_operations(operations)?;
-    let mut dp = vec![context.zero(); states];
-    dp[0] = context.one()?;
-    for mask in 0..states {
-        let row = mask.count_ones() as usize;
-        if row == size || dp[mask].is_zero() {
-            continue;
+    let mut entries = Vec::new();
+    entries.try_reserve_exact(matrix_entries).map_err(|_| {
+        FeynmanPolynomialError::AllocationFailure {
+            resource: "Symbolica determinant input entries",
+            requested: matrix_entries,
         }
-        for column in 0..size {
-            let bit = 1_usize << column;
-            if mask & bit != 0 || matrix[row][column].is_zero() {
-                continue;
-            }
-            let mut contribution = context.mul(&dp[mask], &matrix[row][column], work)?;
-            let greater = (mask >> (column + 1)).count_ones();
-            if greater % 2 == 1 {
-                contribution = context.neg(&contribution, work)?;
-            }
-            let next = mask | bit;
-            dp[next] = context.add(&dp[next], &contribution, work)?;
+    })?;
+    for row in matrix {
+        for entry in row {
+            context.authenticate(entry)?;
+            entries.push(entry.raw.clone());
         }
     }
-    dp.into_iter()
-        .last()
-        .ok_or_else(|| FeynmanPolynomialError::InternalVerificationFailure {
-            detail: "determinant subset table was unexpectedly empty".to_owned(),
-        })
+    let ring = FeynmanPolynomialRing::from_poly(&context.template);
+    let native = Matrix::from_linear(entries, native_size, native_size, ring).map_err(|_| {
+        FeynmanPolynomialError::InternalVerificationFailure {
+            detail: "Symbolica rejected a preflighted determinant matrix".to_owned(),
+        }
+    })?;
+    let raw = catch_unwind(AssertUnwindSafe(|| native.det()))
+        .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?
+        .map_err(
+            |error| FeynmanPolynomialError::InternalVerificationFailure {
+                detail: native_determinant_error_detail(error).to_owned(),
+            },
+        )?;
+    context.rebind_native_result(raw)
+}
+
+fn native_determinant_error_detail(
+    error: symbolica::tensors::matrix::MatrixError<FeynmanPolynomialRing>,
+) -> &'static str {
+    use symbolica::tensors::matrix::MatrixError;
+
+    match error {
+        MatrixError::Underdetermined { .. } => {
+            "Symbolica Matrix::det unexpectedly reported an underdetermined matrix"
+        }
+        MatrixError::Inconsistent => {
+            "Symbolica Matrix::det unexpectedly reported an inconsistent matrix"
+        }
+        MatrixError::NotSquare => "Symbolica Matrix::det rejected a preflighted square K[x] matrix",
+        MatrixError::Singular => {
+            "Symbolica Matrix::det unexpectedly rejected a nonempty singular K[x] matrix"
+        }
+        MatrixError::ShapeMismatch => {
+            "Symbolica Matrix::det unexpectedly reported a shape mismatch"
+        }
+        MatrixError::RightHandSideIsNotVector => {
+            "Symbolica Matrix::det unexpectedly requested a vector right-hand side"
+        }
+        MatrixError::ResultNotInDomain => "Symbolica Matrix::det produced a result outside K[x]",
+    }
+}
+
+/// Count the native determinant's structural ring operations without doing
+/// any algebra in RustRed.  Symbolica uses direct formulas for sizes at most
+/// three and fraction-free Bareiss elimination above that threshold.  Four
+/// operations per trailing entry conservatively includes the first Bareiss
+/// step, where Symbolica omits the exact division.
+fn determinant_ring_operations(size: usize) -> Result<usize, FeynmanPolynomialError> {
+    match size {
+        0 | 1 => Ok(0),
+        2 => Ok(3),
+        3 => Ok(14),
+        _ => {
+            let mut sum_of_squares = 0_usize;
+            for trailing_size in 1..size {
+                let square = checked_mul(
+                    trailing_size,
+                    trailing_size,
+                    "Symbolica Bareiss determinant ring operations",
+                )?;
+                sum_of_squares = checked_add(
+                    sum_of_squares,
+                    square,
+                    "Symbolica Bareiss determinant ring operations",
+                )?;
+            }
+            checked_mul(
+                4,
+                sum_of_squares,
+                "Symbolica Bareiss determinant ring operations",
+            )
+        }
+    }
+}
+
+fn checked_symbolica_neg(
+    context: &FeynmanPolynomialContext,
+    polynomial: &FeynmanPolynomial,
+    work: &mut FeynmanWorkBudget,
+) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
+    context.authenticate(polynomial)?;
+    work.charge_term_operations(polynomial.raw.nterms())?;
+    let ring = FeynmanPolynomialRing::from_poly(&context.template);
+    let raw = catch_unwind(AssertUnwindSafe(|| ring.neg(polynomial.raw())))
+        .map_err(|_| FeynmanPolynomialError::SymbolicaPanic)?;
+    context.rebind_native_result(raw)
 }
 
 fn checked_adjugate(
@@ -1076,7 +1183,7 @@ fn checked_adjugate(
                 .collect::<Vec<_>>();
             let mut cofactor = checked_determinant(context, &minor, work)?;
             if (row + column) % 2 == 1 {
-                cofactor = context.neg(&cofactor, work)?;
+                cofactor = checked_symbolica_neg(context, &cofactor, work)?;
             }
             adjugate[row][column] = cofactor;
         }
@@ -1140,6 +1247,351 @@ fn checked_mul(
 mod tests {
     use super::*;
     use crate::AffineDenominator;
+
+    fn matrix_family(name: &str) -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "s"]);
+        let denominators = (0..5)
+            .map(|coordinate| {
+                AffineDenominator::new(
+                    coefficients.zero(),
+                    (0..5)
+                        .map(|candidate| {
+                            if candidate == coordinate {
+                                coefficients.one()
+                            } else {
+                                coefficients.zero()
+                            }
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        IntegralFamily::new(
+            name,
+            vec!["k0".into(), "k1".into()],
+            vec!["p".into()],
+            coefficients.clone(),
+            coefficients.parameter("d").unwrap(),
+            denominators,
+            vec![vec![coefficients.parameter("s").unwrap()]],
+            vec![coefficients.zero(); 5],
+        )
+        .unwrap()
+    }
+
+    fn matrix_context(name: &str, limits: FeynmanPolynomialLimits) -> FeynmanPolynomialContext {
+        FeynmanPolynomialContext::try_new(&matrix_family(name), limits).unwrap()
+    }
+
+    fn variable(context: &FeynmanPolynomialContext, parameter: usize) -> FeynmanPolynomial {
+        context
+            .parameter_monomial(parameter, &context.coefficients.one())
+            .unwrap()
+    }
+
+    fn integer(context: &FeynmanPolynomialContext, value: i64) -> FeynmanPolynomial {
+        context
+            .constant(context.coefficients.integer(value))
+            .unwrap()
+    }
+
+    fn symbolic_tridiagonal_four(
+        context: &FeynmanPolynomialContext,
+    ) -> Vec<Vec<FeynmanPolynomial>> {
+        let zero = context.zero();
+        let one = integer(context, 1);
+        let x0 = variable(context, 0);
+        let x1 = variable(context, 1);
+        let x2 = variable(context, 2);
+        let x3 = variable(context, 3);
+        vec![
+            vec![x0, one.clone(), zero.clone(), zero.clone()],
+            vec![one.clone(), x1, one.clone(), zero.clone()],
+            vec![zero.clone(), one.clone(), x2, one.clone()],
+            vec![zero.clone(), zero, one, x3],
+        ]
+    }
+
+    fn native_matrix(
+        context: &FeynmanPolynomialContext,
+        matrix: &[Vec<FeynmanPolynomial>],
+    ) -> Matrix<FeynmanPolynomialRing> {
+        Matrix::from_nested_vec(
+            matrix
+                .iter()
+                .map(|row| row.iter().map(|entry| entry.raw.clone()).collect())
+                .collect(),
+            FeynmanPolynomialRing::from_poly(&context.template),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn empty_determinant_is_the_authenticated_multiplicative_identity() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-empty-determinant", limits);
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &[], &mut work).unwrap();
+
+        assert_eq!(determinant, integer(&context, 1));
+        context.authenticate(&determinant).unwrap();
+        assert_eq!(work.determinant_ring_operations, 0);
+    }
+
+    #[test]
+    fn native_small_determinants_have_exact_structural_call_counts() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-small-counts", limits);
+        let zero = context.zero();
+
+        let two = vec![
+            vec![variable(&context, 0), zero.clone()],
+            vec![zero.clone(), variable(&context, 1)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        checked_determinant(&context, &two, &mut work).unwrap();
+        assert_eq!(work.determinant_ring_operations, 3);
+
+        let three = vec![
+            vec![variable(&context, 0), zero.clone(), zero.clone()],
+            vec![zero.clone(), variable(&context, 1), zero.clone()],
+            vec![zero.clone(), zero, variable(&context, 2)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        checked_determinant(&context, &three, &mut work).unwrap();
+        assert_eq!(work.determinant_ring_operations, 14);
+    }
+
+    #[test]
+    fn ragged_determinant_is_rejected_before_native_construction() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-ragged", limits);
+        let matrix = vec![
+            vec![variable(&context, 0), variable(&context, 1)],
+            vec![variable(&context, 2)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+
+        assert!(matches!(
+            checked_determinant(&context, &matrix, &mut work),
+            Err(FeynmanPolynomialError::InternalVerificationFailure { detail })
+                if detail == "determinant received a non-square matrix"
+        ));
+        assert_eq!(work.determinant_ring_operations, 0);
+    }
+
+    #[test]
+    fn symbolica_four_by_four_determinant_retains_symbolic_terms() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-symbolic-four", limits);
+        let matrix = symbolic_tridiagonal_four(&context);
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
+        let one = context.coefficients.one();
+        let minus_one = context.coefficients.integer(-1);
+
+        // det = x0*x1*x2*x3 - x2*x3 - x0*x3 - x0*x1 + 1.
+        assert_eq!(determinant.term_count(), 5);
+        assert_eq!(determinant.coefficient(&[1, 1, 1, 1, 0]), Some(&one));
+        assert_eq!(determinant.coefficient(&[0, 0, 1, 1, 0]), Some(&minus_one));
+        assert_eq!(determinant.coefficient(&[1, 0, 0, 1, 0]), Some(&minus_one));
+        assert_eq!(determinant.coefficient(&[1, 1, 0, 0, 0]), Some(&minus_one));
+        assert_eq!(determinant.coefficient(&[0, 0, 0, 0, 0]), Some(&one));
+        assert_eq!(work.determinant_ring_operations, 56);
+    }
+
+    #[test]
+    fn singular_native_four_by_four_zero_is_rebound_to_the_context_variable_map() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-singular-four", limits);
+        let zero = context.zero();
+        let matrix = vec![
+            vec![
+                zero.clone(),
+                variable(&context, 0),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![
+                zero.clone(),
+                zero.clone(),
+                variable(&context, 1),
+                zero.clone(),
+            ],
+            vec![
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+                variable(&context, 2),
+            ],
+            vec![zero.clone(), zero.clone(), zero, variable(&context, 3)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
+
+        assert!(determinant.is_zero());
+        assert_eq!(determinant.raw.variables, context.variables);
+        context.authenticate(&determinant).unwrap();
+    }
+
+    #[test]
+    fn native_bareiss_row_swap_has_the_correct_sign() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-row-swap", limits);
+        let zero = context.zero();
+        let matrix = vec![
+            vec![
+                zero.clone(),
+                variable(&context, 0),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![
+                variable(&context, 1),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![
+                zero.clone(),
+                zero.clone(),
+                variable(&context, 2),
+                zero.clone(),
+            ],
+            vec![zero.clone(), zero.clone(), zero, variable(&context, 3)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
+
+        assert_eq!(determinant.term_count(), 1);
+        assert_eq!(
+            determinant.coefficient(&[1, 1, 1, 1, 0]),
+            Some(&context.coefficients.integer(-1))
+        );
+    }
+
+    #[test]
+    fn native_constant_four_by_four_retains_the_authenticated_variable_map() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-constant-four", limits);
+        let zero = context.zero();
+        let matrix = vec![
+            vec![
+                integer(&context, 1),
+                zero.clone(),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![
+                zero.clone(),
+                integer(&context, 2),
+                zero.clone(),
+                zero.clone(),
+            ],
+            vec![
+                zero.clone(),
+                zero.clone(),
+                integer(&context, 3),
+                zero.clone(),
+            ],
+            vec![zero.clone(), zero.clone(), zero, integer(&context, 4)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
+
+        assert_eq!(determinant, integer(&context, 24));
+        assert_eq!(determinant.raw.variables, context.variables);
+        context.authenticate(&determinant).unwrap();
+    }
+
+    #[test]
+    fn one_by_one_adjugate_uses_the_empty_native_cofactor() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-one-adjugate", limits);
+        let matrix = vec![vec![variable(&context, 0)]];
+        let mut work = FeynmanWorkBudget::new(limits);
+        let adjugate = checked_adjugate(&context, &matrix, &mut work).unwrap();
+
+        assert_eq!(adjugate, vec![vec![integer(&context, 1)]]);
+        assert_eq!(work.determinant_ring_operations, 0);
+    }
+
+    #[test]
+    fn asymmetric_adjugate_replays_a_times_adjugate_with_symbolica_matrix_multiplication() {
+        let limits = FeynmanPolynomialLimits::default();
+        let context = matrix_context("feynman-native-asymmetric-adjugate", limits);
+        let zero = context.zero();
+        let one = integer(&context, 1);
+        let matrix = vec![
+            vec![variable(&context, 0), one.clone(), zero.clone()],
+            vec![zero.clone(), variable(&context, 1), one.clone()],
+            vec![one, zero, variable(&context, 2)],
+        ];
+        let mut work = FeynmanWorkBudget::new(limits);
+        let determinant = checked_determinant(&context, &matrix, &mut work).unwrap();
+        let adjugate = checked_adjugate(&context, &matrix, &mut work).unwrap();
+        assert_eq!(work.determinant_ring_operations, 14 + 9 * 3);
+
+        // Matrix multiplication, including every polynomial product and sum,
+        // is performed by Symbolica's public K[x] matrix/ring API.
+        let product = &native_matrix(&context, &matrix) * &native_matrix(&context, &adjugate);
+        for row in 0..3_u32 {
+            for column in 0..3_u32 {
+                if row == column {
+                    assert_eq!(&product[(row, column)], determinant.raw());
+                } else {
+                    assert!(product[(row, column)].is_zero());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_four_by_four_resource_preflight_has_exact_boundaries() {
+        let below_operations = FeynmanPolynomialLimits {
+            max_determinant_ring_operations: 55,
+            ..FeynmanPolynomialLimits::default()
+        };
+        let context = matrix_context("feynman-native-four-below-operations", below_operations);
+        let matrix = symbolic_tridiagonal_four(&context);
+        let mut work = FeynmanWorkBudget::new(below_operations);
+        assert!(matches!(
+            checked_determinant(&context, &matrix, &mut work),
+            Err(FeynmanPolynomialError::ResourceLimit {
+                resource: "aggregate Symbolica determinant ring operations",
+                requested: 56,
+                limit: 55,
+            })
+        ));
+
+        let exact = FeynmanPolynomialLimits {
+            max_determinant_matrix_entries: 16,
+            max_determinant_ring_operations: 56,
+            ..FeynmanPolynomialLimits::default()
+        };
+        let context = matrix_context("feynman-native-four-exact", exact);
+        let matrix = symbolic_tridiagonal_four(&context);
+        let mut work = FeynmanWorkBudget::new(exact);
+        checked_determinant(&context, &matrix, &mut work).unwrap();
+        assert_eq!(work.determinant_ring_operations, 56);
+
+        let below_entries = FeynmanPolynomialLimits {
+            max_determinant_matrix_entries: 15,
+            max_determinant_ring_operations: 56,
+            ..FeynmanPolynomialLimits::default()
+        };
+        let context = matrix_context("feynman-native-four-below-entries", below_entries);
+        let matrix = symbolic_tridiagonal_four(&context);
+        let mut work = FeynmanWorkBudget::new(below_entries);
+        assert!(matches!(
+            checked_determinant(&context, &matrix, &mut work),
+            Err(FeynmanPolynomialError::ResourceLimit {
+                resource: "Symbolica determinant matrix entries",
+                requested: 16,
+                limit: 15,
+            })
+        ));
+    }
 
     #[test]
     fn adjugate_uses_transposed_cofactor_indices() {

@@ -259,46 +259,46 @@ fn two_loop_sunset_has_expected_symanzik_polynomials() {
 }
 
 #[test]
-fn aggregate_term_budget_includes_assembly_determinant_and_gram_work() {
+fn aggregate_term_budget_covers_observable_assembly_and_gram_work() {
     let family = off_shell_bubble_family("symanzik-aggregate-work");
     let below = FeynmanPolynomialLimits {
-        max_term_operations: 33,
+        max_term_operations: 27,
         ..FeynmanPolynomialLimits::default()
     };
     assert!(matches!(
         SymanzikPolynomials::try_from_family_with_limits(&family, below),
         Err(FeynmanPolynomialError::ResourceLimit {
             resource: "aggregate Feynman polynomial operations",
-            requested: 34,
-            limit: 33,
+            requested: 28,
+            limit: 27,
         })
     ));
 
     let exact = FeynmanPolynomialLimits {
-        max_term_operations: 34,
+        max_term_operations: 28,
         ..FeynmanPolynomialLimits::default()
     };
     SymanzikPolynomials::try_from_family_with_limits(&family, exact).unwrap();
 }
 
 #[test]
-fn determinant_budget_is_shared_by_u_and_every_adjugate_minor() {
+fn determinant_budget_uses_symbolica_ring_operation_count() {
     let family = two_loop_one_external_family("symanzik-aggregate-determinants");
     let below = FeynmanPolynomialLimits {
-        max_determinant_operations: 7,
+        max_determinant_ring_operations: 2,
         ..FeynmanPolynomialLimits::default()
     };
     assert!(matches!(
         SymanzikPolynomials::try_from_family_with_limits(&family, below),
         Err(FeynmanPolynomialError::ResourceLimit {
-            resource: "aggregate determinant operations",
-            requested: 8,
-            limit: 7,
+            resource: "aggregate Symbolica determinant ring operations",
+            requested: 3,
+            limit: 2,
         })
     ));
 
     let exact = FeynmanPolynomialLimits {
-        max_determinant_operations: 8,
+        max_determinant_ring_operations: 3,
         ..FeynmanPolynomialLimits::default()
     };
     SymanzikPolynomials::try_from_family_with_limits(&family, exact).unwrap();
