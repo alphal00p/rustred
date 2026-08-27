@@ -100,15 +100,18 @@ domains extend that manifest and regenerate artifacts without adding
 topology-specific solver code. The completed artifacts are saved and shipped
 with Vakint rather than rediscovered during ordinary integral evaluation.
 
-The eventual user-facing steering surface for the complete evaluation chain
-is a pure-Rust + Symbolica `RustRed` mode in Vakint. Vakint owns orchestration
-and presentation; the RustRed crate implements the mathematical services it
-calls for native tensor reduction, scalar-product/propagator lowering,
-compiled guarded IBP application, and typed master substitution. Master data
-will come from AMFlow, but loading, validating, and applying that data in this
-mode remains FORM-less RustRed/Vakint functionality. Through GammaLoop's
-existing BPHZ/R-operation boundary, this chain is intended to contribute to
-the six-loop QCD beta-function programme.
+The user-facing steering surface for the complete evaluation chain is a
+pure-Rust + Symbolica `RustRed` mode in Vakint. Its lower-loop implementation
+and validation proceed concurrently with higher-loop foundry work, and it
+grows into the complete production surface as the artifact library expands.
+Vakint owns orchestration and presentation; the RustRed crate implements the
+mathematical services it calls for native tensor reduction,
+scalar-product/propagator lowering, compiled guarded IBP application, and typed
+master substitution. Master data will come from AMFlow, but loading,
+validating, and applying that data in this mode remains FORM-less
+RustRed/Vakint functionality. Through GammaLoop's existing BPHZ/R-operation
+boundary, this chain is intended to contribute to the six-loop QCD
+beta-function programme.
 
 The lower-loop Vakint mode is an early parallel validation track once closed
 RustRed shards exist. Its complete six-loop deployment, GammaLoop integration,
@@ -235,10 +238,10 @@ general no-unit or simultaneous cases currently stop at the typed
   propagator cancellation versus an uncancelled numerator factor, must reduce
   to identical masters and coefficients.
 - The trees under `FOR_REFERENCE_ONLY_DO_NOT_PUSH/` remain untracked reference
-  material and must never be staged or pushed to the RustRed repository.
-  Later authorized Vakint work uses the separate GammaLoop repository history
-  on its dedicated feature branch; this does not turn the reference tree into
-  RustRed-owned content.
+  material and must never be staged or pushed to the RustRed repository. The
+  parallel authorized Vakint work uses the separate GammaLoop repository
+  history on its dedicated feature branch; this does not turn the reference
+  tree into RustRed-owned content.
 - Never request privileged command escalation. Use an in-scope workaround or
   report a genuine external blocker.
 
@@ -257,16 +260,18 @@ Vakint `RustRed` mode -------------------> rustred core
 ```
 
 The root `rustred` crate is the topology-neutral mathematical core and, in the
-later online phase, the implementation home for tensor reduction, scalar
-lowering, guarded rule application, and typed master substitution.
+parallel Vakint workstream as well as the complete production phase, the
+implementation home for tensor reduction, scalar lowering, guarded rule
+application, and typed master substitution.
 `rustred-app` is the typed transport-neutral composition layer and CLI host.
 `rustred-python` is a thin PyO3/maturin adapter over `rustred-app`, with no
 algebra or independent schema. `rustred-legacy-oracles` is publish-disabled,
 default-unlinked, and contains only authored historical validation logic.
-Vakint is the eventual user-facing steering layer over the relevant RustRed
-core services; it must not duplicate their algebra or silently fall back to
-FORM. The CLI and Python package remain parallel first-class interfaces for
-fine-grained generic work rather than compatibility shells around Vakint.
+Vakint is the concurrently developed lower-loop and ultimately complete
+user-facing steering layer over the relevant RustRed core services; it must
+not duplicate their algebra or silently fall back to FORM. The CLI and Python
+package remain parallel first-class interfaces for fine-grained generic work
+rather than compatibility shells around Vakint.
 
 The four-package layout is a disciplined baseline, not a prohibition on
 additional subcrates. Introduce another crate when it creates a demonstrable,
@@ -290,7 +295,8 @@ artifact verification/publication and deterministic campaign execution
         ↓
 tensor/scalar/master application services behind a typed RustRed core API
         ↓
-rustred-app adapters and, later, Vakint's user-facing `RustRed` mode
+rustred-app adapters and, once lower-loop shards close, the parallel Vakint
+`RustRed` workstream
 ```
 
 Private implementation names and files should describe mathematical roles,
@@ -368,9 +374,10 @@ resume the current exact solver at its narrowest missing production seam:
    direct foundry. Preserve RustRed ordering, guards, provenance, and resource
    control, and keep old algebra only as a temporary differential test with a
    deletion point.
-2. Defer online-only tensor/application algebra migration until the bounded
-   validation harness or Phase 6 actually requires it; it does not block the
-   first derivation-only exceptional child.
+2. Migrate the tensor/application algebra needed by the Phase 4 lower-loop
+   Vakint validation track when that track starts. Defer only the remaining
+   six-loop/high-throughput application algebra until its measured production
+   gate; it does not block the first derivation-only exceptional child.
 3. Consume the committed exceptional `CampaignResident` before constructing
    any child exact session.
 4. Bind its ordered `EqualZero` premises through a private source view to the
@@ -556,9 +563,9 @@ and feature set, with GMP enabled and `no_gmp` absent. A duplicated or
 revision-incompatible Symbolica dependency is rejected before exposing a
 zero-copy `Atom` boundary between Vakint and RustRed.
 
-None of these later layers may invoke FORM, Mathematica, SymPy, or copied
-authored recurrences. Only the segregated existing-backend oracle job described
-above may execute FORM5.
+None of the Vakint/RustRed implementation layers may invoke FORM, Mathematica,
+SymPy, or copied authored recurrences. Only the segregated existing-backend
+oracle job described above may execute FORM5.
 
 ## Current evidence baseline
 
@@ -660,7 +667,7 @@ are:
   the CAS boundary; and
 - `docs/research/vakint_alphaloop_tensor_ibp_audit.md` and
   `docs/research/gammaloop_six_loop_boundary_audit_2026-08-24.md` for the
-  later oracle/application boundary.
+  parallel lower-loop oracle/application boundary and complete deployment.
 
 Historical notes remain evidence only when they conflict with a newer
 governing document or the live implementation. In particular, loop-authored
