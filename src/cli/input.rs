@@ -27,7 +27,7 @@ pub(crate) struct PreparedCliProject {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectDocumentV1 {
+pub(crate) struct ProjectDocumentV1 {
     schema: String,
     integral: Option<String>,
     parameters: Option<Vec<String>>,
@@ -97,21 +97,44 @@ pub(crate) fn prepare_input(
 }
 
 fn prepare_raw_symbolica(source: &str) -> Result<PreparedCliProject, CliError> {
-    let compiler = parser()?;
-    let normalized = compiler
-        .compile_str(source)
-        .map_err(|error| CliError::Input(format!("invalid Symbolica integral input: {error}")))?;
-    Ok(PreparedCliProject {
-        input_form: "raw_symbolica",
-        input_schema: normalized.schema().to_owned(),
-        metadata: BTreeMap::new(),
-        normalized,
-    })
+    prepare_symbolica_root(source, None, BTreeMap::new(), "raw_symbolica")
 }
 
 fn prepare_toml(source: &str) -> Result<PreparedCliProject, CliError> {
     let document: ProjectDocumentV1 = toml::from_str(source)
         .map_err(|error| CliError::Input(format!("invalid RustRed project TOML: {error}")))?;
+    prepare_project_document(document)
+}
+
+/// Reuse the existing strict Symbolica-project frontend for one compact
+/// campaign root. The campaign layer owns only the root container; expression
+/// parsing and parameter inference stay in the same Symbolica compiler used by
+/// `derive`.
+pub(crate) fn prepare_symbolica_root(
+    integral: &str,
+    parameters: Option<Vec<String>>,
+    metadata: BTreeMap<String, MetadataValue>,
+    input_form: &'static str,
+) -> Result<PreparedCliProject, CliError> {
+    validate_metadata(&metadata)?;
+    let compiler = parser()?;
+    let normalized = compiler
+        .compile_str_with_parameter_override(integral, parameters)
+        .map_err(|error| CliError::Input(format!("invalid Symbolica integral input: {error}")))?;
+    Ok(PreparedCliProject {
+        input_form,
+        input_schema: normalized.schema().to_owned(),
+        metadata,
+        normalized,
+    })
+}
+
+/// Prepare the existing `rustred.project.toml.v1` schema nested under one
+/// campaign root. This is the single reuse seam for both hybrid and fully
+/// explicit roots.
+pub(crate) fn prepare_project_document(
+    document: ProjectDocumentV1,
+) -> Result<PreparedCliProject, CliError> {
     if document.schema != RUSTRED_PROJECT_TOML_V1_SCHEMA {
         return Err(CliError::Input(format!(
             "unsupported project schema {:?}; expected {:?}",
@@ -315,7 +338,9 @@ fn parser() -> Result<SymbolicaIntegralInputCompiler, CliError> {
     })
 }
 
-fn validate_metadata(metadata: &BTreeMap<String, MetadataValue>) -> Result<(), CliError> {
+pub(crate) fn validate_metadata(
+    metadata: &BTreeMap<String, MetadataValue>,
+) -> Result<(), CliError> {
     if metadata.len() > MAX_METADATA_ENTRIES {
         return Err(CliError::Input(format!(
             "metadata has {} entries, exceeding the limit {MAX_METADATA_ENTRIES}",
@@ -375,7 +400,7 @@ fn validate_metadata(metadata: &BTreeMap<String, MetadataValue>) -> Result<(), C
     Ok(())
 }
 
-fn looks_like_symbolica(source: &str) -> bool {
+pub(crate) fn looks_like_symbolica(source: &str) -> bool {
     let source = source.trim_start();
     // Accept exactly the root spellings emitted/accepted by Symbolica for the
     // RustRed namespace. In particular, `{}` is Symbolica's explicit empty

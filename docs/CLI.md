@@ -278,27 +278,134 @@ All authoritative expression strings use Symbolica's fully qualified
 `AtomCore::to_canonical_string()` representation. They are independent of
 symbol registration order and can be parsed back to the same expression.
 
-## Planned multi-topology campaign surface
+## Multi-topology campaign planning
 
 The current `derive` command emits raw generic IBP/LI relations for one family;
-it does not solve sectors or publish a closed replacement-rule bundle. The
-planned multicore, resumable surface is:
+it does not solve sectors or publish a closed replacement-rule bundle.
+`campaign plan` now provides the deliberately smaller roots-only ingress:
 
 ```text
-rustred campaign plan campaign.toml
+rustred campaign plan --input campaign.toml --output campaign.plan.toml
+```
+
+For example, [`examples/cli/campaign.toml`](../examples/cli/campaign.toml)
+contains two independently named concrete targets expressed as ordinary
+Symbolica `I(...)` strings. The compact v1 container is:
+
+```toml
+schema = "rustred.campaign-input.toml.v1"
+
+[[roots]]
+id = "tadpole-scalar"
+integral = """
+I(
+  name(tadpole),
+  loops(k),
+  externals(),
+  dimension(d),
+  prop(D1,k^2-m2,1)
+)
+"""
+
+# Optional; the same strict declaration semantics as hybrid project TOML.
+parameters = ["d", "m2"]
+
+[roots.metadata]
+purpose = "scalar validation root"
+```
+
+Every `integral` value is passed whole to the existing Symbolica input
+compiler; the campaign layer does not split strings or define another
+expression grammar. Parameter inference, optional `parameters`, target powers,
+numerators, and affine-family lowering therefore have exactly the same input
+meaning as under `derive`. The roots-only command retains the numerator but
+does not tensor-reduce, scalar-lower, or cancel it against propagators.
+
+Generated configurations may instead use the same existing project schema and
+fields under a per-root `project` prefix. This cleanly reuses both its hybrid
+`integral` and fully explicit `family` forms:
+
+```toml
+[[roots]]
+id = "generated-root"
+
+[roots.project]
+schema = "rustred.project.toml.v1"
+
+[roots.project.family]
+name = "tadpole"
+loop_momenta = ["k"]
+external_momenta = []
+dimension = "d"
+
+[[roots.project.family.denominators]]
+id = "D1"
+expression = "k^2-m2"
+
+[roots.project.target]
+powers = [1]
+numerator = "1"
+```
+
+The root must choose exactly one of `integral` and `project`. Metadata and
+parameters belong beside `integral` in compact mode or inside the nested
+project in project mode. Root IDs are unique ingress labels. Families with
+identical exact representations and identical `(family, declared-power sector,
+ordering)` jobs are interned even when they came from different roots or input
+modes. The `declared_power_sector` is derived only from the signs of the
+declared target powers. It is deliberately not called a target or normalized sector: numerator
+lowering or denominator cancellation can change the eventual concrete support.
+
+A one-root raw Symbolica convenience is also available:
+
+```console
+rustred campaign plan --input-format symbolica --root-id tadpole \
+  < examples/cli/one_loop.symbolica
+```
+
+The output schema is `rustred.campaign-plan-output.toml.v1`. It is sorted by
+stable mathematical keys, has the same 256 MiB conservative/final output
+limit as `derive`, and explicitly reports:
+
+```toml
+status = "ok"
+scope = "roots_only"
+
+[phases]
+root_ingress = "complete"
+target_normalization = "not_started"
+dependency_discovery = "not_started"
+derivation = "not_started"
+closure = "not_started"
+publication = "not_started"
+```
+
+Thus a successful plan authenticates, lowers, deduplicates, and records only
+the supplied declarations and their declared-power jobs. It does not normalize
+targets, enumerate subsectors, discover dependencies, derive an IBP, claim
+masters/closure, or publish replacement rules. Because dependency discovery
+has not run, roots-only output contains no dependency counts.
+`campaign plan` deliberately rejects `--n-cores` and `--max-memory`: neither
+resource controls a roots-only metadata operation. They will first appear on
+the future execution command:
+
+```text
 rustred campaign derive campaign.toml --n-cores 4 --max-memory 120GiB --resume work/
 rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
-The library now contains the static multi-root plan and stateless
-core-plus-memory wave-selection primitives. These are not wired into the CLI
-yet and do not acquire runtime permits, derive sector rules, or claim closure.
+The library contains the static multi-root plan, stateless core-plus-memory
+wave selection, and a separate move-only atomic admission authority. The CLI
+uses only the static plan for roots-only ingress; the admission authority is
+not yet connected to a reducer executor or campaign execution command. This
+command does not derive sector rules or claim closure.
 
-Multiple compact Symbolica family/integral expressions may supply the roots,
-while TOML carries campaign-wide policies and resources. `--n-cores` and memory
-admission may change timing only. The deterministic work-unit, closure,
-checkpoint, and multi-start bundle contracts are specified in the
+Multiple compact Symbolica family/integral expressions may supply the roots.
+The future execution TOML will additionally carry campaign-wide policies and
+resources; `--n-cores` and memory admission may change timing only. The
+deterministic work-unit, closure, checkpoint, and multi-start bundle contracts
+are specified in the
 [parallel campaign foundry design](research/parallel_campaign_foundry_design_2026-08-26.md).
 
 For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,

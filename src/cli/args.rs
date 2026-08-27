@@ -99,8 +99,18 @@ pub(crate) struct DeriveArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CampaignPlanArgs {
+    pub(crate) input: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) input_format: InputFormat,
+    pub(crate) root_id: Option<String>,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
     Derive(DeriveArgs),
+    CampaignPlan(CampaignPlanArgs),
     Help,
     Version,
 }
@@ -109,7 +119,12 @@ pub(crate) enum Command {
 pub(crate) enum ArgError {
     NonUtf8Option(OsString),
     MissingCommand,
+    MissingSubcommand(&'static str),
     UnknownCommand(String),
+    UnknownSubcommand {
+        command: &'static str,
+        subcommand: String,
+    },
     UnknownOption(String),
     DuplicateOption(&'static str),
     MissingValue(&'static str),
@@ -128,8 +143,20 @@ impl fmt::Display for ArgError {
             Self::NonUtf8Option(value) => {
                 write!(formatter, "command-line option is not UTF-8: {value:?}")
             }
-            Self::MissingCommand => formatter.write_str("missing command; expected `derive`"),
+            Self::MissingCommand => {
+                formatter.write_str("missing command; expected `derive` or `campaign`")
+            }
+            Self::MissingSubcommand(command) => {
+                write!(formatter, "missing {command} subcommand; expected `plan`")
+            }
             Self::UnknownCommand(command) => write!(formatter, "unknown command {command:?}"),
+            Self::UnknownSubcommand {
+                command,
+                subcommand,
+            } => write!(
+                formatter,
+                "unknown {command} subcommand {subcommand:?}; expected `plan`"
+            ),
             Self::UnknownOption(option) => write!(formatter, "unknown option {option:?}"),
             Self::DuplicateOption(option) => {
                 write!(formatter, "option {option} was supplied twice")
@@ -171,10 +198,13 @@ pub(crate) fn parse_args(
             reject_trailing(arguments)?;
             return Ok(Command::Version);
         }
-        "derive" => {}
+        "derive" => return parse_derive(arguments),
+        "campaign" => return parse_campaign(arguments),
         _ => return Err(ArgError::UnknownCommand(command)),
     }
+}
 
+fn parse_derive(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
     let mut input = None;
     let mut output = None;
     let mut input_format = None;
@@ -260,6 +290,96 @@ pub(crate) fn parse_args(
     }))
 }
 
+fn parse_campaign(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let Some(subcommand) = arguments.next() else {
+        return Err(ArgError::MissingSubcommand("campaign"));
+    };
+    let subcommand = subcommand.into_string().map_err(ArgError::NonUtf8Option)?;
+    match subcommand.as_str() {
+        "--help" | "-h" | "help" => {
+            reject_trailing(arguments)?;
+            Ok(Command::Help)
+        }
+        "plan" => parse_campaign_plan(arguments),
+        _ => Err(ArgError::UnknownSubcommand {
+            command: "campaign",
+            subcommand,
+        }),
+    }
+}
+
+fn parse_campaign_plan(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut input = None;
+    let mut output = None;
+    let mut input_format = None;
+    let mut root_id = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => {
+                if help {
+                    return Err(ArgError::DuplicateOption("--help"));
+                }
+                help = true;
+            }
+            "--force" => {
+                if force {
+                    return Err(ArgError::DuplicateOption("--force"));
+                }
+                force = true;
+            }
+            "--input" => {
+                set_once(
+                    &mut input,
+                    "--input",
+                    StreamPath::parse(next_value(&mut arguments, "--input")?)?,
+                )?;
+            }
+            "--output" => {
+                set_once(
+                    &mut output,
+                    "--output",
+                    StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+                )?;
+            }
+            "--input-format" => {
+                let value = next_utf8_value(&mut arguments, "--input-format")?;
+                set_once(
+                    &mut input_format,
+                    "--input-format",
+                    InputFormat::parse(&value)?,
+                )?;
+            }
+            "--root-id" => {
+                let value = next_utf8_value(&mut arguments, "--root-id")?;
+                if value.is_empty() {
+                    return Err(ArgError::InvalidValue {
+                        option: "--root-id",
+                        value,
+                        expected: "a nonempty UTF-8 identifier",
+                    });
+                }
+                set_once(&mut root_id, "--root-id", value)?;
+            }
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::CampaignPlan(CampaignPlanArgs {
+        input: input.unwrap_or(StreamPath::Stdio),
+        output: output.unwrap_or(StreamPath::Stdio),
+        input_format: input_format.unwrap_or(InputFormat::Auto),
+        root_id,
+        force,
+    }))
+}
+
 fn reject_trailing(arguments: impl IntoIterator<Item = OsString>) -> Result<(), ArgError> {
     if let Some(argument) = arguments.into_iter().next() {
         let argument = argument.into_string().map_err(ArgError::NonUtf8Option)?;
@@ -299,20 +419,34 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 
 USAGE:
     rustred derive [OPTIONS]
+    rustred campaign plan [OPTIONS]
 
-OPTIONS:
+DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
     --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
     --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
     --relations <SELECTION>      all, ordinary, or li [default: all]
     --n-cores <COUNT>            Maximum worker cores for parallel stages [default: 1]
-    --force                     Atomically replace an existing output file
-    -h, --help                  Print this help
-    -V, --version               Print the RustRed version
+    --force                      Atomically replace an existing output file
+
+CAMPAIGN PLAN OPTIONS:
+    --input <PATH|->             Read from PATH, or standard input with - [default: -]
+    --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
+    --input-format <FORMAT>      auto, toml, or symbolica [default: auto]
+    --root-id <ID>               Root ID for one raw Symbolica campaign input
+    --force                      Atomically replace an existing output file
+
+GENERAL OPTIONS:
+    -h, --help                   Print this help
+    -V, --version                Print the RustRed version
 
 `derive` generates fully parametric identities. Any concrete target carried by
 the input is validated and reported as not processed; it is never reduced by
 this command.
+
+`campaign plan` authenticates and interns only the supplied campaign roots.
+It does not discover dependencies, derive relations, prove closure, or publish
+rules. It deliberately has no --n-cores or --max-memory option yet.
 ";
 
 #[cfg(test)]
@@ -345,11 +479,11 @@ mod tests {
                 "rustred",
                 "derive",
                 "--input",
-                "family.toml",
+                "family.symbolica",
                 "--output",
                 "relations.toml",
                 "--input-format",
-                "toml",
+                "symbolica",
                 "--relations",
                 "ordinary",
                 "--n-cores",
@@ -358,13 +492,49 @@ mod tests {
             ])
             .unwrap(),
             Command::Derive(DeriveArgs {
-                input: StreamPath::File("family.toml".into()),
+                input: StreamPath::File("family.symbolica".into()),
                 output: StreamPath::File("relations.toml".into()),
-                input_format: InputFormat::Toml,
+                input_format: InputFormat::Symbolica,
                 relations: RelationSelection::Ordinary,
                 n_cores: 4,
                 force: true,
             })
+        );
+    }
+
+    #[test]
+    fn parses_the_campaign_plan_surface_without_execution_budgets() {
+        assert_eq!(
+            parse(&[
+                "rustred",
+                "campaign",
+                "plan",
+                "--input",
+                "campaign.symbolica",
+                "--output",
+                "plan.toml",
+                "--input-format",
+                "symbolica",
+                "--root-id",
+                "raw-root",
+                "--force",
+            ])
+            .unwrap(),
+            Command::CampaignPlan(CampaignPlanArgs {
+                input: StreamPath::File("campaign.symbolica".into()),
+                output: StreamPath::File("plan.toml".into()),
+                input_format: InputFormat::Symbolica,
+                root_id: Some("raw-root".to_owned()),
+                force: true,
+            })
+        );
+        assert_eq!(
+            parse(&["rustred", "campaign", "plan", "--n-cores", "2"]),
+            Err(ArgError::UnknownOption("--n-cores".to_owned()))
+        );
+        assert_eq!(
+            parse(&["rustred", "campaign", "plan", "--max-memory", "1GiB"]),
+            Err(ArgError::UnknownOption("--max-memory".to_owned()))
         );
     }
 

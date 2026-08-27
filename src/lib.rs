@@ -40,6 +40,7 @@ pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
 pub mod automatic_isps;
 pub mod base_specialization;
+pub mod campaign_admission;
 pub mod campaign_plan;
 pub mod campaign_resources;
 pub mod certified_rewrite;
@@ -281,6 +282,11 @@ pub use base_specialization::{
     BaseSpecializationLimits, FamilyDomainConditionSource, FamilyDomainEvaluation,
     FamilyDomainEvaluationStatus, GuardedBaseCoefficient, InapplicableFamilyDomainCondition,
     SpecializedBasePolynomial,
+};
+pub use campaign_admission::{
+    CAMPAIGN_ADMISSION_V1_SCHEMA, CampaignAdmissionController, CampaignAdmissionError,
+    CampaignAdmissionSnapshot, CampaignAdmissionUsage, CampaignAdmittedTask, CampaignCommitFailure,
+    CampaignResident, CampaignResidentToken, CampaignTaskReservation, CampaignWaveReservation,
 };
 pub use campaign_plan::{
     CAMPAIGN_PLAN_V1_SCHEMA, CampaignDependencyInsertion, CampaignFamilyId, CampaignFamilyRecord,

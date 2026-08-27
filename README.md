@@ -34,6 +34,8 @@ complete mathematical workflow.
 | Infer scalar parameters from family-defining expressions | Available |
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
+| Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
+| Plan and atomically account RAM-aware campaign waves | Available in the library with move-only core/estimated-memory guards; physical estimation and worker dispatch are not started |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
@@ -132,9 +134,9 @@ not rely on it. Ordinary rows are
 collected by fixed row ordinal, the complete ordinary phase precedes LI
 construction, and selected relations are rendered through the same execution
 context. Licensed `N=1`, `N=2`, and `N=4` runs are tested to produce
-byte-identical TOML. The current command does not schedule sectors, case lanes,
-or multiple topologies and does not publish rule shards or bundles; the planned
-campaign-wide contract is described in the roadmap below.
+byte-identical TOML. `derive` does not schedule sectors or case lanes and does
+not publish rule shards or bundles. The separate roots-only campaign planner
+below accepts multiple topologies without claiming those later stages.
 
 The tested output contains these fields:
 
@@ -188,6 +190,53 @@ useful as an explicit allowlist or for symbols used only by a retained target
 numerator. Grammar, examples, output schema, exit codes, and atomic-I/O rules
 are documented in [`docs/CLI.md`](docs/CLI.md).
 
+## Roots-only campaign planning
+
+[`examples/cli/campaign.toml`](examples/cli/campaign.toml) is a compact
+multi-start input made of ordinary Symbolica expressions:
+
+```toml
+schema = "rustred.campaign-input.toml.v1"
+
+[[roots]]
+id = "tadpole-scalar"
+integral = """
+I(
+  name(tadpole),
+  loops(k),
+  externals(),
+  dimension(d),
+  prop(D1,k^2-m2,1)
+)
+"""
+```
+
+Build its deterministic static plan with:
+
+```bash
+cargo run --quiet --bin rustred -- campaign plan \
+  --input examples/cli/campaign.toml \
+  --output campaign.plan.toml
+```
+
+Each `integral` string goes unchanged through RustRed's existing Symbolica
+compiler and affine-family lowering. Fully explicit existing
+`rustred.project.toml.v1` schema and fields can be used under the per-root
+`[roots.project]` prefix as well; there is no second expression parser. A raw
+one-root convenience is
+`rustred campaign plan --input-format symbolica --root-id NAME`.
+
+The output interns identical exact family representations and identical
+declared-power-sector jobs, and records canonical Symbolica expressions. It
+labels power-sign classification as `declared_power_sector`, never as a
+normalized target sector. It says `scope = "roots_only"` and marks target normalization,
+dependency discovery, derivation, closure, and publication `not_started`.
+Numerators are retained but are not tensor-reduced, scalar-lowered, or
+cancelled against propagators. This command neither enumerates sectors nor
+derives or applies IBPs, and roots-only output contains no dependency counts.
+Accordingly it deliberately rejects `--n-cores` and `--max-memory`; those
+budgets belong to the future heavyweight campaign executor.
+
 ## Direct library path
 
 The Rust library exposes more of the work-in-progress pipeline than the CLI:
@@ -221,6 +270,10 @@ The repository currently includes tests for:
   relations through the serial API and `N=1`/`N=2`/`N=4` execution contexts;
 - byte-identical `rustred derive` output at `N=1`/`N=2`/`N=4`, including a
   check that `RAYON_NUM_THREADS` cannot override the private execution context;
+- deterministic roots-only `rustred campaign plan` output, raw Symbolica and
+  mixed compact/nested-explicit multi-root ingress, exact family and declared-
+  power-sector job interning, root-order independence, and strict
+  rejection of execution resource flags;
 - raw Symbolica, hybrid TOML, and explicit TOML input normalization;
 - parameter inference without a required `parameters(...)` clause;
 - affine denominator-basis completion for independent short lists;
@@ -397,9 +450,13 @@ The repository currently includes tests for:
   antichains. Its companion resource selector computes checked stable
   first-fit candidate waves without constructing heavy task owners; a
   synthetic 100-job/100-core/1-TiB test admits 57 jobs and intentionally leaves
-  cores idle under RAM pressure. This is not yet the atomic runtime admission
-  controller, campaign CLI, derivation scheduler, closure proof, checkpoint, or
-  rule bundle; and
+  cores idle under RAM pressure. The roots-only campaign CLI now authenticates
+  declared user ingress through this static plan. A separate move-only atomic
+  controller revalidates a selected wave and charges its cores, retained
+  successors, transient memory, and old/new overlap with panic-safe release
+  guards. It is not yet wired to a reducer executor or campaign execution CLI;
+  no derivation scheduler, closure proof, checkpoint, or rule bundle is
+  claimed; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -702,11 +759,11 @@ and exceptional views without copying the row or partition. The complete
 physical-key catalog and differential shadow now make the tested Symbolica
 adapter authoritative in the exact database. Its deterministic committed
 native-sparse snapshot is a crate-private campaign seam; wall time and RSS stay
-outside algebraic state. The static shared-child campaign plan and stateless
-core-plus-memory wave selection are now implemented. The immediate gates are
-physical-family profiling, the campaign CLI/atomic move-only admission
-controller, then the owning exceptional/subsector scheduler and a proved
-coverage fixed point.
+outside algebraic state. The static shared-child campaign plan, stateless
+core-plus-memory wave selection, roots-only declaration CLI, and atomic
+move-only admission controller are now implemented. The immediate gates are
+physical-family profiling, a calibrated bounded campaign executor, then the
+owning exceptional/subsector scheduler and a proved coverage fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. The
 `rustred derive` command remains a raw parametric-IBP/LI generator and does not

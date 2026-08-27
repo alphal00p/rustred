@@ -185,6 +185,19 @@ Symbolica reducer; independent families and sectors, frozen-epoch exceptional
 case proposals, modular samples, and exact-verification blocks are the
 multicore work units.
 
+The currently implemented campaign layer stops before actual reducer
+execution. It has a static multi-root `CampaignPlan`, versioned
+resource-estimate and deterministic wave-selection metadata, and a move-only
+atomic admission authority. The authority revalidates a frozen selection and
+cooperatively charges cores plus estimated bytes to task/resident owners; its
+tests include concurrent panic cleanup and exact old/new overlap. The
+roots-only CLI authenticates declared inputs but explicitly does not normalize
+target numerators. These pieces do not inspect RSS, estimate a physical
+six-loop family from native telemetry, construct or hydrate a Symbolica
+reducer, dispatch a worker, checkpoint a wave, discover dependencies, or prove
+closure. The phase-calibrated estimator, executor, hydration/dehydration
+service, and barrier checkpoint runtime are subsequent milestones.
+
 ### 4.3 Parametric rule derivation
 
 Within each canonical sector, the foundry should follow LiteRed's broad
@@ -498,6 +511,61 @@ The following policies are critical at five and six loops:
   Backpressure may delay work; it must not create worker-count-dependent
   derivation-contract failures and never has master-discovery semantics.
 
+### 6.1 100-core EPYC memory-first execution contract
+
+The intended large-node campaign target is approximately 100 cores and 1 TiB
+of RAM on an EPYC-class NUMA host. `--n-cores` is a ceiling for the complete
+invocation, not a command to activate that many reducer owners. Every wave is
+admitted against cores and estimated memory conjunctively; RAM pressure may
+therefore leave most cores idle, and that is the correct outcome rather than a
+utilization failure.
+
+The admitted live-set model is explicit:
+
+```text
+fixed runtime and shared Symbolica/RustRed catalogs
++ old hydrated resident reducers
++ new retained successor reducers/results
++ transient clone, algebra, ingress, and serialization scratch
++ bounded staged-result/checkpoint buffers
+<= configured campaign memory ceiling
+```
+
+Old and successor reducers coexist during clone-on-stage and commit. Shared
+immutable payloads are charged once, but a process-local or native allocation
+is never declared shared merely because its mathematical value is equal.
+`--max-memory` is configured below physical RAM with declared headroom for the
+OS, allocator fragmentation and arenas, Symbolica's opaque native heap,
+thread stacks/TLS, filesystem cache, and checkpoint I/O. A cgroup or outer
+supervisor remains necessary for a hard RSS limit.
+
+The ready DAG and formula frontiers remain compact metadata. Only the bounded
+selected wave is hydrated, and inactive lanes are checkpointed and
+dehydrated by a deterministic policy when the next wave otherwise cannot fit.
+Each frozen wave settles or durably stages its results before the canonical
+merge/checkpoint barrier exposes the next frontier. RustRed must not fork a
+process per family, sector, or job: duplicating the Symbolica runtime,
+catalogs, allocator state, and thread-local caches would erase the memory
+benefit of one shared campaign process. Any later distributed mode shards
+durable jobs explicitly between nodes and applies this resource contract
+independently on each node.
+
+NUMA topology is execution metadata, not mathematics. The first executor
+should use first-touch placement for newly hydrated owners, avoid migrating a
+live reducer between nodes, and measure remote-memory traffic and bandwidth
+saturation. Later socket-aware affinity or packing is permitted only if it
+preserves the same stable wave, merge, and artifact semantics; it may alter
+timing but never pivots, rules, or hashes.
+
+The estimator starts conservative and versioned. Campaign telemetry will
+record predicted versus observed phase peaks, old/new overlap, native U/L
+fill, coefficient-limb growth, staged bytes, RSS/allocator deltas, NUMA
+locality, worker utilization, and the fraction of time limited by cores or
+memory. Calibration may update coefficients and safety margins only in an
+explicit new estimator revision at a canonical barrier or in a later run;
+instantaneous RSS and worker completion order cannot adapt policy inside a
+frozen revision.
+
 The 2026-08-26 licensed whole-tree regression exposed a concrete profiling
 target: `equality_target_commits_only_into_a_sealed_refined_epoch_suspension`
 took 4,069.531 seconds in an otherwise passing 1,651-test run. This is not a
@@ -716,11 +784,17 @@ or physical-topology calculation.
    oracle. Focused licensed default-GMP four-thread runs pass 15/15 retained-
    adapter, 18/18 complete sparse-adapter, and 41/41 exact-database tests.
    Export native telemetry to campaign benchmarks and profile full-clone cost,
-   serial forward elimination, fill, and opaque native memory. Then implement the
-   non-durable topology-neutral `CampaignPlan` slice with exact
+   serial forward elimination, fill, and opaque native memory. The
+   non-durable topology-neutral `CampaignPlan` slice and its stateless
+   resource-estimate/wave-selection companion are now implemented with exact
    representation-level deduplication, identity ingress, shared proper-
-   subsector children, cycle/non-descent rejection, a deterministic ready-job
-   antichain, and invariant 1/2/4-worker results before finishing
+   subsector children, cycle/non-descent rejection, and a deterministic
+   ready-job antichain. A separate invocation-wide move-only core-plus-memory
+   admission authority now atomically charges selected waves and retained
+   successors, but it remains cooperative accounting rather than a worker
+   runtime. There is no reducer hydration, calibrated physical estimator,
+   executor, or checkpoint barrier yet. Implement the bounded executor before
+   finishing
    `GeneratedFamilySymbolicResidualSolveV1` with
    exceptional scheduling, solved-subsector feedback, a proved coverage fixed
    point, exact residual verification, and the distinct 36-source session

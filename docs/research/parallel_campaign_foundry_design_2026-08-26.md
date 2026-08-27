@@ -12,9 +12,16 @@ sectors. A separate stateless resource selector computes stable first-fit
 candidate waves under checked core and estimated-memory snapshots; its
 100-job/100-core/1-TiB synthetic test deliberately admits only 57 one-core
 jobs when RAM is the bottleneck. This selector does **not** reserve resources.
-The move-only atomic core-plus-memory lease, heavyweight executor, CLI,
-checkpointing, dependency discovery, derivation, closure, and publication
-remain unimplemented.
+The implemented resource surface now includes versioned estimates,
+capacity/baseline snapshots, deterministic wave keys, checked aggregate
+core/byte counts, and a distinct move-only admission authority. That authority
+replays a frozen plan and atomically charges an entire wave; task and resident
+owners release or transfer their exact estimates, including old/new overlap,
+under panic-safe guards. The roots-only campaign CLI authenticates only the
+user's declarations. None of these layers observes RSS, estimates a physical
+family, dispatches a worker, constructs or hydrates a reducer, normalizes a
+target numerator, discovers dependencies, checkpoints, proves closure, or
+publishes rules. Those executor and mathematical stages remain unimplemented.
 
 ## 1. Objective
 
@@ -476,6 +483,25 @@ fixed runtime and safety reserve
 <= --max-memory
 ```
 
+For one admitted clone-on-stage task, the same invariant must remain visible
+in the more explicit lifetime decomposition
+
+```text
+fixed runtime and shared immutable catalogs
++ old hydrated resident owner(s)
++ newly constructed retained successor output(s)
++ task transient scratch excluding those outputs
++ bounded staged-result/checkpoint buffers
+<= --max-memory
+```
+
+The old resident and new retained successor are separate terms until the old
+owner has actually been dropped. A commit must not subtract the predecessor
+reservation merely because it has reclassified the successor as resident.
+This decomposition is also the estimator interface: hiding the successor
+inside a generic "scratch" allowance would make clone overlap invisible and
+would understate the dominant live-set risk.
+
 A successful clone-on-stage commit transfers the successor reducer's retained
 reservation into the hydrated-lane term; it does not release that memory as if
 the successor disappeared. Replaced base state releases its reservation only
@@ -496,6 +522,40 @@ clone-on-stage successor, prospective column/catalog growth, candidate and
 result payloads, and checkpoint/output buffers. RustRed must prefer fewer live
 heavy reducers over speculative fork-all throughput; unused cores are correct
 when the RAM envelope admits no additional task.
+
+RustRed uses one process-local Symbolica runtime and one invocation-wide
+RustRed worker pool on this target. It must not launch one process per job:
+that would duplicate Symbolica process state, immutable catalogs, allocator
+arenas, thread-local caches, and license/runtime overhead, defeating the
+shared-baseline accounting on which a 1-TiB campaign depends. A future
+multi-node mode may shard durable, content-addressed jobs explicitly across
+node processes, but each node remains an independently capped campaign worker
+with its own declared baseline and never masquerades duplicated memory as a
+shared `Arc` charge.
+
+The logical ready frontier may contain thousands of compact keys while only a
+small admitted subset is hydrated. Its key/estimate metadata is bounded
+separately from heavyweight ownership; reducer construction, retained-owner
+replay, candidate buffers, and staged results begin only after conjunctive
+core-and-memory admission. Wave barriers provide the natural checkpoint and
+dehydration boundary: settle or durably stage the complete frozen wave,
+release every transient owner, merge in stable key order, checkpoint the
+canonical barrier state, and only then expose or hydrate the successor
+frontier. The scheduler never tries to improve utilization by carrying an
+unbounded tail of inactive hydrated lanes across barriers.
+
+EPYC hosts are normally NUMA systems, so the executor must report socket/node
+layout and remote-memory effects rather than treating 100 logical cores as a
+uniform resource. Initial policy remains deliberately simple and
+deterministic: first-touch a newly hydrated lane on its executing worker,
+avoid concurrent mutation or migration of one retained reducer across NUMA
+nodes, and prefer keeping a lane and its scratch node-local when observational
+affinity data permits. Pinning, socket-aware packing, and lane affinity are
+physical execution policy only; they cannot enter job identities, pivot
+selection, wave membership, or mathematical hashes. Cross-node immutable
+sharing and memory-bandwidth saturation must be measured before NUMA-aware
+packing is enabled, and a one-socket/one-node run remains the correctness
+oracle for such tuning.
 
 If the fixed baseline plus one task's admitted estimate exceeds the whole
 campaign memory ceiling, it
@@ -533,6 +593,17 @@ record predicted and observed peak deltas, concurrency overhead, fragmentation,
 and the worst ratio; a frozen policy revision selects the safety multiplier.
 Observed RSS remains telemetry for that revision and can influence admission
 only through an explicit later revision.
+
+Future telemetry records predicted and observed retained/peak bytes per phase,
+old/new reducer overlap, U/L fill and coefficient-limb growth, staged bytes,
+allocator/RSS delta, NUMA locality, worker utilization, and time spent core-
+versus-memory-limited. Calibration may adapt coefficients and safety margins
+only by producing an explicit successor estimator revision at a canonical
+barrier or between runs. It must not let completion order, instantaneous RSS,
+or one unusually early task silently change admission decisions within a
+frozen revision. Until representative physical families calibrate that model,
+`--max-memory` must retain conservative allocator/native headroom and remains
+an estimated envelope rather than a hard RSS promise.
 
 ## 5. Intrinsic solving, closure, and publication
 
@@ -725,8 +796,12 @@ The implemented V1 static-plan subset covers identity ingress, shared
 proper-subsector jobs, replayable strict-descent witnesses, and the pure
 job-antichain projection. Phase-aware work records and execution/progress state
 belong to the later workspace/executor and are not claimed by `CampaignPlan`.
-Likewise, the implemented wave selector is a deterministic calculation over a
-policy snapshot, not the phase-2 atomic admission controller.
+The implemented wave selector remains a deterministic calculation over a
+policy snapshot. The separate atomic controller replays that calculation and
+turns it into move-only core/estimated-memory charges, including retained
+successor ownership. It is only the admission sublayer of phase 2: it does not
+bind a work revision, dispatch the selected jobs, construct a reducer, or
+settle a barrier.
 
 ## 9. Acceptance matrix
 

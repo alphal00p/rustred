@@ -327,6 +327,20 @@ fn hundred_core_one_tibibyte_wave_keeps_idle_cores_under_ram_pressure() {
         policy.baseline().total().get() + wave.selected_peak_additional_memory().get()
             <= policy.max_memory().get()
     );
+
+    // A production ceiling must normally sit below physical RAM. With a
+    // 900-GiB operational envelope on the same nominal 1-TiB host, stable
+    // admission activates only 50 cores and keeps the other 50 idle.
+    let headroom_policy =
+        CampaignResourcePolicy::try_new(revision, 100, CampaignBytes::new(900 * GIB), baseline)
+            .unwrap();
+    let headroom_wave = CampaignWavePlanner::try_plan(headroom_policy, &requests).unwrap();
+    assert_eq!(headroom_wave.jobs().len(), 50);
+    assert_eq!(headroom_wave.selected_cores(), 50);
+    assert_eq!(
+        headroom_wave.selected_peak_additional_memory(),
+        CampaignBytes::new(800 * GIB)
+    );
 }
 
 #[test]
