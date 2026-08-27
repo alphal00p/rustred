@@ -46,9 +46,12 @@ remains pure Rust + Symbolica.
 - **Cross-repository boundary:** after Phase 0 and the first genuinely closed
   lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
   in parallel with the higher-loop foundry work. It is developed, committed,
-  and pushed on a dedicated feature branch in the GammaLoop repository, never
-  folded into a RustRed commit. Full six-loop artifact deployment and the
-  production GammaLoop boundary remain later gates.
+  and pushed on a dedicated `vakint_rustred` feature branch created in the
+  GammaLoop repository, never folded into a RustRed commit. Vakint's Cargo
+  manifest depends on the RustRed GitHub repository at an explicitly pinned,
+  validated RustRed revision; milestone updates advance that pin deliberately.
+  Full six-loop artifact deployment and the production GammaLoop boundary
+  remain later gates.
 - **Milestone discipline:** make frequent rollback-sized commits and push each
   relevant intermediate milestone after its declared checks pass. Do not let
   unrelated architectural, solver, or cross-repository changes accumulate in
@@ -540,10 +543,18 @@ production evaluation chain and six-loop shipped-library deployment:
 - the complete six-loop QCD beta-function computation.
 
 All Vakint changes from Phase 4 onward are made in the GammaLoop repository on
-a dedicated feature branch, with rollback-sized commits and milestone pushes
-to that branch. RustRed changes remain in the RustRed repository. Before every
-commit, both repositories' scopes are checked independently so no path under
-`FOR_REFERENCE_ONLY_DO_NOT_PUSH/` enters RustRed history.
+the dedicated `vakint_rustred` branch, with rollback-sized commits and
+milestone pushes to that branch. The branch is created when this workstream
+begins. Its `crates/vakint/Cargo.toml` points to the RustRed GitHub repository
+at the exact validated RustRed commit used by that milestone, rather than an
+unreviewed moving local path. RustRed changes remain in the RustRed repository.
+Before every commit, both repositories' scopes are checked independently so no
+path under `FOR_REFERENCE_ONLY_DO_NOT_PUSH/` enters RustRed history.
+
+The combined Cargo graph must resolve one compatible pinned Symbolica package
+and feature set, with GMP enabled and `no_gmp` absent. A duplicated or
+revision-incompatible Symbolica dependency is rejected before exposing a
+zero-copy `Atom` boundary between Vakint and RustRed.
 
 None of these later layers may invoke FORM, Mathematica, SymPy, or copied
 authored recurrences. Only the segregated existing-backend oracle job described
