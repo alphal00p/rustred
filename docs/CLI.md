@@ -388,8 +388,8 @@ targets, enumerate subsectors, discover dependencies, derive an IBP, claim
 masters/closure, or publish replacement rules. Because dependency discovery
 has not run, roots-only output contains no dependency counts.
 `campaign plan` deliberately rejects `--n-cores` and `--max-memory`: neither
-resource controls a roots-only metadata operation. They will first appear on
-the future execution command:
+resource controls a roots-only metadata operation. The eventual reducer will
+use them on a future execution command:
 
 ```text
 rustred campaign derive campaign.toml --n-cores 4 --max-memory 120GiB --resume work/
@@ -397,17 +397,51 @@ rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
+### Physical campaign preflight
+
+The separate topology-free preflight accepts those physical controls today:
+
+```console
+rustred campaign preflight \
+  --profile examples/cli/campaign-execution-profile.toml \
+  --n-cores 100 \
+  --max-memory 150GiB \
+  --output campaign.preflight.toml
+```
+
+The profile schema is `rustred.campaign-execution-resource-profile.v1`.
+There are deliberately no default byte estimates: it must explicitly provide
+an estimator revision, an enclosing memory limit, all fixed components, and
+the retained/transient envelope of a one-core minimum runnable task. Byte
+strings accept only an unsigned integer followed by the case-sensitive binary
+unit `B`, `KiB`, `MiB`, `GiB`, or `TiB`. Unknown TOML fields and arithmetic
+overflow are rejected.
+
+Output uses schema
+`rustred.campaign-execution-preflight-output.toml.v1`. It reports either a
+`ready` width or `paused_for_memory_capacity` with a typed shortfall. Both are
+valid preflight outcomes and exit with status 0; invalid arguments exit 2 and
+an invalid profile exits 4. Every unsigned output integer is a lossless decimal
+string, identified by `unsigned_integer_encoding = "unsigned-decimal-string"`.
+
+This command invokes only the pure width planner. It does not parse a topology,
+initialize Symbolica or require a license, consume an accepted plan, construct
+a worker pool, hydrate a reducer, or start the campaign frontier. The checked-
+in example contains illustrative values, not named-host measurements.
+
 The library contains the static multi-root plan, a versioned host-independent
 pre-pool effective-width planner, stateless core-plus-memory wave selection, a
 move-only atomic admission authority, and low-level stable wave/resident-
 transform execution primitives. The width plan enforces
 `M_operational < M_enclosing`, charges the coordinator and every possible
 warmed worker plus one minimum runnable task, and returns a typed no-fit pause
-without constructing a pool. The CLI still uses only the static plan for
-roots-only ingress; the library admission controller can consume and retain a
-plan, but calibrated estimator inputs, CLI bootstrap wiring, the frontier
-coordinator, reducer execution command, and checkpoint barrier are not
-connected yet. This command does not derive sector rules or claim closure.
+without constructing a pool. The roots-only CLI remains separate; the resource
+preflight now exposes the pure decision from an explicit profile, and the
+library admission controller can consume and retain an accepted plan. Named-
+host calibration, phase-specific estimator adapters, the plan-consuming
+frontier coordinator, reducer execution command, and checkpoint barrier are
+not connected yet. Neither campaign command derives sector rules or claims
+closure.
 
 Multiple compact Symbolica family/integral expressions may supply the roots.
 The future execution TOML will additionally carry campaign-wide policies and
@@ -433,5 +467,6 @@ frontier compact and may deliberately leave cores idle to respect
 headroom for the OS and Symbolica memory that its public API cannot census.
 The accepted plan already records requested width, effective width,
 worker-thread count, enclosing/operational limits, the fixed breakdown, and
-estimator revision as physical metadata excluded from semantic hashes. CLI
-reporting and named-host calibration remain pending.
+estimator revision as physical metadata excluded from semantic hashes. Pure
+CLI reporting is available through `campaign preflight`; named-host calibration
+and execution bootstrap remain pending.

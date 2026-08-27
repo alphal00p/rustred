@@ -195,16 +195,20 @@ multicore work units.
 
 The currently implemented campaign layer stops before actual reducer
 execution. It has a static multi-root `CampaignPlan`, versioned
-resource-estimate and deterministic wave-selection metadata, and a move-only
-atomic admission authority. The authority revalidates a frozen selection and
+resource-estimate and deterministic wave-selection metadata, a no-default
+physical-profile/preflight seam, and a move-only atomic admission authority.
+The authority revalidates a frozen selection and
 cooperatively charges cores plus estimated bytes to task/resident owners; its
 tests include concurrent panic cleanup and exact old/new overlap. The
 roots-only CLI authenticates declared inputs but explicitly does not normalize
-target numerators. These pieces do not inspect RSS, estimate a physical
-six-loop family from native telemetry, construct or hydrate a Symbolica
+target numerators. The separate preflight CLI is topology-free and merely
+reports the pure width decision from explicit physical inputs. These pieces do
+not inspect RSS, estimate a physical six-loop family from native telemetry,
+construct or hydrate a Symbolica
 reducer, dispatch a worker, checkpoint a wave, discover dependencies, or prove
-closure. The phase-calibrated estimator, executor, hydration/dehydration
-service, and barrier checkpoint runtime are subsequent milestones.
+closure. Named-host calibration, phase-specific estimator adapters, the
+executor, hydration/dehydration service, and barrier checkpoint runtime are
+subsequent milestones.
 
 ### 4.3 Parametric rule derivation
 
@@ -817,9 +821,12 @@ or physical-topology calculation.
    versioned effective-width selector is now implemented: before pool
    construction it chooses the largest `1 <= E <= --n-cores`, charges the
    coordinator plus zero or exactly `E` potentially warmed workers and one
-   minimum task, and returns a typed no-fit pause for `E=1`. Calibrated EPYC
-   estimator profiles, campaign-CLI bootstrap wiring, frontier coordinator,
-   reducer hydration policy, and checkpoint barrier remain. The low-level
+   minimum task, and returns a typed no-fit pause for `E=1`. A no-default
+   resource profile and pure `campaign preflight` report are now implemented;
+   the example values are not calibrated. Named-EPYC measurements,
+   phase-specific task-estimator adapters, the plan-consuming frontier
+   coordinator, reducer hydration policy, and checkpoint barrier remain. The
+   low-level
    admission constructor already consumes and retains the width plan and cannot
    erase its warmed execution reserve.
    Implement that bounded coordinator before finishing

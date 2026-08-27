@@ -108,9 +108,19 @@ pub(crate) struct CampaignPlanArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CampaignPreflightArgs {
+    pub(crate) profile: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) n_cores: usize,
+    pub(crate) max_memory_bytes: u64,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
     Derive(DeriveArgs),
     CampaignPlan(CampaignPlanArgs),
+    CampaignPreflight(CampaignPreflightArgs),
     Help,
     Version,
 }
@@ -128,6 +138,7 @@ pub(crate) enum ArgError {
     UnknownOption(String),
     DuplicateOption(&'static str),
     MissingValue(&'static str),
+    MissingRequiredOption(&'static str),
     UnexpectedArgument(String),
     InvalidValue {
         option: &'static str,
@@ -147,7 +158,10 @@ impl fmt::Display for ArgError {
                 formatter.write_str("missing command; expected `derive` or `campaign`")
             }
             Self::MissingSubcommand(command) => {
-                write!(formatter, "missing {command} subcommand; expected `plan`")
+                write!(
+                    formatter,
+                    "missing {command} subcommand; expected `plan` or `preflight`"
+                )
             }
             Self::UnknownCommand(command) => write!(formatter, "unknown command {command:?}"),
             Self::UnknownSubcommand {
@@ -155,13 +169,16 @@ impl fmt::Display for ArgError {
                 subcommand,
             } => write!(
                 formatter,
-                "unknown {command} subcommand {subcommand:?}; expected `plan`"
+                "unknown {command} subcommand {subcommand:?}; expected `plan` or `preflight`"
             ),
             Self::UnknownOption(option) => write!(formatter, "unknown option {option:?}"),
             Self::DuplicateOption(option) => {
                 write!(formatter, "option {option} was supplied twice")
             }
             Self::MissingValue(option) => write!(formatter, "option {option} needs a value"),
+            Self::MissingRequiredOption(option) => {
+                write!(formatter, "required option {option} was not supplied")
+            }
             Self::UnexpectedArgument(argument) => {
                 write!(formatter, "unexpected positional argument {argument:?}")
             }
@@ -260,17 +277,7 @@ fn parse_derive(arguments: impl Iterator<Item = OsString>) -> Result<Command, Ar
             }
             "--n-cores" => {
                 let value = next_utf8_value(&mut arguments, "--n-cores")?;
-                let parsed = value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit())
-                    .then(|| value.parse::<usize>().ok())
-                    .flatten()
-                    .filter(|value| *value > 0)
-                    .ok_or(ArgError::InvalidValue {
-                        option: "--n-cores",
-                        value,
-                        expected: "a positive integer",
-                    })?;
+                let parsed = parse_positive_integer("--n-cores", value)?;
                 set_once(&mut n_cores, "--n-cores", parsed)?;
             }
             _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
@@ -301,11 +308,84 @@ fn parse_campaign(mut arguments: impl Iterator<Item = OsString>) -> Result<Comma
             Ok(Command::Help)
         }
         "plan" => parse_campaign_plan(arguments),
+        "preflight" => parse_campaign_preflight(arguments),
         _ => Err(ArgError::UnknownSubcommand {
             command: "campaign",
             subcommand,
         }),
     }
+}
+
+fn parse_campaign_preflight(
+    arguments: impl Iterator<Item = OsString>,
+) -> Result<Command, ArgError> {
+    let mut profile = None;
+    let mut output = None;
+    let mut n_cores = None;
+    let mut max_memory_bytes = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => {
+                if help {
+                    return Err(ArgError::DuplicateOption("--help"));
+                }
+                help = true;
+            }
+            "--force" => {
+                if force {
+                    return Err(ArgError::DuplicateOption("--force"));
+                }
+                force = true;
+            }
+            "--profile" => {
+                set_once(
+                    &mut profile,
+                    "--profile",
+                    StreamPath::parse(next_value(&mut arguments, "--profile")?)?,
+                )?;
+            }
+            "--output" => {
+                set_once(
+                    &mut output,
+                    "--output",
+                    StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+                )?;
+            }
+            "--n-cores" => {
+                let value = next_utf8_value(&mut arguments, "--n-cores")?;
+                let parsed = parse_positive_integer("--n-cores", value)?;
+                set_once(&mut n_cores, "--n-cores", parsed)?;
+            }
+            "--max-memory" => {
+                let value = next_utf8_value(&mut arguments, "--max-memory")?;
+                let parsed = parse_memory_bytes(&value)
+                    .filter(|bytes| *bytes > 0)
+                    .ok_or(ArgError::InvalidValue {
+                        option: "--max-memory",
+                        value,
+                        expected: "a positive integer followed by B, KiB, MiB, GiB, or TiB",
+                    })?;
+                set_once(&mut max_memory_bytes, "--max-memory", parsed)?;
+            }
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::CampaignPreflight(CampaignPreflightArgs {
+        profile: profile.ok_or(ArgError::MissingRequiredOption("--profile"))?,
+        output: output.unwrap_or(StreamPath::Stdio),
+        n_cores: n_cores.unwrap_or(1),
+        max_memory_bytes: max_memory_bytes
+            .ok_or(ArgError::MissingRequiredOption("--max-memory"))?,
+        force,
+    }))
 }
 
 fn parse_campaign_plan(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -405,6 +485,40 @@ fn next_utf8_value(
         .map_err(ArgError::NonUtf8Option)
 }
 
+fn parse_positive_integer(option: &'static str, value: String) -> Result<usize, ArgError> {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| value.parse::<usize>().ok())
+        .flatten()
+        .filter(|value| *value > 0)
+        .ok_or(ArgError::InvalidValue {
+            option,
+            value,
+            expected: "a positive integer",
+        })
+}
+
+pub(crate) fn parse_memory_bytes(value: &str) -> Option<u64> {
+    let (digits, multiplier) = [
+        ("TiB", 1_u64 << 40),
+        ("GiB", 1_u64 << 30),
+        ("MiB", 1_u64 << 20),
+        ("KiB", 1_u64 << 10),
+        ("B", 1_u64),
+    ]
+    .into_iter()
+    .find_map(|(suffix, multiplier)| {
+        value
+            .strip_suffix(suffix)
+            .map(|digits| (digits, multiplier))
+    })?;
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u64>().ok()?.checked_mul(multiplier)
+}
+
 fn set_once<T>(slot: &mut Option<T>, option: &'static str, value: T) -> Result<(), ArgError> {
     if slot.is_some() {
         Err(ArgError::DuplicateOption(option))
@@ -420,6 +534,7 @@ RustRed: pure-Rust parametric IBP/LI derivation with Symbolica
 USAGE:
     rustred derive [OPTIONS]
     rustred campaign plan [OPTIONS]
+    rustred campaign preflight [OPTIONS]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -436,6 +551,13 @@ CAMPAIGN PLAN OPTIONS:
     --root-id <ID>               Root ID for one raw Symbolica campaign input
     --force                      Atomically replace an existing output file
 
+CAMPAIGN PREFLIGHT OPTIONS:
+    --profile <PATH|->           Read a physical resource profile from PATH or -
+    --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
+    --n-cores <COUNT>            Requested execution-width ceiling [default: 1]
+    --max-memory <SIZE>          Operational memory limit (B/KiB/MiB/GiB/TiB)
+    --force                      Atomically replace an existing output file
+
 GENERAL OPTIONS:
     -h, --help                   Print this help
     -V, --version                Print the RustRed version
@@ -446,7 +568,11 @@ this command.
 
 `campaign plan` authenticates and interns only the supplied campaign roots.
 It does not discover dependencies, derive relations, prove closure, or publish
-rules. It deliberately has no --n-cores or --max-memory option yet.
+rules. It deliberately has no --n-cores or --max-memory option.
+
+`campaign preflight` checks a topology-neutral physical resource profile and
+reports a ready width or typed memory-capacity pause. It never starts a frontier
+or constructs a worker pool.
 ";
 
 #[cfg(test)]
@@ -536,6 +662,103 @@ mod tests {
             parse(&["rustred", "campaign", "plan", "--max-memory", "1GiB"]),
             Err(ArgError::UnknownOption("--max-memory".to_owned()))
         );
+    }
+
+    #[test]
+    fn parses_campaign_preflight_with_a_default_inline_ceiling() {
+        assert_eq!(
+            parse(&[
+                "rustred",
+                "campaign",
+                "preflight",
+                "--profile",
+                "epyc.toml",
+                "--max-memory",
+                "900GiB",
+            ])
+            .unwrap(),
+            Command::CampaignPreflight(CampaignPreflightArgs {
+                profile: StreamPath::File("epyc.toml".into()),
+                output: StreamPath::Stdio,
+                n_cores: 1,
+                max_memory_bytes: 900 * (1_u64 << 30),
+                force: false,
+            })
+        );
+        assert_eq!(
+            parse(&[
+                "rustred",
+                "campaign",
+                "preflight",
+                "--profile",
+                "-",
+                "--output",
+                "width.toml",
+                "--n-cores",
+                "100",
+                "--max-memory",
+                "1TiB",
+                "--force",
+            ])
+            .unwrap(),
+            Command::CampaignPreflight(CampaignPreflightArgs {
+                profile: StreamPath::Stdio,
+                output: StreamPath::File("width.toml".into()),
+                n_cores: 100,
+                max_memory_bytes: 1_u64 << 40,
+                force: true,
+            })
+        );
+    }
+
+    #[test]
+    fn campaign_preflight_requires_profile_and_memory_and_parses_strict_units() {
+        assert_eq!(
+            parse(&["rustred", "campaign", "preflight", "--max-memory", "1GiB",]),
+            Err(ArgError::MissingRequiredOption("--profile"))
+        );
+        assert_eq!(
+            parse(&["rustred", "campaign", "preflight", "--profile", "host.toml",]),
+            Err(ArgError::MissingRequiredOption("--max-memory"))
+        );
+        for (input, expected) in [
+            ("1B", 1),
+            ("2KiB", 2 * (1_u64 << 10)),
+            ("3MiB", 3 * (1_u64 << 20)),
+            ("4GiB", 4 * (1_u64 << 30)),
+            ("5TiB", 5 * (1_u64 << 40)),
+        ] {
+            assert_eq!(parse_memory_bytes(input), Some(expected));
+        }
+        for invalid in [
+            "0",
+            "1KB",
+            "1GB",
+            "1.5GiB",
+            "+1GiB",
+            " 1GiB",
+            "1GiB ",
+            "16777216TiB",
+        ] {
+            assert_eq!(parse_memory_bytes(invalid), None, "accepted {invalid:?}");
+        }
+        for invalid in ["0B", "1GB", "1.5GiB", "16777216TiB"] {
+            assert!(matches!(
+                parse(&[
+                    "rustred",
+                    "campaign",
+                    "preflight",
+                    "--profile",
+                    "host.toml",
+                    "--max-memory",
+                    invalid,
+                ]),
+                Err(ArgError::InvalidValue {
+                    option: "--max-memory",
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]

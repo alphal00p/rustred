@@ -57,8 +57,11 @@ memory-feasible `E <= --n-cores`, reserves zero workers for inline `E=1` and
 exactly `E` workers otherwise, exposes a lossless admission baseline, and has a
 typed no-fit pause with no pool-construction surface. The admission controller
 now consumes and retains that plan, derives its initial policy from it, and
-keeps the warmed execution reserve immutable. Calibrated production profiles,
-CLI bootstrap wiring, and the campaign frontier remain pending.
+keeps the warmed execution reserve immutable. A no-default physical profile
+and topology-free `campaign preflight` report are implemented without
+initializing Symbolica or creating a pool. Named-host calibration,
+phase-specific task-estimator adapters, and the plan-consuming campaign
+frontier remain pending.
 Applicable-provider admission/results, general `CampaignWorkKey` result
 publication, durable spill support, event-derived fresh narrowed-domain
 re-entry, rejected-candidate continuation, rule application, publication audit

@@ -35,7 +35,7 @@ complete mathematical workflow.
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
 | Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
-| Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives: the versioned pre-pool width planner chooses the largest memory-feasible `E <= --n-cores`, returns a typed no-fit pause, and only a consumed plan may construct the exact bounded worker count; move-only core/estimated-memory guards and stable dispatch follow. Calibrated estimator profiles and the production frontier coordinator remain pending |
+| Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives: the versioned pre-pool width planner chooses the largest memory-feasible `E <= --n-cores`, returns a typed no-fit pause, and only a consumed plan may construct the exact bounded worker count; move-only core/estimated-memory guards and stable dispatch follow. A no-default physical-profile contract and algebra-free `campaign preflight` report are available. Named-host calibration, phase-specific task estimators, and the production frontier coordinator remain pending |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
@@ -237,7 +237,35 @@ Numerators are retained but are not tensor-reduced, scalar-lowered, or
 cancelled against propagators. This command neither enumerates sectors nor
 derives or applies IBPs, and roots-only output contains no dependency counts.
 Accordingly it deliberately rejects `--n-cores` and `--max-memory`; those
-budgets belong to the future heavyweight campaign executor.
+budgets do not control roots-only ingress. They are accepted separately by the
+physical-resource preflight below.
+
+## Campaign resource preflight
+
+An operator can validate an explicit physical profile and compute the largest
+memory-feasible width before any campaign frontier or worker pool exists:
+
+```bash
+cargo run --quiet --bin rustred -- campaign preflight \
+  --profile examples/cli/campaign-execution-profile.toml \
+  --n-cores 100 \
+  --max-memory 150GiB
+```
+
+The input is strict TOML with no fallback byte estimates. Sizes are unsigned
+integers followed by one of `B`, `KiB`, `MiB`, `GiB`, or `TiB`. The supplied
+profile must identify one estimator revision, the enclosing machine/container
+limit, every fixed-memory component, and a one-core minimum runnable task. The
+checked output is either `status = "ready"` with the selected width or
+`status = "paused_for_memory_capacity"` with the exact shortfall; both are
+successful preflight outcomes. All unsigned values in output use lossless
+decimal strings.
+
+Preflight is deliberately topology-free and algebra-free: it does not parse a
+family, initialize Symbolica or its license, consume an execution plan, create
+a pool, or start a frontier. The checked-in example values are illustrative,
+not measurements from a named EPYC host. Production calibration and
+phase-specific estimators remain required before a physical scalability claim.
 
 ## Direct library path
 
@@ -488,8 +516,10 @@ The repository currently includes tests for:
   successors, transient memory, and old/new overlap with panic-safe release
   guards. Its stable bounded executor now settles move-only tasks and performs
   a genuine whole-session Symbolica dependent-row transition through a
-  canonical post-worker commit barrier. This remains a low-level seam, not a
-  calibrated production frontier coordinator or campaign execution CLI; no
+  canonical post-worker commit barrier. The separate no-default physical
+  profile and `campaign preflight` CLI exercise the pure width decision without
+  starting execution. This remains a low-level seam, not a calibrated
+  production frontier coordinator; no
   complete derivation scheduler, closure proof, checkpoint, or rule bundle is
   claimed; and
 - seven end-to-end numerator-spelling closure pairs in
@@ -560,8 +590,10 @@ reserve, and leaves cores idle under memory pressure. If even the inline
 `E=1` baseline plus one minimum task cannot fit, it returns a typed
 memory-capacity pause without creating a pool. Requested/effective widths and
 the estimator revision are physical run metadata, not mathematical identity.
-The production campaign CLI still needs calibrated estimator inputs and
-frontier/bootstrap wiring to consume this plan.
+The topology-free `campaign preflight` CLI can now report this decision from an
+explicit no-default profile. Measured named-host profiles, phase-specific task
+estimator adapters, and frontier/bootstrap wiring that consumes the accepted
+plan remain pending.
 The current raw `derive --n-cores N` path is distinct: for `N > 1` it constructs
 the requested `N` workers directly and does not yet derive a memory-limited
 effective width.
@@ -831,9 +863,11 @@ a genuine generated-row Symbolica dependent transition while retaining old,
 successor, and transient charges. The versioned pre-pool execution-width plan
 now selects the largest feasible width under a strict operational-below-
 enclosing memory contract, exposes the matching admission baseline, and creates
-zero or exactly `E` workers only after plan consumption. This is not yet the
-campaign CLI runtime: the immediate gates are calibrated physical estimator
-profiles and CLI bootstrap wiring, the full frontier coordinator, then RAM-
+zero or exactly `E` workers only after plan consumption. The no-default
+physical-profile contract and pure `campaign preflight` report are now wired;
+the example is deliberately uncalibrated and does not start a frontier. The
+immediate gates are named-host measurements, phase-specific task-estimator
+adapters, and the full plan-consuming frontier coordinator, then RAM-
 admitted mathematical exceptional/subsector ingress and result scheduling on
 top of the implemented algebra-free epoch owner, followed by a proved coverage
 fixed point.

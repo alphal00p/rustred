@@ -43,6 +43,7 @@ pub mod base_specialization;
 pub mod campaign_admission;
 pub mod campaign_execution_width;
 pub mod campaign_plan;
+pub mod campaign_resource_profile;
 pub mod campaign_resources;
 pub mod campaign_work;
 pub mod certified_rewrite;
@@ -307,6 +308,10 @@ pub use campaign_plan::{
     CampaignJobKey, CampaignPlan, CampaignPlanError, CampaignPlanLimits, CampaignPlanStats,
     CampaignRootId, CampaignRootInsertion, CampaignRootRecord, CampaignRootSpec,
     PlannedCampaignJob, ProperSubsectorWitness,
+};
+pub use campaign_resource_profile::{
+    CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA, CampaignExecutionResourceProfile,
+    CampaignExecutionResourceProfileError,
 };
 pub use campaign_resources::{
     CAMPAIGN_RESOURCE_POLICY_V1_SCHEMA, CampaignBaselineMemory, CampaignBytes,

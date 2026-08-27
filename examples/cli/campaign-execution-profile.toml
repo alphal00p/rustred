@@ -1,0 +1,22 @@
+# Illustrative values only; production values must come from a calibrated host.
+schema = "rustred.campaign-execution-resource-profile.v1"
+estimator_revision = 1
+enclosing_memory_limit = "1TiB"
+
+[fixed_memory]
+process_runtime_and_shared_catalogs = "20GiB"
+coordinator_stack_tls_workspace = "1GiB"
+per_worker_stack_tls_workspace = "768MiB"
+explicitly_admitted_inner_threads = "0B"
+hydrated_retained_lanes = "0B"
+staged_results = "4GiB"
+checkpoint_and_output_buffers = "8GiB"
+safety_reserve = "64GiB"
+
+[minimum_runnable_task.retained_output]
+visible_logical = "8GiB"
+opaque_native_reserve = "4GiB"
+
+[minimum_runnable_task.transient_excluding_output]
+visible_logical = "16GiB"
+opaque_native_reserve = "12GiB"

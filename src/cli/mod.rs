@@ -1,6 +1,7 @@
 mod args;
 mod backend;
 mod campaign;
+mod campaign_preflight;
 mod error;
 mod input;
 mod io;
@@ -46,6 +47,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         }
         Command::Derive(arguments) => derive(arguments),
         Command::CampaignPlan(arguments) => campaign::plan(arguments),
+        Command::CampaignPreflight(arguments) => campaign_preflight::preflight(arguments),
     }
 }
 

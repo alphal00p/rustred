@@ -657,14 +657,35 @@ unowned hydrated-lane bytes before pool construction. Counting and live
 licensed tests cover no pool at `E=1`, exactly `E`
 workers in parallel, a synthetic host-independent width-100 case, overflow,
 revision/core mismatches, and exact/one-byte-below boundaries. This checkpoint
-does not provide calibrated EPYC estimator values, campaign-CLI resource input
-and bootstrap wiring, or frontier coordination.
+does not provide calibrated EPYC estimator values, phase-specific task
+estimates, or frontier coordination.
+
+The following implementation checkpoint adds a deliberately smaller physical
+bootstrap seam. `CampaignExecutionResourceProfile` V1 has no `Default`,
+requires an explicit estimator revision and every byte component, reuses the
+authoritative width-request/planner arithmetic, and rejects byte-only hydrated
+state that has no resident owner. `rustred campaign preflight` parses that
+strict profile, combines it with operator `--n-cores` and `--max-memory`
+ceilings, and reports either Ready metadata or a typed memory-capacity pause.
+It is topology-free and algebra-free: it does not initialize Symbolica, consume
+the accepted plan, create a pool, hydrate a reducer, or start the frontier. Its
+checked-in profile values are illustrative. Named-host measurement,
+phase-specific task-estimator adapters, and the production plan-consuming
+coordinator are still required.
 
 The 2026-08-27 milestone gate used the licensed default-GMP build with Cargo
 and test execution both at four-way parallelism: 8/8 width-planner unit tests,
 7/7 width-bootstrap integration tests, 21/21 admission integration tests, and
 9/9 resource-selector integration tests passed; `cargo check --tests` also
 passed. Two independent read-only audits found no remaining contract blocker.
+
+The resource-preflight checkpoint used the same default-GMP build and four-way
+Cargo/test parallelism: 3/3 profile unit tests, 3/3 profile integration tests,
+4/4 preflight CLI integration tests, 7/7 roots-only campaign-plan regression
+tests, and 6/6 CLI argument tests passed; `cargo check --tests -j4` also passed.
+The successful 100-core preflight test explicitly removes
+`SYMBOLICA_LICENSE`, and the checked-in illustrative profile independently
+reports `E=17` under a 150-GiB operational limit without Symbolica startup.
 
 The logical ready frontier may contain thousands of compact keys while only a
 small admitted subset is hydrated. Its key/estimate metadata is bounded
@@ -985,8 +1006,9 @@ payload, or prevent a callback from creating a nested pool. The production
 campaign coordinator will supply crate-owned guard-free phase adapters, bind a
 work revision, enforce the effective-execution-width calculation, hydrate jobs
 only after admission, aggregate failures by stable key, and settle durable
-barriers. A calibrated physical estimator, full frontier dispatcher, and
-checkpoint coordinator are not yet implemented.
+barriers. A strict no-default physical-profile/preflight shell is implemented;
+calibrated profile values, phase-specific task-estimator adapters, the full
+frontier dispatcher, and checkpoint coordinator are not yet implemented.
 
 ## 9. Acceptance matrix
 
