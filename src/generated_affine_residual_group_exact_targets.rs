@@ -44,10 +44,14 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA:
     "rustred-generated-affine-residual-group-exact-target-catalog-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-catalog-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-target-catalog-v3";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-state-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-state-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-target-state-v3";
 
 const TARGET_LOCATOR_COMPARISONS: usize = 9;
 const DIRECT_TARGET_LOCATOR_COMPARISONS: usize = 9;
@@ -62,6 +66,9 @@ const fn exact_target_catalog_schema_for_source(
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
         }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA
+        }
     }
 }
 
@@ -75,7 +82,20 @@ const fn exact_target_state_schema_for_source(
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
         }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V3_SCHEMA
+        }
     }
+}
+
+const fn is_singleton_source_kind(
+    source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
+) -> bool {
+    matches!(
+        source_kind,
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+            | GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+    )
 }
 
 /// Process-unique identity for exact target-state allocations.  The nonce is
@@ -439,7 +459,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         preflight_catalog_counts(source_kind, plan.targets().len(), limits)?;
         plan.replay_retained_source(family, context, limits.solve_plan_replay)
             .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
-        if source_kind == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton {
+        if is_singleton_source_kind(source_kind) {
             return Self::try_new_direct_formula_singleton_after_plan_replay(
                 family, context, plan, limits,
             );
@@ -642,9 +662,10 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         {
             return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
         }
+        let source_kind = plan.source_kind();
         let authority = Arc::clone(plan.authority());
-        if authority.source_kind()
-            != GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        if !is_singleton_source_kind(source_kind)
+            || authority.source_kind() != source_kind
             || authority.case_ordinal() != 0
             || authority.group_ordinal() != 0
         {
@@ -730,14 +751,10 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             targets.capacity(),
             None,
         )?);
-        validate_catalog_stats(
-            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton,
-            stats,
-            limits,
-        )?;
+        validate_catalog_stats(source_kind, stats, limits)?;
         Ok(Self {
-            schema: GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA,
-            source_kind: GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton,
+            schema: exact_target_catalog_schema_for_source(source_kind),
+            source_kind,
             group_ordinal: 0,
             plan,
             targets,
@@ -836,9 +853,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         preflight_catalog_counts(self.source_kind, self.targets.len(), self.limits)?;
         plan.replay_retained_source(family, context, self.limits.solve_plan_replay)
             .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
-        if self.source_kind
-            == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-        {
+        if is_singleton_source_kind(self.source_kind) {
             return self.replay_direct_formula_singleton_after_plan_replay(family, context, plan);
         }
         if plan.inventory().is_none() {
@@ -1000,8 +1015,8 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
         }
         let authority = outcome.authority();
-        if authority.source_kind()
-            != GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
+        if authority.source_kind() != self.source_kind
+            || !is_singleton_source_kind(self.source_kind)
         {
             return Err(GeneratedAffineResidualGroupExactTargetError::TargetAuthority);
         }
@@ -2356,9 +2371,7 @@ fn preflight_catalog_counts(
     targets: usize,
     limits: GeneratedAffineResidualGroupExactTargetCatalogLimits,
 ) -> Result<(), GeneratedAffineResidualGroupExactTargetError> {
-    if source_kind == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-        && targets != 1
-    {
+    if is_singleton_source_kind(source_kind) && targets != 1 {
         return Err(GeneratedAffineResidualGroupExactTargetError::MalformedTargetOrder);
     }
     let (
@@ -2372,6 +2385,9 @@ fn preflight_catalog_counts(
             (1, TARGET_LOCATOR_COMPARISONS, targets, targets, targets)
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
         }
     };
@@ -2453,6 +2469,9 @@ fn validate_catalog_stats(
             stats.targets,
         ),
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
         }
     };
@@ -2544,10 +2563,8 @@ fn catalog_retained_bytes(
 fn target_retained_extra(
     target: &GeneratedAffineResidualGroupExactTargetOutcome,
 ) -> Result<usize, GeneratedAffineResidualGroupExactTargetError> {
-    let authority_allocation = if target.authority().source_kind()
-        == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-    {
-        // The Direct singleton target reuses the exact authority allocation
+    let authority_allocation = if is_singleton_source_kind(target.authority().source_kind()) {
+        // A singleton target reuses the exact authority allocation
         // already owned by the retained plan. Its inline Arc handle is part
         // of the target enum's structural slot; do not charge the shared
         // pointee a second time.
@@ -2573,9 +2590,7 @@ fn catalog_peak_staging_bytes(
         let authority = target.authority();
         let child_peak = target.child_peak_bytes();
         let authority_peak = authority.stats().replay_owned_logical_peak();
-        let authority_allocation = if authority.source_kind()
-            == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-        {
+        let authority_allocation = if is_singleton_source_kind(authority.source_kind()) {
             0
         } else {
             arc_allocation_byte_envelope::<GeneratedAffineResidualCaseAuthority>()?

@@ -31,10 +31,20 @@ one atomic byte per exceptional source. Bounded exceptional leases are
 retry-only: normal drop and unwind return a source to pending, while a
 quiescent barrier can recover a deliberately forgotten lease. Its transferred-
 payload, retained-shallow, compilation-peak, and live-lease byte limits are
-component gates rather than an RSS budget. It does not admit applicable-
-provider work/results, implement the stable `CampaignWorkKey` result table or
-atomic result-charge transfer, construct fresh narrowed-domain mathematical
-epochs, or perform closure. A separate current-worktree exact-session
+component gates rather than an RSS budget. The following result-batch slice
+now precharges a complete `CampaignWorkKey` table and transfers admitted
+worker output into resident ownership. One committed same-sector Domain leaf
+can then mint an event-owned singleton and enter the existing consuming
+resident-transform executor; the production adapter retains and authenticates
+the parent's generic-source authority in a fresh V3 plan/catalog, constructs an
+empty database/session, and stops at typed affine-equality refinement. The
+source rows are not yet submitted to that database. `SectorLeak` returns its live lease for
+separate out-of-sector routing. The local child census excludes the shared
+event-authority/parent ancestry, so the acceptance keeps the origin owner live
+and is not yet an origin-droppable RAM-admitted production lane. Applicable-
+provider work/results, equality quotient/re-elimination, shared-lineage
+admission, the frontier coordinator, and closure remain pending. A separate
+current-worktree exact-session
 transition now implements same-database `IdenticallyBad` continuation: it
 replays the complete proof before distillation, retains the rejected pivot,
 leaves the target unresolved, and emits no rule, residual, or master. Its
@@ -266,13 +276,14 @@ struct JobWorkspace {
 }
 ```
 
-`CampaignWorkKey` is the future stable identity for one logical unit of
-campaign work. It must contain every semantic discriminator needed to order a
-retry or staged result (including a phase-local ordinal when
-`lane_or_block` is not already total), while excluding worker ID, completion
-time, hydration state, and resource estimates. The present low-level wave
-executor and static `CampaignPlan` do not yet implement this production key or
-the coordinator that owns it.
+`CampaignWorkKey` is the stable identity for one logical unit of campaign work.
+It contains every semantic discriminator needed to order a retry or staged
+result (including a phase-local ordinal when `lane_or_block` is not already
+total), while excluding worker ID, completion time, hydration state, and
+resource estimates. The compact exceptional result batch now uses the complete
+key for admitted in-memory staging. The static `CampaignPlan` and low-level
+executor still do not constitute the production frontier coordinator that owns
+the global key/revision/result lifecycle.
 
 The coordinator accepts a delta only for the expected job revision. Equal
 keys with unequal payloads are typed conflicts. Pure content-addressable
@@ -835,11 +846,18 @@ monotone continuation witness: its exact exceptional domain re-enters the
 unresolved set, while a candidate found bad everywhere on that domain is
 excluded before later generic rows continue. Restarting the identical candidate
 order with no such domain/exclusion state could reproduce the same partition
-forever. The current algebra-free epoch owner exposes the immutable narrowed
-domain and compact source geometry only through a bounded retry lease. This is
-scheduling access to an existing committed event, not mathematical re-entry:
-source ingress, continuation state, a fresh database/reducer lane, admitted
-results, and the re-entry coordinator are not implemented.
+forever. The algebra-free epoch owner exposes the immutable narrowed domain and
+compact source geometry through a bounded retry lease. The first mathematical
+ingress slice is now implemented: a committed same-sector Domain lease is
+consumed into an event-owned singleton resident, its stable value identity
+binds the full child scope independently of allocation coordinates, and a
+charged resident transform retains/authenticates the inherited generic-source
+authority in a fresh V3 plan/catalog before constructing an empty database/
+session. The publication application row is not a source row, the inherited
+rows have not yet been submitted, and no parent pivot, target disposition, or
+event ledger is imported. The generated fixture stops at typed affine-equality refinement. The
+full continuation witness, equality quotient/re-elimination, shared-ancestry
+admission, multi-child re-entry coordinator, and closure are not implemented.
 
 `IdenticallyBad` is deliberately separate. It publishes no good or exceptional
 leaf, leaves the selected target unresolved, commits the candidate pivot once,
@@ -985,13 +1003,14 @@ resource-limited frontier remains unresolved.
    identical 1/2/4-worker results. Core and memory permits are acquired before
    any heavyweight owner/reducer clone, so a wide ready frontier remains a
    compact queue rather than an eager set of live forks.
-3. **Exceptional closure:** extend the implemented algebra-free epoch owner
-   with RAM-admitted exceptional results, stable-key result staging and atomic
-   charge transfer; then add fresh narrowed-domain source ingress, separate
-   frozen-epoch affine proposals, solved-subsector feedback from allowlisted
-   strict descendants, and joint dependency/exception fixed-point admission.
-   Integrate the already implemented separate same-database rejected-candidate
-   transition into that frontier without routing it through exceptional epochs.
+3. **Exceptional closure:** extend the implemented stable-key result staging,
+   atomic charge transfer, and first same-sector Domain-to-fresh-session ingress
+   with affine-equality quotient/re-elimination and separately admitted shared
+   ancestry; then add frozen-epoch affine proposals, applicable providers,
+   solved-subsector feedback from allowlisted strict descendants, and joint
+   dependency/exception fixed-point admission. Integrate the already
+   implemented separate same-database rejected-candidate transition into that
+   frontier without routing it through exceptional epochs.
 4. **Resumable jobs:** atomic checkpoints and interruption/resume equivalence;
    rebuild and authenticate the native reducer once at load.
 5. **Multi-root canonicalization:** verified routing aliases, factorization and

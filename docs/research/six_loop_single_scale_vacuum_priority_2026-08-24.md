@@ -13,9 +13,14 @@ focused licensed parallel gates are recorded in the governing port plan. A
 later current-worktree slice implements typed same-database `IdenticallyBad`
 continuation and exact chronological rederivation: it retains the rejected
 pivot, leaves the selected target unresolved, and emits no rule, residual, or
-master. Its sector-`011` regression is a topology-neutral hybrid session test
-with test-staged terms, not a fully generated-row or physical-vacuum acceptance
-claim.
+master. The following topology-neutral slice consumes a committed same-sector
+Domain leaf into an admitted resident and constructs a genuinely fresh V3 exact
+session from the parent's inherited generic-source authority; its generated
+acceptance stops at affine-equality refinement, keeps the child database empty,
+and imports no parent reducer state. Shared
+ancestry admission and equality quotient/re-elimination remain pending. The
+sector-`011` regression is a topology-neutral hybrid session test with test-
+staged terms, not a fully generated-row or physical-vacuum acceptance claim.
 
 Internal RustRed owners trust sealed constructors and move semantics. Add
 runtime validation only at human/file import, durable artifact loading, and the
@@ -199,22 +204,23 @@ Symbolica reducer; independent families and sectors, frozen-epoch exceptional
 case proposals, modular samples, and exact-verification blocks are the
 multicore work units.
 
-The currently implemented campaign layer stops before actual reducer
-execution. It has a static multi-root `CampaignPlan`, versioned
-resource-estimate and deterministic wave-selection metadata, a no-default
-physical-profile/preflight seam, and a move-only atomic admission authority.
-The authority revalidates a frozen selection and
+The currently implemented campaign layer has a static multi-root
+`CampaignPlan`, versioned resource-estimate and deterministic wave-selection
+metadata, a no-default physical-profile/preflight seam, and a move-only atomic
+admission authority. The authority revalidates a frozen selection and
 cooperatively charges cores plus estimated bytes to task/resident owners; its
-tests include concurrent panic cleanup and exact old/new overlap. The
-roots-only CLI authenticates declared inputs but explicitly does not normalize
-target numerators. The separate preflight CLI is topology-free and merely
-reports the pure width decision from explicit physical inputs. These pieces do
-not inspect RSS, estimate a physical six-loop family from native telemetry,
-construct or hydrate a Symbolica
-reducer, dispatch a worker, checkpoint a wave, discover dependencies, or prove
-closure. Named-host calibration, phase-specific estimator adapters, the
-executor, hydration/dehydration service, and barrier checkpoint runtime are
-subsequent milestones.
+tests include concurrent panic cleanup and exact old/new overlap. A stable low-
+level executor runs admitted move-only tasks, and its resident-transform seam
+has carried a genuine generated-row Symbolica dependent transition. This is a
+cooperative primitive, not the plan-consuming production frontier. The roots-
+only CLI authenticates declared inputs but explicitly does not normalize target
+numerators. The separate preflight CLI is topology-free and merely reports the
+pure width decision from explicit physical inputs. These pieces do not inspect
+RSS, estimate a physical six-loop family from native telemetry, hydrate a
+production reducer fleet, checkpoint a wave, discover dependencies, or prove
+closure. Named-host calibration, phase-specific estimator adapters, the full
+frontier coordinator, hydration/dehydration policy, and barrier checkpoint
+runtime are subsequent milestones.
 
 ### 4.3 Parametric rule derivation
 
@@ -317,9 +323,12 @@ ancestry. Authenticated lower-arity constrained Direct maps now reach
 `b60b4fbd-f7b9-4656-ade0-6a476a7b7805` passed 18/18 focused tests. At that
 historical checkpoint, the next steps were a transactional temporary Symbolica-
 reducer correctness bridge followed by owning exceptional and subsector
-scheduling to close the published domains. Both the bridge and its live retained
-reducer/catalog successor are now complete, so owning exceptional and subsector
-scheduling is the remaining next step.
+scheduling to close the published domains. The bridge and its live retained
+reducer/catalog successor are complete, as are stable-key exceptional result
+staging and the first committed-Domain-to-fresh-session ingress. Equality
+specialization, separately admitted shared ancestry, applicable providers, the
+production exceptional/subsector frontier, and fixed-point closure are the
+remaining steps.
 No arity-21 Direct input has reached Ready,
 and no Direct input has reached reduction, closed/durable guarded-rule
 publication, or six-loop topology support.
@@ -712,11 +721,17 @@ Condition mapping, relative bad-domain partitioning, and compact move-bound
 route preparation are now implemented. The route stage performs one linear
 pass and stores one byte per leaf; it trusts its sealed Ready owner rather than
 adding another schema/replay/binding layer. The atomic target-consuming compact
-application-event commit is also implemented. Shallow rule/residual views,
-and same-database rejected-candidate continuation are implemented. Fresh
-exceptional-domain mathematical ingress, applicable providers, bottom-up
+application-event commit is also implemented. Shallow rule/residual views and
+same-database rejected-candidate continuation are implemented. The first fresh
+exceptional-domain ingress slice is also implemented: one committed Domain
+leaf becomes an event-owned singleton, retains/authenticates the generic-source
+authority in a fresh V3 plan/catalog, constructs an empty database/session, and
+reaches typed affine-equality refinement; source-row submission has not begun.
+A `SectorLeak`
+returns its live lease to separate out-of-sector routing. Equality quotient/re-
+elimination, shared event-ancestry admission, applicable providers, bottom-up
 subsector feedback, a coverage fixed point, durable closed shards, and physical
-application remain unfinished. A `SectorLeak` is parent-inactive activation and
+application remain unfinished. `SectorLeak` is parent-inactive activation and
 future out-of-sector exceptional work, never a proper-subsector dependency.
 This status does not claim a complete family reduction or any six-loop result.
 
@@ -818,7 +833,16 @@ or physical-topology calculation.
    The separate typed `IdenticallyBad` transition now continues the same exact
    database with its rejected pivot retained and rederives the complete exact
    proof during chronological replay; it still lacks campaign-frontier and
-   fixed-point integration.
+   fixed-point integration. A committed Domain leaf now takes the distinct path
+   through one lease issuance within its epoch-owner allocation, an allocation-
+   independent stable value identity distinct from event/leaf allocation
+   identity, admitted result staging, and a consuming resident transform into a
+   fresh V3 exact session. The acceptance proves inherited source-authority
+   authentication and state isolation, asserts that the child database is
+   empty, and then stops at its equality-refinement target. It keeps the origin
+   epoch owner live because the current child census excludes shared parent
+   ancestry; production lineage admission and equality specialization are the
+   next mathematical/resource boundaries.
    Export native telemetry to campaign benchmarks and profile full-clone cost,
    serial forward elimination, fill, and opaque native memory. The
    non-durable topology-neutral `CampaignPlan` slice and its stateless

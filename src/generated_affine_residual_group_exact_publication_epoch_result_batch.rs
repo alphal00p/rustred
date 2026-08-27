@@ -376,6 +376,21 @@ impl<R> ExactPublicationEpochStagedResults<R> {
         Some((&assignment.work, resident))
     }
 
+    /// Move one still-charged result out of its preallocated slot without
+    /// allocating or cloning its payload.  The empty slot and fixed-component
+    /// owner stay live until this staged-results owner is dropped, while the
+    /// returned resident continues to carry the exact worker-result charge.
+    ///
+    /// This is the ownership seam used to bind an exceptional singleton to a
+    /// consuming campaign resident transform.  Taking a result does not make
+    /// its terminally `Staged` epoch source retryable.
+    pub(crate) fn take_resident(&mut self, ordinal: usize) -> Option<CampaignResident<R>> {
+        // Validate both parallel buffers before mutating either one.  Their
+        // lengths are sealed equal by `into_staged_results`.
+        self.assignments.get(ordinal)?;
+        self.results.get_mut(ordinal)?.take()
+    }
+
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&CampaignWorkKey, &CampaignResident<R>)> {
         self.assignments
             .iter()

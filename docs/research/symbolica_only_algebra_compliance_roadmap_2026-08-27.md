@@ -68,6 +68,12 @@ block the later GammaLoop numerator corpus reduction.
   is a crate-private isolated prototype with no non-test caller at this
   baseline. It is not evidence that exceptional-domain production ingress is
   complete.
+- The later committed-Domain ingress milestone does not promote that prototype
+  or add private algebra. It reuses Symbolica-backed generic source rows and the
+  existing exact session/database APIs to construct a fresh topology-neutral
+  child, then stops at the typed affine-equality-refinement boundary. Equality
+  quotient/re-elimination remains subject to this compliance roadmap and the
+  public integer-affine API gap below.
 
 ## Public Symbolica API gaps
 

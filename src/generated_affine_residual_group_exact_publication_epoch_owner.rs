@@ -21,18 +21,41 @@
 pub(crate) mod result_batch;
 
 use std::fmt;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering as AtomicOrdering};
 
 use symbolica::prelude::Integer;
 
 use super::{ExactPublicationHandoffSlot, ExactPublicationHandoffWave, LEAF_ISSUED, LEAF_PENDING};
+use crate::exact_identity::{
+    ExactIdentityError, ExactIdentityLimits, ExactIdentityPayload, ExactIdentityWriter,
+    ExactStructuralIdentity, encode_exact_identity,
+};
+use crate::generated_affine_residual_case_inventory::{
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
+    GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseAuthoritySourceKind,
+    GeneratedAffineResidualCaseSourceRowLimits, GeneratedAffineResidualCaseSourceRowView,
+};
 use crate::generated_affine_residual_group_exact_session::{
-    ApplicableRuleHandle, CommittedPublicationDomainView, CommittedPublicationEventView,
-    CommittedPublicationLeafView, ExceptionalResidualHandle, ExceptionalResidualKind,
+    ApplicableRuleHandle, CommittedPublicationDomainView, CommittedPublicationEventHandle,
+    CommittedPublicationEventView, CommittedPublicationLeafView, ExceptionalResidualHandle,
+    ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
+    GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
+};
+use crate::generated_affine_residual_group_physical_key::{
+    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
+    GeneratedAffineResidualGroupPhysicalKeyLimits,
 };
 use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolveTargetLocator;
-use crate::{CampaignJobKey, CampaignWorkKey, IntegralOrderingPolicy, SectorMask};
+use crate::generated_affine_residual_group_solve_plan::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanError,
+    GeneratedAffineResidualGroupSolvePlanLimits,
+};
+use crate::{
+    CampaignJobKey, CampaignWorkKey, IntegralFamily, IntegralOrderingPolicy,
+    ParametricCoefficientContext, ParametricRelation, SectorMask, SymbolicPolynomialPredicateKind,
+};
 
 const SOURCE_PENDING: u8 = 0;
 const SOURCE_ISSUED: u8 = 1;
@@ -304,6 +327,13 @@ impl<'owner> ExactPublicationEpochExceptionalSourceView<'owner> {
     pub(crate) fn compact_affine_matrix(self) -> &'owner [Integer] {
         self.residual.event().compact_affine_matrix()
     }
+
+    /// Owner-visible bytes of the immutable event allocation and event-local
+    /// payload transferred into a narrowed child source.  The separate event
+    /// authority/parent ancestry is not included.
+    pub(crate) fn retained_event_bytes(self) -> usize {
+        self.residual.event().retained_event_bytes()
+    }
 }
 
 impl fmt::Debug for ExactPublicationEpochExceptionalSourceView<'_> {
@@ -314,6 +344,664 @@ impl fmt::Debug for ExactPublicationEpochExceptionalSourceView<'_> {
             .field("kind", &self.residual.kind())
             .field("private_residual", &"<borrowed>")
             .finish()
+    }
+}
+
+/// Owning, allocation-bound source for one same-sector exceptional-domain
+/// child.  Its fields are private to this epoch owner: the only minting path
+/// consumes one mint opportunity from an authenticated issued source lease.
+/// Lease issuance and the consuming mint are the uniqueness boundary; this
+/// source deliberately does not implement `Clone`.
+pub(crate) struct CommittedExceptionalSingletonSource {
+    event: CommittedPublicationEventHandle,
+    leaf_ordinal: usize,
+}
+
+pub(crate) const COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+    "rustred-committed-exceptional-singleton-stable-value-identity-v1";
+
+/// Explicit topology-neutral constructor ceilings for one narrowed child
+/// session.  The campaign estimator remains responsible for the surrounding
+/// retained/transient memory envelope and opaque Symbolica reserve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CommittedExceptionalFreshSessionLimits {
+    pub(crate) authority: GeneratedAffineResidualCaseAuthorityLimits,
+    pub(crate) physical_frame: GeneratedAffineResidualGroupPhysicalKeyLimits,
+    pub(crate) solve_plan: GeneratedAffineResidualGroupSolvePlanLimits,
+    pub(crate) session: GeneratedAffineResidualGroupExactSessionLimits,
+}
+
+impl Default for CommittedExceptionalFreshSessionLimits {
+    fn default() -> Self {
+        Self {
+            authority: GeneratedAffineResidualCaseAuthorityLimits::default(),
+            physical_frame: GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            solve_plan: GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            session: GeneratedAffineResidualGroupExactSessionLimits::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum CommittedExceptionalFreshSessionBuildError {
+    Authority(GeneratedAffineResidualCaseAuthorityError),
+    InheritedSourceRowCountMismatch { expected: usize, actual: usize },
+    PhysicalFrame(GeneratedAffineResidualGroupPhysicalKeyError),
+    SolvePlan(GeneratedAffineResidualGroupSolvePlanError),
+    Session(GeneratedAffineResidualGroupExactSessionError),
+    ResourceCountOverflow { resource: &'static str },
+}
+
+/// Successfully built fresh child plus its conservative enumerated
+/// owner-visible census.  This is not an RSS estimate: allocator metadata,
+/// native Symbolica state, TLS, and headroom remain in the campaign's nonzero
+/// opaque reserve.
+pub(crate) struct CommittedExceptionalFreshSessionBuild {
+    session: GeneratedAffineResidualGroupExactSession,
+    inherited_source_rows: usize,
+    conservative_visible_bytes_excluding_shared_ancestry: usize,
+}
+
+impl CommittedExceptionalFreshSessionBuild {
+    pub(crate) const fn session(&self) -> &GeneratedAffineResidualGroupExactSession {
+        &self.session
+    }
+
+    pub(crate) const fn conservative_visible_bytes_excluding_shared_ancestry(&self) -> usize {
+        self.conservative_visible_bytes_excluding_shared_ancestry
+    }
+
+    pub(crate) const fn inherited_source_rows(&self) -> usize {
+        self.inherited_source_rows
+    }
+
+    pub(crate) fn into_session(self) -> GeneratedAffineResidualGroupExactSession {
+        self.session
+    }
+}
+
+impl CommittedExceptionalSingletonSource {
+    /// Private copy used only while one coordinator-owned, memory-admitted
+    /// resident transform replaces its input owner with the derived owner.
+    /// It shares the immutable event allocation and fixed leaf, but provides
+    /// no capability to mint or retry epoch work.
+    fn clone_for_admitted_transform(&self) -> Self {
+        Self {
+            event: self.event.clone(),
+            leaf_ordinal: self.leaf_ordinal,
+        }
+    }
+
+    fn residual(&self) -> ExceptionalResidualHandle<'_> {
+        match self
+            .event
+            .view()
+            .leaf(self.leaf_ordinal)
+            .expect("sealed exceptional singleton lost its event leaf")
+        {
+            CommittedPublicationLeafView::Applicable(_) => {
+                unreachable!("sealed exceptional singleton changed classification")
+            }
+            CommittedPublicationLeafView::Exceptional(residual) => {
+                debug_assert_eq!(residual.kind(), ExceptionalResidualKind::Domain);
+                residual
+            }
+        }
+    }
+
+    pub(crate) fn replay(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+    ) -> Result<(), GeneratedAffineResidualCaseAuthorityError> {
+        let event = self.event.view();
+        if self.residual().kind() != ExceptionalResidualKind::Domain
+            || family.fingerprint_ref() != event.family_fingerprint()
+            || context.fingerprint() != event.context_fingerprint()
+            || context.index_count() != event.ambient_arity()
+        {
+            return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
+        }
+        event.replay_retained_parent_source_authority(family, context)
+    }
+
+    pub(crate) fn family_fingerprint(&self) -> &str {
+        self.event.view().family_fingerprint()
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> &str {
+        self.event.view().context_fingerprint()
+    }
+
+    pub(crate) fn sector(&self) -> &SectorMask {
+        self.event.view().sector()
+    }
+
+    pub(crate) fn ordering(&self) -> IntegralOrderingPolicy {
+        self.event.view().ordering()
+    }
+
+    pub(crate) fn ambient_arity(&self) -> usize {
+        self.event.view().ambient_arity()
+    }
+
+    pub(crate) fn constants(&self) -> &[Integer] {
+        self.event.view().target_offset()
+    }
+
+    pub(crate) fn free_positions(&self) -> &[usize] {
+        self.event.view().free_positions()
+    }
+
+    pub(crate) fn compact_affine_matrix(&self) -> &[Integer] {
+        self.event.view().compact_affine_matrix()
+    }
+
+    pub(crate) fn target_premises(&self) -> &[crate::ParametricNonZeroCondition] {
+        self.event.view().target_premises()
+    }
+
+    pub(crate) fn predicate_count(&self) -> usize {
+        self.residual().domain().predicate_count()
+    }
+
+    pub(crate) fn predicate(
+        &self,
+        ordinal: usize,
+    ) -> Option<
+        crate::generated_affine_residual_group_exact_session::CommittedPublicationPredicateView<'_>,
+    > {
+        self.residual().domain().predicate(ordinal)
+    }
+
+    pub(crate) fn source_row_count(&self) -> usize {
+        self.event.view().retained_parent_source_row_count()
+    }
+
+    pub(crate) fn authenticated_source_row_view(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        source_row_ordinal: usize,
+        limits: GeneratedAffineResidualCaseSourceRowLimits,
+    ) -> Result<
+        GeneratedAffineResidualCaseSourceRowView<'_>,
+        GeneratedAffineResidualCaseAuthorityError,
+    > {
+        self.event.view().authenticated_retained_parent_source_row(
+            family,
+            context,
+            source_row_ordinal,
+            limits,
+        )
+    }
+
+    pub(crate) fn same_event_leaf_allocation(&self, other: &Self) -> bool {
+        self.event.same_event_allocation(&other.event) && self.leaf_ordinal == other.leaf_ordinal
+    }
+
+    pub(crate) fn event_ordinal(&self) -> usize {
+        self.event.view().event_ordinal()
+    }
+
+    pub(crate) const fn leaf_ordinal(&self) -> usize {
+        self.leaf_ordinal
+    }
+
+    pub(crate) fn retained_parent_plan_manifest(&self) -> &str {
+        self.event.view().retained_parent_plan_manifest()
+    }
+
+    /// Owner-visible event allocation and event-local payload bytes behind
+    /// this source's Arc.  A campaign must keep these bytes charged after the
+    /// originating epoch owner drops, in addition to shared ancestry.
+    pub(crate) fn retained_event_bytes(&self) -> usize {
+        self.event.view().retained_event_bytes()
+    }
+
+    pub(crate) const fn durable_identity_schema(&self) -> &'static str {
+        COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA
+    }
+
+    pub(crate) fn encode_durable_identity(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
+        limits: ExactIdentityLimits,
+    ) -> Result<ExactStructuralIdentity, ExactIdentityError> {
+        encode_exact_identity(
+            &CommittedExceptionalSingletonIdentity {
+                source: self,
+                family,
+                context,
+                source_row_limits,
+                compact_affine_matrix: self.compact_affine_matrix(),
+            },
+            limits,
+        )
+    }
+
+    /// Build the replacement fresh exact session from a private shallow proof
+    /// copy.  This adapter must only be called while the original source owner
+    /// is held by a `CampaignResidentTransform`: the callback returns that
+    /// untouched original on every `Err` and drops it only after the admitted
+    /// successor has been constructed and its visible census checked.
+    ///
+    /// The census deliberately charges the committed event allocation and
+    /// event-local payload in full for each child.  It does not enumerate the
+    /// separately shared event-authority/parent-plan ancestry: production must
+    /// keep that graph in an admitted shared-lineage owner (or add a
+    /// conservative per-child ancestry estimate) before dropping the origin.
+    pub(crate) fn try_build_fresh_exact_session_for_admitted_transform(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        database_epoch: usize,
+        limits: CommittedExceptionalFreshSessionLimits,
+    ) -> Result<CommittedExceptionalFreshSessionBuild, CommittedExceptionalFreshSessionBuildError>
+    {
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_committed_exceptional_singleton(
+                family,
+                context,
+                self.clone_for_admitted_transform(),
+                limits.authority,
+            )
+            .map_err(CommittedExceptionalFreshSessionBuildError::Authority)?,
+        );
+        let inherited_source_rows = self.source_row_count();
+        if authority.source_row_count() != inherited_source_rows {
+            return Err(
+                CommittedExceptionalFreshSessionBuildError::InheritedSourceRowCountMismatch {
+                    expected: inherited_source_rows,
+                    actual: authority.source_row_count(),
+                },
+            );
+        }
+        let physical_frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                family,
+                context,
+                Arc::clone(&authority),
+                limits.physical_frame,
+            )
+            .map_err(CommittedExceptionalFreshSessionBuildError::PhysicalFrame)?,
+        );
+        let solve_plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new_committed_exceptional_singleton(
+                family,
+                context,
+                Arc::clone(&authority),
+                Arc::clone(&physical_frame),
+                limits.solve_plan,
+            )
+            .map_err(CommittedExceptionalFreshSessionBuildError::SolvePlan)?,
+        );
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            family,
+            context,
+            Arc::clone(&solve_plan),
+            database_epoch,
+            limits.session,
+        )
+        .map_err(CommittedExceptionalFreshSessionBuildError::Session)?;
+        let snapshot = session.resident_resource_snapshot();
+        // Each owner statistic below includes its pointee and deep local
+        // buffers but excludes its newly allocated outer Arc. The authority
+        // statistic already includes its nested Arc<Source> control, inline
+        // Source payload, stable identity, and anchor offsets; adding a second
+        // size_of::<Source>() here would double count that payload.
+        let conservative_visible_bytes_excluding_shared_ancestry = [
+            self.retained_event_bytes(),
+            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
+                GeneratedAffineResidualCaseAuthority,
+            >()?,
+            authority.owner_retained_bytes_excluding_source(),
+            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
+                GeneratedAffineResidualGroupPhysicalFrame,
+            >()?,
+            physical_frame.stats().frame_retained_bytes(),
+            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
+                GeneratedAffineResidualGroupSolvePlan,
+            >()?,
+            solve_plan.stats().owner_retained_bytes(),
+            size_of::<GeneratedAffineResidualGroupExactSession>(),
+            snapshot.database_retained_bytes(),
+            snapshot.target_state_combined_retained_byte_envelope(),
+            snapshot.event_ledger_retained_bytes(),
+        ]
+        .into_iter()
+        .try_fold(0usize, |total, bytes| total.checked_add(bytes))
+        .ok_or(
+            CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
+                resource: "committed exceptional fresh-session visible census",
+            },
+        )?;
+        Ok(CommittedExceptionalFreshSessionBuild {
+            session,
+            inherited_source_rows,
+            conservative_visible_bytes_excluding_shared_ancestry,
+        })
+    }
+}
+
+/// Conservative overhead for one distinct outer `Arc<T>` allocation when the
+/// pointee's owner census already includes `size_of::<T>()` and deep buffers.
+/// The two alignment slacks follow the established exact-target envelope; Rust
+/// does not expose the allocator's actual Arc header layout.
+fn committed_exceptional_outer_arc_control_and_padding_byte_bound<T>()
+-> Result<usize, CommittedExceptionalFreshSessionBuildError> {
+    let controls = 2usize.checked_mul(size_of::<AtomicUsize>()).ok_or(
+        CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
+            resource: "committed exceptional fresh-session outer Arc controls",
+        },
+    )?;
+    let padding = 2usize
+        .checked_mul(align_of::<T>().saturating_sub(1))
+        .ok_or(
+            CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
+                resource: "committed exceptional fresh-session outer Arc padding",
+            },
+        )?;
+    controls.checked_add(padding).ok_or(
+        CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
+            resource: "committed exceptional fresh-session outer Arc control and padding",
+        },
+    )
+}
+
+struct CommittedExceptionalSingletonIdentity<'source> {
+    source: &'source CommittedExceptionalSingletonSource,
+    family: &'source IntegralFamily,
+    context: &'source ParametricCoefficientContext,
+    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
+    compact_affine_matrix: &'source [Integer],
+}
+
+impl ExactIdentityPayload for CommittedExceptionalSingletonIdentity<'_> {
+    const SCHEMA: &'static str = COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA;
+
+    fn write_exact_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+    ) -> Result<(), ExactIdentityError> {
+        write_committed_exceptional_singleton_identity(
+            self.source,
+            self.family,
+            self.context,
+            self.source_row_limits,
+            self.compact_affine_matrix,
+            CommittedExceptionalParentRowsProjection::Retained,
+            writer,
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum CommittedExceptionalParentRowsProjection<'rows> {
+    Retained,
+    LegacyOverride(&'rows [ParametricRelation]),
+}
+
+fn write_committed_exceptional_singleton_identity(
+    source: &CommittedExceptionalSingletonSource,
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
+    compact_affine_matrix: &[Integer],
+    parent_rows: CommittedExceptionalParentRowsProjection<'_>,
+    writer: &mut ExactIdentityWriter<'_>,
+) -> Result<(), ExactIdentityError> {
+    let event = source.event.view();
+    let locator = event.target_locator();
+    writer.begin_record("committed_exceptional_singleton", 13)?;
+    writer.string(
+        "parent_plan_source_manifest",
+        event.retained_parent_plan_manifest(),
+    )?;
+    let parent_source_kind = match parent_rows {
+        CommittedExceptionalParentRowsProjection::Retained => event.retained_parent_source_kind(),
+        CommittedExceptionalParentRowsProjection::LegacyOverride(_) => {
+            GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+        }
+    };
+    writer.variant("parent_source_kind", parent_source_kind.stable_id())?;
+    let legacy_source_rows = match parent_rows {
+        CommittedExceptionalParentRowsProjection::Retained
+            if parent_source_kind
+                == GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory =>
+        {
+            event.retained_parent_source_row_count()
+        }
+        CommittedExceptionalParentRowsProjection::LegacyOverride(rows) => rows.len(),
+        _ => 0,
+    };
+    writer.begin_sequence("parent_legacy_source_rows", legacy_source_rows)?;
+    for source_row_ordinal in 0..legacy_source_rows {
+        writer.begin_record("source_row", 2)?;
+        writer.usize("ordinal", source_row_ordinal)?;
+        match parent_rows {
+            CommittedExceptionalParentRowsProjection::Retained => {
+                let row = source
+                    .authenticated_source_row_view(
+                        family,
+                        context,
+                        source_row_ordinal,
+                        source_row_limits,
+                    )
+                    .map_err(|error| match error {
+                        GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+                            resource,
+                        } => ExactIdentityError::ResourceCountOverflow { resource },
+                        GeneratedAffineResidualCaseAuthorityError::ResourceLimit {
+                            resource,
+                            requested,
+                            limit,
+                        } => ExactIdentityError::ResourceLimit {
+                            resource,
+                            requested,
+                            limit,
+                        },
+                        _ => ExactIdentityError::ReferenceBindingMismatch {
+                            reference: "committed exceptional inherited source row",
+                            ordinal: source_row_ordinal,
+                        },
+                    })?;
+                if row.source_row_ordinal() != source_row_ordinal {
+                    return Err(ExactIdentityError::ReferenceBindingMismatch {
+                        reference: "committed exceptional inherited source row ordinal",
+                        ordinal: source_row_ordinal,
+                    });
+                }
+                writer.parametric_relation("relation", row.relation())?;
+            }
+            CommittedExceptionalParentRowsProjection::LegacyOverride(rows) => {
+                let relation = rows.get(source_row_ordinal).ok_or(
+                    ExactIdentityError::ReferenceBindingMismatch {
+                        reference: "committed exceptional legacy override source row",
+                        ordinal: source_row_ordinal,
+                    },
+                )?;
+                writer.parametric_relation("relation", relation)?;
+            }
+        }
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    writer.string("family", event.family_fingerprint())?;
+    writer.string("context", event.context_fingerprint())?;
+    writer.begin_sequence("sector", event.sector().arity())?;
+    for &active in event.sector().active_bits() {
+        writer.boolean("active", active)?;
+    }
+    writer.end_sequence()?;
+    writer.variant("ordering", event.ordering().stable_id())?;
+    writer.begin_record("target_locator", 3)?;
+    writer.usize("solve_ordinal", locator.solve_ordinal())?;
+    writer.usize("inventory_position", locator.inventory_position())?;
+    writer.usize("case_ordinal", locator.case_ordinal())?;
+    writer.end_record()?;
+    writer.begin_sequence("target_offset", event.target_offset().len())?;
+    for value in event.target_offset() {
+        writer.integer("value", value)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_record("geometry", 3)?;
+    writer.usize("ambient_arity", event.ambient_arity())?;
+    writer.begin_sequence("free_positions", event.free_positions().len())?;
+    for &position in event.free_positions() {
+        writer.usize("position", position)?;
+    }
+    writer.end_sequence()?;
+    writer.begin_sequence("compact_affine_matrix", compact_affine_matrix.len())?;
+    for value in compact_affine_matrix {
+        writer.integer("value", value)?;
+    }
+    writer.end_sequence()?;
+    writer.end_record()?;
+    writer.begin_sequence("target_premises", event.target_premises().len())?;
+    for condition in event.target_premises() {
+        writer.begin_record("premise", 2)?;
+        writer.polynomial("polynomial", condition.polynomial().raw())?;
+        writer.begin_sequence("origins", condition.origins().len())?;
+        for origin in condition.origins() {
+            writer.guard_origin("origin", origin)?;
+        }
+        writer.end_sequence()?;
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    writer.variant("residual_kind", "Domain")?;
+    writer.begin_sequence("predicates", source.predicate_count())?;
+    for ordinal in 0..source.predicate_count() {
+        let predicate =
+            source
+                .predicate(ordinal)
+                .ok_or(ExactIdentityError::ReferenceBindingMismatch {
+                    reference: "committed exceptional predicate",
+                    ordinal,
+                })?;
+        // The sequence position binds predicate order. The event-local
+        // locus ordinal is allocation provenance, not stable value.
+        writer.begin_record("predicate", 2)?;
+        writer.variant(
+            "kind",
+            match predicate.kind() {
+                SymbolicPolynomialPredicateKind::EqualZero => "EqualZero",
+                SymbolicPolynomialPredicateKind::NonZero => "NonZero",
+            },
+        )?;
+        writer.polynomial("polynomial", predicate.polynomial().raw())?;
+        writer.end_record()?;
+    }
+    writer.end_sequence()?;
+    writer.end_record()
+}
+
+#[cfg(test)]
+struct CommittedExceptionalSingletonIdentityGeometryOverride<'source> {
+    source: &'source CommittedExceptionalSingletonSource,
+    family: &'source IntegralFamily,
+    context: &'source ParametricCoefficientContext,
+    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
+    compact_affine_matrix: &'source [Integer],
+}
+
+#[cfg(test)]
+impl ExactIdentityPayload for CommittedExceptionalSingletonIdentityGeometryOverride<'_> {
+    const SCHEMA: &'static str = COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA;
+
+    fn write_exact_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+    ) -> Result<(), ExactIdentityError> {
+        write_committed_exceptional_singleton_identity(
+            self.source,
+            self.family,
+            self.context,
+            self.source_row_limits,
+            self.compact_affine_matrix,
+            CommittedExceptionalParentRowsProjection::Retained,
+            writer,
+        )
+    }
+}
+
+#[cfg(test)]
+struct CommittedExceptionalSingletonIdentityLegacyRowsOverride<'source> {
+    source: &'source CommittedExceptionalSingletonSource,
+    family: &'source IntegralFamily,
+    context: &'source ParametricCoefficientContext,
+    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
+    compact_affine_matrix: &'source [Integer],
+    legacy_rows: &'source [ParametricRelation],
+}
+
+#[cfg(test)]
+impl ExactIdentityPayload for CommittedExceptionalSingletonIdentityLegacyRowsOverride<'_> {
+    const SCHEMA: &'static str = COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA;
+
+    fn write_exact_identity(
+        &self,
+        writer: &mut ExactIdentityWriter<'_>,
+    ) -> Result<(), ExactIdentityError> {
+        write_committed_exceptional_singleton_identity(
+            self.source,
+            self.family,
+            self.context,
+            self.source_row_limits,
+            self.compact_affine_matrix,
+            CommittedExceptionalParentRowsProjection::LegacyOverride(self.legacy_rows),
+            writer,
+        )
+    }
+}
+
+impl fmt::Debug for CommittedExceptionalSingletonSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommittedExceptionalSingletonSource")
+            .field("event_ordinal", &self.event.view().event_ordinal())
+            .field("leaf_ordinal", &self.leaf_ordinal)
+            .field("kind", &ExceptionalResidualKind::Domain)
+            .field("private_event", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExactPublicationEpochReentryError {
+    Epoch(ExactPublicationEpochError),
+    SectorLeakRequiresOutOfSectorRouting,
+}
+
+/// Transactional mint failure.  The exact issued lease is returned, so a
+/// caller may hand a sector leak to the separate out-of-sector router or drop
+/// it to restore `Pending`.
+pub(crate) struct ExactPublicationEpochReentryMintFailure<'owner> {
+    error: ExactPublicationEpochReentryError,
+    lease: ExactPublicationEpochSourceLease<'owner>,
+}
+
+impl<'owner> ExactPublicationEpochReentryMintFailure<'owner> {
+    pub(crate) const fn error(&self) -> ExactPublicationEpochReentryError {
+        self.error
+    }
+
+    pub(crate) fn into_lease(self) -> ExactPublicationEpochSourceLease<'owner> {
+        self.lease
+    }
+}
+
+impl fmt::Debug for ExactPublicationEpochReentryMintFailure<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExactPublicationEpochReentryMintFailure")
+            .field("error", &self.error)
+            .field("source_ordinal", &self.lease.source_ordinal())
+            .finish_non_exhaustive()
     }
 }
 
@@ -746,6 +1434,74 @@ impl ExactPublicationEpochOwner {
             scheduling_key: scheduling_key(self.closure_epoch_ordinal, slot, leaf_ordinal),
             residual,
         })
+    }
+
+    /// Consume one live same-epoch lease into the result-batch worker owner for
+    /// a fresh same-sector exceptional-domain lane.  There is no borrowing mint
+    /// API, so one issued lease cannot manufacture two owning sources.
+    pub(crate) fn mint_domain_reentry_worker_result<'owner>(
+        &'owner self,
+        lease: ExactPublicationEpochSourceLease<'owner>,
+    ) -> Result<
+        result_batch::ExactPublicationEpochWorkerResult<
+            'owner,
+            CommittedExceptionalSingletonSource,
+        >,
+        ExactPublicationEpochReentryMintFailure<'owner>,
+    > {
+        let source_ordinal = lease.source_ordinal;
+        if let Err(error) = self.preflight_stage_lease(&lease, source_ordinal) {
+            return Err(ExactPublicationEpochReentryMintFailure {
+                error: ExactPublicationEpochReentryError::Epoch(error),
+                lease,
+            });
+        }
+        let flat_leaf_index = match self.exceptional_flat_leaf_indexes.get(source_ordinal) {
+            Some(value) => *value,
+            None => {
+                return Err(ExactPublicationEpochReentryMintFailure {
+                    error: ExactPublicationEpochReentryError::Epoch(
+                        ExactPublicationEpochError::UnknownSource,
+                    ),
+                    lease,
+                });
+            }
+        };
+        let (slot, leaf_ordinal) = match self.resolve_flat_leaf(flat_leaf_index) {
+            Some(value) => value,
+            None => {
+                return Err(ExactPublicationEpochReentryMintFailure {
+                    error: ExactPublicationEpochReentryError::Epoch(
+                        ExactPublicationEpochError::UnknownSource,
+                    ),
+                    lease,
+                });
+            }
+        };
+        let residual = match slot.event.view().leaf(leaf_ordinal) {
+            Some(CommittedPublicationLeafView::Exceptional(residual)) => residual,
+            _ => {
+                return Err(ExactPublicationEpochReentryMintFailure {
+                    error: ExactPublicationEpochReentryError::Epoch(
+                        ExactPublicationEpochError::UnknownSource,
+                    ),
+                    lease,
+                });
+            }
+        };
+        if residual.kind() == ExceptionalResidualKind::SectorLeak {
+            return Err(ExactPublicationEpochReentryMintFailure {
+                error: ExactPublicationEpochReentryError::SectorLeakRequiresOutOfSectorRouting,
+                lease,
+            });
+        }
+        let source = CommittedExceptionalSingletonSource {
+            event: slot.event.clone(),
+            leaf_ordinal,
+        };
+        Ok(result_batch::ExactPublicationEpochWorkerResult::new(
+            source, lease,
+        ))
     }
 
     /// Explicitly end an attempt without claiming a result or progress.
@@ -1447,6 +2203,7 @@ fn try_vec_capacity<T>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::mem::{forget, size_of};
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc, Barrier, mpsc};
@@ -1456,13 +2213,26 @@ mod tests {
         ExactPublicationHandoffInput, ExactPublicationHandoffLimits, ExactPublicationHandoffWave,
     };
     use super::*;
+    use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
     use crate::generated_affine_residual_group_exact_publication::{
         PreparedPublication, PublicationLimits,
     };
     use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
+    use crate::generated_affine_residual_group_exact_session::{
+        GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA,
+        GeneratedAffineResidualGroupExactSession,
+    };
+    use crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
+    use crate::generated_affine_residual_group_physical_key::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
+    use crate::generated_affine_residual_group_solve_plan::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
     use crate::{
-        CampaignPlan, CampaignPlanLimits, CampaignRootSpec, IntegralFamily, IntegralOrderingPolicy,
-        SectorMask,
+        CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
+        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResidentToken,
+        CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution,
+        CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
+        CampaignTaskResourceEstimate, CampaignWavePlanner, IntegralFamily, IntegralOrderingPolicy,
+        ParallelExecution, ParametricCoefficientContext, SectorMask,
+        SymbolicPolynomialPredicateKind,
     };
 
     fn job(family: &IntegralFamily, sector: &SectorMask) -> CampaignJobKey {
@@ -1520,6 +2290,569 @@ mod tests {
         let wave = handoff(name, lanes_in_input_order);
         fully_acknowledge(&wave);
         wave
+    }
+
+    fn owner_with_scope(
+        name: &str,
+        closure_epoch_ordinal: u64,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        ExactPublicationEpochOwner,
+    ) {
+        let (family, context, mut session, _, ready) = ready_for_publication(name);
+        let prepared = PreparedPublication::prepare(ready, PublicationLimits::default()).unwrap();
+        let receipt = session.commit_publication(prepared).unwrap();
+        let input =
+            ExactPublicationHandoffInput::new(job(&family, receipt.event().sector()), 0, receipt);
+        let wave = ExactPublicationHandoffWave::compile(
+            vec![input],
+            ExactPublicationHandoffLimits::default(),
+        )
+        .unwrap();
+        fully_acknowledge(&wave);
+        let owner = ExactPublicationEpochOwner::compile(
+            wave,
+            closure_epoch_ordinal,
+            ExactPublicationEpochLimits::default(),
+        )
+        .unwrap();
+        (family, context, owner)
+    }
+
+    fn exceptional_source_ordinals(owner: &ExactPublicationEpochOwner) -> (usize, usize) {
+        let mut domain_with_equality = None;
+        let mut leak = None;
+        for source_ordinal in 0..owner.stats().exceptional() {
+            let locator = owner.exceptional_source_locator(source_ordinal).unwrap();
+            let mut lease = owner.issue_exceptional_source(locator).unwrap();
+            let (kind, has_equality) = {
+                let view = owner.resolve_exceptional_source(&mut lease).unwrap();
+                (
+                    view.kind(),
+                    view.domain().predicates().any(|predicate| {
+                        predicate.kind() == SymbolicPolynomialPredicateKind::EqualZero
+                    }),
+                )
+            };
+            drop(lease);
+            match kind {
+                ExceptionalResidualKind::Domain if has_equality => {
+                    domain_with_equality.get_or_insert(source_ordinal);
+                }
+                ExceptionalResidualKind::Domain => {}
+                ExceptionalResidualKind::SectorLeak => {
+                    leak.get_or_insert(source_ordinal);
+                }
+            }
+        }
+        (
+            domain_with_equality.expect("fixture must expose an EqualZero domain leaf"),
+            leak.expect("fixture must expose an out-of-sector leak leaf"),
+        )
+    }
+
+    fn admission_controller() -> CampaignAdmissionController {
+        CampaignAdmissionController::try_new(
+            ParallelExecution::try_new(2).unwrap(),
+            CampaignEstimatorRevision::try_new(1).unwrap(),
+            CampaignBytes::new(128 * 1024 * 1024),
+            CampaignBytes::ZERO,
+            CampaignBytes::ZERO,
+        )
+        .unwrap()
+    }
+
+    fn task_estimate(
+        retained_visible: u64,
+        retained_opaque: u64,
+        transient_visible: u64,
+        transient_opaque: u64,
+    ) -> CampaignTaskResourceEstimate {
+        CampaignTaskResourceEstimate::try_new(
+            CampaignEstimatorRevision::try_new(1).unwrap(),
+            1,
+            CampaignTaskMemoryEnvelope::try_new(
+                CampaignMemoryEstimate::try_new(
+                    CampaignBytes::new(retained_visible),
+                    CampaignBytes::new(retained_opaque),
+                )
+                .unwrap(),
+                CampaignMemoryEstimate::try_new(
+                    CampaignBytes::new(transient_visible),
+                    CampaignBytes::new(transient_opaque),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn reserve_one(
+        controller: &mut CampaignAdmissionController,
+        work: &crate::CampaignWorkKey,
+        estimate: CampaignTaskResourceEstimate,
+        predecessor: Option<CampaignResidentToken>,
+    ) -> crate::CampaignTaskReservation {
+        let requests = BTreeMap::from([(work.clone(), estimate)]);
+        let snapshot = controller.try_snapshot().unwrap();
+        let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
+        let predecessors = predecessor
+            .map(|token| BTreeMap::from([(work.clone(), token)]))
+            .unwrap_or_default();
+        controller
+            .try_reserve_wave_with_predecessors(&snapshot, &plan, &requests, &predecessors)
+            .unwrap()
+            .into_tasks()
+            .pop()
+            .unwrap()
+    }
+
+    #[derive(Debug)]
+    enum FreshDomainSessionTransformError {
+        MissingOpaqueNativeReserve,
+        Build(CommittedExceptionalFreshSessionBuildError),
+        VisibleCensusExcludingSharedAncestryUnderestimated { requested: usize, charged: usize },
+    }
+
+    fn build_fresh_domain_session_for_transform(
+        task: CampaignTaskContext<'_>,
+        source: CommittedExceptionalSingletonSource,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        database_epoch: usize,
+        observed_visible_census_excluding_shared_ancestry: Option<&AtomicUsize>,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSession,
+        CampaignResidentTransformBuildFailure<
+            CommittedExceptionalSingletonSource,
+            FreshDomainSessionTransformError,
+        >,
+    > {
+        if task.memory().retained_output().opaque_native_reserve() == CampaignBytes::ZERO {
+            return Err(CampaignResidentTransformBuildFailure::new(
+                source,
+                FreshDomainSessionTransformError::MissingOpaqueNativeReserve,
+            ));
+        }
+        let expected_source_rows = source.source_row_count();
+        let build = match source.try_build_fresh_exact_session_for_admitted_transform(
+            family,
+            context,
+            database_epoch,
+            CommittedExceptionalFreshSessionLimits::default(),
+        ) {
+            Ok(build) => build,
+            Err(error) => {
+                return Err(CampaignResidentTransformBuildFailure::new(
+                    source,
+                    FreshDomainSessionTransformError::Build(error),
+                ));
+            }
+        };
+        assert_eq!(build.inherited_source_rows(), expected_source_rows);
+        assert!(build.inherited_source_rows() > 0);
+        assert_eq!(
+            build.session().physical_frame_schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
+        );
+        assert_eq!(
+            build.session().solve_plan_schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA,
+        );
+        assert_eq!(
+            build.session().target_catalog_schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA,
+        );
+        let catalog = build.session().target_catalog_stats();
+        assert_eq!(catalog.targets(), 1);
+        assert_eq!(catalog.ready_targets(), 0);
+        assert_eq!(catalog.equality_refinement_targets(), 1);
+        let requested = build.conservative_visible_bytes_excluding_shared_ancestry();
+        let charged = usize::try_from(task.memory().retained_output().visible_logical().get())
+            .unwrap_or(usize::MAX);
+        if requested > charged {
+            return Err(CampaignResidentTransformBuildFailure::new(
+                source,
+                FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
+                    requested,
+                    charged,
+                },
+            ));
+        }
+        if let Err(error) = build.session().replay(family, context) {
+            return Err(CampaignResidentTransformBuildFailure::new(
+                source,
+                FreshDomainSessionTransformError::Build(
+                    CommittedExceptionalFreshSessionBuildError::Session(error),
+                ),
+            ));
+        }
+        if let Some(observed) = observed_visible_census_excluding_shared_ancestry {
+            observed.store(requested, AtomicOrdering::Release);
+        }
+        Ok(build.into_session())
+    }
+
+    #[test]
+    fn committed_domain_reentry_is_one_shot_profile_isolated_and_stops_at_equality_refinement() {
+        const DATABASE_EPOCH: usize = 1_907;
+        let (family, context, owner) =
+            owner_with_scope("publication-epoch-committed-domain-reentry", 91);
+        let (domain_source_ordinal, leak_source_ordinal) = exceptional_source_ordinals(&owner);
+
+        // The only owning mint consumes the issued lease and immediately hands
+        // both proof source and lease to the charged worker-result owner.
+        let mut admission = admission_controller();
+        let mut batch = result_batch::ExactPublicationEpochResultBatch::<
+            CommittedExceptionalSingletonSource,
+        >::try_new(
+            &owner,
+            &mut admission,
+            vec![domain_source_ordinal],
+            result_batch::ExactPublicationEpochResultBatchLimits::default(),
+        )
+        .unwrap();
+        let work = batch.schedule().work(0).unwrap().clone();
+        // This fixture conservatively charges the complete event-local payload
+        // to the child resident, plus the inline source owner.  The originating
+        // epoch owner remains live because its separate event-authority/parent
+        // ancestry still needs a campaign-wide shared-lineage charge.
+        let source_visible_bytes = {
+            let locator = owner
+                .exceptional_source_locator(domain_source_ordinal)
+                .unwrap();
+            let mut census_lease = owner.issue_exceptional_source(locator).unwrap();
+            let event_bytes = owner
+                .resolve_exceptional_source(&mut census_lease)
+                .unwrap()
+                .retained_event_bytes();
+            drop(census_lease);
+            event_bytes
+                .checked_add(size_of::<CommittedExceptionalSingletonSource>())
+                .unwrap()
+        };
+        let source_visible_u64 = u64::try_from(source_visible_bytes).unwrap();
+        let reservation = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(source_visible_u64, 256 * 1024, 128 * 1024, 256 * 1024),
+            None,
+        );
+        let lease = batch.schedule().issue(0).unwrap();
+        let worker = owner.mint_domain_reentry_worker_result(lease).unwrap();
+        assert_eq!(owner.source_state_stats().issued(), 1);
+        assert_eq!(
+            owner
+                .issue_exceptional_source(
+                    owner
+                        .exceptional_source_locator(domain_source_ordinal)
+                        .unwrap(),
+                )
+                .unwrap_err(),
+            ExactPublicationEpochError::AlreadyIssued,
+        );
+        batch.try_stage(reservation.bind(worker)).unwrap();
+        assert_eq!(owner.source_state_stats().issued(), 0);
+        assert_eq!(owner.source_state_stats().staged(), 1);
+        let mut staged = batch.into_staged_results().unwrap();
+        let allocation_probe = staged
+            .get(0)
+            .expect("one staged domain result")
+            .1
+            .retained_output()
+            .clone_for_admitted_transform();
+        let source_resident = staged.take_resident(0).unwrap();
+        assert!(staged.take_resident(0).is_none());
+        assert_eq!(
+            source_resident.estimate().visible_logical().get(),
+            source_visible_u64
+        );
+        assert!(source_resident.estimate().opaque_native_reserve().get() > 0);
+
+        // A same-event but different-leaf proof is never allocation-equal.
+        // This synthetic comparison does not authenticate that other leaf as
+        // a Domain source; it tests only the sealed allocation predicate.
+        let different_leaf_probe = CommittedExceptionalSingletonSource {
+            event: allocation_probe.event.clone(),
+            leaf_ordinal: allocation_probe.leaf_ordinal() + 1,
+        };
+        assert!(!allocation_probe.same_event_leaf_allocation(&different_leaf_probe));
+        drop(different_leaf_probe);
+
+        // A precommit policy rejection returns the exact predecessor resident,
+        // including its source/event allocation and original charge.
+        let predecessor = source_resident.token().clone();
+        let rejected_transform = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(64 * 1024 * 1024, 0, 16 * 1024 * 1024, 4 * 1024 * 1024),
+            Some(predecessor),
+        )
+        .try_bind_resident_transform(source_resident)
+        .unwrap();
+        drop(staged);
+        let mut rejected = admission
+            .execute_resident_transforms_ordered(
+                vec![rejected_transform],
+                |task,
+                 source|
+                 -> Result<
+                    GeneratedAffineResidualGroupExactSession,
+                    CampaignResidentTransformBuildFailure<
+                        CommittedExceptionalSingletonSource,
+                        FreshDomainSessionTransformError,
+                    >,
+                > {
+                    assert_eq!(
+                        task.memory()
+                            .retained_output()
+                            .opaque_native_reserve()
+                            .get(),
+                        0
+                    );
+                    Err(CampaignResidentTransformBuildFailure::new(
+                        source,
+                        FreshDomainSessionTransformError::MissingOpaqueNativeReserve,
+                    ))
+                },
+            )
+            .unwrap();
+        let CampaignResidentTransformExecution::BuildFailed(rejected) = rejected.pop().unwrap()
+        else {
+            panic!("missing opaque reserve must reject before construction")
+        };
+        assert!(matches!(
+            rejected.error(),
+            FreshDomainSessionTransformError::MissingOpaqueNativeReserve
+        ));
+        assert!(
+            allocation_probe
+                .same_event_leaf_allocation(rejected.task().predecessor().retained_output())
+        );
+        let source_resident = rejected.recover_callback_owner();
+        assert_eq!(
+            source_resident.estimate().visible_logical().get(),
+            source_visible_u64
+        );
+        assert_eq!(
+            owner
+                .issue_exceptional_source(
+                    owner
+                        .exceptional_source_locator(domain_source_ordinal)
+                        .unwrap(),
+                )
+                .unwrap_err(),
+            ExactPublicationEpochError::AlreadyStaged,
+        );
+        drop(allocation_probe);
+
+        // First discover the deterministic local visible census under a task
+        // whose transient envelope covers construction but whose retained
+        // output is deliberately undercharged. Typed failure returns the exact
+        // predecessor and reports the required boundary.
+        let predecessor = source_resident.token().clone();
+        let underestimated_transform = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(1, 8 * 1024 * 1024, 32 * 1024 * 1024, 8 * 1024 * 1024),
+            Some(predecessor),
+        )
+        .try_bind_resident_transform(source_resident)
+        .unwrap();
+        let worker_family = family.clone();
+        let worker_context = context.clone();
+        let mut underestimated = admission
+            .execute_resident_transforms_ordered(
+                vec![underestimated_transform],
+                move |task, source| {
+                    build_fresh_domain_session_for_transform(
+                        task,
+                        source,
+                        &worker_family,
+                        &worker_context,
+                        DATABASE_EPOCH,
+                        None,
+                    )
+                },
+            )
+            .unwrap();
+        let CampaignResidentTransformExecution::BuildFailed(underestimated) =
+            underestimated.pop().unwrap()
+        else {
+            panic!("undercharged fresh-session census must fail transactionally")
+        };
+        let (exact_visible_census_excluding_shared_ancestry, charged) =
+            match underestimated.error() {
+                FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
+                    requested,
+                    charged,
+                } => (*requested, *charged),
+                other => panic!("unexpected undercharged transform error: {other:?}"),
+            };
+        assert_eq!(charged, 1);
+        assert!(exact_visible_census_excluding_shared_ancestry > 1);
+        let source_resident = underestimated.recover_callback_owner();
+
+        // The exact local census is a real retained-output boundary: one byte
+        // below fails with the same census and returns the same resident.
+        let one_below = exact_visible_census_excluding_shared_ancestry - 1;
+        let predecessor = source_resident.token().clone();
+        let one_below_transform = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(
+                u64::try_from(one_below).unwrap(),
+                8 * 1024 * 1024,
+                32 * 1024 * 1024,
+                8 * 1024 * 1024,
+            ),
+            Some(predecessor),
+        )
+        .try_bind_resident_transform(source_resident)
+        .unwrap();
+        let worker_family = family.clone();
+        let worker_context = context.clone();
+        let mut one_below_failure = admission
+            .execute_resident_transforms_ordered(vec![one_below_transform], move |task, source| {
+                build_fresh_domain_session_for_transform(
+                    task,
+                    source,
+                    &worker_family,
+                    &worker_context,
+                    DATABASE_EPOCH,
+                    None,
+                )
+            })
+            .unwrap();
+        let CampaignResidentTransformExecution::BuildFailed(one_below_failure) =
+            one_below_failure.pop().unwrap()
+        else {
+            panic!("one-below local census must fail transactionally")
+        };
+        assert!(matches!(
+            one_below_failure.error(),
+            FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
+                requested,
+                charged,
+            } if *requested == exact_visible_census_excluding_shared_ancestry
+                && *charged == one_below
+        ));
+        let source_resident = one_below_failure.recover_callback_owner();
+
+        // Retry at the exact retained-output boundary with nonzero native
+        // reserve. The production adapter alone owns the private shallow proof
+        // copy used during construction.
+        let predecessor = source_resident.token().clone();
+        let admitted_transform = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(
+                u64::try_from(exact_visible_census_excluding_shared_ancestry).unwrap(),
+                8 * 1024 * 1024,
+                32 * 1024 * 1024,
+                8 * 1024 * 1024,
+            ),
+            Some(predecessor),
+        )
+        .try_bind_resident_transform(source_resident)
+        .unwrap();
+        let observed_visible_census_excluding_shared_ancestry = Arc::new(AtomicUsize::new(0));
+        let worker_census = Arc::clone(&observed_visible_census_excluding_shared_ancestry);
+        let worker_family = family.clone();
+        let worker_context = context.clone();
+        let mut completed = admission
+            .execute_resident_transforms_ordered(vec![admitted_transform], move |task, source| {
+                build_fresh_domain_session_for_transform(
+                    task,
+                    source,
+                    &worker_family,
+                    &worker_context,
+                    DATABASE_EPOCH,
+                    Some(worker_census.as_ref()),
+                )
+            })
+            .unwrap();
+        let CampaignResidentTransformExecution::Committed(session_resident) =
+            completed.pop().unwrap()
+        else {
+            panic!("admitted fresh-domain transform must commit")
+        };
+        let observed_visible_census_excluding_shared_ancestry =
+            observed_visible_census_excluding_shared_ancestry.load(AtomicOrdering::Acquire);
+        assert!(observed_visible_census_excluding_shared_ancestry > 0);
+        assert_eq!(
+            observed_visible_census_excluding_shared_ancestry,
+            exact_visible_census_excluding_shared_ancestry
+        );
+        assert_eq!(
+            session_resident.estimate().visible_logical().get(),
+            u64::try_from(exact_visible_census_excluding_shared_ancestry).unwrap()
+        );
+        assert!(session_resident.estimate().opaque_native_reserve().get() > 0);
+
+        // A fresh exact session imports no parent pivot, target disposition, or
+        // event ledger; it authenticates the V3 plan/catalog and honestly
+        // remains suspended at the typed equality-refinement boundary.
+        let session = session_resident.retained_output();
+        assert_eq!(
+            session.schema(),
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA
+        );
+        assert_eq!(
+            session.source_kind(),
+            GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton,
+        );
+        assert_eq!(session.database_epoch(), DATABASE_EPOCH);
+        assert_eq!(session.group_ordinal(), 0);
+        assert_eq!(session.state_version(), 0);
+        assert_eq!(session.target_count(), 1);
+        assert_eq!(session.event_stats().events(), 0);
+        assert_eq!(session.consumed_target_count(), 0);
+        let fresh_resources = session.resident_resource_snapshot();
+        assert_eq!(fresh_resources.independent_rows(), 0);
+        assert_eq!(fresh_resources.native_u_stored_entries(), 0);
+        assert_eq!(fresh_resources.native_l_stored_entries(), 0);
+        session.replay(&family, &context).unwrap();
+        assert_eq!(
+            owner
+                .issue_exceptional_source(
+                    owner
+                        .exceptional_source_locator(domain_source_ordinal)
+                        .unwrap(),
+                )
+                .unwrap_err(),
+            ExactPublicationEpochError::AlreadyStaged,
+        );
+
+        // A sector leak is never fed back as a proper-subsector/same-sector
+        // case. The typed failure returns the exact live lease transactionally.
+        let leak_locator = owner
+            .exceptional_source_locator(leak_source_ordinal)
+            .unwrap();
+        let leak = owner.issue_exceptional_source(leak_locator).unwrap();
+        let failure = match owner.mint_domain_reentry_worker_result(leak) {
+            Ok(_) => panic!("sector leak was incorrectly minted as a same-sector source"),
+            Err(failure) => failure,
+        };
+        assert_eq!(
+            failure.error(),
+            ExactPublicationEpochReentryError::SectorLeakRequiresOutOfSectorRouting,
+        );
+        assert_eq!(owner.source_state_stats().issued(), 1);
+        drop(failure.into_lease());
+        assert_eq!(owner.source_state_stats().issued(), 0);
+        assert_eq!(
+            owner
+                .issue_exceptional_source(leak_locator)
+                .unwrap()
+                .source_ordinal(),
+            leak_source_ordinal,
+        );
+        // The reissued lease drops here and restores Pending. The staged Domain
+        // leaf remains terminally staged by design.
+        assert_eq!(owner.source_state_stats().staged(), 1);
     }
 
     #[test]
@@ -2049,6 +3382,262 @@ mod tests {
             .unwrap();
             assert_eq!(owner.stats().max_in_flight_sources(), reduced_width);
         }
+    }
+
+    #[test]
+    fn committed_stable_identity_binds_geometry_not_event_leaf_coordinates() {
+        fn domain_source(
+            owner: &ExactPublicationEpochOwner,
+        ) -> CommittedExceptionalSingletonSource {
+            let (source_ordinal, _) = exceptional_source_ordinals(owner);
+            let flat_leaf_index = owner.exceptional_flat_leaf_indexes[source_ordinal];
+            let (slot, leaf_ordinal) = owner
+                .resolve_flat_leaf(flat_leaf_index)
+                .expect("exceptional source must retain its event leaf");
+            assert!(matches!(
+                slot.event.view().leaf(leaf_ordinal),
+                Some(CommittedPublicationLeafView::Exceptional(residual))
+                    if residual.kind() == ExceptionalResidualKind::Domain
+            ));
+            CommittedExceptionalSingletonSource {
+                event: slot.event.clone(),
+                leaf_ordinal,
+            }
+        }
+
+        const NAME: &str = "publication-epoch-identity-geometry";
+        let (family, context, owner) = owner_with_scope(NAME, 47);
+        let source = domain_source(&owner);
+        let admitted_copy = source.clone_for_admitted_transform();
+        assert!(source.same_event_leaf_allocation(&admitted_copy));
+        let event_leaf_coordinates = (source.event_ordinal(), source.leaf_ordinal());
+        let source_row_limits = GeneratedAffineResidualCaseSourceRowLimits::default();
+        let baseline = source
+            .encode_durable_identity(
+                &family,
+                &context,
+                source_row_limits,
+                ExactIdentityLimits::default(),
+            )
+            .unwrap();
+
+        // Stable value is independent of the event allocation: an equivalent
+        // independently compiled event at the same coordinates encodes the
+        // exact same source, including every inherited generic relation.
+        let (equivalent_family, equivalent_context, equivalent_owner) = owner_with_scope(NAME, 47);
+        let equivalent_source = domain_source(&equivalent_owner);
+        assert!(!source.same_event_leaf_allocation(&equivalent_source));
+        assert_eq!(
+            (
+                equivalent_source.event_ordinal(),
+                equivalent_source.leaf_ordinal()
+            ),
+            event_leaf_coordinates
+        );
+        assert_eq!(
+            equivalent_source
+                .encode_durable_identity(
+                    &equivalent_family,
+                    &equivalent_context,
+                    source_row_limits,
+                    ExactIdentityLimits::default(),
+                )
+                .unwrap(),
+            baseline
+        );
+
+        // Hold the exact source allocation and event/leaf coordinates fixed;
+        // only substitute one exact geometry coefficient in the identity
+        // projection. Event-local allocation coordinates are deliberately not
+        // stable-value fields, while all geometry coefficients must be.
+        let mut changed_matrix = source.compact_affine_matrix().to_vec();
+        let first = changed_matrix
+            .first_mut()
+            .expect("domain fixture must expose non-empty affine geometry");
+        *first = if first.is_zero() {
+            Integer::from(1)
+        } else {
+            Integer::from(0)
+        };
+        assert_ne!(changed_matrix.as_slice(), source.compact_affine_matrix());
+        let changed = encode_exact_identity(
+            &CommittedExceptionalSingletonIdentityGeometryOverride {
+                source: &source,
+                family: &family,
+                context: &context,
+                source_row_limits,
+                compact_affine_matrix: &changed_matrix,
+            },
+            ExactIdentityLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            (source.event_ordinal(), source.leaf_ordinal()),
+            event_leaf_coordinates
+        );
+        assert_ne!(baseline.as_str(), changed.as_str());
+
+        // Exercise the LegacyInventory-only parent-row projection directly.
+        // The current publication fixture is Direct-backed; this test-only
+        // projection holds every other child field fixed and proves that one
+        // inherited exact relation change changes the child identity. A full
+        // legacy publication-event fixture remains a broader integration gate.
+        let legacy_rows = (0..source.source_row_count())
+            .map(|source_row_ordinal| {
+                source
+                    .authenticated_source_row_view(
+                        &family,
+                        &context,
+                        source_row_ordinal,
+                        source_row_limits,
+                    )
+                    .unwrap()
+                    .relation()
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        assert!(!legacy_rows.is_empty());
+        let mut changed_legacy_rows = legacy_rows.clone();
+        let changed_relation = changed_legacy_rows.first_mut().unwrap();
+        let changed_shift = changed_relation
+            .terms()
+            .keys()
+            .next()
+            .expect("inherited generated row must have a term")
+            .clone();
+        changed_relation
+            .add_term(&context, changed_shift, context.one())
+            .unwrap();
+        assert_ne!(changed_legacy_rows[0], legacy_rows[0]);
+        let legacy_identity = encode_exact_identity(
+            &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
+                source: &source,
+                family: &family,
+                context: &context,
+                source_row_limits,
+                compact_affine_matrix: source.compact_affine_matrix(),
+                legacy_rows: &legacy_rows,
+            },
+            ExactIdentityLimits::default(),
+        )
+        .unwrap();
+        let changed_legacy_identity = encode_exact_identity(
+            &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
+                source: &source,
+                family: &family,
+                context: &context,
+                source_row_limits,
+                compact_affine_matrix: source.compact_affine_matrix(),
+                legacy_rows: &changed_legacy_rows,
+            },
+            ExactIdentityLimits::default(),
+        )
+        .unwrap();
+        assert_ne!(legacy_identity, changed_legacy_identity);
+
+        let stats = baseline.stats();
+        let exact = ExactIdentityLimits {
+            max_identity_bytes: stats.identity_bytes(),
+            max_fields: stats.fields(),
+            max_tag_bytes: stats.tag_bytes(),
+            max_string_values: stats.string_values(),
+            max_string_bytes: stats.string_bytes(),
+            max_nesting_depth: stats.maximum_nesting_depth(),
+            max_polynomials: stats.polynomials(),
+            max_polynomial_variables: stats.polynomial_variables(),
+            max_polynomial_terms: stats.polynomial_terms(),
+            max_exponent_entries: stats.exponent_entries(),
+            max_integers: stats.integers(),
+            max_integer_bits: stats.integer_bits(),
+        };
+        assert_eq!(
+            source
+                .encode_durable_identity(&family, &context, source_row_limits, exact)
+                .unwrap(),
+            baseline
+        );
+
+        macro_rules! one_below {
+            ($limit:ident, $stat:ident, $resource:literal) => {{
+                let complete_requested = stats.$stat();
+                if complete_requested > 0 {
+                    let mut limits = exact;
+                    limits.$limit = complete_requested - 1;
+                    assert!(matches!(
+                        source.encode_durable_identity(
+                            &family,
+                            &context,
+                            source_row_limits,
+                            limits,
+                        ),
+                        Err(ExactIdentityError::ResourceLimit {
+                            resource,
+                            requested,
+                            limit,
+                        }) if resource == $resource
+                            && requested > limit
+                            && requested <= complete_requested
+                            && limit + 1 == complete_requested
+                    ));
+                }
+            }};
+        }
+        one_below!(
+            max_identity_bytes,
+            identity_bytes,
+            "exact structural identity bytes"
+        );
+        one_below!(max_fields, fields, "exact structural identity fields");
+        one_below!(
+            max_tag_bytes,
+            tag_bytes,
+            "exact structural identity tag bytes"
+        );
+        one_below!(
+            max_string_values,
+            string_values,
+            "exact structural identity string values"
+        );
+        one_below!(
+            max_string_bytes,
+            string_bytes,
+            "exact structural identity string bytes"
+        );
+        one_below!(
+            max_nesting_depth,
+            maximum_nesting_depth,
+            "exact structural identity nesting depth"
+        );
+        one_below!(
+            max_polynomials,
+            polynomials,
+            "exact structural identity polynomials"
+        );
+        one_below!(
+            max_polynomial_variables,
+            polynomial_variables,
+            "exact structural identity polynomial variables"
+        );
+        one_below!(
+            max_polynomial_terms,
+            polynomial_terms,
+            "exact structural identity polynomial terms"
+        );
+        one_below!(
+            max_exponent_entries,
+            exponent_entries,
+            "exact structural identity polynomial exponent entries"
+        );
+        one_below!(
+            max_integers,
+            integers,
+            "exact structural identity integer values"
+        );
+        one_below!(
+            max_integer_bits,
+            integer_bits,
+            "exact structural identity integer bits"
+        );
     }
 
     fn parallel_exceptional_transcript(width: usize, shuffled: bool) -> Vec<String> {

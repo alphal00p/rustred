@@ -30,7 +30,8 @@ use std::sync::Arc;
 use symbolica::prelude::Integer;
 
 use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualInventoryGroupSourceView,
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
+    GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
 use crate::generated_affine_residual_group_exact_database::{
@@ -58,6 +59,7 @@ use crate::generated_affine_residual_group_exact_recenter_kernel::{
 use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
     GeneratedAffineResidualGroupExactTargetCatalogLimits,
+    GeneratedAffineResidualGroupExactTargetCatalogStats,
     GeneratedAffineResidualGroupExactTargetError, GeneratedAffineResidualGroupExactTargetState,
     GeneratedAffineResidualGroupExactTargetStateLimits,
     GeneratedAffineResidualGroupExactTargetStateView,
@@ -103,10 +105,14 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-session-v3";
 const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-event-v1";
 const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-event-v2";
+const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-session-event-v3";
 
 const fn exact_session_schema_for_source(
     source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
@@ -117,6 +123,9 @@ const fn exact_session_schema_for_source(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA
         }
     }
 }
@@ -130,6 +139,9 @@ const fn exact_session_event_schema_for_source(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V3_SCHEMA
         }
     }
 }
@@ -1547,6 +1559,13 @@ impl CommittedPublicationEventHandle {
         }
     }
 
+    /// True only when both handles share the exact immutable event
+    /// allocation. This is process-local ownership provenance, never a
+    /// mathematical or durable identity.
+    pub(crate) fn same_event_allocation(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.event, &other.event)
+    }
+
     /// Process-local identity used only by the frozen publication-handoff
     /// compiler to reject two owners of the same committed event.  This value
     /// is never a mathematical, durable, or ordering identity.
@@ -1623,6 +1642,14 @@ impl<'session> CommittedPublicationEventView<'session> {
 
     pub(crate) const fn source_ordinal(self) -> usize {
         self.event.source_ordinal
+    }
+
+    /// Owner-visible retained size of this immutable event allocation and its
+    /// event-local payload.  This deliberately excludes the separate event
+    /// authority and its parent plan/catalog ancestry; campaign lineage
+    /// accounting must retain or conservatively charge that shared graph too.
+    pub(crate) const fn retained_event_bytes(self) -> usize {
+        self.event.retained_bytes
     }
 
     pub(crate) fn pivot_ordinal(self) -> usize {
@@ -1706,6 +1733,62 @@ impl<'session> CommittedPublicationEventView<'session> {
 
     pub(crate) fn ordering(self) -> IntegralOrderingPolicy {
         self.event.authority.plan.authority().ordering()
+    }
+
+    /// Stable value identity of the exact generic-source plan inherited by a
+    /// narrowed exceptional child.  Allocation ancestry remains bound by the
+    /// owning event handle; this string is used only for deterministic child
+    /// manifests.
+    pub(crate) fn retained_parent_plan_manifest(self) -> &'session str {
+        self.event.authority.plan.stable_manifest()
+    }
+
+    /// Source representation whose exact value is bound by the retained
+    /// parent plan manifest. Legacy V1 plans predate full source-row value
+    /// identities, so committed children additionally serialize those rows.
+    pub(crate) fn retained_parent_source_kind(
+        self,
+    ) -> GeneratedAffineResidualCaseAuthoritySourceKind {
+        self.event.authority.plan.source_kind()
+    }
+
+    /// Number of generic IBP/LI source rows retained by this event's exact
+    /// source authority.  A fresh exceptional lane replays these rows; it does
+    /// not treat the publication relation as a generated source row.
+    pub(crate) fn retained_parent_source_row_count(self) -> usize {
+        self.event.authority.plan.authority().source_row_count()
+    }
+
+    pub(crate) fn authenticated_retained_parent_source_row(
+        self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        source_row_ordinal: usize,
+        limits: GeneratedAffineResidualCaseSourceRowLimits,
+    ) -> Result<
+        GeneratedAffineResidualCaseSourceRowView<'session>,
+        crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthorityError,
+    > {
+        self.event
+            .authority
+            .plan
+            .authority()
+            .authenticated_source_row_view(family, context, source_row_ordinal, limits)
+    }
+
+    pub(crate) fn replay_retained_parent_source_authority(
+        self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+    ) -> Result<
+        (),
+        crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthorityError,
+    > {
+        self.event
+            .authority
+            .plan
+            .authority()
+            .replay(family, context)
     }
 
     fn loci(self) -> &'session [ParametricPolynomial] {
@@ -3056,6 +3139,24 @@ impl GeneratedAffineResidualGroupExactSession {
 
     pub(crate) const fn source_kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
         self.source_kind
+    }
+
+    pub(crate) fn physical_frame_schema(&self) -> &'static str {
+        self.plan.physical_frame().schema()
+    }
+
+    pub(crate) fn solve_plan_schema(&self) -> &'static str {
+        self.plan.schema()
+    }
+
+    pub(crate) fn target_catalog_schema(&self) -> &'static str {
+        self.catalog.schema()
+    }
+
+    pub(crate) fn target_catalog_stats(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactTargetCatalogStats {
+        self.catalog.stats()
     }
 
     pub(crate) const fn limits(&self) -> GeneratedAffineResidualGroupExactSessionLimits {

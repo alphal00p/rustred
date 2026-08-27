@@ -69,11 +69,13 @@ transition commits and retains the candidate pivot, leaves the selected target
 unresolved, emits no rule or residual, and never infers a master. Chronological
 session replay regenerates Ready analysis, condition planning, materialization,
 partitioning, and rejection under the retained exact limits before accepting
-the recorded terminal reason. Applicable-provider admission/results, general
-`CampaignWorkKey` result publication, durable spill support, event-derived
-fresh narrowed-domain re-entry, rule application, publication-event audit
-replay, subsector feedback, fixed-point closure, and physical reduction remain
-pending. The live exact
+the recorded terminal reason. Applicable-provider admission/results, a general
+or durable campaign result database, durable spill support, post-equality
+exceptional continuation, rule application, publication-event audit replay,
+subsector feedback, fixed-point closure, and physical reduction remain pending.
+The first event-derived committed-Domain re-entry and complete-`CampaignWorkKey`
+in-memory result staging are implemented as the later narrow slice described
+below. The live exact
 database now owns the complete easiest-first physical-key catalog and a clone-
 on-stage Full-L Symbolica `SparseRowReducer` with its final sentinel. Each stage
 inserts only new catalog columns and submits one candidate; only an independent
@@ -247,9 +249,14 @@ The current-lineage components below are implemented and tested:
   pending state on normal drop or panic; a barrier-only recovery operation
   handles deliberately forgotten leases. Its memory limits enumerate the
   transferred event payload, shallow owner buffers, compilation peak, and live
-  lease bytes only. It is not applicable-provider admission, a result owner,
-  stable `CampaignWorkKey` staging, fresh narrowed-domain database/reducer
-  ingress, or closure. Same-database rejected-candidate continuation is a
+  lease bytes only. Its later result batch adds complete-`CampaignWorkKey`
+  staging and atomic resident-charge transfer, and one committed same-sector
+  Domain source can now enter a fresh V3 plan/catalog/database/session through
+  an admitted consuming transform. This first ingress stops at affine-equality
+  refinement and excludes shared parent ancestry from its child-local census.
+  It is not yet applicable-provider admission, equality quotient/re-
+  elimination, an origin-droppable shared-lineage owner, a general result
+  database, or closure. Same-database rejected-candidate continuation is a
   separate exact-session transition and never enters this exceptional owner.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
@@ -424,11 +431,14 @@ six-loop support.
 The target-consuming compact application-event commit, its event-owned
 zero-copy rule/residual projections, the exactly-once acceptance handoff, and
 the algebra-free epoch owner with bounded retry-only exceptional leases are
-now implemented in the worktree. This is not a closed rule publication system:
-there is no admitted applicable-provider result path, stable-key result
-staging/charge transfer, event-derived fresh narrowed-domain source ingress,
-provider application, publication-event audit replay, or subsector feedback
-yet. Same-database rejected-candidate continuation is now implemented as a
+now implemented in the worktree. The later narrow slice additionally provides
+complete-`CampaignWorkKey` in-memory result staging with resident-charge
+transfer and committed-Domain ingress into a profile-isolated fresh V3 exact
+session. This is not a closed rule publication system: there is no admitted
+applicable-provider result path, equality quotient/re-elimination, shared-
+lineage admission independent of the origin owner, provider application,
+publication-event audit replay, or subsector feedback yet. Same-database
+rejected-candidate continuation is now implemented as a
 separate nonpublishing exact-session path; it does not close any of those
 campaign/application gaps. The mature
 `GeneratedResidualAffine...` implementation is an oracle, not production
@@ -658,17 +668,24 @@ bad everywhere on that domain is excluded before later generic rows continue.
 Simply restarting the same candidate order without that domain/continuation
 state could rediscover the same partition forever. The implemented algebra-
 free epoch owner preserves the narrowed domain and compact affine source
-geometry behind a bounded retry lease. It does not construct or admit a fresh
-database/reducer lane, regenerate generic IBP/LI input, carry the monotone
-candidate-exclusion continuation witness, stage a result, or perform re-entry.
+geometry behind a bounded retry lease. The first ingress slice consumes one
+committed same-sector Domain lease within that epoch-owner allocation into an
+admitted singleton resident. Its allocation-independent stable value identity
+is separate from event/leaf allocation identity, and its production transform
+retains/authenticates the parent's generic-source authority in the fresh V3
+plan/catalog while excluding the publication row and all parent reducer/target/
+event state. The child database is empty; source-row submission has not begun.
+It then stops at typed affine-equality refinement. The full monotone continuation witness,
+equality quotient/re-elimination, separately admitted shared ancestry, and the
+multi-child campaign re-entry coordinator remain pending.
 
 `IdenticallyBad` does not create such a leaf or epoch. Its pivot remains in the
 same live database, the selected target remains unresolved, and later source
 rows continue serially in that database and may be reduced by the retained
 pivot. The consumed source/candidate is excluded from repetition. That typed
 same-database continuation and its chronological exact-phase rederivation are
-now implemented. It remains a separate path from the still-pending fresh-epoch
-exceptional mathematical-ingress path.
+now implemented. It remains a separate path from the fresh committed-Domain
+ingress and its still-pending post-equality exceptional continuation path.
 
 No outcome in this seam infers a master integral.
 
@@ -1031,14 +1048,16 @@ work forms the next deterministic wave. A non-Clone ticket addresses
 `(publication slot, leaf ordinal)`, and acknowledgement means only that the
 designated consumer accepted the handoff—never rule application, exceptional
 discharge, coverage, closure, terminal status, zero, or master status. Provider
-admission/results and mathematical residual-source ingress remain pending. A
-following algebra-free owner now consumes only a fully acknowledged wave,
+admission/results remain pending. A following algebra-free owner now consumes
+only a fully acknowledged wave,
 reuses the one event handle per slot, and replaces the obsolete per-leaf
 handoff bytes with compact applicable/exceptional flat indices plus one atomic
 byte per exceptional source. Its exceptional leases are retry-only scheduling
 handles: drop or unwind restores pending state, and quiescent recovery handles
-a deliberately forgotten lease. Lease resolution is not a committed result,
-application, discharge, or durable progress transition.
+a deliberately forgotten lease. A subsequent owning mint/result-batch/
+resident-transform slice implements the first committed-Domain mathematical
+ingress into a fresh session; lease resolution by itself is still not a
+committed result, application, discharge, or durable progress transition.
 
 The production coordinator must make this handoff follow conjunctive
 core-and-memory admission on a roughly 100-core/1-TiB EPYC target. `--n-cores`
@@ -1082,16 +1101,17 @@ effective width before pool construction and leave cores idle whenever the
 operational envelope cannot safely hydrate another owner.
 
 The production coordinator must still put independently admitted permits on
-worker result buffers and downstream exceptional-source owners. Those results
-must be durably staged or merged and charged temporaries dropped before their
-permits are released. Newly discovered exceptional or dependency work is not
-hydrated by the current workers: it enters the next sealed, admitted wave.
-The stable `CampaignWorkKey` used to index that result and the atomic transfer
-of its memory charge from in-flight result to resident successor or durable
-staged-result descriptor are both future coordinator work. Neither the current
-low-level executor, handoff wave, nor algebra-free epoch owner implements that
-result table or charge transfer, so this document does not claim RAM-bounded
-provider execution or re-entry yet.
+applicable-provider buffers, downstream shared ancestry, and durable/general
+result owners. Those results must be durably staged or merged and charged
+temporaries dropped before their permits are released. Newly discovered
+exceptional or dependency work is not hydrated eagerly by the current workers:
+it enters the next sealed, admitted wave. The compact exceptional result batch
+already indexes by the complete `CampaignWorkKey` and atomically transfers an
+in-flight worker output into a resident successor. It is not the general
+campaign result database or durable staged-result descriptor, and its child-
+local census excludes the shared event-authority/parent ancestry. This document
+therefore claims neither RAM-bounded provider execution nor origin-droppable
+production re-entry yet.
 
 ### Phase E: provider integration, persistence, and optional audit
 
@@ -1221,7 +1241,7 @@ representation result; an exception or exhausted limit is operational.
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
 | Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded `Pending -> Issued -> Staged` exceptional-source ownership; an authority-bound compact result batch stages admitted in-memory outputs fail-closed, while fresh mathematical ingress and durable/general result publication remain pending | Zero-copy applicable-rule views; provider admission/results pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded `Pending -> Issued -> Staged` exceptional-source ownership; an authority-bound compact result batch stages admitted in-memory outputs fail-closed, and a committed Domain resident can transform into a fresh V3 equality-refinement session; post-equality continuation, shared-lineage admission, and durable/general result publication remain pending | Zero-copy applicable-rule views; provider admission/results pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -1234,9 +1254,11 @@ repeatable shallow rule/residual inspection views, exactly-once acceptance
 handoff, and bounded algebra-free exceptional-source lease owner are
 implemented. The compact exceptional path has authority-bound stable-key
 in-memory result staging and atomic worker-to-resident charge transfer.
-Applicable-provider admission/results, durable/general result publication,
-fresh narrowed-domain mathematical ingress, rule application, and closure
-remain future work. Same-database rejected-candidate continuation is now the
+The first committed-Domain narrowed-session ingress is also implemented and
+stops at affine-equality refinement. Applicable-provider admission/results,
+durable/general result publication, equality specialization, independent
+shared-lineage admission, rule application, and closure remain future work.
+Same-database rejected-candidate continuation is now the
 implemented nonpublishing path described above; it is not part of exceptional
 result staging.
 
@@ -1257,8 +1279,11 @@ Before any mutation, prepare and admit all of:
 Those database, target, event, and statistics preparations are implemented for
 the compact publication and rejected-candidate events. Shallow publication
 event/domain projections are also implemented. The algebra-free epoch owner
-adds compact retry scheduling without duplicating the deep payload; admitted
-provider results and fresh mathematical residual ingress remain to be added.
+adds compact retry scheduling without duplicating the deep payload; its first
+committed-Domain result can now enter a fresh profile-isolated session through
+an admitted consuming transform. Applicable-provider results, equality
+specialization, separately admitted shared ancestry, and campaign continuation
+remain to be added.
 
 Only after all preparations succeed may the move-only commit tail:
 
@@ -1385,11 +1410,13 @@ unchanged.
 
 The current milestone covers compact-event commitment, one target consumption,
 freshness/resource failure, retained-payload accounting, event-bound zero-copy
-rule/residual domains, exactly-once acceptance handoff, and algebra-free
-applicable/exceptional indexing with bounded retry-only exceptional leases.
-Applicable-provider admission/results, mathematical re-entry/continuation,
-specialization, closure, and durable-audit gates remain pending where they
-depend on those future layers.
+rule/residual domains, exactly-once acceptance handoff, algebra-free
+applicable/exceptional indexing with bounded retry-only exceptional leases,
+stable-key result staging/charge transfer, and first committed-Domain ingress
+into a fresh equality-refinement session. Applicable-provider admission/
+results, post-equality continuation/specialization, separately admitted shared
+lineage, closure, and durable-audit gates remain pending where they depend on
+those future layers.
 
 - Full transition-table test covering Dependent, NoTarget, equality, prepared
   publication, IdenticallyBad, unsupported representations, and every
@@ -1416,6 +1443,14 @@ depend on those future layers.
   recovery of a deliberately forgotten lease. Exact and every-positive-one-
   below component limits reject transactionally; none of these transitions is
   provider output, mathematical re-entry, application, discharge, or closure.
+- The subsequent committed-Domain acceptance consumes one lease issuance within
+  its epoch-owner allocation, stages the event-owned singleton under the full
+  `CampaignWorkKey`, verifies recoverable resident-transform failure, and then
+  constructs a fresh V3 session through the production adapter. It authenticates
+  the inherited generic-source authority, imports no parent reducer/target/event
+  state, leaves the child database empty, routes `SectorLeak` separately, and
+  stops at affine-equality refinement. The
+  origin owner remains live because the local census excludes shared ancestry.
 - A synthetic width-100/approximately-1-TiB coordinator gate computes `E`
   before pool construction, hydrates only the deterministic admitted
   `CampaignWorkKey` subset, charges shared/transferred allocations once and
@@ -1615,15 +1650,13 @@ Implement in this order:
    topology reduction, Vakint reproduction, or six-loop scaling. Run
    independently controlled shard/case reducers in parallel rather than
    claiming intra-reducer parallel forward elimination;
-9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
-   representation-level deduplication, identity ingress, one shared proper-
-   subsector child, cycle/non-descent rejection, and a deterministic ready-job
-   antichain; build on the algebra-free exceptional lease owner with RAM-
-   admitted results and stable-key charge transfer, sealed mathematical source
-   ingress into fresh narrowed-domain generic IBP epochs, and solved-subsector
-   feedback; integrate the implemented same-database rejected-candidate
-   continuation into the campaign frontier and iterate
-   those queues to a proved coverage fixed point
+9. build on the implemented non-durable topology-neutral `CampaignPlan`,
+   stable-key exceptional result staging/charge transfer, same-database
+   rejected-candidate continuation, and first sealed committed-Domain ingress
+   into a fresh narrowed-domain exact session; add affine-equality quotient/re-
+   elimination, separately admitted shared lineage, applicable providers,
+   solved-subsector feedback, and the production campaign frontier, then
+   iterate those queues to a proved coverage fixed point
    with exact regenerated-IBP residuals and a finite enumerated selected/
    certified terminal-key set; only then construct an immutable closed family/
    sector shard;
@@ -1643,6 +1676,51 @@ Implement in this order:
 14. implement the high-throughput provider/application runtime plus optional
     publication-event audit replay and continue topology-based validation from
     one loop upward. Full derivation replay remains an optional audit.
+
+The first narrow piece of item 9 is now implemented, without topology or loop
+count dispatch. A committed `Domain` exceptional leaf can consume one lease
+issued within its epoch-owner allocation into a staged singleton source; a `SectorLeak`
+returns its lease through a typed out-of-sector-routing failure and is never
+fed back into the same sector. The singleton inherits the retained parent's
+generic source rows rather than treating the publication application row as a
+new IBP row. Its stable value identity binds family/context/sector/order,
+target offset and affine geometry, premises/origins, ordered Domain
+predicates, and parent source profile; legacy-inventory parents additionally
+serialize every ordered retained relation through Symbolica-backed exact
+identity writing, while Direct and recursively Committed parents reuse their
+already-full plan identity.
+The focused identity acceptance also holds all child fields fixed and mutates
+one inherited relation through the Legacy-only projection, proving that the
+serialized relation payload changes the exact identity. A full publication
+event whose originating plan is LegacyInventory remains an integration test
+follow-up.
+
+The staged-result owner now supports allocation-free consuming extraction.
+The extracted `CampaignResident<CommittedExceptionalSingletonSource>` can be
+passed to the existing resident-transform executor and the crate-owned fresh
+session adapter, which constructs source authority, physical frame, solve
+plan, catalog/database, and an empty exact session under explicit limits.
+Recoverable callback failure returns the untouched predecessor source under
+its original resident charge; a successful commit transfers the admitted
+successor charge. The acceptance fixture deliberately requires a nonzero
+opaque-native reserve, checks its enumerated visible census, and verifies that
+the fresh session has no imported pivot, consumed-target, event-ledger, or
+native sparse-row state and may honestly stop at affine-equality refinement.
+
+This is not yet a standalone exceptional-lane campaign coordinator or a
+complete RAM estimate. `retained_event_bytes` covers the immutable event
+allocation and event-local payload, but not the separately shared event
+authority and its parent plan/catalog/source ancestry. The current acceptance
+therefore keeps the originating epoch owner alive. Before children may outlive
+that owner, production must retain a separately admitted shared-lineage owner
+(preferred for many leaves/depths) or conservatively census and charge the full
+ancestry per child. A calibrated preconstruction estimator and warm-worker RSS
+reserve keyed by estimator revision also remain required.
+
+The root-owned milestone gate used the licensed default-GMP build. The complete
+handoff/epoch-owner/result-batch superset passed 28/28 tests with eight Rust
+test threads; `cargo check --tests -j8`, `cargo fmt --check`, and
+`git diff --check` also passed.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

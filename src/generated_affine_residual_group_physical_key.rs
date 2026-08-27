@@ -47,6 +47,8 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA: &str 
     "rustred-generated-affine-residual-group-physical-frame-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-physical-frame-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-physical-frame-v3";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_KEY_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-physical-key-v1";
 
@@ -64,6 +66,9 @@ const fn physical_frame_schema_for_source(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA
         }
     }
 }
@@ -3010,6 +3015,21 @@ where
             write!(
                 output,
                 "{GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA}|source=direct-formula-singleton|source-identity-kind={}|source-identity-schema-bytes={}:{}|source-identity-bytes={}:{}",
+                identity.kind().stable_id(),
+                identity.schema().len(),
+                identity.schema(),
+                identity.bytes().len(),
+                identity.bytes(),
+            )?;
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            let identity = authority
+                .stable_value_identity()
+                .filter(|identity| identity.kind() == authority.source_kind())
+                .ok_or(fmt::Error)?;
+            write!(
+                output,
+                "{GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA}|source=committed-exceptional-singleton|source-identity-kind={}|source-identity-schema-bytes={}:{}|source-identity-bytes={}:{}",
                 identity.kind().stable_id(),
                 identity.schema().len(),
                 identity.schema(),

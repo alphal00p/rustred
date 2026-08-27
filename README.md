@@ -44,8 +44,8 @@ complete mathematical workflow.
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
 | Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
-| Compile committed events into a bounded parallel handoff wave | Implemented internally: move-only receipts are canonically ordered by campaign job, exact-session lane, and event; duplicate or mis-scoped owners reject transactionally; one atomic byte tracks each leaf; and non-cloneable borrowed tickets have a hard live-count ceiling. This acknowledges handoff acceptance only. Exceptional-source re-entry, result-buffer admission, provider application, closure, and durable rule artifacts remain pending |
-| Compile an acknowledged handoff into an algebra-free publication-epoch owner | Implemented internally: a fully acknowledged wave is consumed without copying algebraic payload; one event handle remains per slot, applicable and exceptional leaves become compact flat indices, and one atomic byte per exceptional source supports `Pending -> Issued -> Staged` ownership. A compact full-`CampaignWorkKey` result batch precharges its retained buffers against the same campaign authority before allocation, transfers admitted worker output into resident charge without copying algebraic payload, rejects foreign admission controllers, and poisons fail-closed after any postcommit terminalization error. Applicable-provider admission/results, durable spill descriptors, the general campaign result database, fresh narrowed-domain mathematical re-entry/continuation, rule application, closure, and physical reductions remain pending |
+| Compile committed events into a bounded parallel handoff wave | Implemented internally: move-only receipts are canonically ordered by campaign job, exact-session lane, and event; duplicate or mis-scoped owners reject transactionally; one atomic byte tracks each leaf; and non-cloneable borrowed tickets have a hard live-count ceiling. This acknowledges handoff acceptance only; the publication-epoch layer below owns later exceptional ingress. Provider application, closure, and durable rule artifacts remain pending |
+| Compile an acknowledged handoff into an algebra-free publication-epoch owner | Implemented internally: a fully acknowledged wave is consumed without copying algebraic payload; one event handle remains per slot, applicable and exceptional leaves become compact flat indices, and one atomic byte per exceptional source supports `Pending -> Issued -> Staged` ownership. A compact full-`CampaignWorkKey` result batch precharges retained buffers and atomically transfers admitted worker output into resident charge. Within one epoch-owner allocation, a committed same-sector `Domain` lease can be consumed into one event-owned, topology-neutral singleton source; its allocation-independent stable value identity is distinct from event/leaf allocation identity, it inherits/authenticates the parent's generic IBP/LI source authority while excluding the publication row, and an admitted consuming transform constructs a fresh V3 plan/catalog plus an empty database/session with no imported pivots, target dispositions, or event history. The inherited rows have not yet been submitted. `SectorLeak` returns its live lease through a typed out-of-sector route. The generated acceptance deliberately stops at affine-equality refinement. Equality quotient/re-elimination, shared ancestry admission, applicable providers, durable spill/general result storage, closure, rule application, and physical reductions remain pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, RejectedCandidate, and affine-equality transitions in the implemented slices. RejectedCandidate replay independently regenerates its complete exact `WhenBad` terminal. Compact application events are retained for the forward path, but their optional audit replay is pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
@@ -486,12 +486,23 @@ The repository currently includes tests for:
   event payload, retained shallow buffers, compilation peak, and live lease
   bytes, not process RSS. Its licensed default-GMP validation passed 6/6
   focused epoch-owner tests and the 16/16 parent handoff-module superset with
-  four test threads; `cargo check --tests -j4` also passed. It does not admit
-  or retain applicable-provider results, stage results under a stable
-  `CampaignWorkKey`, construct fresh
-  narrowed-domain mathematical epochs,
-  apply rules, prove closure, reduce a physical topology, or solve six loops;
-  and
+  four test threads; `cargo check --tests -j4` also passed. The later result-
+  batch slice stages admitted output under the complete `CampaignWorkKey` and
+  transfers its resident charge atomically. Its first mathematical re-entry
+  slice consumes a committed same-sector Domain lease into an event-owned
+  singleton, authenticates its inherited generic-source authority, and replaces
+  that resident through the production fresh-session adapter. The child has a new
+  V3 solve plan, target catalog, empty exact database, and empty event ledger;
+  the generated fixture honestly stops at its one affine-equality-refinement
+  target; its inherited rows have not yet been submitted. A typed `SectorLeak`
+  is returned to separate out-of-sector routing.
+  The fixture keeps the originating epoch owner live because event-local byte
+  accounting excludes the shared authority/parent ancestry; equality quotient
+  specialization, applicable-provider results, durable/general result storage,
+  fixed-point closure, physical reduction, and six-loop solving remain
+  unfinished. The root-owned licensed default-GMP gate passed all 28 handoff/
+  epoch-owner/result-batch tests with eight Rust test threads, and
+  `cargo check --tests -j8`, formatting, and diff checks passed; and
 - a static, topology-neutral multi-root campaign core in
   [`src/campaign_plan.rs`](src/campaign_plan.rs): exact-representation family
   and job interning, distinct ingress roots, replayable strict
@@ -645,10 +656,17 @@ views themselves do not claim exactly-once consumption; the following sealed
 handoff wave now provides exactly-once acceptance tickets without copying that
 payload. A subsequent algebra-free owner consumes a quiescent, fully
 acknowledged wave and offers bounded retry-only exceptional-source leases over
-compact locators. Those leases schedule access to existing event-bound data;
-they do not yet create the fresh narrowed-domain database/reducer, carry the
-monotone candidate-exclusion continuation witness, admit a result, or close an
-exceptional domain.
+compact locators. For a committed same-sector `Domain` leaf, one owning mint
+now transfers the issued lease into an admitted result resident; a consuming
+resident transform retains and authenticates the parent's generic-source
+authority in a fresh physical frame, solve plan, and catalog, then constructs
+an empty database and exact session. The source rows are not yet submitted to
+that child database. This first child is profile-isolated from the publication-
+producing database and stops at the typed affine-equality-refinement boundary.
+It does not yet
+specialize that equality, carry the complete monotone candidate-exclusion
+continuation through a campaign fixed point, charge shared parent ancestry
+independently of the origin owner, or close an exceptional domain.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
@@ -802,11 +820,12 @@ remaining generic LiteRed-style foundry work is to:
    plan/results identical under root permutation and 1/2/4-worker execution,
    and retain one serial Symbolica reducer per independently schedulable affine
    case lane;
-3. build on the implemented same-database rejected-candidate continuation and
-   algebra-free publication-epoch owner by adding independently RAM-admitted
-   applicable-provider work/results, a stable `CampaignWorkKey` result table
-   with atomic result-charge transfer, and sealed exceptional ingress into
-   fresh narrowed-domain database/reducer epochs;
+3. build on the implemented same-database rejected-candidate continuation,
+   stable `CampaignWorkKey` result staging/charge transfer, and first sealed
+   same-sector Domain ingress into a fresh narrowed-domain exact session; add
+   affine-equality quotient specialization/re-elimination, a separately
+   admitted shared-lineage owner, independently RAM-admitted applicable-
+   provider work/results, and the production exceptional/subsector frontier;
 4. feed solved subsectors into supersectors, iterate residual cases, and prove
    closure onto a finite enumerated set of selected or independently certified
    terminal keys (or finite products), never a symbolic residual domain;
@@ -876,10 +895,10 @@ enclosing memory contract, exposes the matching admission baseline, and creates
 zero or exactly `E` workers only after plan consumption. The no-default
 physical-profile contract and pure `campaign preflight` report are now wired;
 the example is deliberately uncalibrated and does not start a frontier. The
-immediate gates are named-host measurements, phase-specific task-estimator
-adapters, and the full plan-consuming frontier coordinator, then RAM-
-admitted mathematical exceptional/subsector ingress and result scheduling on
-top of the implemented algebra-free epoch owner, followed by a proved coverage
+immediate gates are affine-equality refinement of the newly admitted fresh
+Domain session, separately charged shared event ancestry, named-host
+measurements, phase-specific task estimators, and the full plan-consuming
+exceptional/subsector frontier coordinator, followed by a proved coverage
 fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. The

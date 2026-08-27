@@ -23,6 +23,7 @@ use crate::generated_affine_residual_case_inventory::{
 use crate::generated_affine_residual_group_physical_key::{
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA,
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
+    GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError, GeneratedAffineResidualGroupPhysicalKeyPreflight,
 };
@@ -32,6 +33,8 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-solve-plan-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-solve-plan-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-solve-plan-v3";
 const TARGET_ORDER_V1_ID: &str = "stable-ascending-physical-key-then-inventory-position-v1";
 
 const INVENTORY_ALLOCATION_COMPARISONS: usize = 1;
@@ -51,6 +54,9 @@ const fn solve_plan_schema_for_source(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA
         }
     }
 }
@@ -359,6 +365,7 @@ struct SortEntry {
 enum GeneratedAffineResidualGroupSolvePlanSource {
     LegacyInventory(Arc<GeneratedAffineResidualCaseInventoryCertificate>),
     DirectFormulaSingleton,
+    CommittedExceptionalSingleton,
 }
 
 impl GeneratedAffineResidualGroupSolvePlanSource {
@@ -370,20 +377,25 @@ impl GeneratedAffineResidualGroupSolvePlanSource {
             Self::DirectFormulaSingleton => {
                 GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
             }
+            Self::CommittedExceptionalSingleton => {
+                GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+            }
         }
     }
 
     const fn retained_parent_references(&self) -> usize {
         match self {
             Self::LegacyInventory(_) => LEGACY_RETAINED_PARENT_REFERENCES,
-            Self::DirectFormulaSingleton => DIRECT_RETAINED_PARENT_REFERENCES,
+            Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => {
+                DIRECT_RETAINED_PARENT_REFERENCES
+            }
         }
     }
 
     const fn inventory_allocation_comparisons(&self) -> usize {
         match self {
             Self::LegacyInventory(_) => INVENTORY_ALLOCATION_COMPARISONS,
-            Self::DirectFormulaSingleton => 0,
+            Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => 0,
         }
     }
 }
@@ -487,6 +499,26 @@ impl GeneratedAffineResidualGroupSolvePlan {
                 family,
                 context,
                 GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
+                authority,
+                physical_frame,
+                limits,
+            )
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
+    }
+
+    pub(crate) fn try_new_committed_exceptional_singleton(
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        authority: Arc<GeneratedAffineResidualCaseAuthority>,
+        physical_frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+        limits: GeneratedAffineResidualGroupSolvePlanLimits,
+    ) -> Result<Self, GeneratedAffineResidualGroupSolvePlanError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            Self::try_new_for_source_unwind_boundary(
+                family,
+                context,
+                GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
                 authority,
                 physical_frame,
                 limits,
@@ -845,6 +877,14 @@ impl GeneratedAffineResidualGroupSolvePlan {
                     &self.physical_frame,
                     replay_limits,
                 ),
+            GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => self
+                .replay_committed_exceptional_singleton(
+                    family,
+                    context,
+                    &self.authority,
+                    &self.physical_frame,
+                    replay_limits,
+                ),
         }
     }
     pub(crate) const fn inventory(
@@ -854,7 +894,8 @@ impl GeneratedAffineResidualGroupSolvePlan {
             GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => {
                 Some(inventory)
             }
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => None,
+            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
+            | GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => None,
         }
     }
     pub(crate) const fn authority(&self) -> &Arc<GeneratedAffineResidualCaseAuthority> {
@@ -906,6 +947,18 @@ impl GeneratedAffineResidualGroupSolvePlan {
         matches!(
             self.source,
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
+        ) && Arc::ptr_eq(&self.authority, authority)
+            && Arc::ptr_eq(&self.physical_frame, physical_frame)
+    }
+
+    pub(crate) fn same_committed_exceptional_parent_allocations(
+        &self,
+        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
+        physical_frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+    ) -> bool {
+        matches!(
+            self.source,
+            GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton
         ) && Arc::ptr_eq(&self.authority, authority)
             && Arc::ptr_eq(&self.physical_frame, physical_frame)
     }
@@ -1045,6 +1098,72 @@ impl GeneratedAffineResidualGroupSolvePlan {
         .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
     }
 
+    pub(crate) fn replay_committed_exceptional_singleton(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
+        physical_frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+        replay_limits: GeneratedAffineResidualGroupSolvePlanReplayLimits,
+    ) -> Result<(), GeneratedAffineResidualGroupSolvePlanError> {
+        catch_unwind(AssertUnwindSafe(|| {
+            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA
+                || !matches!(
+                    self.source,
+                    GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton
+                )
+            {
+                return Err(GeneratedAffineResidualGroupSolvePlanError::SchemaMismatch);
+            }
+            check_limit(
+                "solve-plan parent allocation comparisons",
+                DIRECT_RETAINED_PARENT_REFERENCES,
+                replay_limits.max_parent_allocation_comparisons,
+            )?;
+            if !Arc::ptr_eq(&self.authority, authority) {
+                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongAuthorityAllocation);
+            }
+            if !Arc::ptr_eq(&self.physical_frame, physical_frame) {
+                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongFrameAllocation);
+            }
+            check_limit(
+                "solve-plan replay combined owner bytes",
+                self.stats.replay_combined_owner_bytes,
+                replay_limits.max_combined_owner_bytes,
+            )?;
+            let payload = payload_census(
+                self.free_positions.as_ref(),
+                self.targets.as_ref(),
+                self.stable_manifest.as_ref(),
+                DIRECT_RETAINED_PARENT_REFERENCES,
+            )?;
+            check_limit(
+                "solve-plan payload comparison units",
+                payload.units,
+                replay_limits.max_payload_comparison_units,
+            )?;
+            check_limit(
+                "solve-plan payload comparison bytes",
+                payload.bytes,
+                replay_limits.max_payload_comparison_bytes,
+            )?;
+            let rebuilt = Self::try_new_for_source_unwind_boundary(
+                family,
+                context,
+                GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
+                Arc::clone(authority),
+                Arc::clone(physical_frame),
+                self.limits,
+            )?;
+            if self.payload_eq(&rebuilt) {
+                Ok(())
+            } else {
+                Err(GeneratedAffineResidualGroupSolvePlanError::ReplayMismatch)
+            }
+        }))
+        .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
+    }
+
     fn payload_eq(&self, other: &Self) -> bool {
         self.schema == other.schema
             && same_solve_plan_source_allocation(&self.source, &other.source)
@@ -1079,6 +1198,10 @@ fn same_solve_plan_source_allocation(
         (
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
+        ) => true,
+        (
+            GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
+            GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
         ) => true,
         _ => false,
     }
@@ -1131,15 +1254,18 @@ fn authenticate_parents(
                 authority.context_fingerprint().len(),
             ],
         )?,
-        GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => checked_sum(
-            "solve-plan scope comparison bytes",
-            [
-                family.fingerprint_ref().len(),
-                authority.family_fingerprint().len(),
-                context.fingerprint().len(),
-                authority.context_fingerprint().len(),
-            ],
-        )?,
+        GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
+        | GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => {
+            checked_sum(
+                "solve-plan scope comparison bytes",
+                [
+                    family.fingerprint_ref().len(),
+                    authority.family_fingerprint().len(),
+                    context.fingerprint().len(),
+                    authority.context_fingerprint().len(),
+                ],
+            )?
+        }
     };
     check_limit(
         "solve-plan scope comparison bytes",
@@ -1177,6 +1303,13 @@ fn authenticate_parents(
                 return Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation);
             }
         }
+        GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => {
+            if authority.source_kind()
+                != GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+            {
+                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation);
+            }
+        }
     }
     let expected_frame_schema = match source.kind() {
         GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
@@ -1184,6 +1317,9 @@ fn authenticate_parents(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA
         }
     };
     if authority.source_kind() != source.kind() || physical_frame.schema() != expected_frame_schema
@@ -1576,8 +1712,14 @@ fn write_manifest(
     limits: GeneratedAffineResidualGroupSolvePlanLimits,
 ) -> fmt::Result {
     output.write_str(solve_plan_schema_for_source(source_kind))?;
-    if source_kind == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton {
-        output.write_str("|source=direct-formula-singleton")?;
+    match source_kind {
+        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {}
+        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
+            output.write_str("|source=direct-formula-singleton")?;
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            output.write_str("|source=committed-exceptional-singleton")?;
+        }
     }
     write!(
         output,

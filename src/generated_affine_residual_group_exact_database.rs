@@ -65,6 +65,8 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA: &str 
     "rustred-generated-affine-residual-group-exact-database-v1";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-database-v2";
+pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V3_SCHEMA: &str =
+    "rustred-generated-affine-residual-group-exact-database-v3";
 
 const fn exact_database_schema_for_source(
     source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
@@ -75,6 +77,9 @@ const fn exact_database_schema_for_source(
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
+        }
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
+            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V3_SCHEMA
         }
     }
 }
