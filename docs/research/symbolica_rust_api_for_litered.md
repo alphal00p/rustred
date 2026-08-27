@@ -816,11 +816,24 @@ The same limitation applies outside the reducer. On automatic
 most 30 Atom buffers whose capacity is at or below 20,000,000 bytes. Public
 direct `Workspace::return_atom` bypasses both caps, and additional
 Symbolica/Rayon threads own distinct workspaces. There is no public cache
-occupancy or trim API. A 100-core RustRed memory policy must therefore choose
+occupancy or trim API. Dense polynomial multiplication separately retains a
+private thread-local `Vec<u32>` whose logical length is limited to `1 << 24`
+entries (64 MiB of initialized elements), but amortized `Vec` growth can leave
+its retained allocation above that figure. The multiprecision-float backend
+has another private per-thread constants cache; neither cache has a public
+capacity census or trim operation. A 100-core RustRed memory policy must therefore choose
 its effective execution width before construction, calibrate fully warmed-thread RSS,
 and charge an opaque runtime reserve for the coordinator plus every possible
 worker; current U/L
 stored-entry counts cannot account for this cache.
+
+There is no general public Symbolica RAM budget or reducer-wide retained/peak
+byte API. `AtomView::get_byte_size` and `TermStreamer::get_byte_size` measure
+logical payload rather than allocator capacity/RSS, and the streamer's memory
+setting is a spill threshold. Parallel sparse back substitution also creates a
+dense `ncols` scratch vector per Rayon fold worker and retains local sparse
+outputs until fusion. RustRed must bound and calibrate these native operations;
+it must not replace them with handwritten algebra.
 
 `back_substitute` and `back_substitute_parallel` must run only on a clone made
 for final RREF/publication: both mutate `U` and pivots and clear `L`, setting

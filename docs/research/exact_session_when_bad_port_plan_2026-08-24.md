@@ -30,12 +30,31 @@ now advances the database, consumes one selected target, and stores a compact
 application event (the internal `Publication` disposition). The frozen
 licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
 workers, with 5 configured cases skipped; doctests also passed. A subsequent
-worktree slice now makes the compact event shallow-ownable through one `Arc`,
-retains the already-proved pivot-term ordinal, and exposes zero-copy applicable
-and exceptional leaf views together with the parent target premises and affine
-geometry. The owning exactly-once work queue, exceptional-source re-entry,
-rejected-candidate continuation, application, publication audit replay,
-subsector feedback, and complete reduction remain pending. The live exact
+checkpoint makes the compact event shallow-ownable through one `Arc`, retains
+the already-proved pivot-term ordinal, and exposes zero-copy applicable and
+exceptional leaf views together with the parent target premises and affine
+geometry. A further checkpoint compiles committed receipts into a bounded,
+canonically ordered handoff wave with one atomic byte per leaf and bounded
+borrowed tickets; its licensed four-thread focused gate passed 10/10. Handoff
+acknowledgement proves acceptance only. A further algebra-free current-worktree
+milestone consumes a quiescent, fully acknowledged wave into one
+`ExactPublicationEpochOwner`: it retains one event handle per slot, compact
+flat indices for applicable and exceptional leaves, and one atomic byte per
+exceptional source. Exceptional access is bounded by retry-only leases; normal
+drop and unwind restore pending state, and explicit quiescent recovery handles
+a deliberately forgotten lease. Its transferred-event, retained-shallow,
+compilation-peak, and live-lease byte limits are component gates, not process-
+RSS admission. Its licensed default-GMP validation passed 6/6 focused tests
+and the 16/16 parent handoff-module superset with four test threads, and
+`cargo check --tests -j4` passed. A separate optional debug full-library
+diagnostic reached 1,214 passes and 2 skips; the sole remaining pre-existing
+equality-suspension test was deliberately interrupted after 1,834.832 seconds,
+so this checkpoint makes no new complete full-library-gate claim.
+Applicable-provider admission/results, stable
+`CampaignWorkKey` result staging and charge transfer, event-derived fresh
+narrowed-domain re-entry, rejected-candidate continuation, rule application,
+publication audit replay, subsector feedback, closure, and physical reduction
+remain pending. The live exact
 database now owns the complete easiest-first physical-key catalog and a clone-
 on-stage Full-L Symbolica `SparseRowReducer` with its final sentinel. Each stage
 inserts only new catalog columns and submits one candidate; only an independent
@@ -176,8 +195,26 @@ The current-lineage components below are implemented and tested:
   and stores those values with centered relation terms and target
   locator/offset in a compact event. One shallow owner now exposes event-bound
   rule/residual leaves and complete zero-copy domains (parent premises plus
-  resolved relative predicates). This is not yet an owning residual schedule,
-  provider result, or reduction.
+  resolved relative predicates). The later epoch owner supplies algebra-free
+  retry scheduling; this event alone is not mathematical residual ingress, a
+  provider result, or a reduction.
+- `src/generated_affine_residual_group_exact_publication_handoff.rs` consumes
+  committed receipts into a bounded canonical `(job, lane, event, leaf)`
+  handoff wave. It retains one event handle per slot, one atomic byte per leaf,
+  and a hard ceiling on non-Clone borrowed tickets. Acknowledgement records
+  handoff acceptance only; the module does not apply a rule or prove discharge,
+  coverage, closure, or a terminal.
+- `src/generated_affine_residual_group_exact_publication_epoch_owner.rs`
+  consumes only a fully acknowledged, quiescent handoff and algebra-free moves
+  its slots into one closure-epoch scheduling owner. It keeps the single event
+  handle per slot, compact flat applicable/exceptional indices, and one atomic
+  byte per exceptional source. Bounded retry-only exceptional leases restore
+  pending state on normal drop or panic; a barrier-only recovery operation
+  handles deliberately forgotten leases. Its memory limits enumerate the
+  transferred event payload, shallow owner buffers, compilation peak, and live
+  lease bytes only. It is not applicable-provider admission, a result owner,
+  stable `CampaignWorkKey` staging, fresh narrowed-domain database/reducer
+  ingress, same-database rejected-candidate continuation, or closure.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -335,12 +372,14 @@ produced a published guarded rule or reduced a physical topology, and the
 successful `K=21` cursor fixture still has not reached Ready or established
 six-loop support.
 
-The target-consuming compact application-event commit and its event-owned,
-zero-copy rule/residual projections are now implemented in the worktree, but
-this is not a closed rule publication system: there is no owning exceptional
-work queue, event-derived residual-source ingress, rejected-candidate
-continuation, provider application, publication-event audit replay, or
-subsector feedback yet. The mature
+The target-consuming compact application-event commit, its event-owned
+zero-copy rule/residual projections, the exactly-once acceptance handoff, and
+the algebra-free epoch owner with bounded retry-only exceptional leases are
+now implemented in the worktree. This is not a closed rule publication system:
+there is no admitted applicable-provider result path, stable-key result
+staging/charge transfer, event-derived fresh narrowed-domain source ingress,
+rejected-candidate continuation, provider application, publication-event audit
+replay, or subsector feedback yet. The mature
 `GeneratedResidualAffine...` implementation is an oracle, not production
 authority for these missing pieces. RustRed's stated capability goal,
 arbitrary one-loop pentagon reduction, and the high-throughput two- through
@@ -543,6 +582,30 @@ If `B === True`, LiteRed publishes no rule, leaves the target case unresolved,
 and excludes the exact candidate from being returned again. It does not remove
 the already installed pivot from the algebra database (`:2501-2505`). A
 consume-once committed pivot/event supplies RustRed's equivalent exclusion.
+
+These outcomes also define two different future execution paths. Every
+accepted exceptional leaf from a mixed publication starts a **fresh generic
+IBP derivation epoch** over the narrowed domain `C AND leaf`. That epoch gets a
+fresh case-lane database/reducer and regenerates or replays the generic family
+IBP/LI sources in canonical order. Sharing the immutable source catalog is
+allowed; continuing mutation of the database that produced the publication is
+not. This is RustRed's structured counterpart of LiteRed2's clean/regenerate
+semantics. The successor must also carry a monotone continuation witness: the
+exact exceptional domain becomes later unresolved work, and a candidate proved
+bad everywhere on that domain is excluded before later generic rows continue.
+Simply restarting the same candidate order without that domain/continuation
+state could rediscover the same partition forever. The implemented algebra-
+free epoch owner preserves the narrowed domain and compact affine source
+geometry behind a bounded retry lease. It does not construct or admit a fresh
+database/reducer lane, regenerate generic IBP/LI input, carry the monotone
+candidate-exclusion continuation witness, stage a result, or perform re-entry.
+
+`IdenticallyBad` does not create such a leaf or epoch. Its pivot remains in the
+same live database, the selected target remains unresolved, and later source
+rows continue serially in that database and may be reduced by the retained
+pivot. The consumed source/candidate is excluded from repetition. Rejected-
+candidate continuation is still pending and must remain a separate path from
+the fresh-epoch exceptional mathematical-ingress path.
 
 No outcome in this seam infers a master integral.
 
@@ -875,15 +938,28 @@ work forms the next deterministic wave. A non-Clone ticket addresses
 `(publication slot, leaf ordinal)`, and acknowledgement means only that the
 designated consumer accepted the handoff—never rule application, exceptional
 discharge, coverage, closure, terminal status, zero, or master status. Provider
-and residual-source ingress remain pending.
+admission/results and mathematical residual-source ingress remain pending. A
+following algebra-free owner now consumes only a fully acknowledged wave,
+reuses the one event handle per slot, and replaces the obsolete per-leaf
+handoff bytes with compact applicable/exceptional flat indices plus one atomic
+byte per exceptional source. Its exceptional leases are retry-only scheduling
+handles: drop or unwind restores pending state, and quiescent recovery handles
+a deliberately forgotten lease. Lease resolution is not a committed result,
+application, discharge, or durable progress transition.
 
 The production coordinator must make this handoff follow conjunctive
 core-and-memory admission on a roughly 100-core/1-TiB EPYC target. `--n-cores`
-is only the invocation-wide compute ceiling: it will choose the effective
-execution width before constructing its one pool, then hydrate only the
-deterministic subset whose complete retained and transient estimates fit the
-current memory envelope. The rest of the logical frontier remains compact plan
-metadata; idle cores are correct when RAM admits no additional owner.
+is only the invocation-wide compute ceiling. The operator sets
+`M_operational = --max-memory` with
+`M_operational < M_physical`; the difference reserves OS, checkpoint,
+allocator, and opaque Symbolica headroom. Before constructing its one pool, the
+coordinator will calculate an effective width
+`1 <= E <= --n-cores` whose fixed baseline includes the coordinator plus every
+possible worker's stack, TLS, and warmed Symbolica Workspace reserve. Per-task
+admission then adds the retained reducer, Symbolica/algebra scratch not already
+covered by that baseline, and a bounded result cap. Only the deterministic
+admitted subset is hydrated; the rest of the logical frontier remains compact
+plan metadata, and idle cores are correct when RAM admits no additional owner.
 
 Publication events and later committed-descendant material remain shallow,
 shared owners. Tickets carry indices, not copied rows, partitions, or flattened
@@ -895,16 +971,34 @@ wave. Shared exact-session authority, family plans, and catalogs remain a
 campaign-baseline/deduplicated-owner charge; they are not multiplied by the
 number of slots merely because several events reference them.
 
-These handoff limits are component gates, not a standalone RSS formula. The
-campaign coordinator must conjunctively sum its shared baseline, deduplicated
-resident event charge, incremental handoff peak, admitted worker scratch, and
-buffered-result/downstream-owner envelopes before hydrating a wave.
+Memory accounting follows unique live allocations. A shared or transferred
+allocation is charged once even if it changes ledger category or has several
+borrowed handles; that charge moves atomically with ownership. Distinct old
+and new reducer/session states both count while they coexist during a
+transition. Each independently schedulable `(CampaignJobKey, CaseLaneKey)`
+retains one serial Symbolica reducer; workers may carry the lane between waves
+but never fork its live mutation merely because more cores are available.
+
+These handoff and epoch-owner limits are component gates, not a standalone RSS
+formula. The campaign coordinator must conjunctively sum its shared baseline,
+deduplicated resident event charge, incremental handoff/owner compilation
+peak, admitted worker scratch, and buffered-result/downstream-owner envelopes
+before hydrating a wave. `--n-cores` remains only the invocation-wide ceiling:
+on the roughly 100-core/1-TiB target the coordinator must choose a RAM-admitted
+effective width before pool construction and leave cores idle whenever the
+operational envelope cannot safely hydrate another owner.
 
 The production coordinator must still put independently admitted permits on
 worker result buffers and downstream exceptional-source owners. Those results
 must be durably staged or merged and charged temporaries dropped before their
 permits are released. Newly discovered exceptional or dependency work is not
 hydrated by the current workers: it enters the next sealed, admitted wave.
+The stable `CampaignWorkKey` used to index that result and the atomic transfer
+of its memory charge from in-flight result to resident successor or durable
+staged-result descriptor are both future coordinator work. Neither the current
+low-level executor, handoff wave, nor algebra-free epoch owner implements that
+result table or charge transfer, so this document does not claim RAM-bounded
+provider execution or re-entry yet.
 
 ### Phase E: provider integration, persistence, and optional audit
 
@@ -1034,7 +1128,7 @@ representation result; an exception or exhausted limit is operational.
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
 | Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with zero-copy applicable/exceptional views and a frozen exactly-once handoff; exceptional-source scheduling pending | Zero-copy applicable-rule views; provider pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact event, frozen exactly-once acceptance handoff, and algebra-free epoch owner with bounded retry-only exceptional-source leases; fresh mathematical ingress/results pending | Zero-copy applicable-rule views; provider admission/results pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |
@@ -1042,10 +1136,12 @@ representation result; an exception or exhausted limit is operational.
 A rejected pivot is committed once and is not offered to a second target. A
 later source row is reduced by it and may solve the same unresolved target.
 The persisted first matching target remains final for the current candidate.
-The atomic database/target/event columns of the prepared-publication rows and
-repeatable shallow rule/residual inspection views are implemented. Operational
-exactly-once residual scheduling, provider integration, and application remain
-future work.
+The atomic database/target/event columns of the prepared-publication rows,
+repeatable shallow rule/residual inspection views, exactly-once acceptance
+handoff, and bounded algebra-free exceptional-source lease owner are
+implemented. Applicable-provider admission/results, stable-key result staging,
+fresh narrowed-domain mathematical ingress, same-database rejected-candidate
+continuation, rule application, and closure remain future work.
 
 ## 9. Atomic owner transition
 
@@ -1063,8 +1159,9 @@ Before any mutation, prepare and admit all of:
 
 Those database, target, event, and statistics preparations are implemented for
 the compact publication event. Shallow event/domain projections are also
-implemented; owning residual-scheduling storage remains to be added without
-duplicating the deep payload.
+implemented. The algebra-free epoch owner adds compact retry scheduling without
+duplicating the deep payload; admitted provider results and fresh mathematical
+residual ingress remain to be added.
 
 Only after all preparations succeed may the move-only commit tail:
 
@@ -1189,11 +1286,13 @@ unchanged.
 
 ### State/publication gates
 
-The current atomic milestone covers compact-event commitment, one target
-consumption, freshness/resource failure, retained-payload accounting, and
-event-bound zero-copy rule/residual domains. Scheduling, specialization, and
-durable-audit gates below remain pending where they depend on those future
-layers.
+The current milestone covers compact-event commitment, one target consumption,
+freshness/resource failure, retained-payload accounting, event-bound zero-copy
+rule/residual domains, exactly-once acceptance handoff, and algebra-free
+applicable/exceptional indexing with bounded retry-only exceptional leases.
+Applicable-provider admission/results, mathematical re-entry/continuation,
+specialization, closure, and durable-audit gates remain pending where they
+depend on those future layers.
 
 - Full transition-table test covering Dependent, NoTarget, equality, prepared
   publication, IdenticallyBad, unsupported representations, and every
@@ -1212,6 +1311,26 @@ layers.
   foreign, or unissued acknowledgement is rejected, and acknowledgement alone
   never changes a leaf's applicable/exceptional classification or proves
   discharge, coverage, closure, terminal status, or master status.
+- Epoch-owner compilation accepts only a fully acknowledged quiescent handoff,
+  retains one event handle per slot, and replaces handoff state with compact
+  applicable/exceptional flat indices plus one atomic byte per exceptional
+  source. Retry leases respect their live-count/live-byte ceilings, restore
+  pending state on normal drop and unwind, and support explicit barrier-only
+  recovery of a deliberately forgotten lease. Exact and every-positive-one-
+  below component limits reject transactionally; none of these transitions is
+  provider output, mathematical re-entry, application, discharge, or closure.
+- A synthetic width-100/approximately-1-TiB coordinator gate computes `E`
+  before pool construction, hydrates only the deterministic admitted
+  `CampaignWorkKey` subset, charges shared/transferred allocations once and
+  distinct old/new states throughout overlap, reserves every possible
+  worker's Symbolica TLS/Workspace plus admitted scratch and bounded results,
+  and deliberately leaves cores idle when memory is limiting.
+- An optional non-CI soak on a real approximately-100-core EPYC/1-TiB host
+  records `M_physical`, `M_operational`, effective `E`, warm-worker reserve,
+  peak RSS, staged-result high-water mark, and idle-core time while matching
+  the serial semantic hashes. The synthetic gate remains mandatory when that
+  hardware is unavailable; a six-loop scalability claim requires the real
+  named-host evidence.
 - Applicable specialization reproduces the complete exact recentered
   relation coefficient-for-coefficient and shift-for-shift. Exceptional
   specialization is refused by the rule handle and routed to the matching
@@ -1402,9 +1521,11 @@ Implement in this order:
 9. implement the non-durable topology-neutral `CampaignPlan` slice with exact
    representation-level deduplication, identity ingress, one shared proper-
    subsector child, cycle/non-descent rejection, and a deterministic ready-job
-   antichain; then add owning exceptional residual scheduling, sealed committed-
-   exceptional source ingress, rejected-candidate continuation, and solved-
-   subsector feedback; iterate those queues to a proved coverage fixed point
+   antichain; build on the algebra-free exceptional lease owner with RAM-
+   admitted results and stable-key charge transfer, sealed mathematical source
+   ingress into fresh narrowed-domain generic IBP epochs, same-database
+   rejected-candidate continuation, and solved-subsector feedback; iterate
+   those queues to a proved coverage fixed point
    with exact regenerated-IBP residuals and a finite enumerated selected/
    certified terminal-key set; only then construct an immutable closed family/
    sector shard;

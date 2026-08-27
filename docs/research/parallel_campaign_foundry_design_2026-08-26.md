@@ -23,13 +23,23 @@ exact session has passed through its resident-transform path. The roots-only
 campaign CLI authenticates only the user's declarations. A separate sealed
 publication-handoff wave now transfers committed exact-session event owners
 without copying their algebraic payload, keeps one atomic byte per leaf, and
-bounds live borrowed tickets independently of worker count. It is not yet the
-exceptional-source queue or a result-buffer admission controller. These layers
-still do not observe RSS, estimate a physical family, construct a calibrated
-memory-derived effective-width pool, hydrate a full frontier, normalize a
-target numerator, discover dependencies, checkpoint, prove closure, or
-publish rules. Those production-coordinator and mathematical stages remain
-unimplemented.
+bounds live borrowed tickets independently of worker count. A subsequent
+algebra-free `ExactPublicationEpochOwner` consumes only a quiescent, fully
+acknowledged handoff. It retains one event handle per slot, replaces obsolete
+handoff state with compact applicable/exceptional flat-leaf indices, and keeps
+one atomic byte per exceptional source. Bounded exceptional leases are
+retry-only: normal drop and unwind return a source to pending, while a
+quiescent barrier can recover a deliberately forgotten lease. Its transferred-
+payload, retained-shallow, compilation-peak, and live-lease byte limits are
+component gates rather than an RSS budget. It does not admit applicable-
+provider work/results, implement the stable `CampaignWorkKey` result table or
+atomic result-charge transfer, construct fresh narrowed-domain mathematical
+epochs, or implement rejected-candidate continuation. These layers still do
+not observe RSS, estimate a physical family, construct a calibrated memory-
+derived effective-width pool, hydrate a full frontier, normalize a target
+numerator, discover dependencies, checkpoint, apply rules, prove closure, or
+reduce a physical topology. Those production-coordinator and mathematical
+stages remain unimplemented.
 
 ## 1. Objective
 
@@ -219,13 +229,14 @@ may include dependency proposals. They never mutate the global plan directly.
 struct CampaignPlan {
     roots: BTreeMap<RootId, VerifiedIngress>,
     jobs: BTreeMap<CampaignJobKey, PlannedJob>,
-    ready_work: BTreeSet<ReadyWorkKey>,
+    ready_work: BTreeSet<CampaignWorkKey>,
     revision: u64,
 }
 
-struct ReadyWorkKey {
+struct CampaignWorkKey {
     job: CampaignJobKey,
     phase: WorkPhase,
+    epoch: u64,
     lane_or_block: WorkUnitKey,
 }
 
@@ -240,6 +251,14 @@ struct JobWorkspace {
     coverage: CoverageWorkspace,
 }
 ```
+
+`CampaignWorkKey` is the future stable identity for one logical unit of
+campaign work. It must contain every semantic discriminator needed to order a
+retry or staged result (including a phase-local ordinal when
+`lane_or_block` is not already total), while excluding worker ID, completion
+time, hydration state, and resource estimates. The present low-level wave
+executor and static `CampaignPlan` do not yet implement this production key or
+the coordinator that owns it.
 
 The coordinator accepts a delta only for the expected job revision. Equal
 keys with unequal payloads are typed conflicts. Pure content-addressable
@@ -313,17 +332,20 @@ Unsafe parallelism is explicitly excluded:
 - no split numeric start shells whose results are independently pivoted and
   later concatenated.
 
-One affine case lane owns one retained Symbolica reducer and submits rows
-serially. Candidate construction may use a bounded reorder buffer, but the
-reducer consumes stable source keys in order. LiteRed carries `rulesFound` and
-`badconditions` across successive groups, so groups are not assumed mutually
-independent merely because their equation databases are distinct. Groups may
-run concurrently only as staged proposals from one frozen residual/target
-epoch. The coordinator reclassifies them against current coverage in canonical
-group order, commits the admissible prefix transactionally, and schedules a new
-epoch for any residual work. Independently owned sectors and families run
-concurrently; independently proved case lanes within one frozen epoch may do
-so under this ordered proposal contract.
+Each independently schedulable `(CampaignJobKey, CaseLaneKey)` owns exactly
+one retained Symbolica reducer and submits rows to it serially. A worker is not
+a reducer owner: the same lane may move between admitted waves, but two workers
+may never mutate its reducer concurrently. Candidate construction may use a
+bounded reorder buffer, but the reducer consumes stable source keys in order.
+LiteRed carries `rulesFound` and `badconditions` across successive groups, so
+groups are not assumed mutually independent merely because their equation
+databases are distinct. Groups may run concurrently only as staged proposals
+from one frozen residual/target epoch. The coordinator reclassifies them
+against current coverage in canonical group order, commits the admissible
+prefix transactionally, and schedules a new epoch for any residual work.
+Independently owned sectors and families run concurrently; independently
+proved case lanes within one frozen epoch may do so under this ordered
+proposal contract.
 
 ### 4.3 Symbolica ownership
 
@@ -517,6 +539,16 @@ This decomposition is also the estimator interface: hiding the successor
 inside a generic "scratch" allowance would make clone overlap invisible and
 would understate the dominant live-set risk.
 
+Accounting follows unique live allocations, not the number of Rust handles or
+ledger categories. An immutable catalog or event payload shared by many
+owners is charged once. Moving one allocation from an in-flight result to a
+resident lane or durable-staging owner transfers the same charge atomically;
+it is never charged once at the source and again at the destination. In
+contrast, a clone-on-stage predecessor and independently allocated successor
+are two unique live states and both remain charged for their entire overlap.
+The resource ledger must make that distinction explicit rather than relying
+on `Arc` counts or nominal ownership labels.
+
 A successful clone-on-stage commit transfers the successor reducer's retained
 reservation into the hydrated-lane term; it does not release that memory as if
 the successor disappeared. Replaced base state releases its reservation only
@@ -530,13 +562,17 @@ the campaign baseline rather than once per lane.
 The primary high-end target is a roughly 100-core EPYC node with approximately
 1 TiB of physical RAM running six-loop single-scale vacuum campaigns.
 `--n-cores 100` is only the compute ceiling on such a node. The operator sets
-`--max-memory` below physical RAM to reserve explicit headroom for the OS,
+the operational scheduler envelope
+`M_operational = --max-memory` so that
+`M_operational < M_physical`, reserving explicit headroom for the OS,
 checkpoint I/O, allocator fragmentation, Symbolica's opaque native scratch,
-and thread-local caches. A task estimate includes the live reducer, its
-clone-on-stage successor, prospective column/catalog growth, candidate and
-result payloads, and checkpoint/output buffers. RustRed must prefer fewer live
-heavy reducers over speculative fork-all throughput; unused cores are correct
-when the RAM envelope admits no additional task.
+and thread-local caches. The inequality is mandatory even on a nominal 1-TiB
+node; `--max-memory` is never inferred to equal installed RAM. A task estimate
+includes the live reducer, its clone-on-stage successor, prospective
+column/catalog growth, candidate and result payloads, and checkpoint/output
+buffers. RustRed must prefer fewer live heavy reducers over speculative
+fork-all throughput; unused cores are correct when the RAM envelope admits no
+additional task.
 
 RustRed uses one process-local Symbolica runtime and one invocation-wide
 RustRed worker pool on this target. It must not launch one process per job:
@@ -562,13 +598,27 @@ touches Symbolica; `E = 1` instead runs inline with no worker thread. Taken
 literally, the automatic-cache source caps alone permit 60,600,000,000 bytes
 (about 56.4 GiB) of retained Atom buffer capacity across the coordinator plus
 100 fully warmed workers, before allocator overhead or any algebraic live set.
+Dense polynomial multiplication can additionally retain a private
+thread-local `Vec<u32>` whose logical length is limited to `1 << 24` entries
+(64 MiB of initialized elements) on every thread that touches that path;
+amortized `Vec` growth means retained capacity can exceed that figure. The
+multiprecision-float backend has another private TLS constants cache. Neither
+cache has a public capacity census or trim API.
+`SparseRowReducer::back_substitute_parallel` accepts no pool/core or memory
+budget and allocates one dense `ncols` fold scratch plus local sparse output per
+participating Rayon worker. These observations strengthen the calibrated
+opaque-native reserve; they do not justify a RustRed replacement for Symbolica
+algebra.
 
 The invocation therefore chooses an **effective execution width `E` before
 constructing the pool**, with `1 <= E <= --n-cores`. The fixed/shared baseline
 separately charges the calibrated stack, TLS, and Symbolica Workspace reserve
 for the coordinator, all `E` possible workers when `E > 1`, and every
-explicitly admitted inner thread. RustRed selects the largest feasible `E`; it
-does not create 100 workers and assume that currently idle threads are free.
+explicitly admitted inner thread. Per-task admission then additionally charges
+the Symbolica reducer/workspace and algebra scratch not already covered by
+that warmed-thread reserve, plus a bounded result allocation. RustRed selects
+the largest feasible `E`; it does not create 100 workers and assume that
+currently idle threads are free.
 If the coordinator-only `E = 1` baseline plus the minimum runnable task still
 does not fit below `--max-memory` and operational headroom, execution returns a
 typed memory-capacity pause before constructing any pool. Requested width,
@@ -630,6 +680,16 @@ permit is released after staging only when the descriptor names a durable file
 and binds its content hash, size, and task key. Checkpoint and staged-result
 serialization is streaming/bounded and its buffers are charged.
 
+Two production pieces remain deliberately unimplemented: the stable
+`CampaignWorkKey`-indexed result table and the atomic memory-charge transfer
+from an in-flight worker result into either a resident successor owner or a
+durable staged-result descriptor. The current low-level executor, exact
+publication handoff, and algebra-free publication-epoch owner do not establish
+either contract. Until the coordinator
+owns this transition, it must not release the worker result permit merely
+because a result was sent on a channel, and it must not claim that staged
+outputs are covered by the campaign envelope.
+
 The estimator is phase-specific and versioned. Checked `u64`/`u128`
 arithmetic combines native U/L stored-entry, row, and column counts with serialized
 coefficient/big-integer limb sizes, row/catalog capacities, base-plus-successor
@@ -687,6 +747,32 @@ whereas publication work does. Exceptional analysis may propose a new child
 dependency, which returns the parent to `AwaitingClosedDependencies`. If
 solved-subsector feedback is enabled, each retry is an explicit new epoch using
 the immutable allowlisted strict-descendant snapshot described above.
+
+A committed mixed publication and an `IdenticallyBad` candidate take different
+continuation paths. Each accepted exceptional publication leaf is future input
+to a **fresh generic IBP derivation epoch** over exactly its narrowed domain
+(the parent target premises conjoined with that leaf's relative predicates).
+That epoch owns a fresh case lane and exact database/reducer and regenerates or
+replays the family's generic IBP/LI sources in canonical order; it may share
+the immutable family source catalog, but it does not keep mutating the
+publication-producing reducer. This is RustRed's structured equivalent of the
+LiteRed2 clean/regenerate semantics. Each successor additionally retains a
+monotone continuation witness: its exact exceptional domain re-enters the
+unresolved set, while a candidate found bad everywhere on that domain is
+excluded before later generic rows continue. Restarting the identical candidate
+order with no such domain/exclusion state could reproduce the same partition
+forever. The current algebra-free epoch owner exposes the immutable narrowed
+domain and compact source geometry only through a bounded retry lease. This is
+scheduling access to an existing committed event, not mathematical re-entry:
+source ingress, continuation state, a fresh database/reducer lane, admitted
+results, and the re-entry coordinator are not implemented.
+
+`IdenticallyBad` is deliberately separate. It publishes no good or exceptional
+leaf, leaves the selected target unresolved, commits the candidate pivot once,
+and continues later source rows in the **same** exact database so that the
+retained pivot can reduce them. Its consumed source/candidate cannot be tried
+again. It must never be converted into a fresh exceptional epoch or duplicated
+in the residual queue.
 
 A job becomes a durable `ClosedShard` only if:
 
@@ -821,10 +907,12 @@ resource-limited frontier remains unresolved.
    identical 1/2/4-worker results. Core and memory permits are acquired before
    any heavyweight owner/reducer clone, so a wide ready frontier remains a
    compact queue rather than an eager set of live forks.
-3. **Exceptional closure:** owning residual queue, rejected-candidate
-   continuation, frozen-epoch affine proposals, solved-subsector feedback from
-   allowlisted strict descendants, and joint dependency/exception fixed-point
-   admission.
+3. **Exceptional closure:** extend the implemented algebra-free epoch owner
+   with RAM-admitted exceptional results, stable-key result staging and atomic
+   charge transfer; then add fresh narrowed-domain source ingress, separate
+   same-database rejected-candidate continuation, frozen-epoch affine
+   proposals, solved-subsector feedback from allowlisted strict descendants,
+   and joint dependency/exception fixed-point admission.
 4. **Resumable jobs:** atomic checkpoints and interruption/resume equivalence;
    rebuild and authenticate the native reducer once at load.
 5. **Multi-root canonicalization:** verified routing aliases, factorization and
@@ -894,8 +982,16 @@ The parallel foundry is accepted only after all of the following pass:
 - a synthetic 100-core/approximately-1-TiB admission test never exceeds its
   configured estimated-residency ceiling, never eagerly clones the complete
   ready frontier, transfers persistent successor reservations across commits,
-  dehydrates inactive lanes, and permits idle cores whenever the next
-  deterministic wave would exceed that ceiling;
+  dehydrates inactive lanes, computes effective width before any pool would be
+  constructed, hydrates only the admitted stable-key subset, and permits idle
+  cores whenever the next deterministic wave would exceed that ceiling;
+- an optional non-CI soak on a real approximately-100-core EPYC/1-TiB host runs
+  with `--n-cores 100`, records `M_physical`, `M_operational`, effective `E`,
+  warm-worker Symbolica/TLS reserve, peak RSS, staged-result high-water mark,
+  and idle-core time, and produces the same semantic hashes as the serial
+  oracle. Hardware unavailability may skip this physical soak, but the
+  synthetic width-100 acceptance test remains mandatory and a six-loop
+  scalability claim requires named-host evidence;
 - admission instrumentation proves that no heavyweight owner exists before
   its atomic core-plus-memory reservation, panic/cancellation returns its
   transient reservation, a huge frontier remains metadata-only, staged output
