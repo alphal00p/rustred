@@ -25,17 +25,22 @@ Symbolica's licensed GMP backend and deliberately does not enable `no_gmp`.
 
 ## Repository-structure gate
 
-Feature growth pauses after the transient mapped-`NonZero` checkpoint for a
-deep repository reorganization. The present flat source tree mixes generic
+Feature growth is paused after the transient mapped-`NonZero` checkpoint for a
+deep repository reorganization. The original flat source tree mixed generic
 production kernels, campaign orchestration, acceptance campaigns, historical
 loop-count oracles, and differential fixtures. Before equality-resident
 integration continues, RustRed will inventory those roles, design and
 independently audit explicit module or subcrate boundaries, move concrete
 loop-count material out of the production engine, and delete sources and
 documents proved stale rather than preserving compatibility at this stage.
-That reorganization also introduces one transport-neutral application layer;
-the existing CLI and the requested PyO3 package will be thin, parity-tested
-frontends over it rather than independent implementations.
+The first bounded migration establishes `rustred-app`, an initial typed shared
+application seam together with the thin `rustred` CLI binary. Direct tests keep
+its canonical output byte-identical to the CLI. Before PyO3 is added, its
+service modules, option parsing, and application errors must be detached from
+the remaining CLI-internal types and public calls must translate caught Rust
+panics into a typed internal error. The requested PyO3 package will then depend
+on that boundary rather than implementing a second frontend pipeline. Deeper
+core, legacy-oracle, test, and documentation separation also remains pending.
 The audit and migration contract are tracked in the
 [repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).
 
@@ -50,7 +55,7 @@ complete mathematical workflow.
 | Infer scalar parameters from family-defining expressions | Available |
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
-| Call the CLI-equivalent application API from Python | Planned and mandatory, but not yet implemented. The reorganization will extract a shared typed application layer and add a dedicated PyO3 package; Python will not contain algebra or a second reduction path |
+| Call the CLI-equivalent application API from Python | Planned and mandatory, but not yet implemented. The shared owned API now exists in `rustred-app`; the next packaging phase adds a dedicated PyO3 package over it. Python will not contain algebra or a second reduction path |
 | Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
 | Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives: the versioned pre-pool width planner chooses the largest memory-feasible `E <= --n-cores`, returns a typed no-fit pause, and only a consumed plan may construct the exact bounded worker count; move-only core/estimated-memory guards and stable dispatch follow. A no-default physical-profile contract and algebra-free `campaign preflight` report are available. Named-host calibration, phase-specific task estimators, and the production frontier coordinator remain pending |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |

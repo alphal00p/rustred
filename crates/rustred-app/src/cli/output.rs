@@ -9,12 +9,12 @@ use serde::Serialize;
 use symbolica::LicenseManager;
 use symbolica::prelude::*;
 
+use crate::MAX_OUTPUT_BYTES;
 use crate::cli::args::{InputFormat, RelationSelection};
-use crate::cli::error::CliError;
+use crate::cli::error::AppError;
 use crate::cli::model::{LoweredCliProject, MetadataValue};
 
 pub(crate) const OUTPUT_SCHEMA: &str = "rustred.derive-output.toml.v1";
-pub(crate) const MAX_OUTPUT_BYTES: usize = 256 * 1024 * 1024;
 const MAX_DERIVATION_TERM_ATTEMPTS: usize = 2_000_000;
 const PAYLOAD_NODE_BYTES: usize = 4_096;
 const ATOM_RENDER_FACTOR: usize = 320;
@@ -170,12 +170,12 @@ pub(crate) fn build_output(
     requested_input_format: InputFormat,
     selection: RelationSelection,
     n_cores: usize,
-) -> Result<DeriveOutputV1, CliError> {
+) -> Result<DeriveOutputV1, AppError> {
     let (input_form, input_schema, metadata, lowered) = project.into_parts();
     let normalized = lowered.normalized();
     let family = lowered.family();
     if lowered.denominators().len() != family.denominator_count() {
-        return Err(CliError::Derivation(format!(
+        return Err(AppError::Derivation(format!(
             "lowering returned {} denominator records for a {}-denominator family",
             lowered.denominators().len(),
             family.denominator_count()
@@ -185,19 +185,19 @@ pub(crate) fn build_output(
     let payload_census = preflight_family_payload(normalized, family, lowered.denominators())?;
     preflight_derivation_structure(family, selection)?;
     let generator = ParametricIbpGenerator::try_new(&family).map_err(|error| {
-        CliError::Derivation(format!("cannot initialize IBP generation: {error}"))
+        AppError::Derivation(format!("cannot initialize IBP generation: {error}"))
     })?;
     // The family, complete Symbolica variable map, and every structural
     // preflight are fixed on the coordinator before any worker is created.
     // One execution object is then reused by generation and rendering.
     let execution = ParallelExecution::try_new(n_cores)
-        .map_err(|error| CliError::Execution(error.to_string()))?;
+        .map_err(|error| AppError::Execution(error.to_string()))?;
     let (ordinary, li) = match selection {
         RelationSelection::All => {
             let generated = generator
                 .generate_with_execution(&execution)
                 .map_err(|error| {
-                    CliError::Derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
+                    AppError::Derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
                 })?;
             let (_, ordinary, li) = generated.into_parts();
             (ordinary, li)
@@ -206,7 +206,7 @@ pub(crate) fn build_output(
             generator
                 .generate_ordinary_ibp_with_execution(&execution)
                 .map_err(|error| {
-                    CliError::Derivation(format!("cannot generate parametric IBP rows: {error}"))
+                    AppError::Derivation(format!("cannot generate parametric IBP rows: {error}"))
                 })?,
             Vec::new(),
         ),
@@ -215,7 +215,7 @@ pub(crate) fn build_output(
             generator
                 .generate_lorentz_invariance_with_execution(&execution)
                 .map_err(|error| {
-                    CliError::Derivation(format!("cannot generate parametric LI rows: {error}"))
+                    AppError::Derivation(format!("cannot generate parametric LI rows: {error}"))
                 })?,
         ),
     };
@@ -296,10 +296,10 @@ pub(crate) fn build_output(
     })
 }
 
-pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, CliError> {
+pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, AppError> {
     preflight_output_bound(output)?;
     let mut serialized = toml::to_string_pretty(output).map_err(|error| {
-        CliError::Serialization(format!(
+        AppError::Serialization(format!(
             "cannot serialize deterministic TOML output: {error}"
         ))
     })?;
@@ -307,7 +307,7 @@ pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, CliErr
         serialized.push('\n');
     }
     if serialized.len() > MAX_OUTPUT_BYTES {
-        return Err(CliError::Serialization(format!(
+        return Err(AppError::Serialization(format!(
             "TOML output needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit",
             serialized.len()
         )));
@@ -324,7 +324,7 @@ pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, CliErr
 fn preflight_derivation_structure(
     family: &IntegralFamily,
     selection: RelationSelection,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     let loops = family.loop_count();
     let externals = family.external_count();
     let denominators = family.denominator_count();
@@ -371,7 +371,7 @@ fn preflight_derivation_structure(
             .ok_or_else(derivation_bound_overflow)?,
     };
     if requested_attempts > MAX_DERIVATION_TERM_ATTEMPTS {
-        return Err(CliError::Derivation(format!(
+        return Err(AppError::Derivation(format!(
             "the selected generic derivation has a conservative {requested_attempts}-term-attempt bound (L={loops}, E={externals}, N={denominators}), exceeding the CLI limit {MAX_DERIVATION_TERM_ATTEMPTS}"
         )));
     }
@@ -387,7 +387,7 @@ fn preflight_derivation_structure(
         .checked_mul(4_096)
         .ok_or_else(derivation_bound_overflow)?;
     if minimum_render_bound > MAX_OUTPUT_BYTES {
-        return Err(CliError::Derivation(format!(
+        return Err(AppError::Derivation(format!(
             "the selected derivation has {selected_rows} rows whose minimum conservative render bound is {minimum_render_bound} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI output limit"
         )));
     }
@@ -414,7 +414,7 @@ fn preflight_family_payload(
     normalized: &rustred::NormalizedProjectInputV1,
     family: &IntegralFamily,
     records: &[rustred::LoweredSymbolicaDenominatorV1],
-) -> Result<GeneratedPayloadCensus, CliError> {
+) -> Result<GeneratedPayloadCensus, AppError> {
     let mut census = GeneratedPayloadCensus::default();
     add_generated_payload_bound(&mut census, PAYLOAD_NODE_BYTES)?;
     census_atom_payload(normalized.canonical_atom(), &mut census)?;
@@ -463,7 +463,7 @@ fn preflight_family_payload(
     Ok(census)
 }
 
-fn census_atom_payload(atom: &Atom, census: &mut GeneratedPayloadCensus) -> Result<(), CliError> {
+fn census_atom_payload(atom: &Atom, census: &mut GeneratedPayloadCensus) -> Result<(), AppError> {
     let render_bound = atom
         .as_view()
         .get_byte_size()
@@ -476,7 +476,7 @@ fn census_atom_payload(atom: &Atom, census: &mut GeneratedPayloadCensus) -> Resu
 fn census_coefficient(
     coefficient: &rustred::Coefficient,
     census: &mut GeneratedPayloadCensus,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     census_polynomial(
         &coefficient.numerator,
         census,
@@ -498,7 +498,7 @@ fn census_coefficient(
 fn preflight_generated_relations<'a>(
     relations: impl Iterator<Item = &'a ParametricRelation>,
     mut census: GeneratedPayloadCensus,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     for relation in relations {
         census.relations = checked_census_add(census.relations, 1)?;
         add_generated_payload_bound(&mut census, PAYLOAD_NODE_BYTES)?;
@@ -559,7 +559,7 @@ fn census_polynomial(
     census: &mut GeneratedPayloadCensus,
     exponent_render_bytes: usize,
     integer_structural_bytes: usize,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     let terms = polynomial.nterms();
     census.polynomial_terms = checked_census_add(census.polynomial_terms, terms)?;
     census.exponent_entries =
@@ -612,7 +612,7 @@ fn census_polynomial(
     Ok(())
 }
 
-fn integer_significant_bits(value: &Integer) -> Result<usize, CliError> {
+fn integer_significant_bits(value: &Integer) -> Result<usize, AppError> {
     let bits = match value {
         Integer::Single(value) => u64::BITS - value.unsigned_abs().leading_zeros(),
         Integer::Double(value) => u128::BITS - value.unsigned_abs().leading_zeros(),
@@ -624,7 +624,7 @@ fn integer_significant_bits(value: &Integer) -> Result<usize, CliError> {
     usize::try_from(bits).map_err(|_| derivation_bound_overflow())
 }
 
-fn checked_census_add(left: usize, right: usize) -> Result<usize, CliError> {
+fn checked_census_add(left: usize, right: usize) -> Result<usize, AppError> {
     left.checked_add(right)
         .ok_or_else(derivation_bound_overflow)
 }
@@ -632,13 +632,13 @@ fn checked_census_add(left: usize, right: usize) -> Result<usize, CliError> {
 fn add_generated_payload_bound(
     census: &mut GeneratedPayloadCensus,
     additional: usize,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     census.retained_render_bound = census
         .retained_render_bound
         .checked_add(additional)
         .ok_or_else(derivation_bound_overflow)?;
     if census.retained_render_bound > MAX_OUTPUT_BYTES {
-        return Err(CliError::Derivation(format!(
+        return Err(AppError::Derivation(format!(
             "CLI algebraic output payload has a conservative {}-byte retained/render bound after {} relations, {} terms, {} polynomial terms, {} exponent entries, {} integer bits, {} guard conditions, and {} guard origins; the CLI limit is {MAX_OUTPUT_BYTES} bytes",
             census.retained_render_bound,
             census.relations,
@@ -653,8 +653,8 @@ fn add_generated_payload_bound(
     Ok(())
 }
 
-fn derivation_bound_overflow() -> CliError {
-    CliError::Derivation("CLI derivation resource accounting overflowed usize".to_owned())
+fn derivation_bound_overflow() -> AppError {
+    AppError::Derivation("CLI derivation resource accounting overflowed usize".to_owned())
 }
 
 fn target_output(normalized: &rustred::NormalizedProjectInputV1) -> TargetOutputV1 {
@@ -852,12 +852,12 @@ fn canonical_expression(expression: Atom) -> String {
 /// deliberately loose per-node allowance covers keys, punctuation, decimal
 /// ordinals, array/table headers, and whitespace independently of payload
 /// length.  An exact post-render check enforces the advertised wire bound.
-fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), CliError> {
+fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), AppError> {
     const NODE_OVERHEAD: usize = 4_096;
     const TOML_ESCAPE_FACTOR: usize = 6;
 
     let mut bound = NODE_OVERHEAD;
-    let mut add_node = |strings: &[&str], integer_values: usize| -> Result<(), CliError> {
+    let mut add_node = |strings: &[&str], integer_values: usize| -> Result<(), AppError> {
         bound = bound
             .checked_add(NODE_OVERHEAD)
             .and_then(|value| value.checked_add(integer_values.checked_mul(32)?))
@@ -976,8 +976,8 @@ fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), CliError> {
 
 fn add_condition_bound(
     condition: &ConditionOutputV1,
-    add_node: &mut impl FnMut(&[&str], usize) -> Result<(), CliError>,
-) -> Result<(), CliError> {
+    add_node: &mut impl FnMut(&[&str], usize) -> Result<(), AppError>,
+) -> Result<(), AppError> {
     add_node(&[&condition.expression], 0)?;
     for source in &condition.sources {
         add_node(&[source], 0)?;
@@ -988,12 +988,12 @@ fn add_condition_bound(
     Ok(())
 }
 
-fn output_bound_overflow() -> CliError {
-    CliError::Serialization("TOML output-size accounting overflowed usize".to_owned())
+fn output_bound_overflow() -> AppError {
+    AppError::Serialization("TOML output-size accounting overflowed usize".to_owned())
 }
 
-fn output_bound_error(bound: usize) -> CliError {
-    CliError::Serialization(format!(
+fn output_bound_error(bound: usize) -> AppError {
+    AppError::Serialization(format!(
         "TOML output has a conservative {bound}-byte render bound, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit"
     ))
 }

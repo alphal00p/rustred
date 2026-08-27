@@ -1,6 +1,23 @@
+[workspace]
+# The root package is an implicit workspace member. Listing `.` explicitly
+# would make every nested path an explicit member prefix in Cargo, defeating
+# the vendor exclusions below.
+members = ["crates/rustred-app"]
+default-members = [".", "crates/rustred-app"]
+exclude = [
+    "vendor/gammaloop",
+    "vendor/symbolica",
+    "vendor/symbolica/lib/graphica",
+    "vendor/symbolica/lib/numerica",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+
 [package]
 name = "rustred"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 rust-version = "1.89"
 description = "Pure-Rust parametric IBP reductions for multiloop Feynman integrals"

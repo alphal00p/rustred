@@ -38,14 +38,20 @@ CLI stdout for an equivalent request.
 
 ## Workspace and package boundary
 
-The reorganization audit will decide exact crate names, but the dependency
-direction is fixed:
+The reorganization audit selected the following dependency direction:
 
 ```text
-rustred-cli ----+
-                +--> rustred-app --> rustred-core --> vendored Symbolica with GMP
-rustred-python -+
+rustred CLI binary --+
+                    +--> rustred-app --> rustred core --> vendored Symbolica with GMP
+rustred-python -----+
 ```
+
+The CLI binary lives inside `rustred-app`; a separate transport-only CLI crate
+would add no useful isolation. The app package and its initial owned
+request/result seam now exist, with direct canonical-byte parity tests. Before
+binding it, semantic modules and public errors/options must be detached from
+the remaining `cli::*` internals and public calls must add typed Rust-panic
+containment. The dedicated `rustred-python` package remains to be implemented.
 
 The binding should be a dedicated `cdylib`/`rlib` workspace package using
 PyO3 and maturin, with Python >= 3.11 as the initial supported floor. PyO3,

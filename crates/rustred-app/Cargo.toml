@@ -1,0 +1,22 @@
+[package]
+name = "rustred-app"
+version.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Shared application and CLI frontend for RustRed"
+license = "MIT"
+publish = false
+
+[lib]
+name = "rustred_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rustred"
+path = "src/main.rs"
+
+[dependencies]
+rustred = { path = "../.." }
+serde = { version = "1", features = ["derive"] }
+symbolica = { path = "../../vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
+toml = "1"

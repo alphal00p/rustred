@@ -1,6 +1,3 @@
-#[path = "../cli/mod.rs"]
-mod cli;
-
 fn main() {
     // This executes before RustRed initializes Symbolica or starts worker
     // threads. Suppressing Symbolica's informational banner is required by
@@ -10,5 +7,5 @@ fn main() {
         // has run, so no concurrent environment access exists here.
         unsafe { std::env::set_var("SYMBOLICA_HIDE_BANNER", "1") };
     }
-    std::process::exit(cli::main_entry());
+    std::process::exit(rustred_app::cli_main_entry());
 }

@@ -3,7 +3,7 @@ use std::fmt;
 use crate::cli::args::ArgError;
 
 #[derive(Debug)]
-pub(crate) enum CliError {
+pub enum AppError {
     Usage(ArgError),
     InputIo(String),
     Input(String),
@@ -13,8 +13,8 @@ pub(crate) enum CliError {
     Execution(String),
 }
 
-impl CliError {
-    pub(crate) const fn exit_code(&self) -> i32 {
+impl AppError {
+    pub const fn exit_code(&self) -> i32 {
         match self {
             Self::Usage(_) => 2,
             Self::InputIo(_) => 3,
@@ -26,7 +26,7 @@ impl CliError {
         }
     }
 
-    pub(crate) const fn category(&self) -> &'static str {
+    pub const fn category(&self) -> &'static str {
         match self {
             Self::Usage(_) => "usage",
             Self::InputIo(_) => "input-io",
@@ -39,7 +39,7 @@ impl CliError {
     }
 }
 
-impl fmt::Display for CliError {
+impl fmt::Display for AppError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Usage(error) => error.fmt(formatter),
@@ -53,9 +53,9 @@ impl fmt::Display for CliError {
     }
 }
 
-impl std::error::Error for CliError {}
+impl std::error::Error for AppError {}
 
-impl From<ArgError> for CliError {
+impl From<ArgError> for AppError {
     fn from(value: ArgError) -> Self {
         Self::Usage(value)
     }

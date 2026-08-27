@@ -6,12 +6,11 @@ use rustred::{
 };
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::cli::args::{CampaignPreflightArgs, parse_memory_bytes};
-use crate::cli::error::CliError;
-use crate::cli::io::{read_input, write_output};
-use crate::cli::output::MAX_OUTPUT_BYTES;
+use crate::cli::args::parse_memory_bytes;
+use crate::cli::error::AppError;
+use crate::{CampaignPreflightRequest, CampaignPreflightResult, MAX_OUTPUT_BYTES};
 
-const CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA: &str =
+pub(crate) const CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA: &str =
     "rustred.campaign-execution-preflight-output.toml.v1";
 const UNSIGNED_DECIMAL_STRING_ENCODING: &str = "unsigned-decimal-string";
 
@@ -172,14 +171,15 @@ struct PauseOutputV1 {
     memory_shortfall_bytes: u64,
 }
 
-pub(crate) fn preflight(arguments: CampaignPreflightArgs) -> Result<(), CliError> {
+pub(crate) fn preflight_request(
+    request: CampaignPreflightRequest,
+) -> Result<CampaignPreflightResult, AppError> {
     // This command intentionally stops at the pure width planner. In
     // particular, it never consumes a Ready plan and therefore does not
     // construct the campaign executor or its worker pool.
-    let source = read_input(&arguments.profile)?;
-    let document: CampaignExecutionResourceProfileDocumentV1 =
-        toml::from_str(&source).map_err(|error| {
-            CliError::Input(format!(
+    let document: CampaignExecutionResourceProfileDocumentV1 = toml::from_str(&request.profile)
+        .map_err(|error| {
+            AppError::Input(format!(
                 "invalid RustRed campaign execution resource profile TOML: {error}"
             ))
         })?;
@@ -187,15 +187,17 @@ pub(crate) fn preflight(arguments: CampaignPreflightArgs) -> Result<(), CliError
     let estimator_revision = profile.estimator_revision();
     let fixed_memory = profile.fixed_memory();
     let minimum_runnable_task = profile.minimum_runnable_task();
+    let requested_core_ceiling = request.n_cores;
+    let operational_memory_limit_bytes = request.max_memory_bytes;
     let request = profile
         .try_into_width_request(
-            arguments.n_cores,
+            requested_core_ceiling,
             enclosing_memory_limit,
-            CampaignBytes::new(arguments.max_memory_bytes),
+            CampaignBytes::new(operational_memory_limit_bytes),
         )
-        .map_err(|error| CliError::Input(format!("invalid campaign execution limits: {error}")))?;
+        .map_err(|error| AppError::Input(format!("invalid campaign execution limits: {error}")))?;
     let outcome = CampaignExecutionWidthPlanner::try_plan(request).map_err(|error| {
-        CliError::Input(format!("cannot plan campaign execution width: {error}"))
+        AppError::Input(format!("cannot plan campaign execution width: {error}"))
     })?;
     let mut output = CampaignPreflightOutputV1 {
         schema: CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA,
@@ -204,9 +206,9 @@ pub(crate) fn preflight(arguments: CampaignPreflightArgs) -> Result<(), CliError
         profile_schema: CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA,
         unsigned_integer_encoding: UNSIGNED_DECIMAL_STRING_ENCODING,
         estimator_revision: estimator_revision.get(),
-        requested_core_ceiling: arguments.n_cores,
+        requested_core_ceiling,
         enclosing_memory_limit_bytes: enclosing_memory_limit.get(),
-        operational_memory_limit_bytes: arguments.max_memory_bytes,
+        operational_memory_limit_bytes,
         fixed_memory: fixed_memory_output(fixed_memory),
         minimum_runnable_task: minimum_task_output(minimum_runnable_task),
         ready: None,
@@ -240,21 +242,26 @@ pub(crate) fn preflight(arguments: CampaignPreflightArgs) -> Result<(), CliError
             });
         }
     }
+    let status = output.status;
     let serialized = serialize_preflight_output(&output)?;
-    write_output(&arguments.output, serialized.as_bytes(), arguments.force)
+    Ok(CampaignPreflightResult::new(
+        CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA,
+        status,
+        serialized,
+    ))
 }
 
 fn prepare_profile(
     document: CampaignExecutionResourceProfileDocumentV1,
-) -> Result<(CampaignExecutionResourceProfile, CampaignBytes), CliError> {
+) -> Result<(CampaignExecutionResourceProfile, CampaignBytes), AppError> {
     if document.schema != CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA {
-        return Err(CliError::Input(format!(
+        return Err(AppError::Input(format!(
             "unsupported campaign execution resource profile schema {:?}; expected {:?}",
             document.schema, CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA
         )));
     }
     let revision = CampaignEstimatorRevision::try_new(document.estimator_revision)
-        .map_err(|error| CliError::Input(format!("invalid estimator_revision: {error}")))?;
+        .map_err(|error| AppError::Input(format!("invalid estimator_revision: {error}")))?;
     let enclosing_memory_limit = profile_memory(
         "enclosing_memory_limit",
         &document.enclosing_memory_limit,
@@ -295,7 +302,7 @@ fn prepare_profile(
         )?,
         profile_memory("fixed_memory.safety_reserve", &fixed.safety_reserve, true)?,
     )
-    .map_err(|error| CliError::Input(format!("invalid fixed_memory: {error}")))?;
+    .map_err(|error| AppError::Input(format!("invalid fixed_memory: {error}")))?;
     let retained = prepare_memory_estimate(
         "minimum_runnable_task.retained_output",
         document.minimum_runnable_task.retained_output,
@@ -305,24 +312,24 @@ fn prepare_profile(
         document.minimum_runnable_task.transient_excluding_output,
     )?;
     let envelope = CampaignTaskMemoryEnvelope::try_new(retained, transient).map_err(|error| {
-        CliError::Input(format!(
+        AppError::Input(format!(
             "invalid minimum_runnable_task memory envelope: {error}"
         ))
     })?;
     let task = CampaignTaskResourceEstimate::try_new(revision, 1, envelope).map_err(|error| {
-        CliError::Input(format!(
+        AppError::Input(format!(
             "invalid minimum_runnable_task resource estimate: {error}"
         ))
     })?;
     let profile = CampaignExecutionResourceProfile::try_new(revision, fixed_memory, task)
-        .map_err(|error| CliError::Input(format!("invalid execution resource profile: {error}")))?;
+        .map_err(|error| AppError::Input(format!("invalid execution resource profile: {error}")))?;
     Ok((profile, enclosing_memory_limit))
 }
 
 fn prepare_memory_estimate(
     field: &'static str,
     document: MemoryEstimateDocumentV1,
-) -> Result<CampaignMemoryEstimate, CliError> {
+) -> Result<CampaignMemoryEstimate, AppError> {
     CampaignMemoryEstimate::try_new(
         profile_memory(
             &format!("{field}.visible_logical"),
@@ -335,15 +342,15 @@ fn prepare_memory_estimate(
             true,
         )?,
     )
-    .map_err(|error| CliError::Input(format!("invalid {field}: {error}")))
+    .map_err(|error| AppError::Input(format!("invalid {field}: {error}")))
 }
 
-fn profile_memory(field: &str, value: &str, allow_zero: bool) -> Result<CampaignBytes, CliError> {
+fn profile_memory(field: &str, value: &str, allow_zero: bool) -> Result<CampaignBytes, AppError> {
     let parsed = parse_memory_bytes(value)
         .filter(|bytes| allow_zero || *bytes > 0)
         .ok_or_else(|| {
             let quantity = if allow_zero { "an integer" } else { "a positive integer" };
-            CliError::Input(format!(
+            AppError::Input(format!(
                 "invalid {field} value {value:?}; expected {quantity} followed by B, KiB, MiB, GiB, or TiB"
             ))
         })?;
@@ -383,9 +390,9 @@ fn minimum_task_output(task: CampaignTaskResourceEstimate) -> MinimumRunnableTas
     }
 }
 
-fn serialize_preflight_output(output: &CampaignPreflightOutputV1) -> Result<String, CliError> {
+fn serialize_preflight_output(output: &CampaignPreflightOutputV1) -> Result<String, AppError> {
     let mut serialized = toml::to_string_pretty(output).map_err(|error| {
-        CliError::Serialization(format!(
+        AppError::Serialization(format!(
             "cannot serialize campaign execution preflight TOML: {error}"
         ))
     })?;
@@ -393,7 +400,7 @@ fn serialize_preflight_output(output: &CampaignPreflightOutputV1) -> Result<Stri
         serialized.push('\n');
     }
     if serialized.len() > MAX_OUTPUT_BYTES {
-        return Err(CliError::Serialization(format!(
+        return Err(AppError::Serialization(format!(
             "campaign execution preflight TOML needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit",
             serialized.len()
         )));

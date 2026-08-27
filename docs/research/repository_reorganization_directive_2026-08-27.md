@@ -2,9 +2,10 @@
 
 Date: 2026-08-27
 
-Status: mandatory architecture gate. The target layout remains deliberately
-unfrozen until the multi-agent inventory and independent design audit are
-complete.
+Status: active mandatory architecture gate. The multi-agent inventory and
+independent design audit are complete, and the first bounded application/CLI
+extraction has landed in the worktree. Deeper core, legacy-oracle, test, and
+documentation migrations remain pending.
 
 ## Decision
 
@@ -18,6 +19,37 @@ Symbolica-native LiteRed-like engine with no FORM and no topology-authored
 recurrences. This gate changes the route to that objective. A production
 engine whose boundaries cannot be understood or tested independently is not a
 suitable base for five- and six-loop campaigns.
+
+## Audited package decision and current progress
+
+The reconciled target is a deliberately small four-package workspace:
+
+```text
+rustred-python ------> rustred-app ------> rustred core
+                            |
+                            +-- rustred CLI binary
+
+rustred-legacy-oracles ------------------> rustred core
+```
+
+The root `rustred` package remains the topology-neutral mathematical core.
+`rustred-app` is now present and owns the initial typed application
+requests/results, canonical TOML serialization, and the CLI binary. Keeping the
+binary in this package avoids a transport-only microcrate. The initial seam is
+not yet the final transport-neutral boundary: semantic service modules and
+public errors/options must still be detached from `cli::*`, and public calls
+must add typed Rust-panic containment before PyO3 work begins.
+`rustred-python` and the publish-disabled `rustred-legacy-oracles` package are
+still to be created. Test support remains adjacent to the code it validates
+unless a later measured dependency boundary justifies another package.
+
+The first migration was intentionally mechanical: the former CLI modules and
+their three integration suites moved into `crates/rustred-app`, and the CLI now
+calls owned `derive`, `campaign_plan`, and `campaign_preflight` APIs. A direct
+contract suite checks API/CLI canonical-byte parity. Those operations become
+the Python-facing boundary after the internal CLI coupling and panic boundary
+above are removed. No solver algorithm, topology dispatch, or authored
+recurrence was added in this phase.
 
 ## Problems to audit
 
@@ -127,14 +159,16 @@ separate provenance role and are not treated as RustRed-owned stale code.
 
 ## Migration gates
 
-1. Freeze and push the mapped-`NonZero` checkpoint.
-2. Capture default-GMP build, focused, and parallel test baselines.
-3. Produce the complete classified file/dependency/doc inventory.
-4. Publish a proposed target tree, module/subcrate dependency diagram, move
+1. **Complete:** freeze and push the mapped-`NonZero` checkpoint.
+2. **Complete:** capture default-GMP build, focused, and parallel test baselines.
+3. **Complete:** produce the classified file/dependency/document inventory.
+4. **Complete:** publish and reconcile a target tree, package dependency diagram, move
    map, deletion list, and risk/test matrix.
-5. Obtain an independent adversarial audit and reconcile every blocker.
-6. Execute mechanical moves and visibility tightening in small commits, with
-   parallel tests after each phase and milestone pushes.
+5. **Complete for the package decision:** obtain an independent adversarial
+   audit and reconcile its structural blockers.
+6. **In progress:** execute mechanical moves and visibility tightening in
+   small commits, with parallel tests after each phase and milestone pushes.
+   The `rustred-app`/CLI extraction is the first such phase.
 7. Add the PyO3 package only after the shared application boundary exists;
    prove CLI/application/Python parity, licensed parallel execution, safe
    Python-thread coordination, and wheel/sdist installation without enabling

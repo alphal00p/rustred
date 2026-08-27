@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const ONE_LOOP: &str = include_str!("../examples/cli/one_loop.symbolica");
-const TWO_LOOP_HYBRID: &str = include_str!("../examples/cli/two_loop_hybrid.toml");
-const TWO_LOOP_EXPLICIT: &str = include_str!("../examples/cli/two_loop_explicit.toml");
+const ONE_LOOP: &str = include_str!("../../../examples/cli/one_loop.symbolica");
+const TWO_LOOP_HYBRID: &str = include_str!("../../../examples/cli/two_loop_hybrid.toml");
+const TWO_LOOP_EXPLICIT: &str = include_str!("../../../examples/cli/two_loop_explicit.toml");
 const TWO_LOOP_RAW: &str = r#"
 I(
   name(sunset),

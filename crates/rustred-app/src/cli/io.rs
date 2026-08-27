@@ -3,52 +3,52 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::MAX_INPUT_BYTES;
 use crate::cli::args::StreamPath;
-use crate::cli::error::CliError;
+use crate::cli::error::AppError;
 
-pub(crate) const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TEMPORARY_NAME_ATTEMPTS: u32 = 1_024;
 
-pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
+pub(crate) fn read_input(source: &StreamPath) -> Result<String, AppError> {
     let bytes = match source {
         StreamPath::Stdio => read_bounded(io::stdin().lock(), "standard input")?,
         StreamPath::File(path) => {
             let file = File::open(path).map_err(|error| {
-                CliError::InputIo(format!("cannot open input {}: {error}", path.display()))
+                AppError::InputIo(format!("cannot open input {}: {error}", path.display()))
             })?;
             read_bounded(file, &format!("input {}", path.display()))?
         }
     };
     String::from_utf8(bytes).map_err(|error| {
-        CliError::Input(format!(
+        AppError::Input(format!(
             "input is not UTF-8 (invalid byte at offset {})",
             error.utf8_error().valid_up_to()
         ))
     })
 }
 
-fn read_bounded(mut reader: impl Read, label: &str) -> Result<Vec<u8>, CliError> {
+fn read_bounded(mut reader: impl Read, label: &str) -> Result<Vec<u8>, AppError> {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = reader
             .read(&mut buffer)
-            .map_err(|error| CliError::InputIo(format!("cannot read {label}: {error}")))?;
+            .map_err(|error| AppError::InputIo(format!("cannot read {label}: {error}")))?;
         if read == 0 {
             break;
         }
         let requested = bytes.len().checked_add(read).ok_or_else(|| {
-            CliError::Input(format!(
+            AppError::Input(format!(
                 "input length overflowed the {MAX_INPUT_BYTES}-byte CLI limit"
             ))
         })?;
         if requested > MAX_INPUT_BYTES {
-            return Err(CliError::Input(format!(
+            return Err(AppError::Input(format!(
                 "input exceeds the {MAX_INPUT_BYTES}-byte CLI limit"
             )));
         }
         bytes.try_reserve(read).map_err(|_| {
-            CliError::InputIo(format!(
+            AppError::InputIo(format!(
                 "cannot reserve {requested} bytes while reading {label}"
             ))
         })?;
@@ -61,7 +61,7 @@ pub(crate) fn write_output(
     destination: &StreamPath,
     contents: &[u8],
     force: bool,
-) -> Result<(), CliError> {
+) -> Result<(), AppError> {
     match destination {
         StreamPath::Stdio => {
             let mut stdout = io::stdout().lock();
@@ -69,22 +69,22 @@ pub(crate) fn write_output(
                 .write_all(contents)
                 .and_then(|()| stdout.flush())
                 .map_err(|error| {
-                    CliError::OutputIo(format!("cannot write standard output: {error}"))
+                    AppError::OutputIo(format!("cannot write standard output: {error}"))
                 })
         }
         StreamPath::File(path) => write_file_atomically(path, contents, force),
     }
 }
 
-fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<(), CliError> {
+fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<(), AppError> {
     if path.file_name().is_none() {
-        return Err(CliError::OutputIo(format!(
+        return Err(AppError::OutputIo(format!(
             "output path {} has no file name",
             path.display()
         )));
     }
     if !force && path.exists() {
-        return Err(CliError::OutputIo(format!(
+        return Err(AppError::OutputIo(format!(
             "output {} already exists; use --force to replace it",
             path.display()
         )));
@@ -104,7 +104,7 @@ fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<()
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => {
-                return Err(CliError::OutputIo(format!(
+                return Err(AppError::OutputIo(format!(
                     "cannot create an atomic output beside {}: {error}",
                     path.display()
                 )));
@@ -112,23 +112,23 @@ fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<()
         }
     }
     let Some((temporary_path, mut temporary_file)) = temporary else {
-        return Err(CliError::OutputIo(format!(
+        return Err(AppError::OutputIo(format!(
             "cannot acquire a temporary output name beside {}",
             path.display()
         )));
     };
     let result = (|| {
         temporary_file.write_all(contents).map_err(|error| {
-            CliError::OutputIo(format!("cannot write output {}: {error}", path.display()))
+            AppError::OutputIo(format!("cannot write output {}: {error}", path.display()))
         })?;
         temporary_file.sync_all().map_err(|error| {
-            CliError::OutputIo(format!("cannot sync output {}: {error}", path.display()))
+            AppError::OutputIo(format!("cannot sync output {}: {error}", path.display()))
         })?;
         drop(temporary_file);
 
         if force {
             fs::rename(&temporary_path, path).map_err(|error| {
-                CliError::OutputIo(format!(
+                AppError::OutputIo(format!(
                     "cannot atomically install output {}: {error}",
                     path.display()
                 ))
@@ -143,13 +143,13 @@ fn write_file_atomically(path: &Path, contents: &[u8], force: bool) -> Result<()
                 } else {
                     error.to_string()
                 };
-                CliError::OutputIo(format!(
+                AppError::OutputIo(format!(
                     "cannot atomically install output {}: {detail}",
                     path.display()
                 ))
             })?;
             fs::remove_file(&temporary_path).map_err(|error| {
-                CliError::OutputIo(format!(
+                AppError::OutputIo(format!(
                     "output {} was installed but its staging link could not be removed: {error}",
                     path.display()
                 ))
@@ -174,11 +174,11 @@ fn temporary_path(parent: &Path, file_name: &OsStr, attempt: u32) -> PathBuf {
     parent.join(name)
 }
 
-fn sync_parent_directory(parent: &Path, path: &Path) -> Result<(), CliError> {
+fn sync_parent_directory(parent: &Path, path: &Path) -> Result<(), AppError> {
     File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| {
-            CliError::OutputIo(format!(
+            AppError::OutputIo(format!(
                 "output {} was installed but its directory could not be synced: {error}",
                 path.display()
             ))

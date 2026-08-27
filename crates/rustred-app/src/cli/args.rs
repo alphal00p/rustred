@@ -1,16 +1,17 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InputFormat {
+pub enum InputFormat {
     Auto,
     Toml,
     Symbolica,
 }
 
 impl InputFormat {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Toml => "toml",
@@ -32,15 +33,23 @@ impl InputFormat {
     }
 }
 
+impl FromStr for InputFormat {
+    type Err = ArgError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RelationSelection {
+pub enum RelationSelection {
     All,
     Ordinary,
     LorentzInvariance,
 }
 
 impl RelationSelection {
-    pub(crate) const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::All => "all",
             Self::Ordinary => "ordinary",
@@ -61,12 +70,20 @@ impl RelationSelection {
         }
     }
 
-    pub(crate) const fn includes_ordinary(self) -> bool {
+    pub const fn includes_ordinary(self) -> bool {
         matches!(self, Self::All | Self::Ordinary)
     }
 
-    pub(crate) const fn includes_li(self) -> bool {
+    pub const fn includes_li(self) -> bool {
         matches!(self, Self::All | Self::LorentzInvariance)
+    }
+}
+
+impl FromStr for RelationSelection {
+    type Err = ArgError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
     }
 }
 
@@ -126,7 +143,7 @@ pub(crate) enum Command {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ArgError {
+pub enum ArgError {
     NonUtf8Option(OsString),
     MissingCommand,
     MissingSubcommand(&'static str),
