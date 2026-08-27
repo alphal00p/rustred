@@ -488,6 +488,19 @@ impl GeneratedAffineResidualCaseEqualityRefinementCertificate {
         &self.equality_predicate_ordinals
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_equality_predicate_ordinal_for_test(
+        &mut self,
+        position: usize,
+        source_ordinal: usize,
+    ) -> bool {
+        let Some(ordinal) = self.equality_predicate_ordinals.get_mut(position) else {
+            return false;
+        };
+        *ordinal = source_ordinal;
+        true
+    }
+
     pub(crate) const fn limits(&self) -> GeneratedAffineResidualCasePremisesLimits {
         self.limits
     }
@@ -501,6 +514,15 @@ impl GeneratedAffineResidualCaseEqualityRefinementCertificate {
         authority: &Arc<GeneratedAffineResidualCaseAuthority>,
     ) -> bool {
         Arc::ptr_eq(&self.authority, authority)
+    }
+
+    /// Narrow authority borrow for the adjacent unit-refinement owner.  The
+    /// equality certificate remains the sole transitive owner; the adapter
+    /// neither clones lineage handles nor exposes source payload.
+    pub(crate) const fn bound_unit_equality_refinement_authority(
+        &self,
+    ) -> &Arc<GeneratedAffineResidualCaseAuthority> {
+        &self.authority
     }
 
     pub(crate) fn replay(

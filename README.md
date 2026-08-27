@@ -42,7 +42,7 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Complete and physicalize one generated bound row | Implemented internally: one authenticated bound row receives its row-local base assumptions and enters exact physical coordinates directly. Production physical-row ingress owns no `PreorderedParametricElimination`, column order, pivot, or scouting state; the legacy whole-schedule route remains only a differential/test bridge |
-| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. Multiple/nonlinear/no-unit cases return typed unsupported outcomes. This compiler is authority-neutral and is not yet bound to a committed exceptional source or fresh child-row regeneration |
+| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. A topology-neutral bridge now borrows the ordered `EqualZero` predicates from the exact premises/source authority, retains that predecessor in every typed outcome, and returns it intact on failure. Multiple/nonlinear/no-unit cases remain typed unsupported outcomes. Long-lived committed-source admission, transformed `NonZero` conditions, and fresh child-row regeneration are still pending |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
 | Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
@@ -336,12 +336,18 @@ The repository currently includes tests for:
   preflights the borrowed sparse/GMP payload before copying, preflights virtual
   integer matrices before dense staging, including sign-changing inline-to-GMP
   promotion, delegates the sole matrix product to Symbolica `Matrix<Z>`, and
-  replays exact zero substitution. A parallel licensed default-GMP Nextest gate
-  passed all 19 refinement and 37 Symbolica coefficient/integer-matrix tests
-  (56/56, run `c2f7ff6f-03dc-430c-95c7-554fdcecd95e`). General no-unit,
-  simultaneous, and nonlinear equalities remain typed completeness boundaries,
-  and this core is not yet committed-source authority or a fresh-row
-  continuation;
+  replays exact zero substitution. Its allocation-safe borrowed-predicate
+  ingress is used by an adjacent authority-bound adapter: the adapter replays
+  the exact equality-premises certificate, resolves source ordinals without an
+  intermediate polynomial vector, and preserves the predecessor on every
+  success or failure. Licensed default-GMP parallel gates pass 23/23 unit-core
+  tests, 4/4 authority-bound bridge tests, and 37/37 Symbolica coefficient/
+  integer-matrix tests. The natural source-backed bridge fixture classifies all
+  three exceptional cases as genuine refinements (`[3, 0, 0, 0]` for refined,
+  satisfied, empty, unsupported) and replays each result. General no-unit,
+  simultaneous, and nonlinear equalities remain typed completeness boundaries.
+  The adapter is not yet a long-lived committed-source resident,
+  transformed-domain owner, or fresh-row continuation;
 - an exact-GMP, session-owned `Solvej` recentering transaction: authenticated
   post-top-reduction leaders are matched against persisted targets and return
   sealed NoTarget, affine-equality-refinement, or Ready outcomes;

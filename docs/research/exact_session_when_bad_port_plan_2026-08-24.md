@@ -101,11 +101,17 @@ literal `+1` or `-1` free-coordinate pivot, composes the parent and child maps
 through one public Symbolica `Matrix<Z>` product, and verifies exact zero
 substitution. Borrowed sparse/GMP and virtual matrix payloads are admitted
 before cloning/staging, and the native output has a prospective byte envelope.
-Multiple, nonlinear, and no-unit cases return typed unsupported outcomes
-because the pinned Symbolica API has no public SNF/HNF/integer-kernel facility.
-This equality core is not yet committed-source authority: it has not been
-connected to the event-derived Domain resident, regenerated the inherited
-generic rows under the child map, or submitted them to a fresh child session.
+An adjacent topology-neutral bridge now consumes the exact equality-premises
+boundary, resolves its ordered `EqualZero` source predicates by borrow, and
+retains the predecessor in every typed result; recoverable failure returns the
+same predecessor. Refined replay authenticates the original source polynomial
+and replays the retained unit proof directly, with no second full-certificate
+allocation. Multiple, nonlinear, and no-unit cases return typed unsupported
+outcomes because the pinned Symbolica API has no public
+SNF/HNF/integer-kernel facility. This is still not a refined committed-source
+resident: transformed `NonZero` conditions, complete outer retained/peak
+admission, inherited-row regeneration, and fresh-session submission remain
+pending.
 Bundling and physical six-loop derivation still precede optimized application;
 updated 2026-08-27.
 
@@ -1668,9 +1674,13 @@ Implement in this order:
 9. build on the implemented non-durable topology-neutral `CampaignPlan`,
    stable-key exceptional result staging/charge transfer, same-database
    rejected-candidate continuation, and first sealed committed-Domain ingress
-   into a fresh narrowed-domain exact session; bind the implemented literal-
-   unit equality compiler to that committed source, regenerate and submit the
-   inherited generic rows under the child geometry, and re-enter exact solving.
+   into a fresh narrowed-domain exact session. The exact equality-premises
+   authority is now bound to the implemented literal-unit compiler by a
+   recoverable, nonresident adapter. Next, distill that proof into the
+   committed source under complete resident admission, transform every
+   remaining `NonZero` condition through the child Symbolica plan, regenerate
+   and submit the inherited generic rows under the child geometry, and re-enter
+   exact solving.
    Extend beyond the typed no-unit/simultaneous boundary only when Symbolica
    exposes the required integer normal-form/kernel API. Then add separately
    admitted shared lineage, applicable providers,
@@ -1729,14 +1739,16 @@ native sparse-row state and may honestly stop at affine-equality refinement.
 The adjacent row/equality prerequisites are now implemented but deliberately
 remain separate. `GeneratedAffineResidualCaseCompletedBoundRow` is the direct
 production seam from one authenticated bound row to physical ingress; it owns
-no scouting elimination. The unit-equality certificate is replayable and
-Symbolica-native for the literal-unit subset, but its compiler accepts only a
-borrowed current-target geometry and predicate. The next adapter must consume
-the committed exceptional resident, retain whatever event/source proof is
-mathematically required, instantiate the refined source authority, regenerate
-the generic IBP/LI rows, and submit completed rows to the fresh database. It
-must not import parent pivots or treat the authority-neutral `ProvedEmpty`
-diagnostic as branch-pruning evidence.
+no scouting elimination. The literal-unit certificate is replayable and
+Symbolica-native, and the new bound adapter proves which exact premises/source
+allocation supplied its equality without duplicating the authority handle or
+materializing an intermediate predicate vector. This adapter is transient: it
+does not yet carry the complete resident retained/peak envelope or transform
+the rest of the exceptional domain. The next owner must consume it into the
+committed exceptional source, admit the distilled unit proof and mapped
+`NonZero` ledger, instantiate the refined source authority, regenerate the
+generic IBP/LI rows, and submit completed rows to the fresh database. It must
+not import parent pivots or treat `ProvedEmpty` as branch-pruning evidence.
 
 This is not yet a standalone exceptional-lane campaign coordinator or a
 complete RAM estimate. `retained_event_bytes` covers the immutable event
@@ -1757,13 +1769,16 @@ The row/equality prerequisite gate also used licensed default-GMP Symbolica.
 Focused completed-row, physical-row, database-ingress, schedule-differential,
 and guarded-assumption runs passed 1/1, 7/7, 2/2, 1/1, and 1/1 respectively. An
 independent combined eight-worker ingress expression passed 14/14 (run
-`12eb7c94-5627-4aa2-a69d-877f312df036`). A parallel Nextest run passed all 19
-unit-equality and 37 Symbolica matrix tests (56/56, run
-`c2f7ff6f-03dc-430c-95c7-554fdcecd95e`), including exact/one-below
-pre-allocation bounds, arbitrary-precision GMP input, sign-changing
-`i128::MIN` promotion, and the pinned two-limb output-capacity boundary.
-`cargo check --tests -j8` passed. These are component gates, not a closed
-exceptional child or a reduction result.
+`12eb7c94-5627-4aa2-a69d-877f312df036`). The current parallel gates pass all
+23 unit-equality tests and 37 Symbolica matrix tests (60/60), including
+exact/one-below pre-allocation bounds, arbitrary-precision GMP input,
+sign-changing `i128::MIN` promotion, and the pinned two-limb output-capacity
+boundary. The separate authority-bound bridge gate passes 4/4; its natural
+source-backed census is `[3, 0, 0, 0]` for refined, satisfied, empty, and
+unsupported, with all three refined results replayed. The nonrefined wrappers
+are mapping-tested but are not claimed as naturally occurring outcomes of that
+fixture. `cargo check --tests -j8` passed. These are component gates, not a
+closed exceptional child or a reduction result.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

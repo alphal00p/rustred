@@ -110,6 +110,7 @@ pub(crate) mod generated_affine_parametric_ordering;
 pub(crate) mod generated_affine_prepare_point_schedule;
 pub(crate) mod generated_affine_residual_boolean_cover;
 mod generated_affine_residual_case_bound_relation;
+mod generated_affine_residual_case_bound_unit_equality_refinement;
 mod generated_affine_residual_case_completed_bound_row;
 pub(crate) mod generated_affine_residual_case_inventory;
 mod generated_affine_residual_case_pivot_target_matching;

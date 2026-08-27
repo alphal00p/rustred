@@ -180,6 +180,9 @@ pub(crate) enum GeneratedAffineResidualCaseUnitEqualityRefinementOutcome {
 pub(crate) enum GeneratedAffineResidualCaseUnitEqualityRefinementError {
     SchemaMismatch,
     ReplayMismatch,
+    EqualZeroPredicateOutOfRange {
+        ordinal: usize,
+    },
     CurrentTargetCoordinateViolation {
         position: usize,
     },
@@ -204,6 +207,10 @@ impl fmt::Display for GeneratedAffineResidualCaseUnitEqualityRefinementError {
         match self {
             Self::SchemaMismatch => formatter.write_str("unit-equality refinement schema mismatch"),
             Self::ReplayMismatch => formatter.write_str("unit-equality refinement did not replay"),
+            Self::EqualZeroPredicateOutOfRange { ordinal } => write!(
+                formatter,
+                "unit-equality predicate accessor did not resolve declared ordinal {ordinal}"
+            ),
             Self::CurrentTargetCoordinateViolation { position } => write!(
                 formatter,
                 "current-target equality uses nonfree index coordinate {position}"
@@ -419,6 +426,36 @@ pub(crate) fn compile_generated_affine_residual_case_unit_equality_refinement(
     GeneratedAffineResidualCaseUnitEqualityRefinementOutcome,
     GeneratedAffineResidualCaseUnitEqualityRefinementError,
 > {
+    compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates(
+        context,
+        parent_geometry,
+        equal_zero_predicates.len(),
+        |ordinal| equal_zero_predicates.get(ordinal),
+        limits,
+    )
+}
+
+/// Compile borrowed current-target-coordinate equalities without first
+/// materializing an intermediate slice or cloning any predicate payload.
+///
+/// `equal_zero_predicate_at` is called exactly once for every ordinal in
+/// `0..equal_zero_predicate_count`.  The complete parent map is authenticated
+/// before the first call, and every returned polynomial is authenticated
+/// before predicate cardinality is classified.  Only the single-predicate
+/// path may subsequently copy a polynomial, after the existing borrowed
+/// atom-row preflight has admitted that copy.
+pub(crate) fn compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates<
+    'predicate,
+>(
+    context: &ParametricCoefficientContext,
+    parent_geometry: ResidualAffineCompactMapView<'_>,
+    equal_zero_predicate_count: usize,
+    mut equal_zero_predicate_at: impl FnMut(usize) -> Option<&'predicate ParametricPolynomial>,
+    limits: GeneratedAffineResidualCaseUnitEqualityRefinementLimits,
+) -> Result<
+    GeneratedAffineResidualCaseUnitEqualityRefinementOutcome,
+    GeneratedAffineResidualCaseUnitEqualityRefinementError,
+> {
     check_limit(
         "context fingerprint bytes",
         context.fingerprint().len(),
@@ -431,28 +468,41 @@ pub(crate) fn compile_generated_affine_residual_case_unit_equality_refinement(
 
     check_limit(
         "equal-zero predicates inspected",
-        equal_zero_predicates.len(),
+        equal_zero_predicate_count,
         limits.max_equal_zero_predicates_inspected,
     )?;
     // Cardinality is only a completeness classification, never a shortcut
     // around context authentication.  In particular, a foreign pair must not
     // be reported as a benign unsupported multiple.
-    for equality in equal_zero_predicates {
+    let mut single_equality = None;
+    for ordinal in 0..equal_zero_predicate_count {
+        let equality = equal_zero_predicate_at(ordinal).ok_or(
+            GeneratedAffineResidualCaseUnitEqualityRefinementError::EqualZeroPredicateOutOfRange {
+                ordinal,
+            },
+        )?;
         context
             .validate_polynomial_with_limits(equality, limits.atom_row.exact_algebra)
             .map_err(ResidualAffineAtomRowError::from)?;
+        if equal_zero_predicate_count == 1 {
+            single_equality = Some(equality);
+        }
     }
 
-    let equality = match equal_zero_predicates {
-        [] => {
+    let equality = match equal_zero_predicate_count {
+        0 => {
             return Ok(GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::AlreadySatisfied);
         }
-        [equality] => equality,
-        multiple => {
+        1 => single_equality.ok_or(
+            GeneratedAffineResidualCaseUnitEqualityRefinementError::EqualZeroPredicateOutOfRange {
+                ordinal: 0,
+            },
+        )?,
+        actual => {
             return Ok(
                 GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Unsupported(
                     GeneratedAffineResidualCaseUnitEqualityRefinementUnsupported::MultipleEqualZeroPredicates {
-                        actual: multiple.len(),
+                        actual,
                     },
                 ),
             );
@@ -1006,6 +1056,8 @@ fn check_limit(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
     use crate::{CoefficientContext, ParametricCoefficient};
 
@@ -1098,6 +1150,75 @@ mod tests {
             }
             outcome => panic!("expected refined equality, got {outcome:?}"),
         }
+    }
+
+    fn assert_equivalent_outcomes(
+        context: &ParametricCoefficientContext,
+        parent: &OwnedGeometry,
+        left: GeneratedAffineResidualCaseUnitEqualityRefinementOutcome,
+        right: GeneratedAffineResidualCaseUnitEqualityRefinementOutcome,
+    ) {
+        match (left, right) {
+            (
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Refined(left),
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Refined(right),
+            ) => {
+                assert_eq!(left.schema(), right.schema());
+                assert_eq!(left.equality(), right.equality());
+                assert_eq!(left.pivot_free_ordinal(), right.pivot_free_ordinal());
+                assert_eq!(
+                    left.pivot_ambient_position(),
+                    right.pivot_ambient_position()
+                );
+                assert_eq!(left.child_constants, right.child_constants);
+                assert_eq!(left.child_free_positions, right.child_free_positions);
+                assert_eq!(
+                    left.child_compact_linear_coefficients,
+                    right.child_compact_linear_coefficients
+                );
+                assert_eq!(left.stats(), right.stats());
+                left.replay(context, parent.view()).unwrap();
+                right.replay(context, parent.view()).unwrap();
+            }
+            (
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::AlreadySatisfied,
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::AlreadySatisfied,
+            )
+            | (
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::ProvedEmpty,
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::ProvedEmpty,
+            ) => {}
+            (
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Unsupported(left),
+                GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Unsupported(right),
+            ) => assert_eq!(left, right),
+            (left, right) => panic!("slice/accessor outcome mismatch: {left:?} versus {right:?}"),
+        }
+    }
+
+    fn assert_slice_and_borrowed_equivalent(
+        context: &ParametricCoefficientContext,
+        parent: &OwnedGeometry,
+        predicates: &[ParametricPolynomial],
+    ) {
+        let limits = GeneratedAffineResidualCaseUnitEqualityRefinementLimits::default();
+        let slice = compile_generated_affine_residual_case_unit_equality_refinement(
+            context,
+            parent.view(),
+            predicates,
+            limits,
+        )
+        .unwrap();
+        let borrowed =
+            compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates(
+                context,
+                parent.view(),
+                predicates.len(),
+                |ordinal| predicates.get(ordinal),
+                limits,
+            )
+            .unwrap();
+        assert_equivalent_outcomes(context, parent, slice, borrowed);
     }
 
     #[test]
@@ -1441,6 +1562,131 @@ mod tests {
                 )
             )
         ));
+    }
+
+    #[test]
+    fn borrowed_predicate_ingress_handles_zero_one_and_multiple_without_materialization() {
+        let context = context("unit-equality-borrowed-cardinality", 2);
+        let parent = OwnedGeometry::identity(&context);
+        let none = Vec::new();
+        let one = vec![affine(&context, 3, &[1, -2])];
+        let multiple = vec![affine(&context, 0, &[1, 0]), affine(&context, 0, &[0, 1])];
+
+        for predicates in [&none[..], &one[..], &multiple[..]] {
+            let calls = Cell::new(0usize);
+            let outcome =
+                compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates(
+                    &context,
+                    parent.view(),
+                    predicates.len(),
+                    |ordinal| {
+                        calls.set(calls.get() + 1);
+                        predicates.get(ordinal)
+                    },
+                    GeneratedAffineResidualCaseUnitEqualityRefinementLimits::default(),
+                )
+                .unwrap();
+            assert_eq!(calls.get(), predicates.len());
+            match predicates.len() {
+                0 => assert!(matches!(
+                    outcome,
+                    GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::AlreadySatisfied
+                )),
+                1 => assert!(matches!(
+                    outcome,
+                    GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Refined(_)
+                )),
+                2 => assert!(matches!(
+                    outcome,
+                    GeneratedAffineResidualCaseUnitEqualityRefinementOutcome::Unsupported(
+                        GeneratedAffineResidualCaseUnitEqualityRefinementUnsupported::MultipleEqualZeroPredicates {
+                            actual: 2
+                        }
+                    )
+                )),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_multiple_authenticates_foreign_context_before_cardinality_classification() {
+        let primary = context("unit-equality-borrowed-foreign", 2);
+        let parent = OwnedGeometry::identity(&primary);
+        let foreign = context("unit-equality-borrowed-foreign-source", 2);
+        let predicates = [affine(&primary, 0, &[1, 0]), affine(&foreign, 0, &[0, 1])];
+        let calls = Cell::new(0usize);
+
+        let borrowed_error =
+            compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates(
+                &primary,
+                parent.view(),
+                predicates.len(),
+                |ordinal| {
+                    calls.set(calls.get() + 1);
+                    predicates.get(ordinal)
+                },
+                GeneratedAffineResidualCaseUnitEqualityRefinementLimits::default(),
+            )
+            .unwrap_err();
+        let slice_error = compile_generated_affine_residual_case_unit_equality_refinement(
+            &primary,
+            parent.view(),
+            &predicates,
+            GeneratedAffineResidualCaseUnitEqualityRefinementLimits::default(),
+        )
+        .unwrap_err();
+
+        assert_eq!(calls.get(), predicates.len());
+        assert_eq!(borrowed_error, slice_error);
+        assert!(matches!(
+            borrowed_error,
+            GeneratedAffineResidualCaseUnitEqualityRefinementError::AtomRow(
+                ResidualAffineAtomRowError::Coefficient(_)
+            )
+        ));
+    }
+
+    #[test]
+    fn borrowed_and_slice_ingress_have_exactly_equivalent_behavior() {
+        let context = context("unit-equality-borrowed-equivalence", 2);
+        let parent = OwnedGeometry::identity(&context);
+        let empty = Vec::new();
+        let zero = vec![polynomial(&context, &context.zero())];
+        let nonzero_constant = vec![polynomial(&context, &context.integer(11))];
+        let refined = vec![affine(&context, 5, &[1, -3])];
+        let multiple = vec![affine(&context, 0, &[1, 0]), affine(&context, 0, &[0, 1])];
+
+        for predicates in [
+            &empty[..],
+            &zero[..],
+            &nonzero_constant[..],
+            &refined[..],
+            &multiple[..],
+        ] {
+            assert_slice_and_borrowed_equivalent(&context, &parent, predicates);
+        }
+    }
+
+    #[test]
+    fn borrowed_predicate_count_must_match_accessor_domain() {
+        let context = context("unit-equality-borrowed-domain", 2);
+        let parent = OwnedGeometry::identity(&context);
+        let predicates = [affine(&context, 0, &[1, 0])];
+
+        assert_eq!(
+            compile_generated_affine_residual_case_unit_equality_refinement_with_borrowed_predicates(
+                &context,
+                parent.view(),
+                2,
+                |ordinal| predicates.get(ordinal),
+                GeneratedAffineResidualCaseUnitEqualityRefinementLimits::default(),
+            )
+            .unwrap_err(),
+            GeneratedAffineResidualCaseUnitEqualityRefinementError::EqualZeroPredicateOutOfRange {
+                ordinal: 1
+            }
+        );
     }
 
     #[test]

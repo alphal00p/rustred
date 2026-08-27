@@ -16,7 +16,7 @@ parameterization. RustRed must not fill that API gap with its own CAS. The
 first production refinement therefore accepts one normalized integer-affine
 equality only when an active free coordinate has literal coefficient `+1` or
 `-1`; it delegates geometry composition to Symbolica and returns a typed
-typed `RequiresIntegerNormalForm` unsupported outcome otherwise. The broader
+`RequiresIntegerNormalForm` unsupported outcome otherwise. The broader
 semantics below remain an acceptance target for a future public Symbolica
 normal-form API, not permission to promote the existing handwritten prototype.
 
@@ -33,16 +33,35 @@ virtual-entry census is sign-aware, records the prospective input envelope
 separately from the native census, and covers `-i128::MIN` promotion. The pinned
 default-GMP output bound treats only positive magnitudes through 127 bits as
 inline and reserves two capacity limbs beyond the rounded dot-product envelope.
-Parallel licensed default-GMP validation passed all 19 refinement tests and 37
-matrix-boundary tests (56/56), including a genuine GMP-sized constant,
+Parallel licensed default-GMP validation passed all 23 unit-refinement tests
+and 37 matrix-boundary tests (60/60), including a genuine GMP-sized constant,
 `i128::MIN` promotion, the signed 128-bit inline boundary, the two-limb
 multi-term capacity boundary, and exact/one-below resource limits.
 
-This certificate remains authority-neutral. It is not yet attached to a
-committed exceptional Domain resident, and it neither regenerates generic
+The unit certificate itself remains authority-neutral. The adjacent
+`generated_affine_residual_case_bound_unit_equality_refinement.rs` bridge now
+consumes the exact equality-premises boundary, borrows its ordered source
+predicates without first cloning a vector, and retains that predecessor in all
+four typed classifications. A move-only failure likewise returns the exact
+predecessor for retry or rerouting. Refined replay reauthenticates the source
+predicate and parent geometry, then replays the retained unit certificate; it
+does not allocate and compare a second complete unit certificate.
+
+The bridge's separate four-test licensed default-GMP gate passes all 4/4
+tests. Its genuine source-backed fixture finds three refinable cases and no
+other classifications (`[3, 0, 0, 0]` for refined, satisfied, empty,
+unsupported), authenticates each retained source predicate, and replays each
+bound result. The other three typed wrappers are exhaustively mapped in an
+allocation-free binding test; they are not claimed as naturally occurring
+end-to-end outcomes of that fixture.
+
+That bridge is deliberately not yet a long-lived committed exceptional
+`Domain` resident. Its complete transitive retained/peak byte envelope, mapped
+remaining `NonZero` domain, V2 durable identity, and refined source-allocation
+contract are the next residence gate. It therefore neither regenerates generic
 IBP/LI rows nor submits completed physical rows to the fresh child database.
-`ProvedEmpty` is diagnostic until that future adapter retains and replays the
-event-bound proof needed for pruning.
+`ProvedEmpty` remains diagnostic and grants no pruning, rule-publication, or
+master-inference authority.
 
 ## 1. Decision and completeness boundary
 
