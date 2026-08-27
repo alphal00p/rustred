@@ -884,41 +884,46 @@ impl SymanzikPolynomials {
             return Ok(Self { context, u, f, g });
         }
 
-        let adjugate = checked_adjugate(&context, &a, &mut work)?;
-        let mut momentum_square = context.zero();
-        let loop_external_entries =
-            checked_mul(loops, externals, "Feynman Gram-contraction entries")?;
-        let gram_contraction_entries = checked_mul(
-            loop_external_entries,
-            loop_external_entries,
-            "Feynman Gram-contraction entries",
-        )?;
-        work.charge_term_operations(gram_contraction_entries)?;
-        for loop_left in 0..loops {
-            for loop_right in 0..loops {
-                for external_left in 0..externals {
-                    for external_right in 0..externals {
-                        let gram = &family.external_gram()[external_left][external_right];
-                        if gram.is_zero()
-                            || q[loop_left][external_left].is_zero()
-                            || adjugate[loop_left][loop_right].is_zero()
-                            || q[loop_right][external_right].is_zero()
-                        {
-                            continue;
+        let momentum_square = if externals == 0 {
+            context.zero()
+        } else {
+            let adjugate = checked_adjugate(&context, &a, &mut work)?;
+            let mut momentum_square = context.zero();
+            let loop_external_entries =
+                checked_mul(loops, externals, "Feynman Gram-contraction entries")?;
+            let gram_contraction_entries = checked_mul(
+                loop_external_entries,
+                loop_external_entries,
+                "Feynman Gram-contraction entries",
+            )?;
+            work.charge_term_operations(gram_contraction_entries)?;
+            for loop_left in 0..loops {
+                for loop_right in 0..loops {
+                    for external_left in 0..externals {
+                        for external_right in 0..externals {
+                            let gram = &family.external_gram()[external_left][external_right];
+                            if gram.is_zero()
+                                || q[loop_left][external_left].is_zero()
+                                || adjugate[loop_left][loop_right].is_zero()
+                                || q[loop_right][external_right].is_zero()
+                            {
+                                continue;
+                            }
+                            let product = context.mul(
+                                &q[loop_left][external_left],
+                                &adjugate[loop_left][loop_right],
+                                &mut work,
+                            )?;
+                            let product =
+                                context.mul(&product, &q[loop_right][external_right], &mut work)?;
+                            let product = context.scale(&product, gram, &mut work)?;
+                            momentum_square = context.add(&momentum_square, &product, &mut work)?;
                         }
-                        let product = context.mul(
-                            &q[loop_left][external_left],
-                            &adjugate[loop_left][loop_right],
-                            &mut work,
-                        )?;
-                        let product =
-                            context.mul(&product, &q[loop_right][external_right], &mut work)?;
-                        let product = context.scale(&product, gram, &mut work)?;
-                        momentum_square = context.add(&momentum_square, &product, &mut work)?;
                     }
                 }
             }
-        }
+            momentum_square
+        };
         let uc = context.mul(&u, &c, &mut work)?;
         let f = context.sub(&uc, &momentum_square, &mut work)?;
         let g = context.add(&u, &f, &mut work)?;

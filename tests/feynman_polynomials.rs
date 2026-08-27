@@ -83,6 +83,36 @@ fn sunset_family(name: &str) -> IntegralFamily {
     .unwrap()
 }
 
+fn two_loop_one_external_family(name: &str) -> IntegralFamily {
+    let coefficients = CoefficientContext::new(["d", "s"]);
+    let s = coefficients.parameter("s").unwrap();
+    let denominators = (0..5)
+        .map(|coordinate| {
+            affine(
+                coefficients.zero(),
+                (0..5).map(|candidate| {
+                    if candidate == coordinate {
+                        coefficients.one()
+                    } else {
+                        coefficients.zero()
+                    }
+                }),
+            )
+        })
+        .collect();
+    IntegralFamily::new(
+        name,
+        vec!["k0".into(), "k1".into()],
+        vec!["p".into()],
+        coefficients.clone(),
+        coefficients.parameter("d").unwrap(),
+        denominators,
+        vec![vec![s]],
+        vec![coefficients.zero(); 5],
+    )
+    .unwrap()
+}
+
 #[test]
 fn one_loop_tadpole_has_expected_u_f_g() {
     let coefficients = CoefficientContext::new(["d", "m2"]);
@@ -253,7 +283,7 @@ fn aggregate_term_budget_includes_assembly_determinant_and_gram_work() {
 
 #[test]
 fn determinant_budget_is_shared_by_u_and_every_adjugate_minor() {
-    let family = sunset_family("symanzik-aggregate-determinants");
+    let family = two_loop_one_external_family("symanzik-aggregate-determinants");
     let below = FeynmanPolynomialLimits {
         max_determinant_operations: 7,
         ..FeynmanPolynomialLimits::default()
@@ -272,6 +302,47 @@ fn determinant_budget_is_shared_by_u_and_every_adjugate_minor() {
         ..FeynmanPolynomialLimits::default()
     };
     SymanzikPolynomials::try_from_family_with_limits(&family, exact).unwrap();
+}
+
+#[test]
+fn vacuum_skips_adjugate_limit_without_changing_deterministic_results() {
+    let family = sunset_family("symanzik-vacuum-skips-adjugate");
+    let unrestricted = SymanzikPolynomials::try_from_family(&family).unwrap();
+    let limits = FeynmanPolynomialLimits {
+        max_adjugate_minors: 1,
+        ..FeynmanPolynomialLimits::default()
+    };
+
+    let first = SymanzikPolynomials::try_from_family_with_limits(&family, limits).unwrap();
+    let second = SymanzikPolynomials::try_from_family_with_limits(&family, limits).unwrap();
+
+    assert_eq!(unrestricted.u().stable_string(), first.u().stable_string());
+    assert_eq!(unrestricted.f().stable_string(), first.f().stable_string());
+    assert_eq!(unrestricted.g().stable_string(), first.g().stable_string());
+    assert_eq!(first.u().stable_string(), second.u().stable_string());
+    assert_eq!(first.f().stable_string(), second.f().stable_string());
+    assert_eq!(first.g().stable_string(), second.g().stable_string());
+    assert_eq!(first.family_domain(), family.domain());
+    assert_eq!(first.u().term_count(), 3);
+    assert_eq!(first.f().term_count(), 7);
+}
+
+#[test]
+fn non_vacuum_still_enforces_adjugate_minor_limit() {
+    let family = two_loop_one_external_family("symanzik-non-vacuum-needs-adjugate");
+    let limits = FeynmanPolynomialLimits {
+        max_adjugate_minors: 1,
+        ..FeynmanPolynomialLimits::default()
+    };
+
+    assert!(matches!(
+        SymanzikPolynomials::try_from_family_with_limits(&family, limits),
+        Err(FeynmanPolynomialError::ResourceLimit {
+            resource: "adjugate minors",
+            requested: 4,
+            limit: 1,
+        })
+    ));
 }
 
 #[test]
