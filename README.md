@@ -23,6 +23,22 @@ intermediate rules, pivot order, global state, or implementation quirks.
 RustRed does not invoke FORM or a Mathematica kernel. The checked-in build uses
 Symbolica's licensed GMP backend and deliberately does not enable `no_gmp`.
 
+## Repository-structure gate
+
+Feature growth pauses after the transient mapped-`NonZero` checkpoint for a
+deep repository reorganization. The present flat source tree mixes generic
+production kernels, campaign orchestration, acceptance campaigns, historical
+loop-count oracles, and differential fixtures. Before equality-resident
+integration continues, RustRed will inventory those roles, design and
+independently audit explicit module or subcrate boundaries, move concrete
+loop-count material out of the production engine, and delete sources and
+documents proved stale rather than preserving compatibility at this stage.
+That reorganization also introduces one transport-neutral application layer;
+the existing CLI and the requested PyO3 package will be thin, parity-tested
+frontends over it rather than independent implementations.
+The audit and migration contract are tracked in the
+[repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).
+
 ## Status
 
 RustRed is an active implementation project and does not yet cover LiteRed2's
@@ -34,6 +50,7 @@ complete mathematical workflow.
 | Infer scalar parameters from family-defining expressions | Available |
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
+| Call the CLI-equivalent application API from Python | Planned and mandatory, but not yet implemented. The reorganization will extract a shared typed application layer and add a dedicated PyO3 package; Python will not contain algebra or a second reduction path |
 | Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
 | Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives: the versioned pre-pool width planner chooses the largest memory-feasible `E <= --n-cores`, returns a typed no-fit pause, and only a consumed plan may construct the exact bounded worker count; move-only core/estimated-memory guards and stable dispatch follow. A no-default physical-profile contract and algebra-free `campaign preflight` report are available. Named-host calibration, phase-specific task estimators, and the production frontier coordinator remain pending |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
@@ -42,7 +59,7 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Complete and physicalize one generated bound row | Implemented internally: one authenticated bound row receives its row-local base assumptions and enters exact physical coordinates directly. Production physical-row ingress owns no `PreorderedParametricElimination`, column order, pivot, or scouting state; the legacy whole-schedule route remains only a differential/test bridge |
-| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. A topology-neutral bridge now borrows the ordered `EqualZero` predicates from the exact premises/source authority, retains that predecessor in every typed outcome, and returns it intact on failure. Multiple/nonlinear/no-unit cases remain typed unsupported outcomes. The next production seam consumes the committed exceptional resident before any session, maps the surviving `NonZero` domain, and only then creates the fresh child; long-lived refined-source admission and child-row regeneration are still pending |
+| Refine an exceptional affine equality | Implemented internally for one current-target-coordinate integer-affine equality with a literal `+1` or `-1` free-coordinate pivot. Primitive recognition is Symbolica-backed, affine-map composition is one native `Matrix<Z>` product, and replay proves the equality maps to zero. A topology-neutral bridge borrows ordered `EqualZero` predicates from the exact source authority. A separate private, source-neutral algebra worker now replays the refined child plan, preflights the complete mapping/output workload for the inherited/exceptional `NonZero` stream, maps it by simultaneous Symbolica substitution, returns the first mapped-zero contradiction as a non-authoritative diagnostic, discharges mapped nonzero integer constants, and canonicalizes base loci over `Q*` separately from index-dependent loci over `Q(theta)*`. It is not yet callable outside its module or bound to the committed exceptional resident; long-lived refined-source admission, child-row regeneration, and fresh child-session creation remain pending |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
 | Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
@@ -942,9 +959,13 @@ enclosing memory contract, exposes the matching admission baseline, and creates
 zero or exactly `E` workers only after plan consumption. The no-default
 physical-profile contract and pure `campaign preflight` report are now wired;
 the example is deliberately uncalibrated and does not start a frontier. The
-immediate gate is a transient source-neutral mapped-`NonZero` certificate,
-then the committed-resident-to-refined-source transform and generic-row
-regeneration for the implemented unit-pivot equality refinement. Separately
+transient source-neutral mapped-`NonZero` algebra worker is now implemented
+behind a private entry point and passes 10/10 focused default-GMP tests with four
+test threads. Feature growth is paused at that checkpoint for the mandatory
+repository reorganization, including the shared CLI/PyO3 application seam.
+After that gate, the next mathematical work is the committed-resident-to-
+refined-source transform and generic-row regeneration for the implemented
+unit-pivot equality refinement. Separately
 charged shared event ancestry, named-host measurements, phase-specific task
 estimators, and the full plan-consuming exceptional/subsector frontier
 coordinator follow; that coordinator must prove a coverage fixed point.
@@ -979,6 +1000,8 @@ campaign concurrency. No test path enables `no_gmp`.
 ## Documentation
 
 - [CLI contract and input formats](docs/CLI.md)
+- [Repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md)
+- [Python API directive](docs/research/python_api_directive_2026-08-27.md)
 - [RustRed scope and acceptance criteria](docs/research/rustred_scope_and_acceptance.md)
 - [Six-loop single-scale vacuum priority](docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md)
 - [Deterministic parallel campaign foundry](docs/research/parallel_campaign_foundry_design_2026-08-26.md)

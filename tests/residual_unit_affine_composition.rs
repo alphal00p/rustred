@@ -28,6 +28,7 @@ fn public_schema_and_budget_vocabulary_are_stable_without_exporting_raw_composit
     assert!(plan.max_total_image_terms > 0);
     assert!(polynomial.max_expanded_contributions > 0);
     assert!(polynomial.max_native_power_heap_pairs > 0);
+    assert!(polynomial.max_native_integer_bit_work > 0);
     assert!(polynomial.max_integer_bit_work > 0);
     assert!(polynomial.max_normalization_input_term_pairs > 0);
     assert!(polynomial.max_guard_origin_retained_bytes > 0);

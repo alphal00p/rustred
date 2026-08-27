@@ -743,12 +743,14 @@ That path validates isolation only. The production order consumes the
 committed resident before any session, compiles the unit proof from its source,
 maps the surviving `NonZero` ledger, and commits the refined-source successor;
 only the successor creates the child session.
-A separate literal-unit-pivot compiler can now derive and replay the required
-child geometry, and generated bound rows can be completed/physicalized one at a
-time without production `PreorderedParametricElimination` ownership. The next
-step is the transient source-neutral mapped-domain certificate, then the
-resident-to-refined-source transform, generic-row regeneration under the child
-geometry, and fresh-database submission.
+A separate literal-unit-pivot compiler can derive and replay the required child
+geometry, and generated bound rows can be completed/physicalized one at a time
+without production `PreorderedParametricElimination` ownership. The transient
+source-neutral mapped-domain algebra worker is now implemented and
+focused-tested behind a private entry point; it is not yet connected to or
+authenticated by the committed resident. A mandatory repository
+reorganization now precedes the resident-to-refined-source transform, generic-
+row regeneration under the child geometry, and fresh-database submission.
 A `SectorLeak`
 returns its live lease to separate out-of-sector routing. Equality quotient/re-
 elimination beyond the literal-unit subset (pending a public Symbolica integer

@@ -1888,6 +1888,13 @@ fn aggregate_associate_native_work_and_workspace_limits_have_strict_boundaries()
         .accumulate_associate_pair(GeneratedResidualAffineConditionAccumulatorLimits::default())
         .unwrap();
     let stats = baseline.stats();
+    assert_eq!(
+        stats.associate_combined_temporary_byte_envelope(),
+        stats
+            .associate_native_workspace_byte_envelope()
+            .checked_add(stats.associate_rustred_visible_temporary_byte_envelope())
+            .unwrap()
+    );
 
     boundary!(
         |limits| fixture.accumulate_associate_pair(limits),
@@ -1960,6 +1967,14 @@ fn aggregate_associate_native_work_and_workspace_limits_have_strict_boundaries()
         max_associate_rustred_visible_temporary_byte_envelope,
         ParametricCoefficient,
         "polynomial-associate RustRed-visible temporary byte envelope"
+    );
+    boundary!(
+        |limits| fixture.accumulate_associate_pair(limits),
+        stats,
+        associate_combined_temporary_byte_envelope,
+        max_associate_combined_temporary_byte_envelope,
+        ParametricCoefficient,
+        "polynomial-associate combined temporary byte envelope"
     );
 }
 

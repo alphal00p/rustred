@@ -20,6 +20,22 @@ The owning queue, scheduling, closure, bundle, application, audit-replay, and
 complete-reduction gates remain open. Shallow event-bound rule/residual domain
 views are implemented in the subsequent worktree slice.
 
+The 2026-08-27 private source-neutral mapped-`NonZero` worker adds
+complete-stream mapping/output preflight, simultaneous Symbolica substitution,
+first-zero diagnostics, constant discharge, corrected `Q*`/`Q(theta)*` locus
+routing, and parent peak accounting for replay, allocator, GMP-output, and
+accumulator temporary memory, including the mapped-zero diagnostic overlap.
+Native Symbolica integer work is budgeted separately from total
+collection/conversion work throughout every aggregate composition caller. It
+is not source-bound or proof authority yet.
+The mandatory next gate
+is a repository-wide structural audit and reorganization: generic production
+code, loop-specific validation campaigns, fixtures, and current documentation
+must become visibly separate before resident equality integration resumes. The
+same gate must extract a typed transport-neutral application layer and add a
+PyO3 package over exactly the operations used by the CLI. The binding is not a
+second algebra or reduction implementation.
+
 ## Reading status
 
 This document is normative: its feature lists and validation ladder define
@@ -61,6 +77,14 @@ and its alphaLoop integration under `vendor/gammaloop/crates/vakint`.  FORM
 sources may be read to understand the algorithms and conventions, but RustRed
 must never invoke or depend on FORM.  The implementation is Rust plus the
 vendored Symbolica Rust API.
+
+RustRed must expose its application services through both the CLI and Python.
+Those frontends share owned request/result types, typed errors, resource
+limits, deterministic serialization, and the `n_cores` execution contract.
+Python-specific types, callbacks, and GIL state remain outside the core, and
+the final dependency graph must retain Symbolica's GMP backend without
+`no_gmp`. The detailed binding contract is in
+[`python_api_directive_2026-08-27.md`](python_api_directive_2026-08-27.md).
 
 The immediate deployment priority is highly efficient reduction of up to
 six-loop, single-scale massive vacuum graphs produced after GammaLoop's

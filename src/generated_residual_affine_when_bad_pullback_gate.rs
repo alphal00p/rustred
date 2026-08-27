@@ -1051,9 +1051,10 @@ fn compile_generated_residual_affine_when_bad_pullback_gate_table_inner(
                 {
                     return Err(GeneratedResidualAffineWhenBadPullbackGateError::ReplayMismatch);
                 }
-                // The compositor has one combined integer-work bound.  The
-                // native-only aggregate is independently admitted here before
-                // entering its evaluator.
+                // Recheck the row-wide native aggregate before entering the
+                // evaluator. The child preflight also receives the exact
+                // remaining native allowance, so both aggregate ownership and
+                // per-call admission are explicit.
                 check_limit(
                     "generated affine pullback/gate total native integer-bit work",
                     checked_add(
@@ -1800,6 +1801,11 @@ fn remaining_composition_limits(
         "generated affine pullback/gate total addition term visits",
         limits.max_total_addition_term_visits,
         stats.total_addition_term_visits,
+    )?);
+    effective.max_native_integer_bit_work = effective.max_native_integer_bit_work.min(remaining(
+        "generated affine pullback/gate total native integer-bit work",
+        limits.max_total_native_integer_bit_work,
+        stats.total_native_integer_bit_work,
     )?);
     effective.max_integer_bit_work = effective.max_integer_bit_work.min(remaining(
         "generated affine pullback/gate total integer-bit work",
@@ -2977,6 +2983,10 @@ mod tests {
         assert_eq!(child.polynomial_composition, outer.polynomial_composition);
         assert_eq!(child.max_boundary_values, outer.max_boundary_values);
         assert_eq!(
+            child.max_total_native_integer_bit_work,
+            outer.max_total_native_integer_bit_work
+        );
+        assert_eq!(
             child.max_total_integer_bit_work,
             outer.max_total_integer_bit_work
         );
@@ -2985,6 +2995,24 @@ mod tests {
             child.max_payload_comparison_integer_bits,
             outer.max_payload_comparison_integer_bits
         );
+    }
+
+    #[test]
+    fn remaining_composition_limits_separate_native_from_total_integer_work() {
+        let mut limits = GeneratedResidualAffineWhenBadPullbackGateLimits::default();
+        limits.polynomial_composition.max_native_integer_bit_work = 101;
+        limits.polynomial_composition.max_integer_bit_work = 211;
+        limits.max_total_native_integer_bit_work = 17;
+        limits.max_total_integer_bit_work = 31;
+        let stats = GeneratedResidualAffineWhenBadPullbackGateStats {
+            total_native_integer_bit_work: 5,
+            total_integer_bit_work: 7,
+            ..GeneratedResidualAffineWhenBadPullbackGateStats::default()
+        };
+
+        let child = remaining_composition_limits(limits, &stats).unwrap();
+        assert_eq!(child.max_native_integer_bit_work, 12);
+        assert_eq!(child.max_integer_bit_work, 24);
     }
 
     #[test]

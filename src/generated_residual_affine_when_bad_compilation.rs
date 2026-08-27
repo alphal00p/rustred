@@ -5764,6 +5764,13 @@ impl GeneratedResidualAffineWhenBadCertificate {
                             )?;
                         }
                     }
+                    GeneratedResidualAffineConditionSourceLocator::ExceptionalNonZeroPredicate {
+                        ..
+                    } => {
+                        return Err(
+                            GeneratedResidualAffineWhenBadApplicationError::ConditionSourceMismatch,
+                        );
+                    }
                     GeneratedResidualAffineConditionSourceLocator::RecenteredRelationGuard {
                         guard_ordinal,
                     } => {
@@ -5893,6 +5900,13 @@ impl GeneratedResidualAffineSealedApplicationPlan<'_, '_, '_, '_> {
                             GeneratedResidualAffineWhenBadApplicationError::ConditionSourceMismatch,
                         )?;
                         origins.extend(condition.origins().iter().cloned());
+                    }
+                    GeneratedResidualAffineConditionSourceLocator::ExceptionalNonZeroPredicate {
+                        ..
+                    } => {
+                        return Err(
+                            GeneratedResidualAffineWhenBadApplicationError::ConditionSourceMismatch,
+                        );
                     }
                     GeneratedResidualAffineConditionSourceLocator::RecenteredRelationGuard {
                         guard_ordinal,

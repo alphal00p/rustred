@@ -2459,6 +2459,11 @@ fn remaining_composition_limits(
         limits.max_mapping_addition_term_visit_bound,
         prior.addition_term_visit_bound,
     )?);
+    child.max_native_integer_bit_work = child.max_native_integer_bit_work.min(remaining_limit(
+        "exact WhenBad mapping native integer-bit work",
+        limits.max_mapping_native_integer_bit_work_bound,
+        prior.native_integer_bit_work_bound,
+    )?);
     child.max_integer_bit_work = child.max_integer_bit_work.min(remaining_limit(
         "exact WhenBad mapping integer-bit work",
         limits.max_mapping_integer_bit_work_bound,
@@ -4073,10 +4078,10 @@ fn mapped_coefficient_envelope(
 fn prospective_polynomial_retained_envelope(
     stats: ResidualUnitAffinePolynomialCompositionStats,
 ) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadMaterializationError> {
-    sparse_polynomial_retained_envelope(
-        stats.expanded_contribution_bound(),
-        stats.output_exponent_entry_bound(),
-        stats.largest_integer_coefficient_bit_bound(),
+    Ok(
+        crate::parametric_coefficient::residual_affine_composition_output_retained_byte_envelope(
+            stats,
+        )?,
     )
 }
 
@@ -4085,70 +4090,13 @@ fn sparse_polynomial_retained_envelope(
     exponent_entry_bound: usize,
     integer_bit_bound: usize,
 ) -> Result<usize, GeneratedAffineResidualGroupExactWhenBadMaterializationError> {
-    // Symbolica may append after an exact non-power-of-two merge allocation;
-    // Rust's amortized growth can therefore retain up to twice the admitted
-    // entry count.  This mirrors the central authenticated sparse-envelope
-    // policy (which is not currently exposed by the composition API).
-    let coefficient_capacity = checked_mul(
-        "exact WhenBad sparse polynomial coefficient capacity",
-        term_bound,
-        2,
-    )?;
-    let exponent_capacity = checked_mul(
-        "exact WhenBad sparse polynomial exponent capacity",
-        exponent_entry_bound,
-        2,
-    )?;
-    let coefficient_slots = checked_mul(
-        "exact WhenBad sparse polynomial coefficient slots",
-        coefficient_capacity,
-        size_of::<Integer>(),
-    )?;
-    let exponent_slots = checked_mul(
-        "exact WhenBad sparse polynomial exponent slots",
-        exponent_capacity,
-        size_of::<u16>(),
-    )?;
-    let rounded_limbs_per_coefficient = checked_add(
-        "exact WhenBad sparse polynomial integer limb envelope",
-        integer_bit_bound,
-        63,
-    )?
-    .checked_div(64)
-    .ok_or(
-        GeneratedAffineResidualGroupExactWhenBadMaterializationError::ResourceCountOverflow {
-            resource: "exact WhenBad sparse polynomial integer limb envelope",
-        },
-    )?;
-    // One spare limb covers GMP capacity rounding beyond magnitude.
-    let limb_bytes = checked_mul(
-        "exact WhenBad sparse polynomial integer limb envelope",
-        checked_add(
-            "exact WhenBad sparse polynomial integer limb envelope",
-            rounded_limbs_per_coefficient,
-            1,
+    Ok(
+        crate::parametric_coefficient::residual_affine_polynomial_retained_byte_envelope(
+            term_bound,
+            exponent_entry_bound,
+            integer_bit_bound,
         )?,
-        size_of::<usize>(),
-    )?;
-    let integer_payload = checked_mul(
-        "exact WhenBad sparse polynomial integer payload",
-        term_bound,
-        limb_bytes,
-    )?;
-    [
-        size_of::<ParametricPolynomial>(),
-        coefficient_slots,
-        exponent_slots,
-        integer_payload,
-    ]
-    .into_iter()
-    .try_fold(0usize, |sum, value| {
-        checked_add(
-            "exact WhenBad sparse polynomial retained envelope",
-            sum,
-            value,
-        )
-    })
+    )
 }
 
 fn polynomial_retained_bound(

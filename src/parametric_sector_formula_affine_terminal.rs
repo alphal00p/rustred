@@ -1254,6 +1254,7 @@ struct GuardCompositionClampProvenance {
     native_power_heap_pairs: bool,
     multiplication_term_pairs: bool,
     addition_term_visits: bool,
+    native_integer_bit_work: bool,
     integer_bit_work: bool,
 }
 
@@ -2041,8 +2042,13 @@ fn remaining_guard_composition_limits(
         max_total_guard_addition_term_visits,
         "affine-terminal total guard addition term visits"
     );
-    // Native integer work is an independent aggregate checked after each
-    // preflight.  Only the total integer-work budget is a child-call clamp.
+    clamp_remaining!(
+        max_native_integer_bit_work,
+        native_integer_bit_work,
+        native_integer_bit_work_bound,
+        max_total_guard_native_integer_bit_work_bound,
+        "affine-terminal total guard native integer-bit work bound"
+    );
     clamp_remaining!(
         max_integer_bit_work,
         integer_bit_work,
@@ -2260,6 +2266,14 @@ fn map_guard_composition_error(
             "native addition term visits",
             "Symbolica backend structural term visits"
         ]
+    );
+    direct_remap!(
+        native_integer_bit_work,
+        max_native_integer_bit_work,
+        native_integer_bit_work_bound,
+        max_total_guard_native_integer_bit_work_bound,
+        "affine-terminal total guard native integer-bit work bound",
+        ["native integer bit work"]
     );
     direct_remap!(
         integer_bit_work,
@@ -3447,6 +3461,58 @@ mod tests {
                 resource: "affine-terminal total guard source terms",
                 requested: source_terms,
                 limit: source_terms - 1,
+            }
+        );
+    }
+
+    #[test]
+    fn aggregate_guard_native_integer_work_remainder_is_remapped_to_outer_limit() {
+        let (family, context, paths) =
+            generated_sunset_paths("affine-terminal-aggregate-native-integer-work-limits");
+        let observed = ParametricSectorFormulaAffineTerminalCompiler::compile(
+            &family,
+            &context,
+            Arc::clone(&paths[0]),
+            ParametricSectorFormulaAffineTerminalLimits::default(),
+        )
+        .unwrap();
+        let native_work = observed
+            .stats()
+            .guard_preflight()
+            .native_integer_bit_work_bound();
+        assert!(native_work > 0);
+        assert_eq!(
+            native_work,
+            observed
+                .stats()
+                .guard_execution()
+                .native_integer_bit_work_bound()
+        );
+
+        let mut exact = ParametricSectorFormulaAffineTerminalLimits::default();
+        exact.max_total_guard_native_integer_bit_work_bound = native_work;
+        ParametricSectorFormulaAffineTerminalCompiler::compile(
+            &family,
+            &context,
+            Arc::clone(&paths[0]),
+            exact,
+        )
+        .expect("the exact aggregate native integer-work boundary must pass");
+
+        let mut one_below = exact;
+        one_below.max_total_guard_native_integer_bit_work_bound = native_work - 1;
+        assert_eq!(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                Arc::clone(&paths[0]),
+                one_below,
+            )
+            .unwrap_err(),
+            ParametricSectorFormulaAffineTerminalError::ResourceLimit {
+                resource: "affine-terminal total guard native integer-bit work bound",
+                requested: native_work,
+                limit: native_work - 1,
             }
         );
     }

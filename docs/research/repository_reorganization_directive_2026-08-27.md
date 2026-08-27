@@ -1,0 +1,147 @@
+# RustRed repository reorganization directive
+
+Date: 2026-08-27
+
+Status: mandatory architecture gate. The target layout remains deliberately
+unfrozen until the multi-agent inventory and independent design audit are
+complete.
+
+## Decision
+
+Feature growth stops after the in-flight transient mapped-`NonZero` core is
+validated, documented, committed, and pushed. Before committed-resident
+equality refinement, child-session regeneration, or further loop milestones,
+RustRed must undergo a deep structural reorganization.
+
+The long-term mathematical objective is unchanged: a generic, pure-Rust,
+Symbolica-native LiteRed-like engine with no FORM and no topology-authored
+recurrences. This gate changes the route to that objective. A production
+engine whose boundaries cannot be understood or tested independently is not a
+suitable base for five- and six-loop campaigns.
+
+## Problems to audit
+
+The current repository has a very large flat `src/` namespace. It mixes:
+
+- topology- and loop-neutral algebra, family, IBP, sector, and rule kernels;
+- exact-session and exceptional-closure campaign orchestration;
+- CLI and serialization entry points;
+- concrete one- through four-loop validation/oracle code, much of it behind
+  `legacy-authored-oracles`;
+- differential bridges and test-only campaign machinery; and
+- a long research-document history whose current authority is not always
+  apparent from its filename.
+
+The audit must determine actual reachability and ownership. A loop-count name
+is a strong signal that a file does not belong in the generic production
+engine, but it is not by itself proof that the file is unused or safe to
+delete. Conversely, feature-gating a stale authored recurrence does not make
+it part of the desired RustRed architecture.
+
+## Required parallel research lanes
+
+Use multiple independent agents and reconcile their results before moving
+files:
+
+1. **Production dependency graph.** Classify every Rust module by public API,
+   inbound/outbound dependencies, feature gates, binary/library reachability,
+   and topology/loop neutrality.
+2. **Test and oracle inventory.** Identify concrete topology fixtures,
+   differential bridges, acceptance campaigns, benchmarks, and authored
+   recurrence oracles. Decide which belong under integration tests, test-only
+   support crates, archived external fixtures, or deletion.
+3. **Workspace-boundary design.** Compare a disciplined module tree with a
+   small Cargo workspace. Candidate units must have acyclic dependency
+   direction, explicit public surfaces, and measurable compile/test costs;
+   subcrates are not an end in themselves.
+4. **Documentation authority audit.** Mark each document as current normative
+   design, current implementation note, acceptance evidence, superseded
+   history, or stale. Consolidate current guidance and delete stale material;
+   do not create an ever-growing archive merely to avoid decisions.
+5. **API and naming audit.** Find duplicated versioned types, obsolete V1/V2
+   bridges, overlong generated-affine names, hidden topology assumptions, and
+   internal APIs exposed only because of the flat tree.
+6. **Frontend and packaging audit.** Extract the transport-neutral operations
+   currently trapped in CLI-private modules; design one typed application API
+   used by both the CLI and a dedicated PyO3 package, including deterministic
+   serialization, error parity, Python packaging, GIL release, Symbolica
+   license/thread constraints, and `n_cores` behavior.
+7. **Migration and validation audit.** Design mechanical phases with a test
+   baseline, import-boundary checks, no semantic rewrite mixed into file moves,
+   and a rollback-sized commit for each phase.
+
+At least one agent must independently challenge the proposed target structure
+and deletion list. Research agents may inspect and report, but the root agent
+owns the final dependency interpretation and migration decisions.
+
+## Target-structure requirements
+
+The audited design, whatever exact module/subcrate split it selects, must
+enforce these properties:
+
+- The production derivation/reduction engine is topology- and loop-neutral.
+  It accepts families, sectors, expressions, and policies as data; it never
+  dispatches on names such as one-loop, sunset, three-loop, or vacuum family.
+- Concrete loop-count topologies live only in tests, examples, benchmarks, or
+  explicitly historical oracle support. Authored recurrences cannot be linked
+  into the default production library.
+- Symbolica algebra adapters are centralized and reusable. Semantic layers may
+  own LiteRed ordering, proof, provenance, scheduling, and resource policies,
+  but not duplicate CAS operations.
+- Tensor parsing/reduction, parametric IBP/LI generation, sector geometry,
+  exact solving/closure, campaign execution, persistence/publication, and CLI
+  I/O have explicit dependency directions and independently testable APIs.
+- CLI and Python are adapters over one owned, typed Rust application layer.
+  PyO3 types, Python callbacks, path/stdin handling, exit codes, and GIL state
+  cannot enter the mathematical core. Python must expose the same semantic
+  operations and `n_cores` control, and its canonical TOML must be
+  byte-identical to the shared serializer used by the CLI.
+- Test campaigns do not inflate or obscure the production namespace. Shared
+  fixtures have a deliberate test-support home and cannot be imported by
+  production modules.
+- Current documentation has a small discoverable index and one authoritative
+  statement per active design. Superseded or false documents and sources are
+  removed once their remaining evidence has been incorporated where needed.
+- No backward-compatibility layer is required during this pre-release phase.
+  Compatibility shims must justify a present validation or migration need and
+  carry a deletion point.
+
+## Deletion policy
+
+Deletion is expected, but it must be evidence-based and recoverable through
+Git history. A source or document may be removed when the audited map proves
+that it is unreachable from the desired default product, duplicates current
+coverage, encodes an authored/topology-specific production path, or states a
+superseded design whose surviving facts have been consolidated elsewhere.
+
+Before deletion, record:
+
+- current build/test/feature reachability;
+- any unique oracle result, fixture, or rationale worth retaining;
+- the replacement test or document, if one is needed; and
+- the exact migration phase that removes it.
+
+Do not preserve stale files inside an `archive/` directory by default. Git is
+the archive. Vendored upstream sources such as LiteRed2 and Symbolica have a
+separate provenance role and are not treated as RustRed-owned stale code.
+
+## Migration gates
+
+1. Freeze and push the mapped-`NonZero` checkpoint.
+2. Capture default-GMP build, focused, and parallel test baselines.
+3. Produce the complete classified file/dependency/doc inventory.
+4. Publish a proposed target tree, module/subcrate dependency diagram, move
+   map, deletion list, and risk/test matrix.
+5. Obtain an independent adversarial audit and reconcile every blocker.
+6. Execute mechanical moves and visibility tightening in small commits, with
+   parallel tests after each phase and milestone pushes.
+7. Add the PyO3 package only after the shared application boundary exists;
+   prove CLI/application/Python parity, licensed parallel execution, safe
+   Python-thread coordination, and wheel/sdist installation without enabling
+   Symbolica's `no_gmp` feature.
+8. Delete reconciled stale code/docs and re-run default plus applicable legacy
+   oracle gates separately.
+9. Resume feature work only after the generic engine and test campaigns are
+   visibly separated and the README/design index match the actual tree.
+
+This gate is architectural work, not evidence of a new reduction capability.

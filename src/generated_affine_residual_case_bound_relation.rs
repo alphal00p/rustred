@@ -1507,6 +1507,7 @@ struct AggregateCompositionClampProvenance {
     native_power_heap_pairs: bool,
     multiplication_term_pairs: bool,
     addition_term_visits: bool,
+    native_integer_bit_work: bool,
     integer_bit_work: bool,
     normalization_input_term_pairs: bool,
 }
@@ -1802,6 +1803,13 @@ fn remaining_composition_limits(
         "total addition term visits"
     );
     clamp_remaining!(
+        max_native_integer_bit_work,
+        native_integer_bit_work,
+        total_native_integer_bit_work,
+        max_total_native_integer_bit_work,
+        "total native integer bit work"
+    );
+    clamp_remaining!(
         max_integer_bit_work,
         integer_bit_work,
         total_integer_bit_work,
@@ -1985,6 +1993,14 @@ fn map_prepared_composition_error(
             "native addition term visits",
             "Symbolica backend structural term visits"
         ]
+    );
+    direct_remap!(
+        native_integer_bit_work,
+        max_native_integer_bit_work,
+        total_native_integer_bit_work,
+        max_total_native_integer_bit_work,
+        "total native integer bit work",
+        ["native integer bit work"]
     );
     direct_remap!(
         integer_bit_work,

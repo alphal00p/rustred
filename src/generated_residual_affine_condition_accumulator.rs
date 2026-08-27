@@ -51,6 +51,14 @@ pub(crate) enum GeneratedResidualAffineConditionSourceLocator {
         entry_ordinal: usize,
         structural_locus_ordinal: usize,
     },
+    /// One explicit `NonZero` predicate from an exceptional-domain source.
+    /// Keeping the predicate position distinct from the target-guard position
+    /// prevents a refinement mapper from flattening two independently ordered
+    /// source lanes into one ambiguous ordinal space.
+    ExceptionalNonZeroPredicate {
+        predicate_ordinal: usize,
+        locus_ordinal: usize,
+    },
     RecenteredRelationGuard {
         guard_ordinal: usize,
     },
@@ -69,6 +77,14 @@ impl fmt::Debug for GeneratedResidualAffineConditionSourceLocator {
                 .debug_struct("TargetBranchGuard")
                 .field("entry_ordinal", entry_ordinal)
                 .field("structural_locus_ordinal", structural_locus_ordinal)
+                .finish(),
+            Self::ExceptionalNonZeroPredicate {
+                predicate_ordinal,
+                locus_ordinal,
+            } => formatter
+                .debug_struct("ExceptionalNonZeroPredicate")
+                .field("predicate_ordinal", predicate_ordinal)
+                .field("locus_ordinal", locus_ordinal)
                 .finish(),
             Self::RecenteredRelationGuard { guard_ordinal } => formatter
                 .debug_struct("RecenteredRelationGuard")
@@ -202,6 +218,7 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorLimits {
     pub max_associate_native_heap_workspace_pair_bound: usize,
     pub max_associate_native_workspace_byte_envelope: usize,
     pub max_associate_rustred_visible_temporary_byte_envelope: usize,
+    pub max_associate_combined_temporary_byte_envelope: usize,
     pub max_base_associate_validation_terms: usize,
     pub max_base_associate_validation_exponent_entries: usize,
     pub max_base_associate_validation_integer_bits: usize,
@@ -308,6 +325,7 @@ impl Default for GeneratedResidualAffineConditionAccumulatorLimits {
             max_associate_rustred_visible_temporary_byte_envelope: portable_usize(
                 64_000_000_000_000,
             ),
+            max_associate_combined_temporary_byte_envelope: portable_usize(128_000_000_000_000),
             max_base_associate_validation_terms: portable_usize(64_000_000_000),
             max_base_associate_validation_exponent_entries: portable_usize(256_000_000_000),
             max_base_associate_validation_integer_bits: portable_usize(64_000_000_000_000_000),
@@ -408,6 +426,7 @@ pub(crate) struct GeneratedResidualAffineConditionAccumulatorStats {
     associate_native_heap_workspace_pair_bound: usize,
     associate_native_workspace_byte_envelope: usize,
     associate_rustred_visible_temporary_byte_envelope: usize,
+    associate_combined_temporary_byte_envelope: usize,
     base_associate_validation_terms: usize,
     base_associate_validation_exponent_entries: usize,
     base_associate_validation_integer_bits: usize,
@@ -509,6 +528,7 @@ impl GeneratedResidualAffineConditionAccumulatorStats {
         associate_native_heap_workspace_pair_bound,
         associate_native_workspace_byte_envelope,
         associate_rustred_visible_temporary_byte_envelope,
+        associate_combined_temporary_byte_envelope,
         base_associate_validation_terms,
         base_associate_validation_exponent_entries,
         base_associate_validation_integer_bits,
@@ -1810,6 +1830,7 @@ fn source_scope_is_valid(
         (
             GeneratedResidualAffineConditionScope::InheritedTargetPremise,
             GeneratedResidualAffineConditionSourceLocator::TargetBranchGuard { .. }
+                | GeneratedResidualAffineConditionSourceLocator::ExceptionalNonZeroPredicate { .. }
         ) | (
             GeneratedResidualAffineConditionScope::CandidateRequired,
             GeneratedResidualAffineConditionSourceLocator::RecenteredRelationGuard { .. }
@@ -2101,10 +2122,11 @@ fn precharge_associate_comparison(
             limits.max_associate_rustred_visible_temporary_byte_envelope,
             stats.associate_rustred_visible_temporary_byte_envelope,
         )?,
-        // This older aggregate has independent cumulative component limits.
-        // Their sum is not an owner-wide byte ceiling, so preserve its V1
-        // contract while the newer owner supplies a finite combined limit.
-        max_combined_temporary_byte_envelope: usize::MAX,
+        max_combined_temporary_byte_envelope: remaining(
+            "affine condition associate combined temporary byte envelope",
+            limits.max_associate_combined_temporary_byte_envelope,
+            stats.associate_combined_temporary_byte_envelope,
+        )?,
     };
     stats.associate_checks = prospective_checks;
     stats.associate_term_units = prospective_terms;
@@ -2471,6 +2493,17 @@ fn consume_associate_stats(
         "affine condition associate RustRed-visible temporary byte envelope",
         max_associate_rustred_visible_temporary_byte_envelope
     );
+    let combined = checked_add(
+        "affine condition associate combined temporary byte envelope",
+        child.native_workspace_byte_envelope(),
+        child.rustred_visible_temporary_byte_envelope(),
+    )?;
+    stats.associate_combined_temporary_byte_envelope = bounded_add(
+        "affine condition associate combined temporary byte envelope",
+        stats.associate_combined_temporary_byte_envelope,
+        combined,
+        limits.max_associate_combined_temporary_byte_envelope,
+    )?;
     Ok(())
 }
 

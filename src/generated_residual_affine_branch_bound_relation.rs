@@ -2280,6 +2280,12 @@ fn remaining_composition_limits(
         "total addition term visits"
     );
     remaining_field!(
+        max_native_integer_bit_work,
+        total_native_integer_bit_work,
+        max_total_native_integer_bit_work,
+        "total native integer-bit work"
+    );
+    remaining_field!(
         max_integer_bit_work,
         total_integer_bit_work,
         max_total_integer_bit_work,
@@ -3501,6 +3507,24 @@ mod tests {
             validate_replay_schema("rustred-generated-residual-affine-branch-bound-relation-v0"),
             Err(GeneratedResidualAffineBranchBoundRelationError::SchemaMismatch)
         );
+    }
+
+    #[test]
+    fn remaining_composition_limits_separate_native_from_total_integer_work() {
+        let mut limits = GeneratedResidualAffineBranchBoundRelationLimits::default();
+        limits.polynomial_composition.max_native_integer_bit_work = 101;
+        limits.polynomial_composition.max_integer_bit_work = 211;
+        limits.max_total_native_integer_bit_work = 17;
+        limits.max_total_integer_bit_work = 31;
+        let stats = GeneratedResidualAffineBranchBoundRelationStats {
+            total_native_integer_bit_work: 5,
+            total_integer_bit_work: 7,
+            ..GeneratedResidualAffineBranchBoundRelationStats::default()
+        };
+
+        let child = remaining_composition_limits(limits, &stats).unwrap();
+        assert_eq!(child.max_native_integer_bit_work, 12);
+        assert_eq!(child.max_integer_bit_work, 24);
     }
 
     #[test]

@@ -1729,10 +1729,10 @@ fn compose_guard_entries_with_origin_mode<'a>(
             composed_source_terms,
             composed_source_exponent_entries,
         )?;
-        // The nested compositor has one combined integer-work cap. Obtain its
-        // no-Symbolica-call preflight stats first so the compatibility-named
-        // selected-backend allowance remains exact and independent of total
-        // integer work.
+        // Obtain the no-Symbolica-call preflight census before execution. The
+        // child already receives the exact remaining native and total
+        // allowances; this row-wide check authenticates the aggregate census
+        // independently before entering the evaluator.
         let preflight_stats = context.preflight_polynomial_on_residual_affine_composition_plan(
             source,
             plan,
@@ -2276,6 +2276,11 @@ fn remaining_polynomial_composition_limits(
         "total addition term visits",
         limits.max_total_addition_term_visits,
         stats.total_addition_term_visits,
+    )?);
+    effective.max_native_integer_bit_work = effective.max_native_integer_bit_work.min(remaining(
+        "total native integer-bit work",
+        limits.max_total_native_integer_bit_work,
+        stats.total_native_integer_bit_work,
     )?);
     effective.max_integer_bit_work = effective.max_integer_bit_work.min(remaining(
         "total integer-bit work",

@@ -57,6 +57,7 @@ pub struct AffineLocusBoundRelationLimits {
     pub max_total_native_power_heap_pairs: usize,
     pub max_total_multiplication_term_pairs: usize,
     pub max_total_addition_term_visits: usize,
+    pub max_total_native_integer_bit_work: usize,
     pub max_total_integer_bit_work: usize,
     pub max_total_guard_origin_retained_bytes: usize,
     pub max_total_normalization_input_term_pairs: usize,
@@ -90,6 +91,7 @@ impl Default for AffineLocusBoundRelationLimits {
             max_total_native_power_heap_pairs: 1_073_741_824,
             max_total_multiplication_term_pairs: 1_073_741_824,
             max_total_addition_term_visits: 1_073_741_824,
+            max_total_native_integer_bit_work: 2_147_483_648,
             max_total_integer_bit_work: 2_147_483_648,
             max_total_guard_origin_retained_bytes: 2_147_483_648,
             max_total_normalization_input_term_pairs: 128_000_000,
@@ -1343,6 +1345,12 @@ fn remaining_composition_limits(
         stats.addition_term_visit_bound,
     )?
     .min(remaining.max_addition_term_visits);
+    remaining.max_native_integer_bit_work = remaining_count(
+        "native integer bit work",
+        limits.max_total_native_integer_bit_work,
+        stats.native_integer_bit_work_bound,
+    )?
+    .min(remaining.max_native_integer_bit_work);
     remaining.max_integer_bit_work = remaining_count(
         "integer bit work",
         limits.max_total_integer_bit_work,
@@ -1503,11 +1511,12 @@ fn consume_polynomial_stats(
     aggregate.largest_integer_coefficient_bit_bound = aggregate
         .largest_integer_coefficient_bit_bound
         .max(stats.largest_integer_coefficient_bit_bound());
-    aggregate.native_integer_bit_work_bound = checked_add(
-        "native integer bit work",
-        aggregate.native_integer_bit_work_bound,
+    add_limited!(
+        native_integer_bit_work_bound,
         stats.native_integer_bit_work_bound(),
-    )?;
+        limits.max_total_native_integer_bit_work,
+        "native integer bit work"
+    );
     add_limited!(
         integer_bit_work_bound,
         stats.integer_bit_work_bound(),

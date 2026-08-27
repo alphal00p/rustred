@@ -113,6 +113,7 @@ mod generated_affine_residual_case_bound_relation;
 mod generated_affine_residual_case_bound_unit_equality_refinement;
 mod generated_affine_residual_case_completed_bound_row;
 pub(crate) mod generated_affine_residual_case_inventory;
+pub(crate) mod generated_affine_residual_case_mapped_nonzero;
 mod generated_affine_residual_case_pivot_target_matching;
 mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;

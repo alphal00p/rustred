@@ -3280,6 +3280,16 @@ pub struct ResidualUnitAffinePolynomialCompositionLimits {
     pub max_addition_term_visits: usize,
     pub max_kronecker_exponent_bits: usize,
     pub max_integer_coefficient_bits: usize,
+    /// Integer payload work performed by the selected Symbolica backend
+    /// before the composed output is collected and converted.
+    ///
+    /// This is deliberately separate from [`Self::max_integer_bit_work`]:
+    /// output collection and conversion can legitimately make total work
+    /// larger than native backend work, while aggregate callers need to
+    /// budget both resources independently.
+    pub max_native_integer_bit_work: usize,
+    /// Complete integer payload work, including selected-backend work and
+    /// composed-output collection/conversion work.
     pub max_integer_bit_work: usize,
     pub max_normalization_input_term_pairs: usize,
     pub max_guard_origins: usize,
@@ -3301,6 +3311,7 @@ impl Default for ResidualUnitAffinePolynomialCompositionLimits {
             max_addition_term_visits: 536_870_912,
             max_kronecker_exponent_bits: 1_000_000,
             max_integer_coefficient_bits: 16_000_000,
+            max_native_integer_bit_work: 1_073_741_824,
             max_integer_bit_work: 1_073_741_824,
             max_normalization_input_term_pairs: 16_000_000,
             max_guard_origins: 65_536,
@@ -3366,6 +3377,40 @@ impl ResidualUnitAffinePolynomialCompositionStats {
     pub const fn native_integer_bit_work_bound(self) -> usize {
         self.native_integer_bit_work_bound
     }
+}
+
+/// Conservative owned-byte envelope for a polynomial produced by one sealed
+/// residual-affine composition preflight.
+///
+/// Keep this beside Symbolica's central sparse-polynomial capacity/GMP policy:
+/// callers must not reconstruct that allocator contract independently.  The
+/// minimum capacities cover Symbolica's small-polynomial allocation floor;
+/// larger outputs use the shared amortized-vector envelope.
+pub(crate) fn residual_affine_composition_output_retained_byte_envelope(
+    stats: ResidualUnitAffinePolynomialCompositionStats,
+) -> Result<usize, ResidualUnitAffineCompositionError> {
+    residual_affine_polynomial_retained_byte_envelope(
+        stats.expanded_contribution_bound(),
+        stats.output_exponent_entry_bound(),
+        stats.largest_integer_coefficient_bit_bound(),
+    )
+}
+
+pub(crate) fn residual_affine_polynomial_retained_byte_envelope(
+    term_bound: usize,
+    exponent_entry_bound: usize,
+    integer_bit_bound: usize,
+) -> Result<usize, ResidualUnitAffineCompositionError> {
+    Ok(authenticated_polynomial_retained_byte_envelope(
+        size_of::<ParametricPolynomial>(),
+        term_bound,
+        exponent_entry_bound,
+        integer_bit_bound,
+        4,
+        4,
+        0,
+        "residual-affine composition retained output bytes",
+    )?)
 }
 
 /// Lossless numerator/denominator work census for one rational coefficient
@@ -3837,7 +3882,7 @@ pub(crate) fn write_residual_unit_affine_polynomial_composition_limits_identity(
     tag: &str,
     limits: ResidualUnitAffinePolynomialCompositionLimits,
 ) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 16)?;
+    writer.begin_record(tag, 17)?;
     write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
     writer.usize("max_source_terms", limits.max_source_terms)?;
     writer.usize(
@@ -3870,6 +3915,10 @@ pub(crate) fn write_residual_unit_affine_polynomial_composition_limits_identity(
     writer.usize(
         "max_integer_coefficient_bits",
         limits.max_integer_coefficient_bits,
+    )?;
+    writer.usize(
+        "max_native_integer_bit_work",
+        limits.max_native_integer_bit_work,
     )?;
     writer.usize("max_integer_bit_work", limits.max_integer_bit_work)?;
     writer.usize(
@@ -11337,6 +11386,11 @@ impl ParametricCoefficientContext {
                 atom_payload_bit_work,
             )?;
         }
+        check_residual_affine_limit(
+            "native integer bit work",
+            selected_backend_integer.integer_bit_work_bound,
+            limits.max_native_integer_bit_work,
+        )?;
         // Every expanded contribution can participate in a maximal collision.
         // Charge the complete post-collection bit allowance to every one of C
         // contributions. This is conservative but, unlike a per-source-term
@@ -14875,6 +14929,11 @@ fn residual_affine_remaining_limits(
         )?,
         max_kronecker_exponent_bits: limits.max_kronecker_exponent_bits,
         max_integer_coefficient_bits: limits.max_integer_coefficient_bits,
+        max_native_integer_bit_work: subtract(
+            "aggregate native integer bit work",
+            limits.max_native_integer_bit_work,
+            consumed.stats.native_integer_bit_work_bound,
+        )?,
         max_integer_bit_work: subtract(
             "aggregate integer bit work",
             limits.max_integer_bit_work,
@@ -18498,6 +18557,42 @@ mod tests {
             max_integer_coefficient_bits,
             stats.largest_integer_coefficient_bit_bound()
         );
+        let native_integer_bit_work = stats.native_integer_bit_work_bound();
+        let total_integer_bit_work = stats.integer_bit_work_bound();
+        assert!(native_integer_bit_work > 0);
+        assert!(
+            total_integer_bit_work > native_integer_bit_work,
+            "the fixture must distinguish native work from output work"
+        );
+        let exact_native_and_total = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: native_integer_bit_work,
+            max_integer_bit_work: total_integer_bit_work,
+            ..limits
+        };
+        context
+            .preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                exact_native_and_total,
+            )
+            .expect("independent exact native and total integer-work limits must pass");
+        let one_below_native = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: native_integer_bit_work - 1,
+            ..exact_native_and_total
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                one_below_native,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "native integer bit work",
+                requested,
+                limit,
+            }) if requested == native_integer_bit_work
+                && limit + 1 == native_integer_bit_work
+        ));
         reject_one_below!(max_integer_bit_work, stats.integer_bit_work_bound());
     }
 
@@ -18564,11 +18659,43 @@ mod tests {
             })
         ));
 
+        let exact_native_integer_work = preflight.stats.native_integer_bit_work_bound();
         let exact_integer_work = preflight.stats.integer_bit_work_bound();
+        assert!(exact_native_integer_work > 0);
+        assert!(exact_integer_work > exact_native_integer_work);
         assert!(exact_integer_work > 0);
+        let exact_expression_work = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: exact_native_integer_work,
+            max_integer_bit_work: exact_integer_work,
+            ..limits
+        };
+        context
+            .preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                exact_expression_work,
+            )
+            .expect("separate exact native and total expression-work limits must pass");
+        let strict_native_expression_work = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: exact_native_integer_work - 1,
+            ..exact_expression_work
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                strict_native_expression_work,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "native integer bit work",
+                requested,
+                limit,
+            }) if requested == exact_native_integer_work
+                && limit + 1 == exact_native_integer_work
+        ));
         let strict_expression_work = ResidualUnitAffinePolynomialCompositionLimits {
             max_integer_bit_work: exact_integer_work - 1,
-            ..limits
+            ..exact_expression_work
         };
         assert!(matches!(
             context.preflight_polynomial_on_residual_affine_composition_plan(
@@ -18815,6 +18942,7 @@ mod tests {
             &context.mul(&huge_coefficient, &difference).unwrap(),
         );
         let wide = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: usize::MAX,
             max_integer_bit_work: usize::MAX,
             ..ResidualUnitAffinePolynomialCompositionLimits::default()
         };
@@ -18841,9 +18969,12 @@ mod tests {
             "the expression backend must admit packed integer payload work for every structural visit"
         );
 
+        let exact_native_integer_work = preflight.stats.native_integer_bit_work_bound();
         let exact_integer_work = preflight.stats.integer_bit_work_bound();
+        assert!(exact_native_integer_work > 0);
         assert!(exact_integer_work > 0);
         let exact = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: exact_native_integer_work,
             max_integer_bit_work: exact_integer_work,
             ..wide
         };
@@ -18852,6 +18983,24 @@ mod tests {
             .expect("the exact expression integer-work boundary must pass");
         assert!(composed.value().is_zero());
         assert_eq!(composed.stats().output_terms(), 0);
+
+        let one_below_native = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: exact_native_integer_work - 1,
+            ..exact
+        };
+        assert!(matches!(
+            context.preflight_polynomial_on_residual_affine_composition_plan(
+                &source,
+                &plan,
+                one_below_native,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "native integer bit work",
+                requested,
+                limit,
+            }) if requested == exact_native_integer_work
+                && limit + 1 == exact_native_integer_work
+        ));
 
         let one_below = ResidualUnitAffinePolynomialCompositionLimits {
             max_integer_bit_work: exact_integer_work - 1,
@@ -19592,6 +19741,7 @@ mod tests {
             max_addition_term_visits: aggregate.addition_term_visit_bound(),
             max_kronecker_exponent_bits: aggregate.largest_kronecker_exponent_bits(),
             max_integer_coefficient_bits: aggregate.largest_integer_coefficient_bit_bound(),
+            max_native_integer_bit_work: aggregate.native_integer_bit_work_bound(),
             max_integer_bit_work: preflight.total_integer_bit_work_bound(),
             max_normalization_input_term_pairs: preflight.normalization_input_term_pair_bound(),
             max_guard_origins: 0,
@@ -19659,6 +19809,10 @@ mod tests {
         reject_one_below!(
             max_integer_coefficient_bits,
             aggregate.largest_integer_coefficient_bit_bound()
+        );
+        reject_one_below!(
+            max_native_integer_bit_work,
+            aggregate.native_integer_bit_work_bound()
         );
         let integer_bit_work_bound = preflight.total_integer_bit_work_bound();
         assert!(integer_bit_work_bound > 0);
@@ -20221,6 +20375,7 @@ mod tests {
             max_multiplication_term_pairs: usize::MAX,
             max_addition_term_visits: usize::MAX,
             max_integer_coefficient_bits: usize::MAX,
+            max_native_integer_bit_work: usize::MAX,
             max_integer_bit_work: usize::MAX,
             ..ResidualUnitAffinePolynomialCompositionLimits::default()
         };
@@ -20552,8 +20707,34 @@ mod tests {
                 + stats.expanded_contribution_bound()
                     * stats.largest_integer_coefficient_bit_bound()
         );
+        assert!(stats.native_integer_bit_work_bound() > 0);
+        assert!(stats.integer_bit_work_bound() > stats.native_integer_bit_work_bound());
 
-        let mut strict = ResidualUnitAffinePolynomialCompositionLimits::default();
+        let exact = ResidualUnitAffinePolynomialCompositionLimits {
+            max_native_integer_bit_work: stats.native_integer_bit_work_bound(),
+            max_integer_bit_work: stats.integer_bit_work_bound(),
+            ..ResidualUnitAffinePolynomialCompositionLimits::default()
+        };
+        context
+            .preflight_residual_affine_polynomial_core(&source, &plan.core, exact)
+            .expect("output work above exact native work must remain admissible");
+        let mut strict_native = exact;
+        strict_native.max_native_integer_bit_work = stats.native_integer_bit_work_bound() - 1;
+        assert!(matches!(
+            context.compose_polynomial_on_residual_unit_affine_map(
+                &source,
+                &plan,
+                strict_native,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "native integer bit work",
+                requested,
+                limit,
+            }) if requested == stats.native_integer_bit_work_bound()
+                && limit + 1 == stats.native_integer_bit_work_bound()
+        ));
+
+        let mut strict = exact;
         strict.max_integer_bit_work = stats.integer_bit_work_bound() - 1;
         assert!(matches!(
             context.compose_polynomial_on_residual_unit_affine_map(&source, &plan, strict),
@@ -20658,6 +20839,22 @@ mod tests {
                 limit,
             }) if requested == stats.integer_bit_work_bound()
                 && limit + 1 == stats.integer_bit_work_bound()
+        ));
+
+        let mut strict_native_work = ResidualUnitAffinePolynomialCompositionLimits::default();
+        strict_native_work.max_native_integer_bit_work = stats.native_integer_bit_work_bound() - 1;
+        assert!(matches!(
+            context.compose_polynomial_on_residual_unit_affine_map(
+                &source,
+                &plan,
+                strict_native_work,
+            ),
+            Err(ResidualUnitAffineCompositionError::ResourceLimit {
+                resource: "native integer bit work",
+                requested,
+                limit,
+            }) if requested == stats.native_integer_bit_work_bound()
+                && limit + 1 == stats.native_integer_bit_work_bound()
         ));
     }
 

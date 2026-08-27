@@ -1807,9 +1807,30 @@ root-owned worktree with default-GMP Symbolica. Parallel commands passed 25/25
 direct base-`Q*`, 20/20 condition-accumulator, and 17/17 bound-relation tests;
 each test binary used four Rust test threads. `cargo check --tests -j8`,
 `cargo fmt --all -- --check`, and `git diff --check` passed as well. This closes
-the `Q*` versus `Q(theta)*` routing prerequisite only; the source-neutral
-mapped-`NonZero` certificate and refined committed-source successor remain the
-next production seam.
+the `Q*` versus `Q(theta)*` routing prerequisite.
+
+The subsequent source-neutral mapped-`NonZero` algebra worker is now
+implemented. Its entry point remains private until the committed resident owns
+and authenticates the source enumeration. It replays the compact child plan,
+prepares every sealed mapping token before the first Symbolica substitution or
+execution (the preparation itself uses Symbolica-backed polynomial preflight),
+executes simultaneous Symbolica composition in source order, and stops at the
+first mapped-zero inherited premise with a
+non-publishing diagnostic, preserves discharged constants in the transcript,
+and delegates both base- and index-dependent canonicalization to the corrected
+condition accumulator. Complete-stream preflight here refers to mapping
+composition and retained-output admission; downstream canonical-associate work
+is bounded incrementally inside the accumulator. Replay scratch, allocator
+capacity, per-output Symbolica/GMP retention, native and total integer work,
+and accumulator temporary memory all enter the parent resource contract. The
+byte envelopes, including the diagnostic object while the mapping live set is
+still resident, enter the parent memory-peak contract; native Symbolica work
+and total collection/conversion work have separate aggregate limits. Its
+focused default-GMP suite passes 10/10 with four test threads and
+`cargo check --tests -j8` passes. This remains a transient, non-authoritative
+component: the committed exceptional resident adapter and refined
+committed-source successor remain open. Feature work pauses here for the
+mandatory repository reorganization.
 
 A phase is complete only when its success disposition, retry ownership,
 resource envelope, semantic/ownership tests, exact/one-below tests, and parallel

@@ -435,6 +435,41 @@ fn row_wide_integer_budget_charges_the_durable_mapped_denominator_copy() {
     };
     assert!(unrestricted.stats().durable_guard_terms() > 0);
     assert!(unrestricted.stats().durable_guard_integer_bit_payload() > 0);
+    assert!(unrestricted.stats().native_integer_bit_work_bound() > 0);
+
+    let mut exact_native = AffineLocusBoundRelationLimits::default();
+    exact_native.max_total_native_integer_bit_work =
+        unrestricted.stats().native_integer_bit_work_bound();
+    assert!(matches!(
+        AffineLocusBoundRelationCompiler::compile(
+            &context,
+            source.clone(),
+            translation.clone(),
+            target.clone(),
+            map.clone(),
+            exact_native,
+        ),
+        Ok(AffineLocusBoundRelationCompilation::Retained(_))
+    ));
+
+    let mut strict_native = exact_native;
+    strict_native.max_total_native_integer_bit_work =
+        unrestricted.stats().native_integer_bit_work_bound() - 1;
+    assert!(matches!(
+        AffineLocusBoundRelationCompiler::compile(
+            &context,
+            source.clone(),
+            translation.clone(),
+            target.clone(),
+            map.clone(),
+            strict_native,
+        ),
+        Err(AffineLocusBoundRelationError::Composition(_))
+            | Err(AffineLocusBoundRelationError::ResourceLimit {
+                resource: "native integer bit work",
+                ..
+            })
+    ));
 
     let mut strict = AffineLocusBoundRelationLimits::default();
     strict.max_total_integer_bit_work = unrestricted.stats().integer_bit_work_bound() - 1;
