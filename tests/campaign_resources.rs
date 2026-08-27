@@ -339,7 +339,7 @@ fn resource_policy_rejects_revision_core_and_checked_byte_mismatches() {
 }
 
 #[test]
-fn hundred_core_one_tibibyte_wave_keeps_idle_cores_under_ram_pressure() {
+fn hundred_slot_wave_selector_keeps_idle_capacity_under_memory_pressure() {
     const GIB: u64 = 1 << 30;
     let jobs = wide_jobs(100);
     let revision = CampaignEstimatorRevision::try_new(1).unwrap();
@@ -372,9 +372,10 @@ fn hundred_core_one_tibibyte_wave_keeps_idle_cores_under_ram_pressure() {
             <= policy.max_memory().get()
     );
 
-    // A production ceiling must normally sit below physical RAM. With a
-    // 900-GiB operational envelope on the same nominal 1-TiB host, stable
-    // admission activates only 50 cores and keeps the other 50 idle.
+    // A production ceiling must normally sit below physical RAM. This
+    // stateless selector fits 50 one-core tasks in a 900-GiB operational
+    // envelope. It does not compute the execution pool's effective width or
+    // charge warmed Symbolica/TLS state; those belong to the pre-pool planner.
     let headroom_policy =
         CampaignResourcePolicy::try_new(revision, 100, CampaignBytes::new(900 * GIB), baseline)
             .unwrap();

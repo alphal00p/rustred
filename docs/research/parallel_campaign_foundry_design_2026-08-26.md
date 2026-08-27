@@ -630,6 +630,17 @@ headroom, and may deliberately leave cores idle. A retained case/reducer lane
 is a task owner, not a worker thread. The scheduler never infers unused RAM
 from a low U/L stored-entry count alone.
 
+The pre-pool decision is a distinct, versioned
+`CampaignExecutionWidthPlan`, not an interpretation of how many one-core jobs
+happen to fit in the first wave. It records the requested ceiling, effective
+`E`, worker-thread count, operational and enclosing memory limits, the complete
+fixed-memory breakdown, and estimator revision. Only consuming that checked
+plan may construct `ParallelExecution(E)`. A counting pool-factory acceptance
+test must observe zero worker construction for a typed no-fit result, no pool
+for an accepted inline `E=1` plan, and exactly `E` workers otherwise. In
+particular, the current 100-slot wave-selector arithmetic test is not evidence
+that effective-width planning or pre-pool memory admission exists.
+
 The logical ready frontier may contain thousands of compact keys while only a
 small admitted subset is hydrated. Its key/estimate metadata is bounded
 separately from heavyweight ownership; reducer construction, retained-owner
@@ -985,6 +996,10 @@ The parallel foundry is accepted only after all of the following pass:
   dehydrates inactive lanes, computes effective width before any pool would be
   constructed, hydrates only the admitted stable-key subset, and permits idle
   cores whenever the next deterministic wave would exceed that ceiling;
+- a counting pool-factory spy observes no construction for a typed no-fit
+  width plan, no worker pool for accepted `E=1`, and exactly `E` workers for
+  accepted parallel plans; the planner charges all possible worker
+  TLS/Workspace reserves before handing the plan to the factory;
 - an optional non-CI soak on a real approximately-100-core EPYC/1-TiB host runs
   with `--n-cores 100`, records `M_physical`, `M_operational`, effective `E`,
   warm-worker Symbolica/TLS reserve, peak RSS, staged-result high-water mark,
