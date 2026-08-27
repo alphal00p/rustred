@@ -26,6 +26,14 @@ Also never escalate commands but find workaround if sanbox is being hit.
 
 ## Assignment and status
 
+The verbatim preamble records the original directive. A later user
+clarification supersedes only its strictly serial Vakint sequencing: after the
+mandatory Phase 0 restructuring and the first usable, genuinely closed
+lower-loop shards, the FORM-less Vakint validation lane starts concurrently
+and does not wait for six-loop efficiency or closure. The six-loop foundry
+remains the primary mathematical objective, and production/default execution
+remains pure Rust + Symbolica.
+
 - **Status:** active, long-horizon engineering and research goal.
 - **Owner:** the primary Codex agent (`/root`), acting primarily as architect,
   orchestrator, integrator, and final verifier.
@@ -35,9 +43,12 @@ Also never escalate commands but find workaround if sanbox is being hit.
   integration, and capability claims.
 - **Baseline:** repository commit `e4d073b` (`Complete transport-neutral
   application boundary`).
-- **Cross-repository boundary:** Vakint/GammaLoop implementation is deferred to
-  Phase 6. It will be developed, committed, and pushed on a dedicated feature
-  branch in the GammaLoop repository, never folded into a RustRed commit.
+- **Cross-repository boundary:** after Phase 0 and the first genuinely closed
+  lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
+  in parallel with the higher-loop foundry work. It is developed, committed,
+  and pushed on a dedicated feature branch in the GammaLoop repository, never
+  folded into a RustRed commit. Full six-loop artifact deployment and the
+  production GammaLoop boundary remain later gates.
 - **Milestone discipline:** make frequent rollback-sized commits and push each
   relevant intermediate milestone after its declared checks pass. Do not let
   unrelated architectural, solver, or cross-repository changes accumulate in
@@ -96,10 +107,11 @@ mode remains FORM-less RustRed/Vakint functionality. Through GammaLoop's
 existing BPHZ/R-operation boundary, this chain is intended to contribute to
 the six-loop QCD beta-function programme.
 
-The online Vakint mode, GammaLoop integration, AMFlow master data, and final
-physics computation are downstream goals. They must not displace or be
-presented as completion of the first offline one- through six-loop vacuum
-artifact-library goal.
+The lower-loop Vakint mode is an early parallel validation track once closed
+RustRed shards exist. Its complete six-loop deployment, GammaLoop integration,
+AMFlow master-data production, and final physics computation remain downstream
+gates. Parallel adapter work must not displace the first offline one- through
+six-loop vacuum artifact-library goal or be presented as its completion.
 
 Vakint's integrated steering role does not replace RustRed's own interfaces.
 The RustRed CLI and Python API remain first-class, supported, fine-grained
@@ -150,9 +162,18 @@ corroboration only; symbolic regenerated-source replay is mandatory.
 
 ### Pure Rust + Symbolica algebra
 
-- Production and tests must never execute FORM, Mathematica, SymPy, or another
-  CAS. Mathematica source and FORM-backed resources are readable reference
-  oracles only.
+- RustRed production, the new Vakint `RustRed` mode, and their ordinary/default
+  tests must never link to or execute FORM, Mathematica, SymPy, or another CAS.
+  Mathematica source and FORM-backed resources are readable reference oracles
+  only.
+- A separate pinned oracle-validation job may execute the existing Vakint
+  alphaLoop, MATAD, and/or FMFT paths with the supplied FORM5 executable under
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5`. This exception exists solely to
+  produce or compare authoritative lower-loop reference results. It is never a
+  RustRed dependency, never a fallback of the new mode, never copied into
+  production logic, and never part of the default FORM-less test/runtime path.
+  Oracle executable/version, inputs, conventions, and frozen outputs are
+  authenticated explicitly.
 - Use the public Rust API of GMP-enabled Symbolica for all CAS work: exact
   integers/rationals, expressions, substitutions, expansion, polynomials,
   rational functions, differentiation, GCD/factorization, Groebner reduction,
@@ -413,17 +434,42 @@ unsupported quotient, or successful map alone is not a closed branch.
 2. Translate pinned LiteRed/LiteRed2 examples into data fixtures and progress
    them from input/identity parity through sector/symmetry, guarded-rule, and
    target-reduction parity without topology-specific production logic.
-3. Use a bounded RustRed-core application harness to independently derive the
-   complete Vakint one- through four-loop replacement behavior and compare
-   final expressions over unsubstituted masters after an explicit convention
-   map. This is validation infrastructure, not the production Vakint steering
-   integration. Do not copy or execute FORM rules.
-4. Freeze a separate versioned four-loop raw oracle corpus where required;
+3. Once the first closed lower-loop shards exist, create the dedicated
+   GammaLoop feature branch and develop Vakint's FORM-less `RustRed` mode in
+   parallel with Phases 3 and 5. Split this work across independent subagent
+   lanes for source/oracle audit, topology matching, RustRed adapter and rule
+   application, tensor/master handling, performance, and adversarial review.
+4. Reuse Vakint's existing topology matching and canonicalization engine as the
+   steering authority. Fix defects found by the existing end-to-end corpus,
+   add exact convention/routing witnesses at the RustRed boundary, and extend
+   candidate/registry support generically through six loops. An exhaustive
+   acceptance gate must prove that every entry in the frozen one- through
+   six-loop vacuum manifest is accepted, canonicalized, and routed by the
+   reused matcher. Defects are fixed in that matcher rather than bypassed or
+   duplicated inside RustRed; topology-name dispatch is forbidden.
+5. Implement a bounded but real RustRed-core/Vakint path for lower-loop native
+   tensor reduction, scalar lowering/cancellation, guarded IBP application,
+   stable master keys, and supplied master substitution. The new path itself
+   remains pure Rust + Symbolica and uses independently generated RustRed
+   artifacts.
+6. Run Vakint's existing one- through four-loop end-to-end tests through the
+   pinned alphaLoop, MATAD, and/or FMFT backends using the reference FORM5
+   executable only in the segregated oracle job. Compare final expressions
+   over unsubstituted masters—and master-substituted results where authoritative
+   data exists—after an explicit convention map. Never copy the oracle's
+   authored recurrence tables into RustRed rules.
+7. Freeze a separate versioned four-loop raw oracle corpus where required;
    oracle absence remains explicit and cannot be filled with RustRed's own
    output.
-5. Prove restartability, multi-root deduplication, routing/permutation
+8. Prove restartability, multi-root deduplication, routing/permutation
    equivalence, factorization, dependency invalidation, and deterministic
    bundle verification.
+
+Phases 3–5 are intentionally parallel after their dependency gates. Vakint
+validation must not divert the foundry from six-loop efficiency and closure;
+conversely, the lower-loop RustRed mode must not wait for the entire six-loop
+library when it can already provide end-to-end oracle evidence for newly
+closed lower-loop artifacts.
 
 ### Phase 5 — complete vacuum artifact library through six loops
 
@@ -472,10 +518,11 @@ completely verified closed bundle, the physical QCD/GammaLoop benchmark subset
 passes within its declared resource envelope, and the resulting versioned
 artifact library is ready to ship with Vakint.
 
-### Phase 6 — production Vakint/artifact integration; after Phase 5
+### Phase 6 — complete production Vakint/artifact integration after Phase 5
 
-Only after the offline one- through six-loop vacuum-artifact gate may work
-prioritize the user-facing evaluation chain:
+The lower-loop Vakint `RustRed` mode begins in Phase 4. Only after the offline
+one- through six-loop vacuum-artifact gate may it be promoted to the complete
+production evaluation chain and six-loop shipped-library deployment:
 
 - a compiled high-volume guarded-rule application engine in the RustRed crate;
 - native tensor reduction, scalar lowering/cancellation, IBP application, and
@@ -492,18 +539,15 @@ prioritize the user-facing evaluation chain:
   data, with Vakint steering and RustRed implementing substitution; and
 - the complete six-loop QCD beta-function computation.
 
-Vakint changes in this phase are made in the GammaLoop repository on a
-dedicated feature branch, with rollback-sized commits and milestone pushes to
-that branch. RustRed changes remain in the RustRed repository. Before every
+All Vakint changes from Phase 4 onward are made in the GammaLoop repository on
+a dedicated feature branch, with rollback-sized commits and milestone pushes
+to that branch. RustRed changes remain in the RustRed repository. Before every
 commit, both repositories' scopes are checked independently so no path under
 `FOR_REFERENCE_ONLY_DO_NOT_PUSH/` enters RustRed history.
 
-Phase 4 may build only the bounded internal application harness needed for
-oracle parity and artifact verification. It must not turn into the production
-Vakint integration prematurely.
-
 None of these later layers may invoke FORM, Mathematica, SymPy, or copied
-authored recurrences.
+authored recurrences. Only the segregated existing-backend oracle job described
+above may execute FORM5.
 
 ## Current evidence baseline
 
@@ -566,10 +610,13 @@ risk:
 - an independent subagent audit for architectural, CAS-authority, closure, or
   capability-claim changes.
 
-Benchmarks and acceptance fixtures are data, never production dispatch. Tests
-must not initialize FORM or Mathematica. Reference-only trees must remain
-untracked. Milestones are committed and pushed only after their declared gate
-passes; partial work is reported honestly and is not relabeled as closure.
+Benchmarks and acceptance fixtures are data, never production dispatch.
+Ordinary/default tests must not initialize FORM or Mathematica. The separately
+declared Vakint reference-oracle job may execute pinned FORM5 only to run the
+existing alphaLoop/MATAD/FMFT comparison paths; the new mode remains FORM-less.
+Reference-only trees remain untracked. Milestones are committed and pushed
+only after their declared gate passes; partial work is reported honestly and
+is not relabeled as closure.
 Intermediate commits are frequent enough to remain bisectable and
 rollback-sized; passing work is pushed rather than left as a long-lived local
 stack.
