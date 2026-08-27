@@ -405,6 +405,17 @@ Phase B/C work must keep applying the same Symbolica-first rule. See the
 [`Symbolica exact-linear-algebra API inventory`](symbolica_exact_linear_algebra_api_inventory.md)
 and the
 [`Symbolica-first algebra migration audit`](symbolica_first_algebra_migration_audit_2026-08-24.md).
+The newer
+[`Symbolica-only production algebra compliance roadmap`](symbolica_only_algebra_compliance_roadmap_2026-08-27.md)
+promotes the remaining reachable handwritten parametric/concrete elimination,
+generic Feynman-polynomial and family-product kernels, case transformations,
+integer-lattice primitives, and the later tensor path to a six-loop P0 gate.
+This is migration debt, not a claim that the current exact-group native reducer
+or publication-epoch owner is incomplete in the narrower behavior already
+tested. Integer affine parameterization remains an explicit public-API gap:
+Symbolica exposes neither SNF/HNF nor a complete integer kernel basis, so the
+topology-neutral semantic controller may remain while available arithmetic
+primitives migrate.
 Native dense and sparse solves must replace the older custom
 `exact_sparse_elimination` wherever the public API applies. The checked
 `SparseRowReducer` adapter now establishes the required sentinel, ordered-`L`,

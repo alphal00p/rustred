@@ -105,6 +105,7 @@ the other.
 |---|---|---|
 | Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | The completed explicit `L=6`, 36-row gate validates topology-independent generation and deterministic regeneration only; it does not validate arity-21 cover construction, solving, or reduction. |
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
+| [Symbolica-only production algebra compliance](symbolica_only_algebra_compliance_roadmap_2026-08-27.md) | P0 before a production six-loop claim | Reachable older parametric/concrete elimination, generic Feynman-polynomial and remaining family-matrix kernels, case transformations, integer-lattice primitives, and the later tensor path still contain handwritten algebra. The native exact-group database closes one path, not this full call graph. |
 | Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
 | Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. The foundry needs direct target-frontier search over owned normalized formulas, with MTBDD compilation admitted only under an explicit measured budget. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
@@ -116,6 +117,13 @@ the other.
 The immediate symmetry migration is therefore not a detour.  The current
 affine verifier is scalable once its candidates are supplied intelligently;
 the current exhaustive candidate generator is not.
+
+The compliance gate is staged: foundry algebra and exceptional-domain closure
+precede the derivation-only six-loop benchmark, while tensor expansion and
+lowering precede the later GammaLoop numerator campaign. Native retained
+reducer trials still make committed and cloned states simultaneously live, so
+the 100-core scheduler must charge old plus trial plus scratch and reduce its
+effective width under RAM pressure.
 
 ## 4. Offline rule foundry
 

@@ -608,6 +608,17 @@ rank, tensor-projector matrices, and the affine-family/symmetry verifier have
 since crossed public Symbolica APIs. The latter now delegates determinants,
 transpose, Gram congruence, and denominator-coordinate products through an
 authenticated V2 boundary while retaining an independent physics replay.
+The latest source-level compliance audit nevertheless identifies reachable
+handwritten parametric and concrete sparse elimination, generic Feynman-
+polynomial algebra/determinants, remaining generic-family products, case
+specialization, integer-lattice primitives, and tensor expansion/lowering as
+P0 debt before a complete six-loop production claim. The native exact-group
+database does not by itself retire those separate public paths; see the
+[Symbolica-only algebra compliance roadmap](docs/research/symbolica_only_algebra_compliance_roadmap_2026-08-27.md).
+A path earns a production Symbolica-only label only after its complete
+reachable call graph has no handwritten elimination, determinant, matrix, or
+polynomial algebra; a missing native API yields a typed pause, not a private
+fallback.
 Native Symbolica dense and sparse solves must likewise replace the older
 custom `exact_sparse_elimination` and `parametric_elimination`. The live
 generated-affine exact database has now crossed the first sparse boundary. For
@@ -850,6 +861,7 @@ campaign concurrency. No test path enables `no_gmp`.
 - [Symbolica Rust API reference](docs/research/symbolica_rust_api_for_litered.md)
 - [Symbolica exact linear-algebra API inventory](docs/research/symbolica_exact_linear_algebra_api_inventory.md)
 - [Symbolica-first algebra migration audit](docs/research/symbolica_first_algebra_migration_audit_2026-08-24.md)
+- [Symbolica-only production algebra compliance roadmap](docs/research/symbolica_only_algebra_compliance_roadmap_2026-08-27.md)
 - [Symbolica upstream correctness and embedding-gap audit](docs/research/symbolica_upstream_gap_audit_2026-08-25.md)
 - [Vakint/alphaLoop tensor and IBP audit](docs/research/vakint_alphaloop_tensor_ibp_audit.md)
 - [One- and two-loop validation audit](docs/research/one_two_loop_vacuum_validation_and_legacy_quarantine_2026-08-20.md)
