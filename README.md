@@ -35,7 +35,7 @@ complete mathematical workflow.
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
 | Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
-| Plan and atomically account RAM-aware campaign waves | Available in the library with move-only core/estimated-memory guards; physical estimation and worker dispatch are not started |
+| Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives with move-only core/estimated-memory guards and stable bounded dispatch; calibrated physical estimation and the production frontier coordinator are not started |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
 | Preserve symbolic nonzero conditions and proof-component replay evidence | Available in the library |
 | Search authenticated normalized coverage formulas without V4/V5 materialization | Implemented internally as a bounded, replayable cursor; public library/CLI integration is pending |
@@ -454,8 +454,11 @@ The repository currently includes tests for:
   declared user ingress through this static plan. A separate move-only atomic
   controller revalidates a selected wave and charges its cores, retained
   successors, transient memory, and old/new overlap with panic-safe release
-  guards. It is not yet wired to a reducer executor or campaign execution CLI;
-  no derivation scheduler, closure proof, checkpoint, or rule bundle is
+  guards. Its stable bounded executor now settles move-only tasks and performs
+  a genuine whole-session Symbolica dependent-row transition through a
+  canonical post-worker commit barrier. This remains a low-level seam, not a
+  calibrated production frontier coordinator or campaign execution CLI; no
+  complete derivation scheduler, closure proof, checkpoint, or rule bundle is
   claimed; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
@@ -518,8 +521,16 @@ For the intended roughly 100-core, 1-TiB EPYC six-loop runs, readiness will
 never mean eager fork-all: a bounded deterministic wave must acquire both core
 leases and conservative memory permits before any reducer clone or other
 heavyweight task owner is constructed. The configured RAM ceiling reserves
-headroom for Symbolica's opaque scratch and the operating system, and memory
-pressure is allowed to leave cores idle.
+headroom for Symbolica's opaque scratch and the operating system. Future
+campaign execution will choose an effective execution width `E <= N` before
+pool construction, charge the coordinator plus every possible worker's warmed
+TLS/Workspace reserve, and leave cores idle under memory pressure. If even the
+inline `E=1` baseline plus one minimum task cannot fit, it will return a typed
+memory-capacity pause without creating a pool. Requested/effective widths and
+the estimator revision are physical run metadata, not mathematical identity.
+The current raw `derive --n-cores N` path is distinct: for `N > 1` it constructs
+the requested `N` workers directly and does not yet derive a memory-limited
+effective width.
 See the
 [parallel campaign foundry plan](docs/research/parallel_campaign_foundry_design_2026-08-26.md).
 
@@ -761,8 +772,12 @@ adapter authoritative in the exact database. Its deterministic committed
 native-sparse snapshot is a crate-private campaign seam; wall time and RSS stay
 outside algebraic state. The static shared-child campaign plan, stateless
 core-plus-memory wave selection, roots-only declaration CLI, and atomic
-move-only admission controller are now implemented. The immediate gates are
-physical-family profiling, a calibrated bounded campaign executor, then the
+move-only admission controller are now implemented. A first stable indexed
+executor and resident-transform seam now move a complete exact session through
+a genuine generated-row Symbolica dependent transition while retaining old,
+successor, and transient charges. This is not yet the campaign CLI runtime:
+the immediate gates are a calibrated physical estimator with requested-versus-
+effective execution-width selection, the full frontier coordinator, then the
 owning exceptional/subsector scheduler and a proved coverage fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. The

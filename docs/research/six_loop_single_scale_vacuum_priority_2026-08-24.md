@@ -520,6 +520,17 @@ admitted against cores and estimated memory conjunctively; RAM pressure may
 therefore leave most cores idle, and that is the correct outcome rather than a
 utilization failure.
 
+Before constructing a pool, the campaign selects the largest feasible
+effective execution width `E` with `1 <= E <= --n-cores`. `E=1` runs inline on
+the coordinator with no worker thread; `E>1` creates `E` workers, while the
+coordinator remains a separate Symbolica Workspace owner. The fixed baseline
+charges coordinator stack/TLS plus every possible worker stack/TLS and any
+explicitly admitted inner thread. If that baseline plus the minimum runnable
+task cannot fit even at `E=1`, the run returns a typed memory-capacity pause
+before pool construction. Requested/effective widths, worker-thread count,
+and estimator revision are physical metadata excluded from mathematical
+hashes.
+
 The admitted live-set model is explicit:
 
 ```text
@@ -559,9 +570,9 @@ timing but never pivots, rules, or hashes.
 
 The estimator starts conservative and versioned. Campaign telemetry will
 record predicted versus observed phase peaks, old/new overlap, native U/L
-fill, coefficient-limb growth, staged bytes, RSS/allocator deltas, NUMA
-locality, worker utilization, and the fraction of time limited by cores or
-memory. Calibration may update coefficients and safety margins only in an
+stored-entry fill, coefficient-limb growth, staged bytes, RSS/allocator deltas,
+NUMA locality, worker utilization, and the fraction of time limited by cores
+or memory. Calibration may update coefficients and safety margins only in an
 explicit new estimator revision at a canonical barrier or in a later run;
 instantaneous RSS and worker completion order cannot adapt policy inside a
 frozen revision.
@@ -791,10 +802,17 @@ or physical-topology calculation.
    subsector children, cycle/non-descent rejection, and a deterministic
    ready-job antichain. A separate invocation-wide move-only core-plus-memory
    admission authority now atomically charges selected waves and retained
-   successors, but it remains cooperative accounting rather than a worker
-   runtime. There is no reducer hydration, calibrated physical estimator,
-   executor, or checkpoint barrier yet. Implement the bounded executor before
-   finishing
+   successors. Its first stable indexed executor and resident-transform seam
+   move a complete exact session through a genuine Symbolica dependent-row
+   transition with old/new/transient overlap charged. This remains a
+   cooperative low-level primitive, not the campaign runtime: there is no
+   calibrated physical estimator, effective-execution-width selector, frontier
+   coordinator, reducer hydration policy, or checkpoint barrier yet. On a
+   100-core node, choose `1 <= E <= --n-cores` before pool construction and
+   separately charge the coordinator plus every potentially warmed worker's
+   Symbolica thread-local cache in the fixed baseline. A no-fit `E=1` run
+   returns a typed memory-capacity pause without building a pool. Implement that bounded
+   coordinator before finishing
    `GeneratedFamilySymbolicResidualSolveV1` with
    exceptional scheduling, solved-subsector feedback, a proved coverage fixed
    point, exact residual verification, and the distinct 36-source session

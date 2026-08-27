@@ -111,8 +111,10 @@ left-deep expression, but it constructs a product and normalizes it; it is not
 the same n-way merge algorithm (`vendor/symbolica/src/atom.rs:4199-4235`). Use
 the thread-local `Workspace`/`RecycledAtom` facilities in intensive Atom
 transforms (`vendor/symbolica/src/state.rs:1285-1444`). The local recycled cache
-holds at most 30 atoms and caps retained atom capacity at 20 MB, so it is a
-scratch allocator, not persistent storage.
+automatically retains at most 30 Atom buffers whose capacity is at most
+20,000,000 bytes through `RecycledAtom::drop`. Public
+`Workspace::return_atom` bypasses both caps, so neither statement is an
+absolute Workspace bound and the cache is not persistent algebraic storage.
 
 `to_canonical_string` is process-independent and appropriate for diagnostics and semantic hashes (`vendor/symbolica/src/atom/core.rs:1412-1446`). It is not a replacement for a versioned rule artifact.
 
@@ -796,11 +798,29 @@ run independently owned reducers across case lanes or shards.
 The remaining upstream gaps are resource/performance interfaces, not
 correctness blockers. Every stage still deeply clones the native vector-backed
 `U`, `L`, pivots, and dense scratch (coefficient `Arc`s remain shallow); there is
-no fallible/COW fork. RustRed can count retained native entries, but Symbolica's
+no fallible/COW fork. RustRed can count retained native stored entries, but Symbolica's
 allocation layout and scratch bytes remain opaque, so there is no authoritative
 native-byte census. `LuLMode::Full` retains all historical `L` rows, and forward
 elimination is serial. Useful future APIs remain a fallible/COW fork, a row-
 local trace, a byte/scratch census, and a parallel forward path.
+
+The public `SparseMatrix::{values,col_idcs,row_ptrs}` and
+`SparseRowReducer::pivots` vectors expose their Rust capacities, so RustRed can
+also record a shallow allocation-slot envelope without reimplementing sparse
+algebra. That envelope excludes coefficient payloads behind shared owners,
+the private dense scratch vector, allocator overhead, workspaces, and RSS; it
+is estimator input, not an authoritative byte census.
+
+The same limitation applies outside the reducer. On automatic
+`RecycledAtom::drop`, Symbolica's private thread-local `Workspace` retains at
+most 30 Atom buffers whose capacity is at or below 20,000,000 bytes. Public
+direct `Workspace::return_atom` bypasses both caps, and additional
+Symbolica/Rayon threads own distinct workspaces. There is no public cache
+occupancy or trim API. A 100-core RustRed memory policy must therefore choose
+its effective execution width before construction, calibrate fully warmed-thread RSS,
+and charge an opaque runtime reserve for the coordinator plus every possible
+worker; current U/L
+stored-entry counts cannot account for this cache.
 
 `back_substitute` and `back_substitute_parallel` must run only on a clone made
 for final RREF/publication: both mutate `U` and pivots and clear `L`, setting
@@ -925,7 +945,7 @@ State registration is globally locked, while workspaces are thread-local. Symbol
 
 ## 14. Streaming and performance
 
-`TermStreamer` defaults to four cores, the current directory and a 1 GB in-memory limit (`vendor/symbolica/src/streaming.rs:63-107`). It splits additions into terms, spills sorted chunks and merges them (`287-539`), can map in parallel (`579-627`), and falls back to one core when unlicensed (`649-729`). Export/import includes State and term count (`332-390`). Examples/tests are `vendor/symbolica/examples/streaming.rs:4-21` and `vendor/symbolica/src/streaming.rs:747-867`.
+`TermStreamer` defaults to four cores, the current directory and a 1 GB packed-term-payload spill threshold (`vendor/symbolica/src/streaming.rs:63-107`). This is not a hard retained-memory or RSS limit: sorting overlaps the original buffer with a new output vector, and Atom capacities, workspace caches, compression buffers, and allocator overhead are outside the counter. It splits additions into terms, spills sorted chunks and merges them (`287-539`), can map in parallel (`579-627`), and falls back to one core when unlicensed (`649-729`). `TermStreamer::new` constructs its own pool and its private sort also uses ambient Rayon, so it is not admitted inside an ordinary RustRed outer worker. Export/import includes State and term count (`332-390`). Examples/tests are `vendor/symbolica/examples/streaming.rs:4-21` and `vendor/symbolica/src/streaming.rs:747-867`.
 
 Hazards: temporary filenames use path/pid/counter; `Drop` deletes files with `unwrap`, a crash can leave files, and a missing temp file can panic during drop (`vendor/symbolica/src/streaming.rs:142-257`). `to_expression` can defeat out-of-core operation by materializing the full sum (`541-560`).
 

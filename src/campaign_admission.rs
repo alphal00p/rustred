@@ -5,14 +5,17 @@
 //! non-cloneable coordinator reserves a complete selected wave in one locked
 //! transition, while move-only guards keep cores and estimated memory charged
 //! until the corresponding owners have actually been dropped or transferred.
-//! No algebra, reducer, worker dispatch/executor, or checkpoint is implemented
-//! here; the controller merely owns the one pool a future executor must borrow.
+//! No algebra or checkpoint coordinator is implemented here. The controller
+//! owns the invocation-wide pool and provides move-owned wave/transform
+//! execution primitives; production callbacks still belong to the higher
+//! campaign coordinator.
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use crate::{
@@ -181,15 +184,194 @@ impl CampaignAdmissionController {
         self.schema
     }
 
-    /// The future campaign executor borrows this sole invocation-wide pool.
-    /// It is intentionally not exposed as a public bypass around admission.
-    #[allow(dead_code)]
-    pub(crate) const fn execution(&self) -> &ParallelExecution {
-        &self.execution
-    }
-
     pub fn try_usage(&self) -> Result<CampaignAdmissionUsage, CampaignAdmissionError> {
         self.shared.lock().try_usage()
+    }
+
+    /// Settle one already admitted wave on the invocation-wide bounded pool.
+    ///
+    /// Every move-only reservation is transferred to exactly one worker. The
+    /// callback borrows the reservation as a read-only task context, so only
+    /// this executor can bind a successful retained output or keep a failure
+    /// payload paired with its charge. Results preserve the wave's stable job
+    /// order regardless of worker completion order. All jobs settle before this
+    /// method returns, which provides the deterministic wave barrier required
+    /// by campaign planning.
+    ///
+    /// A typed build failure and a recovered panic both retain the complete task
+    /// charge until their payload has been dropped. This matters because an
+    /// error payload may itself own task-local Symbolica data. No callback runs
+    /// while the admission accounting mutex is held.
+    pub fn execute_reserved_wave<Output, BuildError, Build>(
+        &mut self,
+        wave: CampaignWaveReservation,
+        build: Build,
+    ) -> Result<Vec<CampaignTaskExecution<Output, BuildError>>, CampaignWaveExecutionAdmissionFailure>
+    where
+        Output: Send,
+        BuildError: Send,
+        Build:
+            for<'task> Fn(CampaignTaskContext<'task>) -> Result<Output, BuildError> + Send + Sync,
+    {
+        if !wave.belongs_to(&self.shared) {
+            return Err(CampaignWaveExecutionAdmissionFailure {
+                error: CampaignAdmissionError::ForeignWaveReservation,
+                wave,
+            });
+        }
+        if let Some(task) = wave.tasks().iter().find(|task| task.cores() != 1) {
+            return Err(CampaignWaveExecutionAdmissionFailure {
+                error: CampaignAdmissionError::UnsupportedExecutorCoreWidth {
+                    job: task.job().clone(),
+                    requested: task.cores(),
+                },
+                wave,
+            });
+        }
+        Ok(self
+            .execution
+            .map_owned_ordered(wave.into_tasks(), |reservation| {
+                let context = CampaignTaskContext {
+                    reservation: &reservation,
+                };
+                match catch_unwind(AssertUnwindSafe(|| build(context))) {
+                    Ok(Ok(output)) => CampaignTaskExecution::Built(reservation.bind(output)),
+                    Ok(Err(error)) => {
+                        CampaignTaskExecution::Failed(CampaignTaskFailure::new(error, reservation))
+                    }
+                    Err(payload) => CampaignTaskExecution::Panicked(CampaignTaskPanic::new(
+                        payload,
+                        reservation,
+                    )),
+                }
+            }))
+    }
+
+    /// Execute stable, already-paired resident transformations on the bounded
+    /// invocation-wide pool.
+    ///
+    /// Unlike [`Self::execute_reserved_wave`], this path transfers the complete
+    /// predecessor owner into the callback. It is the campaign seam for a live
+    /// exact session: staging may clone a Symbolica reducer, but the resulting
+    /// transaction still needs the predecessor session's private authorities in
+    /// order to install the successor. On a recoverable failure the generic
+    /// callback supplies the owner to keep charged in
+    /// [`CampaignResidentTransformBuildFailure`]. This low-level public seam is
+    /// cooperative: it cannot prove object identity for an arbitrary `T`.
+    /// RustRed's crate-owned exact-session adapters are responsible for
+    /// returning the same lineage; a panic destroys that worker's owner and
+    /// leaves recovery to a durable campaign checkpoint.
+    ///
+    /// Batch preflight validates current accounting, but does not reserve the
+    /// remaining `u64` accounting-generation namespace. If that namespace is
+    /// exhausted while canonical commits settle, later ready items return
+    /// charged [`CampaignResidentTransformExecution::CommitFailed`] values and
+    /// the campaign is terminal until checkpoint recovery. This does not make
+    /// resource capacity available early.
+    pub fn execute_resident_transforms_ordered<Predecessor, Successor, BuildError, Transform>(
+        &mut self,
+        mut tasks: Vec<CampaignResidentTransformTask<Predecessor>>,
+        transform: Transform,
+    ) -> Result<
+        Vec<CampaignResidentTransformExecution<Predecessor, Successor, BuildError>>,
+        CampaignResidentTransformBatchAdmissionFailure<Predecessor>,
+    >
+    where
+        Predecessor: Send,
+        Successor: Send,
+        BuildError: Send,
+        Transform: for<'task> Fn(
+                CampaignTaskContext<'task>,
+                Predecessor,
+            ) -> Result<
+                Successor,
+                CampaignResidentTransformBuildFailure<Predecessor, BuildError>,
+            > + Send
+            + Sync,
+    {
+        tasks.sort_unstable_by(|left, right| {
+            left.reservation().job().cmp(right.reservation().job())
+        });
+        if let Some(task) = tasks.iter().find(|task| !task.belongs_to(&self.shared)) {
+            return Err(CampaignResidentTransformBatchAdmissionFailure {
+                error: CampaignAdmissionError::ForeignTaskReservation {
+                    job: task.reservation().job().clone(),
+                },
+                tasks,
+            });
+        }
+        if let Some(task) = tasks.iter().find(|task| task.reservation().cores() != 1) {
+            return Err(CampaignResidentTransformBatchAdmissionFailure {
+                error: CampaignAdmissionError::UnsupportedExecutorCoreWidth {
+                    job: task.reservation().job().clone(),
+                    requested: task.reservation().cores(),
+                },
+                tasks,
+            });
+        }
+        if let Some(error) = tasks.iter().find_map(|task| task.preflight().err()) {
+            return Err(CampaignResidentTransformBatchAdmissionFailure { error, tasks });
+        }
+
+        let prepared = self.execution.map_owned_ordered(tasks, |task| {
+            let (reservation, predecessor) = task.into_parts();
+            let (predecessor_owner, predecessor_charge) = predecessor.split_owner_charge();
+            let context = CampaignTaskContext {
+                reservation: &reservation,
+            };
+            match catch_unwind(AssertUnwindSafe(|| transform(context, predecessor_owner))) {
+                Ok(Ok(successor)) => CampaignResidentTransformPrepared::Ready {
+                    admitted: reservation.bind(successor),
+                    predecessor_charge,
+                },
+                Ok(Err(failure)) => {
+                    let (predecessor_owner, error) = failure.into_parts();
+                    let predecessor = predecessor_charge.restore_owner(predecessor_owner);
+                    CampaignResidentTransformPrepared::BuildFailed(
+                        CampaignResidentTransformFailure {
+                            error: Some(error),
+                            task: Some(CampaignResidentTransformTask {
+                                reservation: Some(reservation),
+                                predecessor: Some(predecessor),
+                            }),
+                        },
+                    )
+                }
+                Err(payload) => {
+                    CampaignResidentTransformPrepared::Panicked(CampaignResidentTransformPanic {
+                        payload: Some(payload),
+                        predecessor_charge: Some(predecessor_charge),
+                        reservation: Some(reservation),
+                    })
+                }
+            }
+        });
+
+        // Workers finish before this loop. The executor-owned successor
+        // transfers and direct predecessor replacements therefore occur in
+        // canonical job order, never completion order. This low-level generic
+        // API remains cooperative: an arbitrary callback payload could itself
+        // contain some unrelated admission guard and drop it on a worker.
+        // Crate-owned production adapters must be guard-free apart from the
+        // predecessor explicitly split above.
+        Ok(prepared
+            .into_iter()
+            .map(|prepared| match prepared {
+                CampaignResidentTransformPrepared::Ready {
+                    admitted,
+                    predecessor_charge,
+                } => match admitted.try_commit_successor(Some(predecessor_charge)) {
+                    Ok(resident) => CampaignResidentTransformExecution::Committed(resident),
+                    Err(failure) => CampaignResidentTransformExecution::CommitFailed(failure),
+                },
+                CampaignResidentTransformPrepared::BuildFailed(failure) => {
+                    CampaignResidentTransformExecution::BuildFailed(failure)
+                }
+                CampaignResidentTransformPrepared::Panicked(panic) => {
+                    CampaignResidentTransformExecution::Panicked(panic)
+                }
+            })
+            .collect())
     }
 
     /// Freeze an advisory planning snapshot only at a quiescent wave barrier.
@@ -341,6 +523,7 @@ impl CampaignAdmissionController {
         if tasks.is_empty() {
             return Ok(CampaignWaveReservation {
                 schema: CAMPAIGN_ADMISSION_V1_SCHEMA,
+                authority: Arc::downgrade(&self.shared),
                 tasks,
             });
         }
@@ -414,6 +597,7 @@ impl CampaignAdmissionController {
         }
         Ok(CampaignWaveReservation {
             schema: CAMPAIGN_ADMISSION_V1_SCHEMA,
+            authority: Arc::downgrade(&self.shared),
             tasks,
         })
     }
@@ -616,6 +800,7 @@ impl fmt::Debug for CampaignResidentToken {
 
 pub struct CampaignWaveReservation {
     schema: &'static str,
+    authority: Weak<CampaignAdmissionShared>,
     tasks: Vec<CampaignTaskReservation>,
 }
 
@@ -635,6 +820,14 @@ impl CampaignWaveReservation {
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
+
+    fn belongs_to(&self, shared: &Arc<CampaignAdmissionShared>) -> bool {
+        Weak::ptr_eq(&self.authority, &Arc::downgrade(shared))
+            && self
+                .tasks
+                .iter()
+                .all(|task| Arc::ptr_eq(&task.shared, shared))
+    }
 }
 
 impl fmt::Debug for CampaignWaveReservation {
@@ -644,6 +837,206 @@ impl fmt::Debug for CampaignWaveReservation {
             .field("schema", &self.schema)
             .field("task_count", &self.tasks.len())
             .finish_non_exhaustive()
+    }
+}
+
+/// A whole admitted wave rejected before any worker callback ran.
+pub struct CampaignWaveExecutionAdmissionFailure {
+    error: CampaignAdmissionError,
+    wave: CampaignWaveReservation,
+}
+
+impl CampaignWaveExecutionAdmissionFailure {
+    pub const fn error(&self) -> &CampaignAdmissionError {
+        &self.error
+    }
+
+    pub fn into_parts(self) -> (CampaignAdmissionError, CampaignWaveReservation) {
+        (self.error, self.wave)
+    }
+}
+
+impl fmt::Debug for CampaignWaveExecutionAdmissionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignWaveExecutionAdmissionFailure")
+            .field("error", &self.error)
+            .field("wave", &self.wave)
+            .finish()
+    }
+}
+
+/// Read-only resource context supplied to one admitted worker callback.
+///
+/// The executor deliberately retains ownership of the reservation. A callback
+/// can size its Symbolica operation from this view, but cannot bind output,
+/// transfer residency, release permits, or access the worker pool.
+#[derive(Clone, Copy)]
+pub struct CampaignTaskContext<'task> {
+    reservation: &'task CampaignTaskReservation,
+}
+
+impl<'task> CampaignTaskContext<'task> {
+    pub const fn job(self) -> &'task CampaignJobKey {
+        self.reservation.job()
+    }
+
+    pub const fn cores(self) -> usize {
+        self.reservation.cores()
+    }
+
+    pub const fn memory(self) -> CampaignTaskMemoryEnvelope {
+        self.reservation.memory()
+    }
+
+    pub const fn predecessor(self) -> Option<&'task CampaignResidentToken> {
+        self.reservation.predecessor()
+    }
+}
+
+impl fmt::Debug for CampaignTaskContext<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignTaskContext")
+            .field("job", &self.reservation.job())
+            .field("cores", &self.reservation.cores())
+            .field("memory", &self.reservation.memory())
+            .field("has_predecessor", &self.reservation.predecessor().is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Stable worker disposition for one admitted task.
+///
+/// Each variant continues to own the task reservation. Successful output can
+/// be committed through its [`CampaignAdmittedTask`]; failure and panic owners
+/// release their charges only after their payloads have been destroyed.
+pub enum CampaignTaskExecution<Output, BuildError> {
+    Built(CampaignAdmittedTask<Output>),
+    Failed(CampaignTaskFailure<BuildError>),
+    Panicked(CampaignTaskPanic),
+}
+
+impl<Output, BuildError> CampaignTaskExecution<Output, BuildError> {
+    pub fn job(&self) -> &CampaignJobKey {
+        match self {
+            Self::Built(admitted) => admitted.reservation().job(),
+            Self::Failed(failure) => failure.reservation().job(),
+            Self::Panicked(panic) => panic.reservation().job(),
+        }
+    }
+}
+
+impl<Output, BuildError> fmt::Debug for CampaignTaskExecution<Output, BuildError> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Built(admitted) => formatter
+                .debug_struct("Built")
+                .field("job", admitted.reservation().job())
+                .finish_non_exhaustive(),
+            Self::Failed(failure) => fmt::Debug::fmt(failure, formatter),
+            Self::Panicked(panic) => fmt::Debug::fmt(panic, formatter),
+        }
+    }
+}
+
+/// A typed task-local failure kept under its original resource charge.
+pub struct CampaignTaskFailure<BuildError> {
+    // Payload destruction must precede permit release, including on panic.
+    error: Option<BuildError>,
+    reservation: Option<CampaignTaskReservation>,
+}
+
+impl<BuildError> CampaignTaskFailure<BuildError> {
+    fn new(error: BuildError, reservation: CampaignTaskReservation) -> Self {
+        Self {
+            error: Some(error),
+            reservation: Some(reservation),
+        }
+    }
+
+    pub fn error(&self) -> &BuildError {
+        self.error.as_ref().expect("task failure retains its error")
+    }
+
+    pub fn reservation(&self) -> &CampaignTaskReservation {
+        self.reservation
+            .as_ref()
+            .expect("task failure retains its reservation")
+    }
+}
+
+impl<BuildError> fmt::Debug for CampaignTaskFailure<BuildError> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Failed")
+            .field("job", self.reservation().job())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<BuildError> Drop for CampaignTaskFailure<BuildError> {
+    fn drop(&mut self) {
+        // Moving the reservation to a local makes it an unwind guard if the
+        // arbitrary error payload's destructor panics.
+        let reservation = self.reservation.take();
+        let error = self.error.take();
+        drop(error);
+        drop(reservation);
+    }
+}
+
+/// A recovered worker panic kept under its original resource charge.
+pub struct CampaignTaskPanic {
+    // Payload destruction must precede permit release, including on panic.
+    payload: Option<Box<dyn std::any::Any + Send + 'static>>,
+    reservation: Option<CampaignTaskReservation>,
+}
+
+impl CampaignTaskPanic {
+    fn new(
+        payload: Box<dyn std::any::Any + Send + 'static>,
+        reservation: CampaignTaskReservation,
+    ) -> Self {
+        Self {
+            payload: Some(payload),
+            reservation: Some(reservation),
+        }
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        let payload = self.payload.as_ref()?;
+        payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    }
+
+    pub fn reservation(&self) -> &CampaignTaskReservation {
+        self.reservation
+            .as_ref()
+            .expect("task panic retains its reservation")
+    }
+}
+
+impl fmt::Debug for CampaignTaskPanic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Panicked")
+            .field("job", self.reservation().job())
+            .field("message", &self.message())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for CampaignTaskPanic {
+    fn drop(&mut self) {
+        // As for typed failures, the reservation remains an unwind guard around
+        // arbitrary panic-payload destruction.
+        let reservation = self.reservation.take();
+        let payload = self.payload.take();
+        drop(payload);
+        drop(reservation);
     }
 }
 
@@ -695,6 +1088,25 @@ impl CampaignTaskReservation {
 
     pub const fn predecessor(&self) -> Option<&CampaignResidentToken> {
         self.predecessor.as_ref()
+    }
+
+    /// Pair this successor reservation with the exact move-only resident whose
+    /// generation was sealed at wave admission.
+    pub fn try_bind_resident_transform<T>(
+        self,
+        predecessor: CampaignResident<T>,
+    ) -> Result<CampaignResidentTransformTask<T>, CampaignResidentTransformBindFailure<T>> {
+        if let Err(error) = validate_predecessor(&self, Some(&predecessor)) {
+            return Err(CampaignResidentTransformBindFailure {
+                error,
+                reservation: self,
+                predecessor,
+            });
+        }
+        Ok(CampaignResidentTransformTask {
+            reservation: Some(self),
+            predecessor: Some(predecessor),
+        })
     }
 
     /// Bind the retained successor owner after task-local scratch has gone out
@@ -761,6 +1173,347 @@ impl Drop for CampaignTaskReservation {
                 .release_task(self.request.cores(), self.remaining_memory);
             self.active = false;
         }
+    }
+}
+
+/// A successor reservation paired with the complete resident owner it will
+/// transform. The pair is move-only and destroys the predecessor before
+/// releasing the task reservation on every unwind path.
+pub struct CampaignResidentTransformTask<T> {
+    reservation: Option<CampaignTaskReservation>,
+    predecessor: Option<CampaignResident<T>>,
+}
+
+impl<T> CampaignResidentTransformTask<T> {
+    pub fn reservation(&self) -> &CampaignTaskReservation {
+        self.reservation
+            .as_ref()
+            .expect("resident transform retains its reservation")
+    }
+
+    pub fn predecessor(&self) -> &CampaignResident<T> {
+        self.predecessor
+            .as_ref()
+            .expect("resident transform retains its predecessor")
+    }
+
+    fn belongs_to(&self, shared: &Arc<CampaignAdmissionShared>) -> bool {
+        self.reservation
+            .as_ref()
+            .is_some_and(|reservation| Arc::ptr_eq(&reservation.shared, shared))
+            && self
+                .predecessor
+                .as_ref()
+                .is_some_and(|predecessor| Arc::ptr_eq(&predecessor.shared, shared))
+    }
+
+    pub fn predecessor_mut(&mut self) -> &mut CampaignResident<T> {
+        self.predecessor
+            .as_mut()
+            .expect("resident transform retains its predecessor")
+    }
+
+    fn preflight(&self) -> Result<(), CampaignAdmissionError> {
+        let reservation = self.reservation();
+        let predecessor = self.predecessor();
+        validate_predecessor(reservation, Some(predecessor))?;
+        reservation
+            .shared
+            .preflight_resident_transform(reservation, predecessor)
+    }
+
+    fn into_parts(mut self) -> (CampaignTaskReservation, CampaignResident<T>) {
+        let reservation = self
+            .reservation
+            .take()
+            .expect("resident transform retains its reservation");
+        let predecessor = self
+            .predecessor
+            .take()
+            .expect("resident transform retains its predecessor");
+        (reservation, predecessor)
+    }
+
+    /// Discard the admitted successor attempt and recover the intact
+    /// predecessor generation. This is useful after a typed build failure; the
+    /// task reservation is released before the resident is returned.
+    fn into_predecessor(mut self) -> CampaignResident<T> {
+        let reservation = self.reservation.take();
+        let predecessor = self
+            .predecessor
+            .take()
+            .expect("resident transform retains its predecessor");
+        drop(reservation);
+        predecessor
+    }
+}
+
+/// A resident-transform batch rejected before any predecessor owner was moved
+/// into a callback. Dropping this value drops every still-charged task and
+/// resident in owner-before-permit order; `into_parts` allows deterministic
+/// retry or checkpoint recovery.
+pub struct CampaignResidentTransformBatchAdmissionFailure<T> {
+    error: CampaignAdmissionError,
+    tasks: Vec<CampaignResidentTransformTask<T>>,
+}
+
+impl<T> CampaignResidentTransformBatchAdmissionFailure<T> {
+    pub const fn error(&self) -> &CampaignAdmissionError {
+        &self.error
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        CampaignAdmissionError,
+        Vec<CampaignResidentTransformTask<T>>,
+    ) {
+        (self.error, self.tasks)
+    }
+}
+
+impl<T> fmt::Debug for CampaignResidentTransformBatchAdmissionFailure<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformBatchAdmissionFailure")
+            .field("error", &self.error)
+            .field("task_count", &self.tasks.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> fmt::Debug for CampaignResidentTransformTask<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformTask")
+            .field("job", self.reservation().job())
+            .field("predecessor", self.predecessor().token())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> Drop for CampaignResidentTransformTask<T> {
+    fn drop(&mut self) {
+        let reservation = self.reservation.take();
+        let predecessor = self.predecessor.take();
+        drop(predecessor);
+        drop(reservation);
+    }
+}
+
+pub struct CampaignResidentTransformBindFailure<T> {
+    error: CampaignAdmissionError,
+    reservation: CampaignTaskReservation,
+    predecessor: CampaignResident<T>,
+}
+
+impl<T> CampaignResidentTransformBindFailure<T> {
+    pub const fn error(&self) -> &CampaignAdmissionError {
+        &self.error
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        CampaignAdmissionError,
+        CampaignTaskReservation,
+        CampaignResident<T>,
+    ) {
+        (self.error, self.reservation, self.predecessor)
+    }
+}
+
+impl<T> fmt::Debug for CampaignResidentTransformBindFailure<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformBindFailure")
+            .field("error", &self.error)
+            .field("job", self.reservation.job())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Recoverable worker failure carrying the callback-supplied owner that remains
+/// paired with the predecessor's resident charge.
+///
+/// For an arbitrary public `T`, this is a cooperative contract rather than an
+/// identity proof. RustRed's internal exact-session adapters must return the
+/// same allocation lineage and must not report a predecessor failure after a
+/// committed mutation.
+pub struct CampaignResidentTransformBuildFailure<T, BuildError> {
+    callback_owner: T,
+    error: BuildError,
+}
+
+impl<T, BuildError> CampaignResidentTransformBuildFailure<T, BuildError> {
+    pub const fn new(callback_owner: T, error: BuildError) -> Self {
+        Self {
+            callback_owner,
+            error,
+        }
+    }
+
+    pub const fn callback_owner(&self) -> &T {
+        &self.callback_owner
+    }
+
+    pub const fn error(&self) -> &BuildError {
+        &self.error
+    }
+
+    fn into_parts(self) -> (T, BuildError) {
+        (self.callback_owner, self.error)
+    }
+}
+
+impl<T, BuildError> fmt::Debug for CampaignResidentTransformBuildFailure<T, BuildError> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformBuildFailure")
+            .finish_non_exhaustive()
+    }
+}
+
+pub enum CampaignResidentTransformExecution<Predecessor, Successor, BuildError> {
+    Committed(CampaignResident<Successor>),
+    BuildFailed(CampaignResidentTransformFailure<Predecessor, BuildError>),
+    Panicked(CampaignResidentTransformPanic),
+    CommitFailed(CampaignCommitFailure<(), Successor>),
+}
+
+enum CampaignResidentTransformPrepared<Predecessor, Successor, BuildError> {
+    Ready {
+        admitted: CampaignAdmittedTask<Successor>,
+        predecessor_charge: CampaignResident<()>,
+    },
+    BuildFailed(CampaignResidentTransformFailure<Predecessor, BuildError>),
+    Panicked(CampaignResidentTransformPanic),
+}
+
+impl<Predecessor, Successor, BuildError>
+    CampaignResidentTransformExecution<Predecessor, Successor, BuildError>
+{
+    pub fn job(&self) -> &CampaignJobKey {
+        match self {
+            Self::Committed(resident) => resident.token().job(),
+            Self::BuildFailed(failure) => failure.task().reservation().job(),
+            Self::Panicked(panic) => panic.reservation().job(),
+            Self::CommitFailed(failure) => failure.admitted.reservation().job(),
+        }
+    }
+}
+
+impl<Predecessor, Successor, BuildError> fmt::Debug
+    for CampaignResidentTransformExecution<Predecessor, Successor, BuildError>
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Committed(resident) => formatter
+                .debug_struct("Committed")
+                .field("job", resident.token().job())
+                .finish_non_exhaustive(),
+            Self::BuildFailed(failure) => fmt::Debug::fmt(failure, formatter),
+            Self::Panicked(panic) => fmt::Debug::fmt(panic, formatter),
+            Self::CommitFailed(failure) => fmt::Debug::fmt(failure, formatter),
+        }
+    }
+}
+
+pub struct CampaignResidentTransformFailure<T, BuildError> {
+    // Diagnostic destruction precedes predecessor/task charge release.
+    error: Option<BuildError>,
+    task: Option<CampaignResidentTransformTask<T>>,
+}
+
+impl<T, BuildError> CampaignResidentTransformFailure<T, BuildError> {
+    pub fn error(&self) -> &BuildError {
+        self.error
+            .as_ref()
+            .expect("resident transform failure retains its error")
+    }
+
+    pub fn task(&self) -> &CampaignResidentTransformTask<T> {
+        self.task
+            .as_ref()
+            .expect("resident transform failure retains its task")
+    }
+
+    /// Drop the diagnostic under the task charge, release the successor
+    /// reservation, and return the callback-supplied resident owner for retry
+    /// under the cooperative identity contract described above.
+    pub fn recover_callback_owner(mut self) -> CampaignResident<T> {
+        let task = self
+            .task
+            .take()
+            .expect("resident transform failure retains its task");
+        let error = self.error.take();
+        drop(error);
+        task.into_predecessor()
+    }
+}
+
+impl<T, BuildError> fmt::Debug for CampaignResidentTransformFailure<T, BuildError> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformBuildFailed")
+            .field("job", self.task().reservation().job())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T, BuildError> Drop for CampaignResidentTransformFailure<T, BuildError> {
+    fn drop(&mut self) {
+        let task = self.task.take();
+        let error = self.error.take();
+        drop(error);
+        drop(task);
+    }
+}
+
+/// A resident-transform panic after the predecessor payload was transferred to
+/// user code. The owner is considered lost and must be reconstructed from a
+/// durable checkpoint; its old resident charge remains paired with this panic
+/// until the panic payload is destroyed.
+pub struct CampaignResidentTransformPanic {
+    payload: Option<Box<dyn std::any::Any + Send + 'static>>,
+    predecessor_charge: Option<CampaignResident<()>>,
+    reservation: Option<CampaignTaskReservation>,
+}
+
+impl CampaignResidentTransformPanic {
+    pub fn message(&self) -> Option<&str> {
+        let payload = self.payload.as_ref()?;
+        payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    }
+
+    pub fn reservation(&self) -> &CampaignTaskReservation {
+        self.reservation
+            .as_ref()
+            .expect("resident transform panic retains its reservation")
+    }
+}
+
+impl fmt::Debug for CampaignResidentTransformPanic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CampaignResidentTransformPanicked")
+            .field("job", self.reservation().job())
+            .field("message", &self.message())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for CampaignResidentTransformPanic {
+    fn drop(&mut self) {
+        let reservation = self.reservation.take();
+        let predecessor_charge = self.predecessor_charge.take();
+        let payload = self.payload.take();
+        drop(payload);
+        drop(predecessor_charge);
+        drop(reservation);
     }
 }
 
@@ -888,33 +1641,38 @@ impl<T> CampaignAdmittedTask<T> {
             .reservation
             .as_ref()
             .expect("admitted task retains its reservation");
-        if let Some(actual) = predecessor {
-            actual
-                .token()
-                .validate_for(&reservation.shared, &reservation.job)?;
-        }
-        let expected = reservation.predecessor.as_ref();
-        let actual = predecessor.map(CampaignResident::token);
-        match (expected, actual) {
-            (None, None) => Ok(()),
-            (Some(expected), Some(actual)) if expected.exact_match(actual) => Ok(()),
-            (Some(expected), Some(actual)) => {
-                Err(CampaignAdmissionError::ResidentGenerationMismatch {
-                    job: expected.job.clone(),
-                    expected: expected.generation.get(),
-                    actual: Some(actual.generation.get()),
-                })
-            }
-            (Some(expected), None) => Err(CampaignAdmissionError::ResidentGenerationMismatch {
-                job: expected.job.clone(),
-                expected: expected.generation.get(),
-                actual: None,
-            }),
-            (None, Some(actual)) => Err(CampaignAdmissionError::UnexpectedResidentPredecessor {
-                job: actual.job.clone(),
-                generation: actual.generation.get(),
-            }),
-        }
+        validate_predecessor(reservation, predecessor)
+    }
+}
+
+fn validate_predecessor<Previous>(
+    reservation: &CampaignTaskReservation,
+    predecessor: Option<&CampaignResident<Previous>>,
+) -> Result<(), CampaignAdmissionError> {
+    if let Some(actual) = predecessor {
+        actual
+            .token()
+            .validate_for(&reservation.shared, &reservation.job)?;
+    }
+    let expected = reservation.predecessor.as_ref();
+    let actual = predecessor.map(CampaignResident::token);
+    match (expected, actual) {
+        (None, None) => Ok(()),
+        (Some(expected), Some(actual)) if expected.exact_match(actual) => Ok(()),
+        (Some(expected), Some(actual)) => Err(CampaignAdmissionError::ResidentGenerationMismatch {
+            job: expected.job.clone(),
+            expected: expected.generation.get(),
+            actual: Some(actual.generation.get()),
+        }),
+        (Some(expected), None) => Err(CampaignAdmissionError::ResidentGenerationMismatch {
+            job: expected.job.clone(),
+            expected: expected.generation.get(),
+            actual: None,
+        }),
+        (None, Some(actual)) => Err(CampaignAdmissionError::UnexpectedResidentPredecessor {
+            job: actual.job.clone(),
+            generation: actual.generation.get(),
+        }),
     }
 }
 
@@ -958,6 +1716,43 @@ impl<T> CampaignResident<T> {
         self.retained_output
             .as_mut()
             .expect("campaign resident retains its output")
+    }
+
+    /// Separate the payload from its still-active accounting generation.
+    ///
+    /// The returned unit owner is an internal charge shell used only while a
+    /// consuming resident transformation runs. Cloning the compact token here
+    /// avoids unsafe field extraction from a type with a custom destructor.
+    fn split_owner_charge(mut self) -> (T, CampaignResident<()>) {
+        let retained_output = self
+            .retained_output
+            .take()
+            .expect("campaign resident retains its output");
+        let charge = CampaignResident {
+            retained_output: Some(()),
+            shared: Arc::clone(&self.shared),
+            token: self.token.clone(),
+            estimate: self.estimate,
+            active: self.active,
+        };
+        self.active = false;
+        drop(self);
+        (retained_output, charge)
+    }
+}
+
+impl CampaignResident<()> {
+    fn restore_owner<T>(mut self, retained_output: T) -> CampaignResident<T> {
+        let restored = CampaignResident {
+            retained_output: Some(retained_output),
+            shared: Arc::clone(&self.shared),
+            token: self.token.clone(),
+            estimate: self.estimate,
+            active: self.active,
+        };
+        self.active = false;
+        drop(self);
+        restored
     }
 }
 
@@ -1034,6 +1829,23 @@ impl<Previous, Output> fmt::Debug for CampaignCommitFailure<Previous, Output> {
 }
 
 impl CampaignAdmissionShared {
+    fn preflight_resident_transform<T>(
+        &self,
+        task: &CampaignTaskReservation,
+        predecessor: &CampaignResident<T>,
+    ) -> Result<(), CampaignAdmissionError> {
+        if !predecessor.active {
+            return Err(CampaignAdmissionError::AccountingInvariantBroken);
+        }
+        self.preflight_transfer(task)?;
+        let state = self.lock();
+        state.ensure_healthy()?;
+        if state.resident_retained < predecessor.estimate.total() {
+            return Err(CampaignAdmissionError::AccountingInvariantBroken);
+        }
+        Ok(())
+    }
+
     fn preflight_transfer(
         &self,
         task: &CampaignTaskReservation,
@@ -1158,6 +1970,14 @@ impl CampaignAdmissionShared {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CampaignAdmissionError {
     ForeignSnapshot,
+    ForeignWaveReservation,
+    ForeignTaskReservation {
+        job: CampaignJobKey,
+    },
+    UnsupportedExecutorCoreWidth {
+        job: CampaignJobKey,
+        requested: usize,
+    },
     StaleSnapshot {
         expected_generation: u64,
         actual_generation: u64,
@@ -1221,6 +2041,18 @@ impl fmt::Display for CampaignAdmissionError {
             Self::ForeignSnapshot => {
                 formatter.write_str("campaign admission snapshot belongs to another controller")
             }
+            Self::ForeignWaveReservation => formatter
+                .write_str("campaign wave reservation belongs to another admission controller"),
+            Self::ForeignTaskReservation { job } => write!(
+                formatter,
+                "campaign executor task for sector {} belongs to another admission controller",
+                job.sector()
+            ),
+            Self::UnsupportedExecutorCoreWidth { job, requested } => write!(
+                formatter,
+                "campaign executor task for sector {} requests {requested} cores; the current controlled outer executor supports exactly one core per task",
+                job.sector()
+            ),
             Self::StaleSnapshot {
                 expected_generation,
                 actual_generation,

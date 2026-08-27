@@ -30,7 +30,8 @@ mod persistent;
 #[allow(unused_imports)]
 pub(crate) use persistent::{
     SymbolicaPersistentSparseLimits, SymbolicaPersistentSparseOutcome,
-    SymbolicaPersistentSparseReducer, SymbolicaPersistentSparseStats,
+    SymbolicaPersistentSparseReducer, SymbolicaPersistentSparseShallowCapacitySnapshot,
+    SymbolicaPersistentSparseStats,
 };
 
 /// Resource envelope for one temporary native forward-reduction transcript.

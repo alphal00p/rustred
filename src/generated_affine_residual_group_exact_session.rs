@@ -74,6 +74,7 @@ use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
 use crate::native_sparse_scaling::NativeSparseScalingSnapshot;
+use crate::parametric_coefficient::symbolica_sparse::SymbolicaPersistentSparseShallowCapacitySnapshot;
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
     ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
@@ -2583,6 +2584,92 @@ impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitDependentFai
 
 impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitDependentFailure {}
 
+/// Live retained-resource components observable from one exact-session owner.
+///
+/// Native dimensions and entry counts are direct observations of Symbolica's
+/// currently committed sparse reducer; entry counts mean stored CSR entries,
+/// not semantic nonzeros. The nested capacity snapshot contains public U/L CSR
+/// and pivot `Vec` slot capacities only. The byte fields are existing RustRed
+/// component envelopes. They deliberately remain separate: the solve plan is a
+/// shared campaign authority, some `Arc` payloads overlap, and Symbolica's
+/// native heap and private per-thread workspaces require external calibration.
+/// This is neither an exhaustive Rust-owner envelope nor a native/RSS census.
+/// The campaign layer separately charges the session shell and supplies one
+/// deduplicated baseline charge for the shared plan `Arc` and other shared
+/// authorities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactSessionResidentResourceSnapshot {
+    physical_columns: usize,
+    independent_rows: usize,
+    native_u_rows: usize,
+    native_u_columns: usize,
+    native_l_rows: usize,
+    native_l_columns: usize,
+    native_u_stored_entries: usize,
+    native_l_stored_entries: usize,
+    native_shallow_capacity_slots: SymbolicaPersistentSparseShallowCapacitySnapshot,
+    shared_plan_owner_retained_bytes: usize,
+    database_retained_bytes: usize,
+    target_state_combined_retained_byte_envelope: usize,
+    event_ledger_retained_bytes: usize,
+}
+
+impl GeneratedAffineResidualGroupExactSessionResidentResourceSnapshot {
+    pub(crate) const fn physical_columns(self) -> usize {
+        self.physical_columns
+    }
+
+    pub(crate) const fn independent_rows(self) -> usize {
+        self.independent_rows
+    }
+
+    pub(crate) const fn native_u_rows(self) -> usize {
+        self.native_u_rows
+    }
+
+    pub(crate) const fn native_u_columns(self) -> usize {
+        self.native_u_columns
+    }
+
+    pub(crate) const fn native_l_rows(self) -> usize {
+        self.native_l_rows
+    }
+
+    pub(crate) const fn native_l_columns(self) -> usize {
+        self.native_l_columns
+    }
+
+    pub(crate) const fn native_u_stored_entries(self) -> usize {
+        self.native_u_stored_entries
+    }
+
+    pub(crate) const fn native_l_stored_entries(self) -> usize {
+        self.native_l_stored_entries
+    }
+
+    pub(crate) const fn native_shallow_capacity_slots(
+        self,
+    ) -> SymbolicaPersistentSparseShallowCapacitySnapshot {
+        self.native_shallow_capacity_slots
+    }
+
+    pub(crate) const fn shared_plan_owner_retained_bytes(self) -> usize {
+        self.shared_plan_owner_retained_bytes
+    }
+
+    pub(crate) const fn database_retained_bytes(self) -> usize {
+        self.database_retained_bytes
+    }
+
+    pub(crate) const fn target_state_combined_retained_byte_envelope(self) -> usize {
+        self.target_state_combined_retained_byte_envelope
+    }
+
+    pub(crate) const fn event_ledger_retained_bytes(self) -> usize {
+        self.event_ledger_retained_bytes
+    }
+}
+
 /// One allocation-bound exact solve session.
 ///
 /// Construction is the unique source-profiled minting path for the initial target state:
@@ -2840,6 +2927,34 @@ impl GeneratedAffineResidualGroupExactSession {
     /// harnesses. This diagnostic snapshot is excluded from replay identity.
     pub(crate) fn native_sparse_scaling_stats(&self) -> NativeSparseScalingSnapshot {
         self.database.stats().native_sparse_scaling().into()
+    }
+
+    /// Observe current retained shape without inferring native peak bytes.
+    /// Historical stage telemetry may contain a discarded dependent trial's
+    /// extra L row, so campaign estimators must use these live components for
+    /// the resident successor baseline.
+    pub(crate) fn resident_resource_snapshot(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactSessionResidentResourceSnapshot {
+        let database = self.database.resident_resource_snapshot();
+        GeneratedAffineResidualGroupExactSessionResidentResourceSnapshot {
+            physical_columns: database.physical_columns(),
+            independent_rows: database.independent_rows(),
+            native_u_rows: database.native_u_rows(),
+            native_u_columns: database.native_u_columns(),
+            native_l_rows: database.native_l_rows(),
+            native_l_columns: database.native_l_columns(),
+            native_u_stored_entries: database.native_u_stored_entries(),
+            native_l_stored_entries: database.native_l_stored_entries(),
+            native_shallow_capacity_slots: database.native_shallow_capacity_slots(),
+            shared_plan_owner_retained_bytes: self.plan.stats().owner_retained_bytes(),
+            database_retained_bytes: database.retained_database_bytes(),
+            target_state_combined_retained_byte_envelope: self
+                .target_state
+                .stats()
+                .combined_retained_byte_envelope(),
+            event_ledger_retained_bytes: self.event_stats.ledger_retained_bytes(),
+        }
     }
 
     pub(crate) const fn publishes_rule(&self) -> bool {
@@ -5699,6 +5814,8 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
     use crate::generated_affine_parametric_ordering::{
         GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
     };
@@ -5766,14 +5883,37 @@ pub(crate) mod tests {
         ParametricSectorNormalizedCoverageSourceLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
+        AffineDenominator, CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
+        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits,
+        CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution,
+        CampaignRootSpec, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
+        CampaignWavePlanner, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
         GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
-        SectorMask,
+        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParallelExecution,
+        ParametricIbpGenerator, SectorMask,
     };
 
     const M: i64 = i64::MAX;
+
+    #[test]
+    fn complete_exact_session_owner_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<GeneratedAffineResidualGroupExactSession>();
+    }
+
+    fn assert_native_shallow_capacity_invariants(
+        snapshot: GeneratedAffineResidualGroupExactSessionResidentResourceSnapshot,
+    ) {
+        let slots = snapshot.native_shallow_capacity_slots();
+        assert!(slots.u_value_slots() >= snapshot.native_u_stored_entries());
+        assert!(slots.u_column_index_slots() >= snapshot.native_u_stored_entries());
+        assert!(slots.u_row_pointer_slots() >= snapshot.native_u_rows().checked_add(1).unwrap());
+        assert!(slots.l_value_slots() >= snapshot.native_l_stored_entries());
+        assert!(slots.l_column_index_slots() >= snapshot.native_l_stored_entries());
+        assert!(slots.l_row_pointer_slots() >= snapshot.native_l_rows().checked_add(1).unwrap());
+        assert!(slots.pivot_slots() >= snapshot.native_u_columns());
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct SessionStateSnapshot {
@@ -6166,6 +6306,253 @@ pub(crate) mod tests {
             plan,
             rows,
         }
+    }
+
+    #[test]
+    fn campaign_resident_transform_executes_genuine_symbolica_dependent_successor() {
+        let fixture = direct_production_fixture(
+            "exact-session-campaign-resident-transform",
+            SectorMask::try_from_bit_string("111").unwrap(),
+            DirectProductionCoverage::EmptyUncovered,
+        );
+        let source = Arc::clone(&fixture.rows[0]);
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            313,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+
+        // Seed one real generated row solely to create the validation
+        // predecessor. The worker below uses only the production dependent
+        // classification and commit seam.
+        let seed = session
+            .stage_replayed_row(&fixture.family, &fixture.context, &source)
+            .unwrap();
+        assert_eq!(
+            session
+                .commit_unconsumed(&fixture.family, &fixture.context, seed)
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 0,
+                pivot_ordinal: 0,
+            }
+        );
+        session.replay(&fixture.family, &fixture.context).unwrap();
+        let predecessor_state_version = session.state_version();
+        let predecessor_pivots = session.database.pivot_count();
+        let predecessor_events = session.events.len();
+        let predecessor_resources = session.resident_resource_snapshot();
+        assert!(predecessor_resources.physical_columns() > 0);
+        assert_eq!(predecessor_resources.independent_rows(), 1);
+        assert_eq!(predecessor_resources.native_u_rows(), 1);
+        assert_eq!(
+            predecessor_resources.native_u_columns(),
+            predecessor_resources.physical_columns() + 1
+        );
+        assert_eq!(predecessor_resources.native_l_rows(), 1);
+        assert_eq!(predecessor_resources.native_l_columns(), 1);
+        assert!(predecessor_resources.native_u_stored_entries() > 0);
+        assert_eq!(predecessor_resources.native_l_stored_entries(), 1);
+        assert!(predecessor_resources.shared_plan_owner_retained_bytes() > 0);
+        assert!(predecessor_resources.database_retained_bytes() > 0);
+        assert!(predecessor_resources.target_state_combined_retained_byte_envelope() > 0);
+        assert!(predecessor_resources.event_ledger_retained_bytes() > 0);
+        assert_native_shallow_capacity_invariants(predecessor_resources);
+
+        let campaign = CampaignPlan::compile(
+            vec![
+                CampaignRootSpec::try_new(
+                    "exact-session-root",
+                    Arc::new(fixture.family.clone()),
+                    SectorMask::try_from_bit_string("111").unwrap(),
+                )
+                .unwrap(),
+            ],
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
+            CampaignPlanLimits::default(),
+        )
+        .unwrap();
+        let job = campaign.intrinsic_jobs().next().unwrap().clone();
+        let revision = CampaignEstimatorRevision::try_new(1).unwrap();
+        let mut controller = CampaignAdmissionController::try_new(
+            ParallelExecution::try_new(2).unwrap(),
+            revision,
+            CampaignBytes::new(4_000_000),
+            CampaignBytes::new(100_000),
+            CampaignBytes::ZERO,
+        )
+        .unwrap();
+
+        // These byte values test ownership/accounting only. They are not a
+        // physical estimator claim; calibrated envelopes will be derived from
+        // the live census and warm-worker RSS in the next campaign layer.
+        let estimate = |retained, transient| {
+            CampaignTaskResourceEstimate::try_new(
+                revision,
+                1,
+                CampaignTaskMemoryEnvelope::try_new(
+                    CampaignMemoryEstimate::try_new(
+                        CampaignBytes::new(retained),
+                        CampaignBytes::ZERO,
+                    )
+                    .unwrap(),
+                    CampaignMemoryEstimate::try_new(
+                        CampaignBytes::new(transient),
+                        CampaignBytes::ZERO,
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let reserve = |controller: &mut CampaignAdmissionController,
+                       request: CampaignTaskResourceEstimate,
+                       predecessor: Option<crate::CampaignResidentToken>| {
+            let snapshot = controller.try_snapshot().unwrap();
+            let requests = BTreeMap::from([(job.clone(), request)]);
+            let wave = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
+            let predecessors = predecessor
+                .map(|token| BTreeMap::from([(job.clone(), token)]))
+                .unwrap_or_default();
+            controller
+                .try_reserve_wave_with_predecessors(&snapshot, &wave, &requests, &predecessors)
+                .unwrap()
+                .into_tasks()
+                .pop()
+                .unwrap()
+        };
+
+        let predecessor = reserve(&mut controller, estimate(1_000_000, 0), None)
+            .bind(session)
+            .try_commit_initial()
+            .unwrap();
+        let predecessor_token = predecessor.token().clone();
+        let transform = reserve(
+            &mut controller,
+            estimate(1_100_000, 1_000_000),
+            Some(predecessor_token),
+        )
+        .try_bind_resident_transform(predecessor)
+        .unwrap();
+
+        let mut outcomes = controller
+            .execute_resident_transforms_ordered(
+                vec![transform],
+                |_,
+                 mut session|
+                 -> Result<
+                    GeneratedAffineResidualGroupExactSession,
+                    CampaignResidentTransformBuildFailure<
+                        GeneratedAffineResidualGroupExactSession,
+                        &'static str,
+                    >,
+                > {
+                    let staged = match session.stage_replayed_row(
+                        &fixture.family,
+                        &fixture.context,
+                        &source,
+                    ) {
+                        Ok(staged) => staged,
+                        Err(_) => {
+                            return Err(CampaignResidentTransformBuildFailure::new(
+                                session,
+                                "generated row staging failed",
+                            ));
+                        }
+                    };
+                    let classified = match session.classify_dependent(staged) {
+                        Ok(classified) => classified,
+                        Err(failure) => {
+                            drop(failure);
+                            return Err(CampaignResidentTransformBuildFailure::new(
+                                session,
+                                "replayed row was not dependent",
+                            ));
+                        }
+                    };
+                    if let Err(failure) =
+                        session.commit_dependent(&fixture.family, &fixture.context, classified)
+                    {
+                        drop(failure);
+                        return Err(CampaignResidentTransformBuildFailure::new(
+                            session,
+                            "dependent commit failed",
+                        ));
+                    }
+                    // A replay failure after the committed mutation cannot be
+                    // represented as the old predecessor generation. Escalate it
+                    // to the executor's panic/checkpoint path instead.
+                    session
+                        .replay(&fixture.family, &fixture.context)
+                        .expect("committed exact-session successor must replay");
+                    Ok(session)
+                },
+            )
+            .unwrap();
+        let CampaignResidentTransformExecution::Committed(successor) = outcomes.pop().unwrap()
+        else {
+            panic!("genuine exact-session resident transform must commit")
+        };
+        let session = successor.retained_output();
+        assert_eq!(session.state_version(), predecessor_state_version + 1);
+        assert_eq!(session.database.pivot_count(), predecessor_pivots);
+        assert_eq!(session.events.len(), predecessor_events + 1);
+        let successor_resources = session.resident_resource_snapshot();
+        assert_eq!(
+            successor_resources.physical_columns(),
+            predecessor_resources.physical_columns()
+        );
+        assert_eq!(
+            successor_resources.independent_rows(),
+            predecessor_resources.independent_rows()
+        );
+        assert_eq!(
+            successor_resources.native_u_stored_entries(),
+            predecessor_resources.native_u_stored_entries()
+        );
+        assert_eq!(
+            successor_resources.native_l_stored_entries(),
+            predecessor_resources.native_l_stored_entries()
+        );
+        assert_eq!(
+            successor_resources.native_u_rows(),
+            predecessor_resources.native_u_rows()
+        );
+        assert_eq!(
+            successor_resources.native_u_columns(),
+            predecessor_resources.native_u_columns()
+        );
+        assert_eq!(
+            successor_resources.native_l_rows(),
+            predecessor_resources.native_l_rows()
+        );
+        assert_eq!(
+            successor_resources.native_l_columns(),
+            predecessor_resources.native_l_columns()
+        );
+        assert_eq!(
+            successor_resources.native_shallow_capacity_slots(),
+            predecessor_resources.native_shallow_capacity_slots()
+        );
+        assert_native_shallow_capacity_invariants(successor_resources);
+        assert_eq!(
+            controller
+                .try_usage()
+                .unwrap()
+                .baseline()
+                .hydrated_retained(),
+            CampaignBytes::new(1_100_000)
+        );
+        assert_eq!(controller.try_usage().unwrap().in_flight_cores(), 0);
+        drop(successor);
+        assert_eq!(
+            controller.try_usage().unwrap().total_charged_memory(),
+            CampaignBytes::new(100_000)
+        );
     }
 
     /// Current-lineage production fixture shared only by sibling unit tests

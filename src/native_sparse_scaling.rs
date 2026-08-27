@@ -38,9 +38,10 @@ where
 /// sentinel column installed solely for full-rank dependent transcripts.
 /// `prospective_native_output_entries` is the conservative admitted U+L
 /// envelope; `observed_native_output_entries` is the checked native U+L
-/// census. Coefficient-work counters cover checked adapter copies and native
-/// field callbacks, but not catalog sorting, structural validation, or the
-/// database's guarded provenance replay.
+/// census. Every `*_entries` value here counts stored sparse slots, not
+/// semantic nonzeros. Coefficient-work counters cover checked adapter copies
+/// and native field callbacks, but not catalog sorting, structural validation,
+/// or the database's guarded provenance replay.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct NativeSparseStageSnapshot {
     #[serde(serialize_with = "serialize_usize_as_unsigned_decimal_string")]

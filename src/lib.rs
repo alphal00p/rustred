@@ -286,7 +286,12 @@ pub use base_specialization::{
 pub use campaign_admission::{
     CAMPAIGN_ADMISSION_V1_SCHEMA, CampaignAdmissionController, CampaignAdmissionError,
     CampaignAdmissionSnapshot, CampaignAdmissionUsage, CampaignAdmittedTask, CampaignCommitFailure,
-    CampaignResident, CampaignResidentToken, CampaignTaskReservation, CampaignWaveReservation,
+    CampaignResident, CampaignResidentToken, CampaignResidentTransformBatchAdmissionFailure,
+    CampaignResidentTransformBindFailure, CampaignResidentTransformBuildFailure,
+    CampaignResidentTransformExecution, CampaignResidentTransformFailure,
+    CampaignResidentTransformPanic, CampaignResidentTransformTask, CampaignTaskContext,
+    CampaignTaskExecution, CampaignTaskFailure, CampaignTaskPanic, CampaignTaskReservation,
+    CampaignWaveExecutionAdmissionFailure, CampaignWaveReservation,
 };
 pub use campaign_plan::{
     CAMPAIGN_PLAN_V1_SCHEMA, CampaignDependencyInsertion, CampaignFamilyId, CampaignFamilyRecord,

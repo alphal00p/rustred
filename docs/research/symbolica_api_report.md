@@ -238,6 +238,11 @@ for (_row, columns, values) in reducer.u().row_iter() {
 
 For IBPs, underdeterminedness is expected: columns with `pivots()[col] == None` are master/free integrals. Read relations through `reducer.u().row_iter()` after back substitution. `SparseMatrix::solve` instead treats underdeterminedness as an error. Also, its returned `SparseVector` currently exposes no public value/index getters or iterator (`sparse.rs:43-180`), so the incremental reducer is more usable without patching the vendored crate.
 
+`SparseMatrix::{values,col_idcs,row_ptrs}` and `SparseRowReducer::pivots` return
+their backing `Vec`s, so capacities can support a shallow allocation-slot
+census. They do not expose the reducer's private dense scratch capacity, deep
+coefficient allocations, allocator overhead, workspace caches, or RSS.
+
 `solve_parallel`/`back_substitute_parallel` only parallelize back substitution; forward elimination remains serial and the parallel version may permute rows (`sparse.rs:1078-1124`, `2393-2455`). There is no sparse fraction-free reducer.
 
 ## Finite fields and reconstruction
@@ -276,8 +281,9 @@ For portable human-readable snapshots use `.printer(PrintOptions::file())` or `.
 
 - Borrow `AtomView` and use `*_into` methods (`expand_into`, `derivative_into`, replacement `with_into`/`next_into`) in hot loops to reduce allocation. Symbolica's internal `Workspace` recycles per-thread Atom buffers (`state.rs:1290-1335`).
 - Prefer polynomial/rational-polynomial representations for coefficients; use `set_coefficient_ring` when keeping a larger `Atom` expression. Once variables are embedded in a coefficient, pattern traversal treats that coefficient atomically.
-- Prefer `Atom::add_many` over a long `fold` of binary additions. For large expanded sums, `TermStreamer<W>` can sort/combine terms with bounded memory and optional Brotli streams (`streaming.rs`, `examples/streaming.rs`).
-- `map_terms(f,n_cores)` and `map_terms_with_pool` parallelize independent terms (`atom/core.rs:1450-1497`). `SparseRowReducer::back_substitute_parallel` uses Rayon independently through vendored `numerica`.
+- Prefer `Atom::add_many` over a long `fold` of binary additions. For large expanded sums, `TermStreamer<W>` can sort/combine terms using a configurable packed-payload spill threshold and optional Brotli streams (`streaming.rs`, `examples/streaming.rs`). That threshold is not a bound on Atom capacity, sorting overlap, compression buffers, workspace caches, allocator overhead, or RSS.
+- `map_terms(f,n_cores)` and `map_terms_with_pool` parallelize independent terms (`atom/core.rs:1450-1497`), but only the latter borrows an existing pool. `TermStreamer::new` constructs its own pool. `SparseRowReducer::back_substitute_parallel` uses ambient Rayon independently through vendored `numerica` and accepts no pool argument.
+- On the automatic `RecycledAtom::drop` path, Symbolica's private thread-local `Workspace` retains at most 30 Atom buffers whose capacity is at or below 20,000,000 bytes. Public direct `Workspace::return_atom` bypasses both caps, and threads that touch this API may initialize distinct workspaces. There is no public occupancy census or trim API, so high-core RustRed runs must include the coordinator and all potentially warmed worker/inner threads in their opaque-native reserve and external RSS calibration.
 - A serious runtime constraint is enforced in `LicenseManager` (`lib.rs:351-758`): without a valid license Symbolica restricts itself to one instance and one core, installs a one-thread global Rayon pool, and aborts if a checked entry point is called from another process/thread relative to the initializing one. A mutex around calls on different worker threads is therefore insufficient: keep every Symbolica entry point in one non-overlapping process on one dedicated OS thread, or configure a valid license. `SYMBOLICA_HIDE_BANNER` only suppresses the banner; it does not relax these checks. `map_terms` and `TermStreamer` silently select one core when unlicensed. With no key, first use also spawns a best-effort connection to Symbolica's server carrying the version (`lib.rs:527-545`). Resolve licensing/offline policy before designing RustRed's parallel execution around `Atom` operations.
 
 ## API gaps RustRed must fill

@@ -36,7 +36,9 @@ rustred derive --input-format symbolica < examples/cli/one_loop.symbolica
 one-family `derive` command uses one private bounded Rayon pool for independent
 ordinary IBP rows, then—after an ordinary/LI barrier—independent LI rows and
 relation materialization. `--n-cores 1` stays entirely on the coordinator and
-is the deterministic serial reference. Values greater than one require a
+is the deterministic serial reference. For `N > 1`, this current command
+constructs exactly `N` worker threads; it has no `--max-memory` policy and does
+not derive a smaller effective width. Values greater than one require a
 Symbolica license. The RustRed-owned scheduler never reads or mutates Rayon's
 global pool, and worker count does not enter the semantic output. Vendored
 restricted/unlicensed Symbolica
@@ -396,10 +398,12 @@ rustred campaign inspect bundle/
 ```
 
 The library contains the static multi-root plan, stateless core-plus-memory
-wave selection, and a separate move-only atomic admission authority. The CLI
-uses only the static plan for roots-only ingress; the admission authority is
-not yet connected to a reducer executor or campaign execution command. This
-command does not derive sector rules or claim closure.
+wave selection, a move-only atomic admission authority, and low-level stable
+wave/resident-transform execution primitives. The CLI still uses only the
+static plan for roots-only ingress; those primitives are not yet connected to
+a calibrated physical estimator, frontier coordinator, reducer execution
+command, or checkpoint barrier. This command does not derive sector rules or
+claim closure.
 
 Multiple compact Symbolica family/integral expressions may supply the roots.
 The future execution TOML will additionally carry campaign-wide policies and
@@ -409,9 +413,20 @@ are specified in the
 [parallel campaign foundry design](research/parallel_campaign_foundry_design_2026-08-26.md).
 
 For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
-`--n-cores 100` remains only a ceiling. The campaign executor will acquire a
-core lease and conservative memory permits before cloning any retained reducer
-or constructing another heavyweight task owner. It will keep the unadmitted
-ready frontier compact and may deliberately leave cores idle to respect
+`--n-cores 100` remains only a ceiling. Before building its pool, the campaign
+will derive and report an effective execution width `E` with
+`1 <= E <= --n-cores`. `E=1` runs on the coordinator without a worker pool;
+`E>1` creates `E` workers, while the separate coordinator remains another
+possible Symbolica Workspace owner. The fixed baseline therefore charges the
+coordinator plus every possible worker (and any explicitly admitted inner
+thread), not merely the currently busy reducer owners. If the `E=1` baseline
+plus one minimum runnable task does not fit, the command returns a typed
+memory-capacity pause before pool construction. The executor acquires a core
+lease and conservative memory permits before cloning any retained reducer or
+constructing another heavyweight task owner. It keeps the unadmitted ready
+frontier compact and may deliberately leave cores idle to respect
 `--max-memory`; operators should set that value below physical RAM to retain
 headroom for the OS and Symbolica memory that its public API cannot census.
+Future diagnostics record requested width, effective width, worker-thread
+count, and estimator revision as physical run metadata excluded from semantic
+hashes.

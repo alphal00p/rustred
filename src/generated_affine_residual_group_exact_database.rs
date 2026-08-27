@@ -46,7 +46,7 @@ use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
     SymbolicaParametricSparseInputRow, SymbolicaPersistentSparseLimits,
     SymbolicaPersistentSparseOutcome, SymbolicaPersistentSparseReducer,
-    SymbolicaPersistentSparseStats,
+    SymbolicaPersistentSparseShallowCapacitySnapshot, SymbolicaPersistentSparseStats,
 };
 #[cfg(test)]
 use crate::parametric_coefficient::symbolica_sparse::{
@@ -1328,6 +1328,65 @@ impl fmt::Debug for GeneratedAffineResidualGroupPreparedExactRowOutcome {
     }
 }
 
+/// Observable live resource components for one exact database allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactDatabaseResidentResourceSnapshot {
+    physical_columns: usize,
+    independent_rows: usize,
+    native_u_rows: usize,
+    native_u_columns: usize,
+    native_l_rows: usize,
+    native_l_columns: usize,
+    native_u_stored_entries: usize,
+    native_l_stored_entries: usize,
+    native_shallow_capacity_slots: SymbolicaPersistentSparseShallowCapacitySnapshot,
+    retained_database_bytes: usize,
+}
+
+impl GeneratedAffineResidualGroupExactDatabaseResidentResourceSnapshot {
+    pub(crate) const fn physical_columns(self) -> usize {
+        self.physical_columns
+    }
+
+    pub(crate) const fn independent_rows(self) -> usize {
+        self.independent_rows
+    }
+
+    pub(crate) const fn native_u_rows(self) -> usize {
+        self.native_u_rows
+    }
+
+    pub(crate) const fn native_u_columns(self) -> usize {
+        self.native_u_columns
+    }
+
+    pub(crate) const fn native_l_rows(self) -> usize {
+        self.native_l_rows
+    }
+
+    pub(crate) const fn native_l_columns(self) -> usize {
+        self.native_l_columns
+    }
+
+    pub(crate) const fn native_u_stored_entries(self) -> usize {
+        self.native_u_stored_entries
+    }
+
+    pub(crate) const fn native_l_stored_entries(self) -> usize {
+        self.native_l_stored_entries
+    }
+
+    pub(crate) const fn native_shallow_capacity_slots(
+        self,
+    ) -> SymbolicaPersistentSparseShallowCapacitySnapshot {
+        self.native_shallow_capacity_slots
+    }
+
+    pub(crate) const fn retained_database_bytes(self) -> usize {
+        self.retained_database_bytes
+    }
+}
+
 /// Persistent algebraic database for one exact solve-plan allocation.
 pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
     schema: &'static str,
@@ -1868,6 +1927,28 @@ impl GeneratedAffineResidualGroupExactDatabase {
 
     pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactDatabaseStats {
         self.stats
+    }
+
+    /// Current retained native shape plus the database's Rust-side retained
+    /// byte envelope. Unlike historical per-stage scaling telemetry, the U/L
+    /// stored-entry counts and shallow public vector-capacity slots here
+    /// describe the live committed reducer after discarded dependent trials
+    /// have been dropped.
+    pub(crate) fn resident_resource_snapshot(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactDatabaseResidentResourceSnapshot {
+        GeneratedAffineResidualGroupExactDatabaseResidentResourceSnapshot {
+            physical_columns: self.symbolica_reducer.physical_columns(),
+            independent_rows: self.symbolica_reducer.independent_rows(),
+            native_u_rows: self.symbolica_reducer.native_u_rows(),
+            native_u_columns: self.symbolica_reducer.native_u_columns(),
+            native_l_rows: self.symbolica_reducer.native_l_rows(),
+            native_l_columns: self.symbolica_reducer.native_l_columns(),
+            native_u_stored_entries: self.symbolica_reducer.native_u_entries(),
+            native_l_stored_entries: self.symbolica_reducer.native_l_entries(),
+            native_shallow_capacity_slots: self.symbolica_reducer.shallow_capacity_snapshot(),
+            retained_database_bytes: self.stats.retained_database_bytes(),
+        }
     }
 
     pub(crate) const fn publishes_rule(&self) -> bool {

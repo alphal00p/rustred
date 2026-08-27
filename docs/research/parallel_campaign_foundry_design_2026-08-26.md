@@ -252,9 +252,15 @@ one-thread global fallback itself; licensed multicore campaigns do not use
 that fallback. The
 coordinator may perform compute only while holding one of the same `N` leases;
 it never adds an uncounted `(N+1)`th compute thread.
-Any public Symbolica operation admitted to use internal parallelism receives a
-lease from this same total budget, reducing simultaneous outer work rather than
-creating nested oversubscription.
+Any public Symbolica operation admitted to use internal parallelism must receive
+a lease from this same total budget, reducing simultaneous outer work rather
+than creating nested oversubscription. This is currently enforceable directly
+only for APIs such as `AtomCore::map_terms_with_pool`, which accept a borrowed
+Rayon pool. `TermStreamer::new` always constructs another pool, while sparse
+parallel solve/back-substitution accept no pool argument and use ambient Rayon.
+Those operations are therefore excluded from an ordinary outer worker until a
+controlled exclusive-lease adapter exists; the one-pool statement is a RustRed
+scheduler requirement, not a property of every current Symbolica API.
 
 `N` is scheduling policy only. It may be retained in run metadata and telemetry,
 but it is excluded from canonical family/source/job identities, rule and shard
@@ -339,7 +345,8 @@ inside one lane, only an independent clone-on-stage trial becomes its next
 owner; dependent, rejected, and failed trials are discarded.
 
 Fresh-controller lane materialization is itself deterministically cost-
-admitted from the canonical parent-row census, native fill telemetry, and
+admitted from the canonical parent-row census, RustRed's post-stage Symbolica
+`U`/`L` stored-entry census, and
 explicit campaign policy. Replay work and temporary memory are charged. If a
 lane is not admitted for parallel materialization, its proposals execute in
 canonical serial order on a shared-controller fork; RustRed does not silently
@@ -369,12 +376,12 @@ campaign executor must preserve this ownership rule with one invocation-wide
 bounded pool; it must not rely on Symbolica's transitive Rayon dependency or
 Rayon's global pool. This is a RustRed scheduler guarantee; the restricted
 Symbolica fallback described in section 4.1 remains an upstream embedding
-limitation. Existing compile-time probes cover
-`CheckedParametricField` and
-`SparseRowReducer<CheckedParametricField>`. Before production concurrency,
-RustRed must add direct `Send + Sync` probes for the persistent reducer and
-immutable campaign authorities and at least a `Send` probe for the owning
-session.
+limitation. Compile-time probes now cover `CheckedParametricField`,
+`SparseRowReducer<CheckedParametricField>`, the retained persistent reducer
+(`Send + Sync`), and the complete owning exact session (`Send`, deliberately
+not a claim that concurrent mutation is allowed). The production coordinator
+must retain named `Send + Sync` probes for every immutable authority bundle it
+shares across workers as those bundles become concrete.
 
 ### 4.4 Ready antichain and load balancing
 
@@ -533,6 +540,38 @@ node processes, but each node remains an independently capped campaign worker
 with its own declared baseline and never masquerades duplicated memory as a
 shared `Arc` charge.
 
+The opaque-native reserve must also cover Symbolica's private thread-local Atom
+workspace cache. In the audited 2.2.0 source, automatic `RecycledAtom::drop`
+keeps at most 30 Atom buffers whose capacity is at or below 20,000,000 bytes in
+each thread-local workspace. The public direct `Workspace::return_atom` route
+does not enforce either cap, so this is not an absolute workspace bound.
+Neither current cache occupancy nor a trim operation is public, and any
+Symbolica-created/ambient Rayon thread is another possible workspace owner.
+This is not a prediction that every thread consumes the maximum, but it is a
+material 100-core calibration risk. `ParallelExecution(E > 1)` creates `E`
+Rayon worker threads while the coordinator remains a separate thread that also
+touches Symbolica; `E = 1` instead runs inline with no worker thread. Taken
+literally, the automatic-cache source caps alone permit 60,600,000,000 bytes
+(about 56.4 GiB) of retained Atom buffer capacity across the coordinator plus
+100 fully warmed workers, before allocator overhead or any algebraic live set.
+
+The invocation therefore chooses an **effective execution width `E` before
+constructing the pool**, with `1 <= E <= --n-cores`. The fixed/shared baseline
+separately charges the calibrated stack, TLS, and Symbolica Workspace reserve
+for the coordinator, all `E` possible workers when `E > 1`, and every
+explicitly admitted inner thread. RustRed selects the largest feasible `E`; it
+does not create 100 workers and assume that currently idle threads are free.
+If the coordinator-only `E = 1` baseline plus the minimum runnable task still
+does not fit below `--max-memory` and operational headroom, execution returns a
+typed memory-capacity pause before constructing any pool. Requested width,
+effective width, worker-thread count, and estimator revision are reported as
+physical run metadata and never enter mathematical hashes. APIs that create
+uncontrolled inner pools remain excluded from ordinary workers. Campaign
+benchmarks measure warm-thread RSS, keep explicit OS/checkpoint/allocator
+headroom, and may deliberately leave cores idle. A retained case/reducer lane
+is a task owner, not a worker thread. The scheduler never infers unused RAM
+from a low U/L stored-entry count alone.
+
 The logical ready frontier may contain thousands of compact keys while only a
 small admitted subset is hydrated. Its key/estimate metadata is bounded
 separately from heavyweight ownership; reducer construction, retained-owner
@@ -570,7 +609,8 @@ supervisor is required when the operator needs a hard RSS ceiling;
 
 For one campaign resource-policy revision, every task admission estimate is
 frozen deterministically from canonical task data and already committed task-
-local telemetry: retained Symbolica U/L fill, physical column count,
+local telemetry: RustRed-observed retained Symbolica U/L stored entries,
+physical column count,
 coefficient-work history, residual case count, and catalog size. Canonical
 phase-barrier merges may produce deterministic task-local inputs for newly
 discovered tasks; arrival order never does. Observed global RSS is reporting
@@ -583,7 +623,7 @@ and binds its content hash, size, and task key. Checkpoint and staged-result
 serialization is streaming/bounded and its buffers are charged.
 
 The estimator is phase-specific and versioned. Checked `u64`/`u128`
-arithmetic combines native U/L nonzero and column counts with serialized
+arithmetic combines native U/L stored-entry, row, and column counts with serialized
 coefficient/big-integer limb sizes, row/catalog capacities, base-plus-successor
 clone overlap, projected catalog growth, reorder/result/checkpoint buffers,
 worker stack/TLS allowances, and calibrated Symbolica/allocator safety
@@ -595,8 +635,9 @@ Observed RSS remains telemetry for that revision and can influence admission
 only through an explicit later revision.
 
 Future telemetry records predicted and observed retained/peak bytes per phase,
-old/new reducer overlap, U/L fill and coefficient-limb growth, staged bytes,
-allocator/RSS delta, NUMA locality, worker utilization, and time spent core-
+old/new reducer overlap, U/L stored-entry fill and coefficient-limb growth, staged bytes,
+allocator/RSS delta, warm thread-local workspace occupancy effects, NUMA
+locality, worker utilization, and time spent core-
 versus-memory-limited. Calibration may adapt coefficients and safety margins
 only by producing an explicit successor estimator revision at a canonical
 barrier or between runs. It must not let completion order, instantaneous RSS,
@@ -799,9 +840,18 @@ belong to the later workspace/executor and are not claimed by `CampaignPlan`.
 The implemented wave selector remains a deterministic calculation over a
 policy snapshot. The separate atomic controller replays that calculation and
 turns it into move-only core/estimated-memory charges, including retained
-successor ownership. It is only the admission sublayer of phase 2: it does not
-bind a work revision, dispatch the selected jobs, construct a reducer, or
-settle a barrier.
+successor ownership. It now also owns a stable indexed wave executor and a
+resident-transform primitive. The latter has been exercised with a complete
+exact session performing a genuine generated-row Symbolica dependent
+transition while old, successor, and transient envelopes overlap. These are
+still low-level cooperative primitives: the public generic callback cannot
+prove arbitrary-`T` identity, forbid unrelated admission guards inside a user
+payload, or prevent a callback from creating a nested pool. The production
+campaign coordinator will supply crate-owned guard-free phase adapters, bind a
+work revision, enforce the effective-execution-width calculation, hydrate jobs
+only after admission, aggregate failures by stable key, and settle durable
+barriers. A calibrated physical estimator, full frontier dispatcher, and
+checkpoint coordinator are not yet implemented.
 
 ## 9. Acceptance matrix
 
@@ -854,7 +904,7 @@ The parallel foundry is accepted only after all of the following pass:
   comparisons pass only after independent RustRed derivation.
 
 The first performance report records named hardware, wall time, peak RSS,
-native U/L fill, coefficient work, ready-antichain width, worker utilization,
+native U/L stored-entry fill, coefficient work, ready-antichain width, worker utilization,
 and 1/2/4-worker speedup. A speedup claim is invalid when memory admission
 allows fewer simultaneous reducer owners than the requested worker count. The
 six-loop report additionally records the 100-core EPYC node's physical RAM,

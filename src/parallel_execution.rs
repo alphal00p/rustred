@@ -141,6 +141,29 @@ impl ParallelExecution {
             Some(pool) => pool.install(|| (0..work_items).into_par_iter().map(operation).collect()),
         }
     }
+
+    /// Consume indexed work items and return their results in input order.
+    ///
+    /// This is the move-owning companion to [`Self::map_ordered`]. It is used
+    /// by the campaign executor to transfer each non-cloneable resource guard
+    /// to exactly one worker without wrapping the guards in a shared mutex.
+    /// Rayon's indexed `Vec` iterator preserves collection order even when
+    /// workers complete out of order.
+    pub(crate) fn map_owned_ordered<WorkItem, ResultValue, Operation>(
+        &self,
+        work_items: Vec<WorkItem>,
+        operation: Operation,
+    ) -> Vec<ResultValue>
+    where
+        WorkItem: Send,
+        ResultValue: Send,
+        Operation: Fn(WorkItem) -> ResultValue + Send + Sync,
+    {
+        match &self.pool {
+            None => work_items.into_iter().map(operation).collect(),
+            Some(pool) => pool.install(|| work_items.into_par_iter().map(operation).collect()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +264,17 @@ mod tests {
     fn execution_context_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ParallelExecution>();
+    }
+
+    #[test]
+    fn owned_map_moves_nonclone_work_once_and_preserves_order() {
+        struct MoveOnly(usize);
+
+        let execution = ParallelExecution::try_new(1).unwrap();
+        let output = execution
+            .map_owned_ordered((0..8).map(MoveOnly).collect(), |MoveOnly(ordinal)| {
+                ordinal * ordinal
+            });
+        assert_eq!(output, vec![0, 1, 4, 9, 16, 25, 36, 49]);
     }
 }

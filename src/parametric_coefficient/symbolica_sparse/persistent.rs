@@ -164,6 +164,53 @@ impl SymbolicaPersistentSparseOutcome {
     }
 }
 
+/// Publicly observable shallow `Vec` capacity slots retained by one native
+/// Symbolica sparse reducer.
+///
+/// These are slot counts only. They do not include coefficient `Arc` pointees,
+/// Symbolica's private dense scratch, allocator bookkeeping, or thread-local
+/// workspaces, and therefore are not a native-byte or RSS census.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SymbolicaPersistentSparseShallowCapacitySnapshot {
+    u_value_slots: usize,
+    u_column_index_slots: usize,
+    u_row_pointer_slots: usize,
+    l_value_slots: usize,
+    l_column_index_slots: usize,
+    l_row_pointer_slots: usize,
+    pivot_slots: usize,
+}
+
+impl SymbolicaPersistentSparseShallowCapacitySnapshot {
+    pub(crate) const fn u_value_slots(self) -> usize {
+        self.u_value_slots
+    }
+
+    pub(crate) const fn u_column_index_slots(self) -> usize {
+        self.u_column_index_slots
+    }
+
+    pub(crate) const fn u_row_pointer_slots(self) -> usize {
+        self.u_row_pointer_slots
+    }
+
+    pub(crate) const fn l_value_slots(self) -> usize {
+        self.l_value_slots
+    }
+
+    pub(crate) const fn l_column_index_slots(self) -> usize {
+        self.l_column_index_slots
+    }
+
+    pub(crate) const fn l_row_pointer_slots(self) -> usize {
+        self.l_row_pointer_slots
+    }
+
+    pub(crate) const fn pivot_slots(self) -> usize {
+        self.pivot_slots
+    }
+}
+
 /// One committed Symbolica forward reducer with a permanently final sentinel.
 ///
 /// The type intentionally does not implement `Clone`; all forks pass through
@@ -213,12 +260,50 @@ impl SymbolicaPersistentSparseReducer {
         self.native.u().nrows() as usize
     }
 
+    pub(crate) fn native_u_rows(&self) -> usize {
+        self.native.u().nrows() as usize
+    }
+
+    pub(crate) fn native_u_columns(&self) -> usize {
+        self.native.u().ncols() as usize
+    }
+
+    pub(crate) fn native_l_rows(&self) -> usize {
+        self.native.l().nrows() as usize
+    }
+
+    pub(crate) fn native_l_columns(&self) -> usize {
+        self.native.l().ncols() as usize
+    }
+
+    /// Number of stored CSR entries. Symbolica's public constructor permits
+    /// explicitly stored zero values, so this is not advertised as a semantic
+    /// nonzero count.
     pub(crate) fn native_u_entries(&self) -> usize {
         self.native.u().nvalues()
     }
 
+    /// Number of stored CSR entries; see [`Self::native_u_entries`].
     pub(crate) fn native_l_entries(&self) -> usize {
         self.native.l().nvalues()
+    }
+
+    /// Observe only public shallow vector capacities of the committed native
+    /// reducer. No algebra or native mutation is performed.
+    pub(crate) fn shallow_capacity_snapshot(
+        &self,
+    ) -> SymbolicaPersistentSparseShallowCapacitySnapshot {
+        let u = self.native.u();
+        let l = self.native.l();
+        SymbolicaPersistentSparseShallowCapacitySnapshot {
+            u_value_slots: u.values().capacity(),
+            u_column_index_slots: u.col_idcs().capacity(),
+            u_row_pointer_slots: u.row_ptrs().capacity(),
+            l_value_slots: l.values().capacity(),
+            l_column_index_slots: l.col_idcs().capacity(),
+            l_row_pointer_slots: l.row_ptrs().capacity(),
+            pivot_slots: self.native.pivots().capacity(),
+        }
     }
 
     pub(crate) fn pivot_row_for_physical_column(&self, column: usize) -> Option<usize> {
@@ -1064,6 +1149,12 @@ mod tests {
         SymbolicaParametricSparseEntry, SymbolicaParametricSparseLimits,
         SymbolicaParametricSparseOutcome, SymbolicaParametricSparseRow, forward_reduce_last_row,
     };
+
+    #[test]
+    fn retained_symbolica_sparse_reducer_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<SymbolicaPersistentSparseReducer>();
+    }
 
     fn context(scope: &str) -> Arc<ParametricCoefficientContext> {
         Arc::new(
