@@ -38,7 +38,9 @@ requests/results, canonical TOML serialization, and the CLI binary. Keeping the
 binary in this package avoids a transport-only microcrate. The initial seam is
 not yet the final transport-neutral boundary: semantic service modules and
 public errors/options must still be detached from `cli::*`, and public calls
-must add typed Rust-panic containment before PyO3 work begins.
+must have an explicit panic-safety contract before PyO3 work begins. Panic
+containment belongs at the outer coordinator/FFI boundary and must poison
+further work rather than claim that an invariant failure is safely recoverable.
 `rustred-python` and the publish-disabled `rustred-legacy-oracles` package are
 still to be created. Test support remains adjacent to the code it validates
 unless a later measured dependency boundary justifies another package.
@@ -47,8 +49,9 @@ The first migration was intentionally mechanical: the former CLI modules and
 their three integration suites moved into `crates/rustred-app`, and the CLI now
 calls owned `derive`, `campaign_plan`, and `campaign_preflight` APIs. A direct
 contract suite checks API/CLI canonical-byte parity. Those operations become
-the Python-facing boundary after the internal CLI coupling and panic boundary
-above are removed. No solver algorithm, topology dispatch, or authored
+the Python-facing boundary after the internal CLI coupling is removed and the
+outer binding's poison-on-panic contract is added. No solver algorithm,
+topology dispatch, or authored
 recurrence was added in this phase.
 
 ## Problems to audit

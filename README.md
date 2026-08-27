@@ -37,9 +37,10 @@ The first bounded migration establishes `rustred-app`, an initial typed shared
 application seam together with the thin `rustred` CLI binary. Direct tests keep
 its canonical output byte-identical to the CLI. Before PyO3 is added, its
 service modules, option parsing, and application errors must be detached from
-the remaining CLI-internal types and public calls must translate caught Rust
-panics into a typed internal error. The requested PyO3 package will then depend
-on that boundary rather than implementing a second frontend pipeline. Deeper
+the remaining CLI-internal types. The requested PyO3 package will then depend
+on that boundary rather than implementing a second frontend pipeline. Its
+outer coordinator/FFI boundary must poison further work after catching a Rust
+panic rather than claim that invariant-failed state is reusable. Deeper
 core, legacy-oracle, test, and documentation separation also remains pending.
 The audit and migration contract are tracked in the
 [repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).

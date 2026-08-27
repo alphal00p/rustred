@@ -50,8 +50,9 @@ The CLI binary lives inside `rustred-app`; a separate transport-only CLI crate
 would add no useful isolation. The app package and its initial owned
 request/result seam now exist, with direct canonical-byte parity tests. Before
 binding it, semantic modules and public errors/options must be detached from
-the remaining `cli::*` internals and public calls must add typed Rust-panic
-containment. The dedicated `rustred-python` package remains to be implemented.
+the remaining `cli::*` internals. The dedicated `rustred-python` package remains
+to be implemented with poison-on-panic containment at its outer
+coordinator/FFI boundary.
 
 The binding should be a dedicated `cdylib`/`rlib` workspace package using
 PyO3 and maturin, with Python >= 3.11 as the initial supported floor. PyO3,
@@ -73,9 +74,12 @@ Therefore the initial Python runtime must route top-level requests through one
 process-wide coordinator thread. This also prevents concurrent Python callers
 from multiplying private pools and violating CPU/RAM admission. A licensed
 request may still use its requested Rust worker width beneath that coordinator.
-Rust panics must be caught at the application boundary and translated to a
-typed internal error, but no binding can catch a native process abort; the
-thread contract must be respected proactively.
+Rust panics must be caught at the outer coordinator/FFI boundary and translated
+to a typed internal Python failure. The coordinator must then be poisoned and
+reject later requests; an invariant panic or partially mutated Symbolica/global
+state must not be presented as safely recoverable. No binding can catch a
+native process abort, so the thread contract must still be respected
+proactively.
 
 The module must initially declare that it uses the GIL for module/object state.
 Free-threaded CPython support is a separate future audit. Cooperative
@@ -98,6 +102,9 @@ Acceptance requires:
 - identical results for licensed `n_cores = 1, 2, 4`;
 - Python-thread tests proving GIL release and coordinator serialization;
 - malformed-input, resource, license, and serialization error parity;
+- fresh-subprocess tests for license modes and abort-prone thread-affinity
+  boundaries, since Symbolica license initialization is process-global and
+  one-shot;
 - `maturin build --release --locked`, clean-environment wheel installation,
   and sdist rebuild including all path dependencies;
 - an audit of GMP/MPFR/MPC linkage before claiming portable manylinux wheels;
