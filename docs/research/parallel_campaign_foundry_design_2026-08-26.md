@@ -34,7 +34,14 @@ payload, retained-shallow, compilation-peak, and live-lease byte limits are
 component gates rather than an RSS budget. It does not admit applicable-
 provider work/results, implement the stable `CampaignWorkKey` result table or
 atomic result-charge transfer, construct fresh narrowed-domain mathematical
-epochs, or implement rejected-candidate continuation. These layers still do
+epochs, or perform closure. A separate current-worktree exact-session
+transition now implements same-database `IdenticallyBad` continuation: it
+replays the complete proof before distillation, retains the rejected pivot,
+leaves the target unresolved, and emits no rule, residual, or master. Its
+chronological replay regenerates every exact post-Ready phase. The focused
+sector-`011` validation is topology-neutral but hybrid: its two-term row and
+mapped-zero guard use test-only authenticated staging, so it is not a fully
+generated-row acceptance test. These layers still do
 not observe RSS, estimate a physical family, construct a calibrated memory-
 derived effective-width pool, hydrate a full frontier, normalize a target
 numerator, discover dependencies, checkpoint, apply rules, prove closure, or
@@ -96,6 +103,13 @@ cross-family transport path from the current job to that child. Current,
 same-sector, same-rank, and supersector material is rejected; same-rank aliases
 have already been collapsed. Jobs at one ready antichain never observe one
 another's partial output and are merged in canonical order.
+
+`SectorLeak` is not a proper-subsector dependency. It records activation of a
+coordinate that was inactive in the parent sector and therefore belongs to
+future out-of-sector exceptional-domain processing. Proper-subsector descent
+instead pinches at least one parent-active coordinate without activating any
+inactive one; those terms remain on applicable rule right-hand sides for the
+still-pending provider and bottom-up closure phases.
 
 ## 3. Canonical campaign model
 
@@ -832,7 +846,11 @@ leaf, leaves the selected target unresolved, commits the candidate pivot once,
 and continues later source rows in the **same** exact database so that the
 retained pivot can reduce them. Its consumed source/candidate cannot be tried
 again. It must never be converted into a fresh exceptional epoch or duplicated
-in the residual queue.
+in the residual queue. This typed exact-session transition is now implemented,
+including proof replay before compact distillation and chronological
+rederivation of Ready analysis, condition planning, materialization, and
+partitioning. Campaign-frontier integration and the joint rejected-candidate/
+dependency/exception fixed point remain pending.
 
 A job becomes a durable `ClosedShard` only if:
 
@@ -970,9 +988,10 @@ resource-limited frontier remains unresolved.
 3. **Exceptional closure:** extend the implemented algebra-free epoch owner
    with RAM-admitted exceptional results, stable-key result staging and atomic
    charge transfer; then add fresh narrowed-domain source ingress, separate
-   same-database rejected-candidate continuation, frozen-epoch affine
-   proposals, solved-subsector feedback from allowlisted strict descendants,
-   and joint dependency/exception fixed-point admission.
+   frozen-epoch affine proposals, solved-subsector feedback from allowlisted
+   strict descendants, and joint dependency/exception fixed-point admission.
+   Integrate the already implemented separate same-database rejected-candidate
+   transition into that frontier without routing it through exceptional epochs.
 4. **Resumable jobs:** atomic checkpoints and interruption/resume equivalence;
    rebuild and authenticate the native reducer once at load.
 5. **Multi-root canonicalization:** verified routing aliases, factorization and

@@ -731,6 +731,12 @@ impl GeneratedAffineResidualGroupExactWhenBadReadyForPartition {
         self.stats
     }
 
+    pub(crate) const fn limits(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadMaterializationLimits {
+        self.limits
+    }
+
     pub(crate) const fn targets_consumed(&self) -> usize {
         0
     }
@@ -824,12 +830,28 @@ impl GeneratedAffineResidualGroupExactWhenBadIdenticallyBad {
         self.stats
     }
 
+    pub(crate) const fn limits(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadMaterializationLimits {
+        self.limits
+    }
+
     pub(crate) const fn targets_consumed(&self) -> usize {
         0
     }
 
     pub(crate) const fn publishes_rule(&self) -> bool {
         false
+    }
+
+    /// Drop the materialization transcript only after its all-domain badness
+    /// has been replayed by the caller. The original sealed Ready owner is the
+    /// sole operational capability carried into the non-publishing rejected
+    /// candidate transition.
+    pub(crate) fn into_condition_plan_for_rejection(
+        self,
+    ) -> GeneratedAffineResidualGroupExactConditionPlan {
+        self.plan
     }
 
     pub(crate) fn replay(

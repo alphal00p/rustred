@@ -24,9 +24,15 @@ use crate::canonical_parametric_locus_table::{
     CanonicalLocusTableBuilder, CanonicalLocusTableError, CanonicalLocusTableLimits,
     CanonicalLocusTableOwner,
 };
-use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSession;
+use crate::generated_affine_residual_group_exact_session::{
+    GeneratedAffineResidualGroupExactSession,
+    GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    GeneratedAffineResidualGroupExactSessionRecenterReady,
+    GeneratedAffineResidualGroupExactSessionRecenterStats,
+};
 use crate::generated_affine_residual_group_exact_when_bad_conditions::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
+    GeneratedAffineResidualGroupExactConditionPlanLimits,
     GeneratedAffineResidualGroupExactConditionSourceLocator,
 };
 use crate::generated_affine_residual_group_exact_when_bad_materialization::{
@@ -38,8 +44,10 @@ use crate::generated_affine_residual_group_exact_when_bad_materialization::{
     GeneratedAffineResidualGroupExactWhenBadIdenticallyBadReason as MaterializedIdenticallyBadReason,
     GeneratedAffineResidualGroupExactWhenBadMaterialization,
     GeneratedAffineResidualGroupExactWhenBadMaterializationError,
+    GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPartition as MaterializedReadyForPartition,
 };
+use crate::generated_affine_residual_group_ready_publication::GeneratedAffineResidualGroupReadyPublicationAnalysisLimits;
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeLimits, AffineWhenBadArbitraryRelativePartitionCertificate,
     AffineWhenBadArbitraryRelativePartitionCompiler, AffineWhenBadAtom,
@@ -704,6 +712,208 @@ pub(crate) struct GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBa
     stats: GeneratedAffineResidualGroupExactWhenBadPartitionStats,
 }
 
+/// Replay-authenticated, compact ownership for committing one rejected
+/// candidate without retaining the materialization/partition transcripts.
+///
+/// The token is non-forgeable outside this module. It retains the original
+/// sealed Ready transaction and the exact terminal reason, so the session can
+/// return both unchanged on every failed commit preflight.
+pub(crate) struct GeneratedAffineResidualGroupExactWhenBadRejectedCandidate {
+    ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
+    replay_recipe: GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+}
+
+/// Copy-only recipe required to independently rederive a committed rejection
+/// from a freshly replayed raw Ready row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe {
+    reason: GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+    ready_analysis_limits: GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+    condition_plan_limits: GeneratedAffineResidualGroupExactConditionPlanLimits,
+    materialization_limits: GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
+    partition_limits: GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
+    rederivation_owned_logical_peak_upper_bound: usize,
+}
+
+impl GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe {
+    pub(crate) const fn reason(
+        self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason {
+        self.reason
+    }
+
+    pub(crate) const fn ready_analysis_limits(
+        self,
+    ) -> GeneratedAffineResidualGroupReadyPublicationAnalysisLimits {
+        self.ready_analysis_limits
+    }
+
+    pub(crate) const fn condition_plan_limits(
+        self,
+    ) -> GeneratedAffineResidualGroupExactConditionPlanLimits {
+        self.condition_plan_limits
+    }
+
+    pub(crate) const fn materialization_limits(
+        self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadMaterializationLimits {
+        self.materialization_limits
+    }
+
+    pub(crate) const fn partition_limits(
+        self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadPartitionLimits {
+        self.partition_limits
+    }
+
+    pub(crate) const fn rederivation_owned_logical_peak_upper_bound(self) -> usize {
+        self.rederivation_owned_logical_peak_upper_bound
+    }
+}
+
+fn rejected_candidate_rederivation_peak(
+    raw_ready_retained: usize,
+    ready_analysis_retained: usize,
+    condition_plan_retained: usize,
+    partition_retained: usize,
+    phase_peaks: [usize; 4],
+) -> usize {
+    raw_ready_retained
+        .saturating_add(ready_analysis_retained)
+        .saturating_add(condition_plan_retained)
+        .saturating_add(partition_retained)
+        .saturating_add(phase_peaks.into_iter().max().unwrap_or(0))
+}
+
+impl GeneratedAffineResidualGroupExactWhenBadRejectedCandidate {
+    pub(crate) const fn reason(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason {
+        self.replay_recipe.reason
+    }
+
+    pub(crate) fn target_locator(
+        &self,
+    ) -> &crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolveTargetLocator{
+        self.ready.target_locator()
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.ready.source_ordinal()
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.ready.pivot_ordinal()
+    }
+
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.ready.stats()
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+
+    pub(crate) const fn publishes_rule(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn infers_master(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn emits_residual(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn ready(&self) -> &GeneratedAffineResidualGroupExactSessionRecenterReady {
+        &self.ready
+    }
+
+    pub(crate) fn into_parts_for_session(
+        self,
+    ) -> (
+        GeneratedAffineResidualGroupExactSessionRecenterReady,
+        GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+    ) {
+        (self.ready, self.replay_recipe)
+    }
+
+    pub(crate) const fn replay_recipe(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe {
+        self.replay_recipe
+    }
+
+    pub(crate) fn from_parts_for_session(
+        _capability: &GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+        ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
+        replay_recipe: GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+    ) -> Self {
+        Self {
+            ready,
+            replay_recipe,
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactWhenBadRejectedCandidate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactWhenBadRejectedCandidate")
+            .field("reason", &self.reason())
+            .field("target_locator", self.target_locator())
+            .field("source_ordinal", &self.source_ordinal())
+            .field("pivot_ordinal", &self.pivot_ordinal())
+            .field("targets_consumed", &0)
+            .field("publishes_rule", &false)
+            .field("infers_master", &false)
+            .field("emits_residual", &false)
+            .field("private_ready", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Failed replay-before-distillation attempt. The complete proof owner is
+/// returned, so callers may inspect/retry without losing any transcript.
+pub(crate) struct GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {
+    error: GeneratedAffineResidualGroupExactWhenBadPartitionError,
+    owner: GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBad,
+}
+
+impl GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {
+    pub(crate) const fn error(&self) -> &GeneratedAffineResidualGroupExactWhenBadPartitionError {
+        &self.error
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        GeneratedAffineResidualGroupExactWhenBadPartitionError,
+        GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBad,
+    ) {
+        (self.error, self.owner)
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure")
+            .field("error", &self.error)
+            .field("private_owner", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("exact WhenBad rejection proof failed before distillation")
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {}
+
 impl GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBad {
     pub(crate) const fn reason(
         &self,
@@ -774,6 +984,95 @@ impl GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBad {
             }
         }))
         .map_err(|_| GeneratedAffineResidualGroupExactWhenBadPartitionError::SymbolicaPanic)?
+    }
+
+    /// Replay the complete terminal proof, then consume it into the smallest
+    /// non-publishing session capability. No transcript is discarded until
+    /// replay has succeeded; failure returns this exact owner.
+    pub(crate) fn into_rejected_candidate(
+        self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        session: &GeneratedAffineResidualGroupExactSession,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+        GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure,
+    > {
+        if let Err(error) = self.replay(family, context, session) {
+            return Err(
+                GeneratedAffineResidualGroupExactWhenBadRejectedCandidateFailure {
+                    error,
+                    owner: self,
+                },
+            );
+        }
+        let reason = self.reason;
+        let partition_limits = self.limits;
+        let partition_peak = self.stats.compilation_owned_logical_peak_upper_bound();
+        let partition_retained = self.stats.retained_owned_logical_bytes();
+        let (condition_plan, materialization_limits, materialization_peak) = match self.payload {
+            GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadPayload::Upstream(
+                owner,
+            ) => {
+                let limits = owner.limits();
+                let peak = owner.stats().compilation_owned_logical_peak_upper_bound();
+                (owner.into_condition_plan_for_rejection(), limits, peak)
+            }
+            GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadPayload::AllExceptional {
+                owner,
+                transcript: _,
+                partition: _,
+            } => {
+                let limits = owner.limits();
+                let peak = owner.stats().compilation_owned_logical_peak_upper_bound();
+                (owner.into_condition_plan_for_publication(), limits, peak)
+            }
+        };
+        let condition_plan_limits = condition_plan.limits();
+        let condition_plan_peak = condition_plan
+            .stats()
+            .compilation_owned_logical_peak_upper_bound();
+        let condition_plan_retained = condition_plan.stats().retained_owned_logical_bytes();
+        let ready_for_conditions = condition_plan.into_ready();
+        let ready_analysis_limits = ready_for_conditions.limits();
+        let ready_analysis_peak = ready_for_conditions
+            .stats()
+            .peak_prospective_retained_bytes();
+        let ready_analysis_retained = ready_for_conditions.stats().retained_bytes();
+        let raw_ready_retained = ready_for_conditions
+            .ready()
+            .stats()
+            .kernel()
+            .owner_retained_bytes();
+        let ready = ready_for_conditions.into_ready();
+        Ok(GeneratedAffineResidualGroupExactWhenBadRejectedCandidate {
+            ready,
+            replay_recipe: GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe {
+                reason,
+                ready_analysis_limits,
+                condition_plan_limits,
+                materialization_limits,
+                partition_limits,
+                // The terminal retains the raw recentered Ready row R plus
+                // nested A -> C -> M -> P owners. P's retained census already
+                // includes M, while R, A, and C remain separately live.
+                // Distillation replays the complete terminal while that graph
+                // is retained, so add the largest phase-local compiler/replay
+                // peak to the full nested retained graph.
+                rederivation_owned_logical_peak_upper_bound: rejected_candidate_rederivation_peak(
+                    raw_ready_retained,
+                    ready_analysis_retained,
+                    condition_plan_retained,
+                    partition_retained,
+                    [
+                        ready_analysis_peak,
+                        condition_plan_peak,
+                        materialization_peak,
+                        partition_peak,
+                    ],
+                ),
+            },
+        })
     }
 }
 
@@ -2918,6 +3217,18 @@ mod tests {
         polynomial_associate_native_boundary_calls_for_test,
         reset_polynomial_associate_native_boundary_calls_for_test,
     };
+
+    #[test]
+    fn rejected_candidate_rederivation_peak_is_additive_and_saturating() {
+        assert_eq!(
+            rejected_candidate_rederivation_peak(1, 2, 3, 4, [5, 6, 7, 8]),
+            18
+        );
+        assert_eq!(
+            rejected_candidate_rederivation_peak(usize::MAX, 1, 1, 1, [1; 4]),
+            usize::MAX
+        );
+    }
 
     fn materialization(
         name: &str,

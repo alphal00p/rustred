@@ -43,9 +43,10 @@ complete mathematical workflow.
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
 | Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
+| Continue after an exact all-domain-bad candidate | Implemented internally: the complete `IdenticallyBad` proof is replayed before it is distilled; a typed `RejectedCandidate` transition commits the staged Symbolica pivot, advances the source/event cursor, leaves the matched target unresolved, and returns the same live exact database. Chronological replay regenerates the Ready analysis, conditions, materialization, and partition under the recorded limits before accepting the rejection again. No rule, residual, target consumption, or master inference occurs |
 | Compile committed events into a bounded parallel handoff wave | Implemented internally: move-only receipts are canonically ordered by campaign job, exact-session lane, and event; duplicate or mis-scoped owners reject transactionally; one atomic byte tracks each leaf; and non-cloneable borrowed tickets have a hard live-count ceiling. This acknowledges handoff acceptance only. Exceptional-source re-entry, result-buffer admission, provider application, closure, and durable rule artifacts remain pending |
 | Compile an acknowledged handoff into an algebra-free publication-epoch owner | Implemented internally: a fully acknowledged wave is consumed without copying algebraic payload; one event handle remains per slot, applicable and exceptional leaves become compact flat indices, and one atomic byte per exceptional source supports `Pending -> Issued -> Staged` ownership. A compact full-`CampaignWorkKey` result batch precharges its retained buffers against the same campaign authority before allocation, transfers admitted worker output into resident charge without copying algebraic payload, rejects foreign admission controllers, and poisons fail-closed after any postcommit terminalization error. Applicable-provider admission/results, durable spill descriptors, the general campaign result database, fresh narrowed-domain mathematical re-entry/continuation, rule application, closure, and physical reductions remain pending |
-| Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, and affine-equality transitions in the implemented slices; compact application events are retained for the forward path, but their optional audit replay is pending |
+| Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, RejectedCandidate, and affine-equality transitions in the implemented slices. RejectedCandidate replay independently regenerates its complete exact `WhenBad` terminal. Compact application events are retained for the forward path, but their optional audit replay is pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
 | Automatically reduce every arbitrary integral to masters | **Not yet complete** |
@@ -488,7 +489,7 @@ The repository currently includes tests for:
   four test threads; `cargo check --tests -j4` also passed. It does not admit
   or retain applicable-provider results, stage results under a stable
   `CampaignWorkKey`, construct fresh
-  narrowed-domain mathematical epochs or rejected-candidate continuation,
+  narrowed-domain mathematical epochs,
   apply rules, prove closure, reduce a physical topology, or solve six loops;
   and
 - a static, topology-neutral multi-root campaign core in
@@ -619,10 +620,19 @@ The transactional exact pivot database, hardest-first top reduction,
 session-owned exact recentering, typed NoTarget commit, sealed affine-equality
 suspension, private chronological event ledger, and shadow replay are
 implemented for the generic generated-affine exact-session slice. Dependent,
-NoTarget, and affine-equality events own opaque source recipes and exact
-evidence. A compact application event instead keeps only the data needed by
-future application: centered relation terms, target locator/offset, canonical
-loci, final relative cases, and one-byte leaf tags.
+NoTarget, rejected-candidate, and affine-equality events own opaque source
+recipes and exact evidence. Rejected-candidate replay regenerates the complete
+post-Ready proof and admits its simultaneous replay owners with a conservative
+sealed peak census. Its current end-to-end sector-011 regression is a hybrid
+session test whose two-term row and mapped-zero guard use test-only
+authenticated staging; it is not yet a fully generated-row or physical-family
+acceptance result. Licensed default-GMP validation passed the two rejection
+tests, the capability-surface regression, and all 31 related condition,
+materialization, and partition tests with eight Rust test threads;
+`cargo check --tests -j8` also passed. A compact application event instead
+keeps only the data needed by future application: centered relation terms,
+target locator/offset, canonical loci, final relative cases, and one-byte leaf
+tags.
 
 That correctness-first storage layout is not the final high-loop layout. Each
 current event append copies the preceding event-`Arc` vector, and each target
@@ -792,11 +802,11 @@ remaining generic LiteRed-style foundry work is to:
    plan/results identical under root permutation and 1/2/4-worker execution,
    and retain one serial Symbolica reducer per independently schedulable affine
    case lane;
-3. build on the implemented algebra-free publication-epoch owner by adding
-   independently RAM-admitted applicable-provider work/results, a stable
-   `CampaignWorkKey` result table with atomic result-charge transfer, sealed
-   exceptional ingress into fresh narrowed-domain database/reducer epochs, and
-   separate same-database rejected-candidate continuation;
+3. build on the implemented same-database rejected-candidate continuation and
+   algebra-free publication-epoch owner by adding independently RAM-admitted
+   applicable-provider work/results, a stable `CampaignWorkKey` result table
+   with atomic result-charge transfer, and sealed exceptional ingress into
+   fresh narrowed-domain database/reducer epochs;
 4. feed solved subsectors into supersectors, iterate residual cases, and prove
    closure onto a finite enumerated set of selected or independently certified
    terminal keys (or finite products), never a symbolic residual domain;

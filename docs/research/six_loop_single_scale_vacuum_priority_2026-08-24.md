@@ -9,7 +9,13 @@ through the compact atomic application-event checkpoint on 2026-08-26. Its
 licensed default-GMP gate passed all 1,658 runnable tests with four Nextest
 workers, with 5 configured cases skipped; doctests also passed. A subsequent
 worktree slice adds shallow event-bound applicable/exceptional domains; its
-focused licensed parallel gates are recorded in the governing port plan.
+focused licensed parallel gates are recorded in the governing port plan. A
+later current-worktree slice implements typed same-database `IdenticallyBad`
+continuation and exact chronological rederivation: it retains the rejected
+pivot, leaves the selected target unresolved, and emits no rule, residual, or
+master. Its sector-`011` regression is a topology-neutral hybrid session test
+with test-staged terms, not a fully generated-row or physical-vacuum acceptance
+claim.
 
 Internal RustRed owners trust sealed constructors and move semantics. Add
 runtime validation only at human/file import, durable artifact loading, and the
@@ -707,9 +713,12 @@ route preparation are now implemented. The route stage performs one linear
 pass and stores one byte per leaf; it trusts its sealed Ready owner rather than
 adding another schema/replay/binding layer. The atomic target-consuming compact
 application-event commit is also implemented. Shallow rule/residual views,
-exceptional scheduling, subsector feedback, a coverage fixed point, durable
-closed shards, and application remain unfinished. This status does not claim a
-complete family reduction or any six-loop result.
+and same-database rejected-candidate continuation are implemented. Fresh
+exceptional-domain mathematical ingress, applicable providers, bottom-up
+subsector feedback, a coverage fixed point, durable closed shards, and physical
+application remain unfinished. A `SectorLeak` is parent-inactive activation and
+future out-of-sector exceptional work, never a proper-subsector dependency.
+This status does not claim a complete family reduction or any six-loop result.
 
 The first genuine arity-21 attempt exposed the eager-case blocker before
 Ready: Boolean-cover construction requested split 65,537 beyond its 65,536
@@ -806,6 +815,10 @@ or physical-topology calculation.
    U row after the historical prefix. The exact-database rebuilding glue/use is a `cfg(test)`
    oracle. Focused licensed default-GMP four-thread runs pass 15/15 retained-
    adapter, 18/18 complete sparse-adapter, and 41/41 exact-database tests.
+   The separate typed `IdenticallyBad` transition now continues the same exact
+   database with its rejected pivot retained and rederives the complete exact
+   proof during chronological replay; it still lacks campaign-frontier and
+   fixed-point integration.
    Export native telemetry to campaign benchmarks and profile full-clone cost,
    serial forward elimination, fill, and opaque native memory. The
    non-durable topology-neutral `CampaignPlan` slice and its stateless

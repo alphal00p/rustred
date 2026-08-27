@@ -12,10 +12,12 @@
 //! consuming, inert recenter classification. The recenter outcome retains the
 //! transaction behind sealed NoTarget, equality-refinement, or Ready
 //! typestates and provides no direct Ready commit. NoTarget may commit through
-//! a consuming typed continuation;
-//! equality may commit only into a one-way refined-epoch suspension. Neither
-//! path publishes a rule or infers a master. A private unconsumed-commit kernel
-//! proves the atomic database/target-state transition, and no raw successor
+//! a consuming typed continuation; equality may commit only into a one-way
+//! refined-epoch suspension. A replay-proven IdenticallyBad derivation from
+//! Ready may instead distill and commit a same-database rejected-candidate
+//! continuation: its pivot is retained, its target stays unresolved, and it
+//! publishes no rule or master claim. A private unconsumed-commit kernel proves
+//! every atomic database/target-state transition, and no raw successor
 //! transition is exposed outside this module. Dropping an unconsumed staged
 //! transaction or recenter outcome leaves both retained owners unchanged.
 
@@ -63,9 +65,22 @@ use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupRetainedExactTarget,
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
 };
+use crate::generated_affine_residual_group_exact_when_bad_conditions::GeneratedAffineResidualGroupExactConditionPlanCompiler;
+use crate::generated_affine_residual_group_exact_when_bad_materialization::GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler;
+use crate::generated_affine_residual_group_exact_when_bad_partition::{
+    GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
+    GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
+    GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+    GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+};
 use crate::generated_affine_residual_group_physical_key::{
     GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
     GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
+};
+use crate::generated_affine_residual_group_ready_publication::{
+    GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
 };
 use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
@@ -540,6 +555,12 @@ enum GeneratedAffineResidualGroupExactSessionEventDisposition {
         equality_predicate_ordinals: Vec<usize>,
         stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
     },
+    RejectedCandidate {
+        target_offset: Arc<ExactTargetOffset>,
+        locator: GeneratedAffineResidualGroupSolveTargetLocator,
+        replay_recipe: GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+        stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+    },
     Publication {
         target_offset: Arc<ExactTargetOffset>,
         locator: GeneratedAffineResidualGroupSolveTargetLocator,
@@ -562,6 +583,9 @@ enum GeneratedAffineResidualGroupExactSessionEventDispositionView<'a> {
         target_offset: &'a ExactTargetOffset,
         equality_predicate_ordinals: &'a [usize],
         equality_predicate_capacity: usize,
+    },
+    RejectedCandidate {
+        target_offset: &'a ExactTargetOffset,
     },
     Publication {
         target_offset: &'a ExactTargetOffset,
@@ -592,6 +616,11 @@ impl GeneratedAffineResidualGroupExactSessionEventDisposition {
                 equality_predicate_ordinals,
                 equality_predicate_capacity: equality_predicate_ordinals.capacity(),
             },
+            Self::RejectedCandidate { target_offset, .. } => {
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::RejectedCandidate {
+                    target_offset,
+                }
+            }
             Self::Publication { .. } => {
                 unreachable!("compact publication uses its dedicated borrowed preflight view")
             }
@@ -618,6 +647,18 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionEventDisposition {
                 .field("stats", stats)
                 .field("private_target_offset", &"<redacted>")
                 .field("private_equality_predicates", &"<redacted>")
+                .finish(),
+            Self::RejectedCandidate {
+                locator,
+                replay_recipe,
+                stats,
+                ..
+            } => formatter
+                .debug_struct("RejectedCandidate")
+                .field("locator", locator)
+                .field("reason", &replay_recipe.reason())
+                .field("stats", stats)
+                .field("private_target_offset", &"<redacted>")
                 .finish(),
             Self::Publication {
                 locator,
@@ -759,6 +800,23 @@ impl GeneratedAffineResidualGroupExactSessionEvent {
                     limits.max_replay_target_scans,
                 )?;
             }
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                target_offset,
+                ..
+            } => {
+                work.target_offset_components = session_event_bounded_add(
+                    "exact session replay target-offset components",
+                    work.target_offset_components,
+                    target_offset.values().len(),
+                    limits.max_replay_target_offset_components,
+                )?;
+                work.target_scans = session_event_bounded_add(
+                    "exact session replay target scans",
+                    work.target_scans,
+                    target_count,
+                    limits.max_replay_target_scans,
+                )?;
+            }
             GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. } => {
                 unreachable!("compact publication is rejected before replay accounting")
             }
@@ -847,6 +905,25 @@ impl GeneratedAffineResidualGroupExactSessionEvent {
                 left_offset.values() == right_offset.values()
                     && left_locator == right_locator
                     && left_predicates == right_predicates
+                    && left_stats == right_stats
+            }
+            (
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                    target_offset: left_offset,
+                    locator: left_locator,
+                    replay_recipe: left_recipe,
+                    stats: left_stats,
+                },
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                    target_offset: right_offset,
+                    locator: right_locator,
+                    replay_recipe: right_recipe,
+                    stats: right_stats,
+                },
+            ) => {
+                left_offset.values() == right_offset.values()
+                    && left_locator == right_locator
+                    && left_recipe == right_recipe
                     && left_stats == right_stats
             }
             #[cfg(test)]
@@ -2140,6 +2217,149 @@ impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitNoTargetFail
 
 impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitNoTargetFailure {}
 
+/// Typed successful result of committing a pivot whose complete current
+/// target domain was proven unusable by exact `WhenBad` analysis.
+pub(crate) struct GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate {
+    session: GeneratedAffineResidualGroupExactSession,
+    event: Arc<GeneratedAffineResidualGroupExactSessionEvent>,
+    source_ordinal: usize,
+    pivot_ordinal: usize,
+    locator: GeneratedAffineResidualGroupSolveTargetLocator,
+    reason: GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+    stats: GeneratedAffineResidualGroupExactSessionRecenterStats,
+}
+
+impl GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate {
+    pub(crate) const fn database_epoch(&self) -> usize {
+        self.session.database_epoch()
+    }
+
+    pub(crate) const fn group_ordinal(&self) -> usize {
+        self.session.group_ordinal()
+    }
+
+    pub(crate) const fn state_version(&self) -> usize {
+        self.session.state_version()
+    }
+
+    pub(crate) const fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub(crate) const fn pivot_ordinal(&self) -> usize {
+        self.pivot_ordinal
+    }
+
+    pub(crate) const fn target_locator(&self) -> GeneratedAffineResidualGroupSolveTargetLocator {
+        self.locator
+    }
+
+    pub(crate) const fn reason(
+        &self,
+    ) -> GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason {
+        self.reason
+    }
+
+    pub(crate) const fn stats(&self) -> GeneratedAffineResidualGroupExactSessionRecenterStats {
+        self.stats
+    }
+
+    pub(crate) const fn targets_consumed(&self) -> usize {
+        0
+    }
+
+    pub(crate) const fn publishes_rule(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn infers_master(&self) -> bool {
+        false
+    }
+
+    pub(crate) const fn emits_residual(&self) -> bool {
+        false
+    }
+
+    /// Continue the same exact database after the rejected candidate's pivot
+    /// has been retained and its matched target left unresolved.
+    pub(crate) fn into_session(self) -> GeneratedAffineResidualGroupExactSession {
+        self.session
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate")
+            .field("database_epoch", &self.database_epoch())
+            .field("group_ordinal", &self.group_ordinal())
+            .field("state_version", &self.state_version())
+            .field("source_ordinal", &self.source_ordinal)
+            .field("pivot_ordinal", &self.pivot_ordinal)
+            .field("locator", &self.locator)
+            .field("reason", &self.reason)
+            .field("stats", &self.stats)
+            .field("targets_consumed", &0)
+            .field("publishes_rule", &false)
+            .field("infers_master", &false)
+            .field("emits_residual", &false)
+            .field("private_session", &"<redacted>")
+            .field("private_event", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Transactional failure of the rejected-candidate session transition.
+/// Both the running session and the complete distilled token are returned.
+pub(crate) enum GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure {
+    Preflight {
+        error: GeneratedAffineResidualGroupExactSessionError,
+        session: GeneratedAffineResidualGroupExactSession,
+        candidate: GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    },
+}
+
+impl GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure {
+    pub(crate) const fn error(&self) -> GeneratedAffineResidualGroupExactSessionError {
+        match self {
+            Self::Preflight { error, .. } => *error,
+        }
+    }
+
+    pub(crate) fn into_recovery(
+        self,
+    ) -> (
+        GeneratedAffineResidualGroupExactSession,
+        GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    ) {
+        match self {
+            Self::Preflight {
+                session, candidate, ..
+            } => (session, candidate),
+        }
+    }
+}
+
+impl fmt::Debug for GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure")
+            .field("phase", &"preflight")
+            .field("error", &self.error())
+            .field("private_session", &"<redacted>")
+            .field("private_candidate", &"<redacted>")
+            .finish()
+    }
+}
+
+impl fmt::Display for GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("exact rejected-candidate transition failed before commit")
+    }
+}
+
+impl std::error::Error for GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure {}
+
 /// Sealed owner for a committed pivot whose matched target requires affine
 /// equality refinement in a later solve epoch.
 ///
@@ -3064,7 +3284,8 @@ impl GeneratedAffineResidualGroupExactSession {
                         ),
                 },
                 GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
-                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. },
+                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
+                | GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate { .. },
             ) if source_recipe.database_epoch() == self.database_epoch()
                 && source_recipe.group_ordinal() == self.group_ordinal()
                 && pivot.source_ordinal() == last.source_ordinal => {}
@@ -3195,7 +3416,8 @@ impl GeneratedAffineResidualGroupExactSession {
                                     pivot,
                                 ),
                                 GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
-                                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. },
+                                | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
+                                | GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate { .. },
                             ) if pivot.source_ordinal() == event.source_ordinal => 0,
                             #[cfg(test)]
                             (
@@ -3290,6 +3512,22 @@ impl GeneratedAffineResidualGroupExactSession {
                             equality_predicate_ordinals.capacity(),
                             size_of::<usize>(),
                         )?,
+                        0,
+                    )
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                    target_offset,
+                    ..
+                } => {
+                    let (retained_integer_bits, retained_bytes) = target_offset
+                        .authenticate_retained_census()
+                        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+                    (
+                        target_offset.values().len(),
+                        retained_integer_bits,
+                        retained_bytes,
+                        0,
+                        0,
                         0,
                     )
                 }
@@ -3556,6 +3794,24 @@ impl GeneratedAffineResidualGroupExactSession {
             self.limits.target_state.max_combined_retained_byte_envelope,
             authenticated_ledger_retained_bytes,
         ]);
+        // Post-Ready rejection replay reruns four nested compilers. Each
+        // recorded recipe accounts for the raw recentered Ready row plus the
+        // complete retained A + C + P owner graph (P already contains M), then
+        // adds the largest phase-local duplicate scratch peak. Replay processes
+        // events serially, so only the largest such event recipe coexists with
+        // the shadow.
+        let rejected_candidate_rederivation_peak = self
+            .events
+            .iter()
+            .filter_map(|event| match &event.disposition {
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                    replay_recipe,
+                    ..
+                } => Some(replay_recipe.rederivation_owned_logical_peak_upper_bound()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
         let shadow_peak_bound = session_event_saturating_sum([
             size_of::<Self>(),
             self.limits
@@ -3572,6 +3828,7 @@ impl GeneratedAffineResidualGroupExactSession {
                         .max_successor_peak_retained_byte_envelope,
                 ),
             self.limits.events.max_ledger_replacement_peak_bytes,
+            rejected_candidate_rederivation_peak,
         ]);
         session_event_saturating_sum([
             shared_plan_arc_owner_bytes,
@@ -3682,6 +3939,47 @@ impl GeneratedAffineResidualGroupExactSession {
                     };
                     let committed = shadow
                         .commit_no_target(family, context, outcome)
+                        .map_err(|failure| failure.error())?;
+                    if !recorded.semantically_equal(&committed.event) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    shadow = committed.into_session();
+                }
+                GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                    replay_recipe,
+                    ..
+                } => {
+                    if !matches!(
+                        database_evidence,
+                        GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot(_)
+                    ) {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    let outcome = shadow
+                        .recenter_staged_new_pivot(family, context, transaction)
+                        .map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch
+                        })?;
+                    let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) =
+                        outcome
+                    else {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    };
+                    let candidate = shadow
+                        .rederive_rejected_candidate(
+                            family,
+                            context,
+                            ready,
+                            *replay_recipe,
+                        )?;
+                    let committed = shadow
+                        .commit_rejected_candidate(family, context, candidate)
                         .map_err(|failure| failure.error())?;
                     if !recorded.semantically_equal(&committed.event) {
                         return Err(
@@ -4497,6 +4795,27 @@ impl GeneratedAffineResidualGroupExactSession {
                         0,
                     )
                 }
+                GeneratedAffineResidualGroupExactSessionEventDispositionView::RejectedCandidate {
+                    target_offset,
+                } => {
+                    if !head.is_replayable_new_pivot() {
+                        return Err(
+                            GeneratedAffineResidualGroupExactSessionError::ReplayMismatch,
+                        );
+                    }
+                    (
+                        target_offset.values().len(),
+                        target_offset.retained_integer_bits(),
+                        target_offset.arc_retained_bytes().map_err(|_| {
+                            GeneratedAffineResidualGroupExactSessionError::EventCountOverflow {
+                                resource: "exact session retained target-offset bytes",
+                            }
+                        })?,
+                        0,
+                        0,
+                        0,
+                    )
+                }
                 GeneratedAffineResidualGroupExactSessionEventDispositionView::Publication {
                     target_offset,
                     row,
@@ -4801,7 +5120,8 @@ impl GeneratedAffineResidualGroupExactSession {
                 .retain_dependent_evidence_for_session(&self.database_capability)
                 .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::Dependent),
             GeneratedAffineResidualGroupExactSessionEventDisposition::NoTarget { .. }
-            | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. } => database_commit
+            | GeneratedAffineResidualGroupExactSessionEventDisposition::RequiresAffineEqualityRefinement { .. }
+            | GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate { .. } => database_commit
                 .retain_new_pivot_evidence_for_session(&self.database_capability)
                 .map(GeneratedAffineResidualGroupExactSessionEventDatabaseEvidence::NewPivot),
             GeneratedAffineResidualGroupExactSessionEventDisposition::Publication { .. } => {
@@ -5179,6 +5499,197 @@ impl GeneratedAffineResidualGroupExactSession {
         }
         drop(staged_pivot);
         self.prepare_unchanged_target_successor(family, context, &outcome.transaction)
+    }
+
+    /// Commit one replay-authenticated exact `WhenBad` rejection while
+    /// retaining its staged pivot and leaving the matched solve target
+    /// unresolved. The transition publishes no rule, infers no master, and
+    /// emits no residual. Success is the sole same-database continuation;
+    /// every preflight failure returns both consumed owners unchanged.
+    pub(crate) fn commit_rejected_candidate(
+        mut self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate,
+        GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure,
+    > {
+        let successor = match catch_unwind(AssertUnwindSafe(|| {
+            self.prepare_rejected_candidate_successor(family, context, &candidate)
+        })) {
+            Ok(Ok(successor)) => successor,
+            Ok(Err(error)) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure::Preflight {
+                        error,
+                        session: self,
+                        candidate,
+                    },
+                );
+            }
+            Err(_) => {
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure::Preflight {
+                        error: GeneratedAffineResidualGroupExactSessionError::SymbolicaPanic,
+                        session: self,
+                        candidate,
+                    },
+                );
+            }
+        };
+        let (ready, replay_recipe) = candidate.into_parts_for_session();
+        let reason = replay_recipe.reason();
+        let GeneratedAffineResidualGroupExactSessionRecenterReady {
+            transaction,
+            target,
+            target_offset,
+            recentered,
+            source_ordinal,
+            pivot_ordinal,
+            stats,
+        } = ready;
+        let locator = *target.locator();
+        let prepared = match self.prepare_session_event_transition(
+            transaction,
+            successor,
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                target_offset: Arc::clone(&target_offset),
+                locator,
+                replay_recipe,
+                stats,
+            },
+            source_ordinal,
+            ExpectedSessionEventDatabaseOutcome::NewPivot { pivot_ordinal },
+        ) {
+            Ok(prepared) => prepared,
+            Err(failure) => {
+                let ready = GeneratedAffineResidualGroupExactSessionRecenterReady {
+                    transaction: failure.transaction,
+                    target,
+                    target_offset,
+                    recentered,
+                    source_ordinal,
+                    pivot_ordinal,
+                    stats,
+                };
+                let candidate =
+                    GeneratedAffineResidualGroupExactWhenBadRejectedCandidate::from_parts_for_session(
+                        &self.database_capability,
+                        ready,
+                        replay_recipe,
+                    );
+                return Err(
+                    GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure::Preflight {
+                        error: failure.error,
+                        session: self,
+                        candidate,
+                    },
+                );
+            }
+        };
+        let event = self.commit_prepared_unconsumed(prepared);
+        drop(target);
+        drop(target_offset);
+        drop(recentered);
+        Ok(
+            GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate {
+                session: self,
+                event,
+                source_ordinal,
+                pivot_ordinal,
+                locator,
+                reason,
+                stats,
+            },
+        )
+    }
+
+    fn prepare_rejected_candidate_successor(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        candidate: &GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    ) -> Result<
+        Arc<GeneratedAffineResidualGroupExactTargetState>,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let ready = candidate.ready();
+        let geometry = self.authenticated_ready_geometry(family, context, ready)?;
+        if geometry.locator() != *candidate.target_locator()
+            || ready.source_ordinal() != candidate.source_ordinal()
+            || ready.pivot_ordinal() != candidate.pivot_ordinal()
+        {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        drop(geometry);
+        self.prepare_unchanged_target_successor(family, context, &ready.transaction)
+    }
+
+    /// Rebuild the complete post-Ready derivation during chronological replay.
+    /// A recorded compact reason is never accepted as proof by itself: every
+    /// compiler is rerun under the exact limits retained by the live commit,
+    /// and the resulting terminal recipe must compare exactly.
+    fn rederive_rejected_candidate(
+        &self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        ready: GeneratedAffineResidualGroupExactSessionRecenterReady,
+        expected: GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+    ) -> Result<
+        GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+        GeneratedAffineResidualGroupExactSessionError,
+    > {
+        let analyzed = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+            family,
+            context,
+            self,
+            ready,
+            expected.ready_analysis_limits(),
+        )
+        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+        let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(ready) =
+            analyzed
+        else {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        };
+        let plan = GeneratedAffineResidualGroupExactConditionPlanCompiler::compile(
+            family,
+            context,
+            self,
+            ready,
+            expected.condition_plan_limits(),
+        )
+        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+        let materialization =
+            GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler::compile(
+                family,
+                context,
+                self,
+                plan,
+                expected.materialization_limits(),
+            )
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+        let partition = GeneratedAffineResidualGroupExactWhenBadPartitionCompiler::compile(
+            family,
+            context,
+            self,
+            materialization,
+            expected.partition_limits(),
+        )
+        .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+        let GeneratedAffineResidualGroupExactWhenBadPartitionCompilation::IdenticallyBad(owner) =
+            partition
+        else {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        };
+        let candidate = owner
+            .into_rejected_candidate(family, context, self)
+            .map_err(|_| GeneratedAffineResidualGroupExactSessionError::ReplayMismatch)?;
+        if candidate.replay_recipe() != expected {
+            return Err(GeneratedAffineResidualGroupExactSessionError::ReplayMismatch);
+        }
+        Ok(candidate)
     }
 
     /// Commit an equality-bearing pivot and consume the running session into a
@@ -5885,6 +6396,22 @@ pub(crate) mod tests {
     use crate::generated_affine_residual_group_exact_targets::{
         GeneratedAffineResidualGroupAuthenticatedExactTargetView,
         GeneratedAffineResidualGroupExactTargetStateStats,
+    };
+    use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+        GeneratedAffineResidualGroupExactConditionPlanCompiler,
+        GeneratedAffineResidualGroupExactConditionPlanLimits,
+        GeneratedAffineResidualGroupExactConditionSourceLocator,
+    };
+    use crate::generated_affine_residual_group_exact_when_bad_materialization::{
+        GeneratedAffineResidualGroupExactWhenBadIdenticallyBadReason,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
+    };
+    use crate::generated_affine_residual_group_exact_when_bad_partition::{
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
+        GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+        GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     };
     use crate::generated_affine_residual_group_physical_key::{
         GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
@@ -7982,6 +8509,331 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn rejected_candidate_commit_replays_full_proof_and_continues_same_database() {
+        let (family, context, plan) = plan_fixture("exact-session-rejected-candidate-continuation");
+        let session = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            99,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let a_values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
+        let b_values = [Integer::from(6), Integer::from(M - 1), Integer::from(M - 1)];
+        let a = physical_key(&plan, &a_values);
+        let b = physical_key(&plan, &b_values);
+        assert!(b > a);
+        let mapped_zero = context
+            .add(&context.index(1).unwrap(), &context.integer(-(M - 1)))
+            .unwrap();
+        let mapped_zero_guard = context
+            .nonzero_condition(
+                context.numerator_condition(&mapped_zero).unwrap(),
+                GuardOrigin::GuardedDivisionDivisorNumerator,
+            )
+            .unwrap();
+        let transaction = session
+            .stage_authenticated_terms_for_test(
+                &context,
+                vec![(a.clone(), context.integer(2)), (b.clone(), context.one())],
+                vec![mapped_zero_guard],
+            )
+            .unwrap();
+        let outcome = session
+            .recenter_staged_new_pivot(&family, &context, transaction)
+            .unwrap();
+        let GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) = outcome else {
+            panic!("the guarded P0 candidate must match a Ready target")
+        };
+        let analyzed = GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+            &family,
+            &context,
+            &session,
+            ready,
+            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+        )
+        .unwrap();
+        let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(ready) =
+            analyzed
+        else {
+            panic!("the guarded P0 candidate must pass exact descent")
+        };
+        let raw_ready_retained = ready.ready().stats().kernel().owner_retained_bytes();
+        let ready_analysis_retained = ready.stats().retained_bytes();
+        let ready_analysis_peak = ready.stats().peak_prospective_retained_bytes();
+        let condition_plan = GeneratedAffineResidualGroupExactConditionPlanCompiler::compile(
+            &family,
+            &context,
+            &session,
+            ready,
+            GeneratedAffineResidualGroupExactConditionPlanLimits::default(),
+        )
+        .unwrap();
+        let condition_plan_retained = condition_plan.stats().retained_owned_logical_bytes();
+        let condition_plan_peak = condition_plan
+            .stats()
+            .compilation_owned_logical_peak_upper_bound();
+        let materialization =
+            GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler::compile(
+                &family,
+                &context,
+                &session,
+                condition_plan,
+                GeneratedAffineResidualGroupExactWhenBadMaterializationLimits::default(),
+            )
+            .unwrap();
+        let materialization_peak = materialization
+            .stats()
+            .compilation_owned_logical_peak_upper_bound();
+        let partition = GeneratedAffineResidualGroupExactWhenBadPartitionCompiler::compile(
+            &family,
+            &context,
+            &session,
+            materialization,
+            GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default(),
+        )
+        .unwrap();
+        let partition_retained = partition.stats().retained_owned_logical_bytes();
+        let partition_peak = partition
+            .stats()
+            .compilation_owned_logical_peak_upper_bound();
+        let phase_peak = [
+            ready_analysis_peak,
+            condition_plan_peak,
+            materialization_peak,
+            partition_peak,
+        ]
+        .into_iter()
+        .max()
+        .unwrap();
+        let expected_rederivation_peak = session_event_saturating_sum([
+            raw_ready_retained,
+            ready_analysis_retained,
+            condition_plan_retained,
+            partition_retained,
+            phase_peak,
+        ]);
+        let GeneratedAffineResidualGroupExactWhenBadPartitionCompilation::IdenticallyBad(bad) =
+            partition
+        else {
+            panic!("the target-mapped zero guard must reject the complete candidate domain")
+        };
+        assert_eq!(
+            bad.reason(),
+            GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason::Upstream(
+                GeneratedAffineResidualGroupExactWhenBadIdenticallyBadReason::CandidateGuardMappedToZero {
+                    source: GeneratedAffineResidualGroupExactConditionSourceLocator::RecenteredRowGuard {
+                        guard_ordinal: 0,
+                    },
+                },
+            )
+        );
+        let candidate = bad
+            .into_rejected_candidate(&family, &context, &session)
+            .unwrap();
+        let stored_rederivation_peak = candidate
+            .replay_recipe()
+            .rederivation_owned_logical_peak_upper_bound();
+        assert!(raw_ready_retained > 0);
+        assert_eq!(stored_rederivation_peak, expected_rederivation_peak);
+        assert!(stored_rederivation_peak > phase_peak);
+        assert!(stored_rederivation_peak >= raw_ready_retained.saturating_add(phase_peak));
+        let locator = *candidate.target_locator();
+        let foreign = GeneratedAffineResidualGroupExactSession::try_new(
+            &family,
+            &context,
+            Arc::clone(&plan),
+            99,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        let failure = foreign
+            .commit_rejected_candidate(&family, &context, candidate)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::WrongTargetStateAllocation
+        );
+        let (foreign, candidate) = failure.into_recovery();
+        assert_eq!(foreign.state_version(), 0);
+        assert_eq!(candidate.target_locator(), &locator);
+        foreign.replay(&family, &context).unwrap();
+
+        // Exercise the later transactional boundary after the candidate has
+        // been decomposed for event construction. Event-ledger rejection must
+        // return the exact unchanged session and reconstructed candidate.
+        let mut session = session;
+        let before_late_failure = session_state_snapshot(&session);
+        let original_max_events = session.limits.events.max_events;
+        let candidate_snapshot = (
+            *candidate.target_locator(),
+            candidate.source_ordinal(),
+            candidate.pivot_ordinal(),
+            candidate.stats(),
+            candidate.replay_recipe(),
+        );
+        session.limits.events.max_events = 0;
+        let failure = session
+            .commit_rejected_candidate(&family, &context, candidate)
+            .unwrap_err();
+        assert_eq!(
+            failure.error(),
+            GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                resource: "exact session committed events",
+                requested: 1,
+                limit: 0,
+            }
+        );
+        let (mut session, candidate) = failure.into_recovery();
+        assert_eq!(session_state_snapshot(&session), before_late_failure);
+        assert_eq!(
+            (
+                *candidate.target_locator(),
+                candidate.source_ordinal(),
+                candidate.pivot_ordinal(),
+                candidate.stats(),
+                candidate.replay_recipe(),
+            ),
+            candidate_snapshot
+        );
+        session.limits.events.max_events = original_max_events;
+        let committed = session
+            .commit_rejected_candidate(&family, &context, candidate)
+            .unwrap();
+        assert_eq!(committed.state_version(), 1);
+        assert_eq!(committed.source_ordinal(), 0);
+        assert_eq!(committed.pivot_ordinal(), 0);
+        assert_eq!(committed.target_locator(), locator);
+        assert_eq!(committed.targets_consumed(), 0);
+        assert!(!committed.publishes_rule());
+        assert!(!committed.infers_master());
+        assert!(!committed.emits_residual());
+        let mut session = committed.into_session();
+        assert_eq!(session.consumed_target_count(), 0);
+        let continuation_limits = session.limits;
+        let database_stats = session.database.stats();
+        session.limits.database.max_database_retained_bytes =
+            database_stats.retained_database_bytes();
+        session.limits.database.max_staged_live_retained_bytes =
+            database_stats.peak_staged_live_retained_bytes();
+        session.limits.target_catalog.max_peak_staging_byte_envelope =
+            session.catalog.stats().peak_staging_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_combined_retained_byte_envelope = session
+            .target_state
+            .stats()
+            .combined_retained_byte_envelope();
+        session
+            .limits
+            .target_state
+            .max_successor_peak_retained_byte_envelope = session
+            .target_state
+            .stats()
+            .successor_peak_retained_byte_envelope();
+        session.limits.events.max_ledger_replacement_peak_bytes =
+            session.event_stats.ledger_replacement_peak_bytes();
+        let authenticated_ledger = session.authenticate_event_ledger_census().unwrap();
+        let replay_peak = session.replay_combined_retained_peak_bound(authenticated_ledger);
+        let rejected_peak = match &session.events[0].disposition {
+            GeneratedAffineResidualGroupExactSessionEventDisposition::RejectedCandidate {
+                replay_recipe,
+                ..
+            } => replay_recipe.rederivation_owned_logical_peak_upper_bound(),
+            _ => panic!("the first event must retain the rejected-candidate recipe"),
+        };
+        assert!(rejected_peak > 0);
+        assert_eq!(rejected_peak, stored_rederivation_peak);
+        let shared_plan_owner = plan
+            .stats()
+            .owner_retained_bytes()
+            .saturating_add(2usize.saturating_mul(size_of::<usize>()));
+        let expected_original = session_event_saturating_sum([
+            size_of::<GeneratedAffineResidualGroupExactSession>(),
+            session.limits.database.max_database_retained_bytes,
+            session
+                .limits
+                .target_state
+                .max_combined_retained_byte_envelope,
+            authenticated_ledger,
+        ]);
+        let expected_shadow_with_rejected = session_event_saturating_sum([
+            size_of::<GeneratedAffineResidualGroupExactSession>(),
+            session
+                .limits
+                .database
+                .max_database_retained_bytes
+                .max(session.limits.database.max_staged_live_retained_bytes),
+            session.limits.target_catalog.max_peak_staging_byte_envelope,
+            session
+                .limits
+                .target_state
+                .max_combined_retained_byte_envelope
+                .max(
+                    session
+                        .limits
+                        .target_state
+                        .max_successor_peak_retained_byte_envelope,
+                ),
+            session.limits.events.max_ledger_replacement_peak_bytes,
+            rejected_peak,
+        ]);
+        assert_eq!(
+            replay_peak,
+            session_event_saturating_sum([
+                shared_plan_owner,
+                expected_original,
+                expected_shadow_with_rejected,
+            ])
+        );
+        session.limits.events.max_replay_combined_retained_bytes = replay_peak - 1;
+        assert!(matches!(
+            session.replay(&family, &context),
+            Err(GeneratedAffineResidualGroupExactSessionError::EventResourceLimit {
+                resource: "exact session replay combined retained bytes",
+                requested,
+                limit,
+            }) if requested == replay_peak && limit == replay_peak - 1
+        ));
+        session.limits.events.max_replay_combined_retained_bytes = replay_peak;
+        session.replay(&family, &context).unwrap();
+        session.limits = continuation_limits;
+
+        // Same-database continuation: the retained P0 pivot reduces raw b to
+        // -2a, which normalizes to the next unit pivot a.
+        let continuation = session
+            .stage_authenticated_terms_for_test(&context, vec![(b, context.one())], Vec::new())
+            .unwrap();
+        let next = session
+            .authenticate_staged_new_pivot(&family, &context, &continuation)
+            .unwrap();
+        assert_eq!(next.source_ordinal(), 1);
+        assert_eq!(next.pivot_ordinal(), 1);
+        assert_eq!(next.key(), &a);
+        assert_eq!(next.normalization_divisor(), &context.integer(-2));
+        assert_eq!(next.terms().len(), 1);
+        assert_eq!(next.terms().next().unwrap().1, &context.one());
+        assert_eq!(next.reductions().len(), 1);
+        assert_eq!(next.reductions()[0].pivot_ordinal(), 0);
+        assert_eq!(next.reductions()[0].factor(), &context.one());
+        drop(next);
+        assert_eq!(
+            session
+                .commit_unconsumed(&family, &context, continuation)
+                .unwrap(),
+            GeneratedAffineResidualGroupExactRowOutcome::NewPivot {
+                source_ordinal: 1,
+                pivot_ordinal: 1,
+            }
+        );
+        assert_eq!(session.state_version(), 2);
+        assert_eq!(session.consumed_target_count(), 0);
+        session.replay(&family, &context).unwrap();
+    }
+
+    #[test]
     fn recenter_foreign_stale_and_resource_failures_return_the_exact_transaction() {
         let (family, context, plan) = plan_fixture("exact-session-recenter-recoverable-errors");
         let values = [Integer::from(7), Integer::from(M - 1), Integer::from(M - 1)];
@@ -8498,6 +9350,8 @@ pub(crate) mod tests {
         let database_source = include_str!("generated_affine_residual_group_exact_database.rs");
         let session_source = include_str!("generated_affine_residual_group_exact_session.rs");
         let target_source = include_str!("generated_affine_residual_group_exact_targets.rs");
+        let partition_source =
+            include_str!("generated_affine_residual_group_exact_when_bad_partition.rs");
         let capability = "GeneratedAffineResidualGroupExactSessionDatabaseCapability";
 
         // Every production entry capable of minting, classifying, or
@@ -8649,6 +9503,7 @@ pub(crate) mod tests {
         // Ready has no direct commit or transaction extraction surface.
         for method in [
             "commit_no_target",
+            "commit_rejected_candidate",
             "commit_and_suspend_affine_equality_refinement",
         ] {
             assert_eq!(
@@ -8671,6 +9526,60 @@ pub(crate) mod tests {
             &session_source[no_target_commit_start..no_target_commit_signature_end];
         assert!(no_target_commit_signature.contains("mut self"));
         assert!(!no_target_commit_signature.contains("&mut self"));
+
+        let rejected_commit_marker = format!("    pub(crate) fn {}(", "commit_rejected_candidate");
+        let rejected_commit_start = session_source
+            .find(&rejected_commit_marker)
+            .expect("missing typed rejected-candidate commit");
+        let rejected_commit_signature_end = session_source[rejected_commit_start..]
+            .find(") -> Result")
+            .map(|offset| rejected_commit_start + offset)
+            .expect("unterminated typed rejected-candidate commit signature");
+        let rejected_commit_signature =
+            &session_source[rejected_commit_start..rejected_commit_signature_end];
+        assert!(rejected_commit_signature.contains("mut self"));
+        assert!(!rejected_commit_signature.contains("&mut self"));
+
+        // Rejected-candidate reconstruction remains crate-visible solely for
+        // the transactional session rollback path. Its owning fields are
+        // private, and reconstruction requires the same unforgeable session
+        // capability whose mint/accessor surface is pinned above.
+        let rejected_candidate = "GeneratedAffineResidualGroupExactWhenBadRejectedCandidate";
+        let rejected_candidate_declaration_start = partition_source
+            .find(&format!("pub(crate) struct {rejected_candidate} {{"))
+            .expect("missing rejected-candidate owner declaration");
+        let rejected_candidate_declaration_end = partition_source
+            [rejected_candidate_declaration_start..]
+            .find("\n}\n")
+            .map(|offset| rejected_candidate_declaration_start + offset)
+            .expect("unterminated rejected-candidate owner declaration");
+        let rejected_candidate_declaration = &partition_source
+            [rejected_candidate_declaration_start..rejected_candidate_declaration_end];
+        for field in ["ready", "replay_recipe"] {
+            assert!(rejected_candidate_declaration.contains(&format!("\n    {field}:")));
+            assert!(!rejected_candidate_declaration.contains(&format!("pub(crate) {field}:")));
+            assert!(!rejected_candidate_declaration.contains(&format!("pub {field}:")));
+        }
+        let reconstruction_marker = "    pub(crate) fn from_parts_for_session(";
+        assert_eq!(
+            partition_source
+                .match_indices(reconstruction_marker)
+                .count(),
+            1,
+            "rejected-candidate reconstruction must have exactly one definition"
+        );
+        let reconstruction_start = partition_source
+            .find(reconstruction_marker)
+            .expect("missing rejected-candidate reconstruction seam");
+        let reconstruction_signature_end = partition_source[reconstruction_start..]
+            .find(") -> Self")
+            .map(|offset| reconstruction_start + offset)
+            .expect("unterminated rejected-candidate reconstruction signature");
+        assert!(
+            partition_source[reconstruction_start..reconstruction_signature_end]
+                .contains(capability),
+            "rejected-candidate reconstruction lacks the session capability"
+        );
 
         let committed_no_target = "GeneratedAffineResidualGroupExactSessionCommittedNoTarget";
         let committed_no_target_declaration_start = session_source

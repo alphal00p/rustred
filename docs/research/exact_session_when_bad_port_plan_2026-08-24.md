@@ -62,11 +62,18 @@ and topology-free `campaign preflight` report are implemented without
 initializing Symbolica or creating a pool. Named-host calibration,
 phase-specific task-estimator adapters, and the plan-consuming campaign
 frontier remain pending.
-Applicable-provider admission/results, general `CampaignWorkKey` result
-publication, durable spill support, event-derived fresh narrowed-domain
-re-entry, rejected-candidate continuation, rule application, publication audit
-replay, subsector feedback, closure, and physical reduction remain pending. The
-live exact
+The current worktree also implements the distinct same-database
+`IdenticallyBad` continuation. The complete partition proof is replayed before
+it is distilled into a compact rejected-candidate token; the typed session
+transition commits and retains the candidate pivot, leaves the selected target
+unresolved, emits no rule or residual, and never infers a master. Chronological
+session replay regenerates Ready analysis, condition planning, materialization,
+partitioning, and rejection under the retained exact limits before accepting
+the recorded terminal reason. Applicable-provider admission/results, general
+`CampaignWorkKey` result publication, durable spill support, event-derived
+fresh narrowed-domain re-entry, rule application, publication-event audit
+replay, subsector feedback, fixed-point closure, and physical reduction remain
+pending. The live exact
 database now owns the complete easiest-first physical-key catalog and a clone-
 on-stage Full-L Symbolica `SparseRowReducer` with its final sentinel. Each stage
 inserts only new catalog columns and submits one candidate; only an independent
@@ -157,15 +164,21 @@ The current-lineage components below are implemented and tested:
   target are minted as one capability-gated pair over the same exact
   allocation.
 - The session owns a private append-only event ledger for every consumed
-  source. `Dependent`, `NoTarget`, and mandatory affine-equality events retain
-  their source/evidence allocations. The compact publication event instead
+  source. `Dependent`, `NoTarget`, mandatory affine-equality, and rejected-
+  candidate events retain their source/evidence allocations. Rejected-candidate
+  replay regenerates the complete exact post-Ready `WhenBad` chain and requires
+  the same distilled recipe before recommitting the pivot into the replay
+  shadow. The compact publication event instead
   stores only centered relation terms, target locator/offset, canonical loci,
   final relative cases, and one-byte leaf tags; it drops derivation row
   translation, row guards, derivation statistics, source recipe, and pivot
   evidence.
-- `replay()` creates a fresh shadow session for `Dependent`, `NoTarget`, and
-  affine-equality events. Publication-event audit replay is not implemented;
-  normal future application will read the compact event directly.
+- `replay()` creates a fresh shadow session for `Dependent`, `NoTarget`,
+  affine-equality, and rejected-candidate events. For rejection it reruns Ready
+  analysis, condition planning, materialization, and partitioning with the
+  retained limits; a compact reason enum alone is not proof. Publication-event
+  audit replay is not implemented; normal future application will read the
+  compact event directly.
 - `src/generated_affine_residual_group_ready_publication.rs` authenticates the
   sealed Ready/session/target geometry without extracting the transaction. For
   an authenticated selector-independent compact affine map it locates the
@@ -200,6 +213,16 @@ The current-lineage components below are implemented and tested:
   applicable/exceptional partition. Resource, authentication, allocation, and
   panic failures return the original owner. Both `ReadyForPublication` and
   `IdenticallyBad` consume zero targets and publish zero rules.
+  An `IdenticallyBad` terminal can now replay its complete proof before
+  distillation into a non-forgeable rejected-candidate token. No transcript is
+  discarded on failed proof replay, and the compact token retains the original
+  Ready transaction plus the exact terminal reason and post-Ready phase limits
+  needed by chronological rederivation. Its sealed replay-memory contribution
+  conservatively charges the raw recentered Ready owner, retained analysis and
+  condition-plan owners, the partition owner (which already contains the
+  materialization), and the largest duplicate phase-local compiler peak. The
+  session takes the maximum such contribution across chronologically serial
+  rejected events rather than summing mutually exclusive replay work.
 - `src/generated_affine_residual_group_exact_publication.rs` distills
   `ReadyForPublication` into move-only commit state plus canonical loci, final
   relative cases, and a one-byte applicable/domain/leak tag per leaf. The
@@ -226,7 +249,8 @@ The current-lineage components below are implemented and tested:
   transferred event payload, shallow owner buffers, compilation peak, and live
   lease bytes only. It is not applicable-provider admission, a result owner,
   stable `CampaignWorkKey` staging, fresh narrowed-domain database/reducer
-  ingress, same-database rejected-candidate continuation, or closure.
+  ingress, or closure. Same-database rejected-candidate continuation is a
+  separate exact-session transition and never enters this exceptional owner.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -239,6 +263,19 @@ coordinate, post-top-reduction leader selection, transaction return after
 stale/foreign/resource failure, equality return before translation, atomic
 dependent commit, sealed sibling-successor pairing, exact/one-below resource
 boundaries, and the private production-source recipe's Arc lifetime and replay.
+The current rejection test uses the topology-neutral sector-`011` exact-session
+machinery and Symbolica reducer, but deliberately stages a two-term row and a
+mapped-zero guard through the test-only authenticated-term ingress. It proves
+same-database pivot reuse; it is a hybrid session validation, not acceptance of
+an entirely generated physical row or a closed sector rule set.
+
+The 2026-08-27 licensed default-GMP checkpoint passed 2/2 filtered rejection
+tests, the 1/1 capability-surface regression, all 31 condition/materialization/
+partition tests, `cargo check --tests -j8`, and formatting/diff checks. A wider
+parallel exact-session sweep reported 21/22 passes; its remaining pre-existing
+equality-suspension replay stress test was still CPU-active when deliberately
+stopped after 20 minutes, so that wider sweep is not recorded as a complete
+pass.
 
 The typed transition slice passed licensed, GMP-enabled four-way `cargo-nextest`
 runs `f8fefe69-c966-48eb-ada8-9bac85f24158` (sealed equality, 1/1),
@@ -390,8 +427,10 @@ the algebra-free epoch owner with bounded retry-only exceptional leases are
 now implemented in the worktree. This is not a closed rule publication system:
 there is no admitted applicable-provider result path, stable-key result
 staging/charge transfer, event-derived fresh narrowed-domain source ingress,
-rejected-candidate continuation, provider application, publication-event audit
-replay, or subsector feedback yet. The mature
+provider application, publication-event audit replay, or subsector feedback
+yet. Same-database rejected-candidate continuation is now implemented as a
+separate nonpublishing exact-session path; it does not close any of those
+campaign/application gaps. The mature
 `GeneratedResidualAffine...` implementation is an oracle, not production
 authority for these missing pieces. RustRed's stated capability goal,
 arbitrary one-loop pentagon reduction, and the high-throughput two- through
@@ -626,9 +665,10 @@ candidate-exclusion continuation witness, stage a result, or perform re-entry.
 `IdenticallyBad` does not create such a leaf or epoch. Its pivot remains in the
 same live database, the selected target remains unresolved, and later source
 rows continue serially in that database and may be reduced by the retained
-pivot. The consumed source/candidate is excluded from repetition. Rejected-
-candidate continuation is still pending and must remain a separate path from
-the fresh-epoch exceptional mathematical-ingress path.
+pivot. The consumed source/candidate is excluded from repetition. That typed
+same-database continuation and its chronological exact-phase rederivation are
+now implemented. It remains a separate path from the still-pending fresh-epoch
+exceptional mathematical-ingress path.
 
 No outcome in this seam infers a master integral.
 
@@ -745,8 +785,10 @@ The typed NoTarget commit, consuming equality suspension, private append-only
 chronological event collection, cumulative resource accounting, and
 fresh-shadow audit described in the checkpoint are the validated foundation of
 this phase. The current private event disposition also includes a compact
-`Publication` event. Publication-event audit replay and the remaining terminal
-variants are still pending:
+`Publication` event and a replayable `RejectedCandidate` event. The latter is
+implemented through a typed consuming transition whose failure returns both
+the session and distilled candidate. Publication-event audit replay and the
+unsupported-representation terminal remain pending:
 
 ```rust,ignore
 enum GeneratedAffineResidualGroupExactRunDisposition {
@@ -760,14 +802,14 @@ enum GeneratedAffineResidualGroupExactSessionEvent {
     RequiresAffineEqualityRefinement {
         /* target locator + retained refinement certificate */
     },
-    WhenBadIdenticallyBad { /* future sealed candidate */ },
+    RejectedCandidate { /* implemented distilled IdenticallyBad candidate */ },
     WhenBadUnsupported { /* future typed representation reason */ },
     Publication { /* compact application payload */ },
 }
 ```
 
-Names may follow existing conventions, but fields and constructors remain
-private. Add consuming APIs whose failure retains the precise input type:
+Fields and constructors remain private. The implemented consuming APIs return
+the precise input owners on preflight failure:
 
 ```rust,ignore
 fn commit_no_target(
@@ -789,6 +831,16 @@ fn commit_and_suspend_affine_equality_refinement(
 ) -> Result<
     GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch,
     GeneratedAffineResidualGroupExactSessionSuspendRefinedEpochFailure,
+>;
+
+fn commit_rejected_candidate(
+    self,
+    family: &IntegralFamily,
+    context: &ParametricCoefficientContext,
+    candidate: GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+) -> Result<
+    GeneratedAffineResidualGroupExactSessionCommittedRejectedCandidate,
+    GeneratedAffineResidualGroupExactSessionCommitRejectedCandidateFailure,
 >;
 ```
 
@@ -852,6 +904,14 @@ activation values. Active-coordinate pinches are valid subsector terms, and
 `i64` concrete-overflow boundaries are application-representation checks, not
 `WhenBad` hazards.
 
+Accordingly, a committed `SectorLeak` means that a coordinate inactive in the
+parent sector was activated. It is out-of-sector exceptional work for a future
+fresh narrowed-domain epoch, not a proper-subsector edge. A proper subsector is
+produced by pinching at least one parent-active coordinate without activating
+any parent-inactive coordinate; such terms remain on the applicable right-hand
+side. Provider application and bottom-up proper-subsector feedback for those
+terms are still pending.
+
 Represent every inactive activation interval lazily with exact `Integer`
 fields. For an inactive target coordinate and centered RHS shift `q_i > 0`,
 the interval is `first = 1 - q_i`, `last = 0`, `count = q_i`. An inactive
@@ -900,6 +960,11 @@ leaf, and `PreparedPublication` already owns everything the commit needs.
 `IdenticallyBad` remains the nonpublishing partition terminal. A deterministic
 unsupported symbolic representation remains a typed result at the phase that
 detects it; it does not justify a new manifest, transcript, or replay layer.
+The implemented rejection distillation first replays that complete terminal
+proof against the live session. Only then may it discard the large
+materialization/partition transcript and retain the Ready transaction, terminal
+reason, and exact limits required to reproduce every post-Ready phase during
+chronological session replay.
 
 A successfully reproduced LiteRed fail-closed radical/noninteger-power result
 has `B=True` and is therefore `IdenticallyBad`. An all-exceptional partition is
@@ -922,6 +987,8 @@ The implemented commit stores only:
 - centered relation terms and the selected target locator/offset;
 - canonical loci, final relative cases, and ordered one-byte leaf tags retained
   once by the committed event;
+- rejected-candidate target locator/offset plus the compact terminal reason and
+  exact post-Ready phase limits needed to regenerate the proof; and
 - equality-refinement records.
 
 The publication event deliberately drops derivation row translation, row
@@ -942,7 +1009,10 @@ The consuming publication commit API is implemented. It takes
 head is still current, prepares successor storage, advances the database,
 consumes exactly one selected target, and moves one compact application event
 into place. `IdenticallyBad` never enters this API: it keeps the target
-unresolved and publishes no rule.
+unresolved and publishes no rule. It instead enters the implemented typed
+`commit_rejected_candidate` path, which commits the pivot into the same exact
+database and returns the sole continuation session without emitting an
+exceptional residual or terminal/master claim.
 
 Rule and residual projections are now shallow views into one committed event.
 `PublicationReceipt` retains one shallow event `Arc`, so work can survive later
@@ -1165,8 +1235,10 @@ handoff, and bounded algebra-free exceptional-source lease owner are
 implemented. The compact exceptional path has authority-bound stable-key
 in-memory result staging and atomic worker-to-resident charge transfer.
 Applicable-provider admission/results, durable/general result publication,
-fresh narrowed-domain mathematical ingress, same-database rejected-candidate
-continuation, rule application, and closure remain future work.
+fresh narrowed-domain mathematical ingress, rule application, and closure
+remain future work. Same-database rejected-candidate continuation is now the
+implemented nonpublishing path described above; it is not part of exceptional
+result staging.
 
 ## 9. Atomic owner transition
 
@@ -1183,10 +1255,10 @@ Before any mutation, prepare and admit all of:
 - aggregate statistics and every new retained/peak capacity.
 
 Those database, target, event, and statistics preparations are implemented for
-the compact publication event. Shallow event/domain projections are also
-implemented. The algebra-free epoch owner adds compact retry scheduling without
-duplicating the deep payload; admitted provider results and fresh mathematical
-residual ingress remain to be added.
+the compact publication and rejected-candidate events. Shallow publication
+event/domain projections are also implemented. The algebra-free epoch owner
+adds compact retry scheduling without duplicating the deep payload; admitted
+provider results and fresh mathematical residual ingress remain to be added.
 
 Only after all preparations succeed may the move-only commit tail:
 
@@ -1548,8 +1620,9 @@ Implement in this order:
    subsector child, cycle/non-descent rejection, and a deterministic ready-job
    antichain; build on the algebra-free exceptional lease owner with RAM-
    admitted results and stable-key charge transfer, sealed mathematical source
-   ingress into fresh narrowed-domain generic IBP epochs, same-database
-   rejected-candidate continuation, and solved-subsector feedback; iterate
+   ingress into fresh narrowed-domain generic IBP epochs, and solved-subsector
+   feedback; integrate the implemented same-database rejected-candidate
+   continuation into the campaign frontier and iterate
    those queues to a proved coverage fixed point
    with exact regenerated-IBP residuals and a finite enumerated selected/
    certified terminal-key set; only then construct an immutable closed family/
