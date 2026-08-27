@@ -1,12 +1,6 @@
 pub(crate) mod args;
-mod backend;
-pub(crate) mod campaign;
-pub(crate) mod campaign_preflight;
 pub(crate) mod error;
-mod input;
 mod io;
-mod model;
-mod output;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -16,7 +10,7 @@ use crate::{
     campaign_preflight, derive as derive_application,
 };
 use args::{CampaignPlanArgs, CampaignPreflightArgs, Command, DeriveArgs, HELP, parse_args};
-use error::AppError;
+use error::CliError;
 use io::{read_input, write_output};
 
 pub(crate) fn main_entry() -> i32 {
@@ -29,7 +23,7 @@ pub(crate) fn main_entry() -> i32 {
                 "rustred: {}: {error}",
                 error.category()
             );
-            if matches!(error, AppError::Usage(_)) {
+            if matches!(error, CliError::Usage(_)) {
                 let _ = writeln!(
                     std::io::stderr().lock(),
                     "rustred: usage: run `rustred --help` for the command contract"
@@ -40,24 +34,7 @@ pub(crate) fn main_entry() -> i32 {
     }
 }
 
-pub(crate) fn derive_request(request: DeriveRequest) -> Result<crate::DeriveResult, AppError> {
-    let prepared = input::prepare_input(&request.source, request.input_format)?;
-    let lowered = backend::lower_project(prepared)?;
-    let output = output::build_output(
-        lowered,
-        request.input_format,
-        request.relations,
-        request.n_cores,
-    )?;
-    let serialized = output::serialize_output(&output)?;
-    Ok(crate::DeriveResult::new(
-        output::OUTPUT_SCHEMA,
-        "ok",
-        serialized,
-    ))
-}
-
-fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), AppError> {
+fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
     match parse_args(arguments)? {
         Command::Help => write_informational_output(HELP),
         Command::Version => {
@@ -69,7 +46,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), AppError> {
     }
 }
 
-fn derive_cli(arguments: DeriveArgs) -> Result<(), AppError> {
+fn derive_cli(arguments: DeriveArgs) -> Result<(), CliError> {
     // Every fallible stage completes before `write_output` sees one byte. In
     // particular, stdout is never left with a truncated TOML document.
     let source = read_input(&arguments.input)?;
@@ -86,7 +63,7 @@ fn derive_cli(arguments: DeriveArgs) -> Result<(), AppError> {
     )
 }
 
-fn plan_campaign(arguments: CampaignPlanArgs) -> Result<(), AppError> {
+fn plan_campaign(arguments: CampaignPlanArgs) -> Result<(), CliError> {
     let source = read_input(&arguments.input)?;
     let result = campaign_plan(CampaignPlanRequest {
         source,
@@ -100,7 +77,7 @@ fn plan_campaign(arguments: CampaignPlanArgs) -> Result<(), AppError> {
     )
 }
 
-fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), AppError> {
+fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), CliError> {
     let profile = read_input(&arguments.profile)?;
     let result = campaign_preflight(CampaignPreflightRequest {
         profile,
@@ -114,10 +91,10 @@ fn preflight_campaign(arguments: CampaignPreflightArgs) -> Result<(), AppError> 
     )
 }
 
-fn write_informational_output(contents: &str) -> Result<(), AppError> {
+fn write_informational_output(contents: &str) -> Result<(), CliError> {
     let mut stdout = std::io::stdout().lock();
     stdout
         .write_all(contents.as_bytes())
         .and_then(|()| stdout.flush())
-        .map_err(|error| AppError::OutputIo(format!("cannot write standard output: {error}")))
+        .map_err(|error| CliError::OutputIo(format!("cannot write standard output: {error}")))
 }

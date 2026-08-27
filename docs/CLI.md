@@ -230,24 +230,27 @@ Exit status categories are stable for v1:
 | 0 | success |
 | 2 | command usage |
 | 3 | input I/O |
-| 4 | input schema, grammar, or lowering |
+| 4 | input schema, grammar, lowering, or resource limit |
 | 5 | parametric derivation |
 | 6 | output serialization or size policy |
 | 7 | output I/O |
 | 8 | parallel-execution setup or Symbolica license policy |
+| 70 | internal application invariant |
 
 Both input and output have finite byte limits. The output is fully rendered
 and checked before any byte is written to stdout, so an error never leaves a
 partial machine-readable document.
 
-Before generation, the CLI also checks a topology-independent worst-case count
-of raw relation-term additions, capped at 2,000,000 attempts. Before rendering,
+Before generation, the shared application service checks a topology-independent
+worst-case count of raw relation-term additions, capped at 2,000,000 attempts.
+Before rendering,
 it charges the packed normalized/source Atoms with a conservative canonical
 render factor and censuses all exact family and generated-relation rational
 polynomials: sparse numerator/denominator terms, dense exponent payload,
 integer magnitudes, shifts, and guard provenance share the 256 MiB
-retained/render budget. These conservative limits are CLI policy; library users
-can select their own resource policy. `--relations ordinary` does not construct LI rows;
+retained/render budget. These conservative limits are shared application policy
+for both the CLI and future Python adapter; lower-level core-library users can
+select their own resource policy. `--relations ordinary` does not construct LI rows;
 `--relations li` constructs only the authenticated ordinary source rows needed
 internally by LiteRed's LI construction and emits only LI rows.
 

@@ -1,7 +1,20 @@
-use crate::cli;
-use crate::cli::error::AppError;
+mod campaign {
+    pub(super) mod plan;
+    pub(super) mod preflight;
+}
+mod derive;
+mod error;
+mod input;
+mod lowering;
+pub(crate) mod memory;
+mod model;
+mod options;
+mod producer;
 
-pub use crate::cli::args::{InputFormat, RelationSelection};
+pub use error::{AppError, AppErrorKind};
+pub use options::{
+    InputFormat, ParseInputFormatError, ParseRelationSelectionError, RelationSelection,
+};
 
 /// Maximum UTF-8 source payload accepted by every in-process application API.
 pub const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -107,41 +120,57 @@ canonical_result!(DeriveResult);
 canonical_result!(CampaignPlanResult);
 canonical_result!(CampaignPreflightResult);
 
+/// Derive canonical, fully parametric IBP/LI relations for one owned request.
+///
+/// # Panics
+///
+/// Expected failures are returned as [`AppError`]. RustRed/Symbolica invariant
+/// panics are deliberately not caught here. If an outer FFI or coordinator
+/// boundary catches an unwind, it must treat the shared runtime as poisoned
+/// and reject subsequent work rather than reuse potentially mutated state.
 pub fn derive(request: DeriveRequest) -> Result<DeriveResult, AppError> {
     validate_ingress("derive input", &request.source)?;
     if request.n_cores == 0 {
-        return Err(AppError::Input(
-            "derive n_cores must be a positive integer".to_owned(),
-        ));
+        return Err(AppError::input("derive n_cores must be a positive integer"));
     }
-    cli::derive_request(request)
+    derive::derive_request(request)
 }
 
+/// Authenticate and deduplicate the declared roots of one campaign.
+///
+/// # Panics
+///
+/// This function follows the panic contract documented on [`derive`].
 pub fn campaign_plan(request: CampaignPlanRequest) -> Result<CampaignPlanResult, AppError> {
     validate_ingress("campaign input", &request.source)?;
-    cli::campaign::plan_request(request)
+    campaign::plan::plan_request(request)
 }
 
+/// Compute the RAM-aware execution-width preflight without starting workers.
+///
+/// # Panics
+///
+/// This function follows the panic contract documented on [`derive`].
 pub fn campaign_preflight(
     request: CampaignPreflightRequest,
 ) -> Result<CampaignPreflightResult, AppError> {
     validate_ingress("campaign execution resource profile", &request.profile)?;
     if request.n_cores == 0 {
-        return Err(AppError::Input(
-            "campaign preflight n_cores must be a positive integer".to_owned(),
+        return Err(AppError::input(
+            "campaign preflight n_cores must be a positive integer",
         ));
     }
     if request.max_memory_bytes == 0 {
-        return Err(AppError::Input(
-            "campaign preflight max_memory_bytes must be positive".to_owned(),
+        return Err(AppError::input(
+            "campaign preflight max_memory_bytes must be positive",
         ));
     }
-    cli::campaign_preflight::preflight_request(request)
+    campaign::preflight::preflight_request(request)
 }
 
 fn validate_ingress(label: &str, source: &str) -> Result<(), AppError> {
     if source.len() > MAX_INPUT_BYTES {
-        return Err(AppError::Input(format!(
+        return Err(AppError::limit(format!(
             "{label} has {} bytes, exceeding the {MAX_INPUT_BYTES}-byte application limit",
             source.len()
         )));

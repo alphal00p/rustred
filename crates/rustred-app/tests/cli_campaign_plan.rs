@@ -290,7 +290,7 @@ fn raw_and_toml_root_identifier_contracts_are_strict() {
     assert_input_error(
         &["campaign", "plan", "--input-format", "symbolica"],
         ONE_LOOP,
-        "requires --root-id",
+        "requires root_id",
     );
     let input = format!("schema = \"rustred.campaign-input.toml.v1\"\n{COMPACT_ROOT}");
     assert_input_error(

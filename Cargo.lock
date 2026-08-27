@@ -540,7 +540,6 @@ version = "0.1.0"
 dependencies = [
  "rustred",
  "serde",
- "symbolica",
  "toml",
 ]
 

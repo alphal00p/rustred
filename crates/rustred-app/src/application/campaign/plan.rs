@@ -3,24 +3,23 @@ use std::sync::Arc;
 
 use rustred::{
     CampaignFamilyId, CampaignJobKey, CampaignPlan, CampaignPlanLimits, CampaignRootId,
-    CampaignRootSpec, IntegralOrderingPolicy, SectorMask,
+    CampaignRootSpec, IntegralOrderingPolicy, SectorMask, symbolica_atom_packed_byte_size,
 };
 use serde::{Deserialize, Serialize};
-use symbolica::LicenseManager;
 
-use crate::cli::args::InputFormat;
-use crate::cli::backend::lower_project;
-use crate::cli::error::AppError;
-use crate::cli::input::{
-    PreparedCliProject, ProjectDocumentV1, looks_like_symbolica, prepare_project_document,
+use super::super::error::AppError;
+use super::super::input::{
+    PreparedProject, ProjectDocumentV1, looks_like_symbolica, prepare_project_document,
     prepare_symbolica_root,
 };
-use crate::cli::model::MetadataValue;
-use crate::{CampaignPlanRequest, CampaignPlanResult, MAX_OUTPUT_BYTES};
+use super::super::lowering::lower_project;
+use super::super::model::MetadataValue;
+use super::super::options::InputFormat;
+use super::super::producer::ProducerOutputV1;
+use super::super::{CampaignPlanRequest, CampaignPlanResult, MAX_OUTPUT_BYTES};
 
 const CAMPAIGN_INPUT_SCHEMA: &str = "rustred.campaign-input.toml.v1";
 pub(crate) const CAMPAIGN_OUTPUT_SCHEMA: &str = "rustred.campaign-plan-output.toml.v1";
-const EXPRESSION_FORMAT: &str = "rustred.symbolica-canonical-string.v1";
 const MAX_CAMPAIGN_INPUT_ROOTS: usize = 100_000;
 const ROOT_RENDER_OVERHEAD: usize = 4_096;
 const FAMILY_RENDER_OVERHEAD: usize = 2_048;
@@ -48,7 +47,7 @@ struct CampaignRootDocumentV1 {
 
 struct PreparedCampaignRoot {
     id: String,
-    project: PreparedCliProject,
+    project: PreparedProject,
 }
 
 struct RootDraft {
@@ -64,20 +63,12 @@ struct CampaignPlanOutputV1 {
     status: &'static str,
     scope: &'static str,
     ordering: &'static str,
-    producer: CampaignProducerOutputV1,
+    producer: ProducerOutputV1,
     phases: CampaignPhaseStatusOutputV1,
     counts: CampaignCountsOutputV1,
     roots: Vec<CampaignRootOutputV1>,
     families: Vec<CampaignFamilyOutputV1>,
     declared_power_jobs: Vec<CampaignDeclaredPowerJobOutputV1>,
-}
-
-#[derive(Debug, Serialize)]
-struct CampaignProducerOutputV1 {
-    name: &'static str,
-    rustred_version: &'static str,
-    symbolica_version: &'static str,
-    expression_format: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -152,10 +143,10 @@ fn prepare_campaign_roots(
     match detected {
         InputFormat::Symbolica => {
             let id = raw_root_id.ok_or_else(|| {
-                AppError::Input("raw Symbolica campaign input requires --root-id <ID>".to_owned())
+                AppError::input("raw Symbolica campaign input requires root_id".to_owned())
             })?;
             CampaignRootId::try_new(&id).map_err(|error| {
-                AppError::Input(format!("invalid raw campaign root identifier: {error}"))
+                AppError::input(format!("invalid raw campaign root identifier: {error}"))
             })?;
             Ok(vec![PreparedCampaignRoot {
                 id,
@@ -164,8 +155,8 @@ fn prepare_campaign_roots(
         }
         InputFormat::Toml => {
             if raw_root_id.is_some() {
-                return Err(AppError::Input(
-                    "--root-id is only valid for one raw Symbolica campaign input; TOML roots carry their own ids"
+                return Err(AppError::input(
+                    "root_id is only valid for one raw Symbolica campaign input; TOML roots carry their own ids"
                         .to_owned(),
                 ));
             }
@@ -177,20 +168,20 @@ fn prepare_campaign_roots(
 
 fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, AppError> {
     let document: CampaignDocumentV1 = toml::from_str(source)
-        .map_err(|error| AppError::Input(format!("invalid RustRed campaign TOML: {error}")))?;
+        .map_err(|error| AppError::input(format!("invalid RustRed campaign TOML: {error}")))?;
     if document.schema != CAMPAIGN_INPUT_SCHEMA {
-        return Err(AppError::Input(format!(
+        return Err(AppError::schema(format!(
             "unsupported campaign schema {:?}; expected {:?}",
             document.schema, CAMPAIGN_INPUT_SCHEMA
         )));
     }
     if document.roots.is_empty() {
-        return Err(AppError::Input(
+        return Err(AppError::input(
             "campaign TOML needs at least one [[roots]] entry".to_owned(),
         ));
     }
     if document.roots.len() > MAX_CAMPAIGN_INPUT_ROOTS {
-        return Err(AppError::Input(format!(
+        return Err(AppError::limit(format!(
             "campaign TOML has {} roots, exceeding the limit {MAX_CAMPAIGN_INPUT_ROOTS}",
             document.roots.len()
         )));
@@ -201,13 +192,13 @@ fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, 
     let mut seen = BTreeSet::new();
     for root in &document.roots {
         CampaignRootId::try_new(&root.id).map_err(|error| {
-            AppError::Input(format!(
+            AppError::input(format!(
                 "invalid campaign root identifier {:?}: {error}",
                 root.id
             ))
         })?;
         if !seen.insert(root.id.as_str()) {
-            return Err(AppError::Input(format!(
+            return Err(AppError::input(format!(
                 "campaign root identifier {:?} occurs more than once",
                 root.id
             )));
@@ -217,7 +208,7 @@ fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, 
     let mut prepared = Vec::new();
     prepared
         .try_reserve_exact(document.roots.len())
-        .map_err(|_| AppError::Input("cannot reserve bounded campaign root records".to_owned()))?;
+        .map_err(|_| AppError::limit("cannot reserve bounded campaign root records".to_owned()))?;
     for root in document.roots {
         let CampaignRootDocumentV1 {
             id,
@@ -234,16 +225,16 @@ fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, 
                 "campaign_symbolica",
             ),
             (None, Some(_)) if parameters.is_some() || !metadata.is_empty() => {
-                Err(AppError::Input(
+                Err(AppError::input(
                     "a nested project must keep parameters and metadata inside that rustred.project.toml.v1 payload"
                         .to_owned(),
                 ))
             }
             (None, Some(project)) => prepare_project_document(project),
-            (Some(_), Some(_)) => Err(AppError::Input(
+            (Some(_), Some(_)) => Err(AppError::input(
                 "must choose exactly one of integral and project".to_owned(),
             )),
-            (None, None) => Err(AppError::Input(
+            (None, None) => Err(AppError::input(
                 "needs either an integral Symbolica expression or a nested project".to_owned(),
             )),
         }
@@ -254,12 +245,9 @@ fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, 
 }
 
 fn prefix_root_error(id: &str, error: AppError) -> AppError {
-    match error {
-        AppError::Input(message) => {
-            AppError::Input(format!("campaign root {id:?} is invalid: {message}"))
-        }
-        other => other,
-    }
+    let kind = error.kind();
+    let message = error.into_message();
+    AppError::new(kind, format!("campaign root {id:?} is invalid: {message}"))
 }
 
 fn compile_roots_only_output(
@@ -270,7 +258,7 @@ fn compile_roots_only_output(
     let mut specs = Vec::new();
     specs
         .try_reserve_exact(root_count)
-        .map_err(|_| AppError::Input("cannot reserve campaign root specifications".to_owned()))?;
+        .map_err(|_| AppError::input("cannot reserve campaign root specifications".to_owned()))?;
     let mut drafts = BTreeMap::new();
     for root in roots {
         let lowered =
@@ -279,7 +267,7 @@ fn compile_roots_only_output(
         let normalized = lowered.normalized();
         bound.add(try_mul(
             "campaign canonical-expression render bound",
-            normalized.canonical_atom().as_view().get_byte_size(),
+            symbolica_atom_packed_byte_size(normalized.canonical_atom()),
             ATOM_RENDER_FACTOR,
         )?)?;
         bound.add(ROOT_RENDER_OVERHEAD)?;
@@ -290,7 +278,7 @@ fn compile_roots_only_output(
         bound.add_string(&canonical_integral)?;
         let sector =
             SectorMask::try_from_indices(normalized.target().powers()).map_err(|error| {
-                AppError::Input(format!(
+                AppError::input(format!(
                     "campaign root {:?} has an invalid target sector: {error}",
                     root.id
                 ))
@@ -298,7 +286,7 @@ fn compile_roots_only_output(
         let family = Arc::new(lowered.into_family());
         specs.push(
             CampaignRootSpec::try_new(&root.id, family, sector).map_err(|error| {
-                AppError::Input(format!(
+                AppError::input(format!(
                     "cannot authenticate campaign root {:?}: {error}",
                     root.id
                 ))
@@ -321,11 +309,12 @@ fn compile_roots_only_output(
 
     let ordering = IntegralOrderingPolicy::RustRedUnshiftedV1;
     let plan = CampaignPlan::compile(specs, ordering, CampaignPlanLimits::default())
-        .map_err(|error| AppError::Input(format!("cannot compile roots-only campaign: {error}")))?;
-    plan.verify()
-        .map_err(|error| AppError::Input(format!("roots-only campaign replay failed: {error}")))?;
+        .map_err(|error| AppError::input(format!("cannot compile roots-only campaign: {error}")))?;
+    plan.verify().map_err(|error| {
+        AppError::internal_invariant(format!("roots-only campaign replay failed: {error}"))
+    })?;
     if plan.stats().dependency_edges() != 0 {
-        return Err(AppError::Serialization(
+        return Err(AppError::internal_invariant(
             "roots-only campaign unexpectedly contains dependency edges".to_owned(),
         ));
     }
@@ -347,19 +336,21 @@ fn compile_roots_only_output(
     let mut root_outputs = Vec::new();
     root_outputs
         .try_reserve_exact(plan.roots().len())
-        .map_err(|_| AppError::Serialization("cannot reserve campaign root output".to_owned()))?;
+        .map_err(|_| AppError::output_limit("cannot reserve campaign root output".to_owned()))?;
     for (ordinal, (id, record)) in plan.roots().iter().enumerate() {
         let draft = drafts.remove(id.as_str()).ok_or_else(|| {
-            AppError::Serialization(format!(
+            AppError::internal_invariant(format!(
                 "compiled campaign root {id} has no retained ingress record"
             ))
         })?;
         let family = *family_ordinals
             .get(record.job().family_id())
-            .ok_or_else(|| AppError::Serialization("root family ordinal is missing".to_owned()))?;
-        let declared_power_job = *job_ordinals
-            .get(record.job())
-            .ok_or_else(|| AppError::Serialization("root job ordinal is missing".to_owned()))?;
+            .ok_or_else(|| {
+                AppError::internal_invariant("root family ordinal is missing".to_owned())
+            })?;
+        let declared_power_job = *job_ordinals.get(record.job()).ok_or_else(|| {
+            AppError::internal_invariant("root job ordinal is missing".to_owned())
+        })?;
         root_outputs.push(CampaignRootOutputV1 {
             ordinal,
             id: id.as_str().to_owned(),
@@ -373,7 +364,7 @@ fn compile_roots_only_output(
         });
     }
     if !drafts.is_empty() {
-        return Err(AppError::Serialization(
+        return Err(AppError::internal_invariant(
             "retained ingress roots were not represented in the compiled campaign".to_owned(),
         ));
     }
@@ -381,7 +372,7 @@ fn compile_roots_only_output(
     let mut families = Vec::new();
     families
         .try_reserve_exact(plan.families().len())
-        .map_err(|_| AppError::Serialization("cannot reserve campaign family output".to_owned()))?;
+        .map_err(|_| AppError::output_limit("cannot reserve campaign family output".to_owned()))?;
     for (ordinal, (id, record)) in plan.families().iter().enumerate() {
         bound.add(FAMILY_RENDER_OVERHEAD)?;
         bound.add_string(id.as_str())?;
@@ -399,12 +390,12 @@ fn compile_roots_only_output(
     let mut declared_power_jobs = Vec::new();
     declared_power_jobs
         .try_reserve_exact(plan.jobs().len())
-        .map_err(|_| AppError::Serialization("cannot reserve campaign job output".to_owned()))?;
+        .map_err(|_| AppError::output_limit("cannot reserve campaign job output".to_owned()))?;
     for (ordinal, key) in plan.jobs().keys().enumerate() {
         bound.add(JOB_RENDER_OVERHEAD)?;
-        let family = *family_ordinals
-            .get(key.family_id())
-            .ok_or_else(|| AppError::Serialization("job family ordinal is missing".to_owned()))?;
+        let family = *family_ordinals.get(key.family_id()).ok_or_else(|| {
+            AppError::internal_invariant("job family ordinal is missing".to_owned())
+        })?;
         declared_power_jobs.push(CampaignDeclaredPowerJobOutputV1 {
             ordinal,
             family,
@@ -419,12 +410,7 @@ fn compile_roots_only_output(
         status: "ok",
         scope: "roots_only",
         ordering: ordering.stable_id(),
-        producer: CampaignProducerOutputV1 {
-            name: "RustRed",
-            rustred_version: env!("CARGO_PKG_VERSION"),
-            symbolica_version: LicenseManager::get_version(),
-            expression_format: EXPRESSION_FORMAT,
-        },
+        producer: ProducerOutputV1::current(),
         phases: CampaignPhaseStatusOutputV1 {
             root_ingress: "complete",
             target_normalization: "not_started",
@@ -446,7 +432,7 @@ fn compile_roots_only_output(
 
 fn serialize_campaign_output(output: &CampaignPlanOutputV1) -> Result<String, AppError> {
     let mut serialized = toml::to_string_pretty(output).map_err(|error| {
-        AppError::Serialization(format!(
+        AppError::serialization(format!(
             "cannot serialize deterministic campaign TOML output: {error}"
         ))
     })?;
@@ -454,8 +440,8 @@ fn serialize_campaign_output(output: &CampaignPlanOutputV1) -> Result<String, Ap
         serialized.push('\n');
     }
     if serialized.len() > MAX_OUTPUT_BYTES {
-        return Err(AppError::Serialization(format!(
-            "campaign TOML output needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit",
+        return Err(AppError::output_limit(format!(
+            "campaign TOML output needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte application limit",
             serialized.len()
         )));
     }
@@ -474,11 +460,11 @@ impl RenderBound {
 
     fn add(&mut self, bytes: usize) -> Result<(), AppError> {
         self.bytes = self.bytes.checked_add(bytes).ok_or_else(|| {
-            AppError::Serialization("campaign TOML render bound overflowed".to_owned())
+            AppError::output_limit("campaign TOML render bound overflowed".to_owned())
         })?;
         if self.bytes > MAX_OUTPUT_BYTES {
-            return Err(AppError::Serialization(format!(
-                "campaign TOML has a conservative {}-byte render bound, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit",
+            return Err(AppError::output_limit(format!(
+                "campaign TOML has a conservative {}-byte render bound, exceeding the {MAX_OUTPUT_BYTES}-byte application limit",
                 self.bytes
             )));
         }
@@ -492,7 +478,7 @@ impl RenderBound {
             STRING_ESCAPE_FACTOR,
         )?;
         self.add(escaped.checked_add(64).ok_or_else(|| {
-            AppError::Serialization("campaign TOML string bound overflowed".to_owned())
+            AppError::output_limit("campaign TOML string bound overflowed".to_owned())
         })?)
     }
 
@@ -515,8 +501,8 @@ impl RenderBound {
         if self.bytes <= MAX_OUTPUT_BYTES {
             Ok(())
         } else {
-            Err(AppError::Serialization(format!(
-                "campaign TOML render bound {} exceeds the {MAX_OUTPUT_BYTES}-byte CLI limit",
+            Err(AppError::output_limit(format!(
+                "campaign TOML render bound {} exceeds the {MAX_OUTPUT_BYTES}-byte application limit",
                 self.bytes
             )))
         }
@@ -525,5 +511,5 @@ impl RenderBound {
 
 fn try_mul(resource: &'static str, left: usize, right: usize) -> Result<usize, AppError> {
     left.checked_mul(right)
-        .ok_or_else(|| AppError::Serialization(format!("{resource} overflowed")))
+        .ok_or_else(|| AppError::output_limit(format!("{resource} overflowed")))
 }

@@ -218,6 +218,7 @@ pub mod symbolic_sector_cases;
 pub mod symbolic_symmetry_transport;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
+pub mod symbolica_runtime;
 pub mod symbolica_target_numerator;
 pub mod symbolica_tensor_numerator;
 pub mod symmetry;
@@ -1106,6 +1107,10 @@ pub use symbolica_integral_input::{
     SymbolicaIntegralInputError, SymbolicaIntegralInputLimits, SymbolicaIntegralInputStats,
     SymbolicaProjectLoweringError, SymbolicaProjectLoweringLimits, TextExternalGramInputV1,
     TextProjectPartsV1, TextPropagatorInputV1,
+};
+pub use symbolica_runtime::{
+    canonical_symbolica_atom, symbolica_atom_packed_byte_size, symbolica_integer_significant_bits,
+    symbolica_integer_structural_byte_size, symbolica_runtime_version,
 };
 pub use symbolica_target_numerator::{
     CompiledSymbolicaTargetV1, SYMBOLICA_COMPILED_TARGET_V1_SCHEMA,

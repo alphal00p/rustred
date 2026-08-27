@@ -2,17 +2,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rustred::{
     CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily, ParallelExecution,
-    ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation, ParametricRowId,
-    ScalarProductCoordinate,
+    ParallelExecutionError, ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation,
+    ParametricRowId, ScalarProductCoordinate, canonical_symbolica_atom,
+    symbolica_atom_packed_byte_size, symbolica_integer_significant_bits,
+    symbolica_integer_structural_byte_size,
 };
 use serde::Serialize;
-use symbolica::LicenseManager;
-use symbolica::prelude::*;
 
-use crate::MAX_OUTPUT_BYTES;
-use crate::cli::args::{InputFormat, RelationSelection};
-use crate::cli::error::AppError;
-use crate::cli::model::{LoweredCliProject, MetadataValue};
+use super::error::AppError;
+use super::model::{LoweredProject, MetadataValue};
+use super::options::{InputFormat, RelationSelection};
+use super::producer::ProducerOutputV1;
+use super::{DeriveRequest, DeriveResult, MAX_OUTPUT_BYTES};
 
 pub(crate) const OUTPUT_SCHEMA: &str = "rustred.derive-output.toml.v1";
 const MAX_DERIVATION_TERM_ATTEMPTS: usize = 2_000_000;
@@ -20,7 +21,6 @@ const PAYLOAD_NODE_BYTES: usize = 4_096;
 const ATOM_RENDER_FACTOR: usize = 320;
 const EXPONENT_RENDER_BYTES: usize = 320;
 const INTEGER_STRUCTURAL_BYTES: usize = 64;
-const EXPRESSION_FORMAT: &str = "rustred.symbolica-canonical-string.v1";
 const EQUATION_CONVENTION: &str =
     "sum(term.coefficient * I(n + term.shift) for term in relation.terms) = 0";
 
@@ -43,12 +43,17 @@ pub(crate) struct DeriveOutputV1 {
     relations: Vec<RelationOutputV1>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-struct ProducerOutputV1 {
-    name: &'static str,
-    rustred_version: &'static str,
-    symbolica_version: &'static str,
-    expression_format: &'static str,
+pub(super) fn derive_request(request: DeriveRequest) -> Result<DeriveResult, AppError> {
+    let prepared = super::input::prepare_input(&request.source, request.input_format)?;
+    let lowered = super::lowering::lower_project(prepared)?;
+    let output = build_output(
+        lowered,
+        request.input_format,
+        request.relations,
+        request.n_cores,
+    )?;
+    let serialized = serialize_output(&output)?;
+    Ok(DeriveResult::new(OUTPUT_SCHEMA, "ok", serialized))
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -166,7 +171,7 @@ struct RelationTermOutputV1 {
 }
 
 pub(crate) fn build_output(
-    project: LoweredCliProject,
+    project: LoweredProject,
     requested_input_format: InputFormat,
     selection: RelationSelection,
     n_cores: usize,
@@ -175,7 +180,7 @@ pub(crate) fn build_output(
     let normalized = lowered.normalized();
     let family = lowered.family();
     if lowered.denominators().len() != family.denominator_count() {
-        return Err(AppError::Derivation(format!(
+        return Err(AppError::derivation(format!(
             "lowering returned {} denominator records for a {}-denominator family",
             lowered.denominators().len(),
             family.denominator_count()
@@ -185,19 +190,23 @@ pub(crate) fn build_output(
     let payload_census = preflight_family_payload(normalized, family, lowered.denominators())?;
     preflight_derivation_structure(family, selection)?;
     let generator = ParametricIbpGenerator::try_new(&family).map_err(|error| {
-        AppError::Derivation(format!("cannot initialize IBP generation: {error}"))
+        AppError::derivation(format!("cannot initialize IBP generation: {error}"))
     })?;
     // The family, complete Symbolica variable map, and every structural
     // preflight are fixed on the coordinator before any worker is created.
     // One execution object is then reused by generation and rendering.
-    let execution = ParallelExecution::try_new(n_cores)
-        .map_err(|error| AppError::Execution(error.to_string()))?;
+    let execution = ParallelExecution::try_new(n_cores).map_err(|error| match error {
+        error @ ParallelExecutionError::MulticoreRequiresSymbolicaLicense { .. } => {
+            AppError::license(error.to_string())
+        }
+        error => AppError::execution(error.to_string()),
+    })?;
     let (ordinary, li) = match selection {
         RelationSelection::All => {
             let generated = generator
                 .generate_with_execution(&execution)
                 .map_err(|error| {
-                    AppError::Derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
+                    AppError::derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
                 })?;
             let (_, ordinary, li) = generated.into_parts();
             (ordinary, li)
@@ -206,7 +215,7 @@ pub(crate) fn build_output(
             generator
                 .generate_ordinary_ibp_with_execution(&execution)
                 .map_err(|error| {
-                    AppError::Derivation(format!("cannot generate parametric IBP rows: {error}"))
+                    AppError::derivation(format!("cannot generate parametric IBP rows: {error}"))
                 })?,
             Vec::new(),
         ),
@@ -215,7 +224,7 @@ pub(crate) fn build_output(
             generator
                 .generate_lorentz_invariance_with_execution(&execution)
                 .map_err(|error| {
-                    AppError::Derivation(format!("cannot generate parametric LI rows: {error}"))
+                    AppError::derivation(format!("cannot generate parametric LI rows: {error}"))
                 })?,
         ),
     };
@@ -248,7 +257,7 @@ pub(crate) fn build_output(
         fingerprint: family.fingerprint(),
         parametric_context_fingerprint: generator.context().fingerprint().to_owned(),
         parameters: normalized.operational_parameter_names().to_vec(),
-        dimension: canonical_expression(family.dimension().to_expression()),
+        dimension: canonical_symbolica_atom(&family.dimension().to_expression()),
         loop_momenta: family.loop_momenta().to_vec(),
         external_momenta: family.external_momenta().to_vec(),
         denominator_count: family.denominator_count(),
@@ -262,12 +271,7 @@ pub(crate) fn build_output(
         equation_convention: EQUATION_CONVENTION,
         relation_selection: selection.as_str(),
         target_disposition: "not_processed_by_derive",
-        producer: ProducerOutputV1 {
-            name: "RustRed",
-            rustred_version: env!("CARGO_PKG_VERSION"),
-            symbolica_version: LicenseManager::get_version(),
-            expression_format: EXPRESSION_FORMAT,
-        },
+        producer: ProducerOutputV1::current(),
         provenance: ProvenanceOutputV1 {
             requested_input_format: requested_input_format.as_str(),
             detected_input_form: input_form,
@@ -299,7 +303,7 @@ pub(crate) fn build_output(
 pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, AppError> {
     preflight_output_bound(output)?;
     let mut serialized = toml::to_string_pretty(output).map_err(|error| {
-        AppError::Serialization(format!(
+        AppError::serialization(format!(
             "cannot serialize deterministic TOML output: {error}"
         ))
     })?;
@@ -307,8 +311,8 @@ pub(crate) fn serialize_output(output: &DeriveOutputV1) -> Result<String, AppErr
         serialized.push('\n');
     }
     if serialized.len() > MAX_OUTPUT_BYTES {
-        return Err(AppError::Serialization(format!(
-            "TOML output needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit",
+        return Err(AppError::output_limit(format!(
+            "TOML output needs {} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte application limit",
             serialized.len()
         )));
     }
@@ -371,8 +375,8 @@ fn preflight_derivation_structure(
             .ok_or_else(derivation_bound_overflow)?,
     };
     if requested_attempts > MAX_DERIVATION_TERM_ATTEMPTS {
-        return Err(AppError::Derivation(format!(
-            "the selected generic derivation has a conservative {requested_attempts}-term-attempt bound (L={loops}, E={externals}, N={denominators}), exceeding the CLI limit {MAX_DERIVATION_TERM_ATTEMPTS}"
+        return Err(AppError::limit(format!(
+            "the selected generic derivation has a conservative {requested_attempts}-term-attempt bound (L={loops}, E={externals}, N={denominators}), exceeding the application limit {MAX_DERIVATION_TERM_ATTEMPTS}"
         )));
     }
 
@@ -387,8 +391,8 @@ fn preflight_derivation_structure(
         .checked_mul(4_096)
         .ok_or_else(derivation_bound_overflow)?;
     if minimum_render_bound > MAX_OUTPUT_BYTES {
-        return Err(AppError::Derivation(format!(
-            "the selected derivation has {selected_rows} rows whose minimum conservative render bound is {minimum_render_bound} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte CLI output limit"
+        return Err(AppError::output_limit(format!(
+            "the selected derivation has {selected_rows} rows whose minimum conservative render bound is {minimum_render_bound} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte application output limit"
         )));
     }
     Ok(())
@@ -417,11 +421,23 @@ fn preflight_family_payload(
 ) -> Result<GeneratedPayloadCensus, AppError> {
     let mut census = GeneratedPayloadCensus::default();
     add_generated_payload_bound(&mut census, PAYLOAD_NODE_BYTES)?;
-    census_atom_payload(normalized.canonical_atom(), &mut census)?;
-    census_atom_payload(normalized.target().numerator(), &mut census)?;
+    census_atom_payload(
+        symbolica_atom_packed_byte_size(normalized.canonical_atom()),
+        &mut census,
+    )?;
+    census_atom_payload(
+        symbolica_atom_packed_byte_size(normalized.target().numerator()),
+        &mut census,
+    )?;
     for record in records {
-        census_atom_payload(record.source(), &mut census)?;
-        census_atom_payload(record.normalized_expression(), &mut census)?;
+        census_atom_payload(
+            symbolica_atom_packed_byte_size(record.source()),
+            &mut census,
+        )?;
+        census_atom_payload(
+            symbolica_atom_packed_byte_size(record.normalized_expression()),
+            &mut census,
+        )?;
     }
 
     census_coefficient(family.dimension(), &mut census)?;
@@ -463,10 +479,11 @@ fn preflight_family_payload(
     Ok(census)
 }
 
-fn census_atom_payload(atom: &Atom, census: &mut GeneratedPayloadCensus) -> Result<(), AppError> {
-    let render_bound = atom
-        .as_view()
-        .get_byte_size()
+fn census_atom_payload(
+    packed_byte_size: usize,
+    census: &mut GeneratedPayloadCensus,
+) -> Result<(), AppError> {
+    let render_bound = packed_byte_size
         .checked_mul(ATOM_RENDER_FACTOR)
         .and_then(|value| value.checked_add(PAYLOAD_NODE_BYTES))
         .ok_or_else(derivation_bound_overflow)?;
@@ -577,7 +594,7 @@ fn census_polynomial(
         .coefficients
         .len()
         .checked_mul(
-            std::mem::size_of::<Integer>()
+            symbolica_integer_structural_byte_size()
                 .checked_add(integer_structural_bytes)
                 .ok_or_else(derivation_bound_overflow)?,
         )
@@ -590,7 +607,8 @@ fn census_polynomial(
             .ok_or_else(derivation_bound_overflow)?,
     )?;
     for coefficient in &polynomial.coefficients {
-        let bits = integer_significant_bits(coefficient)?;
+        let bits = symbolica_integer_significant_bits(coefficient)
+            .ok_or_else(derivation_bound_overflow)?;
         census.integer_bits = checked_census_add(census.integer_bits, bits)?;
         // Retained magnitude needs ceil(bits/8); decimal rendering including a
         // sign is always shorter than bits+2 bytes for nonzero integers.
@@ -612,18 +630,6 @@ fn census_polynomial(
     Ok(())
 }
 
-fn integer_significant_bits(value: &Integer) -> Result<usize, AppError> {
-    let bits = match value {
-        Integer::Single(value) => u64::BITS - value.unsigned_abs().leading_zeros(),
-        Integer::Double(value) => u128::BITS - value.unsigned_abs().leading_zeros(),
-        Integer::Large(value) => {
-            return usize::try_from(value.significant_bits())
-                .map_err(|_| derivation_bound_overflow());
-        }
-    };
-    usize::try_from(bits).map_err(|_| derivation_bound_overflow())
-}
-
 fn checked_census_add(left: usize, right: usize) -> Result<usize, AppError> {
     left.checked_add(right)
         .ok_or_else(derivation_bound_overflow)
@@ -638,8 +644,8 @@ fn add_generated_payload_bound(
         .checked_add(additional)
         .ok_or_else(derivation_bound_overflow)?;
     if census.retained_render_bound > MAX_OUTPUT_BYTES {
-        return Err(AppError::Derivation(format!(
-            "CLI algebraic output payload has a conservative {}-byte retained/render bound after {} relations, {} terms, {} polynomial terms, {} exponent entries, {} integer bits, {} guard conditions, and {} guard origins; the CLI limit is {MAX_OUTPUT_BYTES} bytes",
+        return Err(AppError::output_limit(format!(
+            "application algebraic output payload has a conservative {}-byte retained/render bound after {} relations, {} terms, {} polynomial terms, {} exponent entries, {} integer bits, {} guard conditions, and {} guard origins; the application limit is {MAX_OUTPUT_BYTES} bytes",
             census.retained_render_bound,
             census.relations,
             census.relation_terms,
@@ -654,7 +660,7 @@ fn add_generated_payload_bound(
 }
 
 fn derivation_bound_overflow() -> AppError {
-    AppError::Derivation("CLI derivation resource accounting overflowed usize".to_owned())
+    AppError::limit("application derivation resource accounting overflowed usize".to_owned())
 }
 
 fn target_output(normalized: &rustred::NormalizedProjectInputV1) -> TargetOutputV1 {
@@ -663,7 +669,7 @@ fn target_output(normalized: &rustred::NormalizedProjectInputV1) -> TargetOutput
         present: true,
         disposition: target.derive_disposition(),
         powers: Some(target.powers().to_vec()),
-        numerator: Some(canonical_expression(target.numerator().clone())),
+        numerator: Some(canonical_symbolica_atom(target.numerator())),
     }
 }
 
@@ -714,17 +720,17 @@ fn denominator_outputs(
             |(ordinal, ((record, denominator), power_shift))| DenominatorOutputV1 {
                 ordinal,
                 id: record.id().to_owned(),
-                source_expression: record.source().to_canonical_string(),
-                normalized_expression: record.normalized_expression().to_canonical_string(),
-                power_shift: canonical_expression(power_shift.to_expression()),
-                constant: canonical_expression(denominator.constant().to_expression()),
+                source_expression: canonical_symbolica_atom(record.source()),
+                normalized_expression: canonical_symbolica_atom(record.normalized_expression()),
+                power_shift: canonical_symbolica_atom(&power_shift.to_expression()),
+                constant: canonical_symbolica_atom(&denominator.constant().to_expression()),
                 coefficients: denominator
                     .coefficients()
                     .iter()
                     .enumerate()
                     .map(|(coordinate, coefficient)| AffineCoefficientOutputV1 {
                         coordinate,
-                        value: canonical_expression(coefficient.to_expression()),
+                        value: canonical_symbolica_atom(&coefficient.to_expression()),
                     })
                     .collect(),
             },
@@ -741,7 +747,7 @@ fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGramOutputV1> {
                 column,
                 left: family.external_momenta()[row].clone(),
                 right: family.external_momenta()[column].clone(),
-                value: canonical_expression(value.to_expression()),
+                value: canonical_symbolica_atom(&value.to_expression()),
             });
         }
     }
@@ -751,7 +757,7 @@ fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGramOutputV1> {
 fn family_domain_outputs(family: &IntegralFamily) -> Vec<ConditionOutputV1> {
     let mut merged: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
     for condition in family.domain().conditions() {
-        let expression = canonical_expression(condition.polynomial().to_expression());
+        let expression = canonical_symbolica_atom(&condition.polynomial().to_expression());
         let entry = merged.entry(expression).or_default();
         entry.0.insert(coefficient_location(&condition.source()));
         entry
@@ -782,7 +788,7 @@ fn relation_output(ordinal: usize, relation: &ParametricRelation) -> RelationOut
             .iter()
             .map(|(shift, coefficient)| RelationTermOutputV1 {
                 shift: shift.values().to_vec(),
-                coefficient: canonical_expression(coefficient.to_expression()),
+                coefficient: canonical_symbolica_atom(&coefficient.to_expression()),
             })
             .collect(),
         nonzero_conditions: relation_conditions(relation.guarded_nonzero_conditions()),
@@ -828,7 +834,9 @@ fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<Conditi
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in conditions {
         merged
-            .entry(canonical_expression(condition.polynomial().to_expression()))
+            .entry(canonical_symbolica_atom(
+                &condition.polynomial().to_expression(),
+            ))
             .or_default()
             .extend(condition.origins().iter().map(GuardOrigin::stable_string));
     }
@@ -840,10 +848,6 @@ fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<Conditi
             origins: origins.into_iter().collect(),
         })
         .collect()
-}
-
-fn canonical_expression(expression: Atom) -> String {
-    expression.to_canonical_string()
 }
 
 /// Reject an output whose serialized representation could cross the wire
@@ -989,11 +993,11 @@ fn add_condition_bound(
 }
 
 fn output_bound_overflow() -> AppError {
-    AppError::Serialization("TOML output-size accounting overflowed usize".to_owned())
+    AppError::output_limit("TOML output-size accounting overflowed usize".to_owned())
 }
 
 fn output_bound_error(bound: usize) -> AppError {
-    AppError::Serialization(format!(
-        "TOML output has a conservative {bound}-byte render bound, exceeding the {MAX_OUTPUT_BYTES}-byte CLI limit"
+    AppError::output_limit(format!(
+        "TOML output has a conservative {bound}-byte render bound, exceeding the {MAX_OUTPUT_BYTES}-byte application limit"
     ))
 }

@@ -34,11 +34,11 @@ impl fmt::Display for ParallelExecutionError {
                 available,
             } => write!(
                 formatter,
-                "--n-cores {requested} exceeds the {available} logical cores available to this process"
+                "requested n_cores {requested} exceeds the {available} logical cores available to this process"
             ),
             Self::MulticoreRequiresSymbolicaLicense { requested } => write!(
                 formatter,
-                "--n-cores {requested} requires a Symbolica license; use --n-cores 1 or configure SYMBOLICA_LICENSE"
+                "n_cores {requested} requires a Symbolica license; use n_cores = 1 or configure SYMBOLICA_LICENSE"
             ),
             Self::WorkerPoolBuild { requested, message } => write!(
                 formatter,

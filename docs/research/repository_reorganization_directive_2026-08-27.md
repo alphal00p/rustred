@@ -2,10 +2,10 @@
 
 Date: 2026-08-27
 
-Status: active mandatory architecture gate. The multi-agent inventory and
-independent design audit are complete, and the first bounded application/CLI
-extraction has landed in the worktree. Deeper core, legacy-oracle, test, and
-documentation migrations remain pending.
+Status: active mandatory architecture gate. The multi-agent inventory,
+independent design audit, bounded application/CLI extraction, and
+transport-neutral boundary refactor are complete. Deeper core, legacy-oracle,
+test, and documentation migrations remain pending.
 
 ## Decision
 
@@ -33,34 +33,34 @@ rustred-legacy-oracles ------------------> rustred core
 ```
 
 The root `rustred` package remains the topology-neutral mathematical core.
-`rustred-app` is now present and owns the initial typed application
-requests/results, canonical TOML serialization, and the CLI binary. Keeping the
-binary in this package avoids a transport-only microcrate. The initial seam is
-not yet the final transport-neutral boundary: semantic service modules and
-public errors/options must still be detached from `cli::*`, and public calls
-must have an explicit panic-safety contract before PyO3 work begins. Panic
-containment belongs at the outer coordinator/FFI boundary and must poison
+`rustred-app` now owns the transport-neutral typed requests/results, semantic
+services, resource limits, stable errors/options, canonical TOML
+serialization, and the CLI binary. Keeping the binary in this package avoids a transport-only
+microcrate. The application/CLI boundary is complete: OS arguments, paths,
+stdin/stdout, overwrite policy, exit codes, help, and terminal diagnostics are
+confined to the adapter. Public calls document their panic-safety contract.
+Panic containment belongs at the outer coordinator/FFI boundary and must poison
 further work rather than claim that an invariant failure is safely recoverable.
 `rustred-python` and the publish-disabled `rustred-legacy-oracles` package are
 still to be created. Test support remains adjacent to the code it validates
 unless a later measured dependency boundary justifies another package.
 
-The first migration was intentionally mechanical: the former CLI modules and
-their three integration suites moved into `crates/rustred-app`, and the CLI now
-calls owned `derive`, `campaign_plan`, and `campaign_preflight` APIs. A direct
-contract suite checks API/CLI canonical-byte parity. Those operations become
-the Python-facing boundary after the internal CLI coupling is removed and the
-outer binding's poison-on-panic contract is added. No solver algorithm,
-topology dispatch, or authored
-recurrence was added in this phase.
+The first migration was intentionally mechanical; the subsequent boundary
+milestone moved normalization, lowering, derivation/output, and campaign
+services under `application`, split application and CLI errors, and removed the
+app's direct Symbolica dependency through a narrow core facade. A direct
+contract suite checks API/CLI canonical-byte parity. Those operations are now
+the Python-facing boundary; the outer binding's poison-on-panic coordinator is
+the next frontend milestone. No solver algorithm, topology dispatch, or
+authored recurrence was added in this phase.
 
 ## Problems to audit
 
-The current repository has a very large flat `src/` namespace. It mixes:
+The core repository still has a very large flat `src/` namespace. After the
+completed application/CLI separation, it still mixes:
 
 - topology- and loop-neutral algebra, family, IBP, sector, and rule kernels;
 - exact-session and exceptional-closure campaign orchestration;
-- CLI and serialization entry points;
 - concrete one- through four-loop validation/oracle code, much of it behind
   `legacy-authored-oracles`;
 - differential bridges and test-only campaign machinery; and
@@ -171,7 +171,8 @@ separate provenance role and are not treated as RustRed-owned stale code.
    audit and reconcile its structural blockers.
 6. **In progress:** execute mechanical moves and visibility tightening in
    small commits, with parallel tests after each phase and milestone pushes.
-   The `rustred-app`/CLI extraction is the first such phase.
+   The `rustred-app` extraction and transport-boundary phases are complete;
+   deeper legacy-oracle/core/test separation remains.
 7. Add the PyO3 package only after the shared application boundary exists;
    prove CLI/application/Python parity, licensed parallel execution, safe
    Python-thread coordination, and wheel/sdist installation without enabling

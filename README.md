@@ -33,13 +33,15 @@ integration continues, RustRed will inventory those roles, design and
 independently audit explicit module or subcrate boundaries, move concrete
 loop-count material out of the production engine, and delete sources and
 documents proved stale rather than preserving compatibility at this stage.
-The first bounded migration establishes `rustred-app`, an initial typed shared
-application seam together with the thin `rustred` CLI binary. Direct tests keep
-its canonical output byte-identical to the CLI. Before PyO3 is added, its
-service modules, option parsing, and application errors must be detached from
-the remaining CLI-internal types. The requested PyO3 package will then depend
-on that boundary rather than implementing a second frontend pipeline. Its
-outer coordinator/FFI boundary must poison further work after catching a Rust
+The first bounded migration established `rustred-app` and the thin `rustred`
+CLI binary; the follow-up boundary refactor is now complete. Transport-neutral
+application modules own the typed requests/results, options, errors, semantic
+services, resource limits, and canonical serialization, while the CLI owns
+only arguments, OS I/O, overwrite policy, exit codes, help, and terminal
+presentation. Direct tests keep canonical output byte-identical, and the app
+now reaches Symbolica only through the core. The requested PyO3 package will
+depend on that boundary rather than implementing a second frontend pipeline.
+Its outer coordinator/FFI boundary must poison further work after catching a Rust
 panic rather than claim that invariant-failed state is reusable. Deeper
 core, legacy-oracle, test, and documentation separation also remains pending.
 The audit and migration contract are tracked in the

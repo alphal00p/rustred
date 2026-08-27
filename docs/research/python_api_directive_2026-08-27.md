@@ -2,8 +2,9 @@
 
 Date: 2026-08-27
 
-Status: mandatory product requirement, to be implemented through the repository
-reorganization rather than bolted onto the current CLI-private modules.
+Status: mandatory product requirement. The transport-neutral application
+boundary is complete; the dedicated Python package and outer coordinator remain
+to be implemented through the repository reorganization.
 
 ## Contract
 
@@ -47,12 +48,13 @@ rustred-python -----+
 ```
 
 The CLI binary lives inside `rustred-app`; a separate transport-only CLI crate
-would add no useful isolation. The app package and its initial owned
-request/result seam now exist, with direct canonical-byte parity tests. Before
-binding it, semantic modules and public errors/options must be detached from
-the remaining `cli::*` internals. The dedicated `rustred-python` package remains
-to be implemented with poison-on-panic containment at its outer
-coordinator/FFI boundary.
+would add no useful isolation. The app boundary is now transport-neutral:
+semantic services, public errors/options, resource limits, and canonical
+serialization live under `application`, while CLI concerns remain in the
+adapter. Direct tests prove API/CLI canonical-byte parity, and `rustred-app`
+depends on Symbolica only transitively through the core. The dedicated
+`rustred-python` package remains to be implemented with poison-on-panic
+containment at its outer coordinator/FFI boundary.
 
 The binding should be a dedicated `cdylib`/`rlib` workspace package using
 PyO3 and maturin, with Python >= 3.11 as the initial supported floor. PyO3,

@@ -1,13 +1,13 @@
 use rustred::SymbolicaProjectLoweringLimits;
 
-use crate::cli::error::AppError;
-use crate::cli::input::PreparedCliProject;
-use crate::cli::model::LoweredCliProject;
+use super::error::AppError;
+use super::input::PreparedProject;
+use super::model::LoweredProject;
 
-/// The one CLI-to-library lowering seam. Every raw, hybrid, and explicit
-/// frontend reaches this function with the same syntax-authenticated DTO.
-pub(crate) fn lower_project(prepared: PreparedCliProject) -> Result<LoweredCliProject, AppError> {
-    let PreparedCliProject {
+/// The one application-to-core lowering seam. Every raw, hybrid, and explicit
+/// input reaches this function with the same syntax-authenticated DTO.
+pub(crate) fn lower_project(prepared: PreparedProject) -> Result<LoweredProject, AppError> {
+    let PreparedProject {
         input_form,
         input_schema,
         metadata,
@@ -16,11 +16,11 @@ pub(crate) fn lower_project(prepared: PreparedCliProject) -> Result<LoweredCliPr
     let lowered = normalized
         .into_lowered(SymbolicaProjectLoweringLimits::default())
         .map_err(|error| {
-            AppError::Input(format!(
+            AppError::lowering(format!(
                 "cannot lower normalized Symbolica input to an affine integral family: {error}"
             ))
         })?;
-    Ok(LoweredCliProject::new(
+    Ok(LoweredProject::new(
         input_form,
         input_schema,
         metadata,

@@ -28,13 +28,13 @@ accumulator temporary memory, including the mapped-zero diagnostic overlap.
 Native Symbolica integer work is budgeted separately from total
 collection/conversion work throughout every aggregate composition caller. It
 is not source-bound or proof authority yet.
-The mandatory next gate
-is a repository-wide structural audit and reorganization: generic production
-code, loop-specific validation campaigns, fixtures, and current documentation
-must become visibly separate before resident equality integration resumes. The
-same gate must extract a typed transport-neutral application layer and add a
-PyO3 package over exactly the operations used by the CLI. The binding is not a
-second algebra or reduction implementation.
+The mandatory current gate is the repository-wide structural reorganization:
+generic production code, loop-specific validation campaigns, fixtures, and
+current documentation must become visibly separate before resident equality
+integration resumes. Its typed transport-neutral application layer is now
+complete; the next frontend phase adds a PyO3 package over exactly the
+operations used by the CLI. The binding is not a second algebra or reduction
+implementation.
 
 ## Reading status
 

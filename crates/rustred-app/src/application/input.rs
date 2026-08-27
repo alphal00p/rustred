@@ -7,9 +7,9 @@ use rustred::{
 };
 use serde::Deserialize;
 
-use crate::cli::args::InputFormat;
-use crate::cli::error::AppError;
-use crate::cli::model::MetadataValue;
+use super::error::AppError;
+use super::model::MetadataValue;
+use super::options::InputFormat;
 
 const MAX_METADATA_ENTRIES: usize = 1_024;
 const MAX_METADATA_KEY_BYTES: usize = 1_024;
@@ -18,7 +18,7 @@ const MAX_METADATA_ARRAY_ITEMS: usize = 4_096;
 const MAX_TOTAL_METADATA_VALUES: usize = 16_384;
 const MAX_TOTAL_METADATA_BYTES: usize = 1024 * 1024;
 
-pub(crate) struct PreparedCliProject {
+pub(crate) struct PreparedProject {
     pub(crate) input_form: &'static str,
     pub(crate) input_schema: String,
     pub(crate) metadata: BTreeMap<String, MetadataValue>,
@@ -83,7 +83,7 @@ struct ExplicitTargetV1 {
 pub(crate) fn prepare_input(
     source: &str,
     requested_format: InputFormat,
-) -> Result<PreparedCliProject, AppError> {
+) -> Result<PreparedProject, AppError> {
     let detected = match requested_format {
         InputFormat::Auto if looks_like_symbolica(source) => InputFormat::Symbolica,
         InputFormat::Auto => InputFormat::Toml,
@@ -96,13 +96,13 @@ pub(crate) fn prepare_input(
     }
 }
 
-fn prepare_raw_symbolica(source: &str) -> Result<PreparedCliProject, AppError> {
+fn prepare_raw_symbolica(source: &str) -> Result<PreparedProject, AppError> {
     prepare_symbolica_root(source, None, BTreeMap::new(), "raw_symbolica")
 }
 
-fn prepare_toml(source: &str) -> Result<PreparedCliProject, AppError> {
+fn prepare_toml(source: &str) -> Result<PreparedProject, AppError> {
     let document: ProjectDocumentV1 = toml::from_str(source)
-        .map_err(|error| AppError::Input(format!("invalid RustRed project TOML: {error}")))?;
+        .map_err(|error| AppError::input(format!("invalid RustRed project TOML: {error}")))?;
     prepare_project_document(document)
 }
 
@@ -115,13 +115,13 @@ pub(crate) fn prepare_symbolica_root(
     parameters: Option<Vec<String>>,
     metadata: BTreeMap<String, MetadataValue>,
     input_form: &'static str,
-) -> Result<PreparedCliProject, AppError> {
+) -> Result<PreparedProject, AppError> {
     validate_metadata(&metadata)?;
     let compiler = parser()?;
     let normalized = compiler
         .compile_str_with_parameter_override(integral, parameters)
-        .map_err(|error| AppError::Input(format!("invalid Symbolica integral input: {error}")))?;
-    Ok(PreparedCliProject {
+        .map_err(|error| AppError::input(format!("invalid Symbolica integral input: {error}")))?;
+    Ok(PreparedProject {
         input_form,
         input_schema: normalized.schema().to_owned(),
         metadata,
@@ -134,9 +134,9 @@ pub(crate) fn prepare_symbolica_root(
 /// explicit roots.
 pub(crate) fn prepare_project_document(
     document: ProjectDocumentV1,
-) -> Result<PreparedCliProject, AppError> {
+) -> Result<PreparedProject, AppError> {
     if document.schema != RUSTRED_PROJECT_TOML_V1_SCHEMA {
-        return Err(AppError::Input(format!(
+        return Err(AppError::schema(format!(
             "unsupported project schema {:?}; expected {:?}",
             document.schema, RUSTRED_PROJECT_TOML_V1_SCHEMA
         )));
@@ -145,7 +145,7 @@ pub(crate) fn prepare_project_document(
     match (document.integral, document.family) {
         (Some(integral), None) => {
             if document.kinematics.is_some() || document.target.is_some() {
-                return Err(AppError::Input(
+                return Err(AppError::input(
                     "hybrid TOML keeps kinematics and target clauses inside integral = \"\"\"I(...)\"\"\"; only parameters and metadata may supplement it"
                         .to_owned(),
                 ));
@@ -154,9 +154,9 @@ pub(crate) fn prepare_project_document(
             let normalized = compiler
                 .compile_str_with_parameter_override(&integral, document.parameters)
                 .map_err(|error| {
-                    AppError::Input(format!("invalid hybrid Symbolica integral input: {error}"))
+                    AppError::input(format!("invalid hybrid Symbolica integral input: {error}"))
                 })?;
-            Ok(PreparedCliProject {
+            Ok(PreparedProject {
                 input_form: "hybrid_toml",
                 input_schema: document.schema,
                 metadata: document.metadata,
@@ -171,11 +171,11 @@ pub(crate) fn prepare_project_document(
             document.kinematics.unwrap_or_default(),
             document.target,
         ),
-        (Some(_), Some(_)) => Err(AppError::Input(
+        (Some(_), Some(_)) => Err(AppError::input(
             "project TOML must choose exactly one of integral (hybrid mode) and family (explicit mode)"
                 .to_owned(),
         )),
-        (None, None) => Err(AppError::Input(
+        (None, None) => Err(AppError::input(
             "project TOML needs either integral = \"\"\"I(...)\"\"\" or a [family] table"
                 .to_owned(),
         )),
@@ -189,10 +189,10 @@ fn prepare_explicit_document(
     family: ExplicitFamilyV1,
     kinematics: ExplicitKinematicsV1,
     target: Option<ExplicitTargetV1>,
-) -> Result<PreparedCliProject, AppError> {
+) -> Result<PreparedProject, AppError> {
     let denominator_count = family.denominators.len();
     if denominator_count > SymbolicaIntegralInputLimits::default().max_propagators {
-        return Err(AppError::Input(format!(
+        return Err(AppError::limit(format!(
             "explicit family has {denominator_count} denominators, exceeding the parser limit {}",
             SymbolicaIntegralInputLimits::default().max_propagators
         )));
@@ -203,7 +203,7 @@ fn prepare_explicit_document(
     };
     let target_powers = match supplied_powers {
         Some(powers) if powers.len() != denominator_count => {
-            return Err(AppError::Input(format!(
+            return Err(AppError::input(format!(
                 "target.powers has {} entries, expected one for each of {} denominators",
                 powers.len(),
                 denominator_count
@@ -214,7 +214,7 @@ fn prepare_explicit_document(
             let mut powers = Vec::new();
             powers
                 .try_reserve_exact(denominator_count)
-                .map_err(|_| AppError::Input("cannot reserve default target powers".to_owned()))?;
+                .map_err(|_| AppError::limit("cannot reserve default target powers".to_owned()))?;
             powers.resize(denominator_count, 1);
             powers
         }
@@ -222,7 +222,7 @@ fn prepare_explicit_document(
     let mut propagators = Vec::new();
     propagators
         .try_reserve_exact(family.denominators.len())
-        .map_err(|_| AppError::Input("cannot reserve explicit denominator records".to_owned()))?;
+        .map_err(|_| AppError::limit("cannot reserve explicit denominator records".to_owned()))?;
     for (ordinal, denominator) in family.denominators.into_iter().enumerate() {
         propagators.push(TextPropagatorInputV1 {
             id: denominator.id,
@@ -244,8 +244,8 @@ fn prepare_explicit_document(
     };
     let normalized = parser()?
         .compile_text_parts(parts)
-        .map_err(|error| AppError::Input(format!("invalid explicit project family: {error}")))?;
-    Ok(PreparedCliProject {
+        .map_err(|error| AppError::input(format!("invalid explicit project family: {error}")))?;
+    Ok(PreparedProject {
         input_form: "explicit_toml",
         input_schema: schema,
         metadata,
@@ -258,14 +258,14 @@ fn explicit_gram_entries(
     kinematics: ExplicitKinematicsV1,
 ) -> Result<Vec<TextExternalGramInputV1>, AppError> {
     if kinematics.external_gram.is_some() && !kinematics.gram.is_empty() {
-        return Err(AppError::Input(
+        return Err(AppError::input(
             "kinematics must use either external_gram (a full matrix) or gram entries, not both"
                 .to_owned(),
         ));
     }
     if let Some(matrix) = kinematics.external_gram {
         if matrix.len() != external_momenta.len() {
-            return Err(AppError::Input(format!(
+            return Err(AppError::input(format!(
                 "kinematics.external_gram has {} rows, expected {}",
                 matrix.len(),
                 external_momenta.len()
@@ -274,10 +274,10 @@ fn explicit_gram_entries(
         let mut retained = Vec::new();
         retained
             .try_reserve_exact(matrix.len())
-            .map_err(|_| AppError::Input("cannot reserve external Gram matrix rows".to_owned()))?;
+            .map_err(|_| AppError::limit("cannot reserve external Gram matrix rows".to_owned()))?;
         for (row, values) in matrix.into_iter().enumerate() {
             if values.len() != external_momenta.len() {
-                return Err(AppError::Input(format!(
+                return Err(AppError::input(format!(
                     "kinematics.external_gram row {row} has {} entries, expected {}",
                     values.len(),
                     external_momenta.len()
@@ -288,7 +288,7 @@ fn explicit_gram_entries(
         for left in 0..retained.len() {
             for right in left + 1..retained.len() {
                 if retained[left][right].trim() != retained[right][left].trim() {
-                    return Err(AppError::Input(format!(
+                    return Err(AppError::input(format!(
                         "kinematics.external_gram is textually asymmetric at ({left},{right}); use identical Symbolica strings or sparse upper-triangular gram entries"
                     )));
                 }
@@ -297,16 +297,16 @@ fn explicit_gram_entries(
         let successor = external_momenta
             .len()
             .checked_add(1)
-            .ok_or_else(|| AppError::Input("external Gram entry count overflowed".to_owned()))?;
+            .ok_or_else(|| AppError::limit("external Gram entry count overflowed".to_owned()))?;
         let entry_count = external_momenta
             .len()
             .checked_mul(successor)
             .map(|value| value / 2)
-            .ok_or_else(|| AppError::Input("external Gram entry count overflowed".to_owned()))?;
+            .ok_or_else(|| AppError::limit("external Gram entry count overflowed".to_owned()))?;
         let mut entries = Vec::new();
         entries
             .try_reserve_exact(entry_count)
-            .map_err(|_| AppError::Input("cannot reserve external Gram entries".to_owned()))?;
+            .map_err(|_| AppError::limit("cannot reserve external Gram entries".to_owned()))?;
         for left in 0..external_momenta.len() {
             for right in left..external_momenta.len() {
                 entries.push(TextExternalGramInputV1 {
@@ -332,7 +332,7 @@ fn explicit_gram_entries(
 
 fn parser() -> Result<SymbolicaIntegralInputCompiler, AppError> {
     SymbolicaIntegralInputCompiler::new(SymbolicaIntegralInputLimits::default()).map_err(|error| {
-        AppError::Input(format!(
+        AppError::input(format!(
             "cannot initialize Symbolica input grammar: {error}"
         ))
     })
@@ -342,7 +342,7 @@ pub(crate) fn validate_metadata(
     metadata: &BTreeMap<String, MetadataValue>,
 ) -> Result<(), AppError> {
     if metadata.len() > MAX_METADATA_ENTRIES {
-        return Err(AppError::Input(format!(
+        return Err(AppError::limit(format!(
             "metadata has {} entries, exceeding the limit {MAX_METADATA_ENTRIES}",
             metadata.len()
         )));
@@ -351,10 +351,10 @@ pub(crate) fn validate_metadata(
     let mut values_seen = 0usize;
     for (key, value) in metadata {
         if key.is_empty() {
-            return Err(AppError::Input("metadata keys cannot be empty".to_owned()));
+            return Err(AppError::input("metadata keys cannot be empty".to_owned()));
         }
         if key.len() > MAX_METADATA_KEY_BYTES {
-            return Err(AppError::Input(format!(
+            return Err(AppError::limit(format!(
                 "metadata key {key:?} exceeds {MAX_METADATA_KEY_BYTES} bytes"
             )));
         }
@@ -362,7 +362,7 @@ pub(crate) fn validate_metadata(
             MetadataValue::String(value) => std::slice::from_ref(value),
             MetadataValue::StringArray(values) => {
                 if values.len() > MAX_METADATA_ARRAY_ITEMS {
-                    return Err(AppError::Input(format!(
+                    return Err(AppError::limit(format!(
                         "metadata array {key:?} has {} items, exceeding {MAX_METADATA_ARRAY_ITEMS}",
                         values.len()
                     )));
@@ -372,27 +372,27 @@ pub(crate) fn validate_metadata(
         };
         values_seen = values_seen
             .checked_add(values.len())
-            .ok_or_else(|| AppError::Input("metadata value count overflowed".to_owned()))?;
+            .ok_or_else(|| AppError::limit("metadata value count overflowed".to_owned()))?;
         if values_seen > MAX_TOTAL_METADATA_VALUES {
-            return Err(AppError::Input(format!(
+            return Err(AppError::limit(format!(
                 "metadata has {values_seen} scalar values, exceeding {MAX_TOTAL_METADATA_VALUES}"
             )));
         }
         total = total
             .checked_add(key.len())
-            .ok_or_else(|| AppError::Input("metadata byte count overflowed".to_owned()))?;
+            .ok_or_else(|| AppError::limit("metadata byte count overflowed".to_owned()))?;
         for value in values {
             if value.len() > MAX_METADATA_VALUE_BYTES {
-                return Err(AppError::Input(format!(
+                return Err(AppError::limit(format!(
                     "metadata value for {key:?} exceeds {MAX_METADATA_VALUE_BYTES} bytes"
                 )));
             }
             total = total
                 .checked_add(value.len())
-                .ok_or_else(|| AppError::Input("metadata byte count overflowed".to_owned()))?;
+                .ok_or_else(|| AppError::limit("metadata byte count overflowed".to_owned()))?;
         }
         if total > MAX_TOTAL_METADATA_BYTES {
-            return Err(AppError::Input(format!(
+            return Err(AppError::limit(format!(
                 "metadata retains {total} bytes, exceeding the {MAX_TOTAL_METADATA_BYTES}-byte limit"
             )));
         }

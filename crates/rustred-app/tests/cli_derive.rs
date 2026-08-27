@@ -270,7 +270,10 @@ fn licensed_available_core_widths_through_four_are_byte_identical() {
     ];
     let (serial, serial_document) = successful_toml(&serial_arguments, ONE_LOOP_TWO_EXTERNALS);
     let available = std::thread::available_parallelism().unwrap().get();
-    for n_cores in [2_usize, 4].into_iter().filter(|width| *width <= available) {
+    for n_cores in [2_usize, 3, 4]
+        .into_iter()
+        .filter(|width| *width <= available)
+    {
         let n_cores = n_cores.to_string();
         let parallel_arguments = [
             "derive",
@@ -333,9 +336,7 @@ fn rayon_global_environment_cannot_override_explicit_n_cores() {
     let stderr = String::from_utf8_lossy(&unlicensed.stderr);
     assert!(stderr.starts_with("rustred: execution:"), "{stderr}");
     assert!(
-        stderr.contains(&format!(
-            "--n-cores {requested} requires a Symbolica license"
-        )),
+        stderr.contains(&format!("n_cores {requested} requires a Symbolica license")),
         "{stderr}"
     );
 }

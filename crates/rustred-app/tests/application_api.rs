@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
 use rustred_app::{
-    AppError, CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest, InputFormat,
+    AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest, InputFormat,
     MAX_INPUT_BYTES, RelationSelection, campaign_plan, campaign_preflight, derive,
 };
 
@@ -113,6 +113,38 @@ fn public_application_operations_are_byte_identical_to_the_cli() {
         ONE_LOOP,
         derived.to_toml(),
     );
+    let serial_toml = derived.into_toml();
+    let available = std::thread::available_parallelism().unwrap().get();
+    for n_cores in (2_usize..=4).filter(|width| *width <= available) {
+        let parallel = derive(DeriveRequest {
+            source: ONE_LOOP.to_owned(),
+            input_format: InputFormat::Symbolica,
+            relations: RelationSelection::All,
+            n_cores,
+        })
+        .expect("derive through public application API at parallel width");
+        assert_eq!(
+            parallel.to_toml(),
+            serial_toml,
+            "n_cores {n_cores} changed the canonical application output"
+        );
+        let width = n_cores.to_string();
+        assert_cli_parity(
+            &[
+                "derive",
+                "--input",
+                "-",
+                "--input-format",
+                "symbolica",
+                "--relations",
+                "all",
+                "--n-cores",
+                width.as_str(),
+            ],
+            ONE_LOOP,
+            parallel.to_toml(),
+        );
+    }
 
     let planned = campaign_plan(CampaignPlanRequest {
         source: CAMPAIGN.to_owned(),
@@ -160,27 +192,41 @@ fn public_application_operations_are_byte_identical_to_the_cli() {
 #[test]
 fn public_application_limits_fail_before_semantic_work() {
     let oversized = "x".repeat(MAX_INPUT_BYTES + 1);
-    assert!(matches!(
-        derive(DeriveRequest::new(oversized)),
-        Err(AppError::Input(message)) if message.contains("application limit")
-    ));
-    assert!(matches!(
-        derive(DeriveRequest {
-            source: ONE_LOOP.to_owned(),
-            input_format: InputFormat::Symbolica,
-            relations: RelationSelection::All,
-            n_cores: 0,
-        }),
-        Err(AppError::Input(message)) if message.contains("positive integer")
-    ));
-    assert!(matches!(
-        campaign_preflight(CampaignPreflightRequest {
-            profile: String::new(),
-            n_cores: 1,
-            max_memory_bytes: 0,
-        }),
-        Err(AppError::Input(message)) if message.contains("max_memory_bytes")
-    ));
+    let oversized_error = derive(DeriveRequest::new(oversized)).unwrap_err();
+    assert_eq!(oversized_error.kind(), AppErrorKind::Limit);
+    assert!(oversized_error.message().contains("application limit"));
+
+    let core_count_error = derive(DeriveRequest {
+        source: ONE_LOOP.to_owned(),
+        input_format: InputFormat::Symbolica,
+        relations: RelationSelection::All,
+        n_cores: 0,
+    })
+    .unwrap_err();
+    assert_eq!(core_count_error.kind(), AppErrorKind::Input);
+    assert!(core_count_error.message().contains("positive integer"));
+
+    let memory_error = campaign_preflight(CampaignPreflightRequest {
+        profile: String::new(),
+        n_cores: 1,
+        max_memory_bytes: 0,
+    })
+    .unwrap_err();
+    assert_eq!(memory_error.kind(), AppErrorKind::Input);
+    assert!(memory_error.message().contains("max_memory_bytes"));
     assert_eq!("symbolica".parse(), Ok(InputFormat::Symbolica));
     assert_eq!("li".parse(), Ok(RelationSelection::LorentzInvariance));
+
+    let input_format_error = "json".parse::<InputFormat>().unwrap_err();
+    assert_eq!(input_format_error.value(), "json");
+    assert_eq!(
+        input_format_error.to_string(),
+        "invalid input format \"json\"; expected auto, toml, or symbolica"
+    );
+    let relation_error = "laporta".parse::<RelationSelection>().unwrap_err();
+    assert_eq!(relation_error.value(), "laporta");
+    assert_eq!(
+        relation_error.to_string(),
+        "invalid relation selection \"laporta\"; expected all, ordinary, or li"
+    );
 }

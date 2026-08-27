@@ -10,21 +10,21 @@ pub(crate) enum MetadataValue {
     StringArray(Vec<String>),
 }
 
-/// CLI-owned view of the parser/lowering boundary.
+/// Application-owned view of the parser/lowering boundary.
 ///
-/// `backend.rs` is the only module allowed to translate the public
-/// `symbolica_integral_input` API into this view.  Keeping the rest of the CLI
-/// on this small DTO prevents it from growing a second expression grammar or
-/// duplicating affine lowering.
+/// `lowering.rs` is the only module allowed to translate the public
+/// `symbolica_integral_input` API into this view. Keeping the rest of the
+/// application on this small DTO prevents it from growing a second expression
+/// grammar or duplicating affine lowering.
 #[derive(Clone, Debug)]
-pub(crate) struct LoweredCliProject {
+pub(crate) struct LoweredProject {
     input_form: &'static str,
     input_schema: String,
     metadata: BTreeMap<String, MetadataValue>,
     lowered: LoweredSymbolicaProjectV1,
 }
 
-impl LoweredCliProject {
+impl LoweredProject {
     pub(crate) fn new(
         input_form: &'static str,
         input_schema: String,

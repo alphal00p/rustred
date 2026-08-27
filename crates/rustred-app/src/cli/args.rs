@@ -1,91 +1,9 @@
 use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
-use std::str::FromStr;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InputFormat {
-    Auto,
-    Toml,
-    Symbolica,
-}
-
-impl InputFormat {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Toml => "toml",
-            Self::Symbolica => "symbolica",
-        }
-    }
-
-    fn parse(value: &str) -> Result<Self, ArgError> {
-        match value {
-            "auto" => Ok(Self::Auto),
-            "toml" => Ok(Self::Toml),
-            "symbolica" => Ok(Self::Symbolica),
-            _ => Err(ArgError::InvalidValue {
-                option: "--input-format",
-                value: value.to_owned(),
-                expected: "auto, toml, or symbolica",
-            }),
-        }
-    }
-}
-
-impl FromStr for InputFormat {
-    type Err = ArgError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RelationSelection {
-    All,
-    Ordinary,
-    LorentzInvariance,
-}
-
-impl RelationSelection {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Ordinary => "ordinary",
-            Self::LorentzInvariance => "li",
-        }
-    }
-
-    fn parse(value: &str) -> Result<Self, ArgError> {
-        match value {
-            "all" => Ok(Self::All),
-            "ordinary" => Ok(Self::Ordinary),
-            "li" => Ok(Self::LorentzInvariance),
-            _ => Err(ArgError::InvalidValue {
-                option: "--relations",
-                value: value.to_owned(),
-                expected: "all, ordinary, or li",
-            }),
-        }
-    }
-
-    pub const fn includes_ordinary(self) -> bool {
-        matches!(self, Self::All | Self::Ordinary)
-    }
-
-    pub const fn includes_li(self) -> bool {
-        matches!(self, Self::All | Self::LorentzInvariance)
-    }
-}
-
-impl FromStr for RelationSelection {
-    type Err = ArgError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
-    }
-}
+use crate::application::memory::parse_memory_bytes;
+use crate::{InputFormat, RelationSelection};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StreamPath {
@@ -278,19 +196,21 @@ fn parse_derive(arguments: impl Iterator<Item = OsString>) -> Result<Command, Ar
             }
             "--input-format" => {
                 let value = next_utf8_value(&mut arguments, "--input-format")?;
-                set_once(
-                    &mut input_format,
-                    "--input-format",
-                    InputFormat::parse(&value)?,
-                )?;
+                let parsed = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option: "--input-format",
+                    value,
+                    expected: InputFormat::EXPECTED_VALUES,
+                })?;
+                set_once(&mut input_format, "--input-format", parsed)?;
             }
             "--relations" => {
                 let value = next_utf8_value(&mut arguments, "--relations")?;
-                set_once(
-                    &mut relations,
-                    "--relations",
-                    RelationSelection::parse(&value)?,
-                )?;
+                let parsed = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option: "--relations",
+                    value,
+                    expected: RelationSelection::EXPECTED_VALUES,
+                })?;
+                set_once(&mut relations, "--relations", parsed)?;
             }
             "--n-cores" => {
                 let value = next_utf8_value(&mut arguments, "--n-cores")?;
@@ -444,11 +364,12 @@ fn parse_campaign_plan(arguments: impl Iterator<Item = OsString>) -> Result<Comm
             }
             "--input-format" => {
                 let value = next_utf8_value(&mut arguments, "--input-format")?;
-                set_once(
-                    &mut input_format,
-                    "--input-format",
-                    InputFormat::parse(&value)?,
-                )?;
+                let parsed = value.parse().map_err(|_| ArgError::InvalidValue {
+                    option: "--input-format",
+                    value,
+                    expected: InputFormat::EXPECTED_VALUES,
+                })?;
+                set_once(&mut input_format, "--input-format", parsed)?;
             }
             "--root-id" => {
                 let value = next_utf8_value(&mut arguments, "--root-id")?;
@@ -514,26 +435,6 @@ fn parse_positive_integer(option: &'static str, value: String) -> Result<usize, 
             value,
             expected: "a positive integer",
         })
-}
-
-pub(crate) fn parse_memory_bytes(value: &str) -> Option<u64> {
-    let (digits, multiplier) = [
-        ("TiB", 1_u64 << 40),
-        ("GiB", 1_u64 << 30),
-        ("MiB", 1_u64 << 20),
-        ("KiB", 1_u64 << 10),
-        ("B", 1_u64),
-    ]
-    .into_iter()
-    .find_map(|(suffix, multiplier)| {
-        value
-            .strip_suffix(suffix)
-            .map(|digits| (digits, multiplier))
-    })?;
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse::<u64>().ok()?.checked_mul(multiplier)
 }
 
 fn set_once<T>(slot: &mut Option<T>, option: &'static str, value: T) -> Result<(), ArgError> {
@@ -795,6 +696,22 @@ mod tests {
                 ..
             })
         ));
+        assert_eq!(
+            parse(&["rustred", "derive", "--input-format", "json",]),
+            Err(ArgError::InvalidValue {
+                option: "--input-format",
+                value: "json".to_owned(),
+                expected: InputFormat::EXPECTED_VALUES,
+            })
+        );
+        assert_eq!(
+            parse(&["rustred", "derive", "--relations", "laporta"]),
+            Err(ArgError::InvalidValue {
+                option: "--relations",
+                value: "laporta".to_owned(),
+                expected: RelationSelection::EXPECTED_VALUES,
+            })
+        );
         assert_eq!(
             parse(&["rustred", "derive", "--n-cores", "2", "--n-cores", "3",]),
             Err(ArgError::DuplicateOption("--n-cores"))

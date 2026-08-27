@@ -171,20 +171,20 @@ exceptional resident. The immediate mathematical continuation is to bind it,
 regenerate the child rows in the refined coordinates, construct a fresh child
 exact session, and recursively prove closure.
 
-### CLI/application refactor checkpoint
+### Completed CLI/application boundary
 
 The current Cargo workspace has exactly two packages:
 
 ```text
 rustred-app  --->  rustred core  --->  vendored Symbolica[gmp]
-     |                 ^
-     +-----------------+  (current direct/transitional dependency)
      |
      +-- `rustred` CLI binary
 ```
 
-In the current graph, `rustred-app` therefore depends directly on both
-`rustred` and Symbolica; Symbolica is not only a transitive core dependency.
+`rustred-app` depends directly only on `rustred`, Serde, and TOML. Its former
+direct Symbolica edge was removed through the narrow core-owned
+`symbolica_runtime` representation facade; the core remains the sole package
+which depends directly on vendored Symbolica with GMP.
 
 The root `rustred` package is still the mathematical core. Commit `7ff5f66`
 moved the CLI modules and all three CLI integration suites into
@@ -201,19 +201,18 @@ versioning is centralized. Direct integration tests prove byte-for-byte
 API/CLI output parity for all three operations. `InputFormat` and
 `RelationSelection` implement typed string parsing.
 
-This is an **initial shared seam**, not yet the final PyO3-ready,
-transport-neutral boundary. The remaining coupling is deliberate and recorded:
+The transport boundary is now complete. `crates/rustred-app/src/application`
+owns requests/results, neutral options, stable application error kinds, input
+normalization, lowering orchestration, derivation, campaign planning and
+preflight, resource limits, producer metadata, and canonical serialization.
+`crates/rustred-app/src/cli` contains only OS argument parsing, path/stdin/stdout
+handling, overwrite policy, exit-code/category mapping, help, and terminal
+diagnostics. `ArgError` is private to that adapter.
 
-- `api.rs` calls modules still located under `cli::*`;
-- `InputFormat`, `RelationSelection`, `AppError`, and `ArgError` still originate
-  in CLI-owned files;
-- `AppError` still contains usage, filesystem I/O, and exit-code concerns;
-- several semantic diagnostics still say “CLI”; and
-- the PyO3 coordinator/FFI panic and poisoning contract is not implemented.
-
-Do not add PyO3 on top of this coupling. First split semantic service modules
-and neutral application errors/options from the CLI adapter while preserving
-the new parity tests.
+Public application calls document that expected failures return `AppError` and
+that invariant panics are intentionally not caught. The future PyO3 coordinator
+must catch only at its outer boundary, poison itself, and reject later work;
+that coordinator and the Python package are not implemented yet.
 
 ## What is not implemented
 
@@ -254,10 +253,10 @@ rustred-python ------> rustred-app ------> rustred core
 rustred-legacy-oracles ------------------> rustred core
 ```
 
-This is the target direction. Today `rustred-app` also depends directly on
-vendored Symbolica for `LicenseManager`/producer metadata and expression-facing
-output code. Treat that edge as transitional and explicitly remove or justify
-it during app-boundary cleanup; do not overlook it in feature audits.
+The current app/core edge now matches this target: `rustred-app` has no direct
+Symbolica dependency. Version metadata, canonical Atom rendering, packed-Atom
+census, and Symbolica-integer census cross a narrow core-owned facade without
+re-exporting Symbolica wholesale or changing the established resource bounds.
 
 - Keep the root package as the topology-neutral core during the migration; do
   not move roughly 400k lines merely to satisfy a cosmetic `crates/` layout.
@@ -319,7 +318,7 @@ A full default-GMP run was attempted before the restart request:
 Do not report the full suite as passing. Investigate or profile that slow test
 before repeatedly spending another half hour on it.
 
-### Application/CLI refactor checkpoint
+### Initial application extraction checkpoint (historical)
 
 - `cargo metadata --no-deps --format-version 1`: passed and reported exactly
   `rustred` and `rustred-app` as workspace members.
@@ -335,11 +334,10 @@ before repeatedly spending another half hour on it.
   bytes with CLI stdout for derive, campaign plan, and campaign preflight.
 - Two independent read-only agents audited package direction, feature graph,
   topology neutrality, moved fixture paths, CLI behavior, and test results.
-  Neither found a blocker to committing the milestone as an initial seam. One
-  correctly identified the remaining CLI coupling and panic-boundary work
-  listed above.
+  Neither found a blocker to committing that initial seam. One identified the
+  CLI coupling and panic-boundary work completed by the next checkpoint.
 
-The 35-test parallel app gate is a **licensed** gate. Do not reinterpret a
+That 35-test parallel app gate was a **licensed** gate. Do not reinterpret a
 parallel unlicensed run as a supported mode: concurrent Symbolica-using child
 processes can terminate by signal. The focused campaign-preflight suite is the
 license-free application gate; license-mode and abort-prone affinity probes
@@ -348,6 +346,34 @@ belong in fresh subprocesses.
 The full 1,900+ test suite was not rerun after the mechanical app extraction;
 the whole-workspace all-target build and focused parallel app suite are the
 restart checkpoint.
+
+### Completed transport-neutral application boundary
+
+- `cargo check --workspace --all-targets -j8 --locked`: passed after the
+  refactor.
+- Licensed parallel app gate:
+  `cargo nextest run -p rustred-app -j8 --no-fail-fast`
+- run ID: `3fdaad79-3908-42e8-b7b1-9c6a30355da6`
+- result: 39/39 passed, 0 skipped, across six binaries.
+- The original 35 tests remain represented. Four focused boundary tests cover
+  typed application error classification, transport-neutral memory parsing,
+  and CLI exit mapping.
+- The direct application contract still proves byte-identical canonical output
+  against CLI stdout for derive, campaign plan, and campaign preflight, with
+  derive parity at `n_cores = 1, 2, 3, 4` on this validation host.
+- `rustred-app` now depends directly only on `rustred`, Serde, and TOML. Its
+  source contains no direct `symbolica::` path or import, and application
+  modules do not depend on `crate::cli`.
+- Fresh metadata still reports exactly two workspace packages. The resolved
+  feature graph has Symbolica `gmp` enabled, with `no_gmp` and PyO3 absent.
+- Three fresh independent read-only audits covered architecture, acceptance,
+  tests/documentation, and validation. Their findings were reconciled; the
+  final worktree has no reported milestone blocker.
+
+This remains a **licensed** parallel gate. The incomplete full-suite result
+recorded above has not been reinterpreted as a pass; the boundary milestone is
+gated by the whole-workspace all-target build and the focused application
+suite.
 
 ## Commands for the next task
 
@@ -382,12 +408,13 @@ every workspace-package change.
 
 Keep each item rollback-sized and push after every completed item.
 
-1. **Finish the app boundary.** Move semantic input/lowering/output/campaign
+1. **Complete: finish the app boundary.** Semantic input/lowering/output/campaign
    services out of `cli::*`; define transport-neutral option and error types;
    keep argument parsing, stdin/path handling, overwrite policy, exit codes,
    help, and terminal diagnostics in the CLI adapter. Do not blanket-catch
    invariant panics and then reuse potentially mutated application/Symbolica
-   state. Preserve the 35-test gate and exact canonical bytes.
+   state. The original 35-test gate remains represented, exact canonical bytes
+   are preserved, and four focused boundary tests were added.
 2. **Add `rustred-python`.** Use PyO3 and maturin over `rustred-app` only. Convert
    Python values to owned Rust requests under the GIL, release the GIL for
    work, and route top-level calls through one process-wide coordinator thread
