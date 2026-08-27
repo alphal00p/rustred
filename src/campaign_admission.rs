@@ -19,10 +19,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use crate::{
-    CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignJobKey,
-    CampaignMemoryEstimate, CampaignResourceError, CampaignResourcePolicy,
+    CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignExecutionWidthPlan,
+    CampaignJobKey, CampaignMemoryEstimate, CampaignResourceError, CampaignResourcePolicy,
     CampaignResourceWavePlan, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-    CampaignWavePlanner, CampaignWorkKey, ParallelExecution,
+    CampaignWavePlanner, CampaignWorkKey, ParallelExecution, ParallelExecutionError,
 };
 
 pub const CAMPAIGN_ADMISSION_V1_SCHEMA: &str = "rustred.campaign-admission.v1";
@@ -111,6 +111,7 @@ impl CampaignAdmissionUsage {
 pub struct CampaignAdmissionController {
     schema: &'static str,
     execution: ParallelExecution,
+    execution_width_plan: Option<CampaignExecutionWidthPlan>,
     shared: Arc<CampaignAdmissionShared>,
 }
 
@@ -121,6 +122,7 @@ impl fmt::Debug for CampaignAdmissionController {
             .debug_struct("CampaignAdmissionController")
             .field("schema", &self.schema)
             .field("execution", &self.execution)
+            .field("execution_width_plan", &self.execution_width_plan)
             .field("usage", &usage)
             .finish_non_exhaustive()
     }
@@ -138,6 +140,7 @@ struct CampaignAdmissionState {
     estimator_revision: CampaignEstimatorRevision,
     core_capacity: usize,
     max_memory: CampaignBytes,
+    execution_fixed_memory: CampaignBytes,
     fixed_and_shared: CampaignBytes,
     reserved_fixed_components: CampaignBytes,
     staged_results: CampaignBytes,
@@ -148,20 +151,87 @@ struct CampaignAdmissionState {
 }
 
 impl CampaignAdmissionController {
-    pub fn try_new(
+    /// Crate-internal constructor for focused admission tests and lower-layer
+    /// composition. Public campaign bootstrap must consume a checked width
+    /// plan so physical policy cannot diverge from pre-pool admission.
+    pub(crate) fn try_new(
         execution: ParallelExecution,
         estimator_revision: CampaignEstimatorRevision,
         max_memory: CampaignBytes,
         fixed_and_shared: CampaignBytes,
         staged_results: CampaignBytes,
     ) -> Result<Self, CampaignAdmissionError> {
+        Self::try_new_with_execution_policy(
+            execution,
+            None,
+            estimator_revision,
+            max_memory,
+            CampaignBytes::ZERO,
+            fixed_and_shared,
+            staged_results,
+        )
+    }
+
+    /// Consume a checked pre-pool width plan, construct its exact bounded
+    /// executor, and derive every admission capacity from the retained plan.
+    ///
+    /// V1 starts before any heavyweight lane is hydrated, so a byte-only
+    /// nonzero hydrated baseline is rejected: admitting it without the
+    /// corresponding move-owned resident tokens would create unreleasable
+    /// accounting. Staged bytes may already belong to the campaign workspace
+    /// and remain a separately mutable baseline category.
+    pub fn try_from_execution_width_plan(
+        plan: CampaignExecutionWidthPlan,
+    ) -> Result<Self, CampaignAdmissionError> {
+        let baseline = plan.admission_baseline();
+        if baseline.hydrated_retained() != CampaignBytes::ZERO {
+            return Err(
+                CampaignAdmissionError::ExecutionWidthPlanHasHydratedRetainedMemory {
+                    bytes: baseline.hydrated_retained(),
+                },
+            );
+        }
+        let estimator_revision = plan.estimator_revision();
+        let max_memory = plan.operational_memory_limit();
+        let (plan, execution) = plan
+            .try_into_plan_and_parallel_execution()
+            .map_err(CampaignAdmissionError::ParallelExecution)?;
+        debug_assert_eq!(execution.n_cores(), plan.effective_width());
+        debug_assert_eq!(execution.worker_thread_count(), plan.worker_thread_count());
+        Self::try_new_with_execution_policy(
+            execution,
+            Some(plan),
+            estimator_revision,
+            max_memory,
+            baseline.fixed_and_shared(),
+            CampaignBytes::ZERO,
+            baseline.staged_results(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_new_with_execution_policy(
+        execution: ParallelExecution,
+        execution_width_plan: Option<CampaignExecutionWidthPlan>,
+        estimator_revision: CampaignEstimatorRevision,
+        max_memory: CampaignBytes,
+        execution_fixed_memory: CampaignBytes,
+        fixed_and_shared: CampaignBytes,
+        staged_results: CampaignBytes,
+    ) -> Result<Self, CampaignAdmissionError> {
         let core_capacity = execution.n_cores();
+        let total_fixed = bytes_add(
+            execution_fixed_memory,
+            fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
         let baseline =
-            CampaignBaselineMemory::try_new(fixed_and_shared, CampaignBytes::ZERO, staged_results)?;
+            CampaignBaselineMemory::try_new(total_fixed, CampaignBytes::ZERO, staged_results)?;
         CampaignResourcePolicy::try_new(estimator_revision, core_capacity, max_memory, baseline)?;
         Ok(Self {
             schema: CAMPAIGN_ADMISSION_V1_SCHEMA,
             execution,
+            execution_width_plan,
             shared: Arc::new(CampaignAdmissionShared {
                 state: Mutex::new(CampaignAdmissionState {
                     generation: NonZeroU64::MIN,
@@ -170,6 +240,7 @@ impl CampaignAdmissionController {
                     estimator_revision,
                     core_capacity,
                     max_memory,
+                    execution_fixed_memory,
                     fixed_and_shared,
                     reserved_fixed_components: CampaignBytes::ZERO,
                     staged_results,
@@ -184,6 +255,18 @@ impl CampaignAdmissionController {
 
     pub const fn schema(&self) -> &'static str {
         self.schema
+    }
+
+    pub const fn execution_width_plan(&self) -> Option<&CampaignExecutionWidthPlan> {
+        self.execution_width_plan.as_ref()
+    }
+
+    pub fn worker_thread_count(&self) -> usize {
+        self.execution.worker_thread_count()
+    }
+
+    pub fn is_parallel(&self) -> bool {
+        self.execution.is_parallel()
     }
 
     pub fn try_usage(&self) -> Result<CampaignAdmissionUsage, CampaignAdmissionError> {
@@ -395,6 +478,9 @@ impl CampaignAdmissionController {
         })
     }
 
+    /// Set additional configurable fixed/shared memory. For a controller
+    /// bootstrapped from an execution-width plan, this can never replace or
+    /// erase the immutable warmed execution reserve.
     pub fn try_set_fixed_and_shared(
         &mut self,
         fixed_and_shared: CampaignBytes,
@@ -402,7 +488,12 @@ impl CampaignAdmissionController {
         let mut state = self.shared.lock();
         state.ensure_quiescent()?;
         let fixed_with_reserved = bytes_add(
+            state.execution_fixed_memory,
             fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            fixed_with_reserved,
             state.reserved_fixed_components,
             "campaign configured plus reserved fixed components",
         )?;
@@ -427,7 +518,12 @@ impl CampaignAdmissionController {
         let mut state = self.shared.lock();
         state.ensure_quiescent()?;
         let fixed_with_reserved = bytes_add(
+            state.execution_fixed_memory,
             state.fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            fixed_with_reserved,
             state.reserved_fixed_components,
             "campaign configured plus reserved fixed components",
         )?;
@@ -476,7 +572,12 @@ impl CampaignAdmissionController {
             "campaign fixed-component reservation",
         )?;
         let fixed_with_reserved = bytes_add(
+            state.execution_fixed_memory,
             state.fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            fixed_with_reserved,
             next_reserved,
             "campaign configured plus reserved fixed components",
         )?;
@@ -792,7 +893,12 @@ impl CampaignAdmissionState {
 
     fn try_baseline(&self) -> Result<CampaignBaselineMemory, CampaignAdmissionError> {
         let fixed_with_reserved = bytes_add(
+            self.execution_fixed_memory,
             self.fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            fixed_with_reserved,
             self.reserved_fixed_components,
             "campaign configured plus reserved fixed components",
         )?;
@@ -2051,7 +2157,12 @@ impl CampaignAdmissionShared {
             "campaign retained-transfer preflight",
         )?;
         let fixed_with_reserved = bytes_add(
+            state.execution_fixed_memory,
             state.fixed_and_shared,
+            "campaign execution plus configured fixed memory",
+        )?;
+        let fixed_with_reserved = bytes_add(
+            fixed_with_reserved,
             state.reserved_fixed_components,
             "campaign configured plus reserved fixed components",
         )?;
@@ -2165,6 +2276,10 @@ impl CampaignAdmissionShared {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CampaignAdmissionError {
+    ExecutionWidthPlanHasHydratedRetainedMemory {
+        bytes: CampaignBytes,
+    },
+    ParallelExecution(ParallelExecutionError),
     ForeignSnapshot,
     ForeignWaveReservation,
     ForeignTaskReservation {
@@ -2234,6 +2349,16 @@ pub enum CampaignAdmissionError {
 impl fmt::Display for CampaignAdmissionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ExecutionWidthPlanHasHydratedRetainedMemory { bytes } => write!(
+                formatter,
+                "campaign execution-width bootstrap cannot seed {bytes} of hydrated retained memory without resident owners"
+            ),
+            Self::ParallelExecution(error) => {
+                write!(
+                    formatter,
+                    "campaign execution-width bootstrap failed: {error}"
+                )
+            }
             Self::ForeignSnapshot => {
                 formatter.write_str("campaign admission snapshot belongs to another controller")
             }

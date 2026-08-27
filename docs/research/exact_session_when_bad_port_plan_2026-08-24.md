@@ -50,6 +50,15 @@ and the 16/16 parent handoff-module superset with four test threads, and
 diagnostic reached 1,214 passes and 2 skips; the sole remaining pre-existing
 equality-suspension test was deliberately interrupted after 1,834.832 seconds,
 so this checkpoint makes no new complete full-library-gate claim.
+The following scalability checkpoint implements the separate versioned
+pre-pool `CampaignExecutionWidthPlan`: it uses checked physical-memory
+components and a revision-matched one-core minimum task to select the largest
+memory-feasible `E <= --n-cores`, reserves zero workers for inline `E=1` and
+exactly `E` workers otherwise, exposes a lossless admission baseline, and has a
+typed no-fit pause with no pool-construction surface. The admission controller
+now consumes and retains that plan, derives its initial policy from it, and
+keeps the warmed execution reserve immutable. Calibrated production profiles,
+CLI bootstrap wiring, and the campaign frontier remain pending.
 Applicable-provider admission/results, general `CampaignWorkKey` result
 publication, durable spill support, event-derived fresh narrowed-domain
 re-entry, rejected-candidate continuation, rule application, publication audit

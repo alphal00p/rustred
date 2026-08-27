@@ -641,6 +641,31 @@ for an accepted inline `E=1` plan, and exactly `E` workers otherwise. In
 particular, the current 100-slot wave-selector arithmetic test is not evidence
 that effective-width planning or pre-pool memory admission exists.
 
+Implementation checkpoint (2026-08-27): the topology-neutral library now has
+`CampaignExecutionWidthPlan` V1. Its pure planner is host-independent, validates
+the minimum one-core task's estimator revision, requires
+`M_operational < M_enclosing`, and selects the largest `E` for which the
+complete non-worker baseline, `0` or exactly `E` warmed worker reserves, and
+one minimum task fit. Exact equality is accepted; inline non-fit is a typed
+pause with no construction surface. A non-cloneable accepted plan records the
+complete fixed breakdown and a lossless collapse into
+`CampaignBaselineMemory`, then must be consumed before `ParallelExecution` is
+created. The campaign admission constructor consumes and retains that plan,
+derives revision/core/memory policy exclusively from it, keeps warmed execution
+memory immutable beneath later configurable fixed charges, and rejects
+unowned hydrated-lane bytes before pool construction. Counting and live
+licensed tests cover no pool at `E=1`, exactly `E`
+workers in parallel, a synthetic host-independent width-100 case, overflow,
+revision/core mismatches, and exact/one-byte-below boundaries. This checkpoint
+does not provide calibrated EPYC estimator values, campaign-CLI resource input
+and bootstrap wiring, or frontier coordination.
+
+The 2026-08-27 milestone gate used the licensed default-GMP build with Cargo
+and test execution both at four-way parallelism: 8/8 width-planner unit tests,
+7/7 width-bootstrap integration tests, 21/21 admission integration tests, and
+9/9 resource-selector integration tests passed; `cargo check --tests` also
+passed. Two independent read-only audits found no remaining contract blocker.
+
 The logical ready frontier may contain thousands of compact keys while only a
 small admitted subset is hydrated. Its key/estimate metadata is bounded
 separately from heavyweight ownership; reducer construction, retained-owner

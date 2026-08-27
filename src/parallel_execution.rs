@@ -71,17 +71,13 @@ impl fmt::Debug for ParallelExecution {
 }
 
 impl ParallelExecution {
-    /// Construct one bounded execution context.
-    ///
-    /// Multicore execution is rejected before a RustRed worker is created if
-    /// the installed Symbolica instance is not licensed for it.
-    pub fn try_new(n_cores: usize) -> Result<Self, ParallelExecutionError> {
+    /// Validate an invocation's requested core ceiling without creating a
+    /// worker. Campaign width planning remains host-independent, then calls
+    /// this preflight before consuming its checked memory plan.
+    pub fn validate_requested_core_budget(n_cores: usize) -> Result<(), ParallelExecutionError> {
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
-            return Ok(Self {
-                n_cores,
-                pool: None,
-            });
+            return Ok(());
         }
         let available = std::thread::available_parallelism().map_err(|error| {
             ParallelExecutionError::AvailableParallelism {
@@ -99,6 +95,22 @@ impl ParallelExecution {
                 requested: n_cores.get(),
             });
         }
+        Ok(())
+    }
+
+    /// Construct one bounded execution context.
+    ///
+    /// Multicore execution is rejected before a RustRed worker is created if
+    /// the installed Symbolica instance is not licensed for it.
+    pub fn try_new(n_cores: usize) -> Result<Self, ParallelExecutionError> {
+        Self::validate_requested_core_budget(n_cores)?;
+        let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
+        if n_cores.get() == 1 {
+            return Ok(Self {
+                n_cores,
+                pool: None,
+            });
+        }
         let requested = n_cores.get();
         let pool = ThreadPoolBuilder::new()
             .num_threads(requested)
@@ -108,6 +120,7 @@ impl ParallelExecution {
                 requested,
                 message: error.to_string(),
             })?;
+        debug_assert_eq!(pool.current_num_threads(), requested);
         Ok(Self {
             n_cores,
             pool: Some(pool),
@@ -120,6 +133,13 @@ impl ParallelExecution {
 
     pub fn is_parallel(&self) -> bool {
         self.pool.is_some()
+    }
+
+    /// Number of owned Rayon worker threads. Inline width one has none.
+    pub fn worker_thread_count(&self) -> usize {
+        self.pool
+            .as_ref()
+            .map_or(0, rayon::ThreadPool::current_num_threads)
     }
 
     /// Evaluate stable work ordinals, returning results in ordinal order.
@@ -176,6 +196,7 @@ mod tests {
     fn one_core_is_inline_and_ordered() {
         let execution = ParallelExecution::try_new(1).unwrap();
         assert_eq!(execution.n_cores(), 1);
+        assert_eq!(execution.worker_thread_count(), 0);
         assert!(!execution.is_parallel());
         assert_eq!(
             execution.map_ordered(8, |ordinal| ordinal * ordinal),
@@ -214,6 +235,7 @@ mod tests {
             return;
         }
         let execution = ParallelExecution::try_new(n_cores).unwrap();
+        assert_eq!(execution.worker_thread_count(), n_cores);
         let barrier = Arc::new(Barrier::new(n_cores));
         let worker_ids = Arc::new(Mutex::new(HashSet::new()));
         let output = execution.map_ordered(n_cores, {

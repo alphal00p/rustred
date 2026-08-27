@@ -813,14 +813,16 @@ or physical-topology calculation.
    successors. Its first stable indexed executor and resident-transform seam
    move a complete exact session through a genuine Symbolica dependent-row
    transition with old/new/transient overlap charged. This remains a
-   cooperative low-level primitive, not the campaign runtime: there is no
-   calibrated physical estimator, effective-execution-width selector, frontier
-   coordinator, reducer hydration policy, or checkpoint barrier yet. On a
-   100-core node, choose `1 <= E <= --n-cores` before pool construction and
-   separately charge the coordinator plus every potentially warmed worker's
-   Symbolica thread-local cache in the fixed baseline. A no-fit `E=1` run
-   returns a typed memory-capacity pause without building a pool. Implement that bounded
-   coordinator before finishing
+   cooperative low-level primitive, not the campaign runtime. The separate
+   versioned effective-width selector is now implemented: before pool
+   construction it chooses the largest `1 <= E <= --n-cores`, charges the
+   coordinator plus zero or exactly `E` potentially warmed workers and one
+   minimum task, and returns a typed no-fit pause for `E=1`. Calibrated EPYC
+   estimator profiles, campaign-CLI bootstrap wiring, frontier coordinator,
+   reducer hydration policy, and checkpoint barrier remain. The low-level
+   admission constructor already consumes and retains the width plan and cannot
+   erase its warmed execution reserve.
+   Implement that bounded coordinator before finishing
    `GeneratedFamilySymbolicResidualSolveV1` with
    exceptional scheduling, solved-subsector feedback, a proved coverage fixed
    point, exact residual verification, and the distinct 36-source session

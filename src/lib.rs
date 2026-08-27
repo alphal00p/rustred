@@ -41,6 +41,7 @@ pub mod affine_prepare_points;
 pub mod automatic_isps;
 pub mod base_specialization;
 pub mod campaign_admission;
+pub mod campaign_execution_width;
 pub mod campaign_plan;
 pub mod campaign_resources;
 pub mod campaign_work;
@@ -294,6 +295,12 @@ pub use campaign_admission::{
     CampaignResidentTransformPanic, CampaignResidentTransformTask, CampaignTaskContext,
     CampaignTaskExecution, CampaignTaskFailure, CampaignTaskPanic, CampaignTaskReservation,
     CampaignWaveExecutionAdmissionFailure, CampaignWaveReservation,
+};
+pub use campaign_execution_width::{
+    CAMPAIGN_EXECUTION_WIDTH_PLAN_V1_SCHEMA, CampaignExecutionFixedMemory,
+    CampaignExecutionWidthError, CampaignExecutionWidthPause, CampaignExecutionWidthPlan,
+    CampaignExecutionWidthPlanner, CampaignExecutionWidthPlanningOutcome,
+    CampaignExecutionWidthRequest,
 };
 pub use campaign_plan::{
     CAMPAIGN_PLAN_V1_SCHEMA, CampaignDependencyInsertion, CampaignFamilyId, CampaignFamilyRecord,

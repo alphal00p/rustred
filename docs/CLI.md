@@ -397,13 +397,17 @@ rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
-The library contains the static multi-root plan, stateless core-plus-memory
-wave selection, a move-only atomic admission authority, and low-level stable
-wave/resident-transform execution primitives. The CLI still uses only the
-static plan for roots-only ingress; those primitives are not yet connected to
-a calibrated physical estimator, frontier coordinator, reducer execution
-command, or checkpoint barrier. This command does not derive sector rules or
-claim closure.
+The library contains the static multi-root plan, a versioned host-independent
+pre-pool effective-width planner, stateless core-plus-memory wave selection, a
+move-only atomic admission authority, and low-level stable wave/resident-
+transform execution primitives. The width plan enforces
+`M_operational < M_enclosing`, charges the coordinator and every possible
+warmed worker plus one minimum runnable task, and returns a typed no-fit pause
+without constructing a pool. The CLI still uses only the static plan for
+roots-only ingress; the library admission controller can consume and retain a
+plan, but calibrated estimator inputs, CLI bootstrap wiring, the frontier
+coordinator, reducer execution command, and checkpoint barrier are not
+connected yet. This command does not derive sector rules or claim closure.
 
 Multiple compact Symbolica family/integral expressions may supply the roots.
 The future execution TOML will additionally carry campaign-wide policies and
@@ -414,7 +418,7 @@ are specified in the
 
 For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
 `--n-cores 100` remains only a ceiling. Before building its pool, the campaign
-will derive and report an effective execution width `E` with
+library now derives an effective execution width `E` with
 `1 <= E <= --n-cores`. `E=1` runs on the coordinator without a worker pool;
 `E>1` creates `E` workers, while the separate coordinator remains another
 possible Symbolica Workspace owner. The fixed baseline therefore charges the
@@ -427,6 +431,7 @@ constructing another heavyweight task owner. It keeps the unadmitted ready
 frontier compact and may deliberately leave cores idle to respect
 `--max-memory`; operators should set that value below physical RAM to retain
 headroom for the OS and Symbolica memory that its public API cannot census.
-Future diagnostics record requested width, effective width, worker-thread
-count, and estimator revision as physical run metadata excluded from semantic
-hashes.
+The accepted plan already records requested width, effective width,
+worker-thread count, enclosing/operational limits, the fixed breakdown, and
+estimator revision as physical metadata excluded from semantic hashes. CLI
+reporting and named-host calibration remain pending.

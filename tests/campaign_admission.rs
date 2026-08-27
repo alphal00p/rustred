@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use rustred::{
     AffineDenominator, CampaignAdmissionController, CampaignAdmissionError, CampaignBytes,
-    CampaignEstimatorRevision, CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits,
-    CampaignResident, CampaignResidentToken, CampaignResidentTransformBuildFailure,
-    CampaignResidentTransformExecution, CampaignRootSpec, CampaignTaskExecution,
-    CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate, CampaignWavePlanner, CampaignWorkKey,
-    CoefficientContext, IntegralFamily, IntegralOrderingPolicy, ParallelExecution, SectorMask,
+    CampaignEstimatorRevision, CampaignExecutionFixedMemory, CampaignExecutionWidthPlanner,
+    CampaignExecutionWidthPlanningOutcome, CampaignExecutionWidthRequest, CampaignMemoryEstimate,
+    CampaignPlan, CampaignPlanLimits, CampaignResident, CampaignResidentToken,
+    CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution, CampaignRootSpec,
+    CampaignTaskExecution, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
+    CampaignWavePlanner, CampaignWorkKey, CoefficientContext, IntegralFamily,
+    IntegralOrderingPolicy, SectorMask,
 };
 
 const REVISION: u64 = 1;
@@ -74,14 +76,44 @@ fn jobs(count: usize) -> Vec<CampaignWorkKey> {
 }
 
 fn controller(cores: usize, max_memory: u64, fixed: u64) -> CampaignAdmissionController {
-    CampaignAdmissionController::try_new(
-        ParallelExecution::try_new(cores).unwrap(),
-        CampaignEstimatorRevision::try_new(REVISION).unwrap(),
-        CampaignBytes::new(max_memory),
+    let revision = CampaignEstimatorRevision::try_new(REVISION).unwrap();
+    let fixed_memory = CampaignExecutionFixedMemory::try_new(
         CampaignBytes::new(fixed),
         CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
+        CampaignBytes::ZERO,
     )
-    .unwrap()
+    .unwrap();
+    let minimum_task = CampaignTaskResourceEstimate::try_new(
+        revision,
+        1,
+        CampaignTaskMemoryEnvelope::try_new(
+            CampaignMemoryEstimate::zero(),
+            CampaignMemoryEstimate::zero(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let request = CampaignExecutionWidthRequest::try_new(
+        revision,
+        cores,
+        CampaignBytes::new(max_memory.checked_add(1).unwrap()),
+        CampaignBytes::new(max_memory),
+        fixed_memory,
+        minimum_task,
+    )
+    .unwrap();
+    let CampaignExecutionWidthPlanningOutcome::Ready(plan) =
+        CampaignExecutionWidthPlanner::try_plan(request).unwrap()
+    else {
+        panic!("test controller baseline must fit")
+    };
+    assert_eq!(plan.effective_width(), cores);
+    CampaignAdmissionController::try_from_execution_width_plan(plan).unwrap()
 }
 
 fn memory(retained: u64, transient: u64) -> CampaignTaskMemoryEnvelope {
