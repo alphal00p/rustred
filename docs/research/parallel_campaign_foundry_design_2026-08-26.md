@@ -17,11 +17,19 @@ capacity/baseline snapshots, deterministic wave keys, checked aggregate
 core/byte counts, and a distinct move-only admission authority. That authority
 replays a frozen plan and atomically charges an entire wave; task and resident
 owners release or transfer their exact estimates, including old/new overlap,
-under panic-safe guards. The roots-only campaign CLI authenticates only the
-user's declarations. None of these layers observes RSS, estimates a physical
-family, dispatches a worker, constructs or hydrates a reducer, normalizes a
-target numerator, discovers dependencies, checkpoints, proves closure, or
-publishes rules. Those executor and mathematical stages remain unimplemented.
+under panic-safe guards. A stable indexed low-level executor now runs admitted
+move-only work and commits its results after a canonical barrier; a genuine
+exact session has passed through its resident-transform path. The roots-only
+campaign CLI authenticates only the user's declarations. A separate sealed
+publication-handoff wave now transfers committed exact-session event owners
+without copying their algebraic payload, keeps one atomic byte per leaf, and
+bounds live borrowed tickets independently of worker count. It is not yet the
+exceptional-source queue or a result-buffer admission controller. These layers
+still do not observe RSS, estimate a physical family, construct a calibrated
+memory-derived effective-width pool, hydrate a full frontier, normalize a
+target numerator, discover dependencies, checkpoint, prove closure, or
+publish rules. Those production-coordinator and mathematical stages remain
+unimplemented.
 
 ## 1. Objective
 

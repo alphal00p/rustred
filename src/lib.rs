@@ -114,6 +114,7 @@ mod generated_affine_residual_case_reelimination;
 mod generated_affine_residual_group_exact_database;
 mod generated_affine_residual_group_exact_physical_row;
 mod generated_affine_residual_group_exact_publication;
+mod generated_affine_residual_group_exact_publication_handoff;
 #[cfg(test)]
 mod generated_affine_residual_group_exact_publication_tests;
 mod generated_affine_residual_group_exact_recenter_kernel;

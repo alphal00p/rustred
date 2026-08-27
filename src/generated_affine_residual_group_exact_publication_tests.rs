@@ -36,7 +36,7 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
 use crate::native_sparse_scaling::NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA;
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
-fn ready_for_publication(
+pub(crate) fn ready_for_publication(
     name: &str,
 ) -> (
     IntegralFamily,

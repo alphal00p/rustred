@@ -42,7 +42,8 @@ complete mathematical workflow.
 | Bind integral ordering into normalized coverage authority | Implemented and independently validated in normalized-source V2 at pushed checkpoint `c593865`; public library/CLI integration is pending |
 | Bridge a direct actionable residual through case authority, ordering, physical frame, solve plan, and exact session | Implemented internally for a singleton case with allocation-independent stable identity; selector-independent compact affine maps feed condition/materialization/partition owners and the compact application-event commit |
 | Project physical-parameter identities, schedule/materialize exact Ready conditions, and partition their relative bad domain | Implemented internally: Symbolica projects both denominator identities, exact lazy hazards become boundary events, and the current-lineage arbitrary-width OR-of-AND `WhenBad` formula is compiled into final relative cases without topology or loop-count dispatch |
-| Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes. An owning exactly-once queue, closure, durable rule artifacts, and application remain pending |
+| Prepare, commit, and inspect a compact application event | Implemented internally: one move-only input advances the exact database and consumes one selected target; its shallow event owner exposes zero-copy applicable-rule and exceptional-residual views, target premises/geometry, pivot metadata, canonical loci, final cases, and one-byte routes |
+| Compile committed events into a bounded parallel handoff wave | Implemented internally: move-only receipts are canonically ordered by campaign job, exact-session lane, and event; duplicate or mis-scoped owners reject transactionally; one atomic byte tracks each leaf; and non-cloneable borrowed tickets have a hard live-count ceiling. This acknowledges handoff acceptance only. Exceptional-source re-entry, result-buffer admission, provider application, closure, and durable rule artifacts remain pending |
 | Chronologically replay committed generated-affine exact-session transitions | Available for Dependent, NoTarget, and affine-equality transitions in the implemented slices; compact application events are retained for the forward path, but their optional audit replay is pending |
 | Process a concrete numerator through tensor projection and scalar lowering | Available through the direct library path |
 | Track published LiteRed notebook semantic acceptance coverage | Eight LiteRed 1.x plus three LiteRed2 notebooks are inventoried at level 0; no translated notebook acceptance fixture or complete workflow passes yet |
@@ -438,11 +439,17 @@ The repository currently includes tests for:
   source recipe, and pivot evidence are not retained by that event. The frozen
   post-commit licensed default-GMP gate used four Nextest workers and passed
   all 1,658 runnable tests, with 5 configured cases skipped; the following
-  doctest phase also passed. A subsequent focused slice added one shallow
-  event `Arc` plus zero-copy rule/residual projections and retained the
-  already-proved pivot-term ordinal and immutable target domain/geometry. No
-  owning residual queue, provider scheduling, rule application, publication
-  audit replay, physical-topology reduction, or six-loop solve is claimed; and
+  doctest phase also passed. Subsequent focused slices added one shallow event
+  `Arc` plus zero-copy rule/residual projections and retained the already-proved
+  pivot-term ordinal and immutable target domain/geometry, then compiled those
+  event owners into a sealed handoff wave. Its licensed default-GMP gate passed
+  10/10 focused tests, including bounded out-of-order 1/2/4-worker resolution
+  with identical full semantic transcripts and exact/one-below transactional
+  memory limits. The handoff keeps one event handle per slot and one atomic byte
+  per leaf; a live-ticket ceiling is independent of `--n-cores`. No owning
+  residual-source queue, admitted result-buffer layer, provider scheduling,
+  rule application, publication audit replay, physical-topology reduction, or
+  six-loop solve is claimed; and
 - a static, topology-neutral multi-root campaign core in
   [`src/campaign_plan.rs`](src/campaign_plan.rs): exact-representation family
   and job interning, distinct ingress roots, replayable strict
@@ -564,9 +571,11 @@ successor copies the complete disposition vector. Before the multi-loop
 foundry is scaled, these paths must become a chunked/persistent event log and a
 shared or paged copy-on-write target state. The compact application event now
 retains its application payload once, and its rule/residual projections are
-shallow views rather than duplicate deep payload vectors. Exactly-once
-consumption belongs to the future owning work queue; the repeatable inspection
-views do not claim it.
+shallow views rather than duplicate deep payload vectors. The repeatable event
+views themselves do not claim exactly-once consumption; the following sealed
+handoff wave now provides exactly-once acceptance tickets without copying that
+payload. Converting accepted exceptional leaves into owning residual sources
+and closing them remains future work.
 
 The B0 algebra blocker has been removed. [`src/exact.rs`](src/exact.rs) now
 keeps only a nominal RustRed wrapper around Symbolica's GMP `Rational`; scalar
@@ -704,14 +713,14 @@ remaining generic LiteRed-style foundry work is to:
    complete easiest-first column catalog into the live exact database, expose
    its telemetry to physical campaign profiles, and retain exact regenerated-
    residual checks around the Symbolica transcript authority;
-2. implement the minimal topology-neutral campaign plan with exact
-   representation-level job deduplication, shared proper-subsector children,
-   a deterministic ready-job antichain, and identical plan/results under root
-   permutation and 1/2/4-worker execution; retain one serial Symbolica reducer
-   per independently schedulable affine case lane;
-3. add an owning exactly-once exceptional queue, a sealed committed-
-   exceptional source, and rejected-candidate continuation; then integrate
-   provider scheduling;
+2. integrate the implemented topology-neutral plan, resource admission, and
+   low-level bounded executor into the production frontier coordinator; keep
+   plan/results identical under root permutation and 1/2/4-worker execution,
+   and retain one serial Symbolica reducer per independently schedulable affine
+   case lane;
+3. consume the implemented exactly-once event handoff into an owning
+   exceptional-source queue, add a sealed committed-exceptional source and
+   rejected-candidate continuation, and then integrate provider scheduling;
 4. feed solved subsectors into supersectors, iterate residual cases, and prove
    closure onto a finite enumerated set of selected or independently certified
    terminal keys (or finite products), never a symbolic residual domain;

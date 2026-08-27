@@ -877,6 +877,35 @@ designated consumer accepted the handoff—never rule application, exceptional
 discharge, coverage, closure, terminal status, zero, or master status. Provider
 and residual-source ingress remain pending.
 
+The production coordinator must make this handoff follow conjunctive
+core-and-memory admission on a roughly 100-core/1-TiB EPYC target. `--n-cores`
+is only the invocation-wide compute ceiling: it will choose the effective
+execution width before constructing its one pool, then hydrate only the
+deterministic subset whose complete retained and transient estimates fit the
+current memory envelope. The rest of the logical frontier remains compact plan
+metadata; idle cores are correct when RAM admits no additional owner.
+
+Publication events and later committed-descendant material remain shallow,
+shared owners. Tickets carry indices, not copied rows, partitions, or flattened
+transitive descendant rule sets, so storage must never grow as
+`O(workers * transitive payload)`. The implemented handoff bounds the number
+and therefore the fixed-size retained envelope of live borrowed tickets. It
+also reports and gates the retained event allocations transferred into the
+wave. Shared exact-session authority, family plans, and catalogs remain a
+campaign-baseline/deduplicated-owner charge; they are not multiplied by the
+number of slots merely because several events reference them.
+
+These handoff limits are component gates, not a standalone RSS formula. The
+campaign coordinator must conjunctively sum its shared baseline, deduplicated
+resident event charge, incremental handoff peak, admitted worker scratch, and
+buffered-result/downstream-owner envelopes before hydrating a wave.
+
+The production coordinator must still put independently admitted permits on
+worker result buffers and downstream exceptional-source owners. Those results
+must be durably staged or merged and charged temporaries dropped before their
+permits are released. Newly discovered exceptional or dependency work is not
+hydrated by the current workers: it enters the next sealed, admitted wave.
+
 ### Phase E: provider integration, persistence, and optional audit
 
 The normal provider path reads the committed event directly and performs no
@@ -1005,7 +1034,7 @@ representation result; an exception or exhausted limit is operational.
 | `NoTarget` | Commit pivot; advance source | All unresolved/consumed dispositions preserved | NoTarget event | None |
 | `RequiresAffineEqualityRefinement` | Commit pivot; advance source, then stop group | Selected target remains unsolved; refined epoch required | Mandatory refinement event | None |
 | Prepared publication, `B=False` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with a shallow owning handle | Zero-copy applicable-rule view; provider pending |
-| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with zero-copy applicable/exceptional views; owning scheduling pending | Zero-copy applicable-rule views; provider pending |
+| Prepared publication, mixed `B` | Commit pivot; advance source | Consume exactly selected Ready target | Compact publication event with zero-copy applicable/exceptional views and a frozen exactly-once handoff; exceptional-source scheduling pending | Zero-copy applicable-rule views; provider pending |
 | `IdenticallyBad` | Commit pivot; advance source | Selected target remains unresolved | Rejected-candidate event; no duplicate residual | None |
 | Deterministic unsupported representation | Commit pivot; advance source | Selected target remains unresolved | Typed reason/requeue only; no duplicate exceptional residual leaf | None |
 | Stale live state, allocation, arithmetic, or limit failure | Commit nothing | Unchanged | None | None |

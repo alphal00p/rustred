@@ -1469,6 +1469,21 @@ impl CommittedPublicationEventHandle {
             event: self.event.as_ref(),
         }
     }
+
+    /// Process-local identity used only by the frozen publication-handoff
+    /// compiler to reject two owners of the same committed event.  This value
+    /// is never a mathematical, durable, or ordering identity.
+    pub(crate) fn event_allocation_identity_for_handoff(&self) -> usize {
+        Arc::as_ptr(&self.event) as usize
+    }
+
+    /// Process-local identity of the exact session authority behind this
+    /// event.  The handoff compiler uses it only to detect conflicting stable
+    /// lane keys; canonical ordering continues to use caller-supplied stable
+    /// lane metadata and visible event coordinates.
+    pub(crate) fn session_authority_allocation_identity_for_handoff(&self) -> usize {
+        Arc::as_ptr(&self.event.authority) as usize
+    }
 }
 
 impl fmt::Debug for CommittedPublicationEventHandle {
@@ -1954,6 +1969,27 @@ impl PublicationReceipt {
 
     pub(crate) fn into_event_handle(self) -> CommittedPublicationEventHandle {
         self.event
+    }
+
+    pub(crate) fn event_allocation_identity_for_handoff(&self) -> usize {
+        self.event.event_allocation_identity_for_handoff()
+    }
+
+    pub(crate) fn session_authority_allocation_identity_for_handoff(&self) -> usize {
+        self.event
+            .session_authority_allocation_identity_for_handoff()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn duplicate_for_handoff_test(&self) -> Self {
+        Self {
+            event_ordinal: self.event_ordinal,
+            source_ordinal: self.source_ordinal,
+            pivot_ordinal: self.pivot_ordinal,
+            retained_event_bytes: self.retained_event_bytes,
+            stats: self.stats,
+            event: self.event.clone(),
+        }
     }
 }
 
