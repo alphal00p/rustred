@@ -291,6 +291,10 @@ rustred campaign verify bundle/ --exact
 rustred campaign inspect bundle/
 ```
 
+The library now contains the static multi-root plan and stateless
+core-plus-memory wave-selection primitives. These are not wired into the CLI
+yet and do not acquire runtime permits, derive sector rules, or claim closure.
+
 Multiple compact Symbolica family/integral expressions may supply the roots,
 while TOML carries campaign-wide policies and resources. `--n-cores` and memory
 admission may change timing only. The deterministic work-unit, closure,

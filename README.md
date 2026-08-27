@@ -390,6 +390,16 @@ The repository currently includes tests for:
   already-proved pivot-term ordinal and immutable target domain/geometry. No
   owning residual queue, provider scheduling, rule application, publication
   audit replay, physical-topology reduction, or six-loop solve is claimed; and
+- a static, topology-neutral multi-root campaign core in
+  [`src/campaign_plan.rs`](src/campaign_plan.rs): exact-representation family
+  and job interning, distinct ingress roots, replayable strict
+  proper-subsector dependencies, and deterministic dependency-ready
+  antichains. Its companion resource selector computes checked stable
+  first-fit candidate waves without constructing heavy task owners; a
+  synthetic 100-job/100-core/1-TiB test admits 57 jobs and intentionally leaves
+  cores idle under RAM pressure. This is not yet the atomic runtime admission
+  controller, campaign CLI, derivation scheduler, closure proof, checkpoint, or
+  rule bundle; and
 - seven end-to-end numerator-spelling closure pairs in
   [`tests/one_loop_numerator_cancellation_closure.rs`](tests/one_loop_numerator_cancellation_closure.rs):
   scalar and squared denominator cancellation, rank-two/rank-four/rank-six
@@ -692,9 +702,11 @@ and exceptional views without copying the row or partition. The complete
 physical-key catalog and differential shadow now make the tested Symbolica
 adapter authoritative in the exact database. Its deterministic committed
 native-sparse snapshot is a crate-private campaign seam; wall time and RSS stay
-outside algebraic state. The immediate gates are physical-family profiling,
-the minimal shared-child campaign plan, then the owning exceptional/subsector
-scheduler and a proved coverage fixed point.
+outside algebraic state. The static shared-child campaign plan and stateless
+core-plus-memory wave selection are now implemented. The immediate gates are
+physical-family profiling, the campaign CLI/atomic move-only admission
+controller, then the owning exceptional/subsector scheduler and a proved
+coverage fixed point.
 Closed-shard campaign bundling and a physical six-loop derivation gate
 precede optimized application and optional publication audit replay. The
 `rustred derive` command remains a raw parametric-IBP/LI generator and does not

@@ -40,6 +40,8 @@ pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
 pub mod automatic_isps;
 pub mod base_specialization;
+pub mod campaign_plan;
+pub mod campaign_resources;
 pub mod certified_rewrite;
 pub mod certified_rule_provider;
 pub mod certified_symmetry_provider;
@@ -279,6 +281,18 @@ pub use base_specialization::{
     BaseSpecializationLimits, FamilyDomainConditionSource, FamilyDomainEvaluation,
     FamilyDomainEvaluationStatus, GuardedBaseCoefficient, InapplicableFamilyDomainCondition,
     SpecializedBasePolynomial,
+};
+pub use campaign_plan::{
+    CAMPAIGN_PLAN_V1_SCHEMA, CampaignDependencyInsertion, CampaignFamilyId, CampaignFamilyRecord,
+    CampaignJobKey, CampaignPlan, CampaignPlanError, CampaignPlanLimits, CampaignPlanStats,
+    CampaignRootId, CampaignRootInsertion, CampaignRootRecord, CampaignRootSpec,
+    PlannedCampaignJob, ProperSubsectorWitness,
+};
+pub use campaign_resources::{
+    CAMPAIGN_RESOURCE_POLICY_V1_SCHEMA, CampaignBaselineMemory, CampaignBytes,
+    CampaignEstimatorRevision, CampaignMemoryEstimate, CampaignResourceError,
+    CampaignResourcePolicy, CampaignResourceWavePlan, CampaignTaskMemoryEnvelope,
+    CampaignTaskResourceEstimate, CampaignWavePlanner,
 };
 pub use certified_rewrite::{
     CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA, CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA,

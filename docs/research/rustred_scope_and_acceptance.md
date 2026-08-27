@@ -125,12 +125,15 @@ artifact format is intentionally declared stable. Every cached rule must remain
 reproducibly derivable from the generic engine; signatures are optional.
 
 `PreparedPublication` is an internal move-owned live-session value, not the
-durable format and not a complete rule set. The planned `CampaignPlan` will
-also not be a durable rule artifact: it is a topology-neutral scheduling value
+durable format and not a complete rule set. The implemented static
+`CampaignPlan` core is likewise not a durable rule artifact: it is a
+topology-neutral scheduling value
 containing roots, exact job identities, dependencies, and deterministic ready-
-job antichains, with no rules and no `Closed` claim. Its first implementation
-slice will use exact family-representation identity and identity ingress, share
-strict proper-subsector children, and reject cycles and non-descending edges.
+job antichains, with no rules and no `Closed` claim. This first slice uses exact
+family-representation identity and identity ingress, shares witnessed strict
+proper-subsector children, and rejects non-descending edges. Cross-family edges,
+dependency discovery, execution state, closure, and durable artifacts remain
+future work.
 
 A durable multi-start campaign contains immutable coverage-closed shards keyed
 by the topology-neutral `(convention, family, sector, ordering, coefficient
@@ -537,7 +540,7 @@ generated IBP/LI rows
    -> guarded differential/provenance replay                     [implemented]
 -> committed native sparse telemetry                            [implemented]
 -> benchmark export + persistent-reducer scaling study          [next]
--> topology-neutral CampaignPlan: shared-child DAG + ready antichain
+-> topology-neutral CampaignPlan: shared-child DAG + ready antichain       [implemented, static only]
 -> owning provider/residual scheduling
 -> exceptional-domain recursion and solved-subsector feedback
 -> coverage fixed point (publication replay is an optional audit)

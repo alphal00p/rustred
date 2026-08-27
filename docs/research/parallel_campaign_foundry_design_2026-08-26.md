@@ -4,6 +4,18 @@ Status: governing design for parallel derivation from one or more
 user-provided starting topologies. This is an implementation plan, not a claim
 that the campaign scheduler or a coverage-closed rule bundle exists today.
 
+Implementation checkpoint (2026-08-26): the topology-neutral static
+`CampaignPlan` core now interns exact-representation families/jobs, retains
+multiple ingress roots, accepts only witnessed strict proper-subsector edges,
+and projects deterministic dependency-ready antichains without enumerating all
+sectors. A separate stateless resource selector computes stable first-fit
+candidate waves under checked core and estimated-memory snapshots; its
+100-job/100-core/1-TiB synthetic test deliberately admits only 57 one-core
+jobs when RAM is the bottleneck. This selector does **not** reserve resources.
+The move-only atomic core-plus-memory lease, heavyweight executor, CLI,
+checkpointing, dependency discovery, derivation, closure, and publication
+remain unimplemented.
+
 ## 1. Objective
 
 RustRed must accept a set of starting integral families/topologies, derive its
@@ -664,8 +676,8 @@ enum CampaignTaskOutcome {
     Completed(TaskDelta),
     PausedForDependencies,
     PausedForMemoryAdmission {
-        estimated: usize,
-        campaign_limit: usize,
+        estimated: CampaignBytes,
+        campaign_limit: CampaignBytes,
         checkpoint: CheckpointId,
     },
     ResumableResourceLimit(ResourceFailure),
@@ -708,6 +720,13 @@ resource-limited frontier remains unresolved.
 The retained Symbolica sparse adapter and complete easiest-first catalog are
 prerequisites for phase 2. Phase 1 can begin as soon as their live exact-
 database integration has a stable private transaction boundary.
+
+The implemented V1 static-plan subset covers identity ingress, shared
+proper-subsector jobs, replayable strict-descent witnesses, and the pure
+job-antichain projection. Phase-aware work records and execution/progress state
+belong to the later workspace/executor and are not claimed by `CampaignPlan`.
+Likewise, the implemented wave selector is a deterministic calculation over a
+policy snapshot, not the phase-2 atomic admission controller.
 
 ## 9. Acceptance matrix
 
