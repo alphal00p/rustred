@@ -174,18 +174,6 @@ pub enum GuardOrigin {
     /// Original denominator of a coefficient specialized separately from a
     /// relation.
     CoefficientSpecializationDenominator,
-    /// A condition inserted through the polynomial-only shift-operator API.
-    ExplicitShiftOperatorCondition,
-    /// The condition was attached to this operator expression.
-    ShiftOperatorConditionAttached { row: GuardRowId },
-    /// Denominator of a scalar coefficient before operator-term insertion.
-    ShiftOperatorInputTermDenominator { row: GuardRowId },
-    /// Denominator after collecting equal operator monomials.
-    ShiftOperatorCollectedTermDenominator { row: GuardRowId },
-    /// The relation-to-operator adapter carried this condition.
-    ShiftOperatorFromRelationAdapter { row: GuardRowId },
-    /// The operator-to-relation adapter carried this condition.
-    ShiftOperatorToRelationAdapter { row: GuardRowId },
 }
 
 impl GuardOrigin {
@@ -271,29 +259,6 @@ impl GuardOrigin {
             }
             Self::CoefficientSpecializationDenominator => {
                 writer.write_str("coefficient-specialization-denominator")
-            }
-            Self::ExplicitShiftOperatorCondition => {
-                writer.write_str("explicit-shift-operator-condition")
-            }
-            Self::ShiftOperatorConditionAttached { row } => {
-                writer.write_str("shift-operator-condition-attached:")?;
-                row.write_stable(writer)
-            }
-            Self::ShiftOperatorInputTermDenominator { row } => {
-                writer.write_str("shift-operator-input-term-denominator:")?;
-                row.write_stable(writer)
-            }
-            Self::ShiftOperatorCollectedTermDenominator { row } => {
-                writer.write_str("shift-operator-collected-term-denominator:")?;
-                row.write_stable(writer)
-            }
-            Self::ShiftOperatorFromRelationAdapter { row } => {
-                writer.write_str("shift-operator-from-relation-adapter:")?;
-                row.write_stable(writer)
-            }
-            Self::ShiftOperatorToRelationAdapter { row } => {
-                writer.write_str("shift-operator-to-relation-adapter:")?;
-                row.write_stable(writer)
             }
         }
     }

@@ -653,9 +653,17 @@ prototype event is not a closed branch.
    mathematical kernels, use Symbolica-native polynomial/matrix operations,
    keep arbitrary numerator weights as opaque `Atom`s separate from exact IBP
    coefficients, and use orbit-quotient projector solves rather than dense
-   pairing-space inversion. The first vertical sentinel reuses Vakint's
-   checked one-loop `(k_mu k_nu + k.p)` analytic test and independently checks
-   projected tensor form, raw master coefficient, and final Laurent series.
+   pairing-space inversion. The untested legacy tensor SCC is deleted rather
+   than moved. Its fresh replacement must specify and test deterministic
+   pairings/contraction cycles with Gram entries `d^cycles`, covariant metric
+   precontraction, generic affine scalar-product lowering, and caller-supplied
+   Symbolica heads. A pre-sentinel with custom non-Vakint heads lowers
+   `dot(k,p)*k(mu)` for `D=k^2+m^2` to the complete covariant-keyed result
+   `p(mu)/d * [I(0)-m^2 I(1)]` with the `d != 0` guard, and checks deterministic
+   rank-four pairing/Gram behavior. The first vertical Vakint sentinel reuses
+   Vakint's checked one-loop `(k_mu k_nu + k.p)` analytic test and independently
+   checks projected tensor form, raw master coefficient, and final Laurent
+   series.
 6. When a real FORM >= 4.2.1 executable becomes available, run Vakint's
    existing one- through four-loop end-to-end tests through the pinned
    alphaLoop, MATAD, and/or FMFT backends only in the segregated oracle job.
@@ -785,7 +793,7 @@ partial:
 
 - topology-neutral family lowering and raw parametric IBP/LI generation;
 - the synthetic `L=6`, `K=21`, 36-source generation/stress fixture;
-- automatic ISP completion and several zero/symmetry/tensor foundations;
+- automatic ISP completion and several zero/symmetry foundations;
 - exact Symbolica coefficient/row primitives available to a future clean
   solving boundary;
 - static multi-root planning and preliminary memory-width admission; and
@@ -807,6 +815,9 @@ The following claims are explicitly false at this baseline:
   or closed a sector;
 - after the reset there is no production foundry until Phase 1 builds one
   cleanly;
+- the deleted tensor prototype SCC is not a retained tensor-reduction
+  capability; the tensor boundary is rebuilt from fresh contracts and
+  sentinels;
 - the current family inventory is unsuitable for `K=21` because it eagerly
   enumerates sectors and its default cap is below `2^21`;
 - public family/fixed-point routes still reach handwritten eliminators;

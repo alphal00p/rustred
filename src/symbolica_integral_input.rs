@@ -4802,7 +4802,7 @@ mod tests {
 
     #[test]
     fn numeric_preconversion_envelope_checks_boundary_and_power_growth() {
-        compiler_with(|limits| limits.max_preconversion_integer_bits = 21)
+        let _ = compiler_with(|limits| limits.max_preconversion_integer_bits = 21)
             .parse_expression("12345")
             .expect("the exact conservative numeric-bit boundary should pass");
         let one_below = compiler_with(|limits| limits.max_preconversion_integer_bits = 20)
@@ -4845,10 +4845,10 @@ mod tests {
     #[test]
     fn explicit_text_fields_share_one_preconversion_integer_budget() {
         let compiler = compiler_with(|limits| limits.max_preconversion_integer_bits = 20);
-        compiler
+        let _ = compiler
             .parse_expression("99")
             .expect("the dimension field is individually below the budget");
-        compiler
+        let _ = compiler
             .parse_expression("k^2-99")
             .expect("the denominator field is individually below the budget");
         let aggregate = compiler.compile_text_parts(TextProjectPartsV1 {
@@ -4921,7 +4921,7 @@ mod tests {
 
     #[test]
     fn raw_preflight_rejects_depth_integer_and_unique_name_excesses() {
-        compiler_with(|limits| limits.max_atom_nodes = 5)
+        let _ = compiler_with(|limits| limits.max_atom_nodes = 5)
             .parse_expression("a+b")
             .expect("the exact conservative flat lexical boundary should pass");
         let flat = compiler_with(|limits| limits.max_atom_nodes = 4).parse_expression("a+b");
@@ -4992,7 +4992,7 @@ mod tests {
             })
         ));
 
-        compiler_with(|limits| limits.max_abs_power = 4)
+        let _ = compiler_with(|limits| limits.max_abs_power = 4)
             .parse_expression("x^4")
             .expect("the exact raw power boundary should be accepted");
         let power =

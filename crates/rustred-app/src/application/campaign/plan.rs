@@ -7,7 +7,6 @@ use rustred::campaign::{
 };
 use rustred::{IntegralOrderingPolicy, SectorMask};
 use serde::{Deserialize, Serialize};
-use symbolica::prelude::AtomCore;
 
 use super::super::error::AppError;
 use super::super::input::{

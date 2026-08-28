@@ -93,12 +93,6 @@ impl SectorMask {
         &self.active
     }
 
-    pub(crate) fn owned_retained_byte_bound(&self) -> Option<usize> {
-        self.active
-            .capacity()
-            .checked_mul(std::mem::size_of::<bool>())
-    }
-
     pub fn is_active(&self, position: usize) -> Result<bool, SectorFoundationError> {
         self.active
             .get(position)
@@ -733,20 +727,6 @@ impl IntegralComplexityKey {
         &self.index_excess
     }
 
-    /// Conservative owned dynamic payload retained by a clone of this key.
-    ///
-    /// The outer struct itself is accounted for by its enclosing container;
-    /// this bound covers the two owned vector allocations only.  It is kept
-    /// crate-private because it is a resource-accounting seam, not part of the
-    /// ordering semantics.
-    pub(crate) fn owned_retained_byte_bound(&self) -> Option<usize> {
-        self.sector.owned_retained_byte_bound()?.checked_add(
-            self.index_excess
-                .capacity()
-                .checked_mul(std::mem::size_of::<u128>())?,
-        )
-    }
-
     /// Stable text encoding for persistence diagnostics and golden tests.
     pub fn to_stable_string(&self) -> String {
         let excess = self
@@ -791,33 +771,6 @@ pub struct StrictDescentWitness {
 }
 
 impl StrictDescentWitness {
-    /// Prospective dynamic payload of a witness built from two keys of the
-    /// supplied arity.  Both key constructors reserve their complete sector
-    /// and excess vectors before filling them, so this is the pre-allocation
-    /// counterpart of [`Self::owned_retained_byte_bound`].
-    pub(crate) fn prospective_owned_retained_byte_bound(arity: usize) -> Option<usize> {
-        // `Vec<bool>` reserves in machine-word bit blocks, while the ordinary
-        // excess vector may retain allocator-growth headroom. Use a
-        // conservative capacity envelope rather than assuming
-        // `capacity == len`.
-        let doubled = arity.checked_mul(2)?;
-        let excess_capacity = if arity == 0 { 0 } else { doubled.max(8) };
-        let bool_capacity = if arity == 0 {
-            0
-        } else {
-            let word_bits = usize::BITS as usize;
-            let requested = doubled.max(word_bits);
-            requested
-                .checked_add(word_bits.checked_sub(1)?)?
-                .checked_div(word_bits)?
-                .checked_mul(word_bits)?
-        };
-        let one_key = bool_capacity
-            .checked_mul(std::mem::size_of::<bool>())?
-            .checked_add(excess_capacity.checked_mul(std::mem::size_of::<u128>())?)?;
-        one_key.checked_mul(2)
-    }
-
     pub fn policy(&self) -> IntegralOrderingPolicy {
         self.policy
     }
@@ -840,14 +793,6 @@ impl StrictDescentWitness {
             && self.target < self.source
             && first_differing_component(&self.source, &self.target)
                 == Some(self.decisive_component)
-    }
-
-    /// Conservative owned dynamic payload retained by a clone of this
-    /// witness.  Both complexity keys own independent sector/excess vectors.
-    pub(crate) fn owned_retained_byte_bound(&self) -> Option<usize> {
-        self.source
-            .owned_retained_byte_bound()?
-            .checked_add(self.target.owned_retained_byte_bound()?)
     }
 }
 
@@ -1025,30 +970,6 @@ mod tests {
     use std::collections::{BTreeSet, HashSet};
 
     use super::*;
-
-    #[test]
-    fn strict_descent_witness_prospective_retained_bound_covers_observed_capacities() {
-        assert_eq!(
-            StrictDescentWitness::prospective_owned_retained_byte_bound(0),
-            Some(0),
-        );
-
-        for arity in 1..=130 {
-            let source = vec![1_i64; arity];
-            let mut target = source.clone();
-            target[0] = 0;
-            let witness = IntegralOrderingPolicy::RustRedUnshiftedV1
-                .prove_strict_descent(&source, &target)
-                .unwrap();
-            let prospective =
-                StrictDescentWitness::prospective_owned_retained_byte_bound(arity).unwrap();
-            let observed = witness.owned_retained_byte_bound().unwrap();
-            assert!(
-                observed <= prospective,
-                "arity {arity} retained {observed} bytes beyond prospective bound {prospective}",
-            );
-        }
-    }
 
     struct ImpossibleExactSizeHint<T> {
         value: Option<T>,

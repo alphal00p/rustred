@@ -16,11 +16,8 @@ mod work;
 pub use admission::{
     CAMPAIGN_ADMISSION_V1_SCHEMA, CampaignAdmissionController, CampaignAdmissionError,
     CampaignAdmissionSnapshot, CampaignAdmissionUsage, CampaignAdmittedTask, CampaignCommitFailure,
-    CampaignResident, CampaignResidentToken, CampaignResidentTransformBatchAdmissionFailure,
-    CampaignResidentTransformBindFailure, CampaignResidentTransformBuildFailure,
-    CampaignResidentTransformExecution, CampaignResidentTransformFailure,
-    CampaignResidentTransformPanic, CampaignResidentTransformTask, CampaignTaskContext,
-    CampaignTaskExecution, CampaignTaskFailure, CampaignTaskPanic, CampaignTaskReservation,
+    CampaignResident, CampaignResidentToken, CampaignTaskContext, CampaignTaskExecution,
+    CampaignTaskFailure, CampaignTaskPanic, CampaignTaskReservation,
     CampaignWaveExecutionAdmissionFailure, CampaignWaveReservation,
 };
 pub use execution::{ParallelExecution, ParallelExecutionError};
@@ -47,5 +44,3 @@ pub use resources::{
     CampaignTaskResourceEstimate, CampaignWavePlanner,
 };
 pub use work::{CampaignWorkKey, CampaignWorkUnitKey};
-
-pub(crate) use admission::CampaignFixedComponentReservation;

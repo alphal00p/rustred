@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `8f768ef`, immediately before the coefficient/relation and integer-matrix purge.
+**Baseline parent:** `3914d4f`, immediately before the shift/tensor/campaign prototype purge.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 54 tracked Rust source/test paths
+This ledger classifies every one of the 49 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 15 |
-| split | 36 |
-| delete | 2 |
+| split | 32 |
+| delete | 1 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -65,19 +65,14 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/work.rs` | split | campaign / rustred-app | rewrite around opaque work identities and delete publication-era variants |
 | `src/feynman_polynomials.rs` | split | family / sector | retain Symbolica-native construction under family; move face restriction to sector and delete handwritten CAS |
 | `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay |
-| `src/generic_tensor_family.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
-| `src/generic_tensor_projector.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
-| `src/shift_operators.rs` | delete | none | closed self-test/facade island with no app, IBP, reduction, or foundry caller; rebuild only a required future reduction primitive |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
-| `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/tensor.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/zero_sectors.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |

@@ -257,7 +257,8 @@ dumping-ground module.
 | root `src/lib.rs` | delete and write a small `crates/rustred-core/src/lib.rs`; do not preserve wholesale re-exports or schema compatibility |
 | `src/legacy_oracle_support.rs` | delete with `legacy-oracle-support` feature and every reference to it |
 | `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_affine_denominator.rs`, `symbolica_coefficient_matrix.rs` | move live checked primitives to `algebra/`; delete bespoke operations available through Symbolica |
-| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `shift_operators.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
+| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
+| `src/shift_operators.rs` | delete wholesale; it is a closed, uncalled intermediate with only self-tests and is not a reduction implementation |
 | `src/symbolica_integral_input.rs` | move core parsing/normalization to `input/`; transport and CLI decoding remain in `rustred-app` |
 | `src/parametric_ibp.rs`, `parametric_relation.rs`, and the topology-neutral part of `generated_symbolic_row_span.rs` | move live raw IBP/LI row construction and stable row provenance to `identity/`; remove “generated” naming |
 | `src/parametric_sector_normalized_source.rs`, `generated_cylindrical_family_source_set.rs`, `generated_cylindrical_row_system.rs`, `generated_affine_residual_source_authority.rs`, and high-level portions of `generated_symbolic_row_span.rs` | retain only raw topology-neutral identity values already used outside the prototype under `identity/`; delete exceptional scheduling, coverage, source-authority, and provider orchestration with the solver island |
@@ -274,7 +275,7 @@ dumping-ground module.
 | `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; future lazy closure formula types are designed afresh |
 | existing `src/solver/**` | delete wholesale as the audited dead prototype island; do not preserve the exact-session transaction, rollback, exceptional publication, or committed-re-entry machinery |
 | existing `src/campaign/**` and `src/campaign/execution.rs` | retain under `campaign/`; keep deterministic resource/width/execution semantics and remove facade duplication |
-| `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete `symbolica_target_numerator` and the legacy polynomial composer; extract only the proven value/pairing/contraction/orbit/lowering/Atom-boundary kernels from the other prototypes into the semantic `tensor/` children above; delete authentication/schema/census wrappers and use Symbolica-native CAS rather than moving any file wholesale |
+| `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete the complete uncalled and untested prototype SCC rather than moving it. Rebuild `tensor/` fresh from explicit pairing/cycle, covariant-precontraction, affine-lowering, and configurable-Atom contracts, using Symbolica-native CAS and the custom-head plus Vakint vertical sentinels |
 | `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
 | `src/symbolica_runtime.rs` | delete; direct public Symbolica API calls replaced its trivial wrappers, and no global initialization boundary is currently required |
 
@@ -508,6 +509,17 @@ only complete K(n) translation/specialization, guard provenance, direct
 Symbolica coefficient operations, and mathematical pre-operation bounds. They
 must still be renamed and split into the semantic algebra/identity owners;
 their shorter current files are not accepted as final root modules.
+
+This audited checkpoint deletes the closed shift-operator intermediate and
+the four-file, 7,829-line tensor prototype SCC, and prunes publication-era and
+unused transform/reservation campaign branches. It also deletes the matrix
+module's now-orphaned scalar-power wrapper and its self-tests; direct native
+coefficient power is reintroduced only at a live semantic owner. Tensor is
+rebuilt only after its fresh custom-head covariant/scalar-lowering and
+rank-four pairing sentinels exist; internal self-use and root re-exports were
+not accepted as liveness. The retained admission controller is bootstrapped
+only from a concrete checked width plan (not a stale optional plan) and keeps a
+fresh license-free exact-accounting sentinel.
 
 - Delete `src/solver/**` plus the dependent exact-session, closure,
   publication, re-entry, generated-affine/cylindrical/residual, and provider

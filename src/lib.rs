@@ -4,11 +4,8 @@
 //! The generic production path is loop-count and topology independent:
 //! [`IntegralFamily`] authenticates a complete affine scalar-product basis and
 //! [`ParametricIbpGenerator`] derives reusable ordinary and Lorentz-invariance
-//! identities over the exact field `K(n)`. [`IndexShiftOperatorExpression`]
-//! provides exact ordered `A`/`B` action and relation round trips; it is an
-//! intermediate whose coefficients may still contain `n`, not LiteRed's
-//! completed `ToAB` polynomial form. Loop/topology-authored recurrences are not
-//! part of the generic production crate and are not sources of generic
+//! identities over the exact field `K(n)`. Loop/topology-authored recurrences
+//! are not part of the generic production crate and are not sources of generic
 //! parametric identities or future discovered rules.
 
 pub mod algebra;
@@ -16,20 +13,15 @@ pub mod automatic_isps;
 pub mod campaign;
 pub mod feynman_polynomials;
 pub mod generic_family;
-pub mod generic_tensor_family;
-pub mod generic_tensor_projector;
 pub mod guards;
 pub mod parametric_coefficient;
 pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod sectors;
-pub mod shift_operators;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
-pub mod symbolica_tensor_numerator;
 pub mod symmetry;
 pub mod symmetry_discovery;
-pub mod tensor;
 pub mod zero_sectors;
 
 pub use automatic_isps::{
@@ -45,29 +37,6 @@ pub use generic_family::{
     AffineDenominator, BaseNonZeroCondition, ContractionMomentum, DenominatorExpansion,
     FamilyDomain, GenericFamily, GenericFamilyError, IntegralFamily,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
-};
-pub use generic_tensor_family::{
-    GENERIC_TENSOR_FAMILY_LOWERING_V1_SCHEMA, GenericScalarProductMonomial,
-    GenericTensorFamilyError, GenericTensorFamilyLimits, GenericTensorFamilyReducer,
-    GenericTensorFamilyStats, GenericTensorIntegralReduction, GenericTensorNumerator,
-    GenericTensorTerm, LoweredTensorCoefficient, TensorLoweringDomain, TensorLoweringGuardOrigin,
-    TensorLoweringNonZeroCondition, TensorLoweringOrigin,
-};
-pub use generic_tensor_projector::{
-    AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA, AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA,
-    AuthenticatedVacuumCovariantTensorProjection, AuthenticatedVacuumTensorLowering,
-    AuthenticatedVacuumTensorProjection, CovariantTensorMonomial,
-    GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V1_SCHEMA,
-    GENERIC_VACUUM_COVARIANT_TENSOR_PROJECTION_V2_SCHEMA,
-    GENERIC_VACUUM_TENSOR_PROJECTION_V1_SCHEMA, GENERIC_VACUUM_TENSOR_PROJECTION_V2_SCHEMA,
-    GenericCovariantTensorNumerator, GenericCovariantTensorTerm, GenericTensorProjectionDomain,
-    GenericTensorProjectionStats, GenericTensorProjectorError, GenericTensorProjectorLimits,
-    GenericVacuumTensorProjector, IndexedSpectatorVector, SpectatorScalarProduct,
-    SpectatorScalarProductMonomial, SpectatorVector, TensorCovariantStructure, TensorLoopReference,
-    TensorProjectionGuardOrigin, TensorProjectionNonZeroCondition,
-    VacuumCovariantPrecontractionWitness, VacuumCovariantTensorProjectionWitness,
-    VacuumCovariantVectorContractionWitness, VacuumMetricContractionWitness,
-    VacuumTensorProjectionWitness,
 };
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
 pub use parametric_coefficient::{
@@ -89,11 +58,6 @@ pub use sectors::{
     SectorExclusion, SectorFoundationError, SectorMask, SectorPattern, SectorPatternMismatch,
     SectorPatternSlot, SectorRestrictions, StrictDescentWitness,
 };
-pub use shift_operators::{
-    IndexShiftOperator, IndexShiftOperatorError, IndexShiftOperatorExpression,
-    IndexShiftOperatorKind, IndexShiftOperatorLimits, IndexShiftOperatorMonomial,
-    IndexShiftOperatorWord,
-};
 pub use symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,
     SymbolicaAffineDenominatorCompiler, SymbolicaAffineDenominatorError,
@@ -109,13 +73,6 @@ pub use symbolica_integral_input::{
     SymbolicaProjectLoweringError, SymbolicaProjectLoweringLimits, TextExternalGramInputV1,
     TextProjectPartsV1, TextPropagatorInputV1,
 };
-pub use symbolica_tensor_numerator::{
-    CompiledSymbolicaTensorNumerator, SymbolicaIndexAllocation, SymbolicaIndexAllocationOrigin,
-    SymbolicaSpectatorAllocation, SymbolicaTensorCompilationStats,
-    SymbolicaTensorNumeratorCompiler, SymbolicaTensorNumeratorError,
-    SymbolicaTensorNumeratorLimits, SymbolicaTensorSyntax,
-    SymbolicaWeightedCovariantTensorMonomial,
-};
 pub use symmetry::{
     AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap, AffineScalarProductMap,
     DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap, SymmetryVerificationError,
@@ -126,11 +83,6 @@ pub use symmetry_discovery::{
     INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA, InternalSymmetryCompatibilityError,
     InternalSymmetryKeyTransportError, InternalSymmetryReplayError,
     VerifiedInternalFamilyPermutationSymmetry, compile_internal_family_permutation_symmetry,
-};
-pub use tensor::{
-    IndexedVector, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
-    ScalarProductMonomial, SlotPairing, TensorConstructionLimits, TensorError, TensorMonomial,
-    TensorReduction, TensorTerm, VacuumTensorProjector, perfect_matching_count, perfect_matchings,
 };
 pub use zero_sectors::{
     FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalyzer,

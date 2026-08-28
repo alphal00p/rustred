@@ -16,36 +16,11 @@ use super::CampaignJobKey;
 pub enum CampaignWorkUnitKey {
     /// A generic, caller-defined lane within a planned job.
     JobLane { lane_ordinal: u64 },
-    /// One exceptional leaf emitted by an exact-publication epoch owner.
-    ///
-    /// `publication_epoch_ordinal` may be populated from the current
-    /// in-process epoch label. It is neither durable mathematical identity nor
-    /// an authentication or closure witness.
-    ExactPublicationExceptionalLeaf {
-        publication_epoch_ordinal: u64,
-        session_lane_ordinal: u64,
-        event_ordinal: u64,
-        leaf_ordinal: u64,
-    },
 }
 
 impl CampaignWorkUnitKey {
     pub const fn job_lane(lane_ordinal: u64) -> Self {
         Self::JobLane { lane_ordinal }
-    }
-
-    pub const fn exact_publication_exceptional_leaf(
-        publication_epoch_ordinal: u64,
-        session_lane_ordinal: u64,
-        event_ordinal: u64,
-        leaf_ordinal: u64,
-    ) -> Self {
-        Self::ExactPublicationExceptionalLeaf {
-            publication_epoch_ordinal,
-            session_lane_ordinal,
-            event_ordinal,
-            leaf_ordinal,
-        }
     }
 }
 
@@ -84,26 +59,6 @@ impl CampaignWorkKey {
             job,
             context_fingerprint,
             CampaignWorkUnitKey::job_lane(lane_ordinal),
-        )
-    }
-
-    pub fn exact_publication_exceptional_leaf(
-        job: CampaignJobKey,
-        context_fingerprint: impl Into<Arc<str>>,
-        publication_epoch_ordinal: u64,
-        session_lane_ordinal: u64,
-        event_ordinal: u64,
-        leaf_ordinal: u64,
-    ) -> Self {
-        Self::new(
-            job,
-            context_fingerprint,
-            CampaignWorkUnitKey::exact_publication_exceptional_leaf(
-                publication_epoch_ordinal,
-                session_lane_ordinal,
-                event_ordinal,
-                leaf_ordinal,
-            ),
         )
     }
 
@@ -178,42 +133,16 @@ mod tests {
         let context = "campaign-work-context".to_owned();
         let lane_zero = CampaignWorkKey::job_lane(job.clone(), context.clone(), 0);
         let lane_one = CampaignWorkKey::job_lane(job.clone(), context.clone(), 1);
-        let exceptional = CampaignWorkKey::exact_publication_exceptional_leaf(
-            job.clone(),
-            context.clone(),
-            3,
-            2,
-            5,
-            7,
-        );
-        let other_context = CampaignWorkKey::exact_publication_exceptional_leaf(
-            job.clone(),
-            "other-context",
-            3,
-            2,
-            5,
-            7,
-        );
+        let other_context = CampaignWorkKey::job_lane(job.clone(), "other-context", 1);
 
-        let keys = BTreeSet::from([
-            lane_zero.clone(),
-            lane_one.clone(),
-            exceptional.clone(),
-            other_context,
-        ]);
-        assert_eq!(keys.len(), 4);
+        let keys = BTreeSet::from([lane_zero.clone(), lane_one.clone(), other_context]);
+        assert_eq!(keys.len(), 3);
         assert_eq!(lane_zero.job(), &job);
         assert_eq!(lane_one.job(), &job);
-        assert_eq!(exceptional.job(), &job);
-        assert_eq!(exceptional.context_fingerprint(), context);
+        assert_eq!(lane_one.context_fingerprint(), context);
         assert_eq!(
-            exceptional.unit(),
-            &CampaignWorkUnitKey::ExactPublicationExceptionalLeaf {
-                publication_epoch_ordinal: 3,
-                session_lane_ordinal: 2,
-                event_ordinal: 5,
-                leaf_ordinal: 7,
-            }
+            lane_one.unit(),
+            &CampaignWorkUnitKey::JobLane { lane_ordinal: 1 }
         );
     }
 }
