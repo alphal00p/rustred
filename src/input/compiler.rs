@@ -1,13 +1,12 @@
-//! Strict, topology-neutral parsing of one complete Symbolica `I(...)` input.
+//! Strict, topology-neutral compilation of one complete integral-family input.
 //!
-//! This module owns syntax only.  Both the raw-expression CLI mode and the
-//! hybrid TOML mode compile into [`NormalizedProjectInputV1`]; the explicit
-//! TOML adapter constructs the same type through [`NormalizedProjectPartsV1`].
+//! Both the raw-expression CLI mode and the hybrid TOML mode compile into
+//! [`Project`]; the explicit TOML adapter constructs the same type through
+//! [`AtomProject`].
 //! Concrete target powers and the numerator are retained as input data but do
 //! not participate in universal parametric IBP generation.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::atom::{
@@ -19,17 +18,19 @@ use symbolica::parser::{Operator, ParseSettings, Token};
 use symbolica::prelude::*;
 use symbolica::state::Workspace;
 
-use crate::algebra::{Coefficient, CoefficientContext, CoefficientContextError};
-use crate::family::{AffineDenominator, IntegralFamily, IntegralFamilyError, IntegralFamilyLimits};
-use crate::symbolica_affine_denominator::{
-    CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorCompiler,
-    SymbolicaAffineDenominatorError, SymbolicaAffineDenominatorLimits,
-};
+use crate::algebra::{Coefficient, CoefficientContext};
+use crate::family::{AffineDenominator, IntegralFamily};
+use crate::symbolica_affine_denominator::SymbolicaAffineDenominatorCompiler;
 
-pub const RUSTRED_PROJECT_TOML_V1_SCHEMA: &str = "rustred.project.toml.v1";
-pub const RUSTRED_SYMBOLICA_INTEGRAL_V1_SCHEMA: &str = "rustred.symbolica-integral.v1";
-pub const RUSTRED_LOWERED_SYMBOLICA_PROJECT_V1_SCHEMA: &str =
-    "rustred.lowered-symbolica-project.v1";
+use super::error::{Error, LoweringError};
+use super::limits::{Limits, LoweringLimits, Stats};
+use super::model::{
+    LoweredDenominator, LoweredProject, ParameterSource, Project, ProjectSource, Propagator, Target,
+};
+use super::request::{AtomGramEntry, AtomProject, AtomPropagator, TextProject};
+
+#[cfg(test)]
+use super::request::TextPropagator;
 
 const RUSTRED_NAMESPACE_PREFIX: &str = "rustred::";
 const DEFAULT_FAMILY_NAME: &str = "symbolica_integral";
@@ -59,346 +60,8 @@ const RESERVED_NAMES: &[&str] = &[
     "J",
 ];
 
-/// Whether the exact base-field variable order was declared or inferred.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ParameterSourceV1 {
-    Declared,
-    Inferred,
-}
-
-impl ParameterSourceV1 {
-    pub const fn stable_id(self) -> &'static str {
-        match self {
-            Self::Declared => "declared",
-            Self::Inferred => "inferred",
-        }
-    }
-}
-
-/// One ordered denominator expression before affine lowering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NormalizedPropagatorV1 {
-    id: String,
-    expression: Atom,
-    target_power: i64,
-    power_shift: Atom,
-    power_shift_explicit: bool,
-}
-
-impl NormalizedPropagatorV1 {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub const fn expression(&self) -> &Atom {
-        &self.expression
-    }
-
-    pub const fn target_power(&self) -> i64 {
-        self.target_power
-    }
-
-    pub const fn power_shift(&self) -> &Atom {
-        &self.power_shift
-    }
-
-    pub const fn power_shift_was_explicit(&self) -> bool {
-        self.power_shift_explicit
-    }
-}
-
-/// Construction input shared by compact and explicit frontends.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PropagatorInputV1 {
-    pub id: String,
-    pub expression: Atom,
-    pub target_power: i64,
-    pub power_shift: Option<Atom>,
-}
-
-/// One upper-triangular external Gram entry.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExternalGramInputV1 {
-    pub left: String,
-    pub right: String,
-    pub value: Atom,
-}
-
-/// Fully typed, but not yet validated, common project input.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NormalizedProjectPartsV1 {
-    pub name: Option<String>,
-    /// `None` requests deterministic inference. `Some` is a strict ordered
-    /// allowlist. Extra entries are retained as frontend/application metadata,
-    /// but only parameters actually discovered in family-defining fields enter
-    /// the derived family's coefficient field.
-    pub parameters: Option<Vec<String>>,
-    pub loop_momenta: Vec<String>,
-    pub external_momenta: Vec<String>,
-    pub dimension: Atom,
-    pub propagators: Vec<PropagatorInputV1>,
-    pub external_gram: Vec<ExternalGramInputV1>,
-    pub numerator: Option<Atom>,
-}
-
-/// Textual propagator accepted by the explicit TOML frontend.
-///
-/// Expression strings are parsed only by
-/// [`SymbolicaIntegralInputCompiler::compile_text_parts`], under the same
-/// namespace, resource limits, and panic boundary as compact `I(...)` input.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TextPropagatorInputV1 {
-    pub id: String,
-    pub expression: String,
-    pub target_power: i64,
-    pub power_shift: Option<String>,
-}
-
-/// Textual upper-triangular external Gram entry for explicit TOML.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TextExternalGramInputV1 {
-    pub left: String,
-    pub right: String,
-    pub value: String,
-}
-
-/// Fully textual explicit-project seam used by the CLI adapter.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TextProjectPartsV1 {
-    pub name: Option<String>,
-    pub parameters: Option<Vec<String>>,
-    pub loop_momenta: Vec<String>,
-    pub external_momenta: Vec<String>,
-    pub dimension: String,
-    pub propagators: Vec<TextPropagatorInputV1>,
-    pub external_gram: Vec<TextExternalGramInputV1>,
-    pub numerator: Option<String>,
-}
-
-/// Normalized concrete target retained by `derive` without being processed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NormalizedTargetV1 {
-    powers: Vec<i64>,
-    numerator: Atom,
-    numerator_explicit: bool,
-}
-
-impl NormalizedTargetV1 {
-    pub fn powers(&self) -> &[i64] {
-        &self.powers
-    }
-
-    pub const fn numerator(&self) -> &Atom {
-        &self.numerator
-    }
-
-    pub const fn numerator_was_explicit(&self) -> bool {
-        self.numerator_explicit
-    }
-
-    pub const fn derive_disposition(&self) -> &'static str {
-        "not_processed_by_derive"
-    }
-}
-
-/// Origin of the normalized syntax payload. Metadata is intentionally absent:
-/// it belongs to the CLI document and never affects family identity.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NormalizedProjectSourceV1 {
-    Symbolica { source: Atom },
-    Explicit,
-}
-
-/// Resource policy for exact Symbolica-to-family lowering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SymbolicaProjectLoweringLimits {
-    pub affine_denominator: SymbolicaAffineDenominatorLimits,
-    pub integral_family: IntegralFamilyLimits,
-}
-
-impl Default for SymbolicaProjectLoweringLimits {
-    fn default() -> Self {
-        Self {
-            affine_denominator: SymbolicaAffineDenominatorLimits::default(),
-            integral_family: IntegralFamilyLimits::default(),
-        }
-    }
-}
-
-/// One named denominator after checked Symbolica evaluation and affine
-/// projection. Source and canonical normalized Atoms are both retained.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LoweredSymbolicaDenominatorV1 {
-    id: String,
-    compiled: CompiledSymbolicaAffineDenominator,
-}
-
-impl LoweredSymbolicaDenominatorV1 {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub const fn source(&self) -> &Atom {
-        self.compiled.source()
-    }
-
-    pub const fn normalized_expression(&self) -> &Atom {
-        self.compiled.normalized_expression()
-    }
-
-    pub const fn compiled(&self) -> &CompiledSymbolicaAffineDenominator {
-        &self.compiled
-    }
-
-    pub const fn affine_denominator(&self) -> &AffineDenominator {
-        self.compiled.affine_denominator()
-    }
-}
-
-/// Exact topology-neutral family ready for parametric IBP derivation.
-#[derive(Clone, Debug)]
-pub struct LoweredSymbolicaProjectV1 {
-    normalized: NormalizedProjectInputV1,
-    dimension: Coefficient,
-    denominators: Vec<LoweredSymbolicaDenominatorV1>,
-    family: IntegralFamily,
-    limits: SymbolicaProjectLoweringLimits,
-}
-
-impl LoweredSymbolicaProjectV1 {
-    pub const fn schema(&self) -> &'static str {
-        RUSTRED_LOWERED_SYMBOLICA_PROJECT_V1_SCHEMA
-    }
-
-    pub const fn normalized(&self) -> &NormalizedProjectInputV1 {
-        &self.normalized
-    }
-
-    pub const fn dimension(&self) -> &Coefficient {
-        &self.dimension
-    }
-
-    pub fn denominators(&self) -> &[LoweredSymbolicaDenominatorV1] {
-        &self.denominators
-    }
-
-    pub const fn family(&self) -> &IntegralFamily {
-        &self.family
-    }
-
-    pub const fn limits(&self) -> SymbolicaProjectLoweringLimits {
-        self.limits
-    }
-
-    pub fn into_parts(
-        self,
-    ) -> (
-        NormalizedProjectInputV1,
-        Vec<LoweredSymbolicaDenominatorV1>,
-        IntegralFamily,
-    ) {
-        (self.normalized, self.denominators, self.family)
-    }
-
-    pub fn into_family(self) -> IntegralFamily {
-        self.family
-    }
-}
-
-/// Typed failures while lowering normalized syntax to an exact family.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SymbolicaProjectLoweringError {
-    CoefficientContext(CoefficientContextError),
-    AffineDenominator(SymbolicaAffineDenominatorError),
-    IntegralFamily(IntegralFamilyError),
-    ResourceCountOverflow {
-        resource: &'static str,
-    },
-    AllocationFailure {
-        resource: &'static str,
-        requested: usize,
-    },
-    SymbolicaPanic {
-        operation: &'static str,
-    },
-}
-
-impl fmt::Display for SymbolicaProjectLoweringError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CoefficientContext(error) => {
-                write!(formatter, "invalid coefficient context: {error}")
-            }
-            Self::AffineDenominator(error) => {
-                write!(formatter, "Symbolica affine lowering failed: {error}")
-            }
-            Self::IntegralFamily(error) => {
-                write!(formatter, "integral-family authentication failed: {error}")
-            }
-            Self::ResourceCountOverflow { resource } => {
-                write!(formatter, "{resource} count overflowed usize")
-            }
-            Self::AllocationFailure {
-                resource,
-                requested,
-            } => write!(
-                formatter,
-                "could not allocate {requested} units for {resource}"
-            ),
-            Self::SymbolicaPanic { operation } => {
-                write!(formatter, "Symbolica panicked during {operation}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for SymbolicaProjectLoweringError {}
-
-impl From<CoefficientContextError> for SymbolicaProjectLoweringError {
-    fn from(error: CoefficientContextError) -> Self {
-        Self::CoefficientContext(error)
-    }
-}
-
-impl From<SymbolicaAffineDenominatorError> for SymbolicaProjectLoweringError {
-    fn from(error: SymbolicaAffineDenominatorError) -> Self {
-        Self::AffineDenominator(error)
-    }
-}
-
-impl From<IntegralFamilyError> for SymbolicaProjectLoweringError {
-    fn from(error: IntegralFamilyError) -> Self {
-        Self::IntegralFamily(error)
-    }
-}
-
-/// One syntax-authenticated project, common to every input frontend.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NormalizedProjectInputV1 {
-    schema: &'static str,
-    source: NormalizedProjectSourceV1,
-    name: String,
-    name_explicit: bool,
-    parameter_names: Vec<String>,
-    operational_parameter_names: Vec<String>,
-    parameter_source: ParameterSourceV1,
-    loop_momenta: Vec<String>,
-    external_momenta: Vec<String>,
-    dimension: Atom,
-    propagators: Vec<NormalizedPropagatorV1>,
-    external_gram: Vec<Vec<Atom>>,
-    target: NormalizedTargetV1,
-    canonical: Atom,
-    stats: SymbolicaIntegralInputStats,
-    limits: SymbolicaIntegralInputLimits,
-}
-
-impl NormalizedProjectInputV1 {
-    pub fn schema(&self) -> &'static str {
-        self.schema
-    }
-
-    pub const fn source(&self) -> &NormalizedProjectSourceV1 {
+impl Project {
+    pub const fn source(&self) -> &ProjectSource {
         &self.source
     }
 
@@ -424,7 +87,7 @@ impl NormalizedProjectInputV1 {
         &self.operational_parameter_names
     }
 
-    pub const fn parameter_source(&self) -> ParameterSourceV1 {
+    pub const fn parameter_source(&self) -> ParameterSource {
         self.parameter_source
     }
 
@@ -440,7 +103,7 @@ impl NormalizedProjectInputV1 {
         &self.dimension
     }
 
-    pub fn propagators(&self) -> &[NormalizedPropagatorV1] {
+    pub fn propagators(&self) -> &[Propagator] {
         &self.propagators
     }
 
@@ -448,7 +111,7 @@ impl NormalizedProjectInputV1 {
         &self.external_gram
     }
 
-    pub const fn target(&self) -> &NormalizedTargetV1 {
+    pub const fn target(&self) -> &Target {
         &self.target
     }
 
@@ -461,443 +124,42 @@ impl NormalizedProjectInputV1 {
     }
 
     /// Lower this normalized, topology-neutral declaration to the exact
-    /// [`IntegralFamily`] consumed by parametric IBP generation.
-    pub fn lower(
-        &self,
-        limits: SymbolicaProjectLoweringLimits,
-    ) -> Result<LoweredSymbolicaProjectV1, SymbolicaProjectLoweringError> {
+    /// [`crate::family::IntegralFamily`] consumed by parametric IBP generation.
+    pub fn lower(&self, limits: LoweringLimits) -> Result<LoweredProject, LoweringError> {
         guarded_lowering("normalized project lowering", || {
             lower_normalized_project(self.clone(), limits)
         })
     }
 
     /// Ownership-preserving variant of [`Self::lower`].
-    pub fn into_lowered(
-        self,
-        limits: SymbolicaProjectLoweringLimits,
-    ) -> Result<LoweredSymbolicaProjectV1, SymbolicaProjectLoweringError> {
+    pub fn into_lowered(self, limits: LoweringLimits) -> Result<LoweredProject, LoweringError> {
         guarded_lowering("normalized project lowering", || {
             lower_normalized_project(self, limits)
         })
     }
 
-    pub const fn stats(&self) -> SymbolicaIntegralInputStats {
+    pub const fn stats(&self) -> Stats {
         self.stats
     }
 
-    pub const fn limits(&self) -> SymbolicaIntegralInputLimits {
+    pub const fn limits(&self) -> Limits {
         self.limits
     }
 
     /// Construct the common normalized DTO from an explicit frontend.
-    pub fn try_from_parts(
-        parts: NormalizedProjectPartsV1,
-        limits: SymbolicaIntegralInputLimits,
-    ) -> Result<Self, SymbolicaIntegralInputError> {
+    pub fn try_from_parts(parts: AtomProject, limits: Limits) -> Result<Self, Error> {
         guarded_symbolica("explicit input normalization", || {
-            let compiler = SymbolicaIntegralInputCompiler::new(limits)?;
+            let compiler = Compiler::new(limits)?;
             normalize_parts(
                 parts,
-                NormalizedProjectSourceV1::Explicit,
-                false,
+                ProjectSource::Explicit,
                 &compiler.syntax,
-                SymbolicaIntegralInputStats::default(),
+                Stats::default(),
                 limits,
             )
         })
     }
 }
-
-/// Aggregate parser and normalization limits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SymbolicaIntegralInputLimits {
-    pub max_input_bytes: usize,
-    pub max_raw_parser_units: usize,
-    pub max_raw_integer_digits: usize,
-    pub max_abs_power: u32,
-    pub max_preconversion_integer_bits: usize,
-    /// Conservative aggregate integer-bit envelope of every packed Atom copy
-    /// retained by one normalized project (source, normalized fields, Gram
-    /// symmetry copies, and canonical rendering payload).
-    pub max_retained_atom_integer_bits: usize,
-    /// Conservative aggregate bytes of every packed Atom copy retained by one
-    /// normalized project. This is distinct from textual input bytes because
-    /// exact arithmetic can produce a much larger packed integer than its
-    /// source spelling.
-    pub max_retained_atom_bytes: usize,
-    pub max_unique_identifiers: usize,
-    pub max_atom_nodes: usize,
-    pub max_nesting_depth: usize,
-    pub max_clauses: usize,
-    pub max_clause_arguments: usize,
-    pub max_pattern_attempts: usize,
-    pub max_pattern_matches: usize,
-    pub max_label_bytes: usize,
-    pub max_parameters: usize,
-    pub max_momenta: usize,
-    pub max_propagators: usize,
-    pub max_gram_entries: usize,
-    pub max_symbol_inspections: usize,
-    pub max_canonical_nodes: usize,
-}
-
-impl Default for SymbolicaIntegralInputLimits {
-    fn default() -> Self {
-        Self {
-            max_input_bytes: 4 * 1024 * 1024,
-            max_raw_parser_units: 1_000_000,
-            max_raw_integer_digits: 1_000_000,
-            max_abs_power: 256,
-            max_preconversion_integer_bits: 64_000_000,
-            max_retained_atom_integer_bits: 256_000_000,
-            max_retained_atom_bytes: 256 * 1024 * 1024,
-            max_unique_identifiers: 16_384,
-            max_atom_nodes: 250_000,
-            max_nesting_depth: 128,
-            max_clauses: 16_384,
-            max_clause_arguments: 65_536,
-            max_pattern_attempts: 150_000,
-            max_pattern_matches: 16_384,
-            max_label_bytes: 256,
-            max_parameters: 4_096,
-            max_momenta: 256,
-            max_propagators: 16_384,
-            max_gram_entries: 16_384,
-            max_symbol_inspections: 1_000_000,
-            max_canonical_nodes: 500_000,
-        }
-    }
-}
-
-/// Exact work census for one compact syntax compilation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SymbolicaIntegralInputStats {
-    input_bytes: usize,
-    atom_nodes: usize,
-    maximum_depth: usize,
-    clauses: usize,
-    clause_arguments: usize,
-    pattern_attempts: usize,
-    pattern_matches: usize,
-    symbol_inspections: usize,
-    inferred_parameters: usize,
-    canonical_nodes: usize,
-    preconversion_integer_bits: usize,
-    retained_atom_integer_bits: usize,
-    retained_atom_bytes: usize,
-}
-
-impl SymbolicaIntegralInputStats {
-    pub const fn input_bytes(self) -> usize {
-        self.input_bytes
-    }
-    pub const fn atom_nodes(self) -> usize {
-        self.atom_nodes
-    }
-    pub const fn maximum_depth(self) -> usize {
-        self.maximum_depth
-    }
-    pub const fn clauses(self) -> usize {
-        self.clauses
-    }
-    pub const fn clause_arguments(self) -> usize {
-        self.clause_arguments
-    }
-    pub const fn pattern_attempts(self) -> usize {
-        self.pattern_attempts
-    }
-    pub const fn pattern_matches(self) -> usize {
-        self.pattern_matches
-    }
-    pub const fn symbol_inspections(self) -> usize {
-        self.symbol_inspections
-    }
-    pub const fn inferred_parameters(self) -> usize {
-        self.inferred_parameters
-    }
-    pub const fn canonical_nodes(self) -> usize {
-        self.canonical_nodes
-    }
-    /// Conservative exact-arithmetic work charged before Token-to-Atom
-    /// conversion, aggregated across all explicit text fields.
-    pub const fn preconversion_integer_bits(self) -> usize {
-        self.preconversion_integer_bits
-    }
-    /// Conservative integer-bit envelope of all packed Atom copies retained by
-    /// the normalized project.
-    pub const fn retained_atom_integer_bits(self) -> usize {
-        self.retained_atom_integer_bits
-    }
-    /// Conservative packed-byte envelope of all Atom copies retained by the
-    /// normalized project.
-    pub const fn retained_atom_bytes(self) -> usize {
-        self.retained_atom_bytes
-    }
-}
-
-/// Typed syntax/normalization failures.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SymbolicaIntegralInputError {
-    ResourceLimit {
-        resource: &'static str,
-        requested: usize,
-        limit: usize,
-    },
-    ResourceCountOverflow {
-        resource: &'static str,
-    },
-    AllocationFailure {
-        resource: &'static str,
-        requested: usize,
-    },
-    SymbolicaPanic {
-        operation: &'static str,
-    },
-    Parse(String),
-    UnsupportedToken {
-        detail: String,
-    },
-    UnsafeRegisteredSymbol {
-        symbol: String,
-        reason: &'static str,
-    },
-    GrammarSymbol {
-        name: &'static str,
-        detail: String,
-    },
-    AttributedGrammarHead {
-        name: &'static str,
-    },
-    WrongRoot,
-    RootPatternMismatch,
-    AmbiguousPattern {
-        clause: usize,
-    },
-    UnknownClause {
-        clause: usize,
-        expression: Atom,
-    },
-    WrongClauseArity {
-        clause: usize,
-        kind: &'static str,
-        expected: &'static str,
-        actual: usize,
-    },
-    MissingClause {
-        kind: &'static str,
-    },
-    DuplicateClause {
-        kind: &'static str,
-    },
-    InvalidLabel {
-        role: &'static str,
-        expression: Atom,
-    },
-    InvalidLabelText {
-        role: &'static str,
-        label: String,
-    },
-    ReservedLabel {
-        role: &'static str,
-        label: String,
-    },
-    DuplicateLabel {
-        role: &'static str,
-        label: String,
-    },
-    CrossClassLabelCollision {
-        label: String,
-    },
-    NoLoopMomenta,
-    WrongPropagatorCount {
-        expected: usize,
-        actual: usize,
-    },
-    InvalidTargetPower {
-        denominator: String,
-        expression: Atom,
-    },
-    DuplicatePowerShift {
-        denominator: String,
-    },
-    UnknownPowerShift {
-        denominator: String,
-    },
-    UnknownExternalGramMomentum {
-        momentum: String,
-    },
-    DiagonalGramOrientation,
-    DuplicateExternalGram {
-        left: String,
-        right: String,
-    },
-    MissingExternalGram {
-        left: String,
-        right: String,
-    },
-    ForeignScalarSymbol {
-        symbol: String,
-    },
-    ReservedScalarSymbol {
-        symbol: String,
-    },
-    IdentifierUsedAsScalar {
-        symbol: String,
-    },
-    UndeclaredScalarSymbol {
-        symbol: String,
-    },
-    ConflictingParameterOverride,
-}
-
-impl fmt::Display for SymbolicaIntegralInputError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ResourceLimit {
-                resource,
-                requested,
-                limit,
-            } => write!(
-                formatter,
-                "{resource} needs {requested} units, exceeding limit {limit}"
-            ),
-            Self::ResourceCountOverflow { resource } => {
-                write!(formatter, "{resource} count overflowed usize")
-            }
-            Self::AllocationFailure {
-                resource,
-                requested,
-            } => write!(
-                formatter,
-                "could not allocate {requested} units for {resource}"
-            ),
-            Self::SymbolicaPanic { operation } => {
-                write!(formatter, "Symbolica panicked during {operation}")
-            }
-            Self::Parse(detail) => write!(
-                formatter,
-                "could not parse Symbolica integral input: {detail}"
-            ),
-            Self::UnsupportedToken { detail } => {
-                write!(formatter, "unsupported Symbolica token: {detail}")
-            }
-            Self::UnsafeRegisteredSymbol { symbol, reason } => write!(
-                formatter,
-                "registered Symbolica symbol {symbol} is unsafe for RustRed input: {reason}"
-            ),
-            Self::GrammarSymbol { name, detail } => write!(
-                formatter,
-                "could not register grammar head {name}: {detail}"
-            ),
-            Self::AttributedGrammarHead { name } => write!(
-                formatter,
-                "grammar head {name} must be an un-attributed plain Symbolica symbol"
-            ),
-            Self::WrongRoot => formatter.write_str("compact input must have the exact root I(...)"),
-            Self::RootPatternMismatch => formatter.write_str(
-                "compact I(...) root failed strict whole-expression pattern authentication",
-            ),
-            Self::AmbiguousPattern { clause } => write!(
-                formatter,
-                "I clause {clause} matched more than one grammar production"
-            ),
-            Self::UnknownClause { clause, expression } => {
-                write!(formatter, "unknown I clause {clause}: {expression}")
-            }
-            Self::WrongClauseArity {
-                clause,
-                kind,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "I clause {clause} ({kind}) has {actual} arguments, expected {expected}"
-            ),
-            Self::MissingClause { kind } => write!(
-                formatter,
-                "compact I input is missing required {kind}(...) clause"
-            ),
-            Self::DuplicateClause { kind } => write!(
-                formatter,
-                "compact I input repeats singleton {kind}(...) clause"
-            ),
-            Self::InvalidLabel { role, expression } => write!(
-                formatter,
-                "{role} must be an unqualified Symbolica symbol, found {expression}"
-            ),
-            Self::InvalidLabelText { role, label } => {
-                write!(formatter, "invalid {role} label {label:?}")
-            }
-            Self::ReservedLabel { role, label } => write!(
-                formatter,
-                "{role} label {label:?} is reserved by the v1 grammar"
-            ),
-            Self::DuplicateLabel { role, label } => {
-                write!(formatter, "{role} label {label:?} is repeated")
-            }
-            Self::CrossClassLabelCollision { label } => write!(
-                formatter,
-                "label {label:?} is reused across incompatible input classes"
-            ),
-            Self::NoLoopMomenta => {
-                formatter.write_str("loops(...) must contain at least one loop momentum")
-            }
-            Self::WrongPropagatorCount { expected, actual } => write!(
-                formatter,
-                "complete family needs {expected} propagators, found {actual}"
-            ),
-            Self::InvalidTargetPower {
-                denominator,
-                expression,
-            } => write!(
-                formatter,
-                "target power for {denominator} is not an exact i64 integer: {expression}"
-            ),
-            Self::DuplicatePowerShift { denominator } => {
-                write!(formatter, "power_shift for {denominator} is repeated")
-            }
-            Self::UnknownPowerShift { denominator } => write!(
-                formatter,
-                "power_shift refers to unknown propagator {denominator}"
-            ),
-            Self::UnknownExternalGramMomentum { momentum } => write!(
-                formatter,
-                "Gram clause refers to unknown external momentum {momentum}"
-            ),
-            Self::DiagonalGramOrientation => {
-                formatter.write_str("internal diagonal Gram orientation failure")
-            }
-            Self::DuplicateExternalGram { left, right } => write!(
-                formatter,
-                "external Gram entry ({left},{right}) is repeated, including reversed duplicates"
-            ),
-            Self::MissingExternalGram { left, right } => {
-                write!(formatter, "external Gram entry ({left},{right}) is missing")
-            }
-            Self::ForeignScalarSymbol { symbol } => write!(
-                formatter,
-                "scalar symbol {symbol} is outside the rustred namespace"
-            ),
-            Self::ReservedScalarSymbol { symbol } => write!(
-                formatter,
-                "scalar symbol {symbol} is reserved by the input grammar"
-            ),
-            Self::IdentifierUsedAsScalar { symbol } => write!(
-                formatter,
-                "family identifier {symbol} cannot also be used as a scalar parameter"
-            ),
-            Self::UndeclaredScalarSymbol { symbol } => write!(
-                formatter,
-                "scalar symbol {symbol} is not present in parameters(...)"
-            ),
-            Self::ConflictingParameterOverride => {
-                formatter.write_str("hybrid TOML parameter override conflicts with parameters(...)")
-            }
-        }
-    }
-}
-
-impl std::error::Error for SymbolicaIntegralInputError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClauseKind {
@@ -981,7 +243,7 @@ struct IntegralSyntax {
 }
 
 impl IntegralSyntax {
-    fn try_new() -> Result<Self, SymbolicaIntegralInputError> {
+    fn try_new() -> Result<Self, Error> {
         let mut heads = BTreeMap::new();
         for &name in RESERVED_NAMES {
             let symbol = plain_grammar_symbol(name)?;
@@ -998,7 +260,7 @@ impl IntegralSyntax {
         let mut clauses = Vec::new();
         clauses
             .try_reserve_exact(ClauseKind::ALL.len())
-            .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+            .map_err(|_| Error::AllocationFailure {
                 resource: "clause patterns",
                 requested: ClauseKind::ALL.len(),
             })?;
@@ -1022,13 +284,13 @@ impl IntegralSyntax {
 }
 
 /// Compiler for the compact raw/hybrid Symbolica grammar.
-pub struct SymbolicaIntegralInputCompiler {
+pub struct Compiler {
     syntax: IntegralSyntax,
-    limits: SymbolicaIntegralInputLimits,
+    limits: Limits,
 }
 
-impl SymbolicaIntegralInputCompiler {
-    pub fn new(limits: SymbolicaIntegralInputLimits) -> Result<Self, SymbolicaIntegralInputError> {
+impl Compiler {
+    pub fn new(limits: Limits) -> Result<Self, Error> {
         guarded_symbolica("grammar initialization", || {
             Ok(Self {
                 syntax: IntegralSyntax::try_new()?,
@@ -1037,15 +299,15 @@ impl SymbolicaIntegralInputCompiler {
         })
     }
 
-    pub const fn limits(&self) -> SymbolicaIntegralInputLimits {
+    pub const fn limits(&self) -> Limits {
         self.limits
     }
 
     /// Parse one explicit-project scalar/tensor expression under this
     /// compiler's byte, node, depth, namespace, and panic policy.
-    pub fn parse_expression(&self, source: &str) -> Result<Atom, SymbolicaIntegralInputError> {
+    pub fn parse_expression(&self, source: &str) -> Result<Atom, Error> {
         guarded_symbolica("explicit Symbolica expression parsing", || {
-            let mut stats = SymbolicaIntegralInputStats::default();
+            let mut stats = Stats::default();
             self.parse_expression_accumulating(source, RawSourceKind::GeneralExpression, &mut stats)
         })
     }
@@ -1053,12 +315,9 @@ impl SymbolicaIntegralInputCompiler {
     /// Compile fully explicit textual fields into the same normalized DTO as
     /// compact raw and hybrid inputs. This is the only Symbolica parser seam
     /// needed by the explicit TOML adapter.
-    pub fn compile_text_parts(
-        &self,
-        parts: TextProjectPartsV1,
-    ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
+    pub fn compile_text_parts(&self, parts: TextProject) -> Result<Project, Error> {
         guarded_symbolica("explicit project expression parsing", || {
-            let TextProjectPartsV1 {
+            let TextProject {
                 name,
                 parameters,
                 loop_momenta,
@@ -1078,7 +337,7 @@ impl SymbolicaIntegralInputCompiler {
                 external_gram.len(),
                 self.limits.max_gram_entries,
             )?;
-            let mut stats = SymbolicaIntegralInputStats::default();
+            let mut stats = Stats::default();
             let dimension = self.parse_expression_accumulating(
                 &dimension,
                 RawSourceKind::BaseCoefficientExpression,
@@ -1088,7 +347,7 @@ impl SymbolicaIntegralInputCompiler {
             let mut parsed_propagators = Vec::new();
             parsed_propagators
                 .try_reserve_exact(propagators.len())
-                .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+                .map_err(|_| Error::AllocationFailure {
                     resource: "explicit propagators",
                     requested: propagators.len(),
                 })?;
@@ -1106,7 +365,7 @@ impl SymbolicaIntegralInputCompiler {
                     )?),
                     None => None,
                 };
-                parsed_propagators.push(PropagatorInputV1 {
+                parsed_propagators.push(AtomPropagator {
                     id: propagator.id,
                     expression,
                     target_power: propagator.target_power,
@@ -1117,7 +376,7 @@ impl SymbolicaIntegralInputCompiler {
             let mut parsed_gram = Vec::new();
             parsed_gram
                 .try_reserve_exact(external_gram.len())
-                .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+                .map_err(|_| Error::AllocationFailure {
                     resource: "explicit external Gram entries",
                     requested: external_gram.len(),
                 })?;
@@ -1127,7 +386,7 @@ impl SymbolicaIntegralInputCompiler {
                     RawSourceKind::BaseCoefficientExpression,
                     &mut stats,
                 )?;
-                parsed_gram.push(ExternalGramInputV1 {
+                parsed_gram.push(AtomGramEntry {
                     left: entry.left,
                     right: entry.right,
                     value,
@@ -1142,7 +401,7 @@ impl SymbolicaIntegralInputCompiler {
                 None => None,
             };
             normalize_parts(
-                NormalizedProjectPartsV1 {
+                AtomProject {
                     name,
                     parameters,
                     loop_momenta,
@@ -1152,8 +411,7 @@ impl SymbolicaIntegralInputCompiler {
                     external_gram: parsed_gram,
                     numerator,
                 },
-                NormalizedProjectSourceV1::Explicit,
-                false,
+                ProjectSource::Explicit,
                 &self.syntax,
                 stats,
                 self.limits,
@@ -1161,10 +419,7 @@ impl SymbolicaIntegralInputCompiler {
         })
     }
 
-    pub fn compile_str(
-        &self,
-        source: &str,
-    ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
+    pub fn compile_str(&self, source: &str) -> Result<Project, Error> {
         self.compile_str_with_parameter_override(source, None)
     }
 
@@ -1175,7 +430,7 @@ impl SymbolicaIntegralInputCompiler {
         &self,
         source: &str,
         parameter_override: Option<Vec<String>>,
-    ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
+    ) -> Result<Project, Error> {
         guarded_symbolica("compact integral parsing", || {
             check_limit(
                 "Symbolica integral input bytes",
@@ -1193,10 +448,7 @@ impl SymbolicaIntegralInputCompiler {
         })
     }
 
-    pub fn compile(
-        &self,
-        source: AtomView<'_>,
-    ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
+    pub fn compile(&self, source: AtomView<'_>) -> Result<Project, Error> {
         guarded_symbolica("compact integral normalization", || {
             self.compile_atom_with_parameter_override(source, 0, 0, None)
         })
@@ -1208,8 +460,8 @@ impl SymbolicaIntegralInputCompiler {
         input_bytes: usize,
         preconversion_integer_bits: usize,
         parameter_override: Option<Vec<String>>,
-    ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
-        let mut stats = SymbolicaIntegralInputStats {
+    ) -> Result<Project, Error> {
+        let mut stats = Stats {
             input_bytes,
             preconversion_integer_bits,
             ..Default::default()
@@ -1253,10 +505,10 @@ impl SymbolicaIntegralInputCompiler {
         authenticate_atom_tree(source, self.limits)?;
         authenticate_whole_pattern(source, &self.syntax.root_pattern, &mut stats, self.limits)?;
         let AtomView::Fun(root) = source else {
-            return Err(SymbolicaIntegralInputError::WrongRoot);
+            return Err(Error::WrongRoot);
         };
         if root.get_symbol() != self.syntax.root || !root.get_symbol().get_attributes().is_empty() {
-            return Err(SymbolicaIntegralInputError::WrongRoot);
+            return Err(Error::WrongRoot);
         }
         check_limit("I clauses", root.get_nargs(), self.limits.max_clauses)?;
         stats.clauses = root.get_nargs();
@@ -1266,26 +518,26 @@ impl SymbolicaIntegralInputCompiler {
         let mut externals: Option<Vec<String>> = None;
         let mut parameters: Option<Vec<String>> = None;
         let mut dimension: Option<Atom> = None;
-        let mut props = Vec::<PropagatorInputV1>::new();
+        let mut props = Vec::<AtomPropagator>::new();
         let mut shifts = Vec::<(String, Atom)>::new();
-        let mut grams = Vec::<ExternalGramInputV1>::new();
+        let mut grams = Vec::<AtomGramEntry>::new();
         let mut numerator: Option<Atom> = None;
 
         props
             .try_reserve(root.get_nargs().min(self.limits.max_propagators))
-            .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+            .map_err(|_| Error::AllocationFailure {
                 resource: "propagator clauses",
                 requested: root.get_nargs().min(self.limits.max_propagators),
             })?;
         shifts
             .try_reserve(root.get_nargs().min(self.limits.max_propagators))
-            .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+            .map_err(|_| Error::AllocationFailure {
                 resource: "power-shift clauses",
                 requested: root.get_nargs().min(self.limits.max_propagators),
             })?;
         grams
             .try_reserve(root.get_nargs().min(self.limits.max_gram_entries))
-            .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+            .map_err(|_| Error::AllocationFailure {
                 resource: "external Gram clauses",
                 requested: root.get_nargs().min(self.limits.max_gram_entries),
             })?;
@@ -1293,7 +545,7 @@ impl SymbolicaIntegralInputCompiler {
         for (clause_ordinal, clause) in root.iter().enumerate() {
             let kind = self.classify_clause(clause, clause_ordinal, &mut stats)?;
             let AtomView::Fun(function) = clause else {
-                return Err(SymbolicaIntegralInputError::UnknownClause {
+                return Err(Error::UnknownClause {
                     clause: clause_ordinal,
                     expression: clause.to_owned(),
                 });
@@ -1301,7 +553,7 @@ impl SymbolicaIntegralInputCompiler {
             if function.get_symbol() != self.syntax.head(kind)
                 || !function.get_symbol().get_attributes().is_empty()
             {
-                return Err(SymbolicaIntegralInputError::UnknownClause {
+                return Err(Error::UnknownClause {
                     clause: clause_ordinal,
                     expression: clause.to_owned(),
                 });
@@ -1324,23 +576,19 @@ impl SymbolicaIntegralInputCompiler {
                 )?,
                 ClauseKind::Loops => {
                     if loops.is_some() {
-                        return Err(SymbolicaIntegralInputError::DuplicateClause { kind: "loops" });
+                        return Err(Error::DuplicateClause { kind: "loops" });
                     }
                     loops = Some(collect_labels(&args, "loop momentum", self.limits)?);
                 }
                 ClauseKind::Externals => {
                     if externals.is_some() {
-                        return Err(SymbolicaIntegralInputError::DuplicateClause {
-                            kind: "externals",
-                        });
+                        return Err(Error::DuplicateClause { kind: "externals" });
                     }
                     externals = Some(collect_labels(&args, "external momentum", self.limits)?);
                 }
                 ClauseKind::Parameters => {
                     if parameters.is_some() {
-                        return Err(SymbolicaIntegralInputError::DuplicateClause {
-                            kind: "parameters",
-                        });
+                        return Err(Error::DuplicateClause { kind: "parameters" });
                     }
                     parameters = Some(collect_labels(&args, "parameter", self.limits)?);
                 }
@@ -1351,13 +599,12 @@ impl SymbolicaIntegralInputCompiler {
                     let requested = checked_add("propagators", props.len(), 1)?;
                     check_limit("propagators", requested, self.limits.max_propagators)?;
                     let id = atom_label(args[0], "propagator", self.limits)?;
-                    let target_power = atom_i64(args[2]).ok_or_else(|| {
-                        SymbolicaIntegralInputError::InvalidTargetPower {
+                    let target_power =
+                        atom_i64(args[2]).ok_or_else(|| Error::InvalidTargetPower {
                             denominator: id.clone(),
                             expression: args[2].to_owned(),
-                        }
-                    })?;
-                    props.push(PropagatorInputV1 {
+                        })?;
+                    props.push(AtomPropagator {
                         id,
                         expression: args[1].to_owned(),
                         target_power,
@@ -1367,9 +614,7 @@ impl SymbolicaIntegralInputCompiler {
                 ClauseKind::PowerShift => {
                     let id = atom_label(args[0], "power-shift propagator", self.limits)?;
                     if shifts.iter().any(|(candidate, _)| candidate == &id) {
-                        return Err(SymbolicaIntegralInputError::DuplicatePowerShift {
-                            denominator: id,
-                        });
+                        return Err(Error::DuplicatePowerShift { denominator: id });
                     }
                     shifts.push((id, args[1].to_owned()));
                 }
@@ -1380,7 +625,7 @@ impl SymbolicaIntegralInputCompiler {
                         requested,
                         self.limits.max_gram_entries,
                     )?;
-                    grams.push(ExternalGramInputV1 {
+                    grams.push(AtomGramEntry {
                         left: atom_label(args[0], "Gram momentum", self.limits)?,
                         right: atom_label(args[1], "Gram momentum", self.limits)?,
                         value: args[2].to_owned(),
@@ -1392,21 +637,19 @@ impl SymbolicaIntegralInputCompiler {
             }
         }
 
-        let loops = loops.ok_or(SymbolicaIntegralInputError::MissingClause { kind: "loops" })?;
-        let externals =
-            externals.ok_or(SymbolicaIntegralInputError::MissingClause { kind: "externals" })?;
-        let dimension =
-            dimension.ok_or(SymbolicaIntegralInputError::MissingClause { kind: "dimension" })?;
+        let loops = loops.ok_or(Error::MissingClause { kind: "loops" })?;
+        let externals = externals.ok_or(Error::MissingClause { kind: "externals" })?;
+        let dimension = dimension.ok_or(Error::MissingClause { kind: "dimension" })?;
         if props.is_empty() {
-            return Err(SymbolicaIntegralInputError::MissingClause { kind: "prop" });
+            return Err(Error::MissingClause { kind: "prop" });
         }
         if loops.is_empty() {
-            return Err(SymbolicaIntegralInputError::NoLoopMomenta);
+            return Err(Error::NoLoopMomenta);
         }
         if let Some(override_names) = parameter_override {
             match &parameters {
                 Some(internal) if *internal != override_names => {
-                    return Err(SymbolicaIntegralInputError::ConflictingParameterOverride);
+                    return Err(Error::ConflictingParameterOverride);
                 }
                 Some(_) => {}
                 None => parameters = Some(override_names),
@@ -1419,10 +662,10 @@ impl SymbolicaIntegralInputCompiler {
             }
         }
         if let Some((denominator, _)) = shifts.into_iter().next() {
-            return Err(SymbolicaIntegralInputError::UnknownPowerShift { denominator });
+            return Err(Error::UnknownPowerShift { denominator });
         }
 
-        let parts = NormalizedProjectPartsV1 {
+        let parts = AtomProject {
             name,
             parameters,
             loop_momenta: loops,
@@ -1434,10 +677,9 @@ impl SymbolicaIntegralInputCompiler {
         };
         normalize_parts(
             parts,
-            NormalizedProjectSourceV1::Symbolica {
+            ProjectSource::Symbolica {
                 source: source.to_owned(),
             },
-            true,
             &self.syntax,
             stats,
             self.limits,
@@ -1448,8 +690,8 @@ impl SymbolicaIntegralInputCompiler {
         &self,
         source: &str,
         kind: RawSourceKind,
-        stats: &mut SymbolicaIntegralInputStats,
-    ) -> Result<Atom, SymbolicaIntegralInputError> {
+        stats: &mut Stats,
+    ) -> Result<Atom, Error> {
         stats.input_bytes = checked_add(
             "explicit Symbolica expression bytes",
             stats.input_bytes,
@@ -1509,8 +751,8 @@ impl SymbolicaIntegralInputCompiler {
         &self,
         clause: AtomView<'_>,
         ordinal: usize,
-        stats: &mut SymbolicaIntegralInputStats,
-    ) -> Result<ClauseKind, SymbolicaIntegralInputError> {
+        stats: &mut Stats,
+    ) -> Result<ClauseKind, Error> {
         let settings = whole_match_settings();
         let mut found = None;
         for candidate in &self.syntax.clauses {
@@ -1529,11 +771,11 @@ impl SymbolicaIntegralInputCompiler {
                     self.limits.max_pattern_matches,
                 )?;
                 if matches.next().is_some() || found.replace(candidate.kind).is_some() {
-                    return Err(SymbolicaIntegralInputError::AmbiguousPattern { clause: ordinal });
+                    return Err(Error::AmbiguousPattern { clause: ordinal });
                 }
             }
         }
-        found.ok_or_else(|| SymbolicaIntegralInputError::UnknownClause {
+        found.ok_or_else(|| Error::UnknownClause {
             clause: ordinal,
             expression: clause.to_owned(),
         })
@@ -1541,9 +783,9 @@ impl SymbolicaIntegralInputCompiler {
 }
 
 fn lower_normalized_project(
-    normalized: NormalizedProjectInputV1,
-    limits: SymbolicaProjectLoweringLimits,
-) -> Result<LoweredSymbolicaProjectV1, SymbolicaProjectLoweringError> {
+    normalized: Project,
+    limits: LoweringLimits,
+) -> Result<LoweredProject, LoweringError> {
     let coefficients =
         CoefficientContext::try_new(normalized.operational_parameter_names.iter().cloned())?;
     let bootstrap_gram = coefficient_matrix(
@@ -1563,18 +805,18 @@ fn lower_normalized_project(
     let mut external_gram = Vec::<Vec<Coefficient>>::new();
     external_gram
         .try_reserve_exact(normalized.external_gram.len())
-        .map_err(|_| SymbolicaProjectLoweringError::AllocationFailure {
+        .map_err(|_| LoweringError::AllocationFailure {
             resource: "lowered external Gram rows",
             requested: normalized.external_gram.len(),
         })?;
     for row in &normalized.external_gram {
         let mut lowered_row = Vec::<Coefficient>::new();
-        lowered_row.try_reserve_exact(row.len()).map_err(|_| {
-            SymbolicaProjectLoweringError::AllocationFailure {
+        lowered_row
+            .try_reserve_exact(row.len())
+            .map_err(|_| LoweringError::AllocationFailure {
                 resource: "lowered external Gram row",
                 requested: row.len(),
-            }
-        })?;
+            })?;
         for value in row {
             lowered_row.push(bootstrap.parse_base_coefficient(value.as_view())?);
         }
@@ -1584,7 +826,7 @@ fn lower_normalized_project(
     let mut power_shifts = Vec::<Coefficient>::new();
     power_shifts
         .try_reserve_exact(normalized.propagators.len())
-        .map_err(|_| SymbolicaProjectLoweringError::AllocationFailure {
+        .map_err(|_| LoweringError::AllocationFailure {
             resource: "lowered power shifts",
             requested: normalized.propagators.len(),
         })?;
@@ -1601,24 +843,24 @@ fn lower_normalized_project(
         external_gram.clone(),
         limits.affine_denominator,
     )?;
-    let mut denominators = Vec::<LoweredSymbolicaDenominatorV1>::new();
+    let mut denominators = Vec::<LoweredDenominator>::new();
     denominators
         .try_reserve_exact(normalized.propagators.len())
-        .map_err(|_| SymbolicaProjectLoweringError::AllocationFailure {
+        .map_err(|_| LoweringError::AllocationFailure {
             resource: "compiled Symbolica denominators",
             requested: normalized.propagators.len(),
         })?;
     let mut affine_denominators = Vec::<AffineDenominator>::new();
     affine_denominators
         .try_reserve_exact(normalized.propagators.len())
-        .map_err(|_| SymbolicaProjectLoweringError::AllocationFailure {
+        .map_err(|_| LoweringError::AllocationFailure {
             resource: "affine denominator rows",
             requested: normalized.propagators.len(),
         })?;
     for propagator in &normalized.propagators {
         let compiled = compiler.compile(propagator.expression.as_view())?;
         affine_denominators.push(compiled.affine_denominator().clone());
-        denominators.push(LoweredSymbolicaDenominatorV1 {
+        denominators.push(LoweredDenominator {
             id: propagator.id.clone(),
             compiled,
         });
@@ -1635,7 +877,7 @@ fn lower_normalized_project(
         power_shifts,
         limits.integral_family,
     )?;
-    Ok(LoweredSymbolicaProjectV1 {
+    Ok(LoweredProject {
         normalized,
         dimension,
         denominators,
@@ -1648,24 +890,23 @@ fn coefficient_matrix(
     size: usize,
     coefficients: &CoefficientContext,
     resource: &'static str,
-) -> Result<Vec<Vec<Coefficient>>, SymbolicaProjectLoweringError> {
+) -> Result<Vec<Vec<Coefficient>>, LoweringError> {
     size.checked_mul(size)
-        .ok_or(SymbolicaProjectLoweringError::ResourceCountOverflow { resource })?;
+        .ok_or(LoweringError::ResourceCountOverflow { resource })?;
     let mut matrix = Vec::new();
-    matrix.try_reserve_exact(size).map_err(|_| {
-        SymbolicaProjectLoweringError::AllocationFailure {
+    matrix
+        .try_reserve_exact(size)
+        .map_err(|_| LoweringError::AllocationFailure {
             resource,
             requested: size,
-        }
-    })?;
+        })?;
     for _ in 0..size {
         let mut row = Vec::new();
-        row.try_reserve_exact(size).map_err(|_| {
-            SymbolicaProjectLoweringError::AllocationFailure {
+        row.try_reserve_exact(size)
+            .map_err(|_| LoweringError::AllocationFailure {
                 resource,
                 requested: size,
-            }
-        })?;
+            })?;
         for _ in 0..size {
             row.push(coefficients.zero());
         }
@@ -1675,13 +916,12 @@ fn coefficient_matrix(
 }
 
 fn normalize_parts(
-    parts: NormalizedProjectPartsV1,
-    source: NormalizedProjectSourceV1,
-    compact: bool,
+    parts: AtomProject,
+    source: ProjectSource,
     syntax: &IntegralSyntax,
-    mut stats: SymbolicaIntegralInputStats,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
+    mut stats: Stats,
+    limits: Limits,
+) -> Result<Project, Error> {
     check_limit(
         "propagators",
         parts.propagators.len(),
@@ -1706,12 +946,12 @@ fn normalize_parts(
     let project_census = census_project_parts(&parts, limits)?;
     let canonical_scaffold_base = canonical_scaffold_base(&parts, limits)?;
     let source_census = match &source {
-        NormalizedProjectSourceV1::Symbolica { source } => Some(census_atom_resources(
+        ProjectSource::Symbolica { source } => Some(census_atom_resources(
             source.as_view(),
             limits.max_atom_nodes,
             limits.max_nesting_depth,
         )?),
-        NormalizedProjectSourceV1::Explicit => None,
+        ProjectSource::Explicit => None,
     };
     let source_integer_bits = source_census.map_or(0, |census| census.integer_bits);
     let source_packed_bytes = source_census.map_or(0, |census| census.packed_bytes);
@@ -1766,13 +1006,13 @@ fn normalize_parts(
         limits,
     )?;
     if parts.loop_momenta.is_empty() {
-        return Err(SymbolicaIntegralInputError::NoLoopMomenta);
+        return Err(Error::NoLoopMomenta);
     }
     let momentum_count = parts
         .loop_momenta
         .len()
         .checked_add(parts.external_momenta.len())
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .ok_or(Error::ResourceCountOverflow {
             resource: "momenta",
         })?;
     check_limit("momenta", momentum_count, limits.max_momenta)?;
@@ -1780,20 +1020,20 @@ fn normalize_parts(
     let mut momentum_names = Vec::<&str>::new();
     momentum_names
         .try_reserve_exact(momentum_count)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "momentum-name index",
             requested: momentum_count,
         })?;
     for label in parts.loop_momenta.iter().chain(&parts.external_momenta) {
         if momentum_names.iter().any(|candidate| *candidate == label) {
-            return Err(SymbolicaIntegralInputError::CrossClassLabelCollision {
+            return Err(Error::CrossClassLabelCollision {
                 label: label.clone(),
             });
         }
         momentum_names.push(label);
     }
     if momentum_names.iter().any(|candidate| *candidate == name) {
-        return Err(SymbolicaIntegralInputError::CrossClassLabelCollision {
+        return Err(Error::CrossClassLabelCollision {
             label: name.clone(),
         });
     }
@@ -1801,7 +1041,7 @@ fn normalize_parts(
     let scalar_products =
         checked_scalar_product_count(parts.loop_momenta.len(), parts.external_momenta.len())?;
     if parts.propagators.len() != scalar_products {
-        return Err(SymbolicaIntegralInputError::WrongPropagatorCount {
+        return Err(Error::WrongPropagatorCount {
             expected: scalar_products,
             actual: parts.propagators.len(),
         });
@@ -1809,7 +1049,7 @@ fn normalize_parts(
     let mut denominator_ids = Vec::<&str>::new();
     denominator_ids
         .try_reserve_exact(parts.propagators.len())
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "propagator-name index",
             requested: parts.propagators.len(),
         })?;
@@ -1819,13 +1059,13 @@ fn normalize_parts(
             .iter()
             .any(|candidate| *candidate == prop.id)
         {
-            return Err(SymbolicaIntegralInputError::DuplicateLabel {
+            return Err(Error::DuplicateLabel {
                 role: "propagator",
                 label: prop.id.clone(),
             });
         }
         if momentum_names.iter().any(|candidate| *candidate == prop.id) || prop.id == name {
-            return Err(SymbolicaIntegralInputError::CrossClassLabelCollision {
+            return Err(Error::CrossClassLabelCollision {
                 label: prop.id.clone(),
             });
         }
@@ -1840,7 +1080,7 @@ fn normalize_parts(
     let forbidden_count = checked_add("family identifiers", denominator_ids.len(), 1)?;
     forbidden_identifiers
         .try_reserve_exact(forbidden_count)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "family-identifier index",
             requested: forbidden_count,
         })?;
@@ -1864,19 +1104,19 @@ fn normalize_parts(
                         .iter()
                         .any(|candidate| *candidate == parameter)
                 {
-                    return Err(SymbolicaIntegralInputError::CrossClassLabelCollision {
+                    return Err(Error::CrossClassLabelCollision {
                         label: parameter.clone(),
                     });
                 }
             }
             for symbol in &discovered {
                 if !parameters.iter().any(|declared| declared == symbol) {
-                    return Err(SymbolicaIntegralInputError::UndeclaredScalarSymbol {
+                    return Err(Error::UndeclaredScalarSymbol {
                         symbol: symbol.clone(),
                     });
                 }
             }
-            (parameters, discovered, ParameterSourceV1::Declared)
+            (parameters, discovered, ParameterSource::Declared)
         }
         None => {
             let parameters = discovered;
@@ -1886,7 +1126,7 @@ fn normalize_parts(
                 parameters.len(),
                 limits.max_parameters,
             )?;
-            (parameters.clone(), parameters, ParameterSourceV1::Inferred)
+            (parameters.clone(), parameters, ParameterSource::Inferred)
         }
     };
     let mut operational_parameter_names = operational_parameter_names;
@@ -1937,13 +1177,13 @@ fn normalize_parts(
     let mut propagators = Vec::new();
     propagators
         .try_reserve_exact(parts.propagators.len())
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "normalized propagators",
             requested: parts.propagators.len(),
         })?;
     for prop in parts.propagators {
         let explicit = prop.power_shift.is_some();
-        propagators.push(NormalizedPropagatorV1 {
+        propagators.push(Propagator {
             id: prop.id,
             expression: prop.expression,
             target_power: prop.target_power,
@@ -1955,12 +1195,12 @@ fn normalize_parts(
     let mut target_powers = Vec::new();
     target_powers
         .try_reserve_exact(propagators.len())
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "target powers",
             requested: propagators.len(),
         })?;
     target_powers.extend(propagators.iter().map(|prop| prop.target_power));
-    let target = NormalizedTargetV1 {
+    let target = Target {
         powers: target_powers,
         numerator: parts.numerator.unwrap_or_else(|| Atom::num(1)),
         numerator_explicit,
@@ -1983,12 +1223,7 @@ fn normalize_parts(
         limits.max_nesting_depth,
     )?;
     stats.canonical_nodes = canonical_nodes;
-    Ok(NormalizedProjectInputV1 {
-        schema: if compact {
-            RUSTRED_SYMBOLICA_INTEGRAL_V1_SCHEMA
-        } else {
-            RUSTRED_PROJECT_TOML_V1_SCHEMA
-        },
+    Ok(Project {
         source,
         name,
         name_explicit,
@@ -2009,28 +1244,27 @@ fn normalize_parts(
 
 fn family_scalar_atoms<'a>(
     dimension: &'a Atom,
-    props: &'a [PropagatorInputV1],
+    props: &'a [AtomPropagator],
     gram: &'a [Atom],
-) -> Result<Vec<&'a Atom>, SymbolicaIntegralInputError> {
-    let prop_slots =
-        props
-            .len()
-            .checked_mul(2)
-            .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "family scalar expressions",
-            })?;
+) -> Result<Vec<&'a Atom>, Error> {
+    let prop_slots = props
+        .len()
+        .checked_mul(2)
+        .ok_or(Error::ResourceCountOverflow {
+            resource: "family scalar expressions",
+        })?;
     let requested = checked_add(
         "family scalar expressions",
         checked_add("family scalar expressions", 1, prop_slots)?,
         gram.len(),
     )?;
     let mut atoms = Vec::new();
-    atoms.try_reserve_exact(requested).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    atoms
+        .try_reserve_exact(requested)
+        .map_err(|_| Error::AllocationFailure {
             resource: "family scalar expressions",
             requested,
-        }
-    })?;
+        })?;
     atoms.push(dimension);
     for prop in props {
         atoms.push(&prop.expression);
@@ -2046,17 +1280,17 @@ fn discover_scalar_symbols(
     atoms: &[&Atom],
     momenta: &[&str],
     forbidden_identifiers: &[&str],
-    stats: &mut SymbolicaIntegralInputStats,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Vec<String>, SymbolicaIntegralInputError> {
+    stats: &mut Stats,
+    limits: Limits,
+) -> Result<Vec<String>, Error> {
     let mut output = Vec::<String>::new();
     let mut pending = Vec::<AtomView<'_>>::new();
-    pending.try_reserve(atoms.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    pending
+        .try_reserve(atoms.len())
+        .map_err(|_| Error::AllocationFailure {
             resource: "scalar-symbol traversal",
             requested: atoms.len(),
-        }
-    })?;
+        })?;
     pending.extend(atoms.iter().map(|atom| atom.as_view()));
     while let Some(atom) = pending.pop() {
         stats.symbol_inspections =
@@ -2070,9 +1304,7 @@ fn discover_scalar_symbols(
             AtomView::Var(variable) => {
                 let label = symbol_label(variable.get_symbol(), "scalar parameter", limits)?;
                 if RESERVED_NAMES.contains(&label.as_str()) {
-                    return Err(SymbolicaIntegralInputError::ReservedScalarSymbol {
-                        symbol: label,
-                    });
+                    return Err(Error::ReservedScalarSymbol { symbol: label });
                 }
                 if momenta.iter().any(|candidate| *candidate == label) {
                     continue;
@@ -2081,19 +1313,17 @@ fn discover_scalar_symbols(
                     .iter()
                     .any(|candidate| *candidate == label)
                 {
-                    return Err(SymbolicaIntegralInputError::IdentifierUsedAsScalar {
-                        symbol: label,
-                    });
+                    return Err(Error::IdentifierUsedAsScalar { symbol: label });
                 }
                 if !output.iter().any(|candidate| candidate == &label) {
                     let requested = checked_add("inferred parameters", output.len(), 1)?;
                     check_limit("inferred parameters", requested, limits.max_parameters)?;
-                    output.try_reserve(1).map_err(|_| {
-                        SymbolicaIntegralInputError::AllocationFailure {
+                    output
+                        .try_reserve(1)
+                        .map_err(|_| Error::AllocationFailure {
                             resource: "inferred parameters",
                             requested,
-                        }
-                    })?;
+                        })?;
                     output.push(label);
                 }
             }
@@ -2111,8 +1341,8 @@ fn discover_scalar_symbols(
 fn append_pending_atoms<'a>(
     pending: &mut Vec<AtomView<'a>>,
     children: impl Iterator<Item = AtomView<'a>>,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<(), Error> {
     for child in children {
         let requested = checked_add("scalar-symbol traversal stack", pending.len(), 1)?;
         check_limit(
@@ -2122,7 +1352,7 @@ fn append_pending_atoms<'a>(
         )?;
         pending
             .try_reserve(1)
-            .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+            .map_err(|_| Error::AllocationFailure {
                 resource: "scalar-symbol traversal stack",
                 requested,
             })?;
@@ -2133,17 +1363,20 @@ fn append_pending_atoms<'a>(
 
 fn build_external_gram(
     external: &[String],
-    entries: Vec<ExternalGramInputV1>,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(Vec<Vec<Atom>>, Vec<Atom>), SymbolicaIntegralInputError> {
+    entries: Vec<AtomGramEntry>,
+    limits: Limits,
+) -> Result<(Vec<Vec<Atom>>, Vec<Atom>), Error> {
     let expected = external
         .len()
-        .checked_mul(external.len().checked_add(1).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "external Gram entries",
-            },
-        )?)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .checked_mul(
+            external
+                .len()
+                .checked_add(1)
+                .ok_or(Error::ResourceCountOverflow {
+                    resource: "external Gram entries",
+                })?,
+        )
+        .ok_or(Error::ResourceCountOverflow {
             resource: "external Gram entries",
         })?
         / 2;
@@ -2154,36 +1387,32 @@ fn build_external_gram(
         limits.max_gram_entries,
     )?;
     let mut supplied = Vec::<((usize, usize), Atom)>::new();
-    supplied.try_reserve_exact(entries.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    supplied
+        .try_reserve_exact(entries.len())
+        .map_err(|_| Error::AllocationFailure {
             resource: "supplied external Gram entries",
             requested: entries.len(),
-        }
-    })?;
+        })?;
     for entry in entries {
         let left = external
             .iter()
             .position(|name| name == &entry.left)
-            .ok_or_else(
-                || SymbolicaIntegralInputError::UnknownExternalGramMomentum {
-                    momentum: entry.left.clone(),
-                },
-            )?;
+            .ok_or_else(|| Error::UnknownExternalGramMomentum {
+                momentum: entry.left.clone(),
+            })?;
         let right = external
             .iter()
             .position(|name| name == &entry.right)
-            .ok_or_else(
-                || SymbolicaIntegralInputError::UnknownExternalGramMomentum {
-                    momentum: entry.right.clone(),
-                },
-            )?;
+            .ok_or_else(|| Error::UnknownExternalGramMomentum {
+                momentum: entry.right.clone(),
+            })?;
         let key = if left <= right {
             (left, right)
         } else {
             (right, left)
         };
         if supplied.iter().any(|(candidate, _)| *candidate == key) {
-            return Err(SymbolicaIntegralInputError::DuplicateExternalGram {
+            return Err(Error::DuplicateExternalGram {
                 left: external[key.0].clone(),
                 right: external[key.1].clone(),
             });
@@ -2191,38 +1420,37 @@ fn build_external_gram(
         supplied.push((key, entry.value));
     }
     let mut matrix = Vec::<Vec<Atom>>::new();
-    matrix.try_reserve_exact(external.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    matrix
+        .try_reserve_exact(external.len())
+        .map_err(|_| Error::AllocationFailure {
             resource: "external Gram matrix rows",
             requested: external.len(),
-        }
-    })?;
+        })?;
     for _ in external {
         let mut row = Vec::<Atom>::new();
-        row.try_reserve_exact(external.len()).map_err(|_| {
-            SymbolicaIntegralInputError::AllocationFailure {
+        row.try_reserve_exact(external.len())
+            .map_err(|_| Error::AllocationFailure {
                 resource: "external Gram matrix row",
                 requested: external.len(),
-            }
-        })?;
+            })?;
         for _ in external {
             row.push(Atom::num(0));
         }
         matrix.push(row);
     }
     let mut ordered = Vec::new();
-    ordered.try_reserve_exact(expected).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    ordered
+        .try_reserve_exact(expected)
+        .map_err(|_| Error::AllocationFailure {
             resource: "ordered external Gram",
             requested: expected,
-        }
-    })?;
+        })?;
     for left in 0..external.len() {
         for right in left..external.len() {
             let position = supplied
                 .iter()
                 .position(|(candidate, _)| *candidate == (left, right))
-                .ok_or_else(|| SymbolicaIntegralInputError::MissingExternalGram {
+                .ok_or_else(|| Error::MissingExternalGram {
                     left: external[left].clone(),
                     right: external[right].clone(),
                 })?;
@@ -2255,8 +1483,8 @@ impl CanonicalScaffoldBase {
     fn with_parameter_count(
         self,
         parameters: usize,
-        limits: SymbolicaIntegralInputLimits,
-    ) -> Result<CanonicalScaffoldCensus, SymbolicaIntegralInputError> {
+        limits: Limits,
+    ) -> Result<CanonicalScaffoldCensus, Error> {
         let nodes = checked_add(
             "canonical scaffold nodes",
             self.nodes_without_parameters,
@@ -2289,19 +1517,19 @@ impl CanonicalScaffoldBase {
 }
 
 fn canonical_scaffold_base(
-    parts: &NormalizedProjectPartsV1,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<CanonicalScaffoldBase, SymbolicaIntegralInputError> {
+    parts: &AtomProject,
+    limits: Limits,
+) -> Result<CanonicalScaffoldBase, Error> {
     let propagators = parts.propagators.len();
     let gram = parts
         .external_momenta
         .len()
         .checked_mul(parts.external_momenta.len().checked_add(1).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "canonical scaffold Gram entries",
             },
         )?)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .ok_or(Error::ResourceCountOverflow {
             resource: "canonical scaffold Gram entries",
         })?
         / 2;
@@ -2382,40 +1610,44 @@ fn render_canonical(
     loops: &[String],
     externals: &[String],
     dimension: &Atom,
-    propagators: &[NormalizedPropagatorV1],
+    propagators: &[Propagator],
     gram: &[Vec<Atom>],
-    target: &NormalizedTargetV1,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Atom, SymbolicaIntegralInputError> {
+    target: &Target,
+    limits: Limits,
+) -> Result<Atom, Error> {
     let mut clauses = Vec::new();
     let gram_count = externals
         .len()
-        .checked_mul(externals.len().checked_add(1).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "canonical clauses",
-            },
-        )?)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .checked_mul(
+            externals
+                .len()
+                .checked_add(1)
+                .ok_or(Error::ResourceCountOverflow {
+                    resource: "canonical clauses",
+                })?,
+        )
+        .ok_or(Error::ResourceCountOverflow {
             resource: "canonical clauses",
         })?
         / 2;
-    let prop_clauses = propagators.len().checked_mul(2).ok_or(
-        SymbolicaIntegralInputError::ResourceCountOverflow {
+    let prop_clauses = propagators
+        .len()
+        .checked_mul(2)
+        .ok_or(Error::ResourceCountOverflow {
             resource: "canonical clauses",
-        },
-    )?;
+        })?;
     let clause_count = checked_add(
         "canonical clauses",
         checked_add("canonical clauses", 6, prop_clauses)?,
         gram_count,
     )?;
     check_limit("canonical clauses", clause_count, limits.max_clauses)?;
-    clauses.try_reserve_exact(clause_count).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    clauses
+        .try_reserve_exact(clause_count)
+        .map_err(|_| Error::AllocationFailure {
             resource: "canonical clauses",
             requested: clause_count,
-        }
-    })?;
+        })?;
     clauses.push(function(
         syntax.head(ClauseKind::Name),
         [label_atom(name, limits)?],
@@ -2475,27 +1707,21 @@ fn function(symbol: Symbol, args: impl IntoIterator<Item = Atom>) -> Atom {
     FunctionBuilder::new(symbol).add_args(args).finish()
 }
 
-fn labels_to_atoms(
-    labels: &[String],
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Vec<Atom>, SymbolicaIntegralInputError> {
+fn labels_to_atoms(labels: &[String], limits: Limits) -> Result<Vec<Atom>, Error> {
     let mut atoms = Vec::new();
-    atoms.try_reserve_exact(labels.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    atoms
+        .try_reserve_exact(labels.len())
+        .map_err(|_| Error::AllocationFailure {
             resource: "canonical labels",
             requested: labels.len(),
-        }
-    })?;
+        })?;
     for label in labels {
         atoms.push(label_atom(label, limits)?);
     }
     Ok(atoms)
 }
 
-fn label_atom(
-    label: &str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Atom, SymbolicaIntegralInputError> {
+fn label_atom(label: &str, limits: Limits) -> Result<Atom, Error> {
     Ok(Atom::var(label_symbol(label, "label", limits)?))
 }
 
@@ -2519,10 +1745,7 @@ enum ExpressionHeadPolicy {
 /// Bound raw parser work before Symbolica owns a recursive Token tree.  The
 /// Token parser itself is iterative, but rejecting a deeply nested tree only
 /// after construction would still recurse while that tree is dropped.
-fn preflight_raw_source(
-    source: &str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn preflight_raw_source(source: &str, limits: Limits) -> Result<(), Error> {
     let mut units = 0usize;
     let mut depth = 0usize;
     let mut maximum_depth = 0usize;
@@ -2706,7 +1929,7 @@ fn preflight_raw_source(
     let binary_layers = usize::from(has_add_layer)
         .checked_add(usize::from(has_mul_layer))
         .and_then(|layers| layers.checked_add(usize::from(has_power_layer)))
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .ok_or(Error::ResourceCountOverflow {
             resource: "raw parser nesting depth",
         })?;
     let conservative_depth = checked_add(
@@ -2733,11 +1956,7 @@ enum RawLexicalRun {
     Identifier,
 }
 
-fn charge_raw_lexical_units(
-    total: &mut usize,
-    amount: usize,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn charge_raw_lexical_units(total: &mut usize, amount: usize, limits: Limits) -> Result<(), Error> {
     *total = checked_add("raw lexical tokens", *total, amount)?;
     check_limit("raw lexical tokens", *total, limits.max_atom_nodes)
 }
@@ -2745,12 +1964,12 @@ fn charge_raw_lexical_units(
 fn validate_expression_token_tree(
     token: &Token,
     policy: ExpressionHeadPolicy,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<(), Error> {
     let mut pending = Vec::<&Token>::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "position-sensitive Token validation",
             requested: 1,
         })?;
@@ -2759,7 +1978,7 @@ fn validate_expression_token_tree(
         let children: &[Token] = match current {
             Token::Fn(_, _, children) => {
                 let Some(Token::ID(raw_head)) = children.first() else {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: "expression function head is not an identifier".to_owned(),
                     });
                 };
@@ -2772,7 +1991,7 @@ fn validate_expression_token_tree(
                     }
                 };
                 if !allowed {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!(
                             "function head {head:?} is not allowed in a {policy:?} expression"
                         ),
@@ -2780,7 +1999,7 @@ fn validate_expression_token_tree(
                 }
                 let arity = children.len().saturating_sub(1);
                 if matches!(head, "sp" | "vec" | "metric") && arity != 2 {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("expression head {head:?} needs exactly 2 arguments"),
                     });
                 }
@@ -2789,7 +2008,7 @@ fn validate_expression_token_tree(
             Token::Op(_, _, _, children) => children,
             Token::ID(_) | Token::Number(_, _) => continue,
             other => {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: other.to_string(),
                 });
             }
@@ -2807,7 +2026,7 @@ fn validate_expression_token_tree(
             )?;
             pending
                 .try_reserve(1)
-                .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+                .map_err(|_| Error::AllocationFailure {
                     resource: "position-sensitive Token validation stack",
                     requested,
                 })?;
@@ -2829,15 +2048,15 @@ struct AuthenticatedParsedSource {
 fn parse_authenticated_source(
     source: &str,
     kind: RawSourceKind,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<AuthenticatedParsedSource, SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<AuthenticatedParsedSource, Error> {
     check_limit(
         "Symbolica source bytes",
         source.len(),
         limits.max_input_bytes,
     )?;
     if source.contains('\u{1b}') {
-        return Err(SymbolicaIntegralInputError::UnsupportedToken {
+        return Err(Error::UnsupportedToken {
             detail: "ANSI escape sequences are not accepted".to_owned(),
         });
     }
@@ -2846,7 +2065,7 @@ fn parse_authenticated_source(
         source,
         ParseSettings::symbolica().convert_mul_to_atom(false),
     )
-    .map_err(SymbolicaIntegralInputError::Parse)?;
+    .map_err(Error::Parse)?;
     validate_and_authenticate_token_tree(&token, limits)?;
     match kind {
         RawSourceKind::CompactIntegral => validate_compact_token_grammar(&token, limits)?,
@@ -2869,7 +2088,7 @@ fn parse_authenticated_source(
     let mut pending = Vec::<&Token>::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "raw identifier traversal",
             requested: 1,
         })?;
@@ -2893,18 +2112,18 @@ fn parse_authenticated_source(
                 for child in children {
                     let requested = checked_add("raw identifier traversal", pending.len(), 1)?;
                     check_limit("raw identifier traversal", requested, limits.max_atom_nodes)?;
-                    pending.try_reserve(1).map_err(|_| {
-                        SymbolicaIntegralInputError::AllocationFailure {
+                    pending
+                        .try_reserve(1)
+                        .map_err(|_| Error::AllocationFailure {
                             resource: "raw identifier traversal",
                             requested,
-                        }
-                    })?;
+                        })?;
                     pending.push(child);
                 }
             }
             Token::Number(_, _) => {}
             other => {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: other.to_string(),
                 });
             }
@@ -2946,10 +2165,7 @@ struct NumericBitEnvelope {
     denominator: usize,
 }
 
-fn validate_numeric_preconversion_envelope(
-    token: &Token,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<usize, SymbolicaIntegralInputError> {
+fn validate_numeric_preconversion_envelope(token: &Token, limits: Limits) -> Result<usize, Error> {
     let mut aggregate = 0usize;
     analyze_numeric_token(token, &mut aggregate, limits)?;
     Ok(aggregate)
@@ -2958,21 +2174,19 @@ fn validate_numeric_preconversion_envelope(
 fn analyze_numeric_token(
     token: &Token,
     aggregate: &mut usize,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Option<NumericBitEnvelope>, SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<Option<NumericBitEnvelope>, Error> {
     let envelope = match token {
         Token::Number(number, false) => {
-            let digits = raw_integer_digits(number).ok_or_else(|| {
-                SymbolicaIntegralInputError::UnsupportedToken {
-                    detail: format!("non-integral numeric literal {number}"),
-                }
+            let digits = raw_integer_digits(number).ok_or_else(|| Error::UnsupportedToken {
+                detail: format!("non-integral numeric literal {number}"),
             })?;
             let significant = digits.trim_start_matches('0').len().max(1);
-            let numerator = significant.checked_mul(4).ok_or(
-                SymbolicaIntegralInputError::ResourceCountOverflow {
+            let numerator = significant
+                .checked_mul(4)
+                .ok_or(Error::ResourceCountOverflow {
                     resource: "pre-conversion integer bits",
-                },
-            )?;
+                })?;
             Some(NumericBitEnvelope {
                 numerator,
                 denominator: 1,
@@ -3021,14 +2235,13 @@ fn analyze_numeric_token(
                 analyze_numeric_token(&arguments[1], aggregate, limits)?;
                 match base {
                     Some(base) => {
-                        let exponent = raw_i64(&arguments[1]).ok_or_else(|| {
-                            SymbolicaIntegralInputError::UnsupportedToken {
+                        let exponent =
+                            raw_i64(&arguments[1]).ok_or_else(|| Error::UnsupportedToken {
                                 detail: "authenticated power lost its exact integer exponent"
                                     .to_owned(),
-                            }
-                        })?;
+                            })?;
                         let magnitude = usize::try_from(exponent.unsigned_abs()).map_err(|_| {
-                            SymbolicaIntegralInputError::ResourceCountOverflow {
+                            Error::ResourceCountOverflow {
                                 resource: "pre-conversion power magnitude",
                             }
                         })?;
@@ -3039,12 +2252,12 @@ fn analyze_numeric_token(
                             })
                         } else {
                             let numerator = base.numerator.checked_mul(magnitude).ok_or(
-                                SymbolicaIntegralInputError::ResourceCountOverflow {
+                                Error::ResourceCountOverflow {
                                     resource: "pre-conversion power numerator bits",
                                 },
                             )?;
                             let denominator = base.denominator.checked_mul(magnitude).ok_or(
-                                SymbolicaIntegralInputError::ResourceCountOverflow {
+                                Error::ResourceCountOverflow {
                                     resource: "pre-conversion power denominator bits",
                                 },
                             )?;
@@ -3067,14 +2280,14 @@ fn analyze_numeric_token(
             Operator::Argument => None,
         },
         other => {
-            return Err(SymbolicaIntegralInputError::UnsupportedToken {
+            return Err(Error::UnsupportedToken {
                 detail: other.to_string(),
             });
         }
     };
     if let Some(envelope) = envelope {
         let retained = envelope.numerator.checked_add(envelope.denominator).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "pre-conversion integer bits",
             },
         )?;
@@ -3083,11 +2296,11 @@ fn analyze_numeric_token(
             retained,
             limits.max_preconversion_integer_bits,
         )?;
-        *aggregate = aggregate.checked_add(retained).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+        *aggregate = aggregate
+            .checked_add(retained)
+            .ok_or(Error::ResourceCountOverflow {
                 resource: "aggregate pre-conversion integer bits",
-            },
-        )?;
+            })?;
         check_limit(
             "aggregate pre-conversion integer bits",
             *aggregate,
@@ -3100,15 +2313,15 @@ fn analyze_numeric_token(
 fn multiply_numeric_envelopes(
     left: NumericBitEnvelope,
     right: NumericBitEnvelope,
-) -> Result<NumericBitEnvelope, SymbolicaIntegralInputError> {
+) -> Result<NumericBitEnvelope, Error> {
     Ok(NumericBitEnvelope {
         numerator: left.numerator.checked_add(right.numerator).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "pre-conversion product numerator bits",
             },
         )?,
         denominator: left.denominator.checked_add(right.denominator).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "pre-conversion product denominator bits",
             },
         )?,
@@ -3118,25 +2331,28 @@ fn multiply_numeric_envelopes(
 fn add_numeric_envelopes(
     left: NumericBitEnvelope,
     right: NumericBitEnvelope,
-) -> Result<NumericBitEnvelope, SymbolicaIntegralInputError> {
-    let left_cross = left.numerator.checked_add(right.denominator).ok_or(
-        SymbolicaIntegralInputError::ResourceCountOverflow {
-            resource: "pre-conversion sum numerator bits",
-        },
-    )?;
-    let right_cross = right.numerator.checked_add(left.denominator).ok_or(
-        SymbolicaIntegralInputError::ResourceCountOverflow {
-            resource: "pre-conversion sum numerator bits",
-        },
-    )?;
+) -> Result<NumericBitEnvelope, Error> {
+    let left_cross =
+        left.numerator
+            .checked_add(right.denominator)
+            .ok_or(Error::ResourceCountOverflow {
+                resource: "pre-conversion sum numerator bits",
+            })?;
+    let right_cross =
+        right
+            .numerator
+            .checked_add(left.denominator)
+            .ok_or(Error::ResourceCountOverflow {
+                resource: "pre-conversion sum numerator bits",
+            })?;
     Ok(NumericBitEnvelope {
         numerator: left_cross.max(right_cross).checked_add(1).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "pre-conversion sum numerator bits",
             },
         )?,
         denominator: left.denominator.checked_add(right.denominator).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
+            Error::ResourceCountOverflow {
                 resource: "pre-conversion sum denominator bits",
             },
         )?,
@@ -3151,11 +2367,11 @@ fn authenticated_token_to_atom(
     workspace: &Workspace,
     symbols: &BTreeMap<String, Symbol>,
     out: &mut Atom,
-) -> Result<(), SymbolicaIntegralInputError> {
+) -> Result<(), Error> {
     match token {
         Token::Number(number, false) => {
             let integer = number.parse::<Integer>().map_err(|error| {
-                SymbolicaIntegralInputError::Parse(format!(
+                Error::Parse(format!(
                     "could not parse authenticated integer {number:?}: {error}"
                 ))
             })?;
@@ -3163,9 +2379,7 @@ fn authenticated_token_to_atom(
         }
         Token::ID(raw) => {
             let symbol = symbols.get(raw.as_str()).ok_or_else(|| {
-                SymbolicaIntegralInputError::Parse(format!(
-                    "authenticated symbol map lost identifier {raw:?}"
-                ))
+                Error::Parse(format!("authenticated symbol map lost identifier {raw:?}"))
             })?;
             out.to_var(*symbol);
         }
@@ -3211,19 +2425,19 @@ fn authenticated_token_to_atom(
                 power.as_view().normalize(workspace, out);
             }
             Operator::Argument => {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: "argument operator reached authenticated conversion".to_owned(),
                 });
             }
         },
         Token::Fn(_, _, children) => {
             let Some(Token::ID(raw_head)) = children.first() else {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: "function without an authenticated identifier head".to_owned(),
                 });
             };
             let head = symbols.get(raw_head.as_str()).ok_or_else(|| {
-                SymbolicaIntegralInputError::Parse(format!(
+                Error::Parse(format!(
                     "authenticated symbol map lost function head {raw_head:?}"
                 ))
             })?;
@@ -3240,7 +2454,7 @@ fn authenticated_token_to_atom(
                 .clone_into(out);
         }
         other => {
-            return Err(SymbolicaIntegralInputError::UnsupportedToken {
+            return Err(Error::UnsupportedToken {
                 detail: other.to_string(),
             });
         }
@@ -3257,14 +2471,14 @@ fn authenticated_token_arguments_to_atoms(
     workspace: &Workspace,
     symbols: &BTreeMap<String, Symbol>,
     resource: &'static str,
-) -> Result<Vec<Atom>, SymbolicaIntegralInputError> {
+) -> Result<Vec<Atom>, Error> {
     let mut converted = Vec::new();
-    converted.try_reserve_exact(arguments.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    converted
+        .try_reserve_exact(arguments.len())
+        .map_err(|_| Error::AllocationFailure {
             resource,
             requested: arguments.len(),
-        }
-    })?;
+        })?;
     for argument in arguments {
         let mut child = workspace.new_atom();
         authenticated_token_to_atom(argument, workspace, symbols, &mut child)?;
@@ -3273,14 +2487,11 @@ fn authenticated_token_arguments_to_atoms(
     Ok(converted)
 }
 
-fn validate_and_authenticate_token_tree(
-    token: &Token,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn validate_and_authenticate_token_tree(token: &Token, limits: Limits) -> Result<(), Error> {
     let mut pending = Vec::<(&Token, usize)>::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "raw Token census",
             requested: 1,
         })?;
@@ -3293,12 +2504,12 @@ fn validate_and_authenticate_token_tree(
         let children: &[Token] = match current {
             Token::Number(number, imaginary) => {
                 let Some(digits) = raw_integer_digits(number) else {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("non-integral numeric literal {number}"),
                     });
                 };
                 if *imaginary {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("non-integral numeric literal {number}"),
                     });
                 }
@@ -3316,7 +2527,7 @@ fn validate_and_authenticate_token_tree(
             }
             Token::Op(more_left, more_right, operator, children) => {
                 if *more_left || *more_right {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: "incomplete operator token".to_owned(),
                     });
                 }
@@ -3327,25 +2538,23 @@ fn validate_and_authenticate_token_tree(
                     Operator::Argument => false,
                 };
                 if !valid_arity {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("invalid {operator} token arity {}", children.len()),
                     });
                 }
                 if *operator == Operator::Pow {
-                    let exponent = raw_i64(&children[1]).ok_or_else(|| {
-                        SymbolicaIntegralInputError::UnsupportedToken {
+                    let exponent =
+                        raw_i64(&children[1]).ok_or_else(|| Error::UnsupportedToken {
                             detail: format!(
                                 "power exponent must be a syntactic exact signed integer, found {}",
                                 children[1]
                             ),
-                        }
-                    })?;
+                        })?;
                     let magnitude = exponent.unsigned_abs();
-                    let requested = usize::try_from(magnitude).map_err(|_| {
-                        SymbolicaIntegralInputError::ResourceCountOverflow {
+                    let requested =
+                        usize::try_from(magnitude).map_err(|_| Error::ResourceCountOverflow {
                             resource: "raw absolute power",
-                        }
-                    })?;
+                        })?;
                     check_limit(
                         "raw absolute power",
                         requested,
@@ -3356,25 +2565,25 @@ fn validate_and_authenticate_token_tree(
             }
             Token::Fn(more_right, bracket, children) => {
                 if *more_right || *bracket || children.is_empty() {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: "incomplete, bracketed, or headless function token".to_owned(),
                     });
                 }
                 let Token::ID(raw_head) = &children[0] else {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: "function head is not an identifier".to_owned(),
                     });
                 };
                 let head = rustred_identifier(raw_head.as_str())?;
                 if !RESERVED_NAMES.contains(&head) {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("function head {head:?} is outside the v1 grammar"),
                     });
                 }
                 children
             }
             Token::SpecialNumber(character) => {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: format!("special number {character}"),
                 });
             }
@@ -3385,17 +2594,14 @@ fn validate_and_authenticate_token_tree(
             | Token::CloseParenthesis
             | Token::CloseBracket
             | Token::EOF => {
-                return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                return Err(Error::UnsupportedToken {
                     detail: current.to_string(),
                 });
             }
         };
-        let child_depth =
-            depth
-                .checked_add(1)
-                .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
-                    resource: "raw Token nesting depth",
-                })?;
+        let child_depth = depth.checked_add(1).ok_or(Error::ResourceCountOverflow {
+            resource: "raw Token nesting depth",
+        })?;
         check_limit(
             "raw Token nesting depth",
             child_depth,
@@ -3406,7 +2612,7 @@ fn validate_and_authenticate_token_tree(
             check_limit("raw Token census stack", requested, limits.max_atom_nodes)?;
             pending
                 .try_reserve(1)
-                .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+                .map_err(|_| Error::AllocationFailure {
                     resource: "raw Token census stack",
                     requested,
                 })?;
@@ -3416,24 +2622,19 @@ fn validate_and_authenticate_token_tree(
     Ok(())
 }
 
-fn validate_compact_token_grammar(
-    token: &Token,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn validate_compact_token_grammar(token: &Token, limits: Limits) -> Result<(), Error> {
     let (root, clauses) = raw_function_parts(token)?;
     if root != "I" {
-        return Err(SymbolicaIntegralInputError::WrongRoot);
+        return Err(Error::WrongRoot);
     }
     if clauses.is_empty() {
-        return Err(SymbolicaIntegralInputError::WrongRoot);
+        return Err(Error::WrongRoot);
     }
     check_limit("I clauses", clauses.len(), limits.max_clauses)?;
     for (ordinal, clause) in clauses.iter().enumerate() {
         let (head, arguments) = raw_function_parts(clause)?;
-        let kind = ClauseKind::from_head(head).ok_or_else(|| {
-            SymbolicaIntegralInputError::UnsupportedToken {
-                detail: format!("unknown I clause {ordinal} head {head:?}"),
-            }
+        let kind = ClauseKind::from_head(head).ok_or_else(|| Error::UnsupportedToken {
+            detail: format!("unknown I clause {ordinal} head {head:?}"),
         })?;
         validate_clause_arity(kind, arguments.len(), ordinal)?;
         match kind {
@@ -3477,7 +2678,7 @@ fn validate_compact_token_grammar(
                     limits,
                 )?;
                 if raw_i64(&arguments[2]).is_none() {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("target power for {id} is not an exact i64 integer"),
                     });
                 }
@@ -3504,12 +2705,12 @@ fn validate_compact_token_grammar(
     Ok(())
 }
 
-fn raw_function_parts(token: &Token) -> Result<(&str, &[Token]), SymbolicaIntegralInputError> {
+fn raw_function_parts(token: &Token) -> Result<(&str, &[Token]), Error> {
     let Token::Fn(false, false, children) = token else {
-        return Err(SymbolicaIntegralInputError::WrongRoot);
+        return Err(Error::WrongRoot);
     };
     let Some(Token::ID(raw_head)) = children.first() else {
-        return Err(SymbolicaIntegralInputError::WrongRoot);
+        return Err(Error::WrongRoot);
     };
     Ok((rustred_identifier(raw_head.as_str())?, &children[1..]))
 }
@@ -3517,10 +2718,10 @@ fn raw_function_parts(token: &Token) -> Result<(&str, &[Token]), SymbolicaIntegr
 fn validate_raw_label<'a>(
     token: &'a Token,
     role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<&'a str, SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<&'a str, Error> {
     let Token::ID(raw) = token else {
-        return Err(SymbolicaIntegralInputError::UnsupportedToken {
+        return Err(Error::UnsupportedToken {
             detail: format!("{role} is not an identifier"),
         });
     };
@@ -3556,20 +2757,20 @@ fn raw_integer_digits(number: &str) -> Option<&str> {
     }
 }
 
-fn rustred_identifier(raw: &str) -> Result<&str, SymbolicaIntegralInputError> {
+fn rustred_identifier(raw: &str) -> Result<&str, Error> {
     let logical = if let Some(label) = raw.strip_prefix("rustred::{}::") {
         label
     } else if let Some(label) = raw.strip_prefix(RUSTRED_NAMESPACE_PREFIX) {
         label
     } else if raw.contains("::") {
-        return Err(SymbolicaIntegralInputError::ForeignScalarSymbol {
+        return Err(Error::ForeignScalarSymbol {
             symbol: raw.to_owned(),
         });
     } else {
         raw
     };
     if logical.is_empty() || logical.contains("::") || logical.ends_with('_') {
-        return Err(SymbolicaIntegralInputError::InvalidLabelText {
+        return Err(Error::InvalidLabelText {
             role: "Symbolica identifier",
             label: raw.to_owned(),
         });
@@ -3577,20 +2778,17 @@ fn rustred_identifier(raw: &str) -> Result<&str, SymbolicaIntegralInputError> {
     Ok(logical)
 }
 
-fn validate_identifier_text(
-    identifier: &str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn validate_identifier_text(identifier: &str, limits: Limits) -> Result<(), Error> {
     check_limit("identifier bytes", identifier.len(), limits.max_label_bytes)?;
     if identifier.is_empty() || identifier.contains("::") || identifier.ends_with('_') {
-        return Err(SymbolicaIntegralInputError::InvalidLabelText {
+        return Err(Error::InvalidLabelText {
             role: "Symbolica identifier",
             label: identifier.to_owned(),
         });
     }
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{identifier}");
     if NamespacedSymbol::try_parse(&qualified).is_none() {
-        return Err(SymbolicaIntegralInputError::InvalidLabelText {
+        return Err(Error::InvalidLabelText {
             role: "Symbolica identifier",
             label: identifier.to_owned(),
         });
@@ -3598,24 +2796,20 @@ fn validate_identifier_text(
     Ok(())
 }
 
-fn authenticated_plain_symbol(
-    identifier: &str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Symbol, SymbolicaIntegralInputError> {
+fn authenticated_plain_symbol(identifier: &str, limits: Limits) -> Result<Symbol, Error> {
     validate_identifier_text(identifier, limits)?;
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{identifier}");
-    let namespaced = NamespacedSymbol::try_parse(&qualified).ok_or_else(|| {
-        SymbolicaIntegralInputError::InvalidLabelText {
+    let namespaced =
+        NamespacedSymbol::try_parse(&qualified).ok_or_else(|| Error::InvalidLabelText {
             role: "Symbolica identifier",
             label: identifier.to_owned(),
-        }
-    })?;
-    let symbol = SymbolBuilder::new(namespaced).build().map_err(|detail| {
-        SymbolicaIntegralInputError::GrammarSymbol {
+        })?;
+    let symbol = SymbolBuilder::new(namespaced)
+        .build()
+        .map_err(|detail| Error::GrammarSymbol {
             name: "input symbol",
             detail: detail.to_string(),
-        }
-    })?;
+        })?;
     authenticate_symbol_properties(symbol, &qualified, 0)?;
     Ok(symbol)
 }
@@ -3624,8 +2818,8 @@ fn authenticate_symbol_properties(
     symbol: Symbol,
     qualified: &str,
     wildcard_level: u8,
-) -> Result<(), SymbolicaIntegralInputError> {
-    let unsafe_symbol = |reason| SymbolicaIntegralInputError::UnsafeRegisteredSymbol {
+) -> Result<(), Error> {
+    let unsafe_symbol = |reason| Error::UnsafeRegisteredSymbol {
         symbol: qualified.to_owned(),
         reason,
     };
@@ -3650,72 +2844,62 @@ fn authenticate_symbol_properties(
     Ok(())
 }
 
-fn plain_grammar_symbol(name: &'static str) -> Result<Symbol, SymbolicaIntegralInputError> {
+fn plain_grammar_symbol(name: &'static str) -> Result<Symbol, Error> {
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{name}");
-    let namespaced = NamespacedSymbol::try_parse(&qualified).ok_or_else(|| {
-        SymbolicaIntegralInputError::GrammarSymbol {
+    let namespaced =
+        NamespacedSymbol::try_parse(&qualified).ok_or_else(|| Error::GrammarSymbol {
             name,
             detail: "invalid namespaced symbol".to_owned(),
-        }
-    })?;
-    let symbol = SymbolBuilder::new(namespaced).build().map_err(|error| {
-        SymbolicaIntegralInputError::GrammarSymbol {
+        })?;
+    let symbol = SymbolBuilder::new(namespaced)
+        .build()
+        .map_err(|error| Error::GrammarSymbol {
             name,
             detail: error.to_string(),
-        }
-    })?;
+        })?;
     authenticate_symbol_properties(symbol, &qualified, 0)?;
     Ok(symbol)
 }
 
-fn authenticate_pattern_wildcard(
-    name: &'static str,
-    wildcard_level: u8,
-) -> Result<Symbol, SymbolicaIntegralInputError> {
+fn authenticate_pattern_wildcard(name: &'static str, wildcard_level: u8) -> Result<Symbol, Error> {
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{name}");
-    let namespaced = NamespacedSymbol::try_parse(&qualified).ok_or_else(|| {
-        SymbolicaIntegralInputError::GrammarSymbol {
+    let namespaced =
+        NamespacedSymbol::try_parse(&qualified).ok_or_else(|| Error::GrammarSymbol {
             name: "pattern wildcard",
             detail: format!("invalid wildcard symbol {qualified}"),
-        }
-    })?;
-    let symbol = SymbolBuilder::new(namespaced).build().map_err(|detail| {
-        SymbolicaIntegralInputError::GrammarSymbol {
+        })?;
+    let symbol = SymbolBuilder::new(namespaced)
+        .build()
+        .map_err(|detail| Error::GrammarSymbol {
             name: "pattern wildcard",
             detail: detail.to_string(),
-        }
-    })?;
+        })?;
     authenticate_symbol_properties(symbol, &qualified, wildcard_level)?;
     Ok(symbol)
 }
 
-fn label_symbol(
-    label: &str,
-    role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Symbol, SymbolicaIntegralInputError> {
+fn label_symbol(label: &str, role: &'static str, limits: Limits) -> Result<Symbol, Error> {
     validate_label_text(label, role, limits)?;
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{label}");
-    let namespaced = NamespacedSymbol::try_parse(&qualified).ok_or_else(|| {
-        SymbolicaIntegralInputError::InvalidLabelText {
+    let namespaced =
+        NamespacedSymbol::try_parse(&qualified).ok_or_else(|| Error::InvalidLabelText {
             role,
             label: label.to_owned(),
-        }
-    })?;
-    let symbol = SymbolBuilder::new(namespaced).build().map_err(|_| {
-        SymbolicaIntegralInputError::InvalidLabelText {
+        })?;
+    let symbol = SymbolBuilder::new(namespaced)
+        .build()
+        .map_err(|_| Error::InvalidLabelText {
             role,
             label: label.to_owned(),
-        }
-    })?;
+        })?;
     authenticate_symbol_properties(symbol, &qualified, 0)?;
     Ok(symbol)
 }
 
-fn parse_trusted_pattern(source: &'static str) -> Result<Pattern, SymbolicaIntegralInputError> {
+fn parse_trusted_pattern(source: &'static str) -> Result<Pattern, Error> {
     try_parse!(source, default_namespace = "rustred")
         .map(|atom| atom.to_pattern())
-        .map_err(|error| SymbolicaIntegralInputError::GrammarSymbol {
+        .map_err(|error| Error::GrammarSymbol {
             name: "pattern",
             detail: error.to_string(),
         })
@@ -3731,9 +2915,9 @@ fn whole_match_settings() -> MatchSettings {
 fn authenticate_whole_pattern(
     source: AtomView<'_>,
     pattern: &Pattern,
-    stats: &mut SymbolicaIntegralInputStats,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+    stats: &mut Stats,
+    limits: Limits,
+) -> Result<(), Error> {
     stats.pattern_attempts = checked_add("pattern attempts", stats.pattern_attempts, 1)?;
     check_limit(
         "pattern attempts",
@@ -3743,7 +2927,7 @@ fn authenticate_whole_pattern(
     let settings = whole_match_settings();
     let mut matches = source.pattern_match(pattern, None, Some(&settings));
     if matches.next().is_none() {
-        return Err(SymbolicaIntegralInputError::RootPatternMismatch);
+        return Err(Error::RootPatternMismatch);
     }
     stats.pattern_matches = checked_add("pattern matches", stats.pattern_matches, 1)?;
     check_limit(
@@ -3752,16 +2936,12 @@ fn authenticate_whole_pattern(
         limits.max_pattern_matches,
     )?;
     if matches.next().is_some() {
-        return Err(SymbolicaIntegralInputError::RootPatternMismatch);
+        return Err(Error::RootPatternMismatch);
     }
     Ok(())
 }
 
-fn validate_clause_arity(
-    kind: ClauseKind,
-    actual: usize,
-    clause: usize,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn validate_clause_arity(kind: ClauseKind, actual: usize, clause: usize) -> Result<(), Error> {
     let valid = match kind {
         ClauseKind::Name | ClauseKind::Dimension | ClauseKind::Numerator => actual == 1,
         ClauseKind::Loops => actual >= 1,
@@ -3772,7 +2952,7 @@ fn validate_clause_arity(
     if valid {
         Ok(())
     } else {
-        Err(SymbolicaIntegralInputError::WrongClauseArity {
+        Err(Error::WrongClauseArity {
             clause,
             kind: kind.head(),
             expected: kind.expected_arity(),
@@ -3781,13 +2961,9 @@ fn validate_clause_arity(
     }
 }
 
-fn set_singleton<T>(
-    slot: &mut Option<T>,
-    value: T,
-    kind: &'static str,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn set_singleton<T>(slot: &mut Option<T>, value: T, kind: &'static str) -> Result<(), Error> {
     if slot.replace(value).is_some() {
-        Err(SymbolicaIntegralInputError::DuplicateClause { kind })
+        Err(Error::DuplicateClause { kind })
     } else {
         Ok(())
     }
@@ -3796,14 +2972,14 @@ fn set_singleton<T>(
 fn collect_atom_views<'a>(
     arguments: impl Iterator<Item = AtomView<'a>>,
     count: usize,
-) -> Result<Vec<AtomView<'a>>, SymbolicaIntegralInputError> {
+) -> Result<Vec<AtomView<'a>>, Error> {
     let mut output = Vec::new();
-    output.try_reserve_exact(count).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    output
+        .try_reserve_exact(count)
+        .map_err(|_| Error::AllocationFailure {
             resource: "clause arguments",
             requested: count,
-        }
-    })?;
+        })?;
     for argument in arguments {
         output.push(argument);
     }
@@ -3813,28 +2989,24 @@ fn collect_atom_views<'a>(
 fn collect_labels(
     args: &[AtomView<'_>],
     role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<Vec<String>, SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<Vec<String>, Error> {
     let mut labels = Vec::new();
-    labels.try_reserve_exact(args.len()).map_err(|_| {
-        SymbolicaIntegralInputError::AllocationFailure {
+    labels
+        .try_reserve_exact(args.len())
+        .map_err(|_| Error::AllocationFailure {
             resource: "input labels",
             requested: args.len(),
-        }
-    })?;
+        })?;
     for &arg in args {
         labels.push(atom_label(arg, role, limits)?);
     }
     Ok(labels)
 }
 
-fn atom_label(
-    atom: AtomView<'_>,
-    role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<String, SymbolicaIntegralInputError> {
+fn atom_label(atom: AtomView<'_>, role: &'static str, limits: Limits) -> Result<String, Error> {
     let AtomView::Var(variable) = atom else {
-        return Err(SymbolicaIntegralInputError::InvalidLabel {
+        return Err(Error::InvalidLabel {
             role,
             expression: atom.to_owned(),
         });
@@ -3844,19 +3016,15 @@ fn atom_label(
     Ok(label)
 }
 
-fn symbol_label(
-    symbol: Symbol,
-    _role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<String, SymbolicaIntegralInputError> {
+fn symbol_label(symbol: Symbol, _role: &'static str, limits: Limits) -> Result<String, Error> {
     let qualified = symbol.get_name();
     let Some(label) = qualified.strip_prefix(RUSTRED_NAMESPACE_PREFIX) else {
-        return Err(SymbolicaIntegralInputError::ForeignScalarSymbol {
+        return Err(Error::ForeignScalarSymbol {
             symbol: qualified.to_owned(),
         });
     };
     if label.contains("::") || label.ends_with('_') {
-        return Err(SymbolicaIntegralInputError::ForeignScalarSymbol {
+        return Err(Error::ForeignScalarSymbol {
             symbol: qualified.to_owned(),
         });
     }
@@ -3864,27 +3032,23 @@ fn symbol_label(
     Ok(label.to_owned())
 }
 
-fn validate_label_text(
-    label: &str,
-    role: &'static str,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn validate_label_text(label: &str, role: &'static str, limits: Limits) -> Result<(), Error> {
     check_limit("label bytes", label.len(), limits.max_label_bytes)?;
     if label.is_empty() || label.contains("::") || label.ends_with('_') {
-        return Err(SymbolicaIntegralInputError::InvalidLabelText {
+        return Err(Error::InvalidLabelText {
             role,
             label: label.to_owned(),
         });
     }
     if RESERVED_NAMES.contains(&label) {
-        return Err(SymbolicaIntegralInputError::ReservedLabel {
+        return Err(Error::ReservedLabel {
             role,
             label: label.to_owned(),
         });
     }
     let qualified = format!("{RUSTRED_NAMESPACE_PREFIX}{label}");
     if NamespacedSymbol::try_parse(&qualified).is_none() {
-        return Err(SymbolicaIntegralInputError::InvalidLabelText {
+        return Err(Error::InvalidLabelText {
             role,
             label: label.to_owned(),
         });
@@ -3896,13 +3060,13 @@ fn validate_ordered_labels(
     labels: &[String],
     role: &'static str,
     maximum: usize,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<(), Error> {
     check_limit(role, labels.len(), maximum)?;
     for (ordinal, label) in labels.iter().enumerate() {
         validate_label_text(label, role, limits)?;
         if labels[..ordinal].iter().any(|candidate| candidate == label) {
-            return Err(SymbolicaIntegralInputError::DuplicateLabel {
+            return Err(Error::DuplicateLabel {
                 role,
                 label: label.clone(),
             });
@@ -3933,13 +3097,13 @@ fn census_atom_resources<'a>(
     atom: AtomView<'a>,
     max_nodes: usize,
     max_depth: usize,
-) -> Result<AtomResourceCensus, SymbolicaIntegralInputError> {
+) -> Result<AtomResourceCensus, Error> {
     check_limit("Atom nodes", 1, max_nodes)?;
     let packed_bytes = atom.get_byte_size();
     let mut pending = Vec::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "Atom census stack",
             requested: 1,
         })?;
@@ -4005,7 +3169,7 @@ fn census_atom_resources<'a>(
                         if imaginary_numerator == 0 => {}
                     CoefficientView::Large(_, imaginary) if imaginary.is_zero() => {}
                     other => {
-                        return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                        return Err(Error::UnsupportedToken {
                             detail: format!(
                                 "non-exact-real numeric Atom is outside the v1 grammar: {other:?}"
                             ),
@@ -4040,24 +3204,20 @@ fn schedule_atom_census_child<'a>(
     nodes: &mut usize,
     max_nodes: usize,
     max_depth: usize,
-) -> Result<(), SymbolicaIntegralInputError> {
-    let child_depth =
-        parent_depth
-            .checked_add(1)
-            .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "Atom nesting depth",
-            })?;
+) -> Result<(), Error> {
+    let child_depth = parent_depth
+        .checked_add(1)
+        .ok_or(Error::ResourceCountOverflow {
+            resource: "Atom nesting depth",
+        })?;
     check_limit("Atom nesting depth", child_depth, max_depth)?;
-    let requested =
-        nodes
-            .checked_add(1)
-            .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "Atom nodes",
-            })?;
+    let requested = nodes.checked_add(1).ok_or(Error::ResourceCountOverflow {
+        resource: "Atom nodes",
+    })?;
     check_limit("Atom nodes", requested, max_nodes)?;
     pending
         .try_reserve(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "Atom census stack",
             requested,
         })?;
@@ -4070,17 +3230,14 @@ fn census_atom(
     atom: AtomView<'_>,
     max_nodes: usize,
     max_depth: usize,
-) -> Result<(usize, usize), SymbolicaIntegralInputError> {
+) -> Result<(usize, usize), Error> {
     let census = census_atom_resources(atom, max_nodes, max_depth)?;
     Ok((census.nodes, census.maximum_depth))
 }
 
-fn census_project_parts(
-    parts: &NormalizedProjectPartsV1,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<SymbolicaIntegralInputStats, SymbolicaIntegralInputError> {
-    let mut stats = SymbolicaIntegralInputStats::default();
-    let mut inspect = |atom: &Atom| -> Result<(), SymbolicaIntegralInputError> {
+fn census_project_parts(parts: &AtomProject, limits: Limits) -> Result<Stats, Error> {
+    let mut stats = Stats::default();
+    let mut inspect = |atom: &Atom| -> Result<(), Error> {
         let census = census_atom_resources(
             atom.as_view(),
             limits.max_atom_nodes,
@@ -4135,10 +3292,7 @@ fn census_project_parts(
     Ok(stats)
 }
 
-fn authenticate_project_parts(
-    parts: &NormalizedProjectPartsV1,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn authenticate_project_parts(parts: &AtomProject, limits: Limits) -> Result<(), Error> {
     authenticate_atom_tree(parts.dimension.as_view(), limits)?;
     validate_expression_atom_tree(
         parts.dimension.as_view(),
@@ -4195,12 +3349,12 @@ fn validate_expression_atom_tree(
     policy: ExpressionHeadPolicy,
     loop_momenta: &[String],
     external_momenta: &[String],
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+    limits: Limits,
+) -> Result<(), Error> {
     let mut pending = Vec::<AtomView<'_>>::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "position-sensitive Atom validation",
             requested: 1,
         })?;
@@ -4217,14 +3371,14 @@ fn validate_expression_atom_tree(
                     }
                 };
                 if !allowed {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!(
                             "function head {head:?} is not allowed in a {policy:?} expression"
                         ),
                     });
                 }
                 if matches!(head.as_str(), "sp" | "vec" | "metric") && function.get_nargs() != 2 {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("expression head {head:?} needs exactly 2 arguments"),
                     });
                 }
@@ -4241,7 +3395,7 @@ fn validate_expression_atom_tree(
                     if loop_momenta.iter().any(|momentum| momentum == &label)
                         || external_momenta.iter().any(|momentum| momentum == &label)
                     {
-                        return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                        return Err(Error::UnsupportedToken {
                             detail: format!(
                                 "momentum {label:?} is not allowed in a base-coefficient field"
                             ),
@@ -4255,14 +3409,11 @@ fn validate_expression_atom_tree(
     Ok(())
 }
 
-fn authenticate_atom_tree(
-    atom: AtomView<'_>,
-    limits: SymbolicaIntegralInputLimits,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn authenticate_atom_tree(atom: AtomView<'_>, limits: Limits) -> Result<(), Error> {
     let mut pending = Vec::<AtomView<'_>>::new();
     pending
         .try_reserve_exact(1)
-        .map_err(|_| SymbolicaIntegralInputError::AllocationFailure {
+        .map_err(|_| Error::AllocationFailure {
             resource: "Atom symbol authentication",
             requested: 1,
         })?;
@@ -4288,7 +3439,7 @@ fn authenticate_atom_tree(
                 let qualified = symbol.get_name();
                 let head = rustred_identifier(qualified)?;
                 if !RESERVED_NAMES.contains(&head) {
-                    return Err(SymbolicaIntegralInputError::UnsupportedToken {
+                    return Err(Error::UnsupportedToken {
                         detail: format!("function head {head:?} is outside the v1 grammar"),
                     });
                 }
@@ -4304,60 +3455,44 @@ fn authenticate_atom_tree(
     Ok(())
 }
 
-fn checked_scalar_product_count(
-    loops: usize,
-    externals: usize,
-) -> Result<usize, SymbolicaIntegralInputError> {
-    let successor =
-        loops
-            .checked_add(1)
-            .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "scalar products",
-            })?;
+fn checked_scalar_product_count(loops: usize, externals: usize) -> Result<usize, Error> {
+    let successor = loops.checked_add(1).ok_or(Error::ResourceCountOverflow {
+        resource: "scalar products",
+    })?;
     let triangular = if loops % 2 == 0 {
         (loops / 2).checked_mul(successor)
     } else {
         loops.checked_mul(successor / 2)
     }
-    .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+    .ok_or(Error::ResourceCountOverflow {
         resource: "scalar products",
     })?;
     triangular
-        .checked_add(loops.checked_mul(externals).ok_or(
-            SymbolicaIntegralInputError::ResourceCountOverflow {
-                resource: "scalar products",
-            },
-        )?)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow {
+        .checked_add(
+            loops
+                .checked_mul(externals)
+                .ok_or(Error::ResourceCountOverflow {
+                    resource: "scalar products",
+                })?,
+        )
+        .ok_or(Error::ResourceCountOverflow {
             resource: "scalar products",
         })
 }
 
-fn checked_add(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, SymbolicaIntegralInputError> {
+fn checked_add(resource: &'static str, left: usize, right: usize) -> Result<usize, Error> {
     left.checked_add(right)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow { resource })
+        .ok_or(Error::ResourceCountOverflow { resource })
 }
 
-fn checked_mul(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, SymbolicaIntegralInputError> {
+fn checked_mul(resource: &'static str, left: usize, right: usize) -> Result<usize, Error> {
     left.checked_mul(right)
-        .ok_or(SymbolicaIntegralInputError::ResourceCountOverflow { resource })
+        .ok_or(Error::ResourceCountOverflow { resource })
 }
 
-fn check_limit(
-    resource: &'static str,
-    requested: usize,
-    limit: usize,
-) -> Result<(), SymbolicaIntegralInputError> {
+fn check_limit(resource: &'static str, requested: usize, limit: usize) -> Result<(), Error> {
     if requested > limit {
-        Err(SymbolicaIntegralInputError::ResourceLimit {
+        Err(Error::ResourceLimit {
             resource,
             requested,
             limit,
@@ -4369,36 +3504,30 @@ fn check_limit(
 
 fn guarded_symbolica<T>(
     operation: &'static str,
-    work: impl FnOnce() -> Result<T, SymbolicaIntegralInputError>,
-) -> Result<T, SymbolicaIntegralInputError> {
-    catch_unwind(AssertUnwindSafe(work))
-        .map_err(|_| SymbolicaIntegralInputError::SymbolicaPanic { operation })?
+    work: impl FnOnce() -> Result<T, Error>,
+) -> Result<T, Error> {
+    catch_unwind(AssertUnwindSafe(work)).map_err(|_| Error::SymbolicaPanic { operation })?
 }
 
 fn guarded_lowering<T>(
     operation: &'static str,
-    work: impl FnOnce() -> Result<T, SymbolicaProjectLoweringError>,
-) -> Result<T, SymbolicaProjectLoweringError> {
-    catch_unwind(AssertUnwindSafe(work))
-        .map_err(|_| SymbolicaProjectLoweringError::SymbolicaPanic { operation })?
+    work: impl FnOnce() -> Result<T, LoweringError>,
+) -> Result<T, LoweringError> {
+    catch_unwind(AssertUnwindSafe(work)).map_err(|_| LoweringError::SymbolicaPanic { operation })?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn compiler() -> SymbolicaIntegralInputCompiler {
-        SymbolicaIntegralInputCompiler::new(SymbolicaIntegralInputLimits::default())
-            .expect("plain RustRed input grammar must initialize")
+    fn compiler() -> Compiler {
+        Compiler::new(Limits::default()).expect("plain RustRed input grammar must initialize")
     }
 
-    fn compiler_with(
-        update: impl FnOnce(&mut SymbolicaIntegralInputLimits),
-    ) -> SymbolicaIntegralInputCompiler {
-        let mut limits = SymbolicaIntegralInputLimits::default();
+    fn compiler_with(update: impl FnOnce(&mut Limits)) -> Compiler {
+        let mut limits = Limits::default();
         update(&mut limits);
-        SymbolicaIntegralInputCompiler::new(limits)
-            .expect("bounded RustRed input grammar must initialize")
+        Compiler::new(limits).expect("bounded RustRed input grammar must initialize")
     }
 
     fn one_loop_source(target: i64, numerator: &str) -> String {
@@ -4412,7 +3541,7 @@ mod tests {
         let normalized = compiler()
             .compile_str(&one_loop_source(2, "vec(k,mu)*tensor_only"))
             .expect("compact one-loop family should normalize");
-        assert_eq!(normalized.parameter_source(), ParameterSourceV1::Inferred);
+        assert_eq!(normalized.parameter_source(), ParameterSource::Inferred);
         assert_eq!(
             normalized.parameter_names(),
             &["d".to_owned(), "m2".to_owned()]
@@ -4449,10 +3578,7 @@ mod tests {
             source,
             Some(vec!["d".to_owned(), "m2".to_owned()]),
         );
-        assert!(matches!(
-            conflict,
-            Err(SymbolicaIntegralInputError::ConflictingParameterOverride)
-        ));
+        assert!(matches!(conflict, Err(Error::ConflictingParameterOverride)));
     }
 
     #[test]
@@ -4479,13 +3605,13 @@ mod tests {
             .compile_str(&one_loop_source(1, "1"))
             .expect("raw family should normalize");
         let explicit = compiler
-            .compile_text_parts(TextProjectPartsV1 {
+            .compile_text_parts(TextProject {
                 name: None,
                 parameters: None,
                 loop_momenta: vec!["k".to_owned()],
                 external_momenta: vec![],
                 dimension: "d".to_owned(),
-                propagators: vec![TextPropagatorInputV1 {
+                propagators: vec![TextPropagator {
                     id: "D1".to_owned(),
                     expression: "k^2-m2".to_owned(),
                     target_power: 1,
@@ -4497,10 +3623,10 @@ mod tests {
             .expect("text fields should normalize");
         assert_eq!(raw.canonical_atom(), explicit.canonical_atom());
         let raw_family = raw
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("raw family should lower");
         let explicit_family = explicit
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("explicit family should lower");
         assert_eq!(
             raw_family.family().fingerprint_ref(),
@@ -4526,13 +3652,13 @@ mod tests {
             )
             .expect("an outer-only strict allowlist should normalize");
         let explicit = compiler
-            .compile_text_parts(TextProjectPartsV1 {
+            .compile_text_parts(TextProject {
                 name: None,
                 parameters: Some(vec!["d".to_owned(), "m2".to_owned()]),
                 loop_momenta: vec!["k".to_owned()],
                 external_momenta: vec![],
                 dimension: "d".to_owned(),
-                propagators: vec![TextPropagatorInputV1 {
+                propagators: vec![TextPropagator {
                     id: "D1".to_owned(),
                     expression: "k^2-m2".to_owned(),
                     target_power: 1,
@@ -4547,13 +3673,13 @@ mod tests {
         assert_eq!(hybrid.parameter_names(), &["d".to_owned(), "m2".to_owned()]);
 
         let raw = raw
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("raw family should lower");
         let hybrid = hybrid
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("hybrid family should lower");
         let explicit = explicit
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("explicit family should lower");
         assert_eq!(
             raw.family().fingerprint_ref(),
@@ -4591,10 +3717,10 @@ mod tests {
         );
 
         let inferred = inferred
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("inferred family should lower");
         let declared = declared
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("declared family should lower");
         assert_eq!(
             inferred.family().fingerprint_ref(),
@@ -4617,10 +3743,10 @@ mod tests {
             "not_processed_by_derive"
         );
         let first = first
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("first target family should lower");
         let second = second
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("second target family should lower");
         assert_eq!(
             first.family().fingerprint_ref(),
@@ -4637,7 +3763,7 @@ mod tests {
         assert_eq!(normalized.external_gram().len(), 1);
         assert_eq!(normalized.external_gram()[0].len(), 1);
         let lowered = normalized
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("complete one-external basis should lower");
         assert_eq!(lowered.family().external_momenta(), &["p".to_owned()]);
         assert_eq!(lowered.denominators().len(), 2);
@@ -4650,14 +3776,14 @@ mod tests {
             .compile_str("I(loops(k),externals(),dimension(d),dimension(d),prop(D1,k^2-m2,1))");
         assert!(matches!(
             duplicate,
-            Err(SymbolicaIntegralInputError::DuplicateClause { kind: "dimension" })
+            Err(Error::DuplicateClause { kind: "dimension" })
         ));
 
         let wrong_arity =
             compiler.compile_str("I(loops(k),externals(),dimension(d,4),prop(D1,k^2-m2,1))");
         assert!(matches!(
             wrong_arity,
-            Err(SymbolicaIntegralInputError::WrongClauseArity {
+            Err(Error::WrongClauseArity {
                 kind: "dimension",
                 ..
             })
@@ -4665,10 +3791,7 @@ mod tests {
 
         let unknown =
             compiler.compile_str("I(loops(k),externals(),dimension(d),bogus(x),prop(D1,k^2-m2,1))");
-        assert!(matches!(
-            unknown,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
-        ));
+        assert!(matches!(unknown, Err(Error::UnsupportedToken { .. })));
     }
 
     #[test]
@@ -4679,15 +3802,12 @@ mod tests {
         );
         assert!(matches!(
             nested_numerator,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
+            Err(Error::UnsupportedToken { .. })
         ));
 
         let nested_scalar = compiler
             .compile_str("I(loops(k),externals(),dimension(gram(k,k,d)),prop(D1,k^2-m2,1))");
-        assert!(matches!(
-            nested_scalar,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
-        ));
+        assert!(matches!(nested_scalar, Err(Error::UnsupportedToken { .. })));
     }
 
     #[test]
@@ -4698,7 +3818,7 @@ mod tests {
         );
         assert!(matches!(
             scalar_product_dimension,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
+            Err(Error::UnsupportedToken { .. })
         ));
 
         let momentum_shift = compiler.compile_str(
@@ -4706,16 +3826,16 @@ mod tests {
         );
         assert!(matches!(
             momentum_shift,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
+            Err(Error::UnsupportedToken { .. })
         ));
 
-        let explicit_momentum_dimension = compiler.compile_text_parts(TextProjectPartsV1 {
+        let explicit_momentum_dimension = compiler.compile_text_parts(TextProject {
             name: None,
             parameters: None,
             loop_momenta: vec!["k".to_owned()],
             external_momenta: vec![],
             dimension: "k".to_owned(),
-            propagators: vec![TextPropagatorInputV1 {
+            propagators: vec![TextPropagator {
                 id: "D1".to_owned(),
                 expression: "k^2-m2".to_owned(),
                 target_power: 1,
@@ -4726,7 +3846,7 @@ mod tests {
         });
         assert!(matches!(
             explicit_momentum_dimension,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
+            Err(Error::UnsupportedToken { .. })
         ));
     }
 
@@ -4737,7 +3857,7 @@ mod tests {
             .expect("negative constants and target powers must remain valid exact integers");
         assert_eq!(normalized.target().powers(), &[-2]);
         normalized
-            .into_lowered(SymbolicaProjectLoweringLimits::default())
+            .into_lowered(LoweringLimits::default())
             .expect("a denominator with a negative constant should lower");
     }
 
@@ -4750,7 +3870,7 @@ mod tests {
             .parse_expression("12345");
         assert!(matches!(
             one_below,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "pre-conversion integer bits",
                 ..
             })
@@ -4760,10 +3880,10 @@ mod tests {
         let rejected = compiler().parse_expression(&huge_power);
         assert!(matches!(
             rejected,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "pre-conversion integer bits",
                 ..
-            }) | Err(SymbolicaIntegralInputError::ResourceLimit {
+            }) | Err(Error::ResourceLimit {
                 resource: "aggregate pre-conversion integer bits",
                 ..
             })
@@ -4773,10 +3893,10 @@ mod tests {
             .parse_expression("1/(99^4)");
         assert!(matches!(
             inverse_growth,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "aggregate pre-conversion integer bits",
                 ..
-            }) | Err(SymbolicaIntegralInputError::ResourceLimit {
+            }) | Err(Error::ResourceLimit {
                 resource: "pre-conversion integer bits",
                 ..
             })
@@ -4792,13 +3912,13 @@ mod tests {
         let _ = compiler
             .parse_expression("k^2-99")
             .expect("the denominator field is individually below the budget");
-        let aggregate = compiler.compile_text_parts(TextProjectPartsV1 {
+        let aggregate = compiler.compile_text_parts(TextProject {
             name: None,
             parameters: None,
             loop_momenta: vec!["k".to_owned()],
             external_momenta: vec![],
             dimension: "99".to_owned(),
-            propagators: vec![TextPropagatorInputV1 {
+            propagators: vec![TextPropagator {
                 id: "D1".to_owned(),
                 expression: "k^2-99".to_owned(),
                 target_power: 1,
@@ -4809,7 +3929,7 @@ mod tests {
         });
         assert!(matches!(
             aggregate,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "aggregate pre-conversion integer bits",
                 ..
             })
@@ -4831,16 +3951,16 @@ mod tests {
             .get_byte_size()
             .checked_add(denominator.as_view().get_byte_size())
             .expect("test byte count should fit");
-        let mut limits = SymbolicaIntegralInputLimits::default();
+        let mut limits = Limits::default();
         limits.max_retained_atom_bytes = logical_bytes;
-        let rejected = NormalizedProjectInputV1::try_from_parts(
-            NormalizedProjectPartsV1 {
+        let rejected = Project::try_from_parts(
+            AtomProject {
                 name: None,
                 parameters: None,
                 loop_momenta: vec!["k".to_owned()],
                 external_momenta: vec![],
                 dimension: huge_dimension,
-                propagators: vec![PropagatorInputV1 {
+                propagators: vec![AtomPropagator {
                     id: "D1".to_owned(),
                     expression: denominator,
                     target_power: 1,
@@ -4853,7 +3973,7 @@ mod tests {
         );
         assert!(matches!(
             rejected,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "retained project Atom bytes",
                 ..
             })
@@ -4868,7 +3988,7 @@ mod tests {
         let flat = compiler_with(|limits| limits.max_atom_nodes = 4).parse_expression("a+b");
         assert!(matches!(
             flat,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw lexical tokens",
                 ..
             })
@@ -4877,7 +3997,7 @@ mod tests {
         let units = compiler_with(|limits| limits.max_raw_parser_units = 2).parse_expression("a+b");
         assert!(matches!(
             units,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw parser units",
                 ..
             })
@@ -4887,7 +4007,7 @@ mod tests {
             .compile_str("I(loops(k),externals(),dimension(d),prop(D1,(k)^2,1))");
         assert!(matches!(
             depth,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw parser nesting depth",
                 ..
             })
@@ -4897,7 +4017,7 @@ mod tests {
             compiler_with(|limits| limits.max_raw_integer_digits = 2).parse_expression("123");
         assert!(matches!(
             integer,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw integer digits",
                 ..
             })
@@ -4907,7 +4027,7 @@ mod tests {
             compiler_with(|limits| limits.max_raw_integer_digits = 2).parse_expression("1_2_3");
         assert!(matches!(
             separated_integer,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw integer digits",
                 ..
             })
@@ -4917,7 +4037,7 @@ mod tests {
             compiler_with(|limits| limits.max_atom_nodes = 5).parse_expression("a\\b\\c");
         assert!(matches!(
             parser_whitespace,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw lexical tokens",
                 ..
             })
@@ -4927,7 +4047,7 @@ mod tests {
             compiler_with(|limits| limits.max_nesting_depth = 2).parse_expression("-/-/x");
         assert!(matches!(
             unary_depth,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw parser nesting depth",
                 ..
             })
@@ -4940,7 +4060,7 @@ mod tests {
             compiler_with(|limits| limits.max_abs_power = 4).parse_expression("x^999999999");
         assert!(matches!(
             power,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "raw absolute power",
                 ..
             })
@@ -4948,14 +4068,14 @@ mod tests {
         let symbolic_power = compiler().parse_expression("x^(a+1)");
         assert!(matches!(
             symbolic_power,
-            Err(SymbolicaIntegralInputError::UnsupportedToken { .. })
+            Err(Error::UnsupportedToken { .. })
         ));
 
         let identifiers =
             compiler_with(|limits| limits.max_unique_identifiers = 2).parse_expression("a+b+c");
         assert!(matches!(
             identifiers,
-            Err(SymbolicaIntegralInputError::ResourceLimit {
+            Err(Error::ResourceLimit {
                 resource: "unique raw Symbolica identifiers",
                 ..
             })

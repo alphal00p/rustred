@@ -1,11 +1,11 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `a75958c`, immediately before hardening the sector
-foundation in its final owner tree.
-**Status:** R3/F3 working authority, subordinate to `GOAL.md` and the
+**Baseline parent:** `ab14837`, immediately before moving the integral-input
+boundary under its canonical owner tree.
+**Status:** R3/input-A working authority, subordinate to `GOAL.md` and the
 clean-repository architecture plan.
 
-This ledger classifies every one of the 129 Rust source/test paths remaining
+This ledger classifies every one of the 134 Rust source/test paths remaining
 after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -28,8 +28,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 48 |
-| split | 80 |
+| move | 49 |
+| split | 84 |
 | delete | 0 |
 | replace | 1 |
 
@@ -41,7 +41,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-app/src/application/derive/model.rs` | split | rustred-app::derive | retain only the deterministic application output DTO and semantic-to-transport conversion |
 | `crates/rustred-app/src/application/derive/census.rs` | split | rustred-app::derive | retain structural, payload, and render-bound preflights separately from execution and output representation |
 | `crates/rustred-app/src/application/error.rs` | split | rustred-app | retain typed cross-frontend errors only |
-| `crates/rustred-app/src/application/input.rs` | split | rustred-app / core input | keep transport decoding in app and move generic normalization downward |
+| `crates/rustred-app/src/application/input.rs` | split | rustred-app / core input | retain TOML schema/transport decoding and metadata in the app while all compact/text/Atom normalization uses the canonical core input compiler |
 | `crates/rustred-app/src/application/lowering.rs` | split | rustred-app / core input | keep composition only; core owns reusable lowering semantics |
 | `crates/rustred-app/src/application/memory.rs` | split | rustred-app | retain bounded ingress/output policy actually used by live operations; it is not a core runtime owner |
 | `crates/rustred-app/src/application/model.rs` | split | rustred-app | freely replace obsolete request/output schemas |
@@ -160,7 +160,12 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain; owner-local pattern tests prove refcount-only clones |
 | `src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest, extreme-`i64` aggregate width, refcount-only coordinate clones, and first-component descent witnesses |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
-| `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
+| `src/input/mod.rs` | move | input | sole canonical input facade; no former flat-module or root aliases, while the still-live affine surface is temporary until its private subtree move |
+| `src/input/model.rs` | split | input | retain syntax-authenticated normalized and lowered mathematical values; prune transport provenance, duplicate lowered fields, and compatibility conveniences in the later input tranche |
+| `src/input/request.rs` | split | input | retain topology-neutral text/Atom request DTOs shared by Rust CLI and Python entrypoints; serde transport belongs to the app |
+| `src/input/limits.rs` | split | input | retain checked parsing and lowering resource policies/stats until the internal native-Symbolica and liveness tranches remove obsolete counters |
+| `src/input/error.rs` | split | input | retain typed parser and lowering failures; merge the temporary split taxonomy after the private affine move |
+| `src/input/compiler.rs` | split | input | behavior-preserving temporary owner of compact grammar, normalization, canonicalization, lowering, and tests; split into focused private modules before Phase 0 closes |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps with symmetry-owned source/target condition evidence; move orchestration to foundry and prune ceremonies |
 | `src/zero_sectors.rs` | split | sector | retain zero-sector proofs with one owner-local condition-source representation; move orchestration to foundry and prune ceremonies |

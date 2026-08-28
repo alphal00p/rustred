@@ -1,4 +1,4 @@
-use rustred::SymbolicaProjectLoweringLimits;
+use rustred::input::LoweringLimits;
 
 use super::error::AppError;
 use super::input::PreparedProject;
@@ -14,7 +14,7 @@ pub(crate) fn lower_project(prepared: PreparedProject) -> Result<LoweredProject,
         normalized,
     } = prepared;
     let lowered = normalized
-        .into_lowered(SymbolicaProjectLoweringLimits::default())
+        .into_lowered(LoweringLimits::default())
         .map_err(|error| {
             AppError::lowering(format!(
                 "cannot lower normalized Symbolica input to an affine integral family: {error}"

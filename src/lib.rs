@@ -11,12 +11,13 @@ pub mod algebra;
 pub mod campaign;
 pub mod family;
 pub mod identity;
+pub mod input;
 pub mod sector;
-pub mod symbolica_affine_denominator;
-pub mod symbolica_integral_input;
 pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod zero_sectors;
+
+mod symbolica_affine_denominator;
 
 pub use algebra::{
     CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
@@ -36,21 +37,6 @@ pub use family::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
-};
-pub use symbolica_affine_denominator::{
-    CompiledSymbolicaAffineDenominator, SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,
-    SymbolicaAffineDenominatorCompiler, SymbolicaAffineDenominatorError,
-    SymbolicaAffineDenominatorLimits, SymbolicaAffineDenominatorStats,
-};
-pub use symbolica_integral_input::{
-    ExternalGramInputV1, LoweredSymbolicaDenominatorV1, LoweredSymbolicaProjectV1,
-    NormalizedProjectInputV1, NormalizedProjectPartsV1, NormalizedProjectSourceV1,
-    NormalizedPropagatorV1, NormalizedTargetV1, ParameterSourceV1, PropagatorInputV1,
-    RUSTRED_LOWERED_SYMBOLICA_PROJECT_V1_SCHEMA, RUSTRED_PROJECT_TOML_V1_SCHEMA,
-    RUSTRED_SYMBOLICA_INTEGRAL_V1_SCHEMA, SymbolicaIntegralInputCompiler,
-    SymbolicaIntegralInputError, SymbolicaIntegralInputLimits, SymbolicaIntegralInputStats,
-    SymbolicaProjectLoweringError, SymbolicaProjectLoweringLimits, TextExternalGramInputV1,
-    TextProjectPartsV1, TextPropagatorInputV1,
 };
 pub use symmetry::{
     AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap, AffineScalarProductMap,

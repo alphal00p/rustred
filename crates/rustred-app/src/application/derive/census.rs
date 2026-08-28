@@ -158,9 +158,9 @@ pub(super) struct GeneratedPayloadCensus {
 /// packed native expression; the factor covers fully-qualified 256-byte labels
 /// plus canonical syntax for every packed unit without rendering anything.
 pub(super) fn preflight_family_payload(
-    normalized: &rustred::NormalizedProjectInputV1,
+    normalized: &rustred::input::Project,
     family: &IntegralFamily,
-    records: &[rustred::LoweredSymbolicaDenominatorV1],
+    records: &[rustred::input::LoweredDenominator],
 ) -> Result<GeneratedPayloadCensus, AppError> {
     let mut census = GeneratedPayloadCensus::default();
     add_generated_payload_bound(&mut census, PAYLOAD_NODE_BYTES)?;

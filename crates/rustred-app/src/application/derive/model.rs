@@ -142,7 +142,7 @@ pub(super) struct RelationTermOutputV1 {
     pub(super) coefficient: String,
 }
 
-pub(super) fn target_output(normalized: &rustred::NormalizedProjectInputV1) -> TargetOutputV1 {
+pub(super) fn target_output(normalized: &rustred::input::Project) -> TargetOutputV1 {
     let target = normalized.target();
     TargetOutputV1 {
         present: true,
@@ -188,7 +188,7 @@ pub(super) fn coordinate_outputs(family: &IntegralFamily) -> Vec<CoordinateOutpu
 
 pub(super) fn denominator_outputs(
     family: &IntegralFamily,
-    records: &[rustred::LoweredSymbolicaDenominatorV1],
+    records: &[rustred::input::LoweredDenominator],
 ) -> Vec<DenominatorOutputV1> {
     records
         .iter()

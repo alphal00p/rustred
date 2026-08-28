@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
-use rustred::{
-    NormalizedProjectInputV1, RUSTRED_PROJECT_TOML_V1_SCHEMA, SymbolicaIntegralInputCompiler,
-    SymbolicaIntegralInputLimits, TextExternalGramInputV1, TextProjectPartsV1,
-    TextPropagatorInputV1,
+use rustred::input::{
+    COMPACT_SCHEMA, Compiler, Limits, Project, TextGramEntry, TextProject, TextPropagator,
 };
 use serde::Deserialize;
 
@@ -11,6 +9,7 @@ use super::error::AppError;
 use super::model::MetadataValue;
 use super::options::InputFormat;
 
+const PROJECT_TOML_V1_SCHEMA: &str = "rustred.project.toml.v1";
 const MAX_METADATA_ENTRIES: usize = 1_024;
 const MAX_METADATA_KEY_BYTES: usize = 1_024;
 const MAX_METADATA_VALUE_BYTES: usize = 64 * 1024;
@@ -22,7 +21,7 @@ pub(crate) struct PreparedProject {
     pub(crate) input_form: &'static str,
     pub(crate) input_schema: String,
     pub(crate) metadata: BTreeMap<String, MetadataValue>,
-    pub(crate) normalized: NormalizedProjectInputV1,
+    pub(crate) normalized: Project,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,7 +122,7 @@ pub(crate) fn prepare_symbolica_root(
         .map_err(|error| AppError::input(format!("invalid Symbolica integral input: {error}")))?;
     Ok(PreparedProject {
         input_form,
-        input_schema: normalized.schema().to_owned(),
+        input_schema: COMPACT_SCHEMA.to_owned(),
         metadata,
         normalized,
     })
@@ -135,10 +134,10 @@ pub(crate) fn prepare_symbolica_root(
 pub(crate) fn prepare_project_document(
     document: ProjectDocumentV1,
 ) -> Result<PreparedProject, AppError> {
-    if document.schema != RUSTRED_PROJECT_TOML_V1_SCHEMA {
+    if document.schema != PROJECT_TOML_V1_SCHEMA {
         return Err(AppError::schema(format!(
             "unsupported project schema {:?}; expected {:?}",
-            document.schema, RUSTRED_PROJECT_TOML_V1_SCHEMA
+            document.schema, PROJECT_TOML_V1_SCHEMA
         )));
     }
     validate_metadata(&document.metadata)?;
@@ -191,10 +190,10 @@ fn prepare_explicit_document(
     target: Option<ExplicitTargetV1>,
 ) -> Result<PreparedProject, AppError> {
     let denominator_count = family.denominators.len();
-    if denominator_count > SymbolicaIntegralInputLimits::default().max_propagators {
+    if denominator_count > Limits::default().max_propagators {
         return Err(AppError::limit(format!(
             "explicit family has {denominator_count} denominators, exceeding the parser limit {}",
-            SymbolicaIntegralInputLimits::default().max_propagators
+            Limits::default().max_propagators
         )));
     }
     let (supplied_powers, numerator) = match target {
@@ -224,7 +223,7 @@ fn prepare_explicit_document(
         .try_reserve_exact(family.denominators.len())
         .map_err(|_| AppError::limit("cannot reserve explicit denominator records".to_owned()))?;
     for (ordinal, denominator) in family.denominators.into_iter().enumerate() {
-        propagators.push(TextPropagatorInputV1 {
+        propagators.push(TextPropagator {
             id: denominator.id,
             expression: denominator.expression,
             target_power: target_powers[ordinal],
@@ -232,7 +231,7 @@ fn prepare_explicit_document(
         });
     }
     let external_gram = explicit_gram_entries(&family.external_momenta, kinematics)?;
-    let parts = TextProjectPartsV1 {
+    let parts = TextProject {
         name: family.name,
         parameters,
         loop_momenta: family.loop_momenta,
@@ -256,7 +255,7 @@ fn prepare_explicit_document(
 fn explicit_gram_entries(
     external_momenta: &[String],
     kinematics: ExplicitKinematicsV1,
-) -> Result<Vec<TextExternalGramInputV1>, AppError> {
+) -> Result<Vec<TextGramEntry>, AppError> {
     if kinematics.external_gram.is_some() && !kinematics.gram.is_empty() {
         return Err(AppError::input(
             "kinematics must use either external_gram (a full matrix) or gram entries, not both"
@@ -309,7 +308,7 @@ fn explicit_gram_entries(
             .map_err(|_| AppError::limit("cannot reserve external Gram entries".to_owned()))?;
         for left in 0..external_momenta.len() {
             for right in left..external_momenta.len() {
-                entries.push(TextExternalGramInputV1 {
+                entries.push(TextGramEntry {
                     left: external_momenta[left].clone(),
                     right: external_momenta[right].clone(),
                     value: retained[left][right].clone(),
@@ -321,7 +320,7 @@ fn explicit_gram_entries(
         Ok(kinematics
             .gram
             .into_iter()
-            .map(|entry| TextExternalGramInputV1 {
+            .map(|entry| TextGramEntry {
                 left: entry.left,
                 right: entry.right,
                 value: entry.value,
@@ -330,8 +329,8 @@ fn explicit_gram_entries(
     }
 }
 
-fn parser() -> Result<SymbolicaIntegralInputCompiler, AppError> {
-    SymbolicaIntegralInputCompiler::new(SymbolicaIntegralInputLimits::default()).map_err(|error| {
+fn parser() -> Result<Compiler, AppError> {
+    Compiler::new(Limits::default()).map_err(|error| {
         AppError::input(format!(
             "cannot initialize Symbolica input grammar: {error}"
         ))
