@@ -410,8 +410,11 @@ physical frame V2, solve-plan V2, and source-profiled V2 target, database, and
 session owners without fabricating V4/V5, Boolean/DPLL, integer-system, or
 legacy inventory certificates. Mathematical stable-value identity remains
 distinct from proof ownership: replay separately requires the exact retained
-terminal, authority, frame, plan, and catalog `Arc` allocations. The old exact
-relation compiler remains legacy-only; it is not the Direct production route.
+terminal, authority, frame, plan, and catalog `Arc` allocations. The unused
+raw exact-relation differential compiler has been retired and remains
+recoverable from Git. The authority-free recenter kernel now owns its useful
+exact arithmetic/admission tests directly, while the session owns the only
+production target-selection and recentering route.
 
 Freshly generated full-cylinder and constrained Direct sources now pass through
 chronological row staging and recentering to the existing unpublished

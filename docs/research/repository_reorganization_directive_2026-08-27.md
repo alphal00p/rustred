@@ -96,6 +96,17 @@ the live Symbolica transcript boundary from the retained `L`, `U`, pivot,
 dependent-row, and normalization data. No compatibility shim, tombstone, or
 archive package replaces any of these files.
 
+The unused V1 `generated_affine_residual_group_exact_relation.rs` compiler was
+also retired. It had no caller outside its own tests and recentered a raw
+certificate row before the authoritative database transition, while the live
+session correctly recenters the authenticated post-reduction pivot. Its three
+unique centered-shift admission invariants and its exact target-offset work
+census now live directly beside the authority-free recenter kernel; the live
+session tests own target selection, arbitrary-width offsets, guard
+translation, allocation binding, and transactional behavior. Git retains the
+old raw-row/i64 differential adapter if historical comparison is ever needed;
+it is not kept as a `cfg(test)` compatibility implementation.
+
 ## Problems to audit
 
 The core repository still has a very large flat `src/` namespace. After the

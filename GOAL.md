@@ -392,8 +392,12 @@ reviewable from semantic changes.
    nested core boundary is complete: deterministic campaign planning,
    resources, width selection, work identity, and admission live behind the
    selective `rustred::campaign` API with private child modules and no root
-   compatibility aliases. Exact-session/closure, test-support, and the other
-   mathematical ownership clusters remain to be reorganized.
+   compatibility aliases. The unused raw exact-relation compiler has also
+   been deleted after its unique GMP work, sealed-census, and exact buffer
+   boundary tests were transplanted to the live recenter kernel; Git retains
+   the obsolete i64 differential rather than a `cfg(test)` compatibility
+   authority. Exact-session/closure, test-support, and the other mathematical
+   ownership clusters remain to be reorganized.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

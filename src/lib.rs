@@ -73,7 +73,6 @@ mod generated_affine_residual_group_exact_publication_handoff;
 #[cfg(test)]
 mod generated_affine_residual_group_exact_publication_tests;
 mod generated_affine_residual_group_exact_recenter_kernel;
-mod generated_affine_residual_group_exact_relation;
 mod generated_affine_residual_group_exact_session;
 mod generated_affine_residual_group_exact_targets;
 mod generated_affine_residual_group_exact_when_bad_conditions;

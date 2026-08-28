@@ -2141,12 +2141,15 @@ mod tests {
         .unwrap()
     }
 
-    fn cancellation_geometry() -> (
-        GeneratedAffineResidualGroupLatticeShift,
+    fn exact_kernel_fixture(
+        name: &str,
+    ) -> (
+        ParametricCoefficientContext,
+        Arc<GeneratedAffineResidualGroupPhysicalFrame>,
         Vec<Integer>,
         Vec<usize>,
     ) {
-        let family = equal_mass_two_loop_family("exact-kernel-target-offset-cancellation");
+        let family = equal_mass_two_loop_family(name);
         let context = ParametricIbpGenerator::try_new(&family)
             .unwrap()
             .context()
@@ -2224,11 +2227,30 @@ mod tests {
             )
             .unwrap(),
         );
+        (context, frame, matrix, free_positions)
+    }
+
+    fn lattice_shift(
+        frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
+        values: &[Integer],
+    ) -> GeneratedAffineResidualGroupLatticeShift {
+        frame
+            .test_key_for_borrowed_physical_values(values)
+            .unwrap()
+            .shift()
+            .clone()
+    }
+
+    fn cancellation_geometry() -> (
+        GeneratedAffineResidualGroupLatticeShift,
+        Vec<Integer>,
+        Vec<usize>,
+    ) {
+        let (_, frame, matrix, free_positions) =
+            exact_kernel_fixture("exact-kernel-target-offset-cancellation");
         let huge = Integer::from(1) << 4096_u32;
-        let key = frame
-            .test_key_for_borrowed_physical_values(&[huge, Integer::from(0), Integer::from(0)])
-            .unwrap();
-        (key.shift().clone(), matrix, free_positions)
+        let pivot = lattice_shift(&frame, &[huge, Integer::from(0), Integer::from(0)]);
+        (pivot, matrix, free_positions)
     }
 
     #[test]
@@ -2452,6 +2474,13 @@ mod tests {
         let mut stats = ExactRecenterKernelStats::for_row(0, 0, limits).unwrap();
         preflight_exact_geometry(&pivot, &matrix, &free_positions, limits, &mut stats).unwrap();
 
+        let huge_bits = integer_bits(&pivot.values()[0]).unwrap();
+        let exact_bit_work = huge_bits
+            .checked_mul(19)
+            .and_then(|work| work.checked_add(25))
+            .unwrap();
+        assert_eq!(stats.geometry_integer_operations(), 9);
+        assert_eq!(stats.geometry_integer_bit_work(), exact_bit_work);
         let exact_bits = stats.target_offset_integer_bits();
         let prospective_bytes = stats.target_offset_prospective_retained_bytes();
         let prospective_arc_bytes = stats.target_offset_arc_retained_bytes();
@@ -2483,6 +2512,7 @@ mod tests {
         let exact_limits = ExactRecenterKernelLimits {
             max_target_offset_integer_bits: exact_bits,
             max_target_offset_temporary_bytes: temporary_bytes,
+            max_geometry_integer_bit_work: exact_bit_work,
             ..limits
         };
         let mut exact_stats = ExactRecenterKernelStats::for_row(0, 0, exact_limits).unwrap();
@@ -2496,14 +2526,16 @@ mod tests {
         .unwrap();
         assert_eq!(exact_stats.target_offset_integer_bits(), exact_bits);
         assert_eq!(exact_stats.target_offset_temporary_bytes(), temporary_bytes);
+        assert_eq!(exact_stats.geometry_integer_bit_work(), exact_bit_work);
 
-        for (resource, one_below) in [
+        for (resource, one_below, proves_no_arithmetic) in [
             (
                 "exact recentering target-offset integer bits",
                 ExactRecenterKernelLimits {
                     max_target_offset_integer_bits: exact_bits - 1,
                     ..limits
                 },
+                false,
             ),
             (
                 "exact recentering target-offset temporary bytes",
@@ -2511,9 +2543,19 @@ mod tests {
                     max_target_offset_temporary_bytes: temporary_bytes - 1,
                     ..limits
                 },
+                false,
+            ),
+            (
+                "exact recentering geometry integer-bit work",
+                ExactRecenterKernelLimits {
+                    max_geometry_integer_bit_work: exact_bit_work - 1,
+                    ..limits
+                },
+                true,
             ),
         ] {
             let mut rejected = ExactRecenterKernelStats::for_row(0, 0, one_below).unwrap();
+            reset_target_offset_arithmetic_entries_for_test();
             assert!(matches!(
                 preflight_exact_geometry(
                     &pivot,
@@ -2528,7 +2570,266 @@ mod tests {
                     limit,
                 }) if actual == resource && requested == limit + 1
             ));
+            if proves_no_arithmetic {
+                assert_eq!(
+                    target_offset_arithmetic_entries_for_test(),
+                    0,
+                    "geometry work must reject before target-offset GMP arithmetic",
+                );
+            }
         }
+    }
+
+    #[test]
+    fn centered_subtractions_have_exact_limits_and_execution_does_not_double_charge() {
+        let (context, frame, _, _) = exact_kernel_fixture("exact-kernel-centered-work");
+        let max = i64::MAX;
+        let pivot = lattice_shift(
+            &frame,
+            &[
+                Integer::from(7),
+                Integer::from(max - 1),
+                Integer::from(max - 1),
+            ],
+        );
+        let second = lattice_shift(
+            &frame,
+            &[
+                Integer::from(7),
+                Integer::from(max - 2),
+                Integer::from(max - 1),
+            ],
+        );
+        let coefficient = context.one();
+        let terms = [(&pivot, &coefficient), (&second, &coefficient)];
+        let defaults = ExactRecenterKernelLimits::default();
+        const PRIOR_OPERATIONS: usize = 15;
+        const PRIOR_INTEGER_BIT_WORK: usize = 518;
+        const CENTERED_OPERATIONS: usize = 6;
+        const CENTERED_INTEGER_BIT_WORK: usize = 780;
+        const EXPECTED_OPERATIONS: usize = PRIOR_OPERATIONS + CENTERED_OPERATIONS;
+        const EXPECTED_INTEGER_BIT_WORK: usize = PRIOR_INTEGER_BIT_WORK + CENTERED_INTEGER_BIT_WORK;
+        let initial_stats = ExactRecenterKernelStats {
+            geometry_integer_operations: PRIOR_OPERATIONS,
+            geometry_integer_bit_work: PRIOR_INTEGER_BIT_WORK,
+            ..ExactRecenterKernelStats::default()
+        };
+        let mut baseline = initial_stats;
+        let admission = preflight_centered_shifts(&terms, &pivot, defaults, &mut baseline).unwrap();
+
+        assert_eq!(baseline.geometry_integer_operations(), EXPECTED_OPERATIONS);
+        assert_eq!(
+            baseline.geometry_integer_bit_work(),
+            EXPECTED_INTEGER_BIT_WORK
+        );
+
+        let exact_limits = ExactRecenterKernelLimits {
+            max_geometry_integer_operations: EXPECTED_OPERATIONS,
+            max_geometry_integer_bit_work: EXPECTED_INTEGER_BIT_WORK,
+            ..defaults
+        };
+        let mut exact_stats = initial_stats;
+        let exact_admission =
+            preflight_centered_shifts(&terms, &pivot, exact_limits, &mut exact_stats).unwrap();
+        reset_centered_shift_arithmetic_operations_for_test();
+        let centered = execute_centered_shifts(
+            &terms,
+            &pivot,
+            exact_admission,
+            exact_limits,
+            &mut exact_stats,
+        )
+        .unwrap();
+        assert_eq!(centered.len(), terms.len());
+        assert_eq!(
+            centered_shift_arithmetic_operations_for_test(),
+            CENTERED_OPERATIONS
+        );
+        assert_eq!(
+            exact_stats.geometry_integer_operations(),
+            EXPECTED_OPERATIONS,
+            "execution replay must not charge the caller twice",
+        );
+        assert_eq!(
+            exact_stats.geometry_integer_bit_work(),
+            EXPECTED_INTEGER_BIT_WORK,
+            "execution replay must not charge the caller twice",
+        );
+        drop(admission);
+
+        for (resource, one_below) in [
+            (
+                "exact recentering geometry integer operations",
+                ExactRecenterKernelLimits {
+                    max_geometry_integer_operations: EXPECTED_OPERATIONS - 1,
+                    ..defaults
+                },
+            ),
+            (
+                "exact recentering geometry integer-bit work",
+                ExactRecenterKernelLimits {
+                    max_geometry_integer_bit_work: EXPECTED_INTEGER_BIT_WORK - 1,
+                    ..defaults
+                },
+            ),
+        ] {
+            let mut rejected = initial_stats;
+            reset_centered_shift_arithmetic_operations_for_test();
+            assert!(matches!(
+                preflight_centered_shifts(&terms, &pivot, one_below, &mut rejected),
+                Err(ExactRecenterKernelError::ResourceLimit {
+                    resource: actual,
+                    requested,
+                    limit,
+                }) if actual == resource && requested == limit + 1
+            ));
+            assert_eq!(
+                centered_shift_arithmetic_operations_for_test(),
+                0,
+                "one-below admission must reject before centered GMP subtraction",
+            );
+        }
+    }
+
+    #[test]
+    fn centered_admission_rejects_same_shape_low_bit_census_before_arithmetic() {
+        let (context, frame, _, _) = exact_kernel_fixture("exact-kernel-centered-binding");
+        let huge = Integer::from(1) << 4096_u32;
+        let high_pivot = lattice_shift(&frame, &[huge.clone(), Integer::from(0), Integer::from(0)]);
+        let high_term = lattice_shift(
+            &frame,
+            &[&huge + Integer::from(1), Integer::from(1), Integer::from(0)],
+        );
+        let low_pivot = lattice_shift(
+            &frame,
+            &[Integer::from(1), Integer::from(0), Integer::from(0)],
+        );
+        let low_term = lattice_shift(
+            &frame,
+            &[Integer::from(2), Integer::from(1), Integer::from(0)],
+        );
+        let coefficient = context.one();
+        let high_terms = [(&high_term, &coefficient)];
+        let low_terms = [(&low_term, &coefficient)];
+        let limits = ExactRecenterKernelLimits::default();
+        let mut high_stats = ExactRecenterKernelStats::default();
+        let high_admission =
+            preflight_centered_shifts(&high_terms, &high_pivot, limits, &mut high_stats).unwrap();
+        let mut low_stats = ExactRecenterKernelStats::default();
+        let low_admission =
+            preflight_centered_shifts(&low_terms, &low_pivot, limits, &mut low_stats).unwrap();
+
+        assert_eq!(high_admission.shift_count(), low_admission.shift_count());
+        assert_eq!(high_admission.components(), low_admission.components());
+        assert_eq!(
+            high_stats.centered_shift_outer_buffer_bytes(),
+            low_stats.centered_shift_outer_buffer_bytes()
+        );
+        assert!(
+            high_admission.prospective_integer_bits() > low_admission.prospective_integer_bits()
+        );
+        assert!(
+            high_admission.prospective_retained_bytes()
+                > low_admission.prospective_retained_bytes()
+        );
+        assert!(high_stats.geometry_integer_bit_work() > low_stats.geometry_integer_bit_work());
+
+        let high_pivot_before = high_pivot.values().to_vec();
+        let high_term_before = high_term.values().to_vec();
+        let low_stats_before = low_stats;
+        reset_centered_shift_arithmetic_operations_for_test();
+        assert_eq!(
+            execute_centered_shifts(
+                &high_terms,
+                &high_pivot,
+                high_admission,
+                limits,
+                &mut low_stats,
+            ),
+            Err(ExactRecenterKernelError::CensusMismatch)
+        );
+        assert_eq!(centered_shift_arithmetic_operations_for_test(), 0);
+        assert_eq!(low_stats, low_stats_before);
+        assert_eq!(high_pivot.values(), high_pivot_before);
+        assert_eq!(high_term.values(), high_term_before);
+    }
+
+    #[test]
+    fn centered_and_borrowed_reference_buffers_have_exact_one_below_limits() {
+        let (context, frame, _, _) = exact_kernel_fixture("exact-kernel-buffer-envelopes");
+        let max = i64::MAX;
+        let pivot = lattice_shift(
+            &frame,
+            &[
+                Integer::from(7),
+                Integer::from(max - 1),
+                Integer::from(max - 1),
+            ],
+        );
+        let second = lattice_shift(
+            &frame,
+            &[
+                Integer::from(7),
+                Integer::from(max - 2),
+                Integer::from(max - 1),
+            ],
+        );
+        let coefficient = context.one();
+        let terms = [(&pivot, &coefficient), (&second, &coefficient)];
+        let defaults = ExactRecenterKernelLimits::default();
+        let mut baseline = ExactRecenterKernelStats::for_row(terms.len(), 1, defaults).unwrap();
+        preflight_borrowed_reference_buffers(terms.len(), 1, defaults, &mut baseline).unwrap();
+        preflight_centered_shifts(&terms, &pivot, defaults, &mut baseline).unwrap();
+        let centered_demand = baseline.centered_shift_outer_buffer_bytes();
+        let reference_demand = baseline.borrowed_reference_buffer_bytes();
+        assert!(centered_demand > size_of::<Vec<ExactCenteredShift>>());
+        assert!(reference_demand > size_of::<Vec<ExactBorrowedTerm<'_>>>());
+
+        let exact_limits = ExactRecenterKernelLimits {
+            max_centered_shift_outer_buffer_bytes: centered_demand,
+            max_borrowed_reference_buffer_bytes: reference_demand,
+            ..defaults
+        };
+        let mut exact = ExactRecenterKernelStats::for_row(terms.len(), 1, exact_limits).unwrap();
+        preflight_borrowed_reference_buffers(terms.len(), 1, exact_limits, &mut exact).unwrap();
+        preflight_centered_shifts(&terms, &pivot, exact_limits, &mut exact).unwrap();
+        assert_eq!(exact.centered_shift_outer_buffer_bytes(), centered_demand);
+        assert_eq!(exact.borrowed_reference_buffer_bytes(), reference_demand);
+
+        let centered_one_below = ExactRecenterKernelLimits {
+            max_centered_shift_outer_buffer_bytes: centered_demand - 1,
+            ..exact_limits
+        };
+        let mut rejected =
+            ExactRecenterKernelStats::for_row(terms.len(), 1, centered_one_below).unwrap();
+        assert!(matches!(
+            preflight_centered_shifts(&terms, &pivot, centered_one_below, &mut rejected),
+            Err(ExactRecenterKernelError::ResourceLimit {
+                resource: "exact recentering centered-shift outer buffer bytes",
+                requested,
+                limit,
+            }) if requested == centered_demand && limit + 1 == centered_demand
+        ));
+
+        let reference_one_below = ExactRecenterKernelLimits {
+            max_borrowed_reference_buffer_bytes: reference_demand - 1,
+            ..exact_limits
+        };
+        let mut rejected =
+            ExactRecenterKernelStats::for_row(terms.len(), 1, reference_one_below).unwrap();
+        assert!(matches!(
+            preflight_borrowed_reference_buffers(
+                terms.len(),
+                1,
+                reference_one_below,
+                &mut rejected,
+            ),
+            Err(ExactRecenterKernelError::ResourceLimit {
+                resource: "exact recentering borrowed-reference buffer bytes",
+                requested,
+                limit,
+            }) if requested == reference_demand && limit + 1 == reference_demand
+        ));
     }
 
     #[test]

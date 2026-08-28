@@ -234,16 +234,13 @@ RHS physical shifts:     s -> s - r
 ```
 
 The pivot belongs to the first unresolved solve-plan target whose offset is
-`o_u = t`.  After recentering, its left-hand side is the target's unshifted
-parametric integral and its pivot key is zero.  RustRed's current exact-relation
-prototype implements the target-offset and coefficient-translation formulas
-(`src/generated_affine_residual_group_exact_relation.rs:1080-1135`) and centers
-integral keys by subtracting the pivot
-(`src/generated_affine_residual_group_exact_relation.rs:1190-1310`).  That
-prototype intentionally operates on an inert/raw candidate and is not the
-future database ingress
-(`src/generated_affine_residual_group_exact_relation.rs:1-20`); the new database
-must first produce the sealed top-reduced unit row.
+`o_u = t`. After recentering, its left-hand side is the target's unshifted
+parametric integral and its pivot key is zero. RustRed's live authority-free
+recenter kernel implements the target-offset, coefficient-translation, and
+centered-key formulas, and the exact session applies them only to the sealed
+top-reduced unit row. The earlier raw exact-relation/i64 differential adapter
+has been retired because it ran before that authority boundary; Git retains it
+as historical design evidence.
 
 ### 4.1 Exact LiteRed `WhenBad`
 

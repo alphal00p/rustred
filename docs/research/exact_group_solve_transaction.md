@@ -52,15 +52,17 @@ The topology-neutral authority and staging layers described below now exist:
   staging/commit and raw plan access exist only as `cfg(test)` adapters, so a
   sibling production module cannot bypass the session's typed outcome policy.
 - `generated_affine_residual_group_exact_recenter_kernel.rs` now contains the
-  authority-free GMP/Symbolica arithmetic extracted from the legacy raw-row
+  authority-free GMP/Symbolica arithmetic extracted from the retired raw-row
   adapter.  It consumes exact-size borrowed exact-shift/coefficient/guard
   streams once into admitted stable reference buffers, computes
   `t = r - A r_F`, `delta_F = -r_F`, and
   `q = s - r`, and returns only inert centered values.  Its resource contract
   separates pre-existing live owners, additional retained output, and native
-  scratch.  The legacy exact-relation compiler projects into this kernel and
-  remains the differential oracle; the kernel accepts no raw relation,
-  database/session token, solve plan, target bitmap, topology, or loop count.
+  scratch. Its direct tests own exact target-offset and centered-shift work,
+  census binding, and one-below buffer admission. The obsolete raw-relation/i64
+  differential remains recoverable from Git rather than compiled under
+  `cfg(test)`; the kernel accepts no raw relation, database/session token,
+  solve plan, target bitmap, topology, or loop count.
 - `generated_affine_residual_group_exact_session.rs` now owns the only
   production recentering entry point. It consumes a staged session transaction,
   authenticates the post-top-reduction pivot together with its exact target
@@ -219,8 +221,9 @@ rules/residual leaves with chronological replay.
 The event ledger currently records `Dependent`,
 `NoTarget`, and mandatory affine-equality-refinement transitions; it does not
 yet record unpublished future `WhenBad`/rule/residual leaves. The old raw
-`generated_affine_residual_group_exact_relation.rs` compiler remains a
-differential oracle only; it is not a production authority.
+exact-relation compiler has been retired; Git retains its historical
+differential evidence, while the live kernel/session path owns current
+recenter semantics and tests.
 
 Condition compilation must consume the already-centered row directly. The
 recenter kernel has already applied `n_F -> n_F-r_F` to row coefficients and
@@ -282,14 +285,12 @@ authority boundary was necessary:
    (`src/generated_affine_residual_group_exact_database.rs:848-870`). The
    dependent path likewise advances the cursor immediately
    (`src/generated_affine_residual_group_exact_database.rs:654-664`).
-3. The exact-relation prototype rebuilds a raw retained relation, chooses that
-   raw relation's maximum, and takes a caller-provided unresolved-target bitmap
-   (`src/generated_affine_residual_group_exact_relation.rs:519-595`,
-   `src/generated_affine_residual_group_exact_relation.rs:794-840`). Its GMP
-   geometry and translation kernels are useful
-   (`src/generated_affine_residual_group_exact_relation.rs:802-889`,
-   `src/generated_affine_residual_group_exact_relation.rs:1113-1147`), but its
-   input authority is not the post-database pivot authority.
+3. At the historical audit revision, the now-retired exact-relation prototype
+   rebuilt a raw retained relation, chose that raw relation's maximum, and
+   took a caller-provided unresolved-target bitmap. Its useful GMP geometry
+   and translation kernels were extracted into the live recenter kernel, but
+   its input authority was not the post-database pivot authority. Git retains
+   the prototype and its old i64 differential; neither is compiled today.
 4. The mature `WhenBad` and publication state machine belongs to the older
    `GeneratedResidualAffine...` lineage. Its authenticated input owns the old
    matcher/relation graph
@@ -425,12 +426,11 @@ after reserving only the outer vector
 removed from the final commit path and remains a separate fallibility-hardening
 seam.
 
-## 4. Why raw `exact_relation` cannot follow database ingress
+## 4. Why the retired raw exact-relation adapter cannot follow database ingress
 
-The existing exact-relation compiler is explicitly a raw certificate-row
-adapter, not authoritative database ingress
-(`src/generated_affine_residual_group_exact_relation.rs:1-20`). Calling it
-after the current mutating database method does not repair the ordering:
+The retired exact-relation compiler was explicitly a raw certificate-row
+adapter, not authoritative database ingress. Calling that design after the
+current mutating database method does not repair the ordering:
 
 ```text
 raw row maximum K              K is already a database pivot
@@ -537,13 +537,12 @@ plan/frame/inventory/source objects are rejected at live authority boundaries.
    to the database allocation/transition, and advance unconsumed successors
    atomically with the database.
 3. **Recenter the staged pivot — implemented.** GMP geometry/translation has
-   been extracted from
-   `generated_affine_residual_group_exact_relation.rs` without carrying its
-   raw-row authority. The sealed session wrapper joins that inert kernel to the
-   authenticated staged pivot and owner target-state view, with
+   been extracted from the retired raw-relation adapter without carrying its
+   raw-row authority. The sealed session wrapper joins that inert kernel to
+   the authenticated staged pivot and owner target-state view, with
    transaction-preserving failure and persisted first-match
-   NoTarget/equality/Ready classification. Raw-relation compilation is not a
-   production authority path.
+   NoTarget/equality/Ready classification. The old adapter remains available
+   through Git history, not as a production or test-only authority path.
 4. **Prove exact Ready descent and orthant geometry — implemented.** The sealed
    Ready token is reauthenticated, every RHS is compared through the existing
    physical-key ordering, and inactive-coordinate crossing ranges are retained
