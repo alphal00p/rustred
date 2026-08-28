@@ -223,7 +223,8 @@ Diagnostics go to standard error. File output is staged, synchronized, and
 installed atomically in the destination directory; without `--force`, an
 existing destination is never replaced.
 
-Exit status categories are stable for v1:
+The current command reports these exit-status categories; pre-alpha interfaces
+and schemas may still change during the repository reset:
 
 | Status | Category |
 |---:|---|
@@ -247,9 +248,9 @@ Before rendering,
 it charges the packed normalized/source Atoms with a conservative canonical
 render factor and censuses all exact family and generated-relation rational
 polynomials: sparse numerator/denominator terms, dense exponent payload,
-integer magnitudes, shifts, and guard provenance share the 256 MiB
+integer magnitudes, shifts, and condition sources share the 256 MiB
 retained/render budget. These conservative limits are shared application policy
-for both the CLI and future Python adapter; lower-level core-library users can
+for both the CLI and the existing Python API; lower-level core-library users can
 select their own resource policy. `--relations ordinary` does not construct LI rows;
 `--relations li` constructs only the authenticated ordinary source rows needed
 internally by LiteRed's LI construction and emits only LI rows.
@@ -267,7 +268,7 @@ The output schema is `rustred.derive-output.toml.v1`. It includes:
 - typed scalar-product coordinates and every denominator's canonical source,
   normalized expression, constant, and full affine coefficient row;
 - the external Gram matrix and all generic-domain nonzero conditions with
-  stable typed provenance;
+  their deterministic `sources` collections;
 - generated/emitted row counts;
 - every selected relation with a typed row ID, its ordered integer shift
   vectors, canonical Symbolica coefficients, and exceptional nonzero
@@ -427,11 +428,11 @@ reducer execution, and checkpointing remain unimplemented. Neither campaign
 command derives sector rules or claims closure.
 
 Multiple compact Symbolica family/integral expressions may supply the roots.
-The future execution TOML will additionally carry campaign-wide policies and
-resources; `--n-cores` and memory admission may change timing only. The
+A future execution contract will additionally carry campaign-wide policies
+and resources; `--n-cores` and memory admission may change timing only. The
 deterministic work-unit, closure, checkpoint, and multi-start bundle contracts
-are specified in the
-[parallel campaign foundry design](research/parallel_campaign_foundry_design_2026-08-26.md).
+are governed by Phase 3 of [`GOAL.md`](../GOAL.md) and the
+[clean-repository architecture plan](research/repository_clean_architecture_plan_2026-08-28.md).
 
 For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
 `--n-cores 100` remains only a ceiling. Before building its pool, the campaign

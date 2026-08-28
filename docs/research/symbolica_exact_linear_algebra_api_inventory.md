@@ -1,10 +1,12 @@
 # Symbolica exact linear-algebra Rust API inventory
 
-Status: source inventory of the vendored Symbolica 2.2.0 and Numerica 2.2.0
-trees plus B0 adapter findings, 2026-08-24. The relevant checkout is
-`vendor/symbolica`. Symbolica's GMP backend is the required RustRed
-configuration; this inventory does not cover or authorize the `no_gmp`
-feature.
+> **Frozen source-API inventory.** This audit is subordinate to
+> [`GOAL.md`](../../GOAL.md) and applies to pinned Symbolica revision
+> `77c137481904b8a5531ede86e3ef36b82beed7fd` (2.2.0). It records public API
+> behavior and embedding caveats, not current RustRed implementation status.
+
+The relevant production checkout is `vendor/symbolica`. Symbolica's GMP
+backend is required; this inventory does not cover or authorize `no_gmp`.
 
 ## Mandatory RustRed policy
 
@@ -85,6 +87,13 @@ selected variable in the denominator unless explicitly told to ignore the
 denominator. This is the preferred decomposition seam for RustRed's index and
 momentum-variable grouping; manual exponent-row copying is not required.
 
+For a polynomial matrix whose coefficients are rational functions, the exact
+nested public type is
+`Matrix<PolynomialRing<RationalPolynomialField<IntegerRing, u16>, u16>>`.
+Its native `Matrix::det` is directly usable. There is no public adjugate API;
+RustRed may select minors and place cofactors structurally, but every minor
+determinant must still be computed by Symbolica.
+
 ## Dense `Matrix` API
 
 The implementation and inline rustdocs are in
@@ -117,8 +126,8 @@ subtraction, multiplication, negation, and scalar multiplication. RustRed must
 still preflight dimensions and allocation bounds before invoking constructors;
 the generic API does not implement RustRed's resource policy.
 
-RustRed B0 therefore uses `Matrix::from_linear`, not `from_nested_vec`. Its
-adapter first authenticates rectangularity, checks conversion of both
+An embedding boundary should therefore use `Matrix::from_linear`, not
+`from_nested_vec`. It first authenticates rectangularity, checks conversion of both
 dimensions to `u32`, checks the `usize` entry product and the constructor's
 internal `u32` product, then reserves and clones one row-major buffer. This
 also gives typed behavior for empty and zero-column matrices instead of
@@ -134,6 +143,14 @@ division in the chosen ring and panics if `try_div` unexpectedly fails. A
 RustRed boundary using it must establish an appropriate exact domain, admit
 work and memory, and contain a native panic. It must not reimplement Bareiss
 merely to avoid writing that boundary.
+
+Construct zero, one, and scalar constants from an authenticated domain
+template rather than accepting whatever variable map a convenience
+constructor chooses. A singular native determinant may return a canonical
+zero with an empty variable map. Also, native `Matrix::det` reports
+`Err(Singular)` for a `0 x 0` matrix; RustRed may define `det(empty)=1` only as
+a structural convention before entering Symbolica, not as a replacement
+determinant algorithm.
 
 ### Fraction-free Euclidean-domain operations
 
@@ -181,11 +198,10 @@ pivot selection.
 
 The vendored generic inverse branch reduces all columns of `[A|I]`. For size
 one and sizes four or larger, a singular coefficient block can therefore be
-masked by pivots in the identity block and `inv` may return success. RustRed's
-B0 adapter evaluates the independent native `Matrix::det` first, rejects zero,
-and only then calls `inv`; sizes one through six and singular/nonsingular cases
-are regression-tested. This is a checked composition of public Symbolica
-operations, not a replacement inverse algorithm.
+masked by pivots in the identity block and `inv` may return success. A safe
+composition must evaluate the independent native `Matrix::det` first, reject
+zero, and only then call `inv`. This is a checked composition of public
+Symbolica operations, not a replacement inverse algorithm.
 
 `MatrixError<F>` is defined at
 [`matrix.rs:1391`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1391).
@@ -300,8 +316,8 @@ The reducer normalizes pivots by field inversion and exposes no custom pivot
 policy. It is nevertheless mandatory to evaluate it, and composition around
 it, before implementing sparse field elimination in RustRed.
 
-Post-B0 source review found a stronger composition candidate than a simple
-rank oracle. RustRed can reindex columns into hardest-first order, feed rows in
+Source review found a stronger composition candidate than a simple rank
+oracle. RustRed can reindex columns into hardest-first order, feed rows in
 authenticated source order, select `LuLMode::Full`, and inspect public `u`,
 `l`, and `pivots`; `add_cols` supports a growing authenticated column map.
 This may retain the controller's ordering and enough elimination factors for

@@ -1,11 +1,10 @@
 # RustRed clean-repository architecture plan
 
-**Status:** authoritative Phase-0 execution plan, subordinate only to
-[`GOAL.md`](../../GOAL.md). This document supersedes the package-preservation
-and gradual-move policy in
-`repository_reorganization_directive_2026-08-27.md`. It is deliberately a
-reset plan, not a promise to preserve the present Rust API, schemas, fixtures,
-tests, or file history.
+**Status:** authoritative Phase-0 execution plan, subordinate to
+[`GOAL.md`](../../GOAL.md). It supersedes the package-preservation and
+gradual-move policy retained only in Git history. This is deliberately a reset
+plan, not a promise to preserve the present Rust API, schemas, fixtures, tests,
+or file history.
 
 ## Decision
 
@@ -300,19 +299,15 @@ dumping-ground module.
 | `vendor/symbolica` gitlink | retain as the pinned production CAS dependency; `no_gmp` remains forbidden |
 | `README.md` | rewrite against the real three-package tree and current capabilities; delete historical achievement log |
 | `docs/CLI.md` | replace with stable `docs/interfaces.md` covering CLI plus Python and core application contracts |
-| all 78 current `docs/research/*.md` | distill unique current decisions into the six stable documents in the final tree, then delete the research log; this execution plan itself may be deleted once its gates are captured and complete |
+| 78-file research corpus at reset start | retain four current/subordinate authorities and eight frozen source audits, distill unique facts into them, and delete the other 66 historical plans/logs; the retained audits may later be reorganized into stable undated references after Phase 0 |
 
-The documentation distillation is allowlist-by-subject, not file preservation.
-The only source notes that must be consulted before deletion are the current
-LiteRed algorithm/scope reports, parametric-IBP design, parallel-foundry plan,
-Symbolica API/compliance inventories, and Vakint/GammaLoop integration audits.
-Former exact-session/exceptional notes may contribute failure cases but do not
-define the fresh foundry architecture. Still-valid content moves into
-`references/litered2.md`, `foundry.md`, `algebra.md`, `validation.md`, and
-`interfaces.md`; their original dated files then disappear. Loop-authored
-reduction notes, old V1/V2/generated pipeline plans, the prior repository
-reorganization directive, compatibility directives, and completed milestone
-logs are deleted rather than indexed as an archive.
+The documentation distillation is allowlist-by-subject, not historical file
+preservation. The retained corpus covers the current goal/reset/CAS roadmaps
+and frozen LiteRed, Symbolica, and Vakint/GammaLoop source evidence. Former
+prototype notes contribute only unique mathematical failure cases; they do not
+define the fresh foundry architecture. Loop-authored reduction notes, old
+generated-pipeline plans, compatibility directives, and completed milestone
+logs are deleted rather than indexed as an archive. Git retains their history.
 
 ## Fresh test and evidence policy
 
@@ -507,11 +502,14 @@ The current deletion checkpoint has already removed the legacy sparse solver,
 coefficient projection/parser compatibility, partial-specialization/replay,
 aggregate concrete-specialization census, retained-payload serialization,
 exact-Integer translation, two-phase guarded division, and unused integer-
-matrix adapter. The remaining coefficient and relation migration units retain
-only complete K(n) translation/specialization, guard provenance, direct
-Symbolica coefficient operations, and mathematical pre-operation bounds. They
-must still be renamed and split into the semantic algebra/identity owners;
-their shorter current files are not accepted as final root modules.
+matrix adapter. The former flat coefficient migration unit has now been
+renamed and split into `algebra::indexed`, while identity-owned conditions
+remain under `identity`. The retained implementation contains only complete
+K(n) translation/specialization, identity-condition sources, direct Symbolica
+coefficient operations, and mathematical pre-operation bounds. The next
+semantic pass removes redundant base-polynomial/result wrappers and delegates
+simultaneous substitution to Symbolica; the new tree is an ownership boundary,
+not automatic evidence that every surviving surface is final.
 
 The retained exponent boundary now matches Symbolica's representation:
 stored and configured caps are `u16`, pairwise prospective degree sums use
@@ -622,11 +620,11 @@ explicit manifest/version-source changes, this commit is a mechanical move.
 Gate: licensed default-GMP workspace tests, deterministic concurrency cases,
 exact retained-primitive evidence, and no FORM in the default graph.
 
-### R7 — replace the documentation corpus
+### R7 — consolidate the documentation corpus
 
-- Write the six stable documents and a concise README describing only actual
-  capabilities.
-- Delete every dated research/log document after its live decision is captured.
+- Keep the concise README and interface guide limited to actual capabilities.
+- Retain only the four current/subordinate authorities and eight frozen source
+  audits after capturing unique facts from the other 66 research files.
 - Remove broken/private/redundant doc links and stale package/path names.
 
 Gate: strict rustdoc and link/path scan are green.
@@ -668,7 +666,8 @@ Required structural assertions:
 - no package enables Symbolica `no_gmp`;
 - core-domain and frontend dependencies follow the declared DAG;
 - compiler and rustdoc warnings are zero without blanket warning suppression;
-- public docs expose `import rustred`, never `import _rustred`; and
+- public docs expose only `import rustred`; the private extension is never
+  imported directly; and
 - capability statements remain limited to the fresh passing evidence.
 
 The reset succeeds by producing a small comprehensible base, not by preserving

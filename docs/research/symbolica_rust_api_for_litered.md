@@ -1,28 +1,20 @@
 # Symbolica Rust API boundary for a LiteRed-complete RustRed
 
-Status: source audit of vendored Symbolica 2.2.0, reconciled with the RustRed
-source through the automatic-ISP-rank and tensor-projector milestones on
-2026-08-25.
-This report is implementation-oriented and covers the API boundary needed for
+> **Frozen source-API audit.** This report is subordinate to
+> [`GOAL.md`](../../GOAL.md) and applies to pinned Symbolica revision
+> `77c137481904b8a5531ede86e3ef36b82beed7fd` (2.2.0). It records source
+> behavior and safe embedding constraints, not current RustRed implementation
+> status.
+
+This report covers the API boundary needed for
 generic, parametric IBP/LI generation, sector and symmetry handling, guarded
 rule solving/application, persistence, and a Vakint/FORM-inspired
 tensor-numerator front end. It does **not** treat concrete topologies as part
 of the core algorithm; those belong only in tests and oracle validation.
 
-The initial source audit did not run Cargo, so code fragments below remain
-source-derived idioms unless an executed regression is cited.  The reconciled
-RustRed boundary was subsequently exercised under licensed, GMP-enabled
-Symbolica in parallel run `5ae578f9-5bff-4cf9-bf3f-7013730923ee`: 20/20 generic
-IBP, Symbolica tensor-numerator, and FORM-free Vakint oracle tests passed with
-`cargo nextest run -j4`.  That checkpoint is evidence for the named exercised
-APIs, not a substitute for the still-open probes in section 17.
-
-Later parallel checkpoints migrated the generic-family denominator-basis
-determinant/inverse, automatic-ISP rank, and tensor-projector Gram
-power/determinant/inverse/two-sided replay to Symbolica's public APIs through
-the checked contextual field adapter documented in section 10.1.1. This is not
-a claim that all RustRed matrix, polynomial, or elimination consumers have
-migrated.
+Code fragments below are source-derived idioms unless the linked upstream
+tests establish their behavior. Current implementation and validation claims
+belong in the live code and test suite, not this frozen inventory.
 
 Confirmed upstream correctness defects and the fallible/resource-aware API gap
 are summarized with standalone reproductions in
@@ -66,6 +58,11 @@ RustRed deliberately disables Symbolica's default features and enables only
 reference build is GMP-backed, never `no_gmp`, and does **not** install the
 `faster_alloc`/mimalloc global allocator.  Any future feature change is an
 artifact/toolchain change and must be recorded and retested.
+
+Access to Symbolica source is not by itself a redistribution grant. Shipping,
+CI, wheels, and deployment require explicit permission and the appropriate
+professional license; each distribution environment must be reviewed
+separately from a developer's local license.
 
 RustRed's direct `rand = "0.9"` dependency is an interface dependency only.
 The public Symbolica `Ring` trait requires every implementation to provide
@@ -474,8 +471,7 @@ boundary, numerical comparison with canonical zero is required; the
 representation-sensitive Symbolica zero predicates do not by themselves
 reject noncanonical `Double(0)` or `Large(0)` coefficients.
 
-The implemented index-dependent algebra route uses public Symbolica APIs end
-to end:
+A safe index-dependent algebra route uses public Symbolica APIs end to end:
 
 1. Authenticate both context fingerprints, complete ordered variable maps,
    sparse shapes, canonical monomial order, exponent ranges, and integer
@@ -553,6 +549,16 @@ Newton interpolation is public at `vendor/symbolica/src/poly/gcd.rs:341-383`; it
 
 No public, complete multivariate rational-function reconstruction API was found. RustRed must implement sampling/support/degree management, bad-prime and bad-point rejection, CRT accumulation, multivariate rational reconstruction, and exact replay. Every reconstructed parametric identity must be replayed over exact integer/RP coefficients; fresh finite-field checks are secondary evidence only.
 
+### 9.4 Rational-function decomposition and calculus
+
+The public rational-polynomial surface already provides `derivative`, `apart`,
+`apart_factored_denominators`, `apart_multivariate`, and `integrate`. The latter
+paths can invoke factorization or Groebner-basis machinery and contain
+assertions/unwraps; none accepts RustRed's caller resource budget or
+cancellation token. Use them only behind a checked native boundary with exact
+recombination or differentiation replay. Their operational limitations are
+not permission to hand-write the same CAS transformations in RustRed.
+
 ## 10. Dense and sparse linear algebra
 
 ### 10.1 Dense matrices
@@ -570,23 +576,22 @@ Do not call bare dense `Matrix::inv` as a correctness oracle. Its general path,
 used for size one and sizes four and larger, row-reduces every column of the
 augmented matrix `[A|I]`; the appended identity can make the augmented rows
 independent even when `A` itself is singular, so singularity may be missed
-(`vendor/symbolica/lib/numerica/src/tensors/matrix.rs:1557-1579`). The
-implemented generic-family boundary calls the independent native `Matrix::det`
-first, rejects a zero determinant, and retains the determinant numerator as
+(`vendor/symbolica/lib/numerica/src/tensors/matrix.rs:1557-1579`). A safe
+generic-family boundary calls the independent native `Matrix::det` first,
+rejects a zero determinant, and retains the determinant numerator as
 the family-domain nonzero condition before calling `inv`. Generic parametric
 elimination remains a separate guard/provenance problem and still has to retain
 its selected pivot conditions.
 
 The Atom-level `solve_linear_system`/`system_to_matrix` convenience API (`vendor/symbolica/src/atom/core.rs:757-835`) auto-extracts symbolic coefficients. It does not provide integral ordering, guard-aware pivots or proof provenance, so it should be confined to diagnostics.
 
-For automatic ISP completion, RustRed now copies each authenticated nonempty
-rectangular coefficient matrix into the checked contextual field and calls
-public `Matrix::partial_row_reduce` over all columns.  This destructive entry
-point avoids the extra clone in `Matrix::rank`; RustRed retains only the
-LiteRed identity-row scan, coordinate order, resource policy, V2 work census,
-and replay certificate.  A test-only maximal-minor oracle delegates every
-determinant to public `Matrix::det` and independently verifies one- and
-two-loop examples with external momenta.
+For automatic ISP completion, copy an authenticated nonempty rectangular
+coefficient matrix into the checked contextual field and call public
+`Matrix::partial_row_reduce` over all columns. This destructive entry point
+avoids the extra clone in `Matrix::rank`; RustRed retains only the deterministic
+candidate scan, coordinate order, resource policy, and replay evidence. An
+independent maximal-minor oracle must delegate every determinant to public
+`Matrix::det`.
 
 Two additional native edge cases are relevant when selecting matrix APIs.
 `Matrix::rank`/`partial_row_reduce` indexes row zero for a `0 x N` input, so the
@@ -595,333 +600,74 @@ single-`u32` row-index implementation in the vendored dense matrix multiplies
 by `nrows` instead of `ncols`; RustRed uses tuple indexing and iterators and
 does not rely on that rectangular row-slice path.
 
-#### 10.1.1 Checked contextual field for coefficient matrices and powers
+#### 10.1.1 Checked contextual field boundary
 
-The generic-family, automatic-ISP-rank, and tensor-projector P1 slices use
-`src/symbolica_coefficient_matrix.rs`. `CheckedCoefficientField` supplies
-Symbolica's public `Set`, `RingOps`, `Ring`, `EuclideanDomain`, and `Field`
-traits with RustRed's existing rational-polynomial `Coefficient` element and
-ordered `CoefficientContext`. Matrix-used scalar operations forward to the
-context's checked Symbolica arithmetic; constants are constructed on the
-context's map. Symbolica itself performs rank reduction, determinant, inverse,
-both native products, and coefficient powers. There is no private determinant,
-inversion, elimination, matrix multiplication, coefficient-power,
-rational-function, or integer implementation in this boundary.
+No public Symbolica 2.2.0 field object combines a rational-polynomial element
+with RustRed's authenticated variable map and fallible resource policy.
+`RationalPolynomialField` creates constants on an empty map and may unify maps
+during arithmetic; `RingOps` and `Field` scalar methods provide no typed
+resource-failure channel. A narrow contextual adapter may therefore own map
+authentication, admission, panic containment, and output checks while
+delegating every scalar and matrix operation to Symbolica.
 
-This adapter is required because no closer public Symbolica 2.2.0 abstraction
-satisfies the boundary contract:
+For inverse-dependent work, call native `Matrix::det` first, reject zero, then
+call native `Matrix::inv`; verify both `A A^-1` and `A^-1 A` entry by entry
+rather than with the affected `Matrix::is_one`. Construct constants from an
+authenticated element template, because convenience constructors and a
+singular determinant result may carry empty maps. These checks compose public
+operations; they are not a second determinant, inverse, or matrix-product
+implementation.
 
-- `RationalPolynomialField<R,E>` stores `R` but no variable map, and its
-  `zero`, `one`, and `nth` make empty-map elements
-  (`vendor/symbolica/src/domains/rational_polynomial.rs:38-58,847-872`). Its
-  ordinary arithmetic may unify mismatched element maps instead of rejecting
-  them.
-- `RingOps` and `Field::{div,inv}` are infallible trait methods, and
-  `Ring::{try_inv,try_div}` return only `Option`
-  (`vendor/symbolica/lib/numerica/src/domains.rs:111-182,250-254`). Native
-  matrix code therefore has no public result channel for RustRed's typed
-  context and resource failures.
-- `FactorizedRationalPolynomialField` changes the element representation; its
-  element ordering remains `todo!()`, and its field `is_one` does not check
-  `numer_coeff`
-  (`vendor/symbolica/src/domains/factorized_rational_polynomial.rs:79-83,1041-1043`).
-  `AtomField` likewise loses the strict declared polynomial map and bounded
-  coefficient contract.
+#### 10.1.2 Integer affine maps and normal forms
 
-The adapter is deliberately narrow: RustRed owns admission, authentication,
-failure transport, and replay, while all algebra stays in Symbolica. It admits
-an exact scalar-operation bound, individual and simultaneously live
-matrix-entry bounds, clone-owned retained bytes for all authenticated inputs,
-and aggregate clone-owned retained bytes for the determinant, inverse, and
-both verification products. Each native output is authenticated against the
-ordered context and exact coefficient limits before use. Symbolica exposes no
-complete public bound for its temporary polynomial GCD, quotient, or dense
-multiplication scratch; retained-byte accounting is therefore explicit about
-that native-scratch limitation and is not presented as a total-memory proof.
+Public `Matrix<IntegerRing>` supports rectangular construction and exact
+multiplication, so affine-map composition must use native matrix products.
+RustRed may authenticate shapes, integer payloads, and resource envelopes and
+replay output geometry, but it must not implement the dot products.
 
-Two postconditions compensate for audited defects without replacing the native
-algorithms. The determinant-first singularity guard precedes every inverse.
-Then `A A^-1` and `A^-1 A` are computed with Symbolica multiplication and
-checked entry by entry for exact diagonal ones and off-diagonal zeros. The
-entrywise check is necessary because Symbolica's `Matrix` `SelfRing::is_one`
-accepts a zero diagonal entry
-(`vendor/symbolica/lib/numerica/src/tensors/matrix.rs:1128-1134`).
-
-Typed checked-scalar failures cross Symbolica's infallible field methods as a
-private unwind payload caught and downcast at the immediately enclosing native
-call. Consequently this boundary requires `panic = "unwind"`; the module emits
-a compile error for `panic = "abort"`. The adapter's `Ring::sample` method is
-also why RustRed directly depends on `rand` 0.9: its signature must use
-Symbolica's `rand::RngCore` version, and the implementation delegates to `Z`.
-
-The production integrations are topology- and loop-count-generic. The
-generic-family black-box test oracle does not
-read the cached production inverse: it solves every `A x=e_j` independently
-with Symbolica's public `Matrix::solve`, then replays both products. Concrete
-analytic inverses in `tests/parametric_ibp_oracle.rs` are independently checked,
-test-only fixtures, including perturbation rejection. They validate one-,
-two-, three-, and five-loop examples; they neither define production
-recurrences nor add topology/loop dispatch to family construction or
-parametric IBP generation.
-
-Parallel, licensed GMP validation for this milestone recorded:
-
-- 17/17 focused adapter tests in
-  `111ef62d-3de6-4957-b6b4-b2e04820375f`;
-- 42/42 combined debug tests in
-  `3197a8d5-70a9-49de-9d78-5415374f46bc`;
-- 71/71 downstream tests in
-  `1820a2af-baa8-4f82-a103-b70b81c52b4d`;
-- 42/42 combined release tests in
-  `dfe1042d-2509-4bad-87b6-87df1281cf6c`;
-- final hardening reruns of 43/43 debug tests in
-  `d1519c8d-05c4-44e3-aefc-88ea68be936f`, 35/35 selected release library tests in
-  `053604e4-0ec6-4dad-9c4f-90aee31af8c2`, and 8/8 release independent-oracle
-  tests in `99fff53c-0fbf-46a9-9fc7-b63c8bd9795b`;
-- the complete optimized default-feature library suite passed 969/969 tests
-  under `cargo nextest run --release --lib -j4 --no-fail-fast`, with four
-  workers and no failures; and
-- a passing `cargo check --all-features --all-targets -j4`.
-
-The generic-family coefficient-matrix, automatic-ISP rank, tensor-projector,
-and affine-family symmetry-verifier P1 rows are complete at this checkpoint.
-The automatic-ISP slice passed 23/23 adapter
-tests (`9b7572e7-ef39-4e21-bd15-5165c714985b`), 30/30 combined internal tests
-(`b7a94288-7f4c-470c-ae60-461e633c5fe0`), 8/8 public completion tests
-(`5699bda7-d1a3-480b-803e-0ab0dbcf7c30`), and 3/3 independent maximal-minor
-oracle tests (`2df0c433-3b73-4101-8ef2-7726bda190ac`) under parallel licensed
-nextest.  The frozen optimized gate then passed 30/30 adapter/internal tests in
-`88208064-7cd3-46b4-b4f5-807953c2232f` and 13/13 public/oracle/downstream tests
-in `0a0f4f11-09b0-4d0e-a9b8-f9adad877989`; the latter includes the existing
-four- and five-loop factorized reductions. The tensor-projector oracle solves
-all 15 rank-six inverse columns independently with `Matrix::solve` and passed
-in both debug and release. Optimized parallel run
-`fb9a0cda-1b7a-4494-8032-d7cbc8ea1422` then passed 28/28 selected tensor,
-closure, and Vakint-oracle tests. The affine-family verifier delegates every
-nonempty determinant, transpose, congruence, triple product, and matrix-vector
-product through the same authenticated boundary; debug and optimized
-symmetry/transport/oracle runs each passed 36/36 tests. The all-feature/all-
-target compile check passed as well. Integer symmetry-discovery determinants
-and Feynman-polynomial matrix consumers remain separate migration work.
-
-#### 10.1.2 Integer affine maps and the normal-form boundary
-
-Public `Matrix<IntegerRing>` supports rectangular construction and ordinary
-exact multiplication, so compact affine-map composition must use native
-`&left * &right`. A RustRed adapter may authenticate dimensions and integer
-payloads, admit operation/retained-memory envelopes, contain panics, and replay
-the resulting geometry; it must not implement the matrix dot products.
-
-The implemented adapter also exposes an algebra-free borrowed-entry preflight.
-Virtual parent/substitution matrices can therefore enforce entry, operation,
-GMP-bit, input-retained-byte, and conservative prospective-output-byte limits
-before any dense staging allocation. The actual product still occurs exactly
-once through Symbolica, after which the output's canonical integer variants,
-bit lengths, and exact retained capacities are authenticated. This resource
-surface is not a second matrix implementation.
-
-An exhaustive source search of the public dense/sparse matrix, solving,
-polynomial, Groebner, and domain APIs found no Smith normal form, Hermite
-normal form, integer nullspace/kernel basis, or complete underdetermined
-integer-affine parameterization. `Matrix<Z>::solve_fraction_free` is not such
-an API. Consequently exceptional equality refinement currently supports only
-a Symbolica-normalized affine row with a literal `+1` or `-1` coefficient on
-an active free coordinate. No-unit and simultaneous-general cases return a
-typed `RequiresIntegerNormalForm` unsupported boundary; they do not call the
-RustRed integer-lattice prototypes.
-
-The 2026-08-27 licensed default-GMP gate passed 37/37 matrix-boundary tests and
-19/19 unit-equality tests in one eight-worker Nextest run (56/56, run
-`c2f7ff6f-03dc-430c-95c7-554fdcecd95e`). The latter includes current-target
-non-double-mapping, both unit signs, deterministic pivot choice, nontrivial
-parent composition, physical-parameter factors, a genuine GMP-sized constant,
-sign-aware `i128::MIN` promotion, typed completeness boundaries, replay
-tampering, and exact/one-below pre-allocation resource admission. Matrix tests
-pin the signed 127-bit inline cutoff and the two retained-capacity limbs needed
-by the vendored Symbolica/Rug/default-GMP multi-term accumulation path; that
-backend-specific capacity rule must be re-audited when the pinned backend
-changes.
+The audited public dense/sparse, solving, polynomial, Groebner, and domain APIs
+expose no Smith or Hermite normal form, integer kernel basis, or complete
+underdetermined integral-affine parameterization. `solve_fraction_free` is not
+such an API. A literal-unit-pivot specialization may be composed from native
+normalization and matrix multiplication; general no-unit or simultaneous
+equalities require a typed unsupported result until Symbolica supplies the
+missing normal-form/kernel API.
 
 ### 10.2 Sparse matrices and row reduction
 
-CSR `SparseMatrix` is defined at `vendor/symbolica/lib/numerica/src/tensors/sparse.rs:230-249`; constructors are at `401-529`. `from_csr` mostly asserts shape lengths, and `from_triplets` relies on a debug assertion for ordering (`495-529`). RustRed must sort triplets, combine duplicates, drop zeros and bounds-check before construction.
+`SparseMatrix<F>` is a CSR matrix. Public constructors include `new`,
+`from_csr`, `from_csr_slices`, and ordered `from_triplets`; callers must
+sort triplets, combine duplicates, drop zeros, and bounds-check input.
+Consuming sparse solve, determinant, inverse, and parallel solve are public.
+`SparseRowReducer<F: Field>` exposes `LuLMode::{Full,Pattern,None}`,
+constructors, `u`, `l`, `pivots`, incremental `add_row`/`add_matrix`,
+dynamic `add_cols`, and back substitution.
 
-Sparse solve/determinant/inversion and parallel solve are at `972-1124`.
-Incremental `SparseRowReducer` and `LuLMode::{Full,Pattern,None}` are at
-`1454-1775`; dynamic ordered column insertion is provided by `add_cols` at
-`1777-1805`, and back substitution starts at `1811`. The reducer chooses the
-first nonzero/smallest stored column as pivot and normalizes by it (`1855`
-onward). RustRed must therefore map the hardest physical integral key to the
-smallest column. The live generated-affine exact database owns one complete
-easiest-first physical-key catalog and retains a
-`SparseRowReducer<CheckedParametricField>` under `LuLMode::Full`. At the native
-boundary the catalog is reversed so the hardest key occupies the smallest
-column, with one sentinel column retained; `add_cols` extends this retained
-column space when a stage discovers new keys.
-RustRed owns this physics ordering, but Symbolica owns the pivot arithmetic and
-row reduction.
+The reducer selects the smallest stored nonzero column as pivot and normalizes
+it. RustRed can map hardest integral keys to the smallest columns, retain one
+unused sentinel column when a final dependent row must still produce an
+`L` transcript, and independently replay the source combination. Under
+`LuLMode::Full`, public `L`, `U`, and pivots provide the native
+decomposition, but an empty input row or an already-full-rank reducer may append
+no `L` row. The `L` factor order follows physical pivot traversal rather than
+chronological pivot creation.
 
-With `LuLMode::Full`, the public `l()`, `u()`, and `pivots()` accessors retain
-the exact incremental decomposition (`L*U=A`): a nonempty dependent row's new
-`L` row carries elimination factors only, while an independent row also has a
-diagonal entry equal to its pre-normalization leader and appends a normalized
-row to `U`. This is the required native seam for RustRed's dependency/new-pivot
-evidence. RustRed must independently replay the source combination and exact
-residual, but must not recompute elimination with a second solver. This is not
-unconditionally one `L` row per submitted source:
-`add_row` returns without appending for an empty sparse row and once the reducer
-is already full rank. RustRed must special-case empty input and retain one
-unused sentinel column while probing the transcript contract.
+The sparse inverse has the same augmented-matrix singularity defect as the
+dense inverse. Checked inconsistency detection also appears inverted for a row
+`[0 ... 0 | c]`; do not use sparse solve as a correctness oracle without the
+focused revision-specific probes in the upstream-gap audit. Final
+`back_substitute` operations mutate `U` and pivots, clear `L`, and change
+the reducer mode, so they belong on a publication clone rather than a retained
+forward reducer.
 
-The checked adapter in
-[`parametric_coefficient/symbolica_sparse.rs`](../../src/parametric_coefficient/symbolica_sparse.rs)
-now implements this contract over `K(n)`. Its crate-private input rows borrow
-authenticated `ParametricCoefficient` values, so constructing a native shadow
-does not first deep-clone the committed database. Native elements hold the
-coefficient behind an `Arc`; cloning Symbolica's dense zero scratch is therefore
-shallow, while every newly computed or returned coefficient remains an owned
-authenticated value charged to the exact coefficient-work ledger. The adapter
-rejects unordered columns, explicit zeros, wrong contexts, dependent prior
-rows, and malformed `L/U` dimensions before returning an outcome.
-
-The sentinel is semantically necessary, not padding. With `K+1` native columns,
-a database at rank `K` can still submit a nonempty dependent candidate and
-obtain its final `L` transcript instead of hitting Symbolica's full-rank early
-return. The sentinel must never pivot. Likewise, an `L` row is ordered by
-physical pivot traversal, not by chronological pivot-row ordinal: legal traces
-can therefore have row indices such as `[1, 0]`. The adapter preserves this
-nonmonotone order and its focused tests cover both behaviors.
-
-`SparseMatrix::inv` has the same augmented-row singularity problem as the
-dense inverse (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:1051-1075`).
-It is not a proof oracle.
-
-Important source concern: checked inconsistency detection in sparse row-reducer constructors tests a one-entry final-column row only when that stored coefficient `is_zero` (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:1551-1577` and `1585-1615`). A valid CSR matrix normally omits zeros, so this appears inverted. `SparseMatrix::solve` and its parallel variant depend on these paths (`974-995`, `1084-1110`). Do not use them as a correctness oracle until a focused probe/test resolves this.
-
-Direct RP-field elimination normalizes by a pivot and therefore requires a
-semantic wrapper that records the pivot numerator/nonzero condition before
-division, carries row/equation provenance, enforces sector applicability, and
-exact-replays emitted rules. That wrapper delegates every field operation and
-row reduction to Symbolica; it is not permission to retain the handwritten
-eliminators in `exact_sparse_elimination.rs`, `parametric_elimination.rs`, or
-`src/solver/exact_session/database.rs`.
-
-The first bridge may retain one narrow scalar provenance replay driven solely
-by Symbolica's `L` factors. It reproduces intermediate denominator guards,
-their exact operation/term origins, and historical coefficient-work admission,
-then checks the replayed normalized row against `U`. Final-`U` denominators are
-not equivalent when intermediate denominators cancel. This replay performs no
-pivot search or elimination decision and therefore is not a second solver;
-every scalar operation still delegates to Symbolica-backed coefficient APIs.
-
-The public reducer mutates in place and its generic `Field` callback is
-infallible. The checked adapter contains the native call behind a checked panic
-bridge. Only the callbacks used by serial forward reduction implement
-arithmetic; `nth`, `pow`, `sample`, `rem`, `quot_rem`, and `gcd` fail through a
-typed `UnexpectedFieldOperation` path if a future Symbolica implementation
-starts calling them. Before construction, the adapter admits a conservative
-but tight native-output entry envelope: the prior rows that must replay
-verbatim, at most one dense physical candidate `U` row, one possible candidate
-factor per prior row, and all `L` diagonals. Once the outcome is known, it
-checks the exact returned-trace length before copying the newest `L/U` rows
-out.
-
-This is now the live generated-affine exact-database transcript authority. The
-database owns the complete easiest-first catalog and the committed Full-L
-Symbolica reducer. A stage clones the committed native reducer, inserts any
-newly discovered ordered columns into the trial, and submits the candidate.
-Symbolica supplies the ordered factors, normalization, pivots, and disposition;
-guarded differential/provenance replay authenticates the normalization divisor,
-the complete historical U/L/pivot prefix, and the appended normalized `U` row
-coefficient-for-coefficient. Empty, dependent, rejected, and failed trials own
-no successor. Only an independent trial returns the move-owned reducer/catalog
-successor that may commit after the sealed checks. The exact-database glue that
-rebuilds every stage is a `cfg(test)` oracle, not a production path; the generic
-legacy adapter remains compiled for other callers.
-
-The local RustRed prerequisite is now implemented. The checked field owns an
-`Arc<ParametricCoefficientContext>` and its clones share an `Arc` controller
-whose mutex-protected stage gate serializes one fresh coefficient-work ledger
-at a time. The field and `SparseRowReducer<CheckedParametricField>` are
-`Send + Sync`. Dropping the stage guard clears the active ledger after normal
-completion, a typed checked-field abort, or an unrelated unwind panic; the
-next retry therefore starts with fresh limits and counters. Five focused tests
-cover owned-context lifetime and `Send + Sync`, rejection outside an active
-stage, sibling-clone serialization, unknown-panic recovery, and deterministic
-typed-abort/retry cleanup.
-
-`SymbolicaPersistentSparseReducer` now backs the live exact database. Its
-former `forward_reduce_last_row` reconstruction glue/use is compiled only under
-`cfg(test)` for stage-by-stage oracle comparison; the generic legacy adapter
-itself remains compiled but is not on the live database path. Forward reduction
-within one ordered reducer remains serial; multi-core campaign execution must
-run independently owned reducers across case lanes or shards.
-
-The remaining upstream gaps are resource/performance interfaces, not
-correctness blockers. Every stage still deeply clones the native vector-backed
-`U`, `L`, pivots, and dense scratch (coefficient `Arc`s remain shallow); there is
-no fallible/COW fork. RustRed can count retained native stored entries, but Symbolica's
-allocation layout and scratch bytes remain opaque, so there is no authoritative
-native-byte census. `LuLMode::Full` retains all historical `L` rows, and forward
-elimination is serial. Useful future APIs remain a fallible/COW fork, a row-
-local trace, a byte/scratch census, and a parallel forward path.
-
-The public `SparseMatrix::{values,col_idcs,row_ptrs}` and
-`SparseRowReducer::pivots` vectors expose their Rust capacities, so RustRed can
-also record a shallow allocation-slot envelope without reimplementing sparse
-algebra. That envelope excludes coefficient payloads behind shared owners,
-the private dense scratch vector, allocator overhead, workspaces, and RSS; it
-is estimator input, not an authoritative byte census.
-
-The same limitation applies outside the reducer. On automatic
-`RecycledAtom::drop`, Symbolica's private thread-local `Workspace` retains at
-most 30 Atom buffers whose capacity is at or below 20,000,000 bytes. Public
-direct `Workspace::return_atom` bypasses both caps, and additional
-Symbolica/Rayon threads own distinct workspaces. There is no public cache
-occupancy or trim API. Dense polynomial multiplication separately retains a
-private thread-local `Vec<u32>` whose logical length is limited to `1 << 24`
-entries (64 MiB of initialized elements), but amortized `Vec` growth can leave
-its retained allocation above that figure. The multiprecision-float backend
-has another private per-thread constants cache; neither cache has a public
-capacity census or trim operation. A 100-core RustRed memory policy must therefore choose
-its effective execution width before construction, calibrate fully warmed-thread RSS,
-and charge an opaque runtime reserve for the coordinator plus every possible
-worker; current U/L
-stored-entry counts cannot account for this cache.
-
-There is no general public Symbolica RAM budget or reducer-wide retained/peak
-byte API. `AtomView::get_byte_size` and `TermStreamer::get_byte_size` measure
-logical payload rather than allocator capacity/RSS, and the streamer's memory
-setting is a spill threshold. Parallel sparse back substitution also creates a
-dense `ncols` scratch vector per Rayon fold worker and retains local sparse
-outputs until fusion. RustRed must bound and calibrate these native operations;
-it must not replace them with handwritten algebra.
-
-`back_substitute` and `back_substitute_parallel` must run only on a clone made
-for final RREF/publication: both mutate `U` and pivots and clear `L`, setting
-the reducer mode to `None`. Calling either on the committed forward reducer
-would destroy the state required by later incremental rows and provenance.
-
-**Compile probe LA-1:** build a tiny exact RP matrix through both dense and sparse APIs with the intended aliases and solve it.
-
-**Behavior probe LA-2:** construct consistent, underdetermined and inconsistent sparse systems, including a `[0 ... 0 | c]` row, to confirm or refute the inverted check before any production use.
-
-**Behavior probe LA-3:** confirm parallel back-substitution output order; the implementation may permute output rows (`vendor/symbolica/lib/numerica/src/tensors/sparse.rs:2393-2498`). RustRed artifacts must be sorted semantically regardless.
-
-**Adapter probe LA-4 (test-only rebuilding oracle):** the exact-database
-rebuild-every-stage glue/use is `cfg(test)` only and checks stage-by-stage
-algebraic transcript equality with the retained production path; it is not used
-by the live database. The generic legacy adapter remains compiled.
-
-**Adapter probe LA-5 (live retained boundary):** licensed default-GMP runs with
-four test threads pass 15/15 retained-reducer tests, 18/18 complete sparse-
-adapter tests, and 41/41 live exact-database tests. They cover ordered and
-duplicate column insertion, rational/index coefficients, nonmonotone traces,
-empty/dependent/independent/full-rank outcomes, discarded-trial base
-immutability, exact historical-prefix rejection, rebuilding-oracle equality,
-and coefficient-for-coefficient authentication of the appended normalized `U`
-row. This establishes live reducer/catalog integration, not a physical-
-topology reduction, Vakint reproduction, or a six-loop scaling result.
+Symbolica exposes no fallible/COW reducer fork, cancellation hook, complete
+native-byte census, or parallel forward-reduction path. Cloning overlaps
+`U`, `L`, pivots, scratch, and coefficient ownership. Thread-local Atom
+workspaces and dense-polynomial scratch are also opaque to a caller budget.
+RustRed admission must therefore charge predecessor/trial/successor overlap,
+calibrated per-thread native headroom, and result staging before constructing a
+clone or worker. Public vector capacities are estimator inputs, not proof of a
+hard RSS bound.
 
 ## 11. Tensor support and the Vakint boundary
 
@@ -1006,11 +752,11 @@ Required startup order:
 3. Deterministically register symbols.
 4. Only then initialize RustRed/Rayon worker pools and dispatch parallel work.
 
-This is still an implementation gap: the test runner checks the environment
-license, but the library does not yet expose one deterministic licensed startup
-and symbol-registration boundary.  In particular, tensor/Vakint symbol helpers
-must validate the attributes of an already registered name rather than accept
-test-order-dependent plain symbols.
+RustRed integration must expose one deterministic licensed startup and
+symbol-registration boundary. In particular, tensor/Vakint symbol helpers must
+validate the attributes of an already registered name rather than accept
+test-order-dependent plain symbols. Whether that boundary is complete is a
+live-roadmap question, not a claim made by this frozen API audit.
 
 Unlicensed mode is not a supported multithreaded RustRed deployment. It must either run a deliberately single-threaded validation path on the initializing thread or fail early with a clear diagnostic; never risk a process abort in the middle of a reduction.
 
@@ -1043,7 +789,7 @@ Performance rules for the first implementation:
 | Symbolic syntax/I/O | `Atom`, `AtomView`, typed builders, checked parser | Use at boundaries; typed structures internally |
 | Integral rule matching | Pattern iterators/replacements | Outer structural dispatch only; typed matching and guards own correctness |
 | Coefficients | `MultivariatePolynomial`, `RationalPolynomial<Z,E>` | Primary exact backend under one validated map |
-| Generic-family coefficient matrices | `Matrix<CheckedCoefficientField>` over rational-polynomial elements | Completed P1 slice: native determinant, inverse, and products behind contextual admission, determinant guard, authentication, and entrywise two-sided replay |
+| Generic-family coefficient matrices | `Matrix` over an authenticated rational-polynomial field adapter | Native determinant, inverse, and products behind contextual admission, determinant guard, authentication, and entrywise two-sided replay |
 | Integer affine-map composition | `Matrix<IntegerRing>` over GMP-backed `Integer` | Native rectangular product behind shape/bit/memory admission and exact geometry replay; no RustRed matrix arithmetic |
 | General integer affine-lattice parameterization | No public SNF/HNF or integer-kernel API found | Typed unsupported boundary beyond the literal-unit-pivot subset; never substitute a RustRed-authored CAS |
 | Partial RP substitution | polynomial `evaluate_with_coeff_map` into `RationalPolynomialField` | Wrap with full point length, map checks and explicit denominator guards |
@@ -1057,81 +803,25 @@ Performance rules for the first implementation:
 | Parallelism | Rayon internals, thread-local workspace | License first; fixed registry; controlled RustRed pools |
 | Out-of-core equations | `TermStreamer` | Not suitable as rule DB; use typed checkpoint/external sort |
 
-### 15.1 Current RustRed implementation boundary
+### 15.1 Durable boundary requirements
 
-The generic coefficient contexts enforce fixed ordered variable maps, reject
-zero denominators, and wrap proof-critical arithmetic and specialization with
-explicit growth limits. Both the authenticated generic projector and the
-still-public legacy `VacuumTensorProjector` now delegate Gram determinant,
-inverse, two-sided replay, and coefficient powers to the checked Symbolica
-boundary. New authenticated projectors record determinant and inverse-output
-denominator conditions; they do not retain a private pivot transcript.
+A production boundary fixes coefficient-variable maps, rejects zero
+denominators, admits proof-critical arithmetic before native entry, contains
+documented panic surfaces, and authenticates every returned value. Family,
+symmetry, zero-sector, tensor, and elimination layers may retain structural and
+physics decisions, but coefficient, polynomial, determinant, matrix-product,
+and row-reduction algebra stays in public Symbolica.
 
-This completed projector algebra slice does not mean that the entire tensor
-front end is free of custom algebra. The bounded tensor-aware normalization in
-`src/symbolica_tensor_numerator.rs` still selectively distributes additions,
-products, and tensor-containing powers. Whole-expression `AtomCore::expand`
-does not preserve its opaque scalar-weight semantics, and no suitable public
-selective-expansion API has yet been verified. That exact gap remains in the
-migration table and requires a native differential route before the private
-distributor can be deleted. Other open policy gaps include tensor-family
-shift-polynomial arithmetic, symmetry-discovery/Feynman matrix consumers, no
-generic finite-field `K(n)` sampling/reconstruction engine, and no complete
-durable parametric-rule artifact. These gaps block a complete LiteRed/Vakint
-parity claim; they do not make the generic IBP identity generator
-topology-specific.
+Affine-boundary specialization constructs and maps index loci with authenticated
+Symbolica coefficient operations. Divisibility of a boundary polynomial into a
+coefficient numerator is delegated to native polynomial division over
+`K[n]`; physical parameters are field variables, so this does not create
+pointwise assumptions. Resource exhaustion or a missing public primitive is a
+typed boundary outcome, never a reason to substitute handwritten CAS code.
 
-The same licensed checkpoint generated and checked generic one- through
-five-loop IBP/LI identities, including all 25 ordinary identities of a complete
-five-loop massive-vacuum family; parsed and replayed the Symbolica tensor
-numerator boundary; and compared freshly discovered one-loop scalar/tensor
-reductions with FORM-free Vakint oracles.  Concrete families in those tests are
-validation fixtures only.  They do not turn the core generator into
-loop-count-specific code, and this checkpoint does not claim that the generic
-whole-family LiteRed solver or the two- through five-loop reductions are
-complete.
+## 16. Revision-upgrade probe checklist
 
-### 15.2 Exact affine-boundary specialization
-
-The current source-neutral boundary kernel constructs `n_i - b` with the
-checked coefficient-context operations `integer_exact`, `index`, and
-`sub_with_limits`; it does not implement private integer or polynomial
-arithmetic. Identity maps retain an independently authenticated sparse copy,
-while compact affine maps use the sealed simultaneous Symbolica composition
-boundary. The mapped polynomial is classified as empty, whole-target, or an
-index-dependent affine locus over `K = Q(theta)`.
-
-For a nonzero affine boundary polynomial `L` and normalized coefficient
-numerator `N`, boundary suppression is exactly the question `L | N` in
-`K[n]`. RustRed handles `N = 0` first and delegates the remaining exact checked
-division to `polynomial_divides_with_limits`; physical parameters are field
-variables, so this does not introduce pointwise assumptions such as `d != 0`.
-The wrapper preflights arbitrary-width boundary magnitudes, source and mapped
-term/exponent/integer bounds, retained ownership, construction peaks, and
-division scratch before entering the native boundary. Exact and one-below
-tests cover identity and compact composition, zero/divisible/nondivisible
-numerators, malformed or foreign-context input, and panic recovery.
-
-## 16. First generic implementation slice
-
-The first code slice should establish correctness infrastructure before attempting one-loop examples:
-
-1. Deterministic startup/license/symbol registry.
-2. `CoeffContext` with canonical map, strict Atom conversion, explicit remap, checked arithmetic invariants and guarded partial RP substitution.
-3. Serializable `Guard` AST/evaluator with polynomial equalities/nonzero assumptions and integer/sector predicates.
-4. Typed `FamilyModel`, momentum/scalar-product basis and `IntegralKey` independent of Atom ordering.
-5. Fully parametric IBP identity generator for arbitrary loop/external momentum counts; add non-vacuum LI generation in the same typed algebra.
-6. Sparse equation representation and exact small-system elimination with pivot guards/provenance; modular acceleration only after exact replay exists.
-7. Typed rule matcher/applier with a strict complexity-decrease check and memoization.
-8. Artifact round trip with family/variable hashes and exact identity replay.
-9. Tensor front end implementing metric/vector contractions and one-loop tensor projectors, optionally canonicalized by `CanonicalTensor` afterward.
-10. Only then instantiate concrete one-loop families and compare scalar/tensor reductions to Vakint without replacing master topologies; advance to two and three loops only after parametric-rule replay and oracle comparisons pass.
-
-This ordering keeps every concrete topology in validation while the implementation remains as generic as LiteRed.
-
-## 17. Mandatory probe checklist before relying on the API
-
-Because this audit intentionally did not run Cargo, the following are required, small and non-negotiable:
+Repeat these small probes before relying on a changed Symbolica revision:
 
 - `RP-SUB-1/2`: exact polynomial-to-RP-field partial substitution and checked division, including map retention.
 - `MAP-1`: empty/nonempty `from_coefficient_list`, arbitrary variable permutation, and RP numerator/denominator remap.
@@ -1144,6 +834,6 @@ Because this audit intentionally did not run Cargo, the following are required, 
 
 Each probe should become a regression test. If a probe contradicts a source-based assumption, preserve the safe wrapper contract and update the implementation behind it rather than exposing the raw Symbolica behavior throughout RustRed.
 
-## 18. Bottom line
+## 17. Bottom line
 
 The safe division of responsibility is clear: Symbolica supplies exact expression and algebra engines; RustRed supplies the full LiteRed/Vakint semantics. The authoritative core should be typed, parametric and guard-aware. Pattern matching, automatic variable discovery, fraction-field cancellation, generic sparse solve and tensor canonicalization are useful tools, but none can independently certify an IBP rule or tensor reduction. Every generated rule must carry its domain, provenance and exact replay proof, and every concrete Vakint comparison must validate—not define—the generic implementation.

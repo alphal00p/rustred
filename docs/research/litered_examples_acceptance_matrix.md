@@ -2,6 +2,11 @@
 
 Date: 2026-08-26
 
+> **Frozen source-oracle audit.** This inventory is subordinate to
+> [`GOAL.md`](../../GOAL.md). Counts, hashes, and upstream fixtures are durable
+> evidence; status columns record the audit-time frontier and are not current
+> implementation claims.
+
 This document makes the published LiteRed notebooks a first-class progress
 metric for RustRed.  It supplements, rather than replaces, the generic
 algorithm and Vakint-oracle acceptance criteria.  Passing a notebook fixture
@@ -109,7 +114,7 @@ For a complete affine family with `L` loops and `E` external momenta, the
 expected generated row counts are `L*(L+E)` ordinary IBPs and
 `E*(E-1)/2` LI identities.
 
-| Example | Family | `L` | `E` | basis size | ordinary / LI | Distinguishing acceptance surface | Current full-example level |
+| Example | Family | `L` | `E` | basis size | ordinary / LI | Distinguishing acceptance surface | Audit-time full-example level |
 |---|---|---:|---:|---:|---:|---|---|
 | 1 | one-loop off-shell massless vertex `v1` | 1 | 2 | 3 | 3 / 1 | external kinematics, a general linear-combination reduction, invariant differentiation, lowering and raising dimensional recurrences | Inventoried; not ported as a complete fixture |
 | 2 | two-loop on-shell mass operator `p2` | 2 | 1 | 5 | 6 / 0 | massive/on-shell Gram constraint, sector and graph metadata, scalar target reduction | Inventoried; not ported as a complete fixture |
@@ -120,15 +125,14 @@ expected generated row counts are `L*(L+E)` ordinary IBPs and
 | 7 | four-loop massive tadpole `t4` | 4 | 0 | 10 | 16 / 0 | connected four-loop vacuum family, first coordinate reserved for numerators, full-sector solve, lowering and raising dimensional recurrences | Inventoried; not ported as a complete fixture |
 | 8 | three related two-loop vertex bases `v1/v2/v3` | 2 | 2 | 7 each | 8 / 1 each | first coordinate reserved for numerators, explicit external-momentum maps, internal and cross-family symmetries, master-count stopping, mixed-basis negative-power reduction | Inventoried; not ported as a complete fixture |
 
-The current RustRed suite tests several ingredients appearing in this table,
-including external-momentum IBP/LI generation, ISPs, symmetry foundations,
-vacuum tensor lowering, and concrete vacuum reductions.  Ingredient overlap
-does not promote any row above `Inventoried`: none of the eight exact notebook
-workflows is currently an end-to-end RustRed acceptance test.
+At the audit checkpoint, ingredient-level tests did not promote any row above
+`Inventoried`; none of the eight exact notebook workflows had been established
+as an end-to-end acceptance test. Current status must be read from the live
+test suite.
 
 ## LiteRed2 notebook matrix
 
-| Notebook | Family | `L` | `E` | basis size | ordinary / LI | Distinguishing acceptance surface | Current full-example level |
+| Notebook | Family | `L` | `E` | basis size | ordinary / LI | Distinguishing acceptance surface | Audit-time full-example level |
 |---|---|---:|---:|---:|---:|---|---|
 | `example1.nb` | one-loop massive triangle | 1 | 2 | 3 | 3 / 1 | `NewDsBasis`, sector solve and masters, differential systems in three invariants, `IBPReduce`/`FermatIBPReduce` parity | Inventoried; not ported as a complete fixture |
 | `example2.nb` | reverse-unitarity `e gamma -> e gamma gamma`, bases `gr1/gr2` | 2 | 2 | 7 each | 8 / 1 each | cut denominators, graph-to-denominator conversion and graph attachment, cross-family symmetry, master-basis changes, differential systems | Inventoried; not ported as a complete fixture |
@@ -181,7 +185,7 @@ partial-fraction lane.
 - All production code exercised by these fixtures remains topology- and
   loop-count independent.  Notebook-specific data belongs only in fixtures.
 
-## Implementation order
+## Suggested oracle-promotion order (non-governing)
 
 1. Check in a versioned metadata manifest and compact Symbolica translations
    for the LiteRed2 triangle, `gr1`/`gr2`, and `HQET1`--`HQET5`, then examples
@@ -190,9 +194,7 @@ partial-fraction lane.
    parallel tests and do not wait for full sector solving.
 3. Import structural sector/symmetry census data from the saved archives as
    opt-in oracle fixtures with stable hashes.
-4. Build atomic publication and sector iteration on the implemented generic
-   nonpublishing `Ready -> condition plan -> materialization -> relative
-   partition` chain, then promote examples in increasing cost order and
-   compare selected saved parametric rules.
+4. Build proof-bearing publication and sector iteration, then promote examples
+   in increasing cost order and compare selected saved parametric rules.
 5. Add exact result snapshots from output-bearing notebooks when supplied,
    then enable target-reduction and dimensional/differential-recurrence parity.

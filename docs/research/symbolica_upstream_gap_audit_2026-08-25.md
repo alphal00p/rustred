@@ -2,6 +2,10 @@
 
 Date: 2026-08-25
 
+> **Frozen upstream-revision audit.** This note is subordinate to
+> [`GOAL.md`](../../GOAL.md). Its findings apply to the pinned revision below;
+> they are source evidence and must be re-audited after an upgrade.
+
 Audited Symbolica revision:
 `77c137481904b8a5531ede86e3ef36b82beed7fd` (`symbolica` 2.2.0).
 All findings below were checked against that exact vendored source. The
@@ -141,6 +145,18 @@ catch unwind, and use the unfactored full-denominator coefficient vector for a
 correct (though larger) clause. A fallible budgeted `try_factor`/exact-algebra
 session and a reusable prepared projection API would make high-loop clauses
 smaller and repeated associate/divisibility checks safer and cheaper.
+
+## Graph canonization admission gap
+
+Symbolica's public graph-isomorphism and canonization machinery is the correct
+candidate engine for topology-neutral symmetry work. At the audited revision,
+however, `Graph::canonize` maintains an unbounded `leaf_nodes` collection and
+the public node/edge admission checks do not provide a hard time or retained-
+memory bound. RustRed must therefore treat graph canonization as an admitted,
+contained native operation with calibrated headroom. It cannot claim bounded
+execution until Symbolica exposes cancellation or a step/resource interface;
+this limitation is not permission to implement a second graph-isomorphism
+engine.
 
 ## Reproduction snapshot
 

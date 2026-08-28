@@ -1,11 +1,17 @@
 # LiteRed `SolvejSector`: residual-case recentering contract
 
+> **Frozen source-behavior audit.** This note is subordinate to
+> [`GOAL.md`](../../GOAL.md). It preserves mathematical and scheduling facts
+> from the pinned LiteRed2 source; type names and implementation status are
+> intentionally excluded.
+
 This note records LiteRed2 behavior that informs RustRed after initial
 parametric IBP/LI generation. It is source analysis rather than an API,
 architecture, scheduling, or bug-compatibility contract. The mathematical
 identities and residual cases identified here are acceptance inputs for a
 better-structured generic RustRed implementation. It is a source reading of
-`vendor/LiteRed2/Source/LiteRed2026.m`, principally the
+the pinned `FOR_REFERENCE_ONLY_DO_NOT_PUSH/LiteRed2/Source/LiteRed2026.m`,
+principally the
 `SolvejSector`, `preparepoints`, `WhenBad`, `SmartReduce`, `gatherRules`, and
 `deleteSpecific` definitions. LiteRed2 is conceptual and mathematical source
 evidence only; RustRed implements the accepted semantics with Rust and
@@ -52,22 +58,7 @@ remaining absent from a depth-one corner search.
 
 ## RustRed translation
 
-RustRed already represents the ingredients needed for a proof-bearing
-translation:
-
-- `GeneratedSymbolicRowSpanCertificate` authenticates the topology-independent
-  generated IBP/LI span and any verified whole-row symmetry transports.
-- `ParametricSectorCoverageCertificate` owns the global exact `WhenBad`
-  partition and distinguishes descending, uncovered, unsupported, and proved
-  empty leaves.
-- `GeneratedSectorLiveLeafQueueCertificate` visits residual leaves in stable
-  case order and authenticates narrow coordinate equalities with
-  `CoordinateEqualityLocusCertificate`.
-- `AdaptiveParametricRuleProvider::candidate_layers_for_quotient` can perform
-  the same cumulative diamond search with an arbitrary same-sector ordering
-  anchor.
-
-The next certificate schema therefore has to retain, at minimum:
+A proof-bearing implementation has to retain, at minimum:
 
 - a deterministic ordered list of authenticated search anchors;
 - the source residual case and coordinate-assignment witnesses for every
@@ -91,6 +82,55 @@ operations at 2508--2516, and the exact residual fixed point is rebuilt from
 the old cases plus the accumulated bad conditions at 2522--2523.  RustRed
 must not port LiteRed's heuristic master inference at 2519--2520 or
 2544--2547 into the correctness path.
+
+### Affine recentering: translate before substitution
+
+Let an affine residual locus be parameterized by
+
+\[
+  F(t)=b+A t,
+\]
+
+with free rows represented by identity rows. That representation is
+idempotent under repeated normalization. If an ambient row has shifts `s` and
+is generated at an offset `delta`, the correctly recentered relation is
+
+\[
+  R_{\delta,F}(t)=\sum_s c_s(F(t)+\delta)
+                  J(F(t)+\delta+s).
+\]
+
+Translation therefore precedes substitution. Substituting first would produce
+`F(t+delta)`, which is generally a different point. Treating
+`q = delta + s` as an ambient shift is sound only while retaining the same
+affine map `F`. If a denominator becomes the zero polynomial after mapping,
+that row is unavailable on the locus; it is not evidence that the locus is
+empty.
+
+### Product loci are Boolean before they are affine
+
+Over the polynomial ring `K[n]`, an equality of a product is the disjunction
+of its factor equalities, while nonvanishing of a product is the conjunction
+of factor nonvanishing conditions. Factor the Boolean case structure before
+attempting affine solving. Factors are compared modulo proved units in `K*`,
+and multiplicity does not change the locus. An opaque product whose factor
+provenance is unavailable is unsupported rather than silently treated as one
+affine equality.
+
+### Exact `WhenBad` denominator semantics
+
+A symbolic denominator is bad only when it is identically zero as a polynomial
+in the independent parameters—that is, all of its parameter-coefficient
+polynomials vanish—not merely at one parameter point. For sector containment,
+only activation of an inactive index is a leak; an active index becoming zero
+is a valid pinch. A proposed leak alternative matters only when its coefficient
+numerator survives on the same locus.
+
+For current case `C` and exact bad locus `B`, a rule applies on `C && !B` and
+its exceptional child is `C && B`. A mixed split consumes the coarse target and
+requeues the exception. If `B` is identically true, nothing is published, the
+target stays unresolved, and the algebraic pivot remains available to the
+local solver; neither outcome certifies a master.
 
 ### Candidate selection is not case closure
 

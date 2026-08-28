@@ -19,16 +19,22 @@ logs are being deleted rather than migrated. Git is their archive.
 - `crates/rustred-app` owns the shared application boundary and the `rustred`
   CLI.
 - `crates/rustred-python` is a thin PyO3 adapter. Python users write
-  `import rustred`; `_rustred` is a private native extension detail.
+  `import rustred`; `rustred._rustred` is a private native extension detail.
+  Long-running calls release the GIL and serialize through one process-wide
+  coordinator. If a contained native panic reaches that boundary, the
+  coordinator is permanently poisoned and later requests are rejected rather
+  than reusing potentially inconsistent process state.
 - `vendor/symbolica` is the sole production CAS dependency and is built with
   GMP support. FORM, Mathematica, SymPy, and authored recurrence tables are
   forbidden from RustRed production and ordinary tests.
 
-The currently evidenced application operations are raw family/IBP derivation,
-roots-only campaign planning, and campaign resource preflight. Closed reusable
-family artifacts, general reduction, master substitution, a complete
-one-through-four-loop Vakint comparison corpus, and physical six-loop closure
-are not yet available.
+The root mathematical package is still in the temporary in-place pruning
+stage; ownership cleanup is active and the planned relocation has not yet
+completed. The currently evidenced application operations are raw family/IBP
+derivation, roots-only campaign planning, and campaign resource preflight.
+Closed reusable family artifacts, general reduction, master substitution, a
+complete one-through-four-loop Vakint comparison corpus, and physical six-loop
+closure are not yet available.
 
 ## Development
 

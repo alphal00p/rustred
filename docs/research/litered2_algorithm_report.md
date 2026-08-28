@@ -1,24 +1,18 @@
 # LiteRed2 algorithm audit for RustRed
 
-> **Audit note.**  This report contains useful source-level findings and
-> concrete vacuum oracles, but its old milestone recommendations are not the
-> governing scope.  [`litered_full_scope_spec.md`](litered_full_scope_spec.md)
-> supersedes every vacuum-only, fixed-loop, or optional-power-shift statement.
-> This is algorithmic research evidence, not a mandate for LiteRed2 API,
-> architecture, internal sequencing, pivot-order, or bug compatibility.
+> **Frozen source-algorithm audit.** This report is subordinate to
+> [`GOAL.md`](../../GOAL.md). It contains source-level findings and concrete
+> vacuum oracles, not current implementation status, sequencing authority, or
+> a mandate for LiteRed2 API, architecture, pivot order, or bug compatibility.
+> [`litered_full_scope_spec.md`](litered_full_scope_spec.md) is the durable
+> mathematical scope.
 
 This report records the LiteRed2 algorithms and conventions that matter for a
-pure-Rust port.  It uses `vendor/LiteRed2/Source/LiteRed2026.m` as the primary
-source: it is the newest snapshot in the vendor tree.  The 2025-to-2026 changes
-do not alter the main IBP algorithm; the relevant changes are solver variable
-ordering, rule-selection simplification, and a few ancillary functions.
-
-The immediate recommendation is to implement the scalar two-loop massive
-vacuum family first, with the exact oracle in section 8.  That family is small
-enough to audit exhaustively but exercises every essential layer: a complete
-scalar-product basis, index shifts, zero sectors, exact symmetries, sector
-ordering, bottom-up solving, factorized boundaries, masters, numerators, and
-tensor projection.  It also matches Vakint's canonical `I2L` momentum routing.
+pure-Rust port. It uses the pinned
+`FOR_REFERENCE_ONLY_DO_NOT_PUSH/LiteRed2/Source/LiteRed2026.m` snapshot as its
+primary source. The 2025-to-2026 changes do not alter the main IBP algorithm;
+the relevant changes are solver variable ordering, rule-selection
+simplification, and a few ancillary functions.
 
 ## 1. Findings that should drive the port
 
@@ -84,24 +78,24 @@ entry points worth following in order.
 
 | Stage | Functions and exact source location | Role in RustRed |
 |---|---|---|
-| Public surface | [`LiteRed2026.m:39-303`](../../vendor/LiteRed2/Source/LiteRed2026.m#L39) | Package exports and global defaults. |
-| Family construction | [`NewDsBasis`, options and implementation at lines 688-874](../../vendor/LiteRed2/Source/LiteRed2026.m#L688) | Validate/complete the scalar-product basis; derive inverse denominator relations and parameters. |
-| Overcomplete sets | [`NewDsSet`, `Relations`, `NewDsBases`, `GeneratePFGB`, `PFReduce`, lines 465-686](../../vendor/LiteRed2/Source/LiteRed2026.m#L465) | Partial-fraction linearly dependent propagator sets into independent bases.  This is not required for the first vacuum milestones but is required for feature completeness. |
-| Integral conversion | [`Toj`/`Fromj`, lines 1266-1367](../../vendor/LiteRed2/Source/LiteRed2026.m#L1266) | Convert scalar-product rational functions to exponent vectors and back. |
-| Ordering | [`MakeOrderMatrix`, `jsOrder`, `jComplexity`, lines 1370-1689](../../vendor/LiteRed2/Source/LiteRed2026.m#L1370) | Sector-aware total order used for pivots and rule orientation. |
-| Sectors | [`jSector`, `jSubsectors`, `SectorHierarchy`, `SectorLayer`, lines 1698-1796](../../vendor/LiteRed2/Source/LiteRed2026.m#L1698) | Sign sectors, subset hierarchy, and finite index layers. |
-| IBPs | [`GenerateIBP`, lines 1799-1831](../../vendor/LiteRed2/Source/LiteRed2026.m#L1799) | Generate momentum-space index-shift identities. |
-| Optional parametric IBPs | [`GenerateFPIBP`, `FPIBP`, lines 1834-1924](../../vendor/LiteRed2/Source/LiteRed2026.m#L1834) | Generate syzygy-based identities per sector; positive indices only. |
-| Shift operators | [`ToAB` through `ABIBPLI`, lines 1932-2104](../../vendor/LiteRed2/Source/LiteRed2026.m#L1932) | Raising/lowering operator form.  Useful for diagnostics or a future true s-basis engine. |
-| One-equation elimination | [`Solvej`, lines 2121-2200](../../vendor/LiteRed2/Source/LiteRed2026.m#L2121) | Select the highest integral, substitute prior pivots, and append a triangular rule. |
-| Sector solver | [`SolvejSector`, lines 2254-2714](../../vendor/LiteRed2/Source/LiteRed2026.m#L2254) | Search symbolic recurrences by increasing index-space depth; manage validity cases and masters. |
-| Zero sectors | [`BiggestSectors` and `AnalyzeSectors`, lines 2936-3108](../../vendor/LiteRed2/Source/LiteRed2026.m#L2936) | Enumerate relevant sectors, detect scaleless corners, and build the zero rule. |
-| Symmetries | [`FindShifts` and `FindSymmetries`, lines 3111-3473](../../vendor/LiteRed2/Source/LiteRed2026.m#L3111) | Prove loop-momentum mappings; create mapped/unique sectors and self-symmetry relations. |
-| Masters | [`IdentifyMIs`, `AddjRule`, `RefreshMIs`, lines 3625-3729](../../vendor/LiteRed2/Source/LiteRed2026.m#L3625) | Record uncovered integrals, identify equivalent masters, and allow custom rules. |
-| Demand reduction | [`IBPSelect` and `IBPReduce`, lines 3801-4013](../../vendor/LiteRed2/Source/LiteRed2026.m#L3801) | Select only reachable rules, then compose them bottom-up. |
-| Master-basis change | [`ToMIsRule`, lines 4109-4134](../../vendor/LiteRed2/Source/LiteRed2026.m#L4109) | Linear-algebra change to a user master basis. |
-| Parametric polynomials | [`FeynParUF`, lines 4205-4280](../../vendor/LiteRed2/Source/LiteRed2026.m#L4205) | Construct $U,F$, including sector restrictions. |
-| Tensor helpers | [`Vectors.m:619-714`](../../vendor/LiteRed2/Source/RNL/Vectors.m#L619) | `DAverage`, `VAverage`, `TensorSet`, and `TSCollect`; inspiration for a separate Rust tensor stage. |
+| Public surface | [`LiteRed2026.m:39-303`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L39) | Package exports and global defaults. |
+| Family construction | [`NewDsBasis`, options and implementation at lines 688-874](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L688) | Validate/complete the scalar-product basis; derive inverse denominator relations and parameters. |
+| Overcomplete sets | [`NewDsSet`, `Relations`, `NewDsBases`, `GeneratePFGB`, `PFReduce`, lines 465-686](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L465) | Partial-fraction linearly dependent propagator sets into independent bases; required for full capability. |
+| Integral conversion | [`Toj`/`Fromj`, lines 1266-1367](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1266) | Convert scalar-product rational functions to exponent vectors and back. |
+| Ordering | [`MakeOrderMatrix`, `jsOrder`, `jComplexity`, lines 1370-1689](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1370) | Sector-aware total order used for pivots and rule orientation. |
+| Sectors | [`jSector`, `jSubsectors`, `SectorHierarchy`, `SectorLayer`, lines 1698-1796](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1698) | Sign sectors, subset hierarchy, and finite index layers. |
+| IBPs | [`GenerateIBP`, lines 1799-1831](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1799) | Generate momentum-space index-shift identities. |
+| Optional parametric IBPs | [`GenerateFPIBP`, `FPIBP`, lines 1834-1924](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1834) | Generate syzygy-based identities per sector; positive indices only. |
+| Shift operators | [`ToAB` through `ABIBPLI`, lines 1932-2104](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1932) | Raising/lowering operator form.  Useful for diagnostics or a future true s-basis engine. |
+| One-equation elimination | [`Solvej`, lines 2121-2200](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L2121) | Select the highest integral, substitute prior pivots, and append a triangular rule. |
+| Sector solver | [`SolvejSector`, lines 2254-2714](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L2254) | Search symbolic recurrences by increasing index-space depth; manage validity cases and masters. |
+| Zero sectors | [`BiggestSectors` and `AnalyzeSectors`, lines 2936-3108](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L2936) | Enumerate relevant sectors, detect scaleless corners, and build the zero rule. |
+| Symmetries | [`FindShifts` and `FindSymmetries`, lines 3111-3473](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3111) | Prove loop-momentum mappings; create mapped/unique sectors and self-symmetry relations. |
+| Masters | [`IdentifyMIs`, `AddjRule`, `RefreshMIs`, lines 3625-3729](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3625) | Record uncovered integrals, identify equivalent masters, and allow custom rules. |
+| Demand reduction | [`IBPSelect` and `IBPReduce`, lines 3801-4013](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3801) | Select only reachable rules, then compose them bottom-up. |
+| Master-basis change | [`ToMIsRule`, lines 4109-4134](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L4109) | Linear-algebra change to a user master basis. |
+| Parametric polynomials | [`FeynParUF`, lines 4205-4280](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L4205) | Construct $U,F$, including sector restrictions. |
+| Tensor helpers | [`Vectors.m:619-714`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/RNL/Vectors.m#L619) | `DAverage`, `VAverage`, `TensorSet`, and `TSCollect`; inspiration for a separate Rust tensor stage. |
 
 The intended high-level call chain is
 
@@ -116,9 +110,9 @@ NewDsBasis
 
 `NewDsBasis[..., SolvejSector -> True]` triggers this chain automatically.  The
 first shipped notebook demonstrates that style at
-[`Examples/example1.nb:112-149`](../../vendor/LiteRed2/Examples/example1.nb#L112)
+[`Examples/example1.nb:112-149`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Examples/example1.nb#L112)
 and later reduces `j[triangle,1,2,4]` at
-[`example1.nb:212-235`](../../vendor/LiteRed2/Examples/example1.nb#L212).
+[`example1.nb:212-235`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Examples/example1.nb#L212).
 `example2.nb` demonstrates graph-to-denominator construction and mappings
 between bases.  `NewDsSet.nb` demonstrates the linearly dependent denominator
 set workflow.  There is no automated test directory and no shipped massive
@@ -148,7 +142,7 @@ $$
 dependent list, appends independent scalar products when the rank is too low
 and `Append -> True`, and solves for every $s_\alpha$ in terms of $D_r$ and
 parameters.  The relevant checks and inverse construction are at
-[`LiteRed2026.m:763-811`](../../vendor/LiteRed2/Source/LiteRed2026.m#L763).
+[`LiteRed2026.m:763-811`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L763).
 
 RustRed should store this directly:
 
@@ -190,7 +184,7 @@ n_r < 0   D_r^(-n_r) is a numerator factor
 ```
 
 The sector bit is exactly $b_r=1$ for $n_r>0$, otherwise zero
-([`jSector`, lines 1712-1716](../../vendor/LiteRed2/Source/LiteRed2026.m#L1712)).
+([`jSector`, lines 1712-1716](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1712)).
 An active-sector pattern therefore matches positive indices; an inactive bit
 matches nonpositive indices.  This boundary at zero must be identical in
 RustRed.  Treating zero as a denominator power is an off-by-one error that will
@@ -215,9 +209,8 @@ integer index `n_i`.  Production RustRed must therefore support and authenticate
 symbolic power shifts rather than reject them or silently implement an
 integer-power-only subset.
 
-This paragraph corrects the earlier milestone recommendation to reject
-nonzero shifts.  That recommendation was superseded by the governing
-full-scope specification in
+This paragraph corrects historical advice to reject nonzero shifts. The
+durable full-scope specification is
 [`litered_full_scope_spec.md`](litered_full_scope_spec.md).
 
 ### 3.4 Sign conventions are data, not normalization
@@ -225,7 +218,7 @@ full-scope specification in
 LiteRed2 accepts either $D=k^2-s$ or $D=s-k^2$; it does not globally choose
 one.  The shipped triangle example uses the latter.  Vakint's canonical
 two-loop topology records momenta and a mass-squared argument in
-[`topologies.rs:54-70`](../../vendor/gammaloop/crates/vakint/src/topologies.rs#L54),
+[`topologies.rs:54-70`](https://github.com/alphal00p/gammaloop/blob/395610143576507503fd2c785db3ba62340f4277/crates/vakint/src/topologies.rs#L54),
 and the algebraic oracle below deliberately chooses
 
 $$
@@ -266,7 +259,7 @@ jsOrder -> {"np", "cp", "-ds", "-ns"}
 and `MakeOrderMatrix` always starts with the row $2b-1$.  It appends requested
 rows only if they increase rank and stops with an independent matrix.  The
 full specification language is implemented at
-[`LiteRed2026.m:1378-1441`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1378).
+[`LiteRed2026.m:1378-1441`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1378).
 
 For the two-loop oracle below, with no cuts, the exact default matrices are
 
@@ -323,7 +316,7 @@ Every scalar product in the numerator is replaced by the inverse denominator
 map, and every multiplication or division by $D_r$ is an integer shift of
 the exponent vector.  The result is stored as a function of symbolic indices.
 The implementation is the compact `Outer` expression at
-[`LiteRed2026.m:1813-1823`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1813).
+[`LiteRed2026.m:1813-1823`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1813).
 
 Important implementation details:
 
@@ -338,8 +331,8 @@ Important implementation details:
 
 The optional `GenerateFPIBP` path instead finds syzygies of
 $(\partial_iG,G)$ and converts them to index shifts.  It rejects numerators.
-This can be a later optimization, but ordinary momentum-space IBPs are enough
-for the first milestones.
+This is an optional optimization; ordinary momentum-space IBPs establish the
+generic identity foundation.
 
 ## 6. Zero sectors and symmetries
 
@@ -362,7 +355,7 @@ $$
 
 The sector is marked zero when the row rank is at most the number of active
 parameters.  The code is at
-[`LiteRed2026.m:3021-3040`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3021).
+[`LiteRed2026.m:3021-3040`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3021).
 The alternate path evaluates IBPs at the sector corner and attempts to reduce
 that corner to zero.
 
@@ -384,6 +377,16 @@ ZerojRule         a rule generated from maximal zero sectors
 
 RustRed should also keep only maximal zero masks internally.  Testing whether
 a sector is below one of those masks is faster and gives the same zero ideal.
+
+For a restricted face, use the effective active set
+`T = raw sector mask union power support`. Each surviving monomial
+`c_a x^a` contributes the coefficient-free row `[a_T, 1]`; its rank over `K`
+is the same as its rational rank. Rank strictly below `|T|+1` is a sufficient
+zero certificate, while full rank is only failure of this criterion. If a
+coefficient vanishes, a row is deleted, so an established rank-deficiency
+certificate remains valid. A failed power-support guard changes the face and
+requires recomputation. Cuts and user exclusions remain classifications
+distinct from a zero proof.
 
 ### 6.2 Exact sector symmetries
 
@@ -412,6 +415,17 @@ absolute determinant one for a rule with no prefactor, or include the correct
 Jacobian.  LiteRed2's graph-like use cases produce unit-Jacobian shifts, but its
 rule construction does not expose this check clearly enough to copy blindly.
 
+LiteRed's `SR` construction is instantiated only at numeric points. A generic
+transport must permute both indices and coefficient variables:
+
+```text
+I(n + s) = I(P n + P s),
+```
+
+not `I(n + P s)`. Sound implementations either quotient concrete rows after
+specialization or transport the entire parametric row, including coefficient
+variables and shifts.
+
 ## 7. Sector solving, masters, and reduction application
 
 ### 7.1 What `SolvejSector` actually does
@@ -435,18 +449,17 @@ For a unique sector with symbolic indices $n_i$, the solver:
    evidence that RustRed may use to certify a master.
 
 `WhenBad` and `SmartReduce` use integer-domain logical reduction to protect
-against invalid recurrence ranges and exceptional coefficients.  This is the
-hardest Mathematica-specific part of the port.  For the initial Rust solver a
-safer progression is:
+against invalid recurrence ranges and exceptional coefficients. This is the
+hardest Mathematica-specific part of the source behavior and requires explicit
+integer and nonzero-polynomial conditions in RustRed.
 
-- implement exact finite Laporta elimination for a requested index box;
-- add proven symbolic recurrences for simple sectors;
-- represent recurrence guards explicitly as conjunctions of integer bounds and
-  nonzero polynomial conditions;
-- only then implement heuristic recurrence discovery.
-
-That progression still produces a complete on-demand reducer and avoids
-pretending that an unguarded symbolic rule is universally valid.
+Within `Solvej`, the default algorithm examines the hardest term of the
+submitted relation and substitutes it only when an exact pivot rule is already
+known. The first unknown encountered becomes the new pivot. It does not perform
+a global substitution sweep or full back-substitution. That pivot database
+persists across depths and targets within one affine case group and resets at
+the group boundary; rejection by `WhenBad` does not remove the algebraic pivot.
+These are source-behavior facts, not a required RustRed storage design.
 
 ### 7.2 Master semantics
 
@@ -477,6 +490,13 @@ subsectors until closure.  Zero sectors are replaced by zero immediately.
 `IBPReduce` then topologically orders sector dependencies, substitutes lower
 sectors into higher ones, layers within-sector rules, and finally applies the
 minimal selected rule set to the input.
+
+LiteRed does not feed proper-subsector `jRules` back into `SolvejSector` row
+elimination. During numeric discovery it applies zero rules and numeric
+self-symmetry relations; subsector substitution occurs later in `IBPSelect`
+and `IBPReduce`. Earlier solved-subsector feedback may be a useful RustRed
+optimization only when it is explicitly bound to the same locus and proved
+equivalent; it is not LiteRed-parity behavior.
 
 A Rust implementation should use:
 
@@ -759,7 +779,7 @@ coefficients by inspection.
 
 ### 8.7 Required exhaustive regression
 
-The milestone should not stop after reproducing (G).  An exhaustive small-box
+Acceptance should not stop after reproducing (G). An exhaustive small-box
 test should:
 
 1. enumerate every $a,b,c\in[-2,4]$;
@@ -811,195 +831,26 @@ other loops is not generally valid.  Use the global tensor ansatz; apply
 componentwise angular averages only after a sector has factorized.
 
 The two numerator tests in (G), especially
-$J(-2,1,1)=s^2(1+4/d)P$, should be the first scalar/tensor integration test.
+$J(-2,1,1)=s^2(1+4/d)P$, are compact scalar/tensor regression oracles.
 
-## 10. Path from two to five loops
+## 10. Finite-seed growth and row halo
 
-For a vacuum family the basic growth is:
+For `P` propagator coordinates, maximum dot depth `D`, numerator depth `N`,
+and `A` auxiliary coordinates, a useful finite candidate bound is
 
-| Loops | Independent scalar products | Momentum-space IBPs | Naive sectors |
-|---:|---:|---:|---:|
-| 2 | 3 | 4 | 8 |
-| 3 | 6 | 9 | 64 |
-| 4 | 10 | 16 | 1,024 |
-| 5 | 15 | 25 | 32,768 |
+\[
+  \sum_{q=0}^{P}
+  \binom{P}{q}\binom{D+q}{q}
+  \binom{N+A+P-q}{A+P-q}.
+\]
 
-An ISP-fixed `SectorsPattern` reduces the physically enumerated sectors, but
-the solver still carries all scalar-product indices.
+This is admission input, not a closure claim. An IBP row generated from a seed
+inside `(D,N)` may contain a same-sector term in `(D+1,N+1)`. The resulting
+one-row halo is necessary for a finite solve but is not a theorem that the
+enlarged box closes. Loop counts, topology catalogs, storage layouts, and
+milestone order remain governed by `GOAL.md`, not this frozen source audit.
 
-### 10.1 Three loops
-
-Vakint's parent is the six-line tetrahedral family
-([`topologies.rs:76-98`](../../vendor/gammaloop/crates/vakint/src/topologies.rs#L76)):
-
-```text
-k1, k2, k3, k3-k1, k1-k2, k2-k3
-```
-
-All lines have the common mass parameter.  These six denominators span exactly
-the six vacuum scalar products, so no ISP is required.  Vakint automatically
-registers its distinct contractions.  This is the clean second milestone.
-
-Implementation sequence:
-
-1. register the parent family and exact scalar-product inverse;
-2. generate and unit-test all nine IBPs;
-3. classify all 64 sectors and prove graph/loop-momentum symmetries;
-4. identify factorized and scaleless contractions recursively;
-5. run bounded sparse Laporta elimination sector by sector, simplest first;
-6. stabilize the candidate master set by increasing dot/numerator bounds;
-7. add symbolic recurrences only after finite reductions are trusted;
-8. reduce every Vakint contraction of the parent and compare independent
-   permutations/routings.
-
-Do not hard-code an expected master count before the rank has stabilized.  Use
-exact rank at increasing bounds, parametric critical-point counting when a
-pure-Rust implementation exists, and exact equivalence maps as independent
-checks.
-
-### 10.2 Four loops
-
-Vakint defines four parent routings at
-[`topologies.rs:101-218`](../../vendor/gammaloop/crates/vakint/src/topologies.rs#L101):
-
-```text
-H and X     9 propagators -> append 1 ISP to reach 10 scalar products
-BMW and FG  8 propagators -> append 2 ISPs to reach 10 scalar products
-```
-
-The appended ISP positions must be fixed to sector bit zero.  The physical
-sector search is then at most $2^9$ or $2^8$ per parent rather than all
-$2^{10}$, though numerator depths still explore the ISP indices.
-
-At this stage the dominant engineering requirements are:
-
-- sparse relation storage with interned integrals;
-- symmetry canonicalization before matrix insertion;
-- modular/finite-field elimination and rational reconstruction for large
-  rational-function systems;
-- sector-parallel solving with deterministic merge order;
-- recursive factorization into already solved lower-loop components;
-- versioned disk caches and resumable per-sector work;
-- strict memory budgets and statistics for fill-in/pivot growth.
-
-Vakint automatically registers contractions for FG, while H, X, and BMW are
-registered only as unpinched parents.  RustRed should nevertheless derive any
-requested contraction from the family rank and sector machinery, rather than
-hard-code this current catalog boundary.
-
-The existing FORM/FMFT files may be used only as external inspiration or
-eventual output comparison; no RustRed stage should call FORM or translate its
-procedures at runtime.
-
-### 10.3 Five loops
-
-Five vacuum loops require 15 scalar products and generate 25 basic IBPs per
-seed.  Vakint's current `generate_topologies` list stops after the four-loop
-parents and then adds an unknown topology, so RustRed needs a generic family
-input format rather than assuming a pre-existing Vakint five-loop catalog.
-
-For a cubic connected five-loop vacuum graph, 12 propagators are typical, hence
-three ISPs, but RustRed must compute this from rank rather than assume it.  The
-five-loop milestone should begin only after the four-loop engine has:
-
-- finite-field sparse elimination;
-- canonical graph and loop-momentum symmetry maps;
-- automatic factorization/scaleless detection;
-- bounded target-driven reduction rather than eager generation of every rule;
-- stable serialization and resumability;
-- reproducible master and rule fingerprints.
-
-At 32,768 naive sectors, even cheap metadata should use packed bit masks.  Use
-`u16` for up to 15 indices, with a generic larger mask type available for future
-families.
-
-## 11. RustRed module blueprint
-
-A practical decomposition is:
-
-```text
-family
-  momentum/scalar-product basis validation
-  denominator affine maps and family fingerprint
-
-integral
-  interned exponent vectors, sectors, packed masks
-  total complexity and symmetry canonicalization
-
-ibp
-  derivative construction
-  scalar-product-to-shift conversion
-  sparse linear relations
-
-parametric
-  U/F/G construction
-  zero-sector rank criterion
-  optional critical points and syzygies
-
-symmetry
-  polynomial candidate signatures
-  exact momentum maps, Jacobian checks, induced exponent maps
-
-solver
-  finite bounded Laporta engine
-  guarded symbolic recurrences
-  master stabilization and basis changes
-
-tensor
-  metric-pairing basis, contraction matrices, cached projectors
-  conversion of tensor numerators to scalar products
-
-reducer
-  demand closure, dependency DAG, memoization, collection
-
-cache
-  versioned family/order/rule serialization and resumable sector state
-```
-
-Coefficient expressions should have three levels:
-
-1. factored/sparse multivariate polynomials in parameters and symbolic indices;
-2. normalized rational functions for equality, pivots, and final collection;
-3. finite-field images for rank and large elimination.
-
-Avoid simplifying every term after every addition.  LiteRed2's own
-`SimplifyAlways`/`CheckZeroAlways` distinction reflects the cost.  Normalize a
-pivot coefficient enough to test exact zero, batch row operations, and collect
-fully at rule boundaries.
-
-## 12. Acceptance criteria by milestone
-
-### Milestone 1: two-loop fully massive vacuum
-
-- Build the exact three-denominator family and inverse scalar-product map.
-- Generate (I11)-(I22) from derivatives, not hard-coded strings.
-- Reproduce the sector and symmetry sets in section 8.
-- Reduce every index triple in the `[-2,4]^3` test box.
-- Reproduce (G) and make all seeded IBP residuals exactly zero.
-- Support scalar numerators and rank-two/rank-four tensor projection without
-  FORM.
-- Serialize/reload rules and obtain byte-stable canonical output.
-
-### Milestone 2: three-loop fully massive vacuum
-
-- Build Vakint's six-line parent and every contraction.
-- Generate nine IBPs and exhaustively analyze 64 sectors.
-- Prove symmetry maps by exact transformed denominators.
-- Reduce a documented target box with a stabilized canonical master set.
-- Recursively reduce all factorized sectors to lower-loop masters.
-- Include tensor projection and end-to-end Vakint expression conversion.
-
-### Milestones 3 and 4: four and five loops
-
-- Complete ISP-aware families and sector patterns.
-- Use target-driven sparse finite-field reduction with reconstruction.
-- Resume interrupted per-sector jobs from versioned caches.
-- Validate every rule by reducing its generating IBP residual to zero.
-- Cross-check equivalent momentum routings, graph automorphisms, mass
-  homogeneity, factorization, and independent numerical evaluation where
-  available.
-
-## 13. Audit cautions
+## 11. Audit cautions
 
 - `LiteRed2026.m` identifies itself as a beta and has a placeholder release
   date.  Copy mathematics, not incidental front-end or persistence behavior.

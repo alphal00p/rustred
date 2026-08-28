@@ -4,21 +4,24 @@ Date: 2026-08-13
 
 ## Status and authority
 
-This document is the governing capability and acceptance specification for
-RustRed.  It
-supersedes any vacuum-only or fixed-loop recommendation in older research
-notes.  In particular, production RustRed must not contain authored
-topology-specific recurrence formulae.  Such formulae may exist only as
-oracles or regression fixtures for rules rediscovered by the generic engine.
+> **Durable scope reference.** This frozen mathematical capability and
+> acceptance specification is subordinate to [`GOAL.md`](../../GOAL.md).
+> It records the intended generic surface and source-derived acceptance
+> semantics; it is not a statement of current implementation status or
+> sequencing authority.
 
-The mathematical/reference sources, in descending order of authority, are:
+Production RustRed must not contain authored topology-specific recurrence
+formulae. Such formulae may exist only as oracles or regression fixtures for
+rules rediscovered by the generic engine.
 
-1. [`LiteRed2026.m`](../../vendor/LiteRed2/Source/LiteRed2026.m), for the
+The principal mathematical/reference sources, separated by role, are:
+
+1. [`LiteRed2026.m`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m), for the
    scalar-family, parametric-identity, sector-solving, and reduction scope;
 2. the vendored [`symbolica`](../../vendor/symbolica) Rust source, for exact
    algebra and implementation APIs; and
-3. the Vakint crate and its FORM resources under
-   [`vendor/gammaloop/crates/vakint`](../../vendor/gammaloop/crates/vakint),
+3. the Vakint crate and its FORM resources in the
+   [pinned GammaLoop source](https://github.com/alphal00p/gammaloop/tree/395610143576507503fd2c785db3ba62340f4277/crates/vakint),
    as a readable behavioral oracle for tensor projection, topology matching,
    rule application, and normalization.
 
@@ -64,23 +67,23 @@ The relevant LiteRed implementation regions are:
 
 | Capability | Source |
 |---|---|
-| Overcomplete sets and PF | [`LiteRed2026.m:465`](../../vendor/LiteRed2/Source/LiteRed2026.m#L465) |
-| Basis construction | [`LiteRed2026.m:688`](../../vendor/LiteRed2/Source/LiteRed2026.m#L688) |
-| Persistence | [`LiteRed2026.m:1153`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1153) |
-| Integral/sector conversion and ordering | [`LiteRed2026.m:1266`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1266) |
-| Parametric IBP and LI generation | [`LiteRed2026.m:1799`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1799) |
-| Feynman-parametric IBP/syzygies | [`LiteRed2026.m:1834`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1834) |
-| `A`/`B` operators | [`LiteRed2026.m:1924`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1924) |
-| Parametric sector solver | [`LiteRed2026.m:2254`](../../vendor/LiteRed2/Source/LiteRed2026.m#L2254) |
-| Zero-sector analysis | [`LiteRed2026.m:2956`](../../vendor/LiteRed2/Source/LiteRed2026.m#L2956) |
-| Momentum shifts and symmetries | [`LiteRed2026.m:3111`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3111) |
-| Cross-basis symmetries | [`LiteRed2026.m:3476`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3476) |
-| Master handling | [`LiteRed2026.m:3625`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3625) |
-| Rule selection and reduction | [`LiteRed2026.m:3801`](../../vendor/LiteRed2/Source/LiteRed2026.m#L3801) |
-| `U`, `F`, LP, Gram, and factorization | [`LiteRed2026.m:4205`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4205) |
-| Dimensional/differential utilities | [`LiteRed2026.m:4612`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4612) |
-| Denominator-only algorithms | [`LiteRed2026.m:4840`](../../vendor/LiteRed2/Source/LiteRed2026.m#L4840) |
-| Graph utilities | [`LiteRed2026.m:5527`](../../vendor/LiteRed2/Source/LiteRed2026.m#L5527) |
+| Overcomplete sets and PF | [`LiteRed2026.m:465`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L465) |
+| Basis construction | [`LiteRed2026.m:688`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L688) |
+| Persistence | [`LiteRed2026.m:1153`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1153) |
+| Integral/sector conversion and ordering | [`LiteRed2026.m:1266`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1266) |
+| Parametric IBP and LI generation | [`LiteRed2026.m:1799`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1799) |
+| Feynman-parametric IBP/syzygies | [`LiteRed2026.m:1834`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1834) |
+| `A`/`B` operators | [`LiteRed2026.m:1924`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1924) |
+| Parametric sector solver | [`LiteRed2026.m:2254`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L2254) |
+| Zero-sector analysis | [`LiteRed2026.m:2956`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L2956) |
+| Momentum shifts and symmetries | [`LiteRed2026.m:3111`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3111) |
+| Cross-basis symmetries | [`LiteRed2026.m:3476`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3476) |
+| Master handling | [`LiteRed2026.m:3625`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3625) |
+| Rule selection and reduction | [`LiteRed2026.m:3801`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L3801) |
+| `U`, `F`, LP, Gram, and factorization | [`LiteRed2026.m:4205`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L4205) |
+| Dimensional/differential utilities | [`LiteRed2026.m:4612`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L4612) |
+| Denominator-only algorithms | [`LiteRed2026.m:4840`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L4840) |
+| Graph utilities | [`LiteRed2026.m:5527`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L5527) |
 
 Fermat, Sparx, Mint, Singular, and similar programs used by optional LiteRed
 paths are accelerators rather than semantic dependencies.  RustRed must use
@@ -131,13 +134,9 @@ deterministic ISP coordinates.  A longer or dependent list belongs to the
 separate denominator-set/partial-fraction layer and must not be silently
 accepted as a basis.
 
-Implementation status (2026-08-13):
-[`automatic_isps.rs`](../../src/automatic_isps.rs) implements the shorter-list
-case by scanning identity rows for generic rank increase, appending zero-shift
-ISPs, and replaying the complete rank transcript.  The scan uses RustRed's
-persisted coordinate order above.  Mathematica's `Union` may order symbolic
-scalar products differently, so the completed span is the parity contract;
-literal ISP ordinals are not.
+The shorter-list case may scan deterministic candidate coordinates for generic
+rank increase and append zero-shift ISPs. The completed span is the parity
+contract; literal ISP ordinals need not match Mathematica's symbolic ordering.
 
 External-external products never become integral coordinates.  Their declared
 kinematic values are symmetric coefficient-field elements; a singular
@@ -211,7 +210,7 @@ contraction-major order, with differentiated loop the inner/minor coordinate,
 to make artifacts and oracle comparisons reproducible.  Mathematical
 equivalence of the normalized row set is the acceptance invariant; LiteRed2's
 incidental enumeration order is not.  The implementation in
-[`GenerateIBP`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1813) establishes
+[`GenerateIBP`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1813) establishes
 the following mathematical invariants:
 
 - `PowerShifts` modify only the coefficient multiplier `n_r + nu_r`;
@@ -225,7 +224,7 @@ the following mathematical invariants:
 The canonical Rust representation is a sparse map
 
 ```text
-IndexShift -> ParametricCoefficient
+IndexShift -> IndexedCoefficient
 ```
 
 over a second authenticated Symbolica field
@@ -282,7 +281,7 @@ algorithmic terms it:
 5. antisymmetrizes in external indices `a,b`.
 
 The relevant code is the `lis=...` construction in
-[`GenerateIBP`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1813).
+[`GenerateIBP`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1813).
 Translation of coefficient variables is essential: translating only integral
 keys produces an incorrect LI relation whenever coefficients depend on an
 index.  RustRed therefore needs one checked operation that translates an
@@ -324,7 +323,7 @@ These operators are noncommutative at a fixed index.  Conversion to and from
 operator form must be exact and tested by structural round trips, including
 repeated operators, mixed `A_i/B_i`, coefficients depending on `n_i`, and
 power-shifted families.  The source implementation begins at
-[`LiteRed2026.m:1924`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1924).
+[`LiteRed2026.m:1924`](https://github.com/rnlg/LiteRed2/blob/f02953115f0433d80318a92f3bc0b56a9bf51ce9/Source/LiteRed2026.m#L1924).
 
 ## 6. Sectors, cuts, and ordering
 
@@ -360,13 +359,10 @@ RustRed must distinguish:
 
 “No rule found” is never a zero proof.
 
-Implementation status (2026-08-13): the replayable family inventory retains
-all five states above and constructs an explicit subsector-first queue.  A
-family-wide generated-rule transcript now runs initial symbolic discovery and
-the exceptional-leaf queue for every unresolved sector, retaining exact
-nested interruption outcomes.  This is orchestration, not completion of
-`SolvejSector`: recursive exceptional-locus closure, solved-subsector feedback,
-and master selection remain open.
+An implementation must retain these states explicitly and use a
+subsector-first dependency order. Recursive exceptional-locus closure,
+solved-subsector dependencies, and master selection remain separate proof
+obligations rather than consequences of queue exhaustion.
 
 ## 8. Symmetry discovery
 
@@ -433,42 +429,11 @@ undecidable.  Undecidable must not be treated as true.  Accepted rules replay
 symbolically from generated source rows; finite integer samples are an
 independent regression layer, never the proof.
 
-Implementation status (2026-08-13):
-[`symbolic_sector_cases.rs`](../../src/symbolic_sector_cases.rs) supplies the
-structural substrate for the orthant and complementary splitting.
-[`when_bad.rs`](../../src/when_bad.rs) compiles the complete algebraic
-coefficient-domain, inactive-boundary-leak, and uniform-descent condition for
-one candidate; [`generated_when_bad.rs`](../../src/generated_when_bad.rs)
-authenticates that candidate against freshly regenerated IBP/LI rows.
-[`parametric_sector_coverage.rs`](../../src/parametric_sector_coverage.rs)
-then composes a caller-supplied ordered candidate set into a finite replayed
-cover whose leaves are `DescendingRule`, `Uncovered`, or `Unsupported`, and
-[`parametric_sector_provider.rs`](../../src/parametric_sector_provider.rs)
-applies only its certified descending leaves.  The initial generic search is
-now automatic: [`generated_sector_discovery.rs`](../../src/generated_sector_discovery.rs)
-regenerates `IBPLI`, grows a bounded cumulative corner stencil, eliminates it,
-authenticates all candidates, and freezes the resulting coverage without a
-caller-supplied recurrence or pivot.  Exact single-coordinate equality loci
-are extracted by
-[`coordinate_equality_loci.rs`](../../src/coordinate_equality_loci.rs), and
-[`conditional_reelimination.rs`](../../src/conditional_reelimination.rs)
-regenerates, translates, partially specializes, and re-eliminates source rows
-on those loci while preventing a conditional identity from escaping as a
-global rule.  [`generated_sector_live_leaf_queue.rs`](../../src/generated_sector_live_leaf_queue.rs)
-now visits every terminal root leaf in stable order and freezes the extraction
-and partial re-elimination transcript.  The separate
-[`generated_sector_conditional_provider.rs`](../../src/generated_sector_conditional_provider.rs)
-retains that queue provenance and scans its locus-bound pivots only after root
-coverage classifies a concrete point as terminal; root global rules remain
-authoritative and an exhausted conditional scan delegates unchanged.
-[`generated_family_rule_provider.rs`](../../src/generated_family_rule_provider.rs)
-now composes these per-sector proofs directly from the replayed family-wide
-certificate under an outer certified zero policy and an inner explicit caller
-master policy. It rejects interrupted sector transcripts and never infers a
-master from `Uncovered` or `Unsupported`. Full
-`SolvejSector` still needs symbolic zero/symmetry quotients within this queue,
-iterated deeper searches, general integer-locus reasoning, and a complete
-terminal inventory.  Search exhaustion remains `Uncovered`.
+The implementation must keep generated-row authentication, residual-domain
+partitioning, conditional re-elimination, zero/symmetry quotients, and
+publication as separate owned proofs. Interrupted or resource-limited work
+cannot publish; an exhausted search remains `Uncovered`, and only an explicit
+terminal policy may select a master.
 
 An integral is a proved master only when the relevant analysis establishes
 that status.  LiteRed's `MIs` is operationally the set revealed so far, so
@@ -543,26 +508,15 @@ oracle:
 
 For parametric rules, a passing finite sample is necessary but insufficient.
 Every rule must also replay symbolically from the generic identities and pass
-its declared guard/descent checks.  Tests run in parallel with the licensed
-GMP Symbolica build.  FORM and Mathematica are never executed by tests.
+its declared guard/descent checks. Ordinary/default RustRed and
+Vakint-RustRed tests run in parallel with the licensed GMP Symbolica build and
+never execute FORM or Mathematica. A separately declared, pinned
+existing-backend oracle job may execute FORM outside the new RustRed mode and
+production dependency graph.
 
-## 13. Immediate implementation boundary
+## 13. Implementation-boundary principle
 
-The first new production slice is deliberately vertical but generic:
-
-```text
-IntegralFamily(L,E,kinematics,denominators,power_shifts)
-  -> authenticated Q(parameters,n) context
-  -> all L(L+E) ordinary parametric IBPs
-  -> all E(E-1)/2 translated LI identities
-  -> exact specialization to concrete integer powers
-  -> independent concrete derivative oracle
-  -> AB round-trip tests
-```
-
-Only after this slice passes does rule discovery begin. The old
-`VacuumFamily`, concrete `IbpGenerator`, eager finite reducer, and loop-specific
-reducers are quarantined in the publish-disabled `rustred-legacy-oracles`
-package. They are absent from the default core, remain independent validation
-oracles only, and must not be presented as completion of RustRed's stated
-mathematical capability goal.
+Development proceeds through vertical, topology-neutral slices whose
+capability claims are limited to passing current evidence. Historical APIs,
+loop-authored reducers, and bounded prototypes are Git evidence only; they do
+not define the production architecture or satisfy any acceptance item above.

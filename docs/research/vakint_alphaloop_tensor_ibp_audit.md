@@ -1,15 +1,17 @@
 # Vakint/alphaLoop tensor and parametric-IBP audit for RustRed
 
-Status: source-complete audit, updated 2026-08-26 with the connected four-loop
-FMFT raw-master acceptance seam.
+> **Frozen pinned-source oracle audit.** This note is subordinate to
+> [`GOAL.md`](../../GOAL.md). It records Vakint/alphaLoop behavior at GammaLoop
+> revision `395610143576507503fd2c785db3ba62340f4277`; it is not current
+> RustRed implementation status or sequencing authority.
 
 This report records the Vakint and alphaLoop behavior that constrains RustRed.
 It is based on the checked-in Rust, Symbolica expressions, FORM sources, and
-tests under `vendor/gammaloop/crates/vakint`. No FORM process was executed.
+tests under `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint`. No FORM process was executed.
 
 Citation convention: abbreviated paths such as `lib.rs`, `topologies.rs`,
 `graph.rs`, `symbols.rs`, `tests/...`, `templates/...`, and `form_src/...`
-are relative to the exact crate root `vendor/gammaloop/crates/vakint/`.
+are relative to the exact crate root `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/`.
 Every citation includes checked-in line numbers.
 
 ## Governing conclusion
@@ -44,9 +46,9 @@ The FORM code is a behavioral oracle, not production code. In particular:
 
 This agrees with Vakint's stated present scope: matching plus analytic tensor
 and parametric-IBP reduction are implemented with Symbolica around FORM
-(`vendor/gammaloop/crates/vakint/README.md:3-10`). The public example pipeline
+(`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/README.md:3-10`). The public example pipeline
 is canonicalization, tensor reduction, then integral evaluation
-(`vendor/gammaloop/crates/vakint/README.md:64-137`). RustRed replaces both
+(`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/README.md:64-137`). RustRed replaces both
 external algebra stages while preserving their mathematical contract.
 
 ## Source inventory and classification
@@ -55,33 +57,33 @@ external algebra stages while preserving their mathematical contract.
 
 | Concern | Authoritative Vakint locations | RustRed requirement |
 |---|---|---|
-| Expression vocabulary | `vendor/gammaloop/crates/vakint/src/symbols.rs:10-22`, `25-77`, `79-135`, `194-220` | Preserve `k`, `p`, symmetric `g`, symmetric/linear `dot`, arbitrary index atoms, and user coefficients natively. |
-| Term splitting | `vendor/gammaloop/crates/vakint/src/lib.rs:2187-2197`, `2589-2618` | Split a sum into one topology atom plus a spectator numerator per term; reject malformed topology powers. |
-| Topology construction | `vendor/gammaloop/crates/vakint/src/topologies.rs:40-99` | Support the same canonical 1L, 2L, and complete 3L denominator families as concrete compatibility inputs, without making them production dispatch cases. |
-| Graph parsing/canonization | `vendor/gammaloop/crates/vakint/src/graph.rs:117-179`, `195-345` | Validate graph incidence, deduplicate contractions by graph isomorphism, and use stable family fingerprints. |
-| Loop-basis selection | `vendor/gammaloop/crates/vakint/src/graph.rs:349-409`; `vendor/gammaloop/crates/vakint/src/topologies.rs:476-638` | Select/solve a loop-momentum basis and rewrite routings exactly. |
-| Topology matching | `vendor/gammaloop/crates/vakint/src/lib.rs:1126-1204`, `1206-1501` | Match short/full forms, orientations, masses, powers, and arbitrary IDs; choose deterministically among automorphisms. |
-| Simultaneous numerator map | `vendor/gammaloop/crates/vakint/src/lib.rs:1381-1417`, `2258-2364` | Apply loop-basis substitutions simultaneously, never cascading a map such as `a -> b, b -> c`. |
-| Tensor reduction | `vendor/gammaloop/crates/vakint/src/lib.rs:2426-2568`; `vendor/gammaloop/crates/vakint/form_src/alphaloop/tensorreduce.frm:211-392` | Replace the entire FORM bridge with native exact projector generation/contraction. |
-| Scalar reduction/application | `vendor/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:17-1127` | Generate generic parametric IBPs/rules and apply them natively; match hardcoded alphaLoop results only as an oracle. |
-| Dot/index conversion | `vendor/gammaloop/crates/vakint/src/lib.rs:4492-4651` | Accept indexed and dot forms and preserve arbitrary/namespaced index atoms. |
-| Output normalization | `vendor/gammaloop/crates/vakint/src/lib.rs:4334-4435` | Keep reduction coefficients separate from measure, epsilon-series, and master-value conventions; offer an explicit adapter if Vakint-formatted output is needed. |
+| Expression vocabulary | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/symbols.rs:10-22`, `25-77`, `79-135`, `194-220` | Preserve `k`, `p`, symmetric `g`, symmetric/linear `dot`, arbitrary index atoms, and user coefficients natively. |
+| Term splitting | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:2187-2197`, `2589-2618` | Split a sum into one topology atom plus a spectator numerator per term; reject malformed topology powers. |
+| Topology construction | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/topologies.rs:40-99` | Support the same canonical 1L, 2L, and complete 3L denominator families as concrete compatibility inputs, without making them production dispatch cases. |
+| Graph parsing/canonization | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/graph.rs:117-179`, `195-345` | Validate graph incidence, deduplicate contractions by graph isomorphism, and use stable family fingerprints. |
+| Loop-basis selection | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/graph.rs:349-409`; `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/topologies.rs:476-638` | Select/solve a loop-momentum basis and rewrite routings exactly. |
+| Topology matching | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:1126-1204`, `1206-1501` | Match short/full forms, orientations, masses, powers, and arbitrary IDs; choose deterministically among automorphisms. |
+| Simultaneous numerator map | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:1381-1417`, `2258-2364` | Apply loop-basis substitutions simultaneously, never cascading a map such as `a -> b, b -> c`. |
+| Tensor reduction | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:2426-2568`; `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/tensorreduce.frm:211-392` | Replace the entire FORM bridge with native exact projector generation/contraction. |
+| Scalar reduction/application | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:17-1127` | Generate generic parametric IBPs/rules and apply them natively; match hardcoded alphaLoop results only as an oracle. |
+| Dot/index conversion | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:4492-4651` | Accept indexed and dot forms and preserve arbitrary/namespaced index atoms. |
+| Output normalization | `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:4334-4435` | Keep reduction coefficients separate from measure, epsilon-series, and master-value conventions; offer an explicit adapter if Vakint-formatted output is needed. |
 
 ### Oracle-only material
 
 The following must not be embedded as RustRed's reduction algorithm:
 
 - the rank-2/4/6/8 inverse projector coefficients in
-  `vendor/gammaloop/crates/vakint/form_src/alphaloop/tensorreduce.frm:43-175`;
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/tensorreduce.frm:43-175`;
 - the rank-10 seven-orbit table and coefficients in
-  `vendor/gammaloop/crates/vakint/form_src/alphaloop/pvtab10.h:1-673`;
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/pvtab10.h:1-673`;
 - the topology-specific guarded rules in
-  `vendor/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:76-137`
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:76-137`
   and `301-1099`;
 - the master epsilon expansions in
-  `vendor/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:1162-1189`;
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/form_src/alphaloop/integrateduv.frm:1162-1189`;
 - the fitted/special numerical constants in
-  `vendor/gammaloop/crates/vakint/src/alphaloop_numerics.rs:9-68`; and
+  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/alphaloop_numerics.rs:9-68`; and
 - numerical outputs in the integration tests.
 
 They are golden data. A production result is acceptable only if its rules
@@ -114,7 +116,7 @@ text parsing, and subprocess management unnecessary.
 ### Input and term model
 
 A term is represented by `VakintTerm { integral, numerator, vectors }`
-(`vendor/gammaloop/crates/vakint/src/lib.rs:2187-2192`) and uses
+(`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:2187-2192`) and uses
 
 ```text
 numerator * topo(
@@ -125,7 +127,7 @@ numerator * topo(
 
 or a canonical short form such as `topo(I1L(muvsq,a1))`. The splitter finds
 all `topo(...)` atoms and takes a Symbolica coefficient list with respect to
-them (`vendor/gammaloop/crates/vakint/src/lib.rs:2589-2617`). RustRed should
+them (`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/lib.rs:2589-2617`). RustRed should
 retain arbitrary spectator factors in `numerator`, including namespaced
 functions, complex constants, epsilon dependence, external vectors, and free
 metrics.
@@ -140,13 +142,20 @@ dot(momentum_1,momentum_2)
 ```
 
 Vakint registers `dot` as symmetric and linear and `g` as symmetric
-(`vendor/gammaloop/crates/vakint/src/symbols.rs:79-90`). Indices are general
+(`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/symbols.rs:79-90`). Indices are general
 Symbolica atoms, not integers; the decorated-index tests deliberately use
 functions such as `mink4(4,33)` (`tests/integral_evaluation_freeform_tests.rs:23-56`).
 
+Numerator ingestion must boundedly expand nonnegative integer powers that
+contain recognized tensor syntax. Scalar-only factors and an empty tensor
+monomial remain opaque spectator weights, and deferring such a weight never
+widens the coefficient field. Unknown reserved tensor syntax and negative or
+noninteger powers of tensor-valued expressions are typed errors. Fresh dummy
+indices must be checked against every index already present before insertion.
+
 ### Canonical known families through three loops
 
-The registry defines (`vendor/gammaloop/crates/vakint/src/topologies.rs:40-99`):
+The registry defines (`FOR_REFERENCE_ONLY_DO_NOT_PUSH/gammaloop/crates/vakint/src/topologies.rs:40-99`):
 
 ```text
 I1L: D1 momentum k1
@@ -288,6 +297,14 @@ seven pairing orbits (`pvtab10.h:1-647`) and seven rational coefficients
 (`pvtab10.h:648-673`). This is an implementation ceiling of the fixture, not
 RustRed's intended rank ceiling.
 
+The quotient invariant is the full alternating-cycle partition obtained by
+overlaying two pairings, not merely the number of cycles. At rank eight this
+distinguishes, for example, `2+2` from `3+1`. The orbit counts at ranks
+2, 4, 6, 8, and 10 are respectively `1, 2, 3, 5, 7`; the seven rank-ten orbit
+cardinalities are `1, 20, 60, 80, 160, 240, 384`. Build the quotient projector
+matrix `Q` and solve the exact system `Q h = e_id`; a dense pair-by-pair witness
+is unnecessary.
+
 ### Symbolica-native algorithm
 
 RustRed should generate the projector for each encountered tensor monomial:
@@ -296,15 +313,15 @@ RustRed should generate the projector for each encountered tensor monomial:
 2. extract the ordered internal loop-vector slots and the outside tensor;
 3. return exact zero for odd slot count;
 4. enumerate perfect pairings of the internal slots;
-5. quotient them by permutations of slots carrying the same loop momentum;
+5. quotient them by permutations of slots carrying the same loop momentum,
+   retaining the full alternating-cycle partition;
 6. form one metric-orbit sum (B_\alpha) per orbit;
 7. compute the exact Gram matrix
    (G_{\alpha\beta}(D)=B_\alpha\mathbin{:}B_\beta) by unioning the two
    pairings; each closed index cycle contributes (D);
 8. compute the contracted right-hand sides, replacing a pairing of slots
    carrying (k_i,k_j) by `dot(k(i),k(j))`;
-9. solve the small exact linear system over the Symbolica rational-function
-   field in (D); and
+9. solve `Q h = e_id` over the Symbolica rational-function field in (D); and
 10. reconstruct the outside tensor and canonicalize dummy indices.
 
 This reproduces the PV tables but is topology-, loop-, and rank-independent.
@@ -340,6 +357,11 @@ three loops all six diagonal and fifteen mixed products are lowered at
 RustRed must do this generically from each family's denominator linear forms,
 including auxiliary denominators/ISPs. It must not reproduce the 2L/3L
 formula list by momentum-name pattern matching.
+
+A negative integer power of a proven scalar `dot(...)` may remain an exact
+rational spectator weight. It is not an inverse tensor. A negative power of a
+tensor-valued expression is unsupported; symbolic or noninteger powers remain
+opaque only when their base contains no reducible loop tensor.
 
 ### One-loop parametric relation and normalization map
 
@@ -595,6 +617,12 @@ constants, not additional reducer algorithms. These tests are especially
 valuable as a one-to-three-loop differential oracle after conventions are
 mapped.
 
+Two fixtures in that setup deserve explicit later gates:
+`test_eval_matad_masters` exercises master substitution/evaluation itself, and
+`test_eval_matad_one_master_combination` exercises a nontrivial master linear
+combination. They are oracles for the later Vakint master-value layer, not for
+RustRed rule discovery.
+
 ### `tests/integral_evaluation_analytic_tests.rs`
 
 - six 1L tests at starts `24, 183, 207, 231, 262, 293`: exact unsubstituted-
@@ -642,7 +670,8 @@ PySecDec is a numerical cross-check, never the proof of a parametric rule.
 - one 3L epsilon-order test at `157-193`; and
 - five 4L tests at starts `197, 240, 286, 327, 368` through `:415`.
 
-Only the one-loop group belongs in the first RustRed validation gate.
+The one-loop group is the minimal exact validation layer; higher-loop groups
+remain later layers of the same oracle ladder.
 
 ### Support and inline tests
 
@@ -752,7 +781,8 @@ A pass at layer 3 cannot compensate for a failure at layers 1 or 2.
 
 ## Advancement through four loops
 
-Advance only after the full one-loop matrix passes exact symbolic comparison.
+The full one-loop matrix must pass exact symbolic comparison before a
+higher-loop oracle can count as evidence for the same path.
 
 At two loops, first validate scalar sunset powers and pinches against the nine
 guarded oracle recurrences, then mixed-loop tensors including the checked-in
@@ -846,10 +876,10 @@ fixture corpus exists.
 - [ ] Numerical Vakint/MATAD/PySecDec agreement supplements but never replaces
       exact symbolic rule replay.
 
-## Immediate implementation consequence
+## Durable implementation consequence
 
-The next RustRed work should not add another concrete recurrence. It should
-connect the generic parametric IBP/rule engine to a native numerator pipeline:
+RustRed must not add another concrete production recurrence. The generic
+parametric IBP/rule engine connects to a native numerator pipeline:
 
 ```text
 canonical input
@@ -859,7 +889,7 @@ canonical input
   -> canonical exact master sum
 ```
 
-The first acceptance target is the complete one-loop matrix above, compared
+The minimal acceptance layer is the complete one-loop matrix above, compared
 structurally with the checked-in Vakint fixtures and the alphaLoop recurrence
 under the explicit normalization map. The same generic machinery then advances
 through the concrete two- and three-loop alphaLoop oracles and finally the

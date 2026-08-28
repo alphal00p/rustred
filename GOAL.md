@@ -330,8 +330,9 @@ Phase 0 is now a stop-the-line repository reset: delete obsolete surfaces
 first, retain only demonstrably live generic core, and only then begin a fresh
 foundry implementation and the parallel Vakint implementation.
 
-The repository root is a **virtual Cargo workspace** with no root `src/`,
-`tests/`, or package. The deliberately bounded live packages are:
+The Phase-0 target is a **virtual Cargo workspace** with no root `src/`,
+`tests/`, or package. At that gate, the deliberately bounded live packages
+are:
 
 ```text
 rustred-python ------> rustred-app ------> rustred
@@ -340,13 +341,14 @@ rustred-python ------> rustred-app ------> rustred
 
 Vakint `RustRed` mode -------------------> rustred
 
-Cargo package `rustred` lives at crates/rustred-core.
+Cargo package `rustred` will live at crates/rustred-core.
 ```
 
-`rustred` is the topology-neutral mathematical core and the implementation
-home for tensor reduction, scalar lowering, guarded rule application, and
-typed master substitution. `rustred-app` is the typed composition layer and
-CLI host. `rustred-python` is a thin PyO3/maturin adapter over `rustred-app`,
+`rustred` is the topology-neutral mathematical core and becomes the
+implementation home for tensor reduction, scalar lowering, guarded rule
+application, and typed master substitution. `rustred-app` is the typed
+composition layer and CLI host. `rustred-python` is a thin PyO3/maturin adapter
+over `rustred-app`,
 with no algebra or independent schema; users always write `import rustred`,
 while a native `_rustred` extension may remain a private packaging detail.
 Vakint is the concurrently developed lower-loop and ultimately complete
@@ -421,13 +423,14 @@ re-exports are narrowed. The fresh solver is not developed inside mechanical
 file moves. Git is the archive; stale code and documentation are deleted after
 their unique evidence is retained.
 
-The surviving `parametric_coefficient` file is a temporary migration unit,
-not a final module, and the former `runtime` wrapper is gone. Algebra is
-rebuilt around a single Symbolica-native field
-layer with clear base-field and index-field owners. Stored polynomial
-exponents use Symbolica's native `u16`; only checked `u32`/`u64` prospective
-arithmetic is used where an operation can widen. `u128` is not an exponent
-representation. Self-only sparse-solver, associate, residual-affine,
+The former flat `parametric_coefficient` migration unit has been replaced by
+the acyclic `algebra::indexed` tree, and the former `runtime` wrapper is gone.
+Algebra now has one raw Symbolica polynomial owner plus clear base-field and
+index-field owners; remaining transitional wrappers are challenged during the
+next semantic pruning pass rather than preserved for compatibility. Stored
+polynomial exponents use Symbolica's native `u16`; only checked `u32`/`u64`
+prospective arithmetic is used where an operation can widen. `u128` is not an
+exponent representation. Self-only sparse-solver, associate, residual-affine,
 parameter-identity, transcript, census, and compatibility machinery is
 deleted. This includes the old partial-specialization/replay stack, aggregate
 concrete-specialization authorization/census stack, exact-Integer translation
@@ -648,7 +651,11 @@ prototype event is not a closed branch.
    arrival order, and `n_cores = 1,2,4` must preserve semantic artifacts.
 5. Admit width from RAM first, accounting for coordinator/worker Symbolica TLS,
    committed + trial + successor reducer overlap, GMP/native scratch, result
-   staging, and opaque headroom. No nested pools or per-job process forks.
+   staging, and opaque headroom. Per-lane algebra limits are mathematical,
+   resumable outcomes; global memory admission only schedules or delays work.
+   The coordinator acquires cores and memory atomically before constructing
+   owners or clones and charges unique live allocations, including
+   predecessor/successor overlap. No nested pools or per-job process forks.
 6. Use deterministic finite-field discovery and reconstruction only as a
    proposal accelerator; freeze sample schedules and verify every result
    exactly over the authenticated Symbolica coefficient domain.
@@ -871,7 +878,7 @@ no production application/CLI/Python/Vakint caller for that stack. Those
 results remain historical design and regression evidence in Git, not retained
 capabilities, a production foundry, or closed reusable family artifacts.
 
-The following claims are explicitly false at this baseline:
+The following limitations remain explicit at this baseline:
 
 - the public application path does not derive or publish closed rules;
 - the synthetic six-loop fixture is not a physical six-loop family or a
@@ -883,9 +890,9 @@ The following claims are explicitly false at this baseline:
 - the deleted tensor prototype SCC is not a retained tensor-reduction
   capability; the tensor boundary is rebuilt from fresh contracts and
   sentinels;
-- the current family inventory is unsuitable for `K=21` because it eagerly
-  enumerates sectors and its default cap is below `2^21`;
-- public family/fixed-point routes still reach handwritten eliminators;
+- no complete lazy sector-domain traversal or canonical physical vacuum
+  topology manifest suitable for the full `K=21` domain exists yet;
+- no live sparse foundry/elimination backend or guarded-rule publisher exists;
 - direct `symbolica::graph` symmetry ingress is not yet implemented;
 - campaign application is currently roots-only/preflight-oriented; and
 - there is no complete independently derived Vakint one- through four-loop
@@ -936,24 +943,20 @@ stale legacy documentation; Git history retains it as evidence only. The
 principal supporting sources are:
 
 - `README.md` and the live implementation for the actual development frontier;
-- `docs/research/rustred_scope_and_acceptance.md` and
-  `docs/research/litered_full_scope_spec.md` for mathematical scope;
+- `docs/research/litered_full_scope_spec.md` for the durable mathematical
+  capability and acceptance scope;
 - `docs/research/repository_clean_architecture_plan_2026-08-28.md` for the
   authoritative repository reset, domain DAG, deletion order, and Vakint
-  dependency/oracle boundary; older reorganization and Python directives are
-  superseded historical inputs to be deleted during Phase 0;
-- the former exact-session and exceptional/refinement notes only as historical
-  failure-case input to the fresh foundry design, never as a continuation
-  contract;
-- `docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md` and
-  `docs/research/parallel_campaign_foundry_design_2026-08-26.md` for the first
-  deployment and scaling contract;
+  dependency/oracle boundary; older reorganization and Python directives were
+  superseded and are retained only in Git history;
+- `docs/research/litered_solvej_residual_recentering_2026-08-13.md` for the
+  retained residual-case, affine-locus, and `WhenBad` source semantics;
 - `docs/research/litered2_algorithm_report.md` and
   `docs/research/litered_examples_acceptance_matrix.md` for LiteRed semantics
   and oracle progression;
 - `docs/research/symbolica_rust_api_for_litered.md`,
   `docs/research/symbolica_exact_linear_algebra_api_inventory.md`,
-  `docs/research/symbolica_first_algebra_migration_audit_2026-08-24.md`, and
+  `docs/research/symbolica_upstream_gap_audit_2026-08-25.md`, and
   `docs/research/symbolica_only_algebra_compliance_roadmap_2026-08-27.md` for
   the CAS boundary; and
 - `docs/research/vakint_alphaloop_tensor_ibp_audit.md` and
