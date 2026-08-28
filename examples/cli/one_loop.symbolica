@@ -1,8 +1,0 @@
-I(
-  name(tadpole),
-  loops(k),
-  externals(),
-  dimension(d),
-  prop(D1,k^2-m2,1),
-  numerator(sp(k,k))
-)

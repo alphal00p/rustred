@@ -2476,3 +2476,110 @@ impl From<CampaignResourceError> for CampaignAdmissionError {
         Self::Resource(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::campaign::{
+        CampaignPlan, CampaignPlanLimits, CampaignRootSpec, CampaignWorkUnitKey,
+    };
+    use crate::{
+        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+    };
+
+    fn campaign_job() -> CampaignJobKey {
+        let coefficients = CoefficientContext::new(["d"]);
+        let family = Arc::new(
+            IntegralFamily::new(
+                "campaign-admission-sentinel",
+                vec!["k".to_owned()],
+                Vec::new(),
+                coefficients.clone(),
+                coefficients.parameter("d").unwrap(),
+                vec![AffineDenominator::new(
+                    coefficients.zero(),
+                    vec![coefficients.one()],
+                )],
+                Vec::new(),
+                vec![coefficients.zero()],
+            )
+            .unwrap(),
+        );
+        CampaignPlan::compile(
+            [CampaignRootSpec::try_new(
+                "admission-root",
+                family,
+                SectorMask::try_from_bit_string("1").unwrap(),
+            )
+            .unwrap()],
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
+            CampaignPlanLimits::default(),
+        )
+        .unwrap()
+        .intrinsic_jobs()
+        .next()
+        .unwrap()
+        .clone()
+    }
+
+    fn admitted_lanes(width: usize) -> Vec<u64> {
+        let revision = CampaignEstimatorRevision::try_new(1).unwrap();
+        let estimate = CampaignTaskResourceEstimate::try_new(
+            revision,
+            1,
+            CampaignTaskMemoryEnvelope::try_new(
+                CampaignMemoryEstimate::try_new(CampaignBytes::new(16), CampaignBytes::new(16))
+                    .unwrap(),
+                CampaignMemoryEstimate::zero(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let job = campaign_job();
+        let requests = (0..4u64)
+            .rev()
+            .map(|lane| {
+                (
+                    CampaignWorkKey::job_lane(job.clone(), "admission-context", lane),
+                    estimate,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut controller = CampaignAdmissionController::try_new(
+            ParallelExecution::try_new(width).unwrap(),
+            revision,
+            CampaignBytes::new(1_024),
+            CampaignBytes::ZERO,
+            CampaignBytes::ZERO,
+        )
+        .unwrap();
+        let snapshot = controller.try_snapshot().unwrap();
+        let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
+        let wave = controller
+            .try_reserve_wave(&snapshot, &plan, &requests)
+            .unwrap();
+        assert_eq!(controller.try_usage().unwrap().in_flight_cores(), width);
+        let lanes = wave
+            .tasks()
+            .iter()
+            .map(|task| match task.work().unit() {
+                CampaignWorkUnitKey::JobLane { lane_ordinal } => *lane_ordinal,
+                CampaignWorkUnitKey::ExactPublicationExceptionalLeaf { .. } => {
+                    panic!("sentinel constructed only job-lane work")
+                }
+            })
+            .collect();
+        drop(wave);
+        assert_eq!(controller.try_usage().unwrap().in_flight_cores(), 0);
+        lanes
+    }
+
+    #[test]
+    fn sentinel_admission_is_canonical_for_one_two_and_four_cores() {
+        assert_eq!(admitted_lanes(1), vec![0]);
+        assert_eq!(admitted_lanes(2), vec![0, 1]);
+        assert_eq!(admitted_lanes(4), vec![0, 1, 2, 3]);
+    }
+}

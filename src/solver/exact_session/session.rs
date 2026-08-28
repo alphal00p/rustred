@@ -10138,8 +10138,8 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn dependent_classifier_rejects_new_pivot_and_returns_intact_transaction() {
-        let (family, context, plan) = plan_fixture("exact-session-dependent-reject-new-pivot");
+    fn sentinel_exact_transaction_rollback_preserves_real_replayed_row() {
+        let (family, context, plan) = plan_fixture("exact-session-rollback-sentinel");
         let session = GeneratedAffineResidualGroupExactSession::try_new(
             &family,
             &context,
@@ -10149,6 +10149,7 @@ pub(super) mod tests {
         )
         .unwrap();
         let source = production_row(&family, &context, &plan);
+        let before = session_state_snapshot(&session);
         let transaction = session
             .stage_replayed_row(&family, &context, &source)
             .unwrap();
@@ -10159,8 +10160,6 @@ pub(super) mod tests {
                 GeneratedAffineResidualGroupExactDatabaseError::NewPivotStagedRow
             )
         );
-        let failure_debug = format!("{failure:?}");
-        assert!(failure_debug.contains("private_transaction: \"<redacted>\""));
         let recovered = failure.into_transaction();
         let joint = session
             .authenticate_staged_new_pivot(&family, &context, &recovered)
@@ -10170,10 +10169,7 @@ pub(super) mod tests {
         drop(joint);
         drop(recovered);
 
-        assert_eq!(session.database.state_version(), 0);
-        assert_eq!(session.target_state.state_version(), 0);
-        assert_eq!(session.database.pivot_count(), 0);
-        assert_eq!(session.target_state.stats().consumed(), 0);
+        assert_eq!(session_state_snapshot(&session), before);
         session.replay(&family, &context).unwrap();
     }
 

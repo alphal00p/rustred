@@ -26,10 +26,10 @@ I(
 Run it from a file or standard input:
 
 ```console
-rustred derive --input examples/cli/one_loop.symbolica \
+rustred derive --input INPUT.symbolica \
   --input-format symbolica --output one_loop.derive.toml --n-cores 4
 
-rustred derive --input-format symbolica < examples/cli/one_loop.symbolica
+rustred derive --input-format symbolica < INPUT.symbolica
 ```
 
 `--n-cores N` is a positive invocation-wide worker-core budget. The current raw
@@ -293,9 +293,8 @@ it does not solve sectors or publish a closed replacement-rule bundle.
 rustred campaign plan --input campaign.toml --output campaign.plan.toml
 ```
 
-For example, [`examples/cli/campaign.toml`](../examples/cli/campaign.toml)
-contains two independently named concrete targets expressed as ordinary
-Symbolica `I(...)` strings. The compact v1 container is:
+The compact v1 container can contain independently named concrete targets
+expressed as ordinary Symbolica `I(...)` strings:
 
 ```toml
 schema = "rustred.campaign-input.toml.v1"
@@ -365,7 +364,7 @@ A one-root raw Symbolica convenience is also available:
 
 ```console
 rustred campaign plan --input-format symbolica --root-id tadpole \
-  < examples/cli/one_loop.symbolica
+  < INPUT.symbolica
 ```
 
 The output schema is `rustred.campaign-plan-output.toml.v1`. It is sorted by
@@ -406,7 +405,7 @@ The separate topology-free preflight accepts those physical controls today:
 
 ```console
 rustred campaign preflight \
-  --profile examples/cli/campaign-execution-profile.toml \
+  --profile PROFILE.toml \
   --n-cores 100 \
   --max-memory 150GiB \
   --output campaign.preflight.toml

@@ -2221,6 +2221,55 @@ mod tests {
             .unwrap()
     }
 
+    fn staged_domain_source_from_real_mint(
+        owner: &ExactPublicationEpochOwner,
+    ) -> CampaignResident<CommittedExceptionalSingletonSource> {
+        let (source_ordinal, _) = exceptional_source_ordinals(owner);
+        let mut admission = admission_controller();
+        let mut batch = result_batch::ExactPublicationEpochResultBatch::<
+            CommittedExceptionalSingletonSource,
+        >::try_new(
+            owner,
+            &mut admission,
+            vec![source_ordinal],
+            result_batch::ExactPublicationEpochResultBatchLimits::default(),
+        )
+        .unwrap();
+        let work = batch.schedule().work(0).unwrap().clone();
+        let source_visible_bytes = {
+            let locator = owner.exceptional_source_locator(source_ordinal).unwrap();
+            let mut census_lease = owner.issue_exceptional_source(locator).unwrap();
+            let event_bytes = owner
+                .resolve_exceptional_source(&mut census_lease)
+                .unwrap()
+                .retained_event_bytes();
+            drop(census_lease);
+            event_bytes
+                .checked_add(size_of::<CommittedExceptionalSingletonSource>())
+                .unwrap()
+        };
+        let reservation = reserve_one(
+            &mut admission,
+            &work,
+            task_estimate(
+                u64::try_from(source_visible_bytes).unwrap(),
+                256 * 1024,
+                128 * 1024,
+                256 * 1024,
+            ),
+            None,
+        );
+        let lease = batch.schedule().issue(0).unwrap();
+        let worker = owner.mint_domain_reentry_worker_result(lease).unwrap();
+        batch.try_stage(reservation.bind(worker)).unwrap();
+        let mut staged = batch.into_staged_results().unwrap();
+        let source = staged
+            .take_resident(0)
+            .expect("real mint path must stage one domain source");
+        drop(staged);
+        source
+    }
+
     #[derive(Debug)]
     enum FreshDomainSessionTransformError {
         MissingOpaqueNativeReserve,
@@ -3196,59 +3245,45 @@ mod tests {
     }
 
     #[test]
-    fn committed_stable_identity_binds_geometry_not_event_leaf_coordinates() {
-        fn domain_source(
-            owner: &ExactPublicationEpochOwner,
-        ) -> CampaignResident<CommittedExceptionalSingletonSource> {
-            let (source_ordinal, _) = exceptional_source_ordinals(owner);
-            let mut admission = admission_controller();
-            let mut batch = result_batch::ExactPublicationEpochResultBatch::<
-                CommittedExceptionalSingletonSource,
-            >::try_new(
-                owner,
-                &mut admission,
-                vec![source_ordinal],
-                result_batch::ExactPublicationEpochResultBatchLimits::default(),
-            )
-            .unwrap();
-            let work = batch.schedule().work(0).unwrap().clone();
-            let source_visible_bytes = {
-                let locator = owner.exceptional_source_locator(source_ordinal).unwrap();
-                let mut census_lease = owner.issue_exceptional_source(locator).unwrap();
-                let event_bytes = owner
-                    .resolve_exceptional_source(&mut census_lease)
-                    .unwrap()
-                    .retained_event_bytes();
-                drop(census_lease);
-                event_bytes
-                    .checked_add(size_of::<CommittedExceptionalSingletonSource>())
-                    .unwrap()
-            };
-            let reservation = reserve_one(
-                &mut admission,
-                &work,
-                task_estimate(
-                    u64::try_from(source_visible_bytes).unwrap(),
-                    256 * 1024,
-                    128 * 1024,
-                    256 * 1024,
-                ),
-                None,
-            );
-            let lease = batch.schedule().issue(0).unwrap();
-            let worker = owner.mint_domain_reentry_worker_result(lease).unwrap();
-            batch.try_stage(reservation.bind(worker)).unwrap();
-            let mut staged = batch.into_staged_results().unwrap();
-            let source = staged
-                .take_resident(0)
-                .expect("real mint path must stage one domain source");
-            drop(staged);
-            source
-        }
+    fn sentinel_committed_exceptional_child_replays_from_real_epoch_mint() {
+        const DATABASE_EPOCH: usize = 2_029;
+        let (family, context, owner) =
+            owner_with_scope("publication-epoch-fresh-child-sentinel", 101);
+        let source_resident = staged_domain_source_from_real_mint(&owner);
+        let (source, source_charge) = source_resident.split_owner_charge();
+        let expected_source_rows = source.source_row_count();
 
+        let build = match try_build_fresh_exact_session_for_admitted_transform(
+            source,
+            &family,
+            &context,
+            DATABASE_EPOCH,
+            CommittedExceptionalFreshSessionLimits::default(),
+        ) {
+            Ok(build) => build,
+            Err(_) => panic!("real committed exceptional source must build a fresh session"),
+        };
+        assert_eq!(build.inherited_source_rows(), expected_source_rows);
+        let session = build.into_session();
+        assert_eq!(
+            session.source_kind(),
+            GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton,
+        );
+        assert_eq!(session.database_epoch(), DATABASE_EPOCH);
+        assert_eq!(session.target_catalog_stats().targets(), 1);
+        assert_eq!(
+            session.target_catalog_stats().equality_refinement_targets(),
+            1
+        );
+        session.replay(&family, &context).unwrap();
+        drop(source_charge);
+    }
+
+    #[test]
+    fn committed_stable_identity_binds_geometry_not_event_leaf_coordinates() {
         const NAME: &str = "publication-epoch-identity-geometry";
         let (family, context, owner) = owner_with_scope(NAME, 47);
-        let source_resident = domain_source(&owner);
+        let source_resident = staged_domain_source_from_real_mint(&owner);
         let source = source_resident.retained_output();
         let event_leaf_coordinates = (source.event_ordinal(), source.leaf_ordinal());
         let source_row_limits = GeneratedAffineResidualCaseSourceRowLimits::default();
@@ -3265,7 +3300,7 @@ mod tests {
         // independently compiled event at the same coordinates encodes the
         // exact same source, including every inherited generic relation.
         let (equivalent_family, equivalent_context, equivalent_owner) = owner_with_scope(NAME, 47);
-        let equivalent_source_resident = domain_source(&equivalent_owner);
+        let equivalent_source_resident = staged_domain_source_from_real_mint(&equivalent_owner);
         let equivalent_source = equivalent_source_resident.retained_output();
         assert!(!source.same_event_leaf_allocation(equivalent_source));
         assert_eq!(

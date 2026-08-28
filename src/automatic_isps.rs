@@ -1135,6 +1135,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sentinel_retains_authored_rows_and_appends_the_missing_two_loop_isp() {
+        let context = CoefficientContext::new(["d", "m0", "m1", "nu0", "nu1"]);
+        let zero = context.zero();
+        let one = context.one();
+        let input_denominators = vec![
+            AffineDenominator::new(
+                context.parse("-m0").unwrap(),
+                vec![one.clone(), zero.clone(), zero.clone()],
+            ),
+            AffineDenominator::new(
+                context.parse("-m1").unwrap(),
+                vec![zero.clone(), zero.clone(), one],
+            ),
+        ];
+        let input_shifts = vec![
+            context.parameter("nu0").unwrap(),
+            context.parameter("nu1").unwrap(),
+        ];
+
+        let completion = AutomaticIspCompletion::try_new(
+            "two-loop-vacuum-isp-sentinel",
+            vec!["k0".into(), "k1".into()],
+            Vec::new(),
+            context.clone(),
+            context.parameter("d").unwrap(),
+            input_denominators.clone(),
+            Vec::new(),
+            input_shifts.clone(),
+        )
+        .unwrap();
+
+        assert_eq!(completion.input_denominator_count(), 2);
+        assert_eq!(completion.appended_coordinate_ordinals(), &[1]);
+        assert_eq!(
+            completion.appended_coordinates().collect::<Vec<_>>(),
+            vec![ScalarProductCoordinate::LoopLoop { left: 0, right: 1 }]
+        );
+        assert_eq!(completion.rank_progression(), &[2, 3]);
+        assert_eq!(&completion.family().denominators()[..2], input_denominators);
+        assert_eq!(&completion.family().power_shifts()[..2], input_shifts);
+        assert!(completion.family().denominators()[2].constant().is_zero());
+        assert_eq!(
+            completion.family().denominators()[2].coefficients(),
+            &[context.zero(), context.one(), context.zero()]
+        );
+        assert!(completion.family().power_shifts()[2].is_zero());
+    }
+
+    #[test]
     fn replay_binds_the_complete_rank_work_census() {
         let context = CoefficientContext::new(["d", "m"]);
         let mut completion = AutomaticIspCompletion::try_new(

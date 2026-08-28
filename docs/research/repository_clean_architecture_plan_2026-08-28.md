@@ -198,6 +198,11 @@ More precisely:
   private implementation of the foundry, not another core product surface.
 - `foundry` owns the high-level closure runner and emits values described by
   `artifact`; it does not place foundry orchestration in `campaign`.
+  Performance lanes beneath it are named for proved semantic classes (for
+  example `lanes::single_scale_vacuum`), accept arbitrary qualifying families
+  and loop counts, and are selected from authenticated family properties.
+  Concrete topology names, authored recurrence tables, or named-family
+  branches are forbidden in core production code.
 - `artifact` owns immutable closed shards, verification at durable ingress,
   manifests, and compiled rule lookup. Its models never depend on foundry or
   solver internals; they may use stable identity, sector-evidence, family, and
@@ -224,6 +229,18 @@ classified as retain/move, split, or delete. An unclassified path stops that
 tranche. “Move if live” is intentionally conditional: the reset first proves a
 symbol is needed; dead or duplicate variants in the cluster are deleted rather
 than carried to the destination.
+
+The ledger is regenerated and challenged after every R2-R4 milestone, not
+written once and trusted. A `split` classification expires: before the facade
+gate, every surviving symbol must have a live caller, a fresh sentinel, and a
+role-named final owner. Long state/chronology paths such as
+`generated_residual_affine_group_effective_coverage` receive no presumption of
+value from their size or recent history; if their unique stable semantics
+cannot be isolated, the whole cluster is deleted. If several pieces are live,
+their common semantic prefix becomes a cohesive module path—for example,
+`foundry::solver::closure::residual_affine::coverage`—and child files/types use
+short role names within that context. A flat set of repeated long prefixes is
+not accepted, but neither is a prefix-named dumping-ground module.
 
 | Current files | Final owner/action |
 |---|---|
@@ -476,6 +493,14 @@ public Python import smoke test pass.
   foundry, upcoming Vakint use case, or fresh sentinel; delete the rest in the
   same rollback-sized tranche. An unclassified liveness-ledger path blocks the
   tranche.
+- At the start and end of every cluster milestone, exhaustively enumerate all
+  tracked `*.rs` files, publish the changed counts in the commit audit, and
+  revisit every remaining flat or long state/chronology name. No earlier
+  `split` decision carries forward automatically.
+- Audit every concrete topology-name and fixed-loop literal match in retained
+  core sources. Test/benchmark fixtures may name topologies; production code
+  may use loop count only as generic data or a measured size threshold and may
+  specialize only on proved semantic family classes.
 - Put a narrow domain facade in place as each cluster moves, update internal
   imports to domain paths, and add no old-path aliases.
 - Keep mechanical movement, dependency inversion, and semantic solver changes

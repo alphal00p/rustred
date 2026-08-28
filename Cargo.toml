@@ -8,7 +8,6 @@ members = [
 ]
 default-members = [".", "crates/rustred-app", "crates/rustred-python"]
 exclude = [
-    "vendor/gammaloop",
     "vendor/symbolica",
     "vendor/symbolica/lib/graphica",
     "vendor/symbolica/lib/numerica",
@@ -29,7 +28,6 @@ build = "build.rs"
 exclude = [
     "FOR_REFERENCE_ONLY_DO_NOT_PUSH/**",
     "GOAL.md",
-    "HANDOFF.md",
     "docs/research/**",
 ]
 

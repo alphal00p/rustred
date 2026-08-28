@@ -10,3 +10,5 @@ result-*
 .DS_Store
 /FOR_REFERENCE_ONLY_DO_NOT_PUSH/
 /.venv/
+**/__pycache__/
+/crates/rustred-python/python/rustred/_rustred*.so

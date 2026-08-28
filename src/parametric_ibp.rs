@@ -680,6 +680,80 @@ mod tests {
             .collect()
     }
 
+    fn coordinate_family(name: &str, loops: usize, externals: usize) -> IntegralFamily {
+        let context = CoefficientContext::new(["d"]);
+        let arity = loops * (loops + 1) / 2 + loops * externals;
+        let external_gram = (0..externals)
+            .map(|row| {
+                (0..externals)
+                    .map(|column| {
+                        if row == column {
+                            context.one()
+                        } else {
+                            context.zero()
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        IntegralFamily::new(
+            name,
+            (0..loops).map(|loop_| format!("k{loop_}")).collect(),
+            (0..externals)
+                .map(|external| format!("p{external}"))
+                .collect(),
+            context.clone(),
+            context.parameter("d").unwrap(),
+            identity_denominators(&context, vec![context.integer(-1); arity]),
+            external_gram,
+            vec![context.zero(); arity],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn sentinel_topology_neutral_source_counts_cover_one_two_and_six_loops() {
+        for (loops, ordinary_count) in [(1, 3), (2, 8)] {
+            let family = coordinate_family(&format!("li-sentinel-l{loops}"), loops, 2);
+            let generated = ParametricIbpGenerator::try_new(&family)
+                .unwrap()
+                .generate()
+                .unwrap();
+
+            assert_eq!(generated.ordinary_ibp().len(), ordinary_count);
+            assert_eq!(generated.lorentz_invariance().len(), 1);
+            assert_eq!(
+                generated.lorentz_invariance()[0].row_id(),
+                &ParametricRowId::LorentzInvariance {
+                    first_external: 0,
+                    second_external: 1,
+                }
+            );
+            assert!(generated.ibp_li().all(|row| {
+                row.arity() == family.denominator_count()
+                    && row.family_fingerprint() == family.fingerprint_ref()
+            }));
+        }
+
+        let family = coordinate_family("ordinary-source-sentinel-l6-k21", 6, 0);
+        assert_eq!(family.denominator_count(), 21);
+        let rows = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .generate_ordinary_ibp()
+            .unwrap();
+        assert_eq!(rows.len(), 36);
+        for (ordinal, row) in rows.iter().enumerate() {
+            assert_eq!(row.arity(), 21);
+            assert_eq!(
+                row.row_id(),
+                &ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: ordinal / 6,
+                    differentiated_loop: ordinal % 6,
+                }
+            );
+        }
+    }
+
     #[test]
     fn one_loop_tadpole_is_a_fully_parametric_recurrence() {
         let base = CoefficientContext::new(["d", "m2", "nu"]);

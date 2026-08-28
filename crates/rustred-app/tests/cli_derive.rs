@@ -3,9 +3,62 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const ONE_LOOP: &str = include_str!("../../../examples/cli/one_loop.symbolica");
-const TWO_LOOP_HYBRID: &str = include_str!("../../../examples/cli/two_loop_hybrid.toml");
-const TWO_LOOP_EXPLICIT: &str = include_str!("../../../examples/cli/two_loop_explicit.toml");
+const ONE_LOOP: &str = r#"
+I(
+  name(tadpole),
+  loops(k),
+  externals(),
+  dimension(d),
+  prop(D1,k^2-m2,1),
+  numerator(sp(k,k))
+)
+"#;
+const TWO_LOOP_HYBRID: &str = r#"
+schema = "rustred.project.toml.v1"
+
+integral = """
+I(
+  name(sunset),
+  loops(k1,k2),
+  externals(),
+  dimension(d),
+  prop(D1,k1^2-m2,1),
+  prop(D2,k2^2-m2,1),
+  prop(D3,(k1+k2)^2-m2,1)
+)
+"""
+
+[metadata]
+tags = ["vacuum", "two-loop"]
+"#;
+const TWO_LOOP_EXPLICIT: &str = r#"
+schema = "rustred.project.toml.v1"
+
+[family]
+name = "sunset"
+loop_momenta = ["k1", "k2"]
+external_momenta = []
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "k1^2-m2"
+
+[[family.denominators]]
+id = "D2"
+expression = "k2^2-m2"
+
+[[family.denominators]]
+id = "D3"
+expression = "(k1+k2)^2-m2"
+
+[kinematics]
+external_gram = []
+
+[target]
+powers = [1, 1, 1]
+numerator = "1"
+"#;
 const TWO_LOOP_RAW: &str = r#"
 I(
   name(sunset),

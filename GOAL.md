@@ -241,6 +241,17 @@ general no-unit or simultaneous cases currently stop at the typed
   policies as data. Loop/topology-named inputs may live in tests, benchmarks,
   or external frozen oracle fixtures; authored recurrence implementations do
   not live in any RustRed package.
+- Core production modules, type names, branches, and lookup tables never name
+  or dispatch on a concrete topology. Explicit topology names belong only to
+  test/benchmark inputs, external oracle fixtures, Vakint's user-facing
+  registry, or shipped artifact metadata.
+- Optimized lanes are permitted only for generic, proved semantic subclasses,
+  such as vacuum kinematics, single/no scale after specialization, uniform
+  unit mass, coordinate density, or a verified symmetry class. A lane such as
+  `single_scale_vacuum` accepts arbitrary qualifying families and loop counts,
+  is selected dynamically from authenticated family properties, and shares
+  the generic correctness path. It may tune algorithms by measured sizes but
+  may not embed a six-loop/topology recurrence or a named-family case.
 - No eager `2^K` sector/orthant enumeration at high loop order, no brute-force
   `GL(L,Z)`/bounded `3^(L^2)` symmetry discovery, no eager global exact
   rational-function elimination, and no authored recurrence dispatch.
@@ -402,6 +413,9 @@ architecture plan:
    be deleted.
 3. Generate a tracked-path liveness ledger and write compact fresh sentinels
    for the retained capability spine before deleting its old test surfaces.
+   Re-enumerate every tracked Rust file after each cleanup milestone and
+   reconcile it against the ledger; a previous `split` or `retain` judgment is
+   never permanent evidence.
    Then delete the entire root `tests/`, `examples/`, `tools/`, and `scripts/`
    trees, plus stale tracked LiteRed2/GammaLoop gitlinks. Do not port or repair
    the old binaries. Retain only the pinned Symbolica gitlink; reference trees
@@ -412,6 +426,12 @@ architecture plan:
    `foundry` privately owns `solver::{exact,closure}`. Move a cluster only when
    a live caller or fresh sentinel justifies it; delete the rest. Prefixes such
    as `generated_`, `residual_`, and `parametric_` do not define directories.
+   Every remaining long chronology/state-named file is challenged explicitly
+   on each enumeration and must resolve to a small role-named owner or deletion
+   before the new facade is accepted. When several live responsibilities share
+   a long semantic prefix, express that prefix once as a cohesive parent module
+   and use short role names below it; do not keep a flat family of repeated
+   prefixes or create a miscellaneous prefix bucket.
 5. Replace the 750-line public facade with the smallest intentional generic
    API required by the foundry, app/CLI/Python, and upcoming Vakint boundary.
    Delete unreferenced generations/provider layers, eager sector machinery,
