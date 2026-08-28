@@ -5,7 +5,7 @@
 //! performs LiteRed's rank test exactly over `Q`.  A zero result carries a
 //! primitive integer right-kernel that is replayed before it is returned.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -30,12 +30,10 @@ pub enum PowerShiftPolicy {
     FormalGeneric,
 }
 
-/// Checked construction, enumeration, and rank budgets.
+/// Checked construction and rank budgets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ZeroSectorLimits {
     pub feynman: FeynmanPolynomialLimits,
-    pub max_sectors: usize,
-    pub max_effective_masks: usize,
     pub max_rank_rows: usize,
     pub max_rank_columns: usize,
     pub max_rank_entries: usize,
@@ -50,8 +48,6 @@ impl Default for ZeroSectorLimits {
     fn default() -> Self {
         Self {
             feynman: FeynmanPolynomialLimits::default(),
-            max_sectors: 1_048_576,
-            max_effective_masks: 1_048_576,
             max_rank_rows: 4_000_000,
             max_rank_columns: 4_097,
             max_rank_entries: 16_000_000,
@@ -398,46 +394,6 @@ pub enum ZeroSectorDecision {
     Failed(ZeroSectorError),
 }
 
-/// Stable all-sector result.  Every admissible mask was tested directly;
-/// monotone closure is checked only as auxiliary metadata.
-#[derive(Clone, Debug)]
-pub struct ZeroSectorAnalysis {
-    family_fingerprint: Arc<str>,
-    symanzik: SymanzikPolynomials,
-    decisions: Vec<(SectorMask, ZeroSectorDecision)>,
-    distinct_effective_masks: usize,
-    monotone_zero_closure_verified: bool,
-}
-
-impl ZeroSectorAnalysis {
-    pub fn family_fingerprint(&self) -> &str {
-        &self.family_fingerprint
-    }
-
-    pub fn symanzik(&self) -> &SymanzikPolynomials {
-        &self.symanzik
-    }
-
-    pub fn decisions(&self) -> &[(SectorMask, ZeroSectorDecision)] {
-        &self.decisions
-    }
-
-    pub fn decision(&self, sector: &SectorMask) -> Option<&ZeroSectorDecision> {
-        self.decisions
-            .binary_search_by(|(candidate, _)| candidate.cmp(sector))
-            .ok()
-            .map(|position| &self.decisions[position].1)
-    }
-
-    pub fn distinct_effective_mask_count(&self) -> usize {
-        self.distinct_effective_masks
-    }
-
-    pub fn monotone_zero_closure_verified(&self) -> bool {
-        self.monotone_zero_closure_verified
-    }
-}
-
 /// Generic analyzer constructed once per authenticated family/restriction set.
 #[derive(Clone, Debug)]
 pub struct ZeroSectorAnalyzer {
@@ -631,71 +587,6 @@ impl ZeroSectorAnalyzer {
         let effective_sector = self.effective_sector(raw_sector)?;
         let effective = self.compute_effective_checked(&effective_sector);
         Ok(self.bind_effective(raw_sector, &effective))
-    }
-
-    pub fn analyze_all(&self) -> Result<ZeroSectorAnalysis, ZeroSectorError> {
-        catch_unwind(AssertUnwindSafe(|| self.analyze_all_inner()))
-            .map_err(|_| ZeroSectorError::SymbolicaPanic)?
-    }
-
-    fn analyze_all_inner(&self) -> Result<ZeroSectorAnalysis, ZeroSectorError> {
-        let arity = self.power_support.arity();
-        if arity >= usize::BITS as usize {
-            return Err(ZeroSectorError::ResourceCountOverflow {
-                resource: "raw sector count",
-            });
-        }
-        let sector_count =
-            1_usize
-                .checked_shl(arity as u32)
-                .ok_or(ZeroSectorError::ResourceCountOverflow {
-                    resource: "raw sector count",
-                })?;
-        check_limit("raw sectors", sector_count, self.limits.max_sectors)?;
-
-        let mut decisions = Vec::with_capacity(sector_count);
-        let mut cache = BTreeMap::<SectorMask, EffectiveRankDecision>::new();
-        for value in 0..sector_count {
-            let bits = (0..arity)
-                .map(|position| value & (1_usize << (arity - 1 - position)) != 0)
-                .collect::<Vec<_>>();
-            let raw_sector = SectorMask::try_new(bits)?;
-            if let Some(exclusion) = self.restrictions.exclusion(&raw_sector)? {
-                decisions.push((raw_sector, ZeroSectorDecision::Excluded(exclusion)));
-                continue;
-            }
-            let effective_sector = self.effective_sector(&raw_sector)?;
-            if !cache.contains_key(&effective_sector) {
-                let requested = checked_add(cache.len(), 1, "effective mask cache")?;
-                if requested > self.limits.max_effective_masks {
-                    return Err(ZeroSectorError::ResourceLimit {
-                        resource: "effective mask cache",
-                        requested,
-                        limit: self.limits.max_effective_masks,
-                    });
-                }
-                let computed = self.compute_effective_checked(&effective_sector);
-                cache.insert(effective_sector.clone(), computed);
-            }
-            let effective = cache.get(&effective_sector).ok_or_else(|| {
-                ZeroSectorError::CertificateReplayFailure {
-                    detail: "effective-mask cache insertion was lost".to_owned(),
-                }
-            })?;
-            decisions.push((
-                raw_sector.clone(),
-                self.bind_effective(&raw_sector, effective),
-            ));
-        }
-
-        let monotone_zero_closure_verified = verify_direct_monotone_closure(&decisions)?;
-        Ok(ZeroSectorAnalysis {
-            family_fingerprint: self.family_fingerprint.clone(),
-            symanzik: self.symanzik.clone(),
-            decisions,
-            distinct_effective_masks: cache.len(),
-            monotone_zero_closure_verified,
-        })
     }
 
     fn effective_sector(&self, raw_sector: &SectorMask) -> Result<SectorMask, ZeroSectorError> {
@@ -1272,32 +1163,6 @@ fn decision_from_error(error: ZeroSectorError) -> ZeroSectorDecision {
     }
 }
 
-fn verify_direct_monotone_closure(
-    decisions: &[(SectorMask, ZeroSectorDecision)],
-) -> Result<bool, ZeroSectorError> {
-    let lookup = decisions
-        .iter()
-        .map(|(mask, decision)| (mask.clone(), decision))
-        .collect::<BTreeMap<_, _>>();
-    for (mask, decision) in decisions {
-        if !matches!(decision, ZeroSectorDecision::ProvedZero(_)) {
-            continue;
-        }
-        for position in 0..mask.arity() {
-            if !mask.is_active(position)? {
-                continue;
-            }
-            let subsector = mask.with_activity(position, false)?;
-            match lookup.get(&subsector) {
-                Some(ZeroSectorDecision::Excluded(_)) => {}
-                Some(ZeroSectorDecision::ProvedZero(_)) => {}
-                _ => return Ok(false),
-            }
-        }
-    }
-    Ok(true)
-}
-
 fn check_limit(
     resource: &'static str,
     requested: usize,
@@ -1330,4 +1195,49 @@ fn checked_mul(
 ) -> Result<usize, ZeroSectorError> {
     left.checked_mul(right)
         .ok_or(ZeroSectorError::ResourceCountOverflow { resource })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AffineDenominator, algebra::CoefficientContext};
+
+    fn one_denominator_massive_family() -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "m2"]);
+        let zero = coefficients.zero();
+        IntegralFamily::new(
+            "zero-sector-on-demand-sentinel",
+            vec!["k".into()],
+            Vec::new(),
+            coefficients.clone(),
+            coefficients.parameter("d").unwrap(),
+            vec![AffineDenominator::new(
+                coefficients.parse("-m2").unwrap(),
+                vec![coefficients.one()],
+            )],
+            Vec::new(),
+            vec![zero],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn sentinel_zero_sector_decisions_are_explicit_and_on_demand() {
+        let family = one_denominator_massive_family();
+        let analyzer =
+            ZeroSectorAnalyzer::try_unrestricted(&family, PowerShiftPolicy::FormalGeneric).unwrap();
+
+        let inactive = SectorMask::try_from_bit_string("0").unwrap();
+        let ZeroSectorDecision::ProvedZero(certificate) = analyzer.analyze_sector(&inactive) else {
+            panic!("the inactive one-denominator sector must have a zero certificate");
+        };
+        assert_eq!(certificate.raw_sector(), &inactive);
+        certificate.replay(&family).unwrap();
+
+        let active = SectorMask::try_from_bit_string("1").unwrap();
+        assert!(matches!(
+            analyzer.analyze_sector(&active),
+            ZeroSectorDecision::NoZeroCertificate(_)
+        ));
+    }
 }

@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `4d63c60`, updated after each R3 cluster milestone.
+**Baseline:** `c81805a`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 141 tracked Rust source/build/test paths
+This ledger classifies every one of the 133 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 114 |
+| split | 106 |
 | delete | 3 |
 | replace | 1 |
 
@@ -75,14 +75,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/coverage_decision_dag.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/cylindrical_ordering.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
-| `src/cylindrical_prepare_point_schedule.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
-| `src/cylindrical_prepare_points.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/direct_bad_formula_arbitrary.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/direct_bad_formula.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
 | `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
-| `src/family_sector_inventory.rs` | split | sector / foundry::solver | stable sector evidence below bounded inventory orchestration |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
 | `src/generated_affine_initial_global_affine_terminal.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_parametric_ordering.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
@@ -92,10 +88,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_affine_residual_case_completed_bound_row.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_premises.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_cylindrical_persistent_elimination.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_residual_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_row_system.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_sector_root_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |

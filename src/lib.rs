@@ -32,11 +32,7 @@ pub mod certified_rewrite;
 pub mod conditional_reelimination;
 pub mod conditional_rules;
 pub mod coordinate_equality_loci;
-pub mod cylindrical_ordering;
-pub mod cylindrical_prepare_point_schedule;
-pub mod cylindrical_prepare_points;
 pub mod exact_sparse_elimination;
-pub mod family_sector_inventory;
 pub mod feynman_polynomials;
 pub(crate) mod generated_affine_initial_global_affine_terminal;
 pub(crate) mod generated_affine_parametric_ordering;
@@ -46,10 +42,6 @@ mod generated_affine_residual_case_bound_relation;
 mod generated_affine_residual_case_completed_bound_row;
 mod generated_affine_residual_case_premises;
 pub(crate) mod generated_affine_residual_source_authority;
-pub mod generated_cylindrical_persistent_elimination;
-pub mod generated_cylindrical_residual_start;
-pub mod generated_cylindrical_row_system;
-pub mod generated_cylindrical_sector_root_start;
 pub(crate) mod generated_residual_affine_condition_accumulator;
 pub mod generated_residual_affine_when_bad;
 pub mod generated_sector_discovery;
@@ -152,71 +144,14 @@ pub use coordinate_equality_loci::{
     CoordinateEqualityLocusExtractor, CoordinateEqualityLocusLimits, CoordinateEqualityLocusStats,
     CoordinateLocusPredicateWitness, UnresolvedCoordinatePredicate,
 };
-pub use cylindrical_ordering::{
-    CYLINDRICAL_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA,
-    CYLINDRICAL_PARAMETRIC_ELIMINATION_ORDERING_V1_SCHEMA, CylindricalIntegralComplexityKey,
-    CylindricalOrderingError, CylindricalOrderingLimits, CylindricalParametricEliminationOrdering,
-    RUSTRED_CYLINDRICAL_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
-};
-pub use cylindrical_prepare_point_schedule::{
-    CYLINDRICAL_PREPARE_POINT_SCHEDULE_V1_SCHEMA, CylindricalPreparePointScheduleCertificate,
-    CylindricalPreparePointScheduleError, CylindricalPreparePointScheduleLimits,
-    CylindricalPreparePointScheduleStats,
-};
-pub use cylindrical_prepare_points::{
-    CYLINDRICAL_PREPARE_POINT_LAYER_V1_SCHEMA, CylindricalPreparePointError,
-    CylindricalPreparePointLayer, CylindricalPreparePointLimits, CylindricalPreparePointStats,
-};
 pub use exact_sparse_elimination::{
     ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
     ExactSparseEliminationStats, ExactSparsePivotRule, ExactSparseRow,
 };
-pub use family_sector_inventory::{
-    FAMILY_SECTOR_INVENTORY_V1_SCHEMA, FORMAL_GENERIC_POWER_SHIFT_POLICY_V1_ID,
-    FamilySectorInventoryCertificate, FamilySectorInventoryCompiler, FamilySectorInventoryEntry,
-    FamilySectorInventoryError, FamilySectorInventoryLimits, FamilySectorInventoryStats,
-    FamilySectorInventoryStatus, UnresolvedSectorSolveOrderEntry,
-};
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
-};
-/// Persistent generated-row elimination authority.
-///
-/// The exported V1 schema string is identification-only: this crate does not
-/// read or replay V1/V2 payloads. Current compilation and replay require V3.
-pub use generated_cylindrical_persistent_elimination::{
-    GENERATED_CYLINDRICAL_PERSISTENT_ELIMINATION_V1_SCHEMA,
-    GENERATED_CYLINDRICAL_PERSISTENT_ELIMINATION_V2_SCHEMA,
-    GENERATED_CYLINDRICAL_PERSISTENT_ELIMINATION_V3_SCHEMA,
-    GeneratedCylindricalPersistentBaseAssumptionWitness,
-    GeneratedCylindricalPersistentEliminationBatch,
-    GeneratedCylindricalPersistentEliminationCertificate,
-    GeneratedCylindricalPersistentEliminationError, GeneratedCylindricalPersistentEliminationEvent,
-    GeneratedCylindricalPersistentEliminationLimits,
-    GeneratedCylindricalPersistentEliminationOutcome,
-    GeneratedCylindricalPersistentEliminationRowOutcome,
-    GeneratedCylindricalPersistentEliminationStats, GeneratedCylindricalPersistentGuardedPivot,
-    GeneratedCylindricalPersistentPivotBaseAssumptions,
-    GeneratedCylindricalPersistentResolvedBaseAssumption,
-};
-pub use generated_cylindrical_residual_start::{
-    GENERATED_CYLINDRICAL_RESIDUAL_START_V1_SCHEMA, GeneratedCylindricalResidualStartCertificate,
-    GeneratedCylindricalResidualStartError, GeneratedCylindricalResidualStartLimits,
-    GeneratedCylindricalResidualStartStats, GeneratedCylindricalStartCompleteness,
-};
-pub use generated_cylindrical_row_system::{
-    GENERATED_CYLINDRICAL_ROW_SYSTEM_V1_SCHEMA, GENERATED_CYLINDRICAL_ROW_SYSTEM_V2_SCHEMA,
-    GeneratedCylindricalRowSystemCertificate, GeneratedCylindricalRowSystemError,
-    GeneratedCylindricalRowSystemLimits, GeneratedCylindricalRowSystemStartCertificate,
-    GeneratedCylindricalRowSystemStats, GeneratedCylindricalSourceRowOutcome,
-    GeneratedCylindricalSourceRowWitness,
-};
-pub use generated_cylindrical_sector_root_start::{
-    GENERATED_CYLINDRICAL_SECTOR_ROOT_START_V1_SCHEMA,
-    GeneratedCylindricalSectorRootStartCertificate, GeneratedCylindricalSectorRootStartError,
-    GeneratedCylindricalSectorRootStartLimits, GeneratedCylindricalSectorRootStartStats,
 };
 pub use generated_residual_affine_when_bad::{
     AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA, AffineWhenBadAtom, AffineWhenBadClauseProvenance,
@@ -395,9 +330,8 @@ pub use residual_unit_affine_index_map::{
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,
     RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorAnalysisStatus,
-    SectorDepthRange, SectorEnumerationLimits, SectorExclusion, SectorFoundationError, SectorMask,
-    SectorPattern, SectorPatternMismatch, SectorPatternSlot, SectorRestrictions,
-    StrictDescentWitness,
+    SectorExclusion, SectorFoundationError, SectorMask, SectorPattern, SectorPatternMismatch,
+    SectorPatternSlot, SectorRestrictions, StrictDescentWitness,
 };
 pub use shift_operators::{
     IndexShiftOperator, IndexShiftOperatorError, IndexShiftOperatorExpression,
@@ -492,8 +426,7 @@ pub use when_bad::{
     WhenBadUniformDescentWitness, WhenBadUnsupported, WhenBadUnsupportedReason,
 };
 pub use zero_sectors::{
-    FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalysis,
-    ZeroSectorAnalyzer, ZeroSectorCertificate, ZeroSectorConditionSource, ZeroSectorDecision,
-    ZeroSectorDomain, ZeroSectorDomainCondition, ZeroSectorError, ZeroSectorLimits,
-    ZeroSectorResource,
+    FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalyzer,
+    ZeroSectorCertificate, ZeroSectorConditionSource, ZeroSectorDecision, ZeroSectorDomain,
+    ZeroSectorDomainCondition, ZeroSectorError, ZeroSectorLimits, ZeroSectorResource,
 };

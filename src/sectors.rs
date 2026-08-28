@@ -16,7 +16,7 @@
 //! Source correspondence:
 //!
 //! - LiteRed `jSector` supplies the raw sign convention;
-//! - `jSubsectors` supplies active-bit contraction and depth semantics;
+//! - `jSubsectors` supplies active-bit contraction semantics;
 //! - `CutDs` and `SectorsPattern` supply independent admissibility filters;
 //! - `jComplexity`/`MakeOrderMatrix` motivate the named v1 complexity key.
 //!
@@ -176,80 +176,11 @@ impl SectorMask {
         other.is_strict_subsector_of(self)
     }
 
-    /// Enumerate subsectors by increasing number of contracted active bits.
-    /// Within one depth, contracted index combinations are lexicographic.
-    pub fn enumerate_subsectors(
-        &self,
-        depth: SectorDepthRange,
-        limits: SectorEnumerationLimits,
-    ) -> Result<Vec<Self>, SectorFoundationError> {
-        let candidates = self.try_toggle_candidates(true)?;
-        self.enumerate_toggles(&candidates, false, depth, limits)
-    }
-
-    /// Enumerate supersectors by increasing number of activated inactive
-    /// bits, with the same deterministic combination order.
-    pub fn enumerate_supersectors(
-        &self,
-        depth: SectorDepthRange,
-        limits: SectorEnumerationLimits,
-    ) -> Result<Vec<Self>, SectorFoundationError> {
-        let candidates = self.try_toggle_candidates(false)?;
-        self.enumerate_toggles(&candidates, true, depth, limits)
-    }
-
     pub fn to_bit_string(&self) -> String {
         self.active
             .iter()
             .map(|&active| if active { '1' } else { '0' })
             .collect()
-    }
-
-    fn enumerate_toggles(
-        &self,
-        candidates: &[usize],
-        replacement: bool,
-        depth: SectorDepthRange,
-        limits: SectorEnumerationLimits,
-    ) -> Result<Vec<Self>, SectorFoundationError> {
-        let (minimum, maximum) = depth.resolve(candidates.len())?;
-        let count = bounded_binomial_sum(candidates.len(), minimum, maximum, limits.max_results)?;
-        let mut result = Vec::new();
-        try_reserve_exact(&mut result, count, "sector enumeration results")?;
-        for selected in minimum..=maximum {
-            try_for_each_combination(candidates.len(), selected, |candidate_positions| {
-                let mut active = Vec::new();
-                try_reserve_exact(&mut active, self.arity(), "sector enumeration result bits")?;
-                active.extend_from_slice(&self.active);
-                for &candidate_position in candidate_positions {
-                    active[candidates[candidate_position]] = replacement;
-                }
-                if result.len() == result.capacity() {
-                    try_reserve_exact(&mut result, 1, "sector enumeration results")?;
-                }
-                result.push(Self { active });
-                Ok(())
-            })?;
-        }
-        debug_assert_eq!(result.len(), count);
-        Ok(result)
-    }
-
-    fn try_toggle_candidates(&self, activity: bool) -> Result<Vec<usize>, SectorFoundationError> {
-        let count = if activity {
-            self.active_count()
-        } else {
-            self.inactive_count()
-        };
-        let mut candidates = Vec::new();
-        try_reserve_exact(&mut candidates, count, "sector enumeration candidates")?;
-        for (position, &active) in self.active.iter().enumerate() {
-            if active == activity {
-                candidates.push(position);
-            }
-        }
-        debug_assert_eq!(candidates.len(), count);
-        Ok(candidates)
     }
 
     fn check_arity(&self, actual: usize) -> Result<(), SectorFoundationError> {
@@ -271,80 +202,6 @@ impl SectorMask {
 impl fmt::Display for SectorMask {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.to_bit_string())
-    }
-}
-
-/// Checked contraction/activation depth for subsector/supersector traversal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SectorDepthRange {
-    minimum: usize,
-    maximum: Option<usize>,
-}
-
-impl SectorDepthRange {
-    pub const fn all() -> Self {
-        Self {
-            minimum: 0,
-            maximum: None,
-        }
-    }
-
-    pub const fn exact(depth: usize) -> Self {
-        Self {
-            minimum: depth,
-            maximum: Some(depth),
-        }
-    }
-
-    pub const fn through(maximum: usize) -> Self {
-        Self {
-            minimum: 0,
-            maximum: Some(maximum),
-        }
-    }
-
-    pub fn try_between(minimum: usize, maximum: usize) -> Result<Self, SectorFoundationError> {
-        if minimum > maximum {
-            return Err(SectorFoundationError::InvalidDepthRange { minimum, maximum });
-        }
-        Ok(Self {
-            minimum,
-            maximum: Some(maximum),
-        })
-    }
-
-    pub fn minimum(self) -> usize {
-        self.minimum
-    }
-
-    pub fn maximum(self) -> Option<usize> {
-        self.maximum
-    }
-
-    fn resolve(self, available: usize) -> Result<(usize, usize), SectorFoundationError> {
-        let maximum = self.maximum.unwrap_or(available);
-        if self.minimum > maximum || maximum > available {
-            return Err(SectorFoundationError::DepthOutOfRange {
-                minimum: self.minimum,
-                maximum,
-                available,
-            });
-        }
-        Ok((self.minimum, maximum))
-    }
-}
-
-/// Hard result bound for combinatorial sector traversal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SectorEnumerationLimits {
-    pub max_results: usize,
-}
-
-impl Default for SectorEnumerationLimits {
-    fn default() -> Self {
-        Self {
-            max_results: 1_000_000,
-        }
     }
 }
 
@@ -1016,18 +873,6 @@ pub enum SectorFoundationError {
         position: usize,
         byte: u8,
     },
-    InvalidDepthRange {
-        minimum: usize,
-        maximum: usize,
-    },
-    DepthOutOfRange {
-        minimum: usize,
-        maximum: usize,
-        available: usize,
-    },
-    EnumerationLimitExceeded {
-        limit: usize,
-    },
     AllocationFailure {
         resource: &'static str,
         requested: usize,
@@ -1062,22 +907,6 @@ impl fmt::Display for SectorFoundationError {
             Self::InvalidPatternSlot { position, byte } => write!(
                 formatter,
                 "invalid sector-pattern byte {byte} at position {position}; expected *, 0, or 1"
-            ),
-            Self::InvalidDepthRange { minimum, maximum } => write!(
-                formatter,
-                "sector depth range {minimum}..={maximum} is reversed"
-            ),
-            Self::DepthOutOfRange {
-                minimum,
-                maximum,
-                available,
-            } => write!(
-                formatter,
-                "sector depth range {minimum}..={maximum} exceeds {available} toggleable indices"
-            ),
-            Self::EnumerationLimitExceeded { limit } => write!(
-                formatter,
-                "sector enumeration would exceed the configured result limit {limit}"
             ),
             Self::AllocationFailure {
                 resource,
@@ -1152,76 +981,6 @@ fn pattern_slot_matches(required: SectorPatternSlot, actual_active: bool) -> boo
         SectorPatternSlot::Active => actual_active,
         SectorPatternSlot::Inactive => !actual_active,
     }
-}
-
-fn bounded_binomial_sum(
-    n: usize,
-    minimum: usize,
-    maximum: usize,
-    limit: usize,
-) -> Result<usize, SectorFoundationError> {
-    let cap = limit as u128;
-    let mut total = 0_u128;
-    for selected in minimum..=maximum {
-        let count = bounded_binomial(n, selected, cap);
-        total = total.saturating_add(count);
-        if total > cap {
-            return Err(SectorFoundationError::EnumerationLimitExceeded { limit });
-        }
-    }
-    Ok(total as usize)
-}
-
-fn bounded_binomial(n: usize, selected: usize, cap: u128) -> u128 {
-    let selected = selected.min(n - selected);
-    let mut value = 1_u128;
-    for step in 1..=selected {
-        let factor = (n - selected + step) as u128;
-        value = match value.checked_mul(factor) {
-            Some(product) => product / step as u128,
-            None => return cap.saturating_add(1),
-        };
-        if value > cap {
-            return cap.saturating_add(1);
-        }
-    }
-    value
-}
-
-fn try_for_each_combination(
-    candidate_count: usize,
-    selected: usize,
-    mut emit: impl FnMut(&[usize]) -> Result<(), SectorFoundationError>,
-) -> Result<(), SectorFoundationError> {
-    if selected == 0 {
-        return emit(&[]);
-    }
-    let mut positions = Vec::new();
-    try_reserve_exact(
-        &mut positions,
-        selected,
-        "sector enumeration combination scratch",
-    )?;
-    positions.extend(0..selected);
-    loop {
-        emit(&positions)?;
-
-        let mut pivot = selected;
-        while pivot > 0 {
-            pivot -= 1;
-            if positions[pivot] != pivot + candidate_count - selected {
-                break;
-            }
-        }
-        if pivot == 0 && positions[0] == candidate_count - selected {
-            break;
-        }
-        positions[pivot] += 1;
-        for position in pivot + 1..selected {
-            positions[position] = positions[position - 1] + 1;
-        }
-    }
-    Ok(())
 }
 
 fn first_differing_component(
@@ -1415,21 +1174,6 @@ mod tests {
             })
         ));
 
-        let active = SectorMask::try_new(std::iter::repeat_n(true, 64)).unwrap();
-        let requested = bounded_binomial(64, 32, usize::MAX as u128) as usize;
-        assert!(matches!(
-            active.enumerate_subsectors(
-                SectorDepthRange::exact(32),
-                SectorEnumerationLimits {
-                    max_results: usize::MAX,
-                },
-            ),
-            Err(SectorFoundationError::AllocationFailure {
-                resource: "sector enumeration results",
-                requested: actual,
-            }) if actual == requested
-        ));
-
         let allocation_error = SectorFoundationError::AllocationFailure {
             resource: "test payload",
             requested: 17,
@@ -1456,95 +1200,6 @@ mod tests {
                 assert_eq!(
                     left.is_strict_subsector_of(right).unwrap(),
                     expected && left_bits != right_bits
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn bounded_subsector_and_supersector_enumeration_is_complete_and_stable() {
-        let sector = SectorMask::try_from_bit_string("11010").unwrap();
-        let subsectors = sector
-            .enumerate_subsectors(
-                SectorDepthRange::all(),
-                SectorEnumerationLimits { max_results: 8 },
-            )
-            .unwrap();
-        assert_eq!(
-            subsectors
-                .iter()
-                .map(SectorMask::to_bit_string)
-                .collect::<Vec<_>>(),
-            [
-                "11010", "01010", "10010", "11000", "00010", "01000", "10000", "00000"
-            ]
-        );
-        assert_eq!(subsectors.iter().collect::<HashSet<_>>().len(), 8);
-        assert!(
-            subsectors
-                .iter()
-                .all(|candidate| candidate.is_subsector_of(&sector).unwrap())
-        );
-
-        let supersectors = sector
-            .enumerate_supersectors(
-                SectorDepthRange::all(),
-                SectorEnumerationLimits { max_results: 4 },
-            )
-            .unwrap();
-        assert_eq!(
-            supersectors
-                .iter()
-                .map(SectorMask::to_bit_string)
-                .collect::<Vec<_>>(),
-            ["11010", "11110", "11011", "11111"]
-        );
-        assert!(
-            supersectors
-                .iter()
-                .all(|candidate| candidate.is_supersector_of(&sector).unwrap())
-        );
-
-        assert_eq!(
-            sector.enumerate_subsectors(
-                SectorDepthRange::all(),
-                SectorEnumerationLimits { max_results: 7 }
-            ),
-            Err(SectorFoundationError::EnumerationLimitExceeded { limit: 7 })
-        );
-        assert_eq!(
-            sector.enumerate_subsectors(
-                SectorDepthRange::exact(4),
-                SectorEnumerationLimits::default()
-            ),
-            Err(SectorFoundationError::DepthOutOfRange {
-                minimum: 4,
-                maximum: 4,
-                available: 3
-            })
-        );
-    }
-
-    #[test]
-    fn exact_depth_enumeration_has_binomial_cardinality_for_small_n() {
-        for active in 1..=8 {
-            let sector = SectorMask::try_new(std::iter::repeat_n(true, active)).unwrap();
-            for depth in 0..=active {
-                let values = sector
-                    .enumerate_subsectors(
-                        SectorDepthRange::exact(depth),
-                        SectorEnumerationLimits::default(),
-                    )
-                    .unwrap();
-                assert_eq!(
-                    values.len(),
-                    bounded_binomial(active, depth, usize::MAX as u128) as usize
-                );
-                assert_eq!(values.iter().collect::<HashSet<_>>().len(), values.len());
-                assert!(
-                    values
-                        .iter()
-                        .all(|value| value.active_count() == active - depth)
                 );
             }
         }
