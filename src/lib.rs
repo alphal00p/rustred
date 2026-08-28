@@ -58,12 +58,6 @@ pub mod generated_cylindrical_sector_coverage;
 pub mod generated_cylindrical_sector_provider;
 pub mod generated_cylindrical_sector_root_start;
 pub mod generated_cylindrical_when_bad;
-pub mod generated_family_depth_growth;
-pub mod generated_family_fixed_point;
-pub mod generated_family_fixed_point_provider;
-pub mod generated_family_rule_provider;
-pub mod generated_family_rule_system;
-pub(crate) mod generated_provider_stack;
 pub(crate) mod generated_residual_affine_condition_accumulator;
 pub mod generated_residual_affine_when_bad;
 pub mod generated_sector_conditional_provider;
@@ -279,59 +273,6 @@ pub use generated_cylindrical_when_bad::{
     GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA, GeneratedCylindricalWhenBadCertificate,
     GeneratedCylindricalWhenBadCompilation, GeneratedCylindricalWhenBadCompiler,
     GeneratedCylindricalWhenBadUnsupported,
-};
-pub use generated_family_depth_growth::{
-    GENERATED_FAMILY_DEPTH_GROWTH_PROVIDER_V1_SCHEMA, GENERATED_FAMILY_DEPTH_GROWTH_V1_SCHEMA,
-    GeneratedFamilyDepthGrowthAttemptOutcome, GeneratedFamilyDepthGrowthCertificate,
-    GeneratedFamilyDepthGrowthCompiler, GeneratedFamilyDepthGrowthConditionalError,
-    GeneratedFamilyDepthGrowthConfig, GeneratedFamilyDepthGrowthError,
-    GeneratedFamilyDepthGrowthFinalStatus, GeneratedFamilyDepthGrowthLimits,
-    GeneratedFamilyDepthGrowthMasterError, GeneratedFamilyDepthGrowthMaterialRef,
-    GeneratedFamilyDepthGrowthProvider, GeneratedFamilyDepthGrowthProviderError,
-    GeneratedFamilyDepthGrowthRound, GeneratedFamilyDepthGrowthSectorAttempt,
-    GeneratedFamilyDepthGrowthSectorStatus, GeneratedFamilyDepthGrowthSelectionPolicy,
-    GeneratedFamilyDepthGrowthStackError, GeneratedFamilyDepthGrowthStage,
-    GeneratedFamilyDepthGrowthStats, GeneratedResidualLeafIdentity, GeneratedResidualLeafKind,
-    GeneratedResidualMeasure, GeneratedSectorResidualSummary,
-};
-pub use generated_family_fixed_point::{
-    GENERATED_FAMILY_FIXED_POINT_PROVIDER_V1_SCHEMA, GENERATED_FAMILY_FIXED_POINT_V1_SCHEMA,
-    GeneratedAcceptedCandidateOrigin, GeneratedAcceptedCandidateReference,
-    GeneratedAnchorWitnessSearchExhaustionReason, GeneratedFamilyFixedPointAttemptOutcome,
-    GeneratedFamilyFixedPointBasePreparation, GeneratedFamilyFixedPointBasePreparationOutcome,
-    GeneratedFamilyFixedPointCertificate, GeneratedFamilyFixedPointCompiler,
-    GeneratedFamilyFixedPointConfig, GeneratedFamilyFixedPointError,
-    GeneratedFamilyFixedPointFinalStatus, GeneratedFamilyFixedPointInterruption,
-    GeneratedFamilyFixedPointLimits, GeneratedFamilyFixedPointRound,
-    GeneratedFamilyFixedPointSectorAttempt, GeneratedFamilyFixedPointSectorStatus,
-    GeneratedFamilyFixedPointSelectionPolicy, GeneratedFamilyFixedPointStage,
-    GeneratedFamilyFixedPointStats, GeneratedFixedPointMaterialLocator,
-    GeneratedFixedPointMaterialRef, GeneratedFixedPointResidualLeafReference,
-    GeneratedFixedPointResidualSummary, GeneratedResidualAnchorOrigin,
-    GeneratedResidualAnchorSearch, GeneratedResidualCandidateLocator,
-    GeneratedResidualCandidateOutcome, GeneratedResidualCandidateVisit,
-};
-pub use generated_family_fixed_point_provider::{
-    GeneratedFamilyFixedPointConditionalProviderError,
-    GeneratedFamilyFixedPointMasterProviderError, GeneratedFamilyFixedPointProvider,
-    GeneratedFamilyFixedPointProviderBuildStats, GeneratedFamilyFixedPointProviderError,
-    GeneratedFamilyFixedPointProviderInterruptionLocation, GeneratedFamilyFixedPointProviderLimits,
-    GeneratedFamilyFixedPointProviderStackError, GeneratedFamilyFixedPointSymmetryProviderError,
-};
-pub use generated_family_rule_provider::{
-    GENERATED_FAMILY_RULE_SYSTEM_PROVIDER_V2_SCHEMA, GeneratedFamilyConditionalProviderError,
-    GeneratedFamilyMasterProviderError, GeneratedFamilyRuleSystemProvider,
-    GeneratedFamilyRuleSystemProviderBuildStats, GeneratedFamilyRuleSystemProviderError,
-    GeneratedFamilyRuleSystemProviderLimits, GeneratedFamilyRuleSystemProviderStackError,
-    GeneratedFamilySymmetryProviderError,
-};
-pub use generated_family_rule_system::{
-    GENERATED_FAMILY_RULE_SYSTEM_V1_SCHEMA, GeneratedFamilyPipelineStage,
-    GeneratedFamilyRuleSystemCertificate, GeneratedFamilyRuleSystemCompiler,
-    GeneratedFamilyRuleSystemConfig, GeneratedFamilyRuleSystemError,
-    GeneratedFamilyRuleSystemLimits, GeneratedFamilyRuleSystemStats,
-    GeneratedFamilyRuleSystemStrategy, GeneratedFamilySectorFailure, GeneratedFamilySectorResource,
-    GeneratedFamilySectorStatus, GeneratedFamilySectorTranscript,
 };
 pub use generated_residual_affine_when_bad::{
     AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA, AffineWhenBadAtom, AffineWhenBadClauseProvenance,

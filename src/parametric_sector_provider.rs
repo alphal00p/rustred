@@ -107,10 +107,9 @@ impl<'family> ParametricSectorRuleProvider<'family> {
     ///
     /// This is crate-private deliberately: ordinary callers must use
     /// [`Self::try_new`], which independently replays every supplied proof.
-    /// The family provider uses this path only after replaying its owning
-    /// `GeneratedFamilyRuleSystemCertificate`; pointer identity then prevents
-    /// a certificate from being substituted between that replay and
-    /// installation.
+    /// An aggregate owner may use this path only after replaying every supplied
+    /// certificate against the shared row span. Pointer identity then prevents
+    /// substitution between that replay and installation.
     pub(crate) fn try_new_with_replayed_certificates(
         family: &'family IntegralFamily,
         context: &'family ParametricCoefficientContext,

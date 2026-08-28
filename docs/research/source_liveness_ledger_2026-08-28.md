@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `0d9930f`, updated after each R3 cluster milestone.
+**Baseline:** `d2389f6`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 160 tracked Rust source/build/test paths
+This ledger classifies every one of the 154 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 133 |
+| split | 127 |
 | delete | 3 |
 | replace | 1 |
 
@@ -104,12 +104,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_cylindrical_sector_provider.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_sector_root_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_when_bad.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_family_depth_growth.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_family_fixed_point_provider.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_family_fixed_point.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_family_rule_provider.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_family_rule_system.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_provider_stack.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_sector_conditional_provider.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
