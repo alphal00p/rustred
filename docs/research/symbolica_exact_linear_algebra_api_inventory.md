@@ -176,6 +176,35 @@ back-substitution it performs exact pivot divisions; failure produces
 integer-system operation and a useful oracle, but a rational answer should be
 solved over `Q` instead of prompting a replacement solver.
 
+### Content and primitive normalization
+
+The same public `impl<F: EuclideanDomain> Matrix<F>` also exposes
+`content(&self) -> F::Element` and `primitive_part(&self) -> Matrix<F>` at
+[`matrix.rs:1434`](../../vendor/symbolica/lib/numerica/src/tensors/matrix.rs#L1434).
+`content` computes the domain gcd of all entries; `primitive_part` divides
+every entry by that content through the native domain operations.
+
+For `Matrix<Q>`, this is also the public denominator-clearing primitive needed
+by a rational right-kernel witness. The pinned `FractionField` gcd computes
+the gcd of the numerators over the lcm of the denominators at
+[`rational.rs:651`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L651).
+Consequently, applying `primitive_part` to a nonzero row or column of
+canonical `Rational` values clears all denominators and returns rationals whose
+denominators are one and whose integer numerators have unit content. Callers
+must verify the output with public `Rational::is_integer` and the numerator
+accessors at
+[`rational.rs:859`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L859)
+and [`rational.rs:168`](../../vendor/symbolica/lib/numerica/src/domains/rational.rs#L168),
+then impose any application-owned sign convention structurally.
+
+This composition requires a proven nonzero input: `primitive_part` computes
+zero content for an all-zero matrix and subsequently divides by zero. Its
+specific rational-content normalization is public and callable but more
+revision-sensitive than the general gcd contract, so RustRed must pin it with
+nonzero, mixed-denominator, common-content, and sign regression probes. These
+caveats justify a checked adapter; they do not justify a handwritten lcm,
+denominator-clearing, or integer-content algorithm.
+
 ### Field operations
 
 The public `impl<F: Field> Matrix<F>` begins at
@@ -366,6 +395,10 @@ changes.
 
 - Small exact integer and rational systems can use dense `Matrix<Z>` with
   fraction-free operations or `Matrix<Q>` with field operations.
+- A nonzero rational row or column can use native `Matrix<Q>::primitive_part`
+  to clear denominators and remove integer content. RustRed authenticates the
+  nonzero precondition, checks that every output is an integer-valued
+  `Rational`, and applies only its deterministic sign convention.
 - Exact affine-map composition can use ordinary rectangular `Matrix<Z>`
   multiplication. RustRed authenticates shapes, integer payloads, resources,
   and output geometry; it does not implement matrix dot products. The current
@@ -426,7 +459,18 @@ LiteRed/RustRed semantics:
    field algorithm that normalizes pivots; the public sparse surface does not
    expose a fraction-free Euclidean-domain reducer analogous to the dense
    one.
-8. **Complete integer affine-lattice parameterization.** Exhaustive searches
+8. **Right-nullspace convenience.** Exhaustive searches found no public dense
+   or sparse `nullspace`, `kernel`, or kernel-basis method. This is not a
+   blocker for the single witness required by the zero-sector rank proof:
+   RustRed may call native dense `row_reduce` or sparse `SparseRowReducer`, read
+   the public reduced entries and, for the sparse reducer, its public pivot
+   map, select one free coordinate structurally, normalize the resulting
+   rational column with native `Matrix<Q>::primitive_part`, and replay it with
+   native exact matrix multiplication. RustRed owns only that
+   pivot/free-coordinate interpretation; it does not own elimination,
+   denominator clearing, or content normalization. A request for a complete
+   nullspace basis remains outside this composition.
+9. **Complete integer affine-lattice parameterization.** Exhaustive searches
    of the public dense/sparse matrix, polynomial, solving, and domain APIs found
    no Smith normal form, Hermite normal form, integer nullspace/kernel basis,
    or complete underdetermined affine-lattice parameterization. `Matrix<Z>`
@@ -456,3 +500,14 @@ Any future RustRed change that adds algebra should record:
 
 This record is part of the implementation requirement, not optional research
 commentary.
+
+For zero-sector work, the decision is already fixed by this inventory. A
+bounded adapter may retain authenticated matrix staging, the deterministic
+choice and interpretation of one free RREF coordinate, a sign convention,
+panic/resource containment, and exact replay. Symbolica must own RREF, rational
+denominator/content normalization, exact integer classification, and
+matrix-vector multiplication. Any future handwritten lcm/content normalizer
+for that witness is noncompliant. If a caller requires a complete integer
+kernel basis or solution lattice, it must stop at the typed unsupported
+normal-form boundary recorded above rather than extending the one-witness
+composition into a private CAS.
