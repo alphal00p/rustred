@@ -435,9 +435,9 @@ MTBDD owner or DAG.
 The direct backend itself constructs neither the legacy explicit V4 partition
 nor the complete V5 MTBDD and does not invoke the residual Boolean/DPLL owner.
 That bypass is a production requirement, not merely a performance preference.
-V4 remains a small-fixture differential oracle, and V5 remains an optional
-repeated-query classifier only when its separately measured construction
-budget is acceptable. The currently published generated-sector discovery
+V4 remains a small-fixture differential oracle. The disconnected V5 MTBDD
+classifier was removed during the Phase-0 refactor after its scaling evidence
+had been recorded; it is not a supported backend. The currently published generated-sector discovery
 entry still eagerly creates V4, but the pushed one-pass ingress is the intended
 production source API ahead of that materialization and preserves exact
 binding/replay guarantees through its sealed token. Public library and CLI

@@ -755,17 +755,6 @@ impl WhenBadCertificate {
         self.core.index_domain_guards()
     }
 
-    /// Retained domain-condition ordinal together with each index guard.
-    ///
-    /// Coverage-formula normalization persists this source identity.  The
-    /// filtered guard position is not interchangeable with the ordinal in the
-    /// authenticated `domain_conditions` payload.
-    pub(crate) fn index_domain_guards_with_ordinals(
-        &self,
-    ) -> impl Iterator<Item = (usize, &WhenBadDomainCondition)> {
-        self.core.index_domain_guards_with_ordinals()
-    }
-
     pub fn leak_events(&self) -> &[WhenBadLeakEvent] {
         self.core.leak_events()
     }
@@ -1407,15 +1396,6 @@ impl WhenBadCertifiedCore {
         self.index_domain_guards
             .iter()
             .map(|&ordinal| &self.domain_conditions[ordinal])
-    }
-
-    pub(crate) fn index_domain_guards_with_ordinals(
-        &self,
-    ) -> impl Iterator<Item = (usize, &WhenBadDomainCondition)> {
-        self.index_domain_guards
-            .iter()
-            .copied()
-            .map(|ordinal| (ordinal, &self.domain_conditions[ordinal]))
     }
 
     pub(crate) fn leak_events(&self) -> &[WhenBadLeakEvent] {

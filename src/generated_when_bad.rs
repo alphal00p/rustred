@@ -195,42 +195,9 @@ pub struct GeneratedSourceAuthenticationStats {
     source_manifest_bytes: usize,
 }
 
-/// Allocation-free census available before a generated-source
-/// authentication starts replaying a candidate.
-///
-/// The match-attempt value is the exact unavoidable lower bound: every
-/// retained row must inspect at least the first nonempty generated basis row.
-/// The final authentication may consume more attempts while locating the
-/// matching basis member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct GeneratedWhenBadCandidatePreflight {
-    canonical_rows: usize,
-    canonical_terms: usize,
-    retained_rows: usize,
+struct GeneratedWhenBadCandidatePreflight {
     retained_terms: usize,
-    minimum_match_attempts: usize,
-}
-
-impl GeneratedWhenBadCandidatePreflight {
-    pub(crate) const fn canonical_rows(self) -> usize {
-        self.canonical_rows
-    }
-
-    pub(crate) const fn canonical_terms(self) -> usize {
-        self.canonical_terms
-    }
-
-    pub(crate) const fn retained_rows(self) -> usize {
-        self.retained_rows
-    }
-
-    pub(crate) const fn retained_terms(self) -> usize {
-        self.retained_terms
-    }
-
-    pub(crate) const fn minimum_match_attempts(self) -> usize {
-        self.minimum_match_attempts
-    }
 }
 
 impl GeneratedSourceAuthenticationStats {
@@ -779,17 +746,7 @@ impl GeneratedSourceAuthenticator {
             row_span_stats.canonical_terms(),
             limits.max_canonical_terms,
         )?;
-        Ok(GeneratedWhenBadCandidatePreflight {
-            canonical_rows: row_span_stats.canonical_rows(),
-            canonical_terms: row_span_stats.canonical_terms(),
-            retained_rows: retained.len(),
-            retained_terms,
-            minimum_match_attempts: if expected_canonical_rows == 0 {
-                0
-            } else {
-                retained.len()
-            },
-        })
+        Ok(GeneratedWhenBadCandidatePreflight { retained_terms })
     }
 }
 
@@ -1234,16 +1191,6 @@ pub(crate) fn write_generated_when_bad_limits_identity(
 
 pub struct GeneratedWhenBadCompiler;
 
-/// Unforgeable proof that one generated row-span certificate has completed
-/// its full replay for the current in-process batch.
-///
-/// The owned candidate compiler accepts this authority instead of a raw Arc,
-/// preventing a caller from entering the no-row-span-replay path by naming
-/// the convention alone.
-pub(crate) struct GeneratedWhenBadReplayedRowSpan {
-    row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
-}
-
 impl GeneratedWhenBadCompiler {
     pub fn compile(
         family: &IntegralFamily,
@@ -1294,67 +1241,6 @@ impl GeneratedWhenBadCompiler {
             family, context, candidate, row_span, limits,
         )?;
         Self::compile_authenticated(context, candidate, source, limits)
-    }
-
-    /// Compile and retain one owned candidate against an already replayed
-    /// shared row span without deep-cloning the candidate.
-    pub(crate) fn compile_owned_with_replayed_row_span(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        candidate: ParametricReductionRuleCandidate,
-        replayed_row_span: &GeneratedWhenBadReplayedRowSpan,
-        limits: GeneratedWhenBadLimits,
-    ) -> Result<GeneratedWhenBadCompilation, GeneratedWhenBadError> {
-        let candidate = Arc::new(candidate);
-        let source = GeneratedSourceAuthenticator::authenticate_with_replayed_row_span(
-            family,
-            context,
-            candidate.as_ref(),
-            Arc::clone(&replayed_row_span.row_span),
-            limits,
-        )?;
-        Self::compile_authenticated_arc(context, candidate, source, limits)
-    }
-
-    /// Replay one shared row span exactly once and return the only authority
-    /// accepted by the owned no-replay candidate compiler.
-    pub(crate) fn replay_row_span_for_owned_batch(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        row_span: Arc<GeneratedSymbolicRowSpanCertificate>,
-    ) -> Result<GeneratedWhenBadReplayedRowSpan, GeneratedWhenBadError> {
-        row_span.replay(family, context)?;
-        Ok(GeneratedWhenBadReplayedRowSpan { row_span })
-    }
-
-    /// Check every allocation-free candidate/source bound used before the
-    /// generated authenticator replays a retained elimination.
-    pub(crate) fn shallow_preflight_candidate_against_bound_row_span(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        candidate: &ParametricReductionRuleCandidate,
-        row_span: &GeneratedSymbolicRowSpanCertificate,
-        limits: GeneratedWhenBadLimits,
-    ) -> Result<GeneratedWhenBadCandidatePreflight, GeneratedWhenBadError> {
-        GeneratedSourceAuthenticator::shallow_preflight_against_bound_row_span(
-            family, context, candidate, row_span, limits,
-        )
-    }
-
-    /// Candidate-independent `WhenBad` lower bounds for a nonempty batch.
-    pub(crate) fn preflight_replayed_batch_fixed_limits(
-        context: &ParametricCoefficientContext,
-        candidate_count: usize,
-        limits: GeneratedWhenBadLimits,
-    ) -> Result<(), GeneratedWhenBadError> {
-        if candidate_count != 0 {
-            check_limit(
-                "WhenBad indices",
-                context.index_count(),
-                limits.when_bad.sector_cases.max_indices,
-            )?;
-        }
-        Ok(())
     }
 
     fn compile_authenticated(

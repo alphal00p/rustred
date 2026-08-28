@@ -127,7 +127,7 @@ the other.
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
 | [Symbolica-only production algebra compliance](symbolica_only_algebra_compliance_roadmap_2026-08-27.md) | P0 before a production six-loop claim | Reachable older parametric/concrete elimination, generic Feynman-polynomial and remaining family-matrix kernels, case transformations, integer-lattice primitives, and the later tensor path still contain handwritten algebra. The native exact-group database closes one path, not this full call graph. |
 | Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
-| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. The foundry needs direct target-frontier search over owned normalized formulas, with MTBDD compilation admitted only under an explicit measured budget. |
+| Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. That disconnected experimental stack has been removed; the foundry needs direct target-frontier search rather than another eager global classifier. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
 | Global eager exact Laporta prototypes and loop-authored finite closures | Oracle only | They validate identities but scale poorly and cannot define production rules. High-loop solving must be sector-local, target-driven, modular-first, and exactly replayed. |
 | Vacuum tensor/numerator parsing and scalar-product lowering | Keep on the hot path | GammaLoop supplies many numerator structures. They must be normalized once and converted to integral-key batches before rule application. |
@@ -287,9 +287,9 @@ authentications, unchanged 15 Certified/21 Unsupported semantics, and a
 1.405-millisecond first-residual search. This is pushed `c593865` evidence,
 not a Ready, reduction, or physical-topology claim.
 
-Two residual backends now consume that authority. The V5 MTBDD remains a
-compact-case oracle and optional repeated-query classifier under an explicit
-node/time/memory budget. Its genuine all-inactive all-36 `K=21` diagnostic has
+Two residual backends consumed that authority at this historical checkpoint.
+The V5 MTBDD was retained temporarily as a compact-case oracle and measured
+repeated-query classifier. Its genuine all-inactive all-36 `K=21` diagnostic has
 49 normalized structural loci/atoms, 268,427 rooted nodes, and 18 terminals;
 its MTBDD cursor reaches the first Unsupported terminal in 43 decisions only
 after that global owner has been built. This is historical scaling evidence,
@@ -515,8 +515,8 @@ The following policies are critical at five and six loops:
 
 - Do not enumerate every sector/seed or all `2^K` orthants globally. Work from
   the requested topology manifest and target frontier, retain only reachable
-  normalized-formula search states, compile a global MTBDD only under an
-  explicit measured budget, and schedule bottom-up through the sector DAG.
+  search states, and schedule bottom-up through the sector DAG. The retired
+  global MTBDD experiment is scaling evidence, not a fallback backend.
 - Do not enumerate bounded `GL(L,Z)` matrices as the primary symmetry search.
   Generate graph/routing candidates and certify them generically.
 - Do not use normalized exact rational-function elimination as the exploratory

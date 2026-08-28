@@ -12,12 +12,9 @@
 //! parametric identities or future discovered rules.
 
 mod canonical_parametric_locus_table;
-mod coverage_decision_dag;
 mod direct_bad_formula;
 mod direct_bad_formula_arbitrary;
 mod exact_identity;
-mod parametric_sector_formula_ir;
-mod parametric_sector_mtbdd;
 mod solver;
 
 pub mod adaptive_rules;

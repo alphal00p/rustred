@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `c81805a`, updated after each R3 cluster milestone.
+**Baseline:** `676d73c`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 133 tracked Rust source/build/test paths
+This ledger classifies every one of the 130 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 106 |
-| delete | 3 |
+| split | 105 |
+| delete | 1 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -74,7 +74,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/coverage_decision_dag.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/direct_bad_formula_arbitrary.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/direct_bad_formula.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
@@ -109,8 +108,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_sector_coverage.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/parametric_sector_formula_ir.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_mtbdd.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/product_locus_boolean_cover.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/residual_affine_atom_rows.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
