@@ -13,7 +13,7 @@ pub mod automatic_isps;
 pub mod campaign;
 pub mod feynman_polynomials;
 pub mod generic_family;
-pub mod guards;
+pub mod identity;
 pub mod parametric_coefficient;
 pub mod parametric_ibp;
 pub mod parametric_relation;
@@ -38,19 +38,20 @@ pub use generic_family::{
     FamilyDomain, FamilyNonZeroCondition, GenericFamily, GenericFamilyError, IntegralFamily,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
 };
-pub use guards::{GuardOrigin, GuardRowId};
+pub use identity::{
+    IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
+    ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition,
+};
 pub use parametric_coefficient::{
-    BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
-    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
-    SpecializedNonZeroCondition,
+    BasePolynomial, CoefficientPolynomial, ParametricArithmeticLimits, ParametricCoefficient,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
 };
 pub use parametric_relation::{
     ConcreteIntegralKey, ConcreteRelation, IndexShift, IndexSpace, ParametricRelation,
-    ParametricRelationError, ParametricRowId,
+    ParametricRelationError, RelationLimits,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

@@ -443,22 +443,22 @@ fn raw_hybrid_and_explicit_lower_to_the_same_semantic_family_and_rows() {
         );
         assert!(condition.get("origins").is_none());
     }
-    let (_, guarded) = successful_toml(
+    let (_, conditioned) = successful_toml(
         &["derive", "--input-format", "symbolica"],
-        "I(name(guarded),loops(k),externals(),parameters(d,s),dimension(d/s),prop(D1,k^2,1))",
+        "I(name(conditioned),loops(k),externals(),parameters(d,s),dimension(d/s),prop(D1,k^2,1))",
     );
-    let relation_conditions = guarded["relations"][0]["nonzero_conditions"]
+    let relation_conditions = conditioned["relations"][0]["nonzero_conditions"]
         .as_array()
-        .expect("guarded relation nonzero-condition array");
+        .expect("relation nonzero-condition array");
     assert!(!relation_conditions.is_empty());
     for condition in relation_conditions {
         assert!(
-            !condition["origins"]
+            !condition["sources"]
                 .as_array()
-                .expect("relation condition origins")
+                .expect("relation condition sources")
                 .is_empty()
         );
-        assert!(condition.get("sources").is_none());
+        assert!(condition.get("origins").is_none());
     }
     assert_eq!(
         hybrid["relation_counts"]["generated_ordinary"].as_integer(),

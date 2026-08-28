@@ -1,11 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `47cf825`, immediately before the native-coefficient, dead-division,
-and redundant-replay cleanup.
+**Baseline parent:** `a0e6ca4`, immediately before the identity-provenance split.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 52 tracked Rust source/test paths
-remaining after the current R3 deletion milestone. It is intentionally hostile to
+This ledger classifies every one of the 54 tracked Rust source/test paths
+remaining after the current identity-provenance milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -21,7 +20,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 17 |
+| move | 19 |
 | split | 34 |
 | delete | 0 |
 | replace | 1 |
@@ -69,11 +68,13 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resources.rs` | move | campaign | retain checked bytes, estimates, task envelopes, estimator revisions, baselines, and their minimal construction errors; work-key wave policy/planning was deleted |
 | `src/feynman_polynomials.rs` | split | family | retain generic Symanzik construction and delete the uncalled face-restriction API; the remaining handwritten polynomial operations must be audited against Symbolica before Phase 0 closes |
 | `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay; family nonzero conditions now merge deterministic `CoefficientLocation` source sets without global provenance wrappers |
-| `src/guards.rs` | split | identity | only the temporary identity-row origin union/mirror remains after family, symmetry, and zero-sector provenance became owner-local; delete this file in the identity split |
+| `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
+| `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
+| `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, independent source-cardinality limits, and provenance attachment around algebra-only specialization |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/parametric_coefficient.rs` | split | algebra / identity | retain provenance-neutral checked `K(n)` coefficient/polynomial algebra below identity-owned relation conditions; Phase 0 has no foundry owner |
+| `src/parametric_coefficient.rs` | split | algebra | retain provenance-neutral checked `K(n)` coefficient/polynomial algebra below identity-owned relation conditions; its specialization result carries only an optional denominator polynomial, never identity provenance |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
-| `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
+| `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse relation arithmetic with one typed condition vector and an independent `RelationLimits` composition policy |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; extract only genuinely family-neutral checked coefficient primitives into algebra and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |

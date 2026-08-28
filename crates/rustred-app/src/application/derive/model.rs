@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rustred::{
-    CoefficientLocation, GuardOrigin, IntegralFamily, ParametricNonZeroCondition,
-    ParametricRelation, ParametricRowId, ScalarProductCoordinate,
+    CoefficientLocation, IdentityConditionSource, IntegralFamily, ParametricNonZeroCondition,
+    ParametricRelation, RowId, ScalarProductCoordinate,
 };
 use serde::Serialize;
 use symbolica::prelude::AtomCore;
@@ -24,7 +24,7 @@ pub(super) struct DeriveOutputV1 {
     pub(super) coordinates: Vec<CoordinateOutputV1>,
     pub(super) denominators: Vec<DenominatorOutputV1>,
     pub(super) external_gram: Vec<ExternalGramOutputV1>,
-    pub(super) domain_conditions: Vec<FamilyConditionOutputV1>,
+    pub(super) domain_conditions: Vec<ConditionOutputV1>,
     pub(super) relation_counts: RelationCountsOutputV1,
     pub(super) relations: Vec<RelationOutputV1>,
 }
@@ -98,15 +98,9 @@ pub(super) struct ExternalGramOutputV1 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct FamilyConditionOutputV1 {
+pub(super) struct ConditionOutputV1 {
     pub(super) expression: String,
     pub(super) sources: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct RelationConditionOutputV1 {
-    pub(super) expression: String,
-    pub(super) origins: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -124,7 +118,7 @@ pub(super) struct RelationOutputV1 {
     pub(super) stable_id: String,
     pub(super) id: RowIdOutputV1,
     pub(super) terms: Vec<RelationTermOutputV1>,
-    pub(super) nonzero_conditions: Vec<RelationConditionOutputV1>,
+    pub(super) nonzero_conditions: Vec<ConditionOutputV1>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -239,7 +233,7 @@ pub(super) fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGram
     output
 }
 
-pub(super) fn family_domain_outputs(family: &IntegralFamily) -> Vec<FamilyConditionOutputV1> {
+pub(super) fn family_domain_outputs(family: &IntegralFamily) -> Vec<ConditionOutputV1> {
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in family.domain().conditions() {
         let expression = condition.polynomial().to_expression().to_canonical_string();
@@ -250,7 +244,7 @@ pub(super) fn family_domain_outputs(family: &IntegralFamily) -> Vec<FamilyCondit
     }
     merged
         .into_iter()
-        .map(|(expression, sources)| FamilyConditionOutputV1 {
+        .map(|(expression, sources)| ConditionOutputV1 {
             expression,
             sources: sources.into_iter().collect(),
         })
@@ -274,13 +268,13 @@ pub(super) fn relation_output(ordinal: usize, relation: &ParametricRelation) -> 
                 coefficient: coefficient.to_expression().to_canonical_string(),
             })
             .collect(),
-        nonzero_conditions: relation_conditions(relation.guarded_nonzero_conditions()),
+        nonzero_conditions: relation_conditions(relation.nonzero_conditions()),
     }
 }
 
-fn row_id_output(row: &ParametricRowId) -> RowIdOutputV1 {
+fn row_id_output(row: &RowId) -> RowIdOutputV1 {
     match row {
-        ParametricRowId::OrdinaryIbp {
+        RowId::OrdinaryIbp {
             contraction_momentum,
             differentiated_loop,
         } => RowIdOutputV1 {
@@ -291,7 +285,7 @@ fn row_id_output(row: &ParametricRowId) -> RowIdOutputV1 {
             second_external: None,
             label: None,
         },
-        ParametricRowId::LorentzInvariance {
+        RowId::LorentzInvariance {
             first_external,
             second_external,
         } => RowIdOutputV1 {
@@ -302,7 +296,7 @@ fn row_id_output(row: &ParametricRowId) -> RowIdOutputV1 {
             second_external: Some(*second_external),
             label: None,
         },
-        ParametricRowId::Derived { label } => RowIdOutputV1 {
+        RowId::Derived { label } => RowIdOutputV1 {
             kind: "derived",
             contraction_momentum: None,
             differentiated_loop: None,
@@ -313,21 +307,24 @@ fn row_id_output(row: &ParametricRowId) -> RowIdOutputV1 {
     }
 }
 
-fn relation_conditions(
-    conditions: &[ParametricNonZeroCondition],
-) -> Vec<RelationConditionOutputV1> {
+fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<ConditionOutputV1> {
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in conditions {
         merged
             .entry(condition.polynomial().to_expression().to_canonical_string())
             .or_default()
-            .extend(condition.origins().iter().map(GuardOrigin::stable_string));
+            .extend(
+                condition
+                    .sources()
+                    .iter()
+                    .map(IdentityConditionSource::stable_string),
+            );
     }
     merged
         .into_iter()
-        .map(|(expression, origins)| RelationConditionOutputV1 {
+        .map(|(expression, sources)| ConditionOutputV1 {
             expression,
-            origins: origins.into_iter().collect(),
+            sources: sources.into_iter().collect(),
         })
         .collect()
 }

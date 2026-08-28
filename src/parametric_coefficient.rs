@@ -6,7 +6,6 @@
 //! Symbolica can automatically unify variable maps; this module deliberately
 //! rejects that behavior at the proof-bearing boundary.
 
-use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -14,7 +13,6 @@ use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
-use crate::GuardOrigin;
 use crate::algebra::{
     ExactAlgebraError, ExactAlgebraLimits, checked_coefficient_add_on_map,
     checked_coefficient_mul_on_map, checked_coefficient_neg_on_map, checked_coefficient_sub_on_map,
@@ -107,154 +105,6 @@ pub struct ParametricPolynomial {
     context: Arc<str>,
 }
 
-/// One authenticated polynomial nonzero condition with every atomic reason
-/// it entered the exceptional-domain set.
-///
-/// Origins are stored in a `BTreeSet`, so merging the same polynomial is
-/// deterministic and independent of relation assembly order.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParametricNonZeroCondition {
-    polynomial: ParametricPolynomial,
-    origins: BTreeSet<GuardOrigin>,
-}
-
-impl ParametricNonZeroCondition {
-    pub fn polynomial(&self) -> &ParametricPolynomial {
-        &self.polynomial
-    }
-
-    pub fn origins(&self) -> &BTreeSet<GuardOrigin> {
-        &self.origins
-    }
-
-    /// Attach an origin under an explicit provenance-cardinality budget.
-    pub fn try_with_origin(
-        mut self,
-        origin: GuardOrigin,
-        max_guard_origins: usize,
-    ) -> Result<Self, ParametricCoefficientError> {
-        self.add_origin_with_limit(origin, max_guard_origins)?;
-        Ok(self)
-    }
-
-    pub(crate) fn add_origin_with_limit(
-        &mut self,
-        origin: GuardOrigin,
-        max_guard_origins: usize,
-    ) -> Result<(), ParametricCoefficientError> {
-        if !self.origins.contains(&origin) {
-            let requested = self.origins.len().checked_add(1).ok_or(
-                ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "parametric guard origins",
-                },
-            )?;
-            check_limit("parametric guard origins", requested, max_guard_origins)?;
-            self.origins.insert(origin);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn merge_origins_from(
-        &mut self,
-        other: &Self,
-        max_guard_origins: usize,
-    ) -> Result<(), ParametricCoefficientError> {
-        debug_assert_eq!(self.polynomial, other.polynomial);
-        let additional = other
-            .origins
-            .iter()
-            .filter(|origin| !self.origins.contains(*origin))
-            .count();
-        let requested = self.origins.len().checked_add(additional).ok_or(
-            ParametricCoefficientError::ResourceCountOverflow {
-                resource: "parametric guard origins",
-            },
-        )?;
-        check_limit("parametric guard origins", requested, max_guard_origins)?;
-        self.origins.extend(other.origins.iter().cloned());
-        Ok(())
-    }
-}
-
-/// A specialized base-field polynomial condition with retained parametric
-/// provenance.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpecializedNonZeroCondition {
-    polynomial: BasePolynomial,
-    origins: BTreeSet<GuardOrigin>,
-}
-
-impl SpecializedNonZeroCondition {
-    pub fn from_base_polynomial(
-        polynomial: BasePolynomial,
-        origins: impl IntoIterator<Item = GuardOrigin>,
-        max_guard_origins: usize,
-    ) -> Result<Self, ParametricCoefficientError> {
-        if polynomial.is_zero() {
-            return Err(ParametricCoefficientError::ZeroPolynomialCondition);
-        }
-        let origins = origins.into_iter().collect::<BTreeSet<_>>();
-        if origins.is_empty() {
-            return Err(ParametricCoefficientError::MissingGuardOrigin);
-        }
-        check_limit(
-            "specialized guard origins",
-            origins.len(),
-            max_guard_origins,
-        )?;
-        Ok(Self {
-            polynomial,
-            origins,
-        })
-    }
-
-    pub fn polynomial(&self) -> &BasePolynomial {
-        &self.polynomial
-    }
-
-    pub fn origins(&self) -> &BTreeSet<GuardOrigin> {
-        &self.origins
-    }
-
-    pub(crate) fn add_origin_with_limit(
-        &mut self,
-        origin: GuardOrigin,
-        max_guard_origins: usize,
-    ) -> Result<(), ParametricCoefficientError> {
-        if !self.origins.contains(&origin) {
-            let requested = self.origins.len().checked_add(1).ok_or(
-                ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "specialized guard origins",
-                },
-            )?;
-            check_limit("specialized guard origins", requested, max_guard_origins)?;
-            self.origins.insert(origin);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn merge_origins_from(
-        &mut self,
-        other: &Self,
-        max_guard_origins: usize,
-    ) -> Result<(), ParametricCoefficientError> {
-        debug_assert_eq!(self.polynomial, other.polynomial);
-        let additional = other
-            .origins
-            .iter()
-            .filter(|origin| !self.origins.contains(*origin))
-            .count();
-        let requested = self.origins.len().checked_add(additional).ok_or(
-            ParametricCoefficientError::ResourceCountOverflow {
-                resource: "specialized guard origins",
-            },
-        )?;
-        check_limit("specialized guard origins", requested, max_guard_origins)?;
-        self.origins.extend(other.origins.iter().cloned());
-        Ok(())
-    }
-}
-
 impl ParametricPolynomial {
     pub fn raw(&self) -> &CoefficientPolynomial {
         &self.raw
@@ -293,7 +143,6 @@ pub struct ParametricArithmeticLimits {
     /// Maximum conservative magnitude bit length of an integer coefficient
     /// produced while specializing or affinely translating index variables.
     pub max_specialization_integer_bits: usize,
-    pub max_guard_origins: usize,
 }
 
 impl Default for ParametricArithmeticLimits {
@@ -302,7 +151,6 @@ impl Default for ParametricArithmeticLimits {
             exact_algebra: ExactAlgebraLimits::default(),
             max_specialization_power_operations: 16_000_000,
             max_specialization_integer_bits: 16_000_000,
-            max_guard_origins: 65_536,
         }
     }
 }
@@ -334,7 +182,6 @@ pub enum ParametricCoefficientError {
         expected: usize,
         actual: usize,
     },
-    ZeroPolynomialCondition,
     ZeroDenominator,
     MalformedPolynomial {
         terms: usize,
@@ -349,7 +196,6 @@ pub enum ParametricCoefficientError {
     ResourceCountOverflow {
         resource: &'static str,
     },
-    MissingGuardOrigin,
     ExactAlgebra(ExactAlgebraError),
     Symbolica(String),
 }
@@ -374,9 +220,6 @@ impl fmt::Display for ParametricCoefficientError {
                 formatter,
                 "index vector has arity {actual}, expected {expected}"
             ),
-            Self::ZeroPolynomialCondition => {
-                formatter.write_str("a required nonzero polynomial is identically zero")
-            }
             Self::ZeroDenominator => {
                 formatter.write_str("rational coefficient has a zero denominator")
             }
@@ -399,9 +242,6 @@ impl fmt::Display for ParametricCoefficientError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
-            Self::MissingGuardOrigin => {
-                formatter.write_str("a nonzero condition needs at least one typed origin")
-            }
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Symbolica(message) => formatter.write_str(message),
         }
@@ -416,22 +256,14 @@ impl From<ExactAlgebraError> for ParametricCoefficientError {
     }
 }
 
-/// Successful specialization of one `K(n)` coefficient back into `K`.
+/// Algebra-only specialization of one `K(n)` coefficient back into `K`.
 ///
-/// `nonzero` retains the mapped original denominator before Symbolica can
-/// cancel factors in the resulting fraction-field element.
+/// `denominator_nonzero` retains the mapped original denominator before
+/// Symbolica can cancel factors. The identity layer attaches typed sources.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GuardedCoefficientSpecialization {
-    pub value: Coefficient,
-    pub nonzero: Vec<BasePolynomial>,
-    guarded_nonzero: Vec<SpecializedNonZeroCondition>,
-}
-
-impl GuardedCoefficientSpecialization {
-    /// Provenance-preserving view of [`Self::nonzero`].
-    pub fn guarded_nonzero_conditions(&self) -> &[SpecializedNonZeroCondition] {
-        &self.guarded_nonzero
-    }
+pub(crate) struct CoefficientSpecialization {
+    pub(crate) value: Coefficient,
+    pub(crate) denominator_nonzero: Option<BasePolynomial>,
 }
 
 /// One exact pair of authenticated fields `K` and `K(n)`.
@@ -536,72 +368,12 @@ impl ParametricCoefficientContext {
             .is_ok()
     }
 
-    pub fn contains_nonzero_condition(&self, value: &ParametricNonZeroCondition) -> bool {
-        !value.origins.is_empty() && self.contains_polynomial(&value.polynomial)
-    }
-
-    /// Authenticate one polynomial condition and attach one atomic origin.
-    pub fn nonzero_condition(
-        &self,
-        polynomial: ParametricPolynomial,
-        origin: GuardOrigin,
-    ) -> Result<ParametricNonZeroCondition, ParametricCoefficientError> {
-        self.nonzero_condition_with_origins_and_limits(
-            polynomial,
-            [origin],
-            ExactAlgebraLimits::default(),
-        )
-    }
-
-    /// Authenticate one polynomial condition with an already collected
-    /// deterministic origin set.
-    ///
-    /// The iterator is consumed under the default provenance budget, so an
-    /// untrusted or unbounded iterator cannot allocate an unbounded set.  Use
-    /// [`Self::nonzero_condition_with_origins_and_origin_limit`] when a caller
-    /// needs a stricter budget.
-    pub fn nonzero_condition_with_origins_and_limits(
-        &self,
-        polynomial: ParametricPolynomial,
-        origins: impl IntoIterator<Item = GuardOrigin>,
-        limits: ExactAlgebraLimits,
-    ) -> Result<ParametricNonZeroCondition, ParametricCoefficientError> {
-        self.nonzero_condition_with_origins_and_origin_limit(
-            polynomial,
-            origins,
-            limits,
-            ParametricArithmeticLimits::default().max_guard_origins,
-        )
-    }
-
-    /// Authenticate a condition under independent exact-algebra and
-    /// provenance-cardinality budgets.
-    pub fn nonzero_condition_with_origins_and_origin_limit(
-        &self,
-        polynomial: ParametricPolynomial,
-        origins: impl IntoIterator<Item = GuardOrigin>,
-        limits: ExactAlgebraLimits,
-        max_guard_origins: usize,
-    ) -> Result<ParametricNonZeroCondition, ParametricCoefficientError> {
-        self.validate_polynomial_with_limits(&polynomial, limits)?;
-        let origins = collect_guard_origins_with_limit(origins, max_guard_origins)?;
-        if origins.is_empty() {
-            return Err(ParametricCoefficientError::MissingGuardOrigin);
-        }
-        Ok(ParametricNonZeroCondition {
-            polynomial,
-            origins,
-        })
-    }
-
     pub fn validate_polynomial_with_limits(
         &self,
         value: &ParametricPolynomial,
         limits: ExactAlgebraLimits,
     ) -> Result<(), ParametricCoefficientError> {
-        if value.context.as_ref() != self.fingerprint.as_ref() {
-            return Err(ParametricCoefficientError::WrongContext);
-        }
+        self.validate_polynomial_context(value)?;
         validate_polynomial_on_map(
             &value.raw,
             &self.variables,
@@ -609,6 +381,17 @@ impl ParametricCoefficientContext {
             limits,
         )?;
         Ok(())
+    }
+
+    pub(crate) fn validate_polynomial_context(
+        &self,
+        value: &ParametricPolynomial,
+    ) -> Result<(), ParametricCoefficientError> {
+        if value.context.as_ref() == self.fingerprint.as_ref() {
+            Ok(())
+        } else {
+            Err(ParametricCoefficientError::WrongContext)
+        }
     }
 
     pub fn contains_base_polynomial(&self, value: &BasePolynomial) -> bool {
@@ -827,7 +610,7 @@ impl ParametricCoefficientContext {
         limits: ParametricArithmeticLimits,
     ) -> Result<ParametricCoefficient, ParametricCoefficientError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
-        self.validate_shift(shift)?;
+        self.validate_index_arity(shift)?;
         self.translate_coefficient_validated(value, shift, limits)
     }
 
@@ -883,71 +666,24 @@ impl ParametricCoefficientContext {
         limits: ParametricArithmeticLimits,
     ) -> Result<ParametricPolynomial, ParametricCoefficientError> {
         self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
-        self.validate_shift(shift)?;
+        self.validate_index_arity(shift)?;
         Ok(ParametricPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
             context: self.fingerprint.clone(),
         })
     }
 
-    /// Translate a guard polynomial while preserving its source origins and
-    /// recording the affine index map that changed its locus.
-    pub fn translate_nonzero_condition(
-        &self,
-        value: &ParametricNonZeroCondition,
-        shift: &[i64],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<ParametricNonZeroCondition, ParametricCoefficientError> {
-        if !self.contains_nonzero_condition(value) {
-            return Err(ParametricCoefficientError::WrongContext);
-        }
-        self.validate_shift(shift)?;
-        let already_has_translation = value.origins.iter().any(|origin| {
-            matches!(
-                origin,
-                GuardOrigin::IndexTranslation { offset } if offset.as_ref() == shift
-            )
-        });
-        let final_origin_count = value
-            .origins
-            .len()
-            .checked_add(usize::from(!already_has_translation))
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "parametric guard origins",
-            })?;
-        check_limit(
-            "parametric guard origins",
-            final_origin_count,
-            limits.max_guard_origins,
-        )?;
-        let polynomial = self.translate_polynomial(&value.polynomial, shift, limits)?;
-        let mut origins = value.origins.clone();
-        if !already_has_translation {
-            let mut offset = Vec::new();
-            offset.try_reserve_exact(shift.len()).map_err(|_| {
-                ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "index translation origin components",
-                }
-            })?;
-            offset.extend_from_slice(shift);
-            origins.insert(GuardOrigin::IndexTranslation {
-                offset: offset.into_boxed_slice(),
-            });
-        }
-        self.nonzero_condition_with_origins_and_limits(polynomial, origins, limits.exact_algebra)
-    }
-
     /// Simultaneously specialize every index and project the result to the
     /// exact base variable map.  The original mapped denominator is retained
     /// as a nonzero condition even when normalization cancels it.
-    pub fn specialize(
+    pub(crate) fn specialize(
         &self,
         value: &ParametricCoefficient,
         assignment: &[i64],
         limits: ParametricArithmeticLimits,
-    ) -> Result<GuardedCoefficientSpecialization, ParametricCoefficientError> {
+    ) -> Result<CoefficientSpecialization, ParametricCoefficientError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
-        self.validate_shift(assignment)?;
+        self.validate_index_arity(assignment)?;
         let numerator_preflight =
             self.preflight_specialize_polynomial_raw(&value.raw.numerator, assignment, limits)?;
         let denominator_preflight =
@@ -977,30 +713,14 @@ impl ParametricCoefficientContext {
         if denominator.is_zero() {
             return Err(ParametricCoefficientError::ZeroDenominator);
         }
-        let mut nonzero = Vec::new();
-        let mut guarded_nonzero = Vec::new();
-        if !denominator.is_constant() {
-            let polynomial = BasePolynomial {
+        let denominator_nonzero = if denominator.is_constant() {
+            None
+        } else {
+            Some(BasePolynomial {
                 raw: denominator.clone(),
                 context: self.base_fingerprint.clone(),
-            };
-            let origins = BTreeSet::from([
-                GuardOrigin::CoefficientSpecializationDenominator,
-                GuardOrigin::IndexSpecialization {
-                    assignment: assignment.to_vec().into_boxed_slice(),
-                },
-            ]);
-            check_limit(
-                "specialized guard origins",
-                origins.len(),
-                limits.max_guard_origins,
-            )?;
-            nonzero.push(polynomial.clone());
-            guarded_nonzero.push(SpecializedNonZeroCondition {
-                polynomial,
-                origins,
-            });
-        }
+            })
+        };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             <Coefficient as FromNumeratorAndDenominator<IntegerRing, IntegerRing, u16>>::from_num_den(
                 numerator,
@@ -1016,10 +736,9 @@ impl ParametricCoefficientContext {
             )
         })?;
         validate_coefficient_on_map(&result, self.base.variables(), limits.exact_algebra)?;
-        Ok(GuardedCoefficientSpecialization {
+        Ok(CoefficientSpecialization {
             value: result,
-            nonzero,
-            guarded_nonzero,
+            denominator_nonzero,
         })
     }
 
@@ -1029,39 +748,11 @@ impl ParametricCoefficientContext {
         assignment: &[i64],
         limits: ParametricArithmeticLimits,
     ) -> Result<BasePolynomial, ParametricCoefficientError> {
-        self.validate_parametric_polynomial(value)?;
-        self.validate_shift(assignment)?;
+        self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
+        self.validate_index_arity(assignment)?;
         Ok(BasePolynomial {
             raw: self.specialize_polynomial_raw(&value.raw, assignment, limits)?,
             context: self.base_fingerprint.clone(),
-        })
-    }
-
-    /// Specialize one existing parametric condition and retain all source
-    /// provenance alongside the exact assignment.
-    pub fn specialize_nonzero_condition(
-        &self,
-        value: &ParametricNonZeroCondition,
-        assignment: &[i64],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<SpecializedNonZeroCondition, ParametricCoefficientError> {
-        if !self.contains_nonzero_condition(value) {
-            return Err(ParametricCoefficientError::WrongContext);
-        }
-        self.validate_shift(assignment)?;
-        let polynomial = self.specialize_polynomial(&value.polynomial, assignment, limits)?;
-        let mut origins = value.origins.clone();
-        origins.insert(GuardOrigin::IndexSpecialization {
-            assignment: assignment.to_vec().into_boxed_slice(),
-        });
-        check_limit(
-            "specialized guard origins",
-            origins.len(),
-            limits.max_guard_origins,
-        )?;
-        Ok(SpecializedNonZeroCondition {
-            polynomial,
-            origins,
         })
     }
 
@@ -1077,14 +768,10 @@ impl ParametricCoefficientContext {
         Ok(())
     }
 
-    fn validate_parametric_polynomial(
+    pub(crate) fn validate_index_arity(
         &self,
-        value: &ParametricPolynomial,
+        shift: &[i64],
     ) -> Result<(), ParametricCoefficientError> {
-        self.validate_polynomial_with_limits(value, ExactAlgebraLimits::default())
-    }
-
-    fn validate_shift(&self, shift: &[i64]) -> Result<(), ParametricCoefficientError> {
         if shift.len() == self.index_count() {
             Ok(())
         } else {
@@ -1664,75 +1351,6 @@ fn integer_magnitude_bits(value: &Integer) -> u128 {
     }
 }
 
-pub(crate) fn insert_parametric_condition(
-    conditions: &mut Vec<ParametricNonZeroCondition>,
-    condition: ParametricNonZeroCondition,
-    max_guard_origins: usize,
-) -> Result<(), ParametricCoefficientError> {
-    if let Some(existing) = conditions
-        .iter_mut()
-        .find(|existing| existing.polynomial == condition.polynomial)
-    {
-        existing.merge_origins_from(&condition, max_guard_origins)
-    } else {
-        check_limit(
-            "parametric guard origins",
-            condition.origins.len(),
-            max_guard_origins,
-        )?;
-        conditions.push(condition);
-        Ok(())
-    }
-}
-
-pub(crate) fn insert_specialized_condition(
-    conditions: &mut Vec<SpecializedNonZeroCondition>,
-    condition: SpecializedNonZeroCondition,
-    max_guard_origins: usize,
-) -> Result<(), ParametricCoefficientError> {
-    if let Some(existing) = conditions
-        .iter_mut()
-        .find(|existing| existing.polynomial == condition.polynomial)
-    {
-        existing.merge_origins_from(&condition, max_guard_origins)
-    } else {
-        check_limit(
-            "specialized guard origins",
-            condition.origins.len(),
-            max_guard_origins,
-        )?;
-        conditions.push(condition);
-        Ok(())
-    }
-}
-
-fn collect_guard_origins_with_limit(
-    origins: impl IntoIterator<Item = GuardOrigin>,
-    max_guard_origins: usize,
-) -> Result<BTreeSet<GuardOrigin>, ParametricCoefficientError> {
-    let mut collected = BTreeSet::new();
-    for (position, origin) in origins.into_iter().enumerate() {
-        let requested =
-            position
-                .checked_add(1)
-                .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                    resource: "parametric guard origin inputs",
-                })?;
-        check_limit(
-            "parametric guard origin inputs",
-            requested,
-            max_guard_origins,
-        )?;
-        collected.insert(origin);
-    }
-    check_limit(
-        "parametric guard origins",
-        collected.len(),
-        max_guard_origins,
-    )?;
-    Ok(collected)
-}
-
 fn check_limit(
     resource: &'static str,
     requested: usize,
@@ -1787,59 +1405,6 @@ mod tests {
     }
 
     #[test]
-    fn specialized_nonzero_condition_rejects_empty_provenance() {
-        let base = CoefficientContext::new(["x"]);
-        let polynomial = BasePolynomial::try_from_raw(
-            base.parameter("x").unwrap().numerator.clone(),
-            &base,
-            ExactAlgebraLimits::default(),
-        )
-        .unwrap();
-        assert!(matches!(
-            SpecializedNonZeroCondition::from_base_polynomial(
-                polynomial,
-                Vec::<GuardOrigin>::new(),
-                1,
-            ),
-            Err(ParametricCoefficientError::MissingGuardOrigin)
-        ));
-    }
-
-    #[test]
-    fn translation_guard_origin_limit_precedes_polynomial_translation() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context =
-            ParametricCoefficientContext::try_new(&base, "translation-origin-preflight", 1)
-                .unwrap();
-        let polynomial = context
-            .numerator_condition(&context.index(0).unwrap())
-            .unwrap();
-        let condition = context
-            .nonzero_condition_with_origins_and_limits(
-                polynomial,
-                [GuardOrigin::ExplicitRelationCondition],
-                ExactAlgebraLimits::default(),
-            )
-            .unwrap();
-        let limits = ParametricArithmeticLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_polynomial_terms: 0,
-                ..ExactAlgebraLimits::default()
-            },
-            max_guard_origins: 1,
-            ..ParametricArithmeticLimits::default()
-        };
-        assert!(matches!(
-            context.translate_nonzero_condition(&condition, &[1], limits),
-            Err(ParametricCoefficientError::ResourceLimit {
-                resource: "parametric guard origins",
-                requested: 2,
-                limit: 1,
-            })
-        ));
-    }
-
-    #[test]
     fn lift_translate_and_specialize_preserve_authenticated_maps() {
         let base = CoefficientContext::new(["d", "m2"]);
         let context = ParametricCoefficientContext::try_new(&base, "translation", 2).unwrap();
@@ -1861,8 +1426,10 @@ mod tests {
             .unwrap();
         let expected = &base.integer(7) * &family_value;
         assert_eq!(specialized.value, expected);
-        assert_eq!(specialized.nonzero.len(), 1);
-        assert_eq!(specialized.nonzero[0].to_expression(), m2.to_expression());
+        assert_eq!(
+            specialized.denominator_nonzero.unwrap().to_expression(),
+            m2.to_expression()
+        );
     }
 
     #[test]
@@ -1884,8 +1451,8 @@ mod tests {
             .unwrap();
         assert_eq!(generic.value, base.one());
         assert!(
-            generic.nonzero.is_empty(),
-            "constant nonzero guards are tautologies"
+            generic.denominator_nonzero.is_none(),
+            "constant nonzero conditions are tautologies"
         );
         assert!(matches!(
             context.specialize(&fabricated, &[1], ParametricArithmeticLimits::default(),),

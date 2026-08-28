@@ -11,19 +11,21 @@ use crate::generic_family::{
     CoefficientLocation, ContractionMomentum, GenericFamilyError, IntegralFamily,
     ScalarProductCoordinate,
 };
+use crate::identity::{
+    IdentityConditionError, IdentityConditionSource, ParametricNonZeroCondition, RowId,
+};
 use crate::parametric_coefficient::{
-    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError,
+    ParametricCoefficient, ParametricCoefficientContext, ParametricCoefficientError,
 };
 use crate::parametric_relation::{
-    IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, ParametricRowId,
+    IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, RelationLimits,
 };
 
 /// Resource policy for coefficient translations used while constructing LI
 /// identities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ParametricIbpConfig {
-    pub arithmetic_limits: ParametricArithmeticLimits,
+    pub relation_limits: RelationLimits,
 }
 
 /// Typed failures from generic parametric IBP/LI generation.
@@ -63,6 +65,7 @@ pub enum ParametricIbpError {
         actual: usize,
     },
     CompletedSourceScopeMismatch,
+    IdentityCondition(IdentityConditionError),
     Coefficient(ParametricCoefficientError),
     Relation(ParametricRelationError),
     Family(GenericFamilyError),
@@ -120,6 +123,7 @@ impl fmt::Display for ParametricIbpError {
             ),
             Self::CompletedSourceScopeMismatch => formatter
                 .write_str("completed IBP source rows use a foreign family or coefficient context"),
+            Self::IdentityCondition(error) => error.fmt(formatter),
             Self::Coefficient(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
             Self::Family(error) => error.fmt(formatter),
@@ -132,6 +136,12 @@ impl std::error::Error for ParametricIbpError {}
 impl From<ParametricCoefficientError> for ParametricIbpError {
     fn from(value: ParametricCoefficientError) -> Self {
         Self::Coefficient(value)
+    }
+}
+
+impl From<IdentityConditionError> for ParametricIbpError {
+    fn from(value: IdentityConditionError) -> Self {
+        Self::IdentityCondition(value)
     }
 }
 
@@ -557,7 +567,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                     .add_with_limits(
                         &index,
                         &power_shift,
-                        self.config.arithmetic_limits.exact_algebra,
+                        self.config.relation_limits.arithmetic.exact_algebra,
                     )
                     .map_err(ParametricIbpError::from)
             })
@@ -599,7 +609,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         let contraction_index = ordinal / loops;
         let differentiated_loop = ordinal % loops;
         let contraction = self.family.contraction_momenta()[contraction_index];
-        let row_id = ParametricRowId::OrdinaryIbp {
+        let row_id = RowId::OrdinaryIbp {
             contraction_momentum: contraction_index,
             differentiated_loop,
         };
@@ -609,7 +619,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                 &self.context,
                 self.index_space.zero(),
                 dimension.clone(),
-                self.config.arithmetic_limits,
+                self.config.relation_limits,
             )?;
         }
 
@@ -633,7 +643,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                     loops,
                     externals: self.family.external_count(),
                 })?;
-        let mut row = self.empty_relation(ParametricRowId::OrdinaryIbp {
+        let mut row = self.empty_relation(RowId::OrdinaryIbp {
             contraction_momentum: contraction_index,
             differentiated_loop,
         })?;
@@ -759,7 +769,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         first_external: usize,
         second_external: usize,
     ) -> Result<ParametricRelation, ParametricIbpError> {
-        let row_id = ParametricRowId::LorentzInvariance {
+        let row_id = RowId::LorentzInvariance {
             first_external,
             second_external,
         };
@@ -847,16 +857,17 @@ impl<'family> ParametricIbpGenerator<'family> {
         let product = self.context.mul_with_limits(
             power,
             &derivative,
-            self.config.arithmetic_limits.exact_algebra,
+            self.config.relation_limits.arithmetic.exact_algebra,
         )?;
-        let coefficient = self
-            .context
-            .neg_with_limits(&product, self.config.arithmetic_limits.exact_algebra)?;
+        let coefficient = self.context.neg_with_limits(
+            &product,
+            self.config.relation_limits.arithmetic.exact_algebra,
+        )?;
         row.add_term_with_limits(
             &self.context,
             shift,
             coefficient,
-            self.config.arithmetic_limits,
+            self.config.relation_limits,
         )?;
         Ok(())
     }
@@ -869,7 +880,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         constant: &crate::algebra::Coefficient,
         denominator_coefficients: &[crate::algebra::Coefficient],
         negate: bool,
-        row_id: &ParametricRowId,
+        row_id: &RowId,
     ) -> Result<(), ParametricIbpError> {
         self.add_one_weighted_translation(
             target,
@@ -899,7 +910,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         translation: IndexShift,
         base_factor: &crate::algebra::Coefficient,
         negate: bool,
-        row_id: &ParametricRowId,
+        row_id: &RowId,
     ) -> Result<(), ParametricIbpError> {
         if base_factor.is_zero() {
             return Ok(());
@@ -908,27 +919,25 @@ impl<'family> ParametricIbpGenerator<'family> {
             &self.context,
             &translation,
             row_id.clone(),
-            self.config.arithmetic_limits,
+            self.config.relation_limits,
         )?;
         let mut factor = self.context.lift(base_factor)?;
         if negate {
-            factor = self
-                .context
-                .neg_with_limits(&factor, self.config.arithmetic_limits.exact_algebra)?;
+            factor = self.context.neg_with_limits(
+                &factor,
+                self.config.relation_limits.arithmetic.exact_algebra,
+            )?;
         }
         target.add_scaled_with_limits(
             &self.context,
             &translated,
             &factor,
-            self.config.arithmetic_limits,
+            self.config.relation_limits,
         )?;
         Ok(())
     }
 
-    fn empty_relation(
-        &self,
-        row_id: ParametricRowId,
-    ) -> Result<ParametricRelation, ParametricIbpError> {
+    fn empty_relation(&self, row_id: RowId) -> Result<ParametricRelation, ParametricIbpError> {
         let mut relation = ParametricRelation::new(
             self.source_scope.family_fingerprint.clone(),
             row_id,
@@ -939,22 +948,24 @@ impl<'family> ParametricIbpGenerator<'family> {
         // omitted by ParametricRelation.
         for condition in self.family.domain().conditions() {
             let lifted = self.context.lift_base_polynomial(condition.polynomial())?;
-            let origins = condition.sources().iter().cloned().map(|location| {
+            let sources = condition.sources().iter().cloned().map(|location| {
                 if location == CoefficientLocation::BasisDeterminantNumerator {
-                    crate::GuardOrigin::FamilyBasisDeterminantNumerator
+                    IdentityConditionSource::FamilyBasisDeterminantNumerator
                 } else {
-                    crate::GuardOrigin::FamilyInputCoefficientDenominator { location }
+                    IdentityConditionSource::FamilyInputCoefficientDenominator { location }
                 }
             });
-            let lifted = self.context.nonzero_condition_with_origins_and_limits(
-                lifted,
-                origins,
-                self.config.arithmetic_limits.exact_algebra,
-            )?;
-            relation.add_guarded_nonzero_condition_with_limits(
+            let lifted = ParametricNonZeroCondition::try_new_with_limits(
                 &self.context,
                 lifted,
-                self.config.arithmetic_limits,
+                sources,
+                self.config.relation_limits.arithmetic.exact_algebra,
+                self.config.relation_limits.identity_conditions,
+            )?;
+            relation.add_nonzero_condition_with_limits(
+                &self.context,
+                lifted,
+                self.config.relation_limits,
             )?;
         }
         Ok(relation)
@@ -1077,7 +1088,7 @@ mod tests {
             assert_eq!(generated.lorentz_invariance().len(), 1);
             assert_eq!(
                 generated.lorentz_invariance()[0].row_id(),
-                &ParametricRowId::LorentzInvariance {
+                &RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 1,
                 }
@@ -1099,7 +1110,7 @@ mod tests {
             assert_eq!(row.arity(), 21);
             assert_eq!(
                 row.row_id(),
-                &ParametricRowId::OrdinaryIbp {
+                &RowId::OrdinaryIbp {
                     contraction_momentum: ordinal / 6,
                     differentiated_loop: ordinal % 6,
                 }
@@ -1144,17 +1155,13 @@ mod tests {
         assert!(generated.lorentz_invariance().is_empty());
         assert_eq!(
             generated.ordinary_ibp()[0].row_id(),
-            &ParametricRowId::OrdinaryIbp {
+            &RowId::OrdinaryIbp {
                 contraction_momentum: 0,
                 differentiated_loop: 0,
             }
         );
         let concrete = generated.ordinary_ibp()[0]
-            .specialize(
-                generated.context(),
-                &[3],
-                ParametricArithmeticLimits::default(),
-            )
+            .specialize(generated.context(), &[3], RelationLimits::default())
             .unwrap();
         assert_eq!(concrete.terms().len(), 2);
         let shifted_power = &base.integer(3) + &nu;
@@ -1167,11 +1174,7 @@ mod tests {
         // still present in the coefficient at n=0.  Raw generation must not
         // use the concrete zero-index shortcut of the legacy vacuum code.
         let at_zero = generated.ordinary_ibp()[0]
-            .specialize(
-                generated.context(),
-                &[0],
-                ParametricArithmeticLimits::default(),
-            )
+            .specialize(generated.context(), &[0], RelationLimits::default())
             .unwrap();
         assert_eq!(at_zero.terms().len(), 2);
         assert_coefficient_eq(
@@ -1216,17 +1219,13 @@ mod tests {
         assert_eq!(generated.lorentz_invariance().len(), 1);
         assert_eq!(
             generated.lorentz_invariance()[0].row_id(),
-            &ParametricRowId::LorentzInvariance {
+            &RowId::LorentzInvariance {
                 first_external: 0,
                 second_external: 1,
             }
         );
         let concrete = generated.lorentz_invariance()[0]
-            .specialize(
-                generated.context(),
-                &[2, 3, 4],
-                ParametricArithmeticLimits::default(),
-            )
+            .specialize(generated.context(), &[2, 3, 4], RelationLimits::default())
             .unwrap();
         assert_eq!(concrete.terms().len(), 4);
         let n1 = &base.integer(3) + &nu1;
@@ -1329,43 +1328,43 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 0,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 0,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 1,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 1,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 2,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 2,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 3,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 3,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 4,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 4,
                     differentiated_loop: 1,
                 },
@@ -1378,15 +1377,15 @@ mod tests {
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
             vec![
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 1,
                 },
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 2,
                 },
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 1,
                     second_external: 2,
                 },
@@ -1504,27 +1503,27 @@ mod tests {
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
             vec![
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 2,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 2,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 3,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 3,
                     differentiated_loop: 1,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 4,
                     differentiated_loop: 0,
                 },
-                ParametricRowId::OrdinaryIbp {
+                RowId::OrdinaryIbp {
                     contraction_momentum: 4,
                     differentiated_loop: 1,
                 },
@@ -1541,15 +1540,15 @@ mod tests {
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
             vec![
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 1,
                 },
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 2,
                 },
-                ParametricRowId::LorentzInvariance {
+                RowId::LorentzInvariance {
                     first_external: 1,
                     second_external: 2,
                 },
@@ -1558,10 +1557,10 @@ mod tests {
     }
 
     #[test]
-    fn every_row_inherits_input_and_determinant_domain_guards() {
+    fn every_row_inherits_input_and_determinant_domain_conditions() {
         let base = CoefficientContext::new(["d", "a", "b", "s", "g"]);
         let family = IntegralFamily::new(
-            "guarded-one-loop-one-leg",
+            "conditioned-one-loop-one-leg",
             vec!["k".into()],
             vec!["p".into()],
             base.clone(),
@@ -1602,25 +1601,30 @@ mod tests {
             .unwrap();
         assert_eq!(generated.ordinary_ibp().len(), 2);
         assert!(generated.ordinary_ibp().iter().all(|row| {
-            row.nonzero_conditions().contains(&determinant)
-                && row.nonzero_conditions().contains(&input_denominator)
+            row.nonzero_conditions()
+                .iter()
+                .any(|condition| condition.polynomial() == &determinant)
+                && row
+                    .nonzero_conditions()
+                    .iter()
+                    .any(|condition| condition.polynomial() == &input_denominator)
         }));
         assert!(generated.ordinary_ibp().iter().all(|row| {
-            let determinant_guard = row
-                .guarded_nonzero_conditions()
+            let determinant_condition = row
+                .nonzero_conditions()
                 .iter()
                 .find(|condition| condition.polynomial() == &determinant)
                 .unwrap();
-            let input_guard = row
-                .guarded_nonzero_conditions()
+            let input_condition = row
+                .nonzero_conditions()
                 .iter()
                 .find(|condition| condition.polynomial() == &input_denominator)
                 .unwrap();
-            determinant_guard
-                .origins()
-                .contains(&crate::GuardOrigin::FamilyBasisDeterminantNumerator)
-                && input_guard.origins().contains(
-                    &crate::GuardOrigin::FamilyInputCoefficientDenominator {
+            determinant_condition
+                .sources()
+                .contains(&IdentityConditionSource::FamilyBasisDeterminantNumerator)
+                && input_condition.sources().contains(
+                    &IdentityConditionSource::FamilyInputCoefficientDenominator {
                         location: crate::CoefficientLocation::DenominatorCoefficient {
                             denominator: 0,
                             coordinate: 0,

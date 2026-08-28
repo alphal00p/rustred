@@ -6,7 +6,7 @@ use crate::application::error::AppError;
 use crate::application::model::MetadataValue;
 use crate::application::options::RelationSelection;
 
-use super::model::{DeriveOutputV1, FamilyConditionOutputV1, RelationConditionOutputV1};
+use super::model::{ConditionOutputV1, DeriveOutputV1};
 
 const MAX_DERIVATION_TERM_ATTEMPTS: usize = 2_000_000;
 const PAYLOAD_NODE_BYTES: usize = 4_096;
@@ -285,12 +285,12 @@ pub(super) fn preflight_generated_relations<'a>(
                 INTEGER_STRUCTURAL_BYTES,
             )?;
         }
-        for condition in relation.guarded_nonzero_conditions() {
+        for condition in relation.nonzero_conditions() {
             census.nonzero_conditions = checked_census_add(census.nonzero_conditions, 1)?;
             census.condition_sources =
-                checked_census_add(census.condition_sources, condition.origins().len())?;
+                checked_census_add(census.condition_sources, condition.sources().len())?;
             let source_bytes = condition
-                .origins()
+                .sources()
                 .len()
                 .checked_mul(PAYLOAD_NODE_BYTES)
                 .ok_or_else(derivation_bound_overflow)?;
@@ -518,7 +518,7 @@ pub(super) fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), AppE
         add_node(&[&gram.left, &gram.right, &gram.value], 2)?;
     }
     for condition in &output.domain_conditions {
-        add_family_condition_bound(condition, &mut add_node)?;
+        add_condition_bound(condition, &mut add_node)?;
     }
     for relation in &output.relations {
         add_node(
@@ -533,30 +533,19 @@ pub(super) fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), AppE
             add_node(&[&term.coefficient], term.shift.len())?;
         }
         for condition in &relation.nonzero_conditions {
-            add_relation_condition_bound(condition, &mut add_node)?;
+            add_condition_bound(condition, &mut add_node)?;
         }
     }
     Ok(())
 }
 
-fn add_family_condition_bound(
-    condition: &FamilyConditionOutputV1,
+fn add_condition_bound(
+    condition: &ConditionOutputV1,
     add_node: &mut impl FnMut(&[&str], usize) -> Result<(), AppError>,
 ) -> Result<(), AppError> {
     add_node(&[&condition.expression], 0)?;
     for source in &condition.sources {
         add_node(&[source], 0)?;
-    }
-    Ok(())
-}
-
-fn add_relation_condition_bound(
-    condition: &RelationConditionOutputV1,
-    add_node: &mut impl FnMut(&[&str], usize) -> Result<(), AppError>,
-) -> Result<(), AppError> {
-    add_node(&[&condition.expression], 0)?;
-    for origin in &condition.origins {
-        add_node(&[origin], 0)?;
     }
     Ok(())
 }

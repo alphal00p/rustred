@@ -821,7 +821,7 @@ impl ZeroSectorAnalyzer {
         }
         if certificate.domain != self.domain {
             return Err(ZeroSectorError::CertificateReplayFailure {
-                detail: "generic-domain guards changed".to_owned(),
+                detail: "generic-domain conditions changed".to_owned(),
             });
         }
         let matrix = self.exponent_matrix(&certificate.effective_sector)?;

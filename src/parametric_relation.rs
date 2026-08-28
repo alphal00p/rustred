@@ -4,13 +4,23 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::parametric_coefficient::{insert_parametric_condition, insert_specialized_condition};
-use crate::{
-    BasePolynomial, GuardOrigin, GuardRowId, ParametricArithmeticLimits, ParametricCoefficient,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricNonZeroCondition,
-    ParametricPolynomial, SpecializedNonZeroCondition,
+use crate::identity::{
+    IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
+    ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition, insert_parametric_condition,
+    insert_specialized_condition, specialize_coefficient_with_condition,
+};
+use crate::parametric_coefficient::{
+    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
+    ParametricCoefficientError, ParametricPolynomial,
 };
 use crate::{algebra::Coefficient, algebra::CoefficientContext};
+
+/// Complete arithmetic and identity-condition policy for relation operations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RelationLimits {
+    pub arithmetic: ParametricArithmeticLimits,
+    pub identity_conditions: IdentityConditionLimits,
+}
 
 /// A checked displacement in one family's integral-index lattice.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -149,86 +159,22 @@ impl IndexSpace {
     }
 }
 
-/// Stable source identity of a generated relation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ParametricRowId {
-    OrdinaryIbp {
-        /// Loops first, then external momenta.
-        contraction_momentum: usize,
-        differentiated_loop: usize,
-    },
-    LorentzInvariance {
-        first_external: usize,
-        second_external: usize,
-    },
-    Derived {
-        label: Arc<str>,
-    },
-}
-
-impl ParametricRowId {
-    pub fn guard_identity(&self) -> GuardRowId {
-        match self {
-            Self::OrdinaryIbp {
-                contraction_momentum,
-                differentiated_loop,
-            } => GuardRowId::OrdinaryIbp {
-                contraction_momentum: *contraction_momentum,
-                differentiated_loop: *differentiated_loop,
-            },
-            Self::LorentzInvariance {
-                first_external,
-                second_external,
-            } => GuardRowId::LorentzInvariance {
-                first_external: *first_external,
-                second_external: *second_external,
-            },
-            Self::Derived { label } => GuardRowId::Derived {
-                label: label.clone(),
-            },
-        }
-    }
-
-    /// Version-stable identity used in user-facing output and proof payloads.
-    pub fn stable_string(&self) -> String {
-        self.guard_identity().stable_string()
-    }
-}
-
 /// A raw parametric zero equation together with every condition inherited
 /// before fraction-field cancellation.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParametricRelation {
     family_fingerprint: Arc<str>,
     context_fingerprint: Arc<str>,
-    row_id: ParametricRowId,
+    row_id: RowId,
     arity: usize,
     terms: BTreeMap<IndexShift, ParametricCoefficient>,
-    // Compatibility polynomial-only view.  `guarded_nonzero` is canonical.
-    nonzero: Vec<ParametricPolynomial>,
-    guarded_nonzero: Vec<ParametricNonZeroCondition>,
+    nonzero_conditions: Vec<ParametricNonZeroCondition>,
 }
-
-// Preserve the pre-provenance meaning of relation equality.  Provenance is
-// auditable through `guarded_nonzero_conditions`, but adapter history does not
-// change the mathematical sparse relation or its exceptional polynomial set.
-impl PartialEq for ParametricRelation {
-    fn eq(&self, other: &Self) -> bool {
-        self.family_fingerprint == other.family_fingerprint
-            && self.context_fingerprint == other.context_fingerprint
-            && self.row_id == other.row_id
-            && self.arity == other.arity
-            && self.terms == other.terms
-            && self.nonzero == other.nonzero
-    }
-}
-
-impl Eq for ParametricRelation {}
 
 impl ParametricRelation {
     pub fn new(
         family_fingerprint: impl Into<Arc<str>>,
-        row_id: ParametricRowId,
+        row_id: RowId,
         context: &ParametricCoefficientContext,
     ) -> Self {
         Self {
@@ -237,8 +183,7 @@ impl ParametricRelation {
             row_id,
             arity: context.index_count(),
             terms: BTreeMap::new(),
-            nonzero: Vec::new(),
-            guarded_nonzero: Vec::new(),
+            nonzero_conditions: Vec::new(),
         }
     }
 
@@ -255,7 +200,7 @@ impl ParametricRelation {
         &self.context_fingerprint
     }
 
-    pub fn row_id(&self) -> &ParametricRowId {
+    pub fn row_id(&self) -> &RowId {
         &self.row_id
     }
 
@@ -267,99 +212,78 @@ impl ParametricRelation {
         &self.terms
     }
 
-    pub fn nonzero_conditions(&self) -> &[ParametricPolynomial] {
-        &self.nonzero
-    }
-
-    pub fn guarded_nonzero_conditions(&self) -> &[ParametricNonZeroCondition] {
-        &self.guarded_nonzero
-    }
-
-    /// Compare both mathematical relation content and complete guard history.
-    /// Ordinary `PartialEq` intentionally preserves the legacy mathematical
-    /// equality semantics and does not compare adapter-history atoms.
-    pub fn has_identical_guard_provenance(&self, other: &Self) -> bool {
-        self == other && self.guarded_nonzero == other.guarded_nonzero
+    pub fn nonzero_conditions(&self) -> &[ParametricNonZeroCondition] {
+        &self.nonzero_conditions
     }
 
     pub fn is_zero(&self) -> bool {
         self.terms.is_empty()
     }
 
-    pub fn add_nonzero_condition(
+    pub fn add_explicit_nonzero_condition(
         &mut self,
         context: &ParametricCoefficientContext,
         condition: ParametricPolynomial,
     ) -> Result<(), ParametricRelationError> {
-        self.add_nonzero_condition_with_limits(
+        self.add_explicit_nonzero_condition_with_limits(
             context,
             condition,
-            ParametricArithmeticLimits::default(),
+            RelationLimits::default(),
         )
+    }
+
+    pub fn add_explicit_nonzero_condition_with_limits(
+        &mut self,
+        context: &ParametricCoefficientContext,
+        condition: ParametricPolynomial,
+        limits: RelationLimits,
+    ) -> Result<(), ParametricRelationError> {
+        let condition = ParametricNonZeroCondition::try_new_with_limits(
+            context,
+            condition,
+            [IdentityConditionSource::ExplicitRelationCondition],
+            limits.arithmetic.exact_algebra,
+            limits.identity_conditions,
+        )?;
+        self.add_nonzero_condition_with_limits(context, condition, limits)
+    }
+
+    pub fn add_nonzero_condition(
+        &mut self,
+        context: &ParametricCoefficientContext,
+        condition: ParametricNonZeroCondition,
+    ) -> Result<(), ParametricRelationError> {
+        self.add_nonzero_condition_with_limits(context, condition, RelationLimits::default())
     }
 
     pub fn add_nonzero_condition_with_limits(
         &mut self,
         context: &ParametricCoefficientContext,
-        condition: ParametricPolynomial,
-        limits: ParametricArithmeticLimits,
-    ) -> Result<(), ParametricRelationError> {
-        let condition = context.nonzero_condition_with_origins_and_limits(
-            condition,
-            [GuardOrigin::ExplicitRelationCondition],
-            limits.exact_algebra,
-        )?;
-        self.add_guarded_nonzero_condition_with_limits(context, condition, limits)
-    }
-
-    pub fn add_guarded_nonzero_condition(
-        &mut self,
-        context: &ParametricCoefficientContext,
-        condition: ParametricNonZeroCondition,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_guarded_nonzero_condition_with_limits(
-            context,
-            condition,
-            ParametricArithmeticLimits::default(),
-        )
-    }
-
-    pub fn add_guarded_nonzero_condition_with_limits(
-        &mut self,
-        context: &ParametricCoefficientContext,
         mut condition: ParametricNonZeroCondition,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         self.validate_context(context)?;
-        if !context.contains_nonzero_condition(&condition) {
-            return Err(ParametricRelationError::WrongContext);
-        }
-        context.validate_polynomial_with_limits(condition.polynomial(), limits.exact_algebra)?;
+        context.validate_polynomial_with_limits(
+            condition.polynomial(),
+            limits.arithmetic.exact_algebra,
+        )?;
         if condition.polynomial().is_zero() {
             return Err(ParametricRelationError::UnsatisfiableDomain);
         }
         if condition.polynomial().is_nonzero_constant() {
             return Ok(());
         }
-        condition.add_origin_with_limit(
-            GuardOrigin::RelationConditionAttached {
-                row: self.row_id.guard_identity(),
+        condition.add_source(
+            IdentityConditionSource::RelationConditionAttached {
+                row: self.row_id.clone(),
             },
-            limits.max_guard_origins,
+            limits.identity_conditions,
         )?;
-        let is_new = !self
-            .guarded_nonzero
-            .iter()
-            .any(|existing| existing.polynomial() == condition.polynomial());
-        let polynomial = condition.polynomial().clone();
         insert_parametric_condition(
-            &mut self.guarded_nonzero,
+            &mut self.nonzero_conditions,
             condition,
-            limits.max_guard_origins,
+            limits.identity_conditions,
         )?;
-        if is_new {
-            self.nonzero.push(polynomial);
-        }
         Ok(())
     }
 
@@ -369,12 +293,7 @@ impl ParametricRelation {
         shift: IndexShift,
         coefficient: ParametricCoefficient,
     ) -> Result<(), ParametricRelationError> {
-        self.add_term_with_limits(
-            context,
-            shift,
-            coefficient,
-            ParametricArithmeticLimits::default(),
-        )
+        self.add_term_with_limits(context, shift, coefficient, RelationLimits::default())
     }
 
     pub fn add_term_with_limits(
@@ -382,7 +301,7 @@ impl ParametricRelation {
         context: &ParametricCoefficientContext,
         shift: IndexShift,
         coefficient: ParametricCoefficient,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         let mut staged = self.clone();
         staged.add_term_in_place(context, shift, coefficient, limits)?;
@@ -393,53 +312,58 @@ impl ParametricRelation {
     /// Apply one term insertion to an isolated relation snapshot.
     ///
     /// The public entry point clones before calling this helper because the
-    /// input-denominator guard is discovered before coefficient collection.
-    /// A later exact-arithmetic failure must not leave that guard committed to
+    /// input-denominator condition is discovered before coefficient collection.
+    /// A later exact-arithmetic failure must not leave that condition committed to
     /// an otherwise unchanged relation.
     fn add_term_in_place(
         &mut self,
         context: &ParametricCoefficientContext,
         shift: IndexShift,
         coefficient: ParametricCoefficient,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         self.validate_context(context)?;
         self.validate_shift(&shift)?;
-        context.validate_with_limits(&coefficient, limits.exact_algebra)?;
+        context.validate_with_limits(&coefficient, limits.arithmetic.exact_algebra)?;
 
         // Inspect the incoming fraction before testing whether its numerator
         // is zero.  This preserves a deliberately unnormalized `0 / p` as a
         // domain-bearing zero term.
-        let denominator =
-            context.denominator_condition_with_limits(&coefficient, limits.exact_algebra)?;
-        let condition = context.nonzero_condition_with_origins_and_limits(
+        let denominator = context
+            .denominator_condition_with_limits(&coefficient, limits.arithmetic.exact_algebra)?;
+        let condition = ParametricNonZeroCondition::try_new_with_limits(
+            context,
             denominator,
-            [GuardOrigin::RelationInputTermDenominator {
-                row: self.row_id.guard_identity(),
+            [IdentityConditionSource::RelationInputTermDenominator {
+                row: self.row_id.clone(),
                 shift: shift.values().to_vec().into_boxed_slice(),
             }],
-            limits.exact_algebra,
+            limits.arithmetic.exact_algebra,
+            limits.identity_conditions,
         )?;
-        self.add_guarded_nonzero_condition_with_limits(context, condition, limits)?;
+        self.add_nonzero_condition_with_limits(context, condition, limits)?;
         if coefficient.is_zero() {
             return Ok(());
         }
         if let Some(current) = self.terms.get(&shift) {
-            let sum = context.add_with_limits(current, &coefficient, limits.exact_algebra)?;
+            let sum =
+                context.add_with_limits(current, &coefficient, limits.arithmetic.exact_algebra)?;
             if sum.is_zero() {
                 self.terms.remove(&shift);
             } else {
-                let denominator =
-                    context.denominator_condition_with_limits(&sum, limits.exact_algebra)?;
-                let condition = context.nonzero_condition_with_origins_and_limits(
+                let denominator = context
+                    .denominator_condition_with_limits(&sum, limits.arithmetic.exact_algebra)?;
+                let condition = ParametricNonZeroCondition::try_new_with_limits(
+                    context,
                     denominator,
-                    [GuardOrigin::RelationCollectedTermDenominator {
-                        row: self.row_id.guard_identity(),
+                    [IdentityConditionSource::RelationCollectedTermDenominator {
+                        row: self.row_id.clone(),
                         shift: shift.values().to_vec().into_boxed_slice(),
                     }],
-                    limits.exact_algebra,
+                    limits.arithmetic.exact_algebra,
+                    limits.identity_conditions,
                 )?;
-                self.add_guarded_nonzero_condition_with_limits(context, condition, limits)?;
+                self.add_nonzero_condition_with_limits(context, condition, limits)?;
                 self.terms.insert(shift, sum);
             }
         } else {
@@ -454,12 +378,7 @@ impl ParametricRelation {
         other: &Self,
         factor: &ParametricCoefficient,
     ) -> Result<(), ParametricRelationError> {
-        self.add_scaled_with_limits(
-            context,
-            other,
-            factor,
-            ParametricArithmeticLimits::default(),
-        )
+        self.add_scaled_with_limits(context, other, factor, RelationLimits::default())
     }
 
     pub fn add_scaled_with_limits(
@@ -467,7 +386,7 @@ impl ParametricRelation {
         context: &ParametricCoefficientContext,
         other: &Self,
         factor: &ParametricCoefficient,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         let mut staged = self.clone();
         staged.add_scaled_in_place(context, other, factor, limits)?;
@@ -481,26 +400,29 @@ impl ParametricRelation {
         context: &ParametricCoefficientContext,
         other: &Self,
         factor: &ParametricCoefficient,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         self.validate_compatible(other, context)?;
-        context.validate_with_limits(factor, limits.exact_algebra)?;
-        for condition in &other.guarded_nonzero {
-            self.add_guarded_nonzero_condition_with_limits(context, condition.clone(), limits)?;
+        context.validate_with_limits(factor, limits.arithmetic.exact_algebra)?;
+        for condition in &other.nonzero_conditions {
+            self.add_nonzero_condition_with_limits(context, condition.clone(), limits)?;
         }
         let factor_denominator =
-            context.denominator_condition_with_limits(factor, limits.exact_algebra)?;
-        let factor_condition = context.nonzero_condition_with_origins_and_limits(
+            context.denominator_condition_with_limits(factor, limits.arithmetic.exact_algebra)?;
+        let factor_condition = ParametricNonZeroCondition::try_new_with_limits(
+            context,
             factor_denominator,
-            [GuardOrigin::RelationScaleFactorDenominator {
-                target_row: self.row_id.guard_identity(),
-                source_row: other.row_id.guard_identity(),
+            [IdentityConditionSource::RelationScaleFactorDenominator {
+                target_row: self.row_id.clone(),
+                source_row: other.row_id.clone(),
             }],
-            limits.exact_algebra,
+            limits.arithmetic.exact_algebra,
+            limits.identity_conditions,
         )?;
-        self.add_guarded_nonzero_condition_with_limits(context, factor_condition, limits)?;
+        self.add_nonzero_condition_with_limits(context, factor_condition, limits)?;
         for (shift, coefficient) in &other.terms {
-            let scaled = context.mul_with_limits(coefficient, factor, limits.exact_algebra)?;
+            let scaled =
+                context.mul_with_limits(coefficient, factor, limits.arithmetic.exact_algebra)?;
             self.add_term_in_place(context, shift.clone(), scaled, limits)?;
         }
         Ok(())
@@ -510,34 +432,38 @@ impl ParametricRelation {
         &self,
         context: &ParametricCoefficientContext,
         translation: &IndexShift,
-        row_id: ParametricRowId,
-        limits: ParametricArithmeticLimits,
+        row_id: RowId,
+        limits: RelationLimits,
     ) -> Result<Self, ParametricRelationError> {
         self.validate_context(context)?;
         self.validate_shift(translation)?;
-        let target_row = row_id.guard_identity();
-        let source_row = self.row_id.guard_identity();
+        let target_row = row_id.clone();
+        let source_row = self.row_id.clone();
         let mut result = Self::new(self.family_fingerprint.clone(), row_id, context);
-        for condition in &self.guarded_nonzero {
-            let mut translated =
-                context.translate_nonzero_condition(condition, translation.values(), limits)?;
-            translated.add_origin_with_limit(
-                GuardOrigin::RelationTranslation {
+        for condition in &self.nonzero_conditions {
+            let mut translated = condition.translated(
+                context,
+                translation.values(),
+                limits.arithmetic,
+                limits.identity_conditions,
+            )?;
+            translated.add_source(
+                IdentityConditionSource::RelationTranslation {
                     source_row: source_row.clone(),
                     target_row: target_row.clone(),
                     offset: translation.values().to_vec().into_boxed_slice(),
                 },
-                limits.max_guard_origins,
+                limits.identity_conditions,
             )?;
-            result.add_guarded_nonzero_condition_with_limits(context, translated, limits)?;
+            result.add_nonzero_condition_with_limits(context, translated, limits)?;
         }
         for (shift, coefficient) in &self.terms {
             let translated_shift = shift.checked_add(translation)?;
             let translated_coefficient =
-                context.translate(coefficient, translation.values(), limits)?;
+                context.translate(coefficient, translation.values(), limits.arithmetic)?;
             // `result` is an isolated, not-yet-published relation.  Use the
             // transactional helper directly so translating many terms does
-            // not deep-clone every previously retained guard and origin on
+            // not deep-clone every previously retained condition and source on
             // each insertion; any error still drops the complete local row.
             result.add_term_in_place(context, translated_shift, translated_coefficient, limits)?;
         }
@@ -548,7 +474,7 @@ impl ParametricRelation {
         &self,
         context: &ParametricCoefficientContext,
         assignment: &[i64],
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<ConcreteRelation, ParametricRelationError> {
         self.validate_context(context)?;
         if assignment.len() != self.arity {
@@ -562,31 +488,42 @@ impl ParametricRelation {
             row_id: self.row_id.clone(),
             arity: self.arity,
             terms: BTreeMap::new(),
-            nonzero: Vec::new(),
-            guarded_nonzero: Vec::new(),
+            nonzero_conditions: Vec::new(),
         };
-        for condition in &self.guarded_nonzero {
-            specialize_borrowed_nonzero_condition(
-                &mut result,
+        for condition in &self.nonzero_conditions {
+            let specialized = match condition.specialized(
                 context,
-                condition,
                 assignment,
-                limits,
-            )?;
+                limits.arithmetic,
+                limits.identity_conditions,
+            ) {
+                Ok(specialized) => specialized,
+                Err(IdentityConditionError::ZeroPolynomial) => {
+                    return Err(ParametricRelationError::UnsatisfiableDomain);
+                }
+                Err(error) => return Err(error.into()),
+            };
+            result.add_nonzero_condition(context.base(), specialized, limits)?;
         }
         for (shift, coefficient) in &self.terms {
-            let specialized = context.specialize(coefficient, assignment, limits)?;
-            for condition in specialized.guarded_nonzero_conditions() {
-                result.add_guarded_nonzero(context.base(), condition.clone(), limits)?;
+            let (value, denominator_condition) = specialize_coefficient_with_condition(
+                context,
+                coefficient,
+                assignment,
+                limits.arithmetic,
+                limits.identity_conditions,
+            )?;
+            if let Some(condition) = denominator_condition {
+                result.add_nonzero_condition(context.base(), condition, limits)?;
             }
             // A symbolic term may vanish at this assignment. In that case its
             // integral key is absent, so an overflowing assignment-plus-shift
             // cannot reject the specialization.
-            if specialized.value.is_zero() {
+            if value.is_zero() {
                 continue;
             }
             let key = ConcreteIntegralKey::checked_from_assignment(assignment, shift)?;
-            result.add_term(context.base(), key, specialized.value, limits)?;
+            result.add_term(context.base(), key, value, limits)?;
         }
         Ok(result)
     }
@@ -628,20 +565,6 @@ impl ParametricRelation {
             Err(ParametricRelationError::WrongFamily)
         }
     }
-}
-
-fn specialize_borrowed_nonzero_condition(
-    result: &mut ConcreteRelation,
-    context: &ParametricCoefficientContext,
-    condition: &ParametricNonZeroCondition,
-    assignment: &[i64],
-    limits: ParametricArithmeticLimits,
-) -> Result<(), ParametricRelationError> {
-    let specialized = context.specialize_nonzero_condition(condition, assignment, limits)?;
-    if specialized.polynomial().is_zero() {
-        return Err(ParametricRelationError::UnsatisfiableDomain);
-    }
-    result.add_guarded_nonzero(context.base(), specialized, limits)
 }
 
 fn relation_checked_add(
@@ -711,35 +634,21 @@ impl ConcreteIntegralKey {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConcreteRelation {
     family_fingerprint: Arc<str>,
-    row_id: ParametricRowId,
+    row_id: RowId,
     arity: usize,
     terms: BTreeMap<ConcreteIntegralKey, Coefficient>,
-    // Compatibility polynomial-only view. `guarded_nonzero` is canonical.
-    nonzero: Vec<BasePolynomial>,
-    guarded_nonzero: Vec<SpecializedNonZeroCondition>,
+    nonzero_conditions: Vec<SpecializedNonZeroCondition>,
 }
-
-impl PartialEq for ConcreteRelation {
-    fn eq(&self, other: &Self) -> bool {
-        self.family_fingerprint == other.family_fingerprint
-            && self.row_id == other.row_id
-            && self.arity == other.arity
-            && self.terms == other.terms
-            && self.nonzero == other.nonzero
-    }
-}
-
-impl Eq for ConcreteRelation {}
 
 impl ConcreteRelation {
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint
     }
 
-    pub fn row_id(&self) -> &ParametricRowId {
+    pub fn row_id(&self) -> &RowId {
         &self.row_id
     }
 
@@ -747,23 +656,15 @@ impl ConcreteRelation {
         &self.terms
     }
 
-    pub fn nonzero_conditions(&self) -> &[BasePolynomial] {
-        &self.nonzero
+    pub fn nonzero_conditions(&self) -> &[SpecializedNonZeroCondition] {
+        &self.nonzero_conditions
     }
 
-    pub fn guarded_nonzero_conditions(&self) -> &[SpecializedNonZeroCondition] {
-        &self.guarded_nonzero
-    }
-
-    pub fn has_identical_guard_provenance(&self, other: &Self) -> bool {
-        self == other && self.guarded_nonzero == other.guarded_nonzero
-    }
-
-    fn add_guarded_nonzero(
+    fn add_nonzero_condition(
         &mut self,
         context: &CoefficientContext,
         mut condition: SpecializedNonZeroCondition,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         if !context.contains(&condition.polynomial().raw().clone().into()) {
             return Err(ParametricRelationError::WrongContext);
@@ -774,25 +675,17 @@ impl ConcreteRelation {
         if condition.polynomial().is_nonzero_constant() {
             return Ok(());
         }
-        condition.add_origin_with_limit(
-            GuardOrigin::RelationConditionAttached {
-                row: self.row_id.guard_identity(),
+        condition.add_source(
+            IdentityConditionSource::RelationConditionAttached {
+                row: self.row_id.clone(),
             },
-            limits.max_guard_origins,
+            limits.identity_conditions,
         )?;
-        let is_new = !self
-            .guarded_nonzero
-            .iter()
-            .any(|existing| existing.polynomial() == condition.polynomial());
-        let polynomial = condition.polynomial().clone();
         insert_specialized_condition(
-            &mut self.guarded_nonzero,
+            &mut self.nonzero_conditions,
             condition,
-            limits.max_guard_origins,
+            limits.identity_conditions,
         )?;
-        if is_new {
-            self.nonzero.push(polynomial);
-        }
         Ok(())
     }
 
@@ -801,7 +694,7 @@ impl ConcreteRelation {
         context: &CoefficientContext,
         key: ConcreteIntegralKey,
         coefficient: Coefficient,
-        limits: ParametricArithmeticLimits,
+        limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         if key.powers().len() != self.arity {
             return Err(ParametricRelationError::WrongArity {
@@ -817,7 +710,7 @@ impl ConcreteRelation {
         }
         if let Some(current) = self.terms.get(&key) {
             let sum = context
-                .try_add(current, &coefficient, limits.exact_algebra)
+                .try_add(current, &coefficient, limits.arithmetic.exact_algebra)
                 .map_err(crate::ParametricCoefficientError::from)?;
             if sum.is_zero() {
                 self.terms.remove(&key);
@@ -855,6 +748,7 @@ pub enum ParametricRelationError {
         resource: &'static str,
         requested: usize,
     },
+    IdentityCondition(IdentityConditionError),
     Coefficient(ParametricCoefficientError),
 }
 
@@ -876,9 +770,8 @@ impl fmt::Display for ParametricRelationError {
             }
             Self::WrongContext => formatter.write_str("relation and coefficient contexts differ"),
             Self::WrongFamily => formatter.write_str("relations belong to different families"),
-            Self::UnsatisfiableDomain => {
-                formatter.write_str("relation domain contains an identically zero nonzero guard")
-            }
+            Self::UnsatisfiableDomain => formatter
+                .write_str("relation domain contains an identically zero nonzero condition"),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
@@ -889,6 +782,7 @@ impl fmt::Display for ParametricRelationError {
                 formatter,
                 "could not reserve {requested} units for {resource}"
             ),
+            Self::IdentityCondition(error) => error.fmt(formatter),
             Self::Coefficient(error) => error.fmt(formatter),
         }
     }
@@ -899,6 +793,12 @@ impl std::error::Error for ParametricRelationError {}
 impl From<ParametricCoefficientError> for ParametricRelationError {
     fn from(value: ParametricCoefficientError) -> Self {
         Self::Coefficient(value)
+    }
+}
+
+impl From<IdentityConditionError> for ParametricRelationError {
+    fn from(value: IdentityConditionError) -> Self {
+        Self::IdentityCondition(value)
     }
 }
 
@@ -914,7 +814,7 @@ mod tests {
         let space = IndexSpace::try_new(2).unwrap();
         let mut relation = ParametricRelation::new(
             "family",
-            ParametricRowId::Derived {
+            RowId::Derived {
                 label: "source".into(),
             },
             &context,
@@ -927,14 +827,14 @@ mod tests {
             .translated(
                 &context,
                 &translation,
-                ParametricRowId::Derived {
+                RowId::Derived {
                     label: "translated".into(),
                 },
-                ParametricArithmeticLimits::default(),
+                RelationLimits::default(),
             )
             .unwrap();
         let concrete = translated
-            .specialize(&context, &[3, 7], ParametricArithmeticLimits::default())
+            .specialize(&context, &[3, 7], RelationLimits::default())
             .unwrap();
         let (key, coefficient) = concrete.terms().first_key_value().unwrap();
         assert_eq!(key.powers(), &[5, 6]);
@@ -948,7 +848,7 @@ mod tests {
         let space = IndexSpace::try_new(2).unwrap();
         let mut source = ParametricRelation::new(
             "family",
-            ParametricRowId::Derived {
+            RowId::Derived {
                 label: "source".into(),
             },
             &context,
@@ -967,23 +867,23 @@ mod tests {
             .translated(
                 &context,
                 &s,
-                ParametricRowId::Derived { label: "s".into() },
-                ParametricArithmeticLimits::default(),
+                RowId::Derived { label: "s".into() },
+                RelationLimits::default(),
             )
             .unwrap()
             .translated(
                 &context,
                 &t,
-                ParametricRowId::Derived { label: "st".into() },
-                ParametricArithmeticLimits::default(),
+                RowId::Derived { label: "st".into() },
+                RelationLimits::default(),
             )
             .unwrap();
         let direct = source
             .translated(
                 &context,
                 &st,
-                ParametricRowId::Derived { label: "st".into() },
-                ParametricArithmeticLimits::default(),
+                RowId::Derived { label: "st".into() },
+                RelationLimits::default(),
             )
             .unwrap();
         assert_eq!(sequential.terms(), direct.terms());
@@ -997,7 +897,7 @@ mod tests {
         let space = IndexSpace::try_new(1).unwrap();
         let mut source = ParametricRelation::new(
             "family",
-            ParametricRowId::Derived {
+            RowId::Derived {
                 label: "source".into(),
             },
             &context,
@@ -1006,7 +906,7 @@ mod tests {
             .add_term(&context, space.unit(0, 1).unwrap(), context.one())
             .unwrap();
         assert!(matches!(
-            source.specialize(&context, &[i64::MAX], ParametricArithmeticLimits::default()),
+            source.specialize(&context, &[i64::MAX], RelationLimits::default()),
             Err(ParametricRelationError::IndexOverflow { position: 0 })
         ));
     }
@@ -1022,7 +922,7 @@ mod tests {
             .unwrap();
         let mut relation = ParametricRelation::new(
             "family",
-            ParametricRowId::Derived {
+            RowId::Derived {
                 label: Arc::from("zero-before-key-overflow"),
             },
             &context,
@@ -1032,49 +932,69 @@ mod tests {
             .unwrap();
 
         let specialized = relation
-            .specialize(&context, &[i64::MAX], ParametricArithmeticLimits::default())
+            .specialize(&context, &[i64::MAX], RelationLimits::default())
             .unwrap();
         assert!(specialized.terms().is_empty());
     }
 
     #[test]
-    fn equal_guard_polynomials_merge_deterministic_origin_sets() {
+    fn specialization_reports_an_unsatisfiable_zero_condition() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "guard-merge", 1).unwrap();
-        let row_id = ParametricRowId::Derived {
-            label: Arc::from("guard-source"),
+        let context =
+            ParametricCoefficientContext::try_new(&base, "unsatisfiable-specialization", 1)
+                .unwrap();
+        let mut relation = ParametricRelation::new(
+            "family",
+            RowId::Derived {
+                label: Arc::from("unsatisfiable-specialization"),
+            },
+            &context,
+        );
+        let index = context.index(0).unwrap();
+        relation
+            .add_explicit_nonzero_condition(&context, context.numerator_condition(&index).unwrap())
+            .unwrap();
+
+        assert!(matches!(
+            relation.specialize(&context, &[0], RelationLimits::default()),
+            Err(ParametricRelationError::UnsatisfiableDomain)
+        ));
+    }
+
+    #[test]
+    fn equal_condition_polynomials_merge_deterministic_source_sets() {
+        let base = CoefficientContext::new(Vec::<String>::new());
+        let context = ParametricCoefficientContext::try_new(&base, "condition-merge", 1).unwrap();
+        let row_id = RowId::Derived {
+            label: Arc::from("condition-source"),
         };
         let mut relation = ParametricRelation::new("family", row_id.clone(), &context);
         let n = context.index(0).unwrap();
         let polynomial = context.numerator_condition(&n).unwrap();
-        let first = context
-            .nonzero_condition(polynomial.clone(), GuardOrigin::ExplicitRelationCondition)
-            .unwrap();
-        let second = context
-            .nonzero_condition(
-                polynomial,
-                GuardOrigin::IndexTranslation {
-                    offset: vec![1].into_boxed_slice(),
-                },
-            )
-            .unwrap();
-        relation
-            .add_guarded_nonzero_condition(&context, first)
-            .unwrap();
-        relation
-            .add_guarded_nonzero_condition(&context, second)
-            .unwrap();
+        let first = ParametricNonZeroCondition::try_new(
+            &context,
+            polynomial.clone(),
+            [IdentityConditionSource::ExplicitRelationCondition],
+        )
+        .unwrap();
+        let second = ParametricNonZeroCondition::try_new(
+            &context,
+            polynomial,
+            [IdentityConditionSource::IndexTranslation {
+                offset: vec![1].into_boxed_slice(),
+            }],
+        )
+        .unwrap();
+        relation.add_nonzero_condition(&context, first).unwrap();
+        relation.add_nonzero_condition(&context, second).unwrap();
 
         assert_eq!(relation.nonzero_conditions().len(), 1);
-        assert_eq!(relation.guarded_nonzero_conditions().len(), 1);
         assert_eq!(
-            relation.guarded_nonzero_conditions()[0].origins(),
+            relation.nonzero_conditions()[0].sources(),
             &std::collections::BTreeSet::from([
-                GuardOrigin::ExplicitRelationCondition,
-                GuardOrigin::RelationConditionAttached {
-                    row: row_id.guard_identity(),
-                },
-                GuardOrigin::IndexTranslation {
+                IdentityConditionSource::ExplicitRelationCondition,
+                IdentityConditionSource::RelationConditionAttached { row: row_id },
+                IdentityConditionSource::IndexTranslation {
                     offset: vec![1].into_boxed_slice(),
                 },
             ])
@@ -1082,32 +1002,32 @@ mod tests {
     }
 
     #[test]
-    fn custom_guard_origin_limit_is_enforced_at_relation_boundary() {
+    fn custom_condition_source_limit_is_enforced_at_relation_boundary() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "guard-limit", 1).unwrap();
+        let context = ParametricCoefficientContext::try_new(&base, "condition-limit", 1).unwrap();
         let n = context.index(0).unwrap();
-        let condition = context
-            .nonzero_condition(
-                context.numerator_condition(&n).unwrap(),
-                GuardOrigin::ExplicitRelationCondition,
-            )
-            .unwrap();
+        let condition = ParametricNonZeroCondition::try_new(
+            &context,
+            context.numerator_condition(&n).unwrap(),
+            [IdentityConditionSource::ExplicitRelationCondition],
+        )
+        .unwrap();
         let mut relation = ParametricRelation::new(
             "family",
-            ParametricRowId::Derived {
+            RowId::Derived {
                 label: Arc::from("limited"),
             },
             &context,
         );
-        let limits = ParametricArithmeticLimits {
-            max_guard_origins: 1,
-            ..ParametricArithmeticLimits::default()
+        let limits = RelationLimits {
+            identity_conditions: IdentityConditionLimits { max_sources: 1 },
+            ..RelationLimits::default()
         };
         assert!(matches!(
-            relation.add_guarded_nonzero_condition_with_limits(&context, condition, limits),
-            Err(ParametricRelationError::Coefficient(
-                ParametricCoefficientError::ResourceLimit {
-                    resource: "parametric guard origins",
+            relation.add_nonzero_condition_with_limits(&context, condition, limits),
+            Err(ParametricRelationError::IdentityCondition(
+                IdentityConditionError::ResourceLimit {
+                    resource: "identity condition sources",
                     requested: 2,
                     limit: 1,
                 }
