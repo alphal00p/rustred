@@ -48,8 +48,9 @@ use crate::generated_affine_residual_case_bound_relation::{
     GeneratedAffineResidualCaseBoundRelationStats,
     GeneratedAffineResidualCaseBoundUnavailableCertificate,
 };
+#[cfg(test)]
+use crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRow;
 use crate::generated_affine_residual_case_completed_bound_row::{
-    GeneratedAffineResidualCaseCompletedBoundRow,
     GeneratedAffineResidualCaseCompletedBoundRowCompiler,
     GeneratedAffineResidualCaseCompletedBoundRowLimits,
 };

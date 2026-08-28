@@ -8,7 +8,7 @@ mod capability;
 mod fresh_session;
 
 pub(in crate::solver::closure) use capability::CommittedExceptionalAuthorityCopyPermit;
+#[cfg(test)]
 pub(in crate::solver::closure) use fresh_session::{
-    CommittedExceptionalFreshSessionBuildError, CommittedExceptionalFreshSessionLimits,
-    try_build_fresh_exact_session_for_admitted_transform,
+    CommittedExceptionalFreshSessionLimits, try_build_fresh_exact_session_for_admitted_transform,
 };

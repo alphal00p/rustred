@@ -61,7 +61,7 @@ const fn physical_frame_schema_for_source(
     source: GeneratedAffineResidualCaseAuthoritySourceKind,
 ) -> &'static str {
     match source {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
@@ -3004,7 +3004,7 @@ where
     F: FnMut(&mut W, &Integer) -> fmt::Result,
 {
     match authority.source_kind() {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             output.write_str(GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA)?
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {

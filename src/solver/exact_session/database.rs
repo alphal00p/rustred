@@ -72,7 +72,7 @@ const fn exact_database_schema_for_source(
     source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
 ) -> &'static str {
     match source_kind {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V1_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
@@ -5358,7 +5358,7 @@ mod tests {
         );
         assert_eq!(
             legacy.source_kind,
-            GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+            GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory
         );
         let legacy_binding = legacy.initial_target_state_binding_for_test().unwrap();
         legacy.schema = GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA;
@@ -5396,7 +5396,7 @@ mod tests {
             direct.authenticate_target_state_binding(&direct_binding),
             Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)
         );
-        direct.source_kind = GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory;
+        direct.source_kind = GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory;
         assert!(matches!(
             direct.initial_target_state_binding_for_test(),
             Err(GeneratedAffineResidualGroupExactDatabaseError::SourceProfileMismatch)

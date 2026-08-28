@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `db7d02b`, updated after each R3 cluster milestone.
+**Baseline:** `c113c1c`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 189 tracked Rust source/build/test paths
-remaining after the R2 root-surface deletion. It is intentionally hostile to
+This ledger classifies every one of the 171 tracked Rust source/build/test paths
+remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 152 |
-| delete | 14 |
+| split | 139 |
+| delete | 9 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -113,24 +113,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_family_rule_provider.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
 | `src/generated_family_rule_system.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
 | `src/generated_provider_stack.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
-| `src/generated_residual_affine_branch_bound_relation.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_branch_reelimination.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_case_inventory.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_condition_accumulator_tests.rs` | delete | — | historical production-tree test campaign; replace with sentinels |
-| `src/generated_residual_affine_group_effective_coverage.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_group_effective_coverage/tests.rs` | delete | — | historical child test campaign; production owner handled separately |
-| `src/generated_residual_affine_pivot_target_matching.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_when_bad_compilation.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_when_bad_compilation_tests.rs` | delete | — | historical production-tree test campaign; replace with sentinels |
-| `src/generated_residual_affine_when_bad_descent.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_when_bad_pullback_gate.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_sector_affine_effective_coverage.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
-| `src/generated_sector_affine_effective_coverage_tests.rs` | delete | — | historical production-tree test campaign; replace with sentinels |
-| `src/generated_sector_affine_effective_residual_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
-| `src/generated_sector_affine_effective_residual_queue_tests.rs` | delete | — | historical production-tree test campaign; replace with sentinels |
-| `src/generated_sector_affine_provider.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_conditional_provider.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_live_leaf_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
@@ -181,13 +165,11 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/solver/closure/committed_exceptional_source/protocol.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/analysis.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/analysis_tests.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/condition_plan.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/materialization.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/partition.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/post_ready/publication.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/publication_tests.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/publication_handoff/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/publication_handoff/publication_epoch_owner/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/closure/publication_handoff/publication_epoch_owner/result_batch.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |

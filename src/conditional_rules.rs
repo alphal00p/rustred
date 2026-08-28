@@ -12,11 +12,6 @@ use std::fmt;
 use std::mem::{align_of, size_of};
 use std::sync::Arc;
 
-use crate::generated_sector_affine_effective_coverage::{
-    GeneratedSectorAffineAuthenticatedConcreteApplication,
-    GeneratedSectorAffineConcretePointOutcome, GeneratedSectorAffineEffectiveCoverageCertificate,
-    GeneratedSectorAffineRuleApplicationLimits, GeneratedSectorAffineRuleLocator,
-};
 use crate::parametric_coefficient::{
     coefficient_owned_retained_byte_bound, insert_specialized_condition,
 };
@@ -424,7 +419,7 @@ impl ConditionalParametricRule {
 
         Ok(ConditionalParametricRuleApplication::Applicable(
             ConditionalConcreteReduction {
-                authority: ConditionalConcreteAuthority::CoordinateEquality(Arc::new(self.clone())),
+                coordinate_rule: Arc::new(self.clone()),
                 parametric_context: context.clone(),
                 family_fingerprint: self.family_fingerprint.clone(),
                 pivot_ordinal: self.pivot_ordinal,
@@ -438,104 +433,11 @@ impl ConditionalParametricRule {
     }
 }
 
-#[derive(Clone)]
-enum ConditionalConcreteAuthority {
-    CoordinateEquality(Arc<ConditionalParametricRule>),
-    #[allow(dead_code)]
-    GeneratedAffine {
-        owner: Arc<GeneratedSectorAffineEffectiveCoverageCertificate>,
-        locator: GeneratedSectorAffineRuleLocator,
-        limits: GeneratedSectorAffineRuleApplicationLimits,
-    },
-}
-
-impl ConditionalConcreteAuthority {
-    fn family_fingerprint(&self) -> &str {
-        match self {
-            Self::CoordinateEquality(rule) => rule.family_fingerprint(),
-            Self::GeneratedAffine { owner, .. } => owner.source_queue().family_fingerprint(),
-        }
-    }
-
-    fn context_fingerprint(&self) -> &str {
-        match self {
-            Self::CoordinateEquality(rule) => rule.context_fingerprint(),
-            Self::GeneratedAffine { owner, .. } => owner.source_queue().context_fingerprint(),
-        }
-    }
-
-    fn sector(&self) -> &SectorMask {
-        match self {
-            Self::CoordinateEquality(rule) => rule.sector(),
-            Self::GeneratedAffine { owner, .. } => owner.source_queue().sector(),
-        }
-    }
-
-    fn ordering_policy(&self) -> IntegralOrderingPolicy {
-        match self {
-            Self::CoordinateEquality(rule) => rule.ordering().policy(),
-            Self::GeneratedAffine { owner, .. } => owner.source_queue().ordering(),
-        }
-    }
-
-    fn coordinate_rule(&self) -> Option<&Arc<ConditionalParametricRule>> {
-        match self {
-            Self::CoordinateEquality(rule) => Some(rule),
-            Self::GeneratedAffine { .. } => None,
-        }
-    }
-
-    fn payload_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::CoordinateEquality(left), Self::CoordinateEquality(right)) => {
-                left.payload_eq(right)
-            }
-            (
-                Self::GeneratedAffine {
-                    owner: left_owner,
-                    locator: left_locator,
-                    limits: left_limits,
-                },
-                Self::GeneratedAffine {
-                    owner: right_owner,
-                    locator: right_locator,
-                    limits: right_limits,
-                },
-            ) => {
-                Arc::ptr_eq(left_owner, right_owner)
-                    && left_locator == right_locator
-                    && left_limits == right_limits
-            }
-            _ => false,
-        }
-    }
-
-    const fn requires_relation_guard_equality(&self) -> bool {
-        matches!(self, Self::GeneratedAffine { .. })
-    }
-}
-
-// Neither the complete coordinate rule nor the affine owner is part of the
-// public debug surface. In particular, formatting a cached reduction must not
-// recursively disclose a sealed affine relation or predicate partition.
-impl fmt::Debug for ConditionalConcreteAuthority {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CoordinateEquality(_) => formatter.write_str("CoordinateEquality(<redacted>)"),
-            Self::GeneratedAffine { locator, .. } => formatter
-                .debug_struct("GeneratedAffine")
-                .field("locator", locator)
-                .field("owner", &"<redacted>")
-                .finish(),
-        }
-    }
-}
-
 /// Concrete result of a condition-bound pivot.  It retains the complete rule
 /// certificate and can independently replay the exact specialization.
 #[derive(Clone)]
 pub struct ConditionalConcreteReduction {
-    authority: ConditionalConcreteAuthority,
+    coordinate_rule: Arc<ConditionalParametricRule>,
     parametric_context: ParametricCoefficientContext,
     family_fingerprint: Arc<str>,
     pivot_ordinal: usize,
@@ -546,34 +448,11 @@ pub struct ConditionalConcreteReduction {
     specialized_relation: ConcreteRelation,
 }
 
-/// Retained-memory census established before a generated-affine concrete
-/// reduction clones any RHS, guard, descent, source, or context payload.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ConditionalConcreteReductionRetainedStats {
-    retained_byte_bound: usize,
-    retained_bytes: usize,
-    peak_visible_application_byte_bound: usize,
-}
-
-impl ConditionalConcreteReductionRetainedStats {
-    pub(crate) const fn retained_byte_bound(self) -> usize {
-        self.retained_byte_bound
-    }
-
-    pub(crate) const fn retained_bytes(self) -> usize {
-        self.retained_bytes
-    }
-
-    pub(crate) const fn peak_visible_application_byte_bound(self) -> usize {
-        self.peak_visible_application_byte_bound
-    }
-}
-
 impl fmt::Debug for ConditionalConcreteReduction {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ConditionalConcreteReduction")
-            .field("authority", &self.authority)
+            .field("coordinate_rule", &"<redacted>")
             .field("family_fingerprint", &self.family_fingerprint)
             .field("pivot_ordinal", &self.pivot_ordinal)
             .field("source", &self.source)
@@ -586,192 +465,19 @@ impl fmt::Debug for ConditionalConcreteReduction {
 }
 
 impl ConditionalConcreteReduction {
-    /// Build a concrete rewrite only after the exact affine sector owner has
-    /// classified the point and resolved its sealed rule handle. This seam is
-    /// crate-private so a raw relation can never be paired with an arbitrary
-    /// locator by a library user.
-    pub(crate) fn try_from_generated_affine_specialization(
-        authenticated: GeneratedSectorAffineAuthenticatedConcreteApplication<'_>,
-    ) -> Result<(Self, ConditionalConcreteReductionRetainedStats), ConditionalParametricRuleError>
-    {
-        let (
-            owner,
-            locator,
-            application_limits,
-            context,
-            indices,
-            pivot_ordinal,
-            concrete,
-            arithmetic,
-            prior_peak_visible_byte_bound,
-        ) = authenticated.into_parts();
-        let queue = owner.source_queue();
-        if concrete.family_fingerprint() != queue.family_fingerprint() {
-            return Err(ConditionalParametricRuleError::WrongFamily);
-        }
-        if context.fingerprint() != queue.context_fingerprint() {
-            return Err(ConditionalParametricRuleError::WrongContext);
-        }
-        if indices.len() != queue.sector().arity() {
-            return Err(ConditionalParametricRuleError::WrongArity {
-                expected: queue.sector().arity(),
-                actual: indices.len(),
-            });
-        }
-        if !queue.sector().contains_indices(indices)? {
-            return Err(ConditionalParametricRuleError::GeneratedAffineOutsideSector);
-        }
-        let (source, source_coefficient) = concrete
-            .terms()
-            .iter()
-            .find(|(key, _)| key.powers() == indices)
-            .ok_or(ConditionalParametricRuleError::MissingConcreteLhs)?;
-        let unit_delta = context.base().try_sub(
-            source_coefficient,
-            &context.base().one(),
-            arithmetic.exact_algebra,
-        )?;
-        if !unit_delta.is_zero() {
-            return Err(ConditionalParametricRuleError::NonUnitConcreteLhs);
-        }
-        let rhs_count = concrete.terms().len().saturating_sub(1);
-        check_limit(
-            "generated affine specialized RHS terms",
-            rhs_count,
-            application_limits.max_specialized_rhs_terms,
-        )?;
-        check_limit(
-            "generated affine required nonzero conditions",
-            concrete.guarded_nonzero_conditions().len(),
-            application_limits.max_required_nonzero_conditions,
-        )?;
-        let origin_count =
-            concrete
-                .guarded_nonzero_conditions()
-                .iter()
-                .try_fold(0usize, |total, condition| {
-                    total.checked_add(condition.origins().len()).ok_or(
-                        ConditionalParametricRuleError::ResourceCountOverflow {
-                            resource: "generated affine required nonzero origins",
-                        },
-                    )
-                })?;
-        check_limit(
-            "generated affine required nonzero origins",
-            origin_count,
-            application_limits.max_required_nonzero_origins,
-        )?;
-
-        // Establish the complete durable proof bound before cloning a source
-        // key, RHS coefficient/key, public guard, descent witness, context, or
-        // family fingerprint. The already-materialized concrete relation is
-        // moved into the result and is included in the same bound.
-        let retained_byte_bound =
-            generated_affine_reduction_retained_byte_bound(context, &concrete, source, rhs_count)?;
-        check_limit(
-            "generated affine concrete reduction retained byte bound",
-            retained_byte_bound,
-            application_limits.max_concrete_reduction_retained_byte_bound,
-        )?;
-        let peak_visible_application_byte_bound =
-            prior_peak_visible_byte_bound.max(retained_byte_bound);
-        check_limit(
-            "generated affine peak visible application byte bound",
-            peak_visible_application_byte_bound,
-            application_limits.max_peak_visible_application_byte_bound,
-        )?;
-
-        let source = source.clone();
-        let mut rhs = BTreeMap::new();
-        let mut descent = BTreeMap::new();
-        for (target, coefficient) in concrete.terms() {
-            if target == &source {
-                continue;
-            }
-            let target_sector = SectorMask::try_from_indices(target.powers())?;
-            if !target_sector.is_subsector_of(queue.sector())? {
-                return Err(
-                    ConditionalParametricRuleError::GeneratedAffineRhsSectorLeak {
-                        target: target.clone(),
-                        target_sector,
-                    },
-                );
-            }
-            let witness = match queue
-                .ordering()
-                .prove_strict_descent(indices, target.powers())
-            {
-                Ok(witness) => witness,
-                Err(SectorFoundationError::NotStrictDescent) => {
-                    return Err(
-                        ConditionalParametricRuleError::GeneratedAffineNonDescendingRhs {
-                            target: target.clone(),
-                        },
-                    );
-                }
-                Err(error) => return Err(error.into()),
-            };
-            let solved = context
-                .base()
-                .try_neg(coefficient, arithmetic.exact_algebra)?;
-            rhs.insert(target.clone(), solved);
-            descent.insert(target.clone(), witness);
-        }
-        let required_nonzero = concrete.guarded_nonzero_conditions().to_vec();
-        let family_fingerprint = Arc::from(concrete.family_fingerprint());
-        let reduction = Self {
-            authority: ConditionalConcreteAuthority::GeneratedAffine {
-                owner,
-                locator,
-                limits: application_limits,
-            },
-            parametric_context: context.clone(),
-            family_fingerprint,
-            pivot_ordinal,
-            source,
-            rhs,
-            required_nonzero,
-            descent,
-            specialized_relation: concrete,
-        };
-        let retained_bytes = reduction.owned_retained_byte_bound().ok_or(
-            ConditionalParametricRuleError::ResourceCountOverflow {
-                resource: "generated affine concrete reduction observed retained bytes",
-            },
-        )?;
-        if retained_bytes > retained_byte_bound {
-            return Err(ConditionalParametricRuleError::ResourceLimit {
-                resource: "generated affine concrete reduction observed retained bytes",
-                requested: retained_bytes,
-                limit: retained_byte_bound,
-            });
-        }
-        Ok((
-            reduction,
-            ConditionalConcreteReductionRetainedStats {
-                retained_byte_bound,
-                retained_bytes,
-                peak_visible_application_byte_bound,
-            },
-        ))
+    /// Return the coordinate-equality rule that owns this concrete reduction.
+    pub const fn coordinate_rule(&self) -> &Arc<ConditionalParametricRule> {
+        &self.coordinate_rule
     }
 
-    /// The V1 coordinate-equality authority, when this reduction came from
-    /// the original conditional-rule path. Affine authorities deliberately
-    /// return `None`; no fabricated coordinate rule can represent them.
-    pub fn coordinate_rule(&self) -> Option<&Arc<ConditionalParametricRule>> {
-        self.authority.coordinate_rule()
-    }
-
-    /// Authenticated sector for either conditional provenance arm.
+    /// Authenticated sector of the owning coordinate-equality rule.
     pub fn sector(&self) -> &SectorMask {
-        self.authority.sector()
+        self.coordinate_rule.sector()
     }
 
-    /// Authenticated strict-descent policy for either conditional provenance
-    /// arm.
+    /// Authenticated strict-descent policy of the owning rule.
     pub fn ordering_policy(&self) -> IntegralOrderingPolicy {
-        self.authority.ordering_policy()
+        self.coordinate_rule.ordering().policy()
     }
     pub const fn parametric_context(&self) -> &ParametricCoefficientContext {
         &self.parametric_context
@@ -842,42 +548,11 @@ impl ConditionalConcreteReduction {
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
     ) -> Result<(), ConditionalParametricRuleError> {
-        let replayed = match &self.authority {
-            ConditionalConcreteAuthority::CoordinateEquality(rule) => {
-                rule.replay(family, context)?;
-                let ConditionalParametricRuleApplication::Applicable(replayed) =
-                    rule.apply(context, self.source.powers())?
-                else {
-                    return Err(ConditionalParametricRuleError::CertificateReplayMismatch);
-                };
-                replayed
-            }
-            ConditionalConcreteAuthority::GeneratedAffine { owner, limits, .. } => {
-                // A provider may have authenticated this owner once at
-                // installation and then applied it through the already-
-                // replayed seam with `max_owner_replays == 0`.  Durable
-                // reduction replay must nevertheless reauthenticate the
-                // retained certificate after the provider has been dropped.
-                // Replay the owner explicitly, then reproduce the exact
-                // application seam and its original post-replay budget.
-                owner
-                    .replay(family, context)
-                    .map_err(|_| ConditionalParametricRuleError::CertificateReplayMismatch)?;
-                let application = owner
-                    .concrete_application_for_indices_from_replayed_owner(
-                        family,
-                        context,
-                        self.source.powers(),
-                        *limits,
-                    )
-                    .map_err(|_| ConditionalParametricRuleError::CertificateReplayMismatch)?;
-                let GeneratedSectorAffineConcretePointOutcome::Reduction(replayed) =
-                    application.into_outcome()
-                else {
-                    return Err(ConditionalParametricRuleError::CertificateReplayMismatch);
-                };
-                replayed
-            }
+        self.coordinate_rule.replay(family, context)?;
+        let ConditionalParametricRuleApplication::Applicable(replayed) =
+            self.coordinate_rule.apply(context, self.source.powers())?
+        else {
+            return Err(ConditionalParametricRuleError::CertificateReplayMismatch);
         };
         if self.family_fingerprint == replayed.family_fingerprint
             && self.parametric_context.fingerprint() == replayed.parametric_context.fingerprint()
@@ -889,7 +564,7 @@ impl ConditionalConcreteReduction {
             && self
                 .specialized_relation
                 .has_identical_guard_provenance(&replayed.specialized_relation)
-            && self.authority.payload_eq(&replayed.authority)
+            && self.coordinate_rule.payload_eq(&replayed.coordinate_rule)
         {
             Ok(())
         } else {
@@ -906,8 +581,8 @@ impl ConditionalConcreteReduction {
         limits: ExactAlgebraLimits,
     ) -> Result<bool, ExactAlgebraError> {
         if self.specialized_relation.family_fingerprint() != self.family_fingerprint.as_ref()
-            || self.authority.family_fingerprint() != self.family_fingerprint.as_ref()
-            || self.parametric_context.fingerprint() != self.authority.context_fingerprint()
+            || self.coordinate_rule.family_fingerprint() != self.family_fingerprint.as_ref()
+            || self.parametric_context.fingerprint() != self.coordinate_rule.context_fingerprint()
             || policy != self.ordering_policy()
             || !self
                 .parametric_context
@@ -917,13 +592,12 @@ impl ConditionalConcreteReduction {
                 .sector()
                 .contains_indices(self.source.powers())
                 .unwrap_or(false)
-            || self.coordinate_rule().is_some_and(|rule| {
-                rule.pivot_ordinal() != self.pivot_ordinal
-                    || !assignment_satisfied(rule.centered_assignment(), self.source.powers())
-            })
+            || self.coordinate_rule.pivot_ordinal() != self.pivot_ordinal
+            || !assignment_satisfied(
+                self.coordinate_rule.centered_assignment(),
+                self.source.powers(),
+            )
             || self.rhs.keys().ne(self.descent.keys())
-            || (self.authority.requires_relation_guard_equality()
-                && self.required_nonzero != self.specialized_relation.guarded_nonzero_conditions())
         {
             return Ok(false);
         }
@@ -973,110 +647,6 @@ impl ConditionalConcreteReduction {
         }
         Ok(true)
     }
-}
-
-fn generated_affine_reduction_retained_byte_bound(
-    context: &ParametricCoefficientContext,
-    concrete: &ConcreteRelation,
-    source: &ConcreteIntegralKey,
-    rhs_count: usize,
-) -> Result<usize, ConditionalParametricRuleError> {
-    let resource = "generated affine concrete reduction retained byte bound";
-    let mut bytes = size_of::<ConditionalConcreteReduction>();
-    bytes = retained_checked_add(
-        resource,
-        bytes,
-        context
-            .clone_owned_retained_byte_bound()
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-    )?;
-    bytes = retained_checked_add(
-        resource,
-        bytes,
-        arc_str_allocation_byte_bound(concrete.family_fingerprint().len())
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-    )?;
-    bytes = retained_checked_add(
-        resource,
-        bytes,
-        source
-            .owned_retained_byte_bound()
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-    )?;
-    bytes = retained_checked_add(
-        resource,
-        bytes,
-        concrete
-            .owned_retained_byte_bound()
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-    )?;
-
-    let conditions = concrete.guarded_nonzero_conditions();
-    bytes = retained_checked_add(
-        resource,
-        bytes,
-        conditions
-            .len()
-            .checked_mul(size_of::<SpecializedNonZeroCondition>())
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-    )?;
-    for condition in conditions {
-        bytes = retained_checked_add(
-            resource,
-            bytes,
-            condition
-                .owned_retained_byte_bound()
-                .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-        )?;
-    }
-
-    let rhs_node = conservative_btree_node_byte_bound::<ConcreteIntegralKey, Coefficient>()
-        .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?;
-    let descent_node =
-        conservative_btree_node_byte_bound::<ConcreteIntegralKey, StrictDescentWitness>()
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?;
-    let prospective_witness =
-        StrictDescentWitness::prospective_owned_retained_byte_bound(source.powers().len())
-            .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?;
-    let mut observed_rhs = 0usize;
-    for (target, coefficient) in concrete.terms() {
-        if target == source {
-            continue;
-        }
-        observed_rhs = retained_checked_add(resource, observed_rhs, 1)?;
-        for retained in [rhs_node, descent_node, prospective_witness] {
-            bytes = retained_checked_add(resource, bytes, retained)?;
-        }
-        // The RHS map and descent map own independent key clones.
-        for _ in 0..2 {
-            bytes = retained_checked_add(
-                resource,
-                bytes,
-                target
-                    .owned_retained_byte_bound()
-                    .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-            )?;
-        }
-        bytes = retained_checked_add(
-            resource,
-            bytes,
-            coefficient_owned_retained_byte_bound(coefficient)
-                .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })?,
-        )?;
-    }
-    if observed_rhs != rhs_count {
-        return Err(ConditionalParametricRuleError::CertificateReplayMismatch);
-    }
-    Ok(bytes)
-}
-
-fn retained_checked_add(
-    resource: &'static str,
-    left: usize,
-    right: usize,
-) -> Result<usize, ConditionalParametricRuleError> {
-    left.checked_add(right)
-        .ok_or(ConditionalParametricRuleError::ResourceCountOverflow { resource })
 }
 
 fn conservative_btree_node_byte_bound<Key, Value>() -> Option<usize> {
@@ -1137,14 +707,6 @@ pub enum ConditionalParametricRuleError {
     NonUnitSymbolicLhs,
     MissingConcreteLhs,
     NonUnitConcreteLhs,
-    GeneratedAffineOutsideSector,
-    GeneratedAffineRhsSectorLeak {
-        target: ConcreteIntegralKey,
-        target_sector: SectorMask,
-    },
-    GeneratedAffineNonDescendingRhs {
-        target: ConcreteIntegralKey,
-    },
     SchemaMismatch,
     CertificateReplayMismatch,
     ResourceCountOverflow {
@@ -1196,20 +758,6 @@ impl fmt::Display for ConditionalParametricRuleError {
             Self::NonUnitConcreteLhs => {
                 formatter.write_str("conditional specialization source coefficient is not one")
             }
-            Self::GeneratedAffineOutsideSector => {
-                formatter.write_str("generated affine application lies outside its owner sector")
-            }
-            Self::GeneratedAffineRhsSectorLeak {
-                target,
-                target_sector,
-            } => write!(
-                formatter,
-                "generated affine RHS {target:?} lies in non-subsector {target_sector:?}"
-            ),
-            Self::GeneratedAffineNonDescendingRhs { target } => write!(
-                formatter,
-                "generated affine RHS {target:?} does not strictly descend"
-            ),
             Self::SchemaMismatch => formatter.write_str("conditional rule schema mismatch"),
             Self::CertificateReplayMismatch => {
                 formatter.write_str("conditional rule differs after complete certificate replay")

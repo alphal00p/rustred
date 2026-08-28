@@ -571,14 +571,14 @@ fn write_committed_exceptional_singleton_identity(
     let parent_source_kind = match parent_rows {
         CommittedExceptionalParentRowsProjection::Retained => event.retained_parent_source_kind(),
         CommittedExceptionalParentRowsProjection::LegacyOverride(_) => {
-            GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+            GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory
         }
     };
     writer.variant("parent_source_kind", parent_source_kind.stable_id())?;
     let legacy_source_rows = match parent_rows {
         CommittedExceptionalParentRowsProjection::Retained
             if parent_source_kind
-                == GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory =>
+                == GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory =>
         {
             event.retained_parent_source_row_count()
         }
@@ -705,65 +705,6 @@ fn write_committed_exceptional_singleton_identity(
     }
     writer.end_sequence()?;
     writer.end_record()
-}
-
-#[cfg(test)]
-struct CommittedExceptionalSingletonIdentityGeometryOverride<'source> {
-    source: &'source CommittedExceptionalSingletonSource,
-    family: &'source IntegralFamily,
-    context: &'source ParametricCoefficientContext,
-    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
-    compact_affine_matrix: &'source [Integer],
-}
-
-#[cfg(test)]
-impl ExactIdentityPayload for CommittedExceptionalSingletonIdentityGeometryOverride<'_> {
-    const SCHEMA: &'static str = COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA;
-
-    fn write_exact_identity(
-        &self,
-        writer: &mut ExactIdentityWriter<'_>,
-    ) -> Result<(), ExactIdentityError> {
-        write_committed_exceptional_singleton_identity(
-            self.source,
-            self.family,
-            self.context,
-            self.source_row_limits,
-            self.compact_affine_matrix,
-            CommittedExceptionalParentRowsProjection::Retained,
-            writer,
-        )
-    }
-}
-
-#[cfg(test)]
-struct CommittedExceptionalSingletonIdentityLegacyRowsOverride<'source> {
-    source: &'source CommittedExceptionalSingletonSource,
-    family: &'source IntegralFamily,
-    context: &'source ParametricCoefficientContext,
-    source_row_limits: GeneratedAffineResidualCaseSourceRowLimits,
-    compact_affine_matrix: &'source [Integer],
-    legacy_rows: &'source [ParametricRelation],
-}
-
-#[cfg(test)]
-impl ExactIdentityPayload for CommittedExceptionalSingletonIdentityLegacyRowsOverride<'_> {
-    const SCHEMA: &'static str = COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA;
-
-    fn write_exact_identity(
-        &self,
-        writer: &mut ExactIdentityWriter<'_>,
-    ) -> Result<(), ExactIdentityError> {
-        write_committed_exceptional_singleton_identity(
-            self.source,
-            self.family,
-            self.context,
-            self.source_row_limits,
-            self.compact_affine_matrix,
-            CommittedExceptionalParentRowsProjection::LegacyOverride(self.legacy_rows),
-            writer,
-        )
-    }
 }
 
 impl fmt::Debug for CommittedExceptionalSingletonSource {
@@ -1486,11 +1427,6 @@ impl ExactPublicationEpochOwner {
             })
             .expect("publication epoch released an unreserved source lease");
     }
-
-    #[cfg(test)]
-    fn event_for_test(&self, slot_ordinal: usize) -> Option<CommittedPublicationEventView<'_>> {
-        Some(self.slots.get(slot_ordinal)?.event.view())
-    }
 }
 
 /// Recover only tickets made unreachable through `mem::forget`.
@@ -2011,10 +1947,8 @@ fn try_vec_capacity<T>(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::mem::{forget, size_of};
-    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc, Barrier, mpsc};
-    use std::thread;
+    use std::mem::size_of;
+    use std::sync::Arc;
 
     use super::super::{
         ExactPublicationHandoffInput, ExactPublicationHandoffLimits, ExactPublicationHandoffWave,
@@ -2023,29 +1957,351 @@ mod tests {
     use crate::campaign::{
         CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
         CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResident,
-        CampaignResidentToken, CampaignResidentTransformBuildFailure,
-        CampaignResidentTransformExecution, CampaignRootSpec, CampaignTaskContext,
-        CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate, CampaignWavePlanner,
+        CampaignResidentToken, CampaignRootSpec, CampaignTaskMemoryEnvelope,
+        CampaignTaskResourceEstimate, CampaignWavePlanner,
     };
-    use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
+    use crate::generated_affine_parametric_ordering::{
+        GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
+    };
+    use crate::generated_affine_prepare_point_schedule::{
+        GeneratedAffinePreparePointScheduleCertificate, GeneratedAffinePreparePointScheduleLimits,
+    };
+    use crate::generated_affine_residual_case_premises::{
+        GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
+        compile_generated_affine_residual_case_premises,
+    };
+    use crate::generated_affine_residual_case_reelimination::{
+        GeneratedAffineResidualCaseReeliminationCompilation,
+        GeneratedAffineResidualCaseReeliminationCompiler,
+        GeneratedAffineResidualCaseReeliminationLimits,
+    };
+    use crate::parametric_sector_formula_affine_terminal::{
+        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
+    };
+    use crate::parametric_sector_formula_residual::{
+        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
+        ParametricSectorFormulaResidualRequest,
+    };
+    use crate::parametric_sector_normalized_source::{
+        ParametricSectorNormalizedCoverageSourceCompiler,
+        ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseAuthoritySourceKind,
+    };
     use crate::solver::closure::committed_exceptional_reentry::{
-        CommittedExceptionalFreshSessionBuildError, CommittedExceptionalFreshSessionLimits,
+        CommittedExceptionalFreshSessionLimits,
         try_build_fresh_exact_session_for_admitted_transform,
     };
     use crate::solver::closure::post_ready::{
-        PreparedPublication, PublicationLimits, ready_for_publication,
+        GeneratedAffineResidualGroupExactConditionPlanCompiler,
+        GeneratedAffineResidualGroupExactConditionPlanLimits,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
+        GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome, PreparedPublication,
+        PublicationLimits,
     };
-    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
-    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
-    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
     use crate::solver::exact_session::{
-        GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA,
-        GeneratedAffineResidualGroupExactSession,
+        GeneratedAffineResidualGroupExactPhysicalRow,
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+        GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionLimits,
+        GeneratedAffineResidualGroupExactSessionRecenterOutcome,
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+        GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanLimits,
     };
     use crate::{
-        IntegralFamily, IntegralOrderingPolicy, ParallelExecution, ParametricCoefficientContext,
-        SectorMask, SymbolicPolynomialPredicateKind,
+        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy,
+        ParallelExecution, ParametricCoefficientContext, ParametricIbpGenerator, SectorMask,
+        SymbolicPolynomialPredicateKind,
     };
+
+    struct DirectPublicationFixture {
+        family: IntegralFamily,
+        context: ParametricCoefficientContext,
+        plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
+        rows: Vec<Arc<GeneratedAffineResidualGroupExactPhysicalRow>>,
+    }
+
+    fn test_family(name: &str) -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "m2"]);
+        let zero = coefficients.zero();
+        let one = coefficients.one();
+        let minus_m2 = coefficients.parse("-m2").unwrap();
+        IntegralFamily::new(
+            name,
+            vec!["k1".into(), "k2".into()],
+            Vec::new(),
+            coefficients.clone(),
+            coefficients.parameter("d").unwrap(),
+            vec![
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![one.clone(), zero.clone(), zero.clone()],
+                ),
+                AffineDenominator::new(
+                    minus_m2.clone(),
+                    vec![zero.clone(), zero.clone(), one.clone()],
+                ),
+                AffineDenominator::new(minus_m2, vec![one.clone(), coefficients.integer(2), one]),
+            ],
+            Vec::new(),
+            vec![zero.clone(), zero.clone(), zero],
+        )
+        .unwrap()
+    }
+
+    fn direct_publication_fixture(name: &str) -> DirectPublicationFixture {
+        let family = test_family(name);
+        let context = ParametricIbpGenerator::try_new(&family)
+            .unwrap()
+            .context()
+            .clone();
+        let normalized = Arc::new(
+            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
+                &family,
+                &context,
+                SectorMask::try_from_bit_string("011").unwrap(),
+                IntegralOrderingPolicy::RustRedUnshiftedV1,
+                Vec::new(),
+                ParametricSectorNormalizedCoverageSourceLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
+            &family,
+            &context,
+            normalized,
+            ParametricSectorFormulaResidualRequest::Uncovered,
+            ParametricSectorFormulaResidualLimits::default(),
+        )
+        .unwrap();
+        let path = Arc::new(cursor.next_path().unwrap().unwrap());
+        assert!(cursor.next_path().unwrap().is_none());
+        let terminal = Arc::new(
+            ParametricSectorFormulaAffineTerminalCompiler::compile(
+                &family,
+                &context,
+                path,
+                ParametricSectorFormulaAffineTerminalLimits::default(),
+            )
+            .unwrap(),
+        );
+        let authority = Arc::new(
+            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                terminal,
+                GeneratedAffineResidualCaseAuthorityLimits::default(),
+            )
+            .unwrap(),
+        );
+        let premises = match compile_generated_affine_residual_case_premises(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            GeneratedAffineResidualCasePremisesLimits::default(),
+        )
+        .unwrap()
+        {
+            GeneratedAffineResidualCasePremisesOutcome::Ready(value) => Arc::new(value),
+            GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
+                panic!("Direct publication fixture unexpectedly requires equality refinement")
+            }
+        };
+        let ordering = Arc::new(
+            GeneratedAffineParametricOrderingCertificate::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineParametricOrderingLimits::default(),
+            )
+            .unwrap(),
+        );
+        let schedule = Arc::new(
+            GeneratedAffinePreparePointScheduleCertificate::compile(
+                &family,
+                &context,
+                Arc::clone(&ordering),
+                &authority,
+                0,
+                GeneratedAffinePreparePointScheduleLimits::default(),
+            )
+            .unwrap(),
+        );
+        let compilation = GeneratedAffineResidualCaseReeliminationCompiler::compile(
+            &family,
+            &context,
+            Arc::clone(&authority),
+            premises,
+            ordering,
+            schedule,
+            GeneratedAffineResidualCaseReeliminationLimits::default(),
+        )
+        .unwrap();
+        let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
+            compilation
+        else {
+            panic!("Direct publication fixture produced no eliminable rows")
+        };
+        let certificate = Arc::new(certificate);
+        let frame = Arc::new(
+            GeneratedAffineResidualGroupPhysicalFrame::try_new(
+                &family,
+                &context,
+                Arc::clone(&authority),
+                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
+            )
+            .unwrap(),
+        );
+        let plan = Arc::new(
+            GeneratedAffineResidualGroupSolvePlan::try_new_direct_formula_singleton(
+                &family,
+                &context,
+                authority,
+                Arc::clone(&frame),
+                GeneratedAffineResidualGroupSolvePlanLimits::default(),
+            )
+            .unwrap(),
+        );
+        let mut retained_row_ordinal = 0usize;
+        let mut rows = Vec::new();
+        for (witness_ordinal, witness) in certificate.witnesses().iter().enumerate() {
+            if !witness.outcome().is_retained() {
+                continue;
+            }
+            rows.push(Arc::new(
+                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile_from_reelimination_for_test(
+                    &family,
+                    &context,
+                    Arc::clone(&certificate),
+                    retained_row_ordinal,
+                    witness_ordinal,
+                    Arc::clone(&frame),
+                    GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+                )
+                .unwrap(),
+            ));
+            retained_row_ordinal += 1;
+        }
+        assert_eq!(rows.len(), certificate.retained_row_count());
+        assert!(!rows.is_empty());
+        DirectPublicationFixture {
+            family,
+            context,
+            plan,
+            rows,
+        }
+    }
+
+    fn committed_input(
+        name: &str,
+        lane: usize,
+    ) -> (
+        IntegralFamily,
+        ParametricCoefficientContext,
+        ExactPublicationHandoffInput,
+    ) {
+        let fixture = direct_publication_fixture(name);
+        let mut session = GeneratedAffineResidualGroupExactSession::try_new(
+            &fixture.family,
+            &fixture.context,
+            Arc::clone(&fixture.plan),
+            211,
+            GeneratedAffineResidualGroupExactSessionLimits::default(),
+        )
+        .unwrap();
+        for row in &fixture.rows {
+            let transaction = session
+                .stage_replayed_row(&fixture.family, &fixture.context, row)
+                .unwrap();
+            let transaction = match session.classify_dependent(transaction) {
+                Ok(classified) => {
+                    session
+                        .commit_dependent(&fixture.family, &fixture.context, classified)
+                        .unwrap();
+                    continue;
+                }
+                Err(failure) => failure.into_transaction(),
+            };
+            match session
+                .recenter_staged_new_pivot(&fixture.family, &fixture.context, transaction)
+                .unwrap()
+            {
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::NoTarget(no_target) => {
+                    session = session
+                        .commit_no_target(&fixture.family, &fixture.context, no_target)
+                        .unwrap()
+                        .into_session();
+                }
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::RequiresAffineEqualityRefinement(
+                    _,
+                ) => panic!("publication fixture unexpectedly requires equality refinement"),
+                GeneratedAffineResidualGroupExactSessionRecenterOutcome::Ready(ready) => {
+                    let analyzed =
+                        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler::analyze(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            ready,
+                            GeneratedAffineResidualGroupReadyPublicationAnalysisLimits::default(),
+                        )
+                        .unwrap();
+                    let GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome::ReadyForConditions(
+                        ready,
+                    ) = analyzed
+                    else {
+                        panic!("publication fixture Ready row failed exact descent")
+                    };
+                    let plan = GeneratedAffineResidualGroupExactConditionPlanCompiler::compile(
+                        &fixture.family,
+                        &fixture.context,
+                        &session,
+                        ready,
+                        GeneratedAffineResidualGroupExactConditionPlanLimits::default(),
+                    )
+                    .unwrap();
+                    let materialized =
+                        GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler::compile(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            plan,
+                            GeneratedAffineResidualGroupExactWhenBadMaterializationLimits::default(),
+                        )
+                        .unwrap();
+                    let partitioned =
+                        GeneratedAffineResidualGroupExactWhenBadPartitionCompiler::compile(
+                            &fixture.family,
+                            &fixture.context,
+                            &session,
+                            materialized,
+                            GeneratedAffineResidualGroupExactWhenBadPartitionLimits::default(),
+                        )
+                        .unwrap();
+                    let GeneratedAffineResidualGroupExactWhenBadPartitionCompilation::ReadyForPublication(
+                        ready,
+                    ) = partitioned
+                    else {
+                        panic!("publication fixture unexpectedly became identically bad")
+                    };
+                    let prepared =
+                        PreparedPublication::prepare(ready, PublicationLimits::default()).unwrap();
+                    let receipt = session.commit_publication(prepared).unwrap();
+                    let job = job(&fixture.family, receipt.event().sector());
+                    let input = ExactPublicationHandoffInput::new(job, lane, receipt);
+                    return (fixture.family, fixture.context, input);
+                }
+            }
+        }
+        panic!("publication fixture exhausted generated rows before exact Ready")
+    }
 
     fn job(family: &IntegralFamily, sector: &SectorMask) -> CampaignJobKey {
         let plan = CampaignPlan::compile(
@@ -2063,11 +2319,7 @@ mod tests {
     }
 
     fn input(name: &str, lane: usize) -> ExactPublicationHandoffInput {
-        let (family, _, mut session, _, ready) = ready_for_publication(name);
-        let prepared = PreparedPublication::prepare(ready, PublicationLimits::default()).unwrap();
-        let receipt = session.commit_publication(prepared).unwrap();
-        let job = job(&family, receipt.event().sector());
-        ExactPublicationHandoffInput::new(job, lane, receipt)
+        committed_input(name, lane).2
     }
 
     fn handoff(name: &str, lanes_in_input_order: &[usize]) -> ExactPublicationHandoffWave {
@@ -2112,11 +2364,7 @@ mod tests {
         ParametricCoefficientContext,
         ExactPublicationEpochOwner,
     ) {
-        let (family, context, mut session, _, ready) = ready_for_publication(name);
-        let prepared = PreparedPublication::prepare(ready, PublicationLimits::default()).unwrap();
-        let receipt = session.commit_publication(prepared).unwrap();
-        let input =
-            ExactPublicationHandoffInput::new(job(&family, receipt.event().sector()), 0, receipt);
+        let (family, context, input) = committed_input(name, 0);
         let wave = ExactPublicationHandoffWave::compile(
             vec![input],
             ExactPublicationHandoffLimits::default(),
@@ -2270,980 +2518,6 @@ mod tests {
         source
     }
 
-    #[derive(Debug)]
-    enum FreshDomainSessionTransformError {
-        MissingOpaqueNativeReserve,
-        Build(CommittedExceptionalFreshSessionBuildError),
-        VisibleCensusExcludingSharedAncestryUnderestimated { requested: usize, charged: usize },
-    }
-
-    fn build_fresh_domain_session_for_transform(
-        task: CampaignTaskContext<'_>,
-        source: CommittedExceptionalSingletonSource,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        database_epoch: usize,
-        observed_visible_census_excluding_shared_ancestry: Option<&AtomicUsize>,
-    ) -> Result<
-        GeneratedAffineResidualGroupExactSession,
-        CampaignResidentTransformBuildFailure<
-            CommittedExceptionalSingletonSource,
-            FreshDomainSessionTransformError,
-        >,
-    > {
-        if task.memory().retained_output().opaque_native_reserve() == CampaignBytes::ZERO {
-            return Err(CampaignResidentTransformBuildFailure::new(
-                source,
-                FreshDomainSessionTransformError::MissingOpaqueNativeReserve,
-            ));
-        }
-        let expected_source_rows = source.source_row_count();
-        let build = match try_build_fresh_exact_session_for_admitted_transform(
-            source,
-            family,
-            context,
-            database_epoch,
-            CommittedExceptionalFreshSessionLimits::default(),
-        ) {
-            Ok(build) => build,
-            Err(failure) => {
-                let (source, error) = failure.into_parts();
-                return Err(CampaignResidentTransformBuildFailure::new(
-                    source,
-                    FreshDomainSessionTransformError::Build(error),
-                ));
-            }
-        };
-        assert_eq!(build.inherited_source_rows(), expected_source_rows);
-        assert!(build.inherited_source_rows() > 0);
-        assert_eq!(
-            build.session().physical_frame_schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
-        );
-        assert_eq!(
-            build.session().solve_plan_schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA,
-        );
-        assert_eq!(
-            build.session().target_catalog_schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA,
-        );
-        let catalog = build.session().target_catalog_stats();
-        assert_eq!(catalog.targets(), 1);
-        assert_eq!(catalog.ready_targets(), 0);
-        assert_eq!(catalog.equality_refinement_targets(), 1);
-        let requested = build.conservative_visible_bytes_excluding_shared_ancestry();
-        let charged = usize::try_from(task.memory().retained_output().visible_logical().get())
-            .unwrap_or(usize::MAX);
-        if requested > charged {
-            let source = build.recover_predecessor_source();
-            return Err(CampaignResidentTransformBuildFailure::new(
-                source,
-                FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
-                    requested,
-                    charged,
-                },
-            ));
-        }
-        if let Err(error) = build.session().replay(family, context) {
-            let source = build.recover_predecessor_source();
-            return Err(CampaignResidentTransformBuildFailure::new(
-                source,
-                FreshDomainSessionTransformError::Build(
-                    CommittedExceptionalFreshSessionBuildError::Session(error),
-                ),
-            ));
-        }
-        if let Some(observed) = observed_visible_census_excluding_shared_ancestry {
-            observed.store(requested, AtomicOrdering::Release);
-        }
-        Ok(build.into_session())
-    }
-
-    #[test]
-    fn committed_domain_reentry_is_one_shot_profile_isolated_and_stops_at_equality_refinement() {
-        const DATABASE_EPOCH: usize = 1_907;
-        let (family, context, owner) =
-            owner_with_scope("publication-epoch-committed-domain-reentry", 91);
-        let (domain_source_ordinal, leak_source_ordinal) = exceptional_source_ordinals(&owner);
-
-        // The only owning mint consumes the issued lease and immediately hands
-        // both proof source and lease to the charged worker-result owner.
-        let mut admission = admission_controller();
-        let mut batch = result_batch::ExactPublicationEpochResultBatch::<
-            CommittedExceptionalSingletonSource,
-        >::try_new(
-            &owner,
-            &mut admission,
-            vec![domain_source_ordinal],
-            result_batch::ExactPublicationEpochResultBatchLimits::default(),
-        )
-        .unwrap();
-        let work = batch.schedule().work(0).unwrap().clone();
-        // This fixture conservatively charges the complete event-local payload
-        // to the child resident, plus the inline source owner.  The originating
-        // epoch owner remains live because its separate event-authority/parent
-        // ancestry still needs a campaign-wide shared-lineage charge.
-        let source_visible_bytes = {
-            let locator = owner
-                .exceptional_source_locator(domain_source_ordinal)
-                .unwrap();
-            let mut census_lease = owner.issue_exceptional_source(locator).unwrap();
-            let event_bytes = owner
-                .resolve_exceptional_source(&mut census_lease)
-                .unwrap()
-                .retained_event_bytes();
-            drop(census_lease);
-            event_bytes
-                .checked_add(size_of::<CommittedExceptionalSingletonSource>())
-                .unwrap()
-        };
-        let source_visible_u64 = u64::try_from(source_visible_bytes).unwrap();
-        let reservation = reserve_one(
-            &mut admission,
-            &work,
-            task_estimate(source_visible_u64, 256 * 1024, 128 * 1024, 256 * 1024),
-            None,
-        );
-        let lease = batch.schedule().issue(0).unwrap();
-        let worker = owner.mint_domain_reentry_worker_result(lease).unwrap();
-        assert_eq!(owner.source_state_stats().issued(), 1);
-        assert_eq!(
-            owner
-                .issue_exceptional_source(
-                    owner
-                        .exceptional_source_locator(domain_source_ordinal)
-                        .unwrap(),
-                )
-                .unwrap_err(),
-            ExactPublicationEpochError::AlreadyIssued,
-        );
-        batch.try_stage(reservation.bind(worker)).unwrap();
-        assert_eq!(owner.source_state_stats().issued(), 0);
-        assert_eq!(owner.source_state_stats().staged(), 1);
-        let mut staged = batch.into_staged_results().unwrap();
-        let source_before_move = staged
-            .get(0)
-            .expect("one staged domain result")
-            .1
-            .retained_output();
-        let source_allocation_identity = source_before_move.event_allocation_identity_for_closure();
-        let source_leaf_ordinal = source_before_move.leaf_ordinal();
-        let source_resident = staged.take_resident(0).unwrap();
-        assert!(staged.take_resident(0).is_none());
-        assert_eq!(
-            source_resident.estimate().visible_logical().get(),
-            source_visible_u64
-        );
-        assert!(source_resident.estimate().opaque_native_reserve().get() > 0);
-
-        // A precommit policy rejection returns the exact predecessor resident,
-        // including its source/event allocation and original charge.
-        let predecessor = source_resident.token().clone();
-        let rejected_transform = reserve_one(
-            &mut admission,
-            &work,
-            task_estimate(64 * 1024 * 1024, 0, 16 * 1024 * 1024, 4 * 1024 * 1024),
-            Some(predecessor),
-        )
-        .try_bind_resident_transform(source_resident)
-        .unwrap();
-        drop(staged);
-        let mut rejected = admission
-            .execute_resident_transforms_ordered(
-                vec![rejected_transform],
-                |task,
-                 source|
-                 -> Result<
-                    GeneratedAffineResidualGroupExactSession,
-                    CampaignResidentTransformBuildFailure<
-                        CommittedExceptionalSingletonSource,
-                        FreshDomainSessionTransformError,
-                    >,
-                > {
-                    assert_eq!(
-                        task.memory()
-                            .retained_output()
-                            .opaque_native_reserve()
-                            .get(),
-                        0
-                    );
-                    Err(CampaignResidentTransformBuildFailure::new(
-                        source,
-                        FreshDomainSessionTransformError::MissingOpaqueNativeReserve,
-                    ))
-                },
-            )
-            .unwrap();
-        let CampaignResidentTransformExecution::BuildFailed(rejected) = rejected.pop().unwrap()
-        else {
-            panic!("missing opaque reserve must reject before construction")
-        };
-        assert!(matches!(
-            rejected.error(),
-            FreshDomainSessionTransformError::MissingOpaqueNativeReserve
-        ));
-        let source_resident = rejected.recover_callback_owner();
-        assert_eq!(
-            source_resident
-                .retained_output()
-                .event_allocation_identity_for_closure(),
-            source_allocation_identity,
-        );
-        assert_eq!(
-            source_resident.retained_output().leaf_ordinal(),
-            source_leaf_ordinal,
-        );
-        assert_eq!(
-            source_resident.estimate().visible_logical().get(),
-            source_visible_u64
-        );
-        assert_eq!(
-            owner
-                .issue_exceptional_source(
-                    owner
-                        .exceptional_source_locator(domain_source_ordinal)
-                        .unwrap(),
-                )
-                .unwrap_err(),
-            ExactPublicationEpochError::AlreadyStaged,
-        );
-        // First discover the deterministic local visible census under a task
-        // whose transient envelope covers construction but whose retained
-        // output is deliberately undercharged. Typed failure returns the exact
-        // predecessor and reports the required boundary.
-        let predecessor = source_resident.token().clone();
-        let underestimated_transform = reserve_one(
-            &mut admission,
-            &work,
-            task_estimate(1, 8 * 1024 * 1024, 32 * 1024 * 1024, 8 * 1024 * 1024),
-            Some(predecessor),
-        )
-        .try_bind_resident_transform(source_resident)
-        .unwrap();
-        let worker_family = family.clone();
-        let worker_context = context.clone();
-        let mut underestimated = admission
-            .execute_resident_transforms_ordered(
-                vec![underestimated_transform],
-                move |task, source| {
-                    build_fresh_domain_session_for_transform(
-                        task,
-                        source,
-                        &worker_family,
-                        &worker_context,
-                        DATABASE_EPOCH,
-                        None,
-                    )
-                },
-            )
-            .unwrap();
-        let CampaignResidentTransformExecution::BuildFailed(underestimated) =
-            underestimated.pop().unwrap()
-        else {
-            panic!("undercharged fresh-session census must fail transactionally")
-        };
-        let (exact_visible_census_excluding_shared_ancestry, charged) =
-            match underestimated.error() {
-                FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
-                    requested,
-                    charged,
-                } => (*requested, *charged),
-                other => panic!("unexpected undercharged transform error: {other:?}"),
-            };
-        assert_eq!(charged, 1);
-        assert!(exact_visible_census_excluding_shared_ancestry > 1);
-        let source_resident = underestimated.recover_callback_owner();
-
-        // The exact local census is a real retained-output boundary: one byte
-        // below fails with the same census and returns the same resident.
-        let one_below = exact_visible_census_excluding_shared_ancestry - 1;
-        let predecessor = source_resident.token().clone();
-        let one_below_transform = reserve_one(
-            &mut admission,
-            &work,
-            task_estimate(
-                u64::try_from(one_below).unwrap(),
-                8 * 1024 * 1024,
-                32 * 1024 * 1024,
-                8 * 1024 * 1024,
-            ),
-            Some(predecessor),
-        )
-        .try_bind_resident_transform(source_resident)
-        .unwrap();
-        let worker_family = family.clone();
-        let worker_context = context.clone();
-        let mut one_below_failure = admission
-            .execute_resident_transforms_ordered(vec![one_below_transform], move |task, source| {
-                build_fresh_domain_session_for_transform(
-                    task,
-                    source,
-                    &worker_family,
-                    &worker_context,
-                    DATABASE_EPOCH,
-                    None,
-                )
-            })
-            .unwrap();
-        let CampaignResidentTransformExecution::BuildFailed(one_below_failure) =
-            one_below_failure.pop().unwrap()
-        else {
-            panic!("one-below local census must fail transactionally")
-        };
-        assert!(matches!(
-            one_below_failure.error(),
-            FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
-                requested,
-                charged,
-            } if *requested == exact_visible_census_excluding_shared_ancestry
-                && *charged == one_below
-        ));
-        let source_resident = one_below_failure.recover_callback_owner();
-
-        // Retry at the exact retained-output boundary with nonzero native
-        // reserve. The production adapter alone owns the private shallow proof
-        // copy used during construction.
-        let predecessor = source_resident.token().clone();
-        let admitted_transform = reserve_one(
-            &mut admission,
-            &work,
-            task_estimate(
-                u64::try_from(exact_visible_census_excluding_shared_ancestry).unwrap(),
-                8 * 1024 * 1024,
-                32 * 1024 * 1024,
-                8 * 1024 * 1024,
-            ),
-            Some(predecessor),
-        )
-        .try_bind_resident_transform(source_resident)
-        .unwrap();
-        let observed_visible_census_excluding_shared_ancestry = Arc::new(AtomicUsize::new(0));
-        let worker_census = Arc::clone(&observed_visible_census_excluding_shared_ancestry);
-        let worker_family = family.clone();
-        let worker_context = context.clone();
-        let mut completed = admission
-            .execute_resident_transforms_ordered(vec![admitted_transform], move |task, source| {
-                build_fresh_domain_session_for_transform(
-                    task,
-                    source,
-                    &worker_family,
-                    &worker_context,
-                    DATABASE_EPOCH,
-                    Some(worker_census.as_ref()),
-                )
-            })
-            .unwrap();
-        let CampaignResidentTransformExecution::Committed(session_resident) =
-            completed.pop().unwrap()
-        else {
-            panic!("admitted fresh-domain transform must commit")
-        };
-        let observed_visible_census_excluding_shared_ancestry =
-            observed_visible_census_excluding_shared_ancestry.load(AtomicOrdering::Acquire);
-        assert!(observed_visible_census_excluding_shared_ancestry > 0);
-        assert_eq!(
-            observed_visible_census_excluding_shared_ancestry,
-            exact_visible_census_excluding_shared_ancestry
-        );
-        assert_eq!(
-            session_resident.estimate().visible_logical().get(),
-            u64::try_from(exact_visible_census_excluding_shared_ancestry).unwrap()
-        );
-        assert!(session_resident.estimate().opaque_native_reserve().get() > 0);
-
-        // A fresh exact session imports no parent pivot, target disposition, or
-        // event ledger; it authenticates the V3 plan/catalog and honestly
-        // remains suspended at the typed equality-refinement boundary.
-        let session = session_resident.retained_output();
-        assert_eq!(
-            session.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA
-        );
-        assert_eq!(
-            session.source_kind(),
-            GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton,
-        );
-        assert_eq!(session.database_epoch(), DATABASE_EPOCH);
-        assert_eq!(session.group_ordinal(), 0);
-        assert_eq!(session.state_version(), 0);
-        assert_eq!(session.target_count(), 1);
-        assert_eq!(session.event_stats().events(), 0);
-        assert_eq!(session.consumed_target_count(), 0);
-        let fresh_resources = session.resident_resource_snapshot();
-        assert_eq!(fresh_resources.independent_rows(), 0);
-        assert_eq!(fresh_resources.native_u_stored_entries(), 0);
-        assert_eq!(fresh_resources.native_l_stored_entries(), 0);
-        session.replay(&family, &context).unwrap();
-        assert_eq!(
-            owner
-                .issue_exceptional_source(
-                    owner
-                        .exceptional_source_locator(domain_source_ordinal)
-                        .unwrap(),
-                )
-                .unwrap_err(),
-            ExactPublicationEpochError::AlreadyStaged,
-        );
-
-        // A sector leak is never fed back as a proper-subsector/same-sector
-        // case. The typed failure returns the exact live lease transactionally.
-        let leak_locator = owner
-            .exceptional_source_locator(leak_source_ordinal)
-            .unwrap();
-        let leak = owner.issue_exceptional_source(leak_locator).unwrap();
-        let failure = match owner.mint_domain_reentry_worker_result(leak) {
-            Ok(_) => panic!("sector leak was incorrectly minted as a same-sector source"),
-            Err(failure) => failure,
-        };
-        assert_eq!(
-            failure.error(),
-            ExactPublicationEpochReentryError::SectorLeakRequiresOutOfSectorRouting,
-        );
-        assert_eq!(owner.source_state_stats().issued(), 1);
-        drop(failure.into_lease());
-        assert_eq!(owner.source_state_stats().issued(), 0);
-        assert_eq!(
-            owner
-                .issue_exceptional_source(leak_locator)
-                .unwrap()
-                .source_ordinal(),
-            leak_source_ordinal,
-        );
-        // The reissued lease drops here and restores Pending. The staged Domain
-        // leaf remains terminally staged by design.
-        assert_eq!(owner.source_state_stats().staged(), 1);
-    }
-
-    #[test]
-    fn portable_byte_limit_saturates_at_the_native_usize_boundary() {
-        let native_max = usize::MAX as u128;
-        assert_eq!(portable_byte_limit(native_max), usize::MAX);
-        if native_max < u128::MAX {
-            assert_eq!(portable_byte_limit(native_max + 1), usize::MAX);
-        }
-    }
-
-    fn domain_transcript(domain: CommittedPublicationDomainView<'_>) -> String {
-        let premises = domain
-            .target_premises()
-            .iter()
-            .map(|premise| premise.polynomial().to_expression().to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        let predicates = domain
-            .predicates()
-            .map(|predicate| {
-                format!(
-                    "{:?}:{}",
-                    predicate.kind(),
-                    predicate.polynomial().to_expression()
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("premises=[{premises}]|predicates=[{predicates}]")
-    }
-
-    fn exceptional_transcript(view: ExactPublicationEpochExceptionalSourceView<'_>) -> String {
-        let key = view.scheduling_key();
-        let target = view.target_locator();
-        let offset = view
-            .target_offset()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let free_positions = view
-            .free_positions()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let compact_matrix = view
-            .compact_affine_matrix()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        format!(
-            "{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            key.job().family_id().as_str(),
-            key.job().sector(),
-            key.job().ordering(),
-            key.context_fingerprint(),
-            key.closure_epoch_ordinal(),
-            key.session_lane_ordinal(),
-            key.event_ordinal(),
-            key.leaf_ordinal(),
-            match view.kind() {
-                ExceptionalResidualKind::Domain => "domain",
-                ExceptionalResidualKind::SectorLeak => "leak",
-            },
-            target.solve_ordinal(),
-            target.inventory_position(),
-            target.case_ordinal(),
-            offset,
-            view.ambient_arity(),
-            free_positions,
-            format!(
-                "{}|matrix=[{compact_matrix}]",
-                domain_transcript(view.domain())
-            ),
-        )
-    }
-
-    #[test]
-    fn pending_and_forgotten_issued_handoffs_fail_without_losing_the_wave() {
-        let pending = handoff("publication-epoch-pending", &[0]);
-        let pending_stats = pending.stats();
-        let pending_terms = pending.slot(0).unwrap().event().terms().as_ptr();
-        let failure = ExactPublicationEpochOwner::compile(
-            pending,
-            11,
-            ExactPublicationEpochLimits::default(),
-        )
-        .unwrap_err();
-        let (error, pending) = failure.into_parts();
-        assert_eq!(
-            error,
-            ExactPublicationEpochError::HandoffNotFullyAcknowledged {
-                pending: pending_stats.leaves(),
-                acknowledged: 0,
-                expected: pending_stats.leaves(),
-            }
-        );
-        assert_eq!(pending.stats(), pending_stats);
-        assert_eq!(
-            pending.slot(0).unwrap().event().terms().as_ptr(),
-            pending_terms
-        );
-        fully_acknowledge(&pending);
-        let owner = ExactPublicationEpochOwner::compile(
-            pending,
-            11,
-            ExactPublicationEpochLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(owner.stats().slots(), pending_stats.slots());
-
-        let issued = handoff("publication-epoch-forgotten", &[0]);
-        let issued_stats = issued.stats();
-        let issued_terms = issued.slot(0).unwrap().event().terms().as_ptr();
-        let ticket = issued.issue(issued.locator(0, 0).unwrap()).unwrap();
-        forget(ticket);
-        assert_eq!(issued.state_stats().issued(), 1);
-        assert_eq!(issued.in_flight_tickets(), 1);
-        let failure =
-            ExactPublicationEpochOwner::compile(issued, 12, ExactPublicationEpochLimits::default())
-                .unwrap_err();
-        let (error, issued) = failure.into_parts();
-        assert_eq!(
-            error,
-            ExactPublicationEpochError::RecoveredStrandedHandoffTickets {
-                recovered: 1,
-                prior_in_flight: 1,
-            }
-        );
-        assert_eq!(issued.stats(), issued_stats);
-        assert_eq!(issued.state_stats().pending(), issued_stats.leaves());
-        assert_eq!(issued.state_stats().issued(), 0);
-        assert_eq!(issued.state_stats().acknowledged(), 0);
-        assert_eq!(issued.in_flight_tickets(), 0);
-        assert_eq!(
-            issued.slot(0).unwrap().event().terms().as_ptr(),
-            issued_terms
-        );
-        fully_acknowledge(&issued);
-        let owner =
-            ExactPublicationEpochOwner::compile(issued, 12, ExactPublicationEpochLimits::default())
-                .unwrap();
-        assert_eq!(
-            owner.event_for_test(0).unwrap().terms().as_ptr(),
-            issued_terms
-        );
-    }
-
-    #[test]
-    fn accepted_owner_preserves_payload_domains_counts_and_scheduling_scope() {
-        const CLOSURE_EPOCH: u64 = 37;
-        const LANE: usize = 7;
-        let input = input("publication-epoch-preservation", LANE);
-        let event = input.event();
-        let expected_job = input.job().clone();
-        let expected_terms = event.terms().as_ptr();
-        let expected_context = event.context_fingerprint().to_owned();
-        let expected_event_ordinal = event.event_ordinal();
-        let expected_target_premises = event.target_premises().as_ptr();
-        let mut expected_applicable = Vec::new();
-        let mut expected_exceptional = Vec::new();
-        let mut domain_count = 0usize;
-        let mut leak_count = 0usize;
-        for leaf in event.leaves() {
-            match leaf {
-                CommittedPublicationLeafView::Applicable(rule) => expected_applicable.push((
-                    rule.leaf_ordinal(),
-                    rule.domain().relative_case() as *const _ as usize,
-                    domain_transcript(rule.domain()),
-                )),
-                CommittedPublicationLeafView::Exceptional(residual) => {
-                    match residual.kind() {
-                        ExceptionalResidualKind::Domain => domain_count += 1,
-                        ExceptionalResidualKind::SectorLeak => leak_count += 1,
-                    }
-                    expected_exceptional.push((
-                        residual.leaf_ordinal(),
-                        residual.kind(),
-                        residual.domain().relative_case() as *const _ as usize,
-                        domain_transcript(residual.domain()),
-                    ));
-                }
-            }
-        }
-        assert!(!expected_applicable.is_empty());
-        assert!(domain_count > 0);
-        assert!(leak_count > 0);
-
-        let wave = ExactPublicationHandoffWave::compile(
-            vec![input],
-            ExactPublicationHandoffLimits::default(),
-        )
-        .unwrap();
-        fully_acknowledge(&wave);
-        let owner = ExactPublicationEpochOwner::compile(
-            wave,
-            CLOSURE_EPOCH,
-            ExactPublicationEpochLimits::default(),
-        )
-        .unwrap();
-        let stats = owner.stats();
-        assert_eq!(owner.closure_epoch_ordinal(), CLOSURE_EPOCH);
-        assert_eq!(stats.slots(), 1);
-        assert_eq!(stats.applicable(), expected_applicable.len());
-        assert_eq!(stats.exceptional_domain(), domain_count);
-        assert_eq!(stats.exceptional_leak(), leak_count);
-        assert_eq!(stats.exceptional(), expected_exceptional.len());
-        assert_eq!(
-            stats.leaf_visits(),
-            3 * (stats.applicable() + stats.exceptional())
-        );
-        assert_eq!(
-            owner.event_for_test(0).unwrap().terms().as_ptr(),
-            expected_terms
-        );
-
-        for (ordinal, (leaf_ordinal, case_ptr, domain)) in expected_applicable.iter().enumerate() {
-            let view = owner.applicable(ordinal).unwrap();
-            let key = view.scheduling_key();
-            assert_eq!(key.job(), &expected_job);
-            assert_eq!(key.context_fingerprint(), expected_context);
-            assert_eq!(key.closure_epoch_ordinal(), CLOSURE_EPOCH);
-            assert_eq!(key.session_lane_ordinal(), LANE as u64);
-            assert_eq!(key.event_ordinal(), expected_event_ordinal as u64);
-            assert_eq!(key.leaf_ordinal(), *leaf_ordinal as u64);
-            assert_eq!(view.rule().leaf_ordinal(), *leaf_ordinal);
-            assert_eq!(view.event().terms().as_ptr(), expected_terms);
-            assert_eq!(
-                view.domain().target_premises().as_ptr(),
-                expected_target_premises
-            );
-            assert_eq!(
-                view.domain().relative_case() as *const _ as usize,
-                *case_ptr
-            );
-            assert_eq!(&domain_transcript(view.domain()), domain);
-        }
-        assert!(owner.applicable(expected_applicable.len()).is_none());
-
-        for (ordinal, (leaf_ordinal, kind, case_ptr, domain)) in
-            expected_exceptional.iter().enumerate()
-        {
-            let locator = owner.exceptional_source_locator(ordinal).unwrap();
-            let mut lease = owner.issue_exceptional_source(locator).unwrap();
-            {
-                let view = owner.resolve_exceptional_source(&mut lease).unwrap();
-                let key = view.scheduling_key();
-                assert_eq!(key.job(), &expected_job);
-                assert_eq!(key.context_fingerprint(), expected_context);
-                assert_eq!(key.closure_epoch_ordinal(), CLOSURE_EPOCH);
-                assert_eq!(key.session_lane_ordinal(), LANE as u64);
-                assert_eq!(key.event_ordinal(), expected_event_ordinal as u64);
-                assert_eq!(key.leaf_ordinal(), *leaf_ordinal as u64);
-                assert_eq!(view.kind(), *kind);
-                assert_eq!(
-                    view.domain().target_premises().as_ptr(),
-                    expected_target_premises
-                );
-                assert_eq!(
-                    view.domain().relative_case() as *const _ as usize,
-                    *case_ptr
-                );
-                assert_eq!(&domain_transcript(view.domain()), domain);
-            }
-            owner.release_exceptional_source(lease).unwrap();
-        }
-        assert!(
-            owner
-                .exceptional_source_locator(expected_exceptional.len())
-                .is_none()
-        );
-        assert_eq!(
-            owner.source_state_stats(),
-            ExactPublicationEpochSourceStateStats {
-                pending: expected_exceptional.len(),
-                issued: 0,
-                staged: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn exceptional_leases_are_bounded_borrowed_and_lossless_on_all_release_paths() {
-        let wave = fully_acknowledged_handoff("publication-epoch-leases", &[0]);
-        let mut owner = ExactPublicationEpochOwner::compile(
-            wave,
-            19,
-            ExactPublicationEpochLimits {
-                max_in_flight_sources: 1,
-                ..ExactPublicationEpochLimits::default()
-            },
-        )
-        .unwrap();
-        assert!(owner.stats().exceptional() >= 2);
-        let first = owner.exceptional_source_locator(0).unwrap();
-        let second = owner.exceptional_source_locator(1).unwrap();
-        let mut lease = owner.issue_exceptional_source(first).unwrap();
-        assert_eq!(owner.in_flight_sources(), 1);
-        assert_eq!(
-            owner.issue_exceptional_source(second).unwrap_err(),
-            ExactPublicationEpochError::InFlightSourceLimit {
-                requested: 2,
-                limit: 1,
-            }
-        );
-        {
-            let view = owner.resolve_exceptional_source(&mut lease).unwrap();
-            let key = view.scheduling_key();
-            assert_eq!(key.closure_epoch_ordinal(), 19);
-            assert_eq!(view.family_fingerprint(), key.job().family_id().as_str());
-            assert_eq!(view.context_fingerprint(), key.context_fingerprint());
-            assert_eq!(view.sector(), key.job().sector());
-            assert_eq!(view.ordering(), key.job().ordering());
-        }
-        owner.release_exceptional_source(lease).unwrap();
-        assert_eq!(owner.in_flight_sources(), 0);
-        assert_eq!(owner.source_state_stats().issued(), 0);
-
-        let lease = owner.issue_exceptional_source(first).unwrap();
-        drop(lease);
-        assert_eq!(owner.in_flight_sources(), 0);
-        assert_eq!(
-            owner.source_state_stats().pending(),
-            owner.stats().exceptional()
-        );
-
-        let panic = thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let mut lease = owner.issue_exceptional_source(first).unwrap();
-                    let _view = owner.resolve_exceptional_source(&mut lease).unwrap();
-                    panic!("injected exceptional-source worker panic");
-                })
-                .join()
-        });
-        assert!(panic.is_err());
-        assert_eq!(owner.in_flight_sources(), 0);
-        assert_eq!(
-            owner.source_state_stats().pending(),
-            owner.stats().exceptional()
-        );
-        let mut retry = owner.issue_exceptional_source(first).unwrap();
-        let before = {
-            let view = owner.resolve_exceptional_source(&mut retry).unwrap();
-            exceptional_transcript(view)
-        };
-        owner.release_exceptional_source(retry).unwrap();
-        let mut retry = owner.issue_exceptional_source(first).unwrap();
-        let after = {
-            let view = owner.resolve_exceptional_source(&mut retry).unwrap();
-            exceptional_transcript(view)
-        };
-        assert_eq!(after, before);
-        drop(retry);
-
-        let mut stranded = owner.issue_exceptional_source(first).unwrap();
-        let stranded_transcript = {
-            let view = owner.resolve_exceptional_source(&mut stranded).unwrap();
-            exceptional_transcript(view)
-        };
-        forget(stranded);
-        assert_eq!(owner.in_flight_sources(), 1);
-        assert_eq!(owner.source_state_stats().issued(), 1);
-        assert_eq!(owner.recover_stranded_exceptional_sources().unwrap(), 1);
-        assert_eq!(owner.in_flight_sources(), 0);
-        assert_eq!(owner.source_state_stats().issued(), 0);
-        let first = owner.exceptional_source_locator(0).unwrap();
-        let mut retry = owner.issue_exceptional_source(first).unwrap();
-        let recovered_transcript = {
-            let view = owner.resolve_exceptional_source(&mut retry).unwrap();
-            exceptional_transcript(view)
-        };
-        assert_eq!(recovered_transcript, stranded_transcript);
-        owner.release_exceptional_source(retry).unwrap();
-
-        let foreign_wave = fully_acknowledged_handoff("publication-epoch-foreign-leases", &[0]);
-        let foreign_owner = ExactPublicationEpochOwner::compile(
-            foreign_wave,
-            20,
-            ExactPublicationEpochLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            owner
-                .issue_exceptional_source(foreign_owner.exceptional_source_locator(0).unwrap())
-                .unwrap_err(),
-            ExactPublicationEpochError::ForeignLocator
-        );
-        let mut foreign_lease = foreign_owner
-            .issue_exceptional_source(foreign_owner.exceptional_source_locator(0).unwrap())
-            .unwrap();
-        assert_eq!(
-            owner
-                .resolve_exceptional_source(&mut foreign_lease)
-                .unwrap_err(),
-            ExactPublicationEpochError::ForeignLease
-        );
-        assert_eq!(
-            owner.release_exceptional_source(foreign_lease).unwrap_err(),
-            ExactPublicationEpochError::ForeignLease
-        );
-        assert_eq!(foreign_owner.in_flight_sources(), 0);
-        assert_eq!(foreign_owner.source_state_stats().issued(), 0);
-
-        fn assert_send<T: Send>() {}
-        fn assert_sync<T: Sync>() {}
-        assert_send::<ExactPublicationEpochSourceLease<'static>>();
-        assert_sync::<ExactPublicationEpochOwner>();
-        assert_eq!(size_of::<AtomicU8>(), size_of::<u8>());
-    }
-
-    #[test]
-    fn exact_and_every_positive_resource_one_below_are_transactional_and_retryable() {
-        const NAME: &str = "publication-epoch-limits";
-        let pilot_wave = fully_acknowledged_handoff(NAME, &[0]);
-        let pilot = ExactPublicationEpochOwner::compile(
-            pilot_wave,
-            41,
-            ExactPublicationEpochLimits::default(),
-        )
-        .unwrap();
-        let stats = pilot.stats();
-        assert!(stats.slots() > 0);
-        assert!(stats.leaf_visits() > 0);
-        assert!(stats.applicable() > 0);
-        assert!(stats.exceptional() > 0);
-        assert!(stats.max_in_flight_sources() > 0);
-        assert!(stats.max_in_flight_source_lease_bytes() > 0);
-        assert!(stats.transferred_event_payload_bytes() > 0);
-        assert!(stats.retained_shallow_bytes() > 0);
-        assert!(stats.total_resident_bytes() > 0);
-        assert!(stats.compilation_peak_bytes() > 0);
-        let exact = ExactPublicationEpochLimits {
-            max_slots: stats.slots(),
-            max_leaf_visits: stats.leaf_visits(),
-            max_applicable_leaves: stats.applicable(),
-            max_exceptional_sources: stats.exceptional(),
-            max_in_flight_sources: stats.max_in_flight_sources(),
-            max_in_flight_source_lease_bytes: stats.max_in_flight_source_lease_bytes(),
-            max_transferred_event_payload_bytes: stats.transferred_event_payload_bytes(),
-            max_retained_shallow_bytes: stats.retained_shallow_bytes(),
-            max_total_resident_bytes: stats.total_resident_bytes(),
-            max_compilation_peak_bytes: stats.compilation_peak_bytes(),
-        };
-        let exact_owner =
-            ExactPublicationEpochOwner::compile(fully_acknowledged_handoff(NAME, &[0]), 41, exact)
-                .unwrap();
-        assert_eq!(exact_owner.stats(), stats);
-
-        let one_below = [
-            ExactPublicationEpochLimits {
-                max_slots: exact.max_slots - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_leaf_visits: exact.max_leaf_visits - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_applicable_leaves: exact.max_applicable_leaves - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_exceptional_sources: exact.max_exceptional_sources - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_in_flight_source_lease_bytes: exact.max_in_flight_source_lease_bytes - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_transferred_event_payload_bytes: exact.max_transferred_event_payload_bytes - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_retained_shallow_bytes: exact.max_retained_shallow_bytes - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_total_resident_bytes: exact.max_total_resident_bytes - 1,
-                ..exact
-            },
-            ExactPublicationEpochLimits {
-                max_compilation_peak_bytes: exact.max_compilation_peak_bytes - 1,
-                ..exact
-            },
-        ];
-        for limits in one_below {
-            let wave = fully_acknowledged_handoff(NAME, &[0]);
-            let wave_stats = wave.stats();
-            let terms = wave.slot(0).unwrap().event().terms().as_ptr();
-            let failure = ExactPublicationEpochOwner::compile(wave, 41, limits).unwrap_err();
-            assert!(matches!(
-                failure.error(),
-                ExactPublicationEpochError::ResourceLimit { .. }
-            ));
-            let (_, returned) = failure.into_parts();
-            assert_eq!(returned.stats(), wave_stats);
-            assert_eq!(returned.state_stats().acknowledged(), wave_stats.leaves());
-            assert_eq!(returned.slot(0).unwrap().event().terms().as_ptr(), terms);
-            assert_eq!(
-                ExactPublicationEpochOwner::compile(returned, 41, exact)
-                    .unwrap()
-                    .stats(),
-                stats
-            );
-        }
-
-        // Worker width is a tunable ceiling, not a minimum compile resource.
-        // Lowering it must reduce admitted lease bytes instead of rejecting
-        // the immutable owner.
-        if exact.max_in_flight_sources > 1 {
-            let reduced_width = exact.max_in_flight_sources - 1;
-            let owner = ExactPublicationEpochOwner::compile(
-                fully_acknowledged_handoff(NAME, &[0]),
-                41,
-                ExactPublicationEpochLimits {
-                    max_in_flight_sources: reduced_width,
-                    max_in_flight_source_lease_bytes: reduced_width
-                        * size_of::<ExactPublicationEpochSourceLease<'static>>(),
-                    ..exact
-                },
-            )
-            .unwrap();
-            assert_eq!(owner.stats().max_in_flight_sources(), reduced_width);
-        }
-    }
-
     #[test]
     fn sentinel_committed_exceptional_child_replays_from_real_epoch_mint() {
         const DATABASE_EPOCH: usize = 2_029;
@@ -3277,339 +2551,5 @@ mod tests {
         );
         session.replay(&family, &context).unwrap();
         drop(source_charge);
-    }
-
-    #[test]
-    fn committed_stable_identity_binds_geometry_not_event_leaf_coordinates() {
-        const NAME: &str = "publication-epoch-identity-geometry";
-        let (family, context, owner) = owner_with_scope(NAME, 47);
-        let source_resident = staged_domain_source_from_real_mint(&owner);
-        let source = source_resident.retained_output();
-        let event_leaf_coordinates = (source.event_ordinal(), source.leaf_ordinal());
-        let source_row_limits = GeneratedAffineResidualCaseSourceRowLimits::default();
-        let baseline = source
-            .encode_durable_identity(
-                &family,
-                &context,
-                source_row_limits,
-                ExactIdentityLimits::default(),
-            )
-            .unwrap();
-
-        // Stable value is independent of the event allocation: an equivalent
-        // independently compiled event at the same coordinates encodes the
-        // exact same source, including every inherited generic relation.
-        let (equivalent_family, equivalent_context, equivalent_owner) = owner_with_scope(NAME, 47);
-        let equivalent_source_resident = staged_domain_source_from_real_mint(&equivalent_owner);
-        let equivalent_source = equivalent_source_resident.retained_output();
-        assert!(!source.same_event_leaf_allocation(equivalent_source));
-        assert_eq!(
-            (
-                equivalent_source.event_ordinal(),
-                equivalent_source.leaf_ordinal()
-            ),
-            event_leaf_coordinates
-        );
-        assert_eq!(
-            equivalent_source
-                .encode_durable_identity(
-                    &equivalent_family,
-                    &equivalent_context,
-                    source_row_limits,
-                    ExactIdentityLimits::default(),
-                )
-                .unwrap(),
-            baseline
-        );
-
-        // Hold the exact source allocation and event/leaf coordinates fixed;
-        // only substitute one exact geometry coefficient in the identity
-        // projection. Event-local allocation coordinates are deliberately not
-        // stable-value fields, while all geometry coefficients must be.
-        let mut changed_matrix = source.compact_affine_matrix().to_vec();
-        let first = changed_matrix
-            .first_mut()
-            .expect("domain fixture must expose non-empty affine geometry");
-        *first = if first.is_zero() {
-            Integer::from(1)
-        } else {
-            Integer::from(0)
-        };
-        assert_ne!(changed_matrix.as_slice(), source.compact_affine_matrix());
-        let changed = encode_exact_identity(
-            &CommittedExceptionalSingletonIdentityGeometryOverride {
-                source,
-                family: &family,
-                context: &context,
-                source_row_limits,
-                compact_affine_matrix: &changed_matrix,
-            },
-            ExactIdentityLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            (source.event_ordinal(), source.leaf_ordinal()),
-            event_leaf_coordinates
-        );
-        assert_ne!(baseline.as_str(), changed.as_str());
-
-        // Exercise the LegacyInventory-only parent-row projection directly.
-        // The current publication fixture is Direct-backed; this test-only
-        // projection holds every other child field fixed and proves that one
-        // inherited exact relation change changes the child identity. A full
-        // legacy publication-event fixture remains a broader integration gate.
-        let legacy_rows = (0..source.source_row_count())
-            .map(|source_row_ordinal| {
-                source
-                    .authenticated_source_row_view(
-                        &family,
-                        &context,
-                        source_row_ordinal,
-                        source_row_limits,
-                    )
-                    .unwrap()
-                    .relation()
-                    .clone()
-            })
-            .collect::<Vec<_>>();
-        assert!(!legacy_rows.is_empty());
-        let mut changed_legacy_rows = legacy_rows.clone();
-        let changed_relation = changed_legacy_rows.first_mut().unwrap();
-        let changed_shift = changed_relation
-            .terms()
-            .keys()
-            .next()
-            .expect("inherited generated row must have a term")
-            .clone();
-        changed_relation
-            .add_term(&context, changed_shift, context.one())
-            .unwrap();
-        assert_ne!(changed_legacy_rows[0], legacy_rows[0]);
-        let legacy_identity = encode_exact_identity(
-            &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
-                source,
-                family: &family,
-                context: &context,
-                source_row_limits,
-                compact_affine_matrix: source.compact_affine_matrix(),
-                legacy_rows: &legacy_rows,
-            },
-            ExactIdentityLimits::default(),
-        )
-        .unwrap();
-        let changed_legacy_identity = encode_exact_identity(
-            &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
-                source,
-                family: &family,
-                context: &context,
-                source_row_limits,
-                compact_affine_matrix: source.compact_affine_matrix(),
-                legacy_rows: &changed_legacy_rows,
-            },
-            ExactIdentityLimits::default(),
-        )
-        .unwrap();
-        assert_ne!(legacy_identity, changed_legacy_identity);
-
-        let stats = baseline.stats();
-        let exact = ExactIdentityLimits {
-            max_identity_bytes: stats.identity_bytes(),
-            max_fields: stats.fields(),
-            max_tag_bytes: stats.tag_bytes(),
-            max_string_values: stats.string_values(),
-            max_string_bytes: stats.string_bytes(),
-            max_nesting_depth: stats.maximum_nesting_depth(),
-            max_polynomials: stats.polynomials(),
-            max_polynomial_variables: stats.polynomial_variables(),
-            max_polynomial_terms: stats.polynomial_terms(),
-            max_exponent_entries: stats.exponent_entries(),
-            max_integers: stats.integers(),
-            max_integer_bits: stats.integer_bits(),
-        };
-        assert_eq!(
-            source
-                .encode_durable_identity(&family, &context, source_row_limits, exact)
-                .unwrap(),
-            baseline
-        );
-
-        macro_rules! one_below {
-            ($limit:ident, $stat:ident, $resource:literal) => {{
-                let complete_requested = stats.$stat();
-                if complete_requested > 0 {
-                    let mut limits = exact;
-                    limits.$limit = complete_requested - 1;
-                    assert!(matches!(
-                        source.encode_durable_identity(
-                            &family,
-                            &context,
-                            source_row_limits,
-                            limits,
-                        ),
-                        Err(ExactIdentityError::ResourceLimit {
-                            resource,
-                            requested,
-                            limit,
-                        }) if resource == $resource
-                            && requested > limit
-                            && requested <= complete_requested
-                            && limit + 1 == complete_requested
-                    ));
-                }
-            }};
-        }
-        one_below!(
-            max_identity_bytes,
-            identity_bytes,
-            "exact structural identity bytes"
-        );
-        one_below!(max_fields, fields, "exact structural identity fields");
-        one_below!(
-            max_tag_bytes,
-            tag_bytes,
-            "exact structural identity tag bytes"
-        );
-        one_below!(
-            max_string_values,
-            string_values,
-            "exact structural identity string values"
-        );
-        one_below!(
-            max_string_bytes,
-            string_bytes,
-            "exact structural identity string bytes"
-        );
-        one_below!(
-            max_nesting_depth,
-            maximum_nesting_depth,
-            "exact structural identity nesting depth"
-        );
-        one_below!(
-            max_polynomials,
-            polynomials,
-            "exact structural identity polynomials"
-        );
-        one_below!(
-            max_polynomial_variables,
-            polynomial_variables,
-            "exact structural identity polynomial variables"
-        );
-        one_below!(
-            max_polynomial_terms,
-            polynomial_terms,
-            "exact structural identity polynomial terms"
-        );
-        one_below!(
-            max_exponent_entries,
-            exponent_entries,
-            "exact structural identity polynomial exponent entries"
-        );
-        one_below!(
-            max_integers,
-            integers,
-            "exact structural identity integer values"
-        );
-        one_below!(
-            max_integer_bits,
-            integer_bits,
-            "exact structural identity integer bits"
-        );
-    }
-
-    fn parallel_exceptional_transcript(width: usize, shuffled: bool) -> Vec<String> {
-        assert!((1..=4).contains(&width));
-        let lanes = if shuffled {
-            vec![2, 0, 1]
-        } else {
-            vec![0, 1, 2]
-        };
-        let wave = fully_acknowledged_handoff("publication-epoch-parallel", &lanes);
-        let owner = ExactPublicationEpochOwner::compile(
-            wave,
-            53,
-            ExactPublicationEpochLimits {
-                max_in_flight_sources: width,
-                ..ExactPublicationEpochLimits::default()
-            },
-        )
-        .unwrap();
-        let mut next_source = 0usize;
-        let mut transcript = Vec::with_capacity(owner.stats().exceptional());
-        while next_source < owner.stats().exceptional() {
-            let end = owner
-                .stats()
-                .exceptional()
-                .min(next_source.saturating_add(width));
-            let leases = (next_source..end)
-                .map(|source_ordinal| {
-                    owner
-                        .issue_exceptional_source(
-                            owner.exceptional_source_locator(source_ordinal).unwrap(),
-                        )
-                        .unwrap()
-                })
-                .collect::<Vec<_>>();
-            assert!(owner.in_flight_sources() <= width);
-            let mut completed = thread::scope(|scope| {
-                let barrier = Arc::new(Barrier::new(leases.len()));
-                let completion_turn = Arc::new(AtomicUsize::new(leases.len() - 1));
-                let (sender, receiver) = mpsc::channel();
-                for (worker_ordinal, mut lease) in leases.into_iter().enumerate() {
-                    let barrier = Arc::clone(&barrier);
-                    let completion_turn = Arc::clone(&completion_turn);
-                    let sender = sender.clone();
-                    let owner = &owner;
-                    scope.spawn(move || {
-                        barrier.wait();
-                        let entry = {
-                            let view = owner.resolve_exceptional_source(&mut lease).unwrap();
-                            exceptional_transcript(view)
-                        };
-                        barrier.wait();
-                        while completion_turn.load(AtomicOrdering::Acquire) != worker_ordinal {
-                            thread::yield_now();
-                        }
-                        sender
-                            .send((worker_ordinal, lease.source_ordinal(), entry, lease))
-                            .unwrap();
-                        if worker_ordinal > 0 {
-                            completion_turn.store(worker_ordinal - 1, AtomicOrdering::Release);
-                        }
-                    });
-                }
-                drop(sender);
-                receiver.into_iter().collect::<Vec<_>>()
-            });
-            assert_eq!(
-                completed
-                    .iter()
-                    .map(|(worker_ordinal, _, _, _)| *worker_ordinal)
-                    .collect::<Vec<_>>(),
-                (0..completed.len()).rev().collect::<Vec<_>>()
-            );
-            completed.sort_by_key(|(_, source_ordinal, _, _)| *source_ordinal);
-            for (_, source_ordinal, entry, lease) in completed {
-                assert_eq!(source_ordinal, transcript.len());
-                transcript.push(entry);
-                owner.release_exceptional_source(lease).unwrap();
-            }
-            next_source = end;
-        }
-        assert_eq!(owner.in_flight_sources(), 0);
-        assert_eq!(owner.source_state_stats().issued(), 0);
-        assert_eq!(
-            owner.source_state_stats().pending(),
-            owner.stats().exceptional()
-        );
-        transcript
-    }
-
-    #[test]
-    fn shuffled_inputs_and_one_two_four_reverse_completion_workers_are_canonical() {
-        let serial = parallel_exceptional_transcript(1, false);
-        assert!(!serial.is_empty());
-        assert_eq!(parallel_exceptional_transcript(1, true), serial);
-        assert_eq!(parallel_exceptional_transcript(2, true), serial);
-        assert_eq!(parallel_exceptional_transcript(4, true), serial);
     }
 }

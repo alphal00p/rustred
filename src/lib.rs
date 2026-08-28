@@ -80,27 +80,8 @@ pub mod generated_family_fixed_point_provider;
 pub mod generated_family_rule_provider;
 pub mod generated_family_rule_system;
 pub(crate) mod generated_provider_stack;
-pub mod generated_residual_affine_branch_bound_relation;
-pub mod generated_residual_affine_branch_reelimination;
-pub mod generated_residual_affine_case_inventory;
 pub(crate) mod generated_residual_affine_condition_accumulator;
-#[cfg(test)]
-mod generated_residual_affine_condition_accumulator_tests;
-pub(crate) mod generated_residual_affine_group_effective_coverage;
-pub mod generated_residual_affine_pivot_target_matching;
 pub mod generated_residual_affine_when_bad;
-pub(crate) mod generated_residual_affine_when_bad_compilation;
-#[cfg(test)]
-mod generated_residual_affine_when_bad_compilation_tests;
-pub(crate) mod generated_residual_affine_when_bad_descent;
-pub(crate) mod generated_residual_affine_when_bad_pullback_gate;
-pub(crate) mod generated_sector_affine_effective_coverage;
-#[cfg(test)]
-mod generated_sector_affine_effective_coverage_tests;
-pub(crate) mod generated_sector_affine_effective_residual_queue;
-#[cfg(test)]
-mod generated_sector_affine_effective_residual_queue_tests;
-pub(crate) mod generated_sector_affine_provider;
 pub mod generated_sector_conditional_provider;
 pub mod generated_sector_discovery;
 pub mod generated_sector_live_leaf_queue;
@@ -382,55 +363,6 @@ pub use generated_family_rule_system::{
     GeneratedFamilyRuleSystemLimits, GeneratedFamilyRuleSystemStats,
     GeneratedFamilyRuleSystemStrategy, GeneratedFamilySectorFailure, GeneratedFamilySectorResource,
     GeneratedFamilySectorStatus, GeneratedFamilySectorTranscript,
-};
-pub use generated_residual_affine_branch_bound_relation::{
-    GENERATED_RESIDUAL_AFFINE_BRANCH_BOUND_RELATION_V1_SCHEMA,
-    GeneratedResidualAffineBranchBaseAssumption, GeneratedResidualAffineBranchBoundConditionClass,
-    GeneratedResidualAffineBranchBoundConditionSource,
-    GeneratedResidualAffineBranchBoundConditionWitness,
-    GeneratedResidualAffineBranchBoundParametricRelation,
-    GeneratedResidualAffineBranchBoundRelationCompilation,
-    GeneratedResidualAffineBranchBoundRelationCompiler,
-    GeneratedResidualAffineBranchBoundRelationError,
-    GeneratedResidualAffineBranchBoundRelationLimits,
-    GeneratedResidualAffineBranchBoundRelationStats,
-    GeneratedResidualAffineBranchConcreteSpecializationLimits,
-    GeneratedResidualAffineBranchEmptyCertificate, GeneratedResidualAffineBranchEmptyReason,
-    GeneratedResidualAffineBranchUnavailableReason,
-    GeneratedResidualAffineBranchUnavailableRowCertificate,
-};
-pub use generated_residual_affine_branch_reelimination::{
-    GENERATED_RESIDUAL_AFFINE_BRANCH_REELIMINATION_V1_SCHEMA,
-    GeneratedResidualAffineBranchConcreteReplayLimits,
-    GeneratedResidualAffineBranchConcreteReplayStats,
-    GeneratedResidualAffineBranchReeliminationCertificate,
-    GeneratedResidualAffineBranchReeliminationCompilation,
-    GeneratedResidualAffineBranchReeliminationCompiler,
-    GeneratedResidualAffineBranchReeliminationEmptyBranch,
-    GeneratedResidualAffineBranchReeliminationError,
-    GeneratedResidualAffineBranchReeliminationLimits,
-    GeneratedResidualAffineBranchReeliminationNoAvailableRows,
-    GeneratedResidualAffineBranchReeliminationRowOutcome,
-    GeneratedResidualAffineBranchReeliminationRowWitness,
-    GeneratedResidualAffineBranchReeliminationStats,
-};
-pub use generated_residual_affine_case_inventory::{
-    GENERATED_RESIDUAL_AFFINE_CASE_INVENTORY_V1_SCHEMA,
-    GeneratedResidualAffineCaseInventoryCertificate, GeneratedResidualAffineCaseInventoryCompiler,
-    GeneratedResidualAffineCaseInventoryError, GeneratedResidualAffineCaseInventoryLimits,
-    GeneratedResidualAffineCaseInventoryStats, GeneratedResidualAffineCaseLocator,
-    GeneratedResidualAffineContiguousCaseGroup, GeneratedResidualAffineInventoryCase,
-    GeneratedResidualAffineInventoryTerminal, GeneratedResidualAffineInventoryTerminalOutcome,
-};
-pub use generated_residual_affine_pivot_target_matching::{
-    GENERATED_RESIDUAL_AFFINE_PIVOT_TARGET_MATCHING_V1_SCHEMA,
-    GeneratedResidualAffinePendingWhenBad, GeneratedResidualAffinePivotTargetMatchingCertificate,
-    GeneratedResidualAffinePivotTargetMatchingCompiler,
-    GeneratedResidualAffinePivotTargetMatchingError,
-    GeneratedResidualAffinePivotTargetMatchingLimits,
-    GeneratedResidualAffinePivotTargetMatchingStats, GeneratedResidualAffinePivotTargetOutcome,
-    GeneratedResidualAffineRecenteringBoundaryKind, GeneratedResidualAffineRejectedNoTargetCase,
-    GeneratedResidualAffineRejectedRecenteringBoundary,
 };
 pub use generated_residual_affine_when_bad::{
     AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA, AffineWhenBadAtom, AffineWhenBadClauseProvenance,

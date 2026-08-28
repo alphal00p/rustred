@@ -40,7 +40,7 @@ const TARGET_ORDER_V1_ID: &str = "stable-ascending-physical-key-then-inventory-p
 const INVENTORY_ALLOCATION_COMPARISONS: usize = 1;
 const FRAME_REPLAYS: usize = 1;
 const GROUP_AUTHENTICATIONS: usize = 1;
-const LEGACY_RETAINED_PARENT_REFERENCES: usize = 3;
+const INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES: usize = 3;
 const DIRECT_RETAINED_PARENT_REFERENCES: usize = 2;
 const LIMIT_SCALAR_FIELDS: usize = 25;
 const STATS_SCALAR_FIELDS: usize = 29;
@@ -49,7 +49,7 @@ const fn solve_plan_schema_for_source(
     source: GeneratedAffineResidualCaseAuthoritySourceKind,
 ) -> &'static str {
     match source {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
@@ -99,7 +99,7 @@ impl Default for GeneratedAffineResidualGroupSolvePlanLimits {
             max_inventory_allocation_comparisons: INVENTORY_ALLOCATION_COMPARISONS,
             max_frame_replays: FRAME_REPLAYS,
             max_group_authentications: GROUP_AUTHENTICATIONS,
-            max_retained_parent_references: LEGACY_RETAINED_PARENT_REFERENCES,
+            max_retained_parent_references: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
             max_group_cases: 256_000_000,
             max_arity: 1_000_000,
             max_free_positions: 1_000_000,
@@ -208,7 +208,7 @@ pub(crate) struct GeneratedAffineResidualGroupSolvePlanReplayLimits {
 impl Default for GeneratedAffineResidualGroupSolvePlanReplayLimits {
     fn default() -> Self {
         Self {
-            max_parent_allocation_comparisons: LEGACY_RETAINED_PARENT_REFERENCES,
+            max_parent_allocation_comparisons: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
             max_combined_owner_bytes: 512 * 1024 * 1024 * 1024,
             max_payload_comparison_units: 64_000_000_000,
             max_payload_comparison_bytes: 256 * 1024 * 1024 * 1024,
@@ -363,7 +363,7 @@ struct SortEntry {
 
 #[derive(Clone)]
 enum GeneratedAffineResidualGroupSolvePlanSource {
-    LegacyInventory(Arc<GeneratedAffineResidualCaseInventoryCertificate>),
+    InitialInventory(Arc<GeneratedAffineResidualCaseInventoryCertificate>),
     DirectFormulaSingleton,
     CommittedExceptionalSingleton,
 }
@@ -371,8 +371,8 @@ enum GeneratedAffineResidualGroupSolvePlanSource {
 impl GeneratedAffineResidualGroupSolvePlanSource {
     const fn kind(&self) -> GeneratedAffineResidualCaseAuthoritySourceKind {
         match self {
-            Self::LegacyInventory(_) => {
-                GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory
+            Self::InitialInventory(_) => {
+                GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory
             }
             Self::DirectFormulaSingleton => {
                 GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
@@ -385,7 +385,7 @@ impl GeneratedAffineResidualGroupSolvePlanSource {
 
     const fn retained_parent_references(&self) -> usize {
         match self {
-            Self::LegacyInventory(_) => LEGACY_RETAINED_PARENT_REFERENCES,
+            Self::InitialInventory(_) => INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
             Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => {
                 DIRECT_RETAINED_PARENT_REFERENCES
             }
@@ -394,7 +394,7 @@ impl GeneratedAffineResidualGroupSolvePlanSource {
 
     const fn inventory_allocation_comparisons(&self) -> usize {
         match self {
-            Self::LegacyInventory(_) => INVENTORY_ALLOCATION_COMPARISONS,
+            Self::InitialInventory(_) => INVENTORY_ALLOCATION_COMPARISONS,
             Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => 0,
         }
     }
@@ -480,7 +480,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
         Self::try_new_for_source_unwind_boundary(
             family,
             context,
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory),
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory),
             authority,
             physical_frame,
             limits,
@@ -861,14 +861,15 @@ impl GeneratedAffineResidualGroupSolvePlan {
         replay_limits: GeneratedAffineResidualGroupSolvePlanReplayLimits,
     ) -> Result<(), GeneratedAffineResidualGroupSolvePlanError> {
         match &self.source {
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => self.replay(
-                family,
-                context,
-                inventory,
-                &self.authority,
-                &self.physical_frame,
-                replay_limits,
-            ),
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory) => self
+                .replay(
+                    family,
+                    context,
+                    inventory,
+                    &self.authority,
+                    &self.physical_frame,
+                    replay_limits,
+                ),
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => self
                 .replay_direct_formula_singleton(
                     family,
@@ -891,7 +892,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
         &self,
     ) -> Option<&Arc<GeneratedAffineResidualCaseInventoryCertificate>> {
         match &self.source {
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => {
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory) => {
                 Some(inventory)
             }
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
@@ -933,7 +934,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
     ) -> bool {
         matches!(
             &self.source,
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(retained)
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(retained)
                 if Arc::ptr_eq(retained, inventory)
         ) && Arc::ptr_eq(&self.authority, authority)
             && Arc::ptr_eq(&self.physical_frame, physical_frame)
@@ -978,12 +979,12 @@ impl GeneratedAffineResidualGroupSolvePlan {
             }
             check_limit(
                 "solve-plan parent allocation comparisons",
-                LEGACY_RETAINED_PARENT_REFERENCES,
+                INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
                 replay_limits.max_parent_allocation_comparisons,
             )?;
             if !matches!(
                 &self.source,
-                GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(retained)
+                GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(retained)
                     if Arc::ptr_eq(retained, inventory)
             ) {
                 return Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation);
@@ -1003,7 +1004,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
                 self.free_positions.as_ref(),
                 self.targets.as_ref(),
                 self.stable_manifest.as_ref(),
-                LEGACY_RETAINED_PARENT_REFERENCES,
+                INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
             )?;
             check_limit(
                 "solve-plan payload comparison units",
@@ -1192,8 +1193,8 @@ fn same_solve_plan_source_allocation(
 ) -> bool {
     match (left, right) {
         (
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(left),
-            GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(right),
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(left),
+            GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(right),
         ) => Arc::ptr_eq(left, right),
         (
             GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
@@ -1243,7 +1244,7 @@ fn authenticate_parents(
         check_limit(resource, requested, limit)?;
     }
     let scope_comparison_bytes = match source {
-        GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => checked_sum(
+        GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory) => checked_sum(
             "solve-plan scope comparison bytes",
             [
                 family.fingerprint_ref().len(),
@@ -1282,7 +1283,7 @@ fn authenticate_parents(
         return Err(GeneratedAffineResidualGroupSolvePlanError::WrongArity);
     }
     match source {
-        GeneratedAffineResidualGroupSolvePlanSource::LegacyInventory(inventory) => {
+        GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory) => {
             if family.fingerprint_ref() != inventory.family_fingerprint() {
                 return Err(GeneratedAffineResidualGroupSolvePlanError::WrongFamily);
             }
@@ -1312,7 +1313,7 @@ fn authenticate_parents(
         }
     }
     let expected_frame_schema = match source.kind() {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
@@ -1713,7 +1714,7 @@ fn write_manifest(
 ) -> fmt::Result {
     output.write_str(solve_plan_schema_for_source(source_kind))?;
     match source_kind {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {}
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {}
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
             output.write_str("|source=direct-formula-singleton")?;
         }
@@ -2798,7 +2799,7 @@ mod tests {
         one_below!(max_peak_scratch_bytes, stats.peak_scratch_bytes());
 
         let exact_replay = GeneratedAffineResidualGroupSolvePlanReplayLimits {
-            max_parent_allocation_comparisons: LEGACY_RETAINED_PARENT_REFERENCES,
+            max_parent_allocation_comparisons: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
             max_combined_owner_bytes: stats.replay_combined_owner_bytes(),
             max_payload_comparison_units: stats.payload_comparison_units(),
             max_payload_comparison_bytes: stats.payload_comparison_bytes(),
@@ -2814,7 +2815,7 @@ mod tests {
         .unwrap();
         for replay_limits in [
             GeneratedAffineResidualGroupSolvePlanReplayLimits {
-                max_parent_allocation_comparisons: LEGACY_RETAINED_PARENT_REFERENCES - 1,
+                max_parent_allocation_comparisons: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES - 1,
                 ..exact_replay
             },
             GeneratedAffineResidualGroupSolvePlanReplayLimits {

@@ -1,34 +1,16 @@
 //! Sealed source authority for generated residual-affine epochs.
 //!
-//! The initial epoch consumes the global live-leaf queue.  Every later epoch
-//! consumes only the exact residual queue retained by the preceding effective
-//! affine owner.  This sealed wrapper owns one `Arc` handle in either case and exposes
-//! only common scope metadata plus deterministic replay; semantic source
-//! views remain a separate, narrower boundary.
+//! The initial epoch consumes the global live-leaf queue through one sealed
+//! `Arc` handle. It exposes only common scope metadata plus deterministic
+//! replay; semantic source views remain a separate, narrower boundary.
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use symbolica::domains::integer::Integer;
-
 use crate::generated_affine_initial_global_affine_terminal::{
     GeneratedAffineInitialGlobalAffineBoundTerminal, GeneratedAffineInitialGlobalAffineTerminal,
     GeneratedAffineInitialGlobalAffineTerminalSourceView,
-};
-use crate::generated_sector_affine_effective_coverage::GeneratedSectorAffinePointStats;
-use crate::generated_sector_affine_effective_residual_queue::{
-    GeneratedSectorAffineEffectiveResidualAtomPolarity,
-    GeneratedSectorAffineEffectiveResidualExceptionalSourceView,
-    GeneratedSectorAffineEffectiveResidualQueueCertificate,
-    GeneratedSectorAffineEffectiveResidualQueueError,
-    GeneratedSectorAffineEffectiveResidualQueuePointDisposition,
-    GeneratedSectorAffineEffectiveResidualQueuePointLimits,
-    GeneratedSectorAffineEffectiveResidualSourceView,
-    GeneratedSectorAffineEffectiveResidualSourceViewError,
-    GeneratedSectorAffineEffectiveResidualTargetSourceView,
-    GeneratedSectorAffineEffectiveResidualTerminalSourceView,
-    GeneratedSectorAffineEffectiveResidualUnsupportedSourceView,
 };
 use crate::product_locus_boolean_cover::ResidualProductLocusBooleanReplaySession;
 use crate::{
@@ -38,15 +20,13 @@ use crate::{
     GeneratedSectorQueuedSourceDisposition, IntegralFamily, IntegralOrderingPolicy,
     PARAMETRIC_SECTOR_COVERAGE_V4_SCHEMA, ParametricCoefficientContext, ParametricPolynomial,
     ParametricRelation, ParametricSectorCoverageError, ParametricSectorLeafDisposition,
-    ParametricSectorProductZeroDecomposition, ResidualAffineBranchGuardCompositionClass,
-    ResidualAffineBranchGuardCompositionEntry, ResidualAffineBranchGuardCompositionLimits,
+    ParametricSectorProductZeroDecomposition, ResidualAffineBranchGuardCompositionLimits,
     ResidualAffineBranchSystemCertificate, ResidualAffineBranchSystemLimits,
-    ResidualAffineBranchUnsupportedReason, ResidualAffineIntegerMap,
     ResidualProductLocusBooleanCoverCertificate, ResidualProductLocusBooleanCoverError,
     ResidualProductLocusBooleanCoverLimits, ResidualProductLocusBooleanCoverStats,
-    ResidualProductLocusBooleanNodeOutcome, ResidualUnitAffinePolynomialCompositionStats,
-    SYMBOLIC_SECTOR_CASE_PARTITION_V1_SCHEMA, SectorMask, SymbolicPolynomialPredicate,
-    SymbolicPolynomialPredicateKind, SymbolicSectorCase, SymbolicSectorCaseId,
+    ResidualProductLocusBooleanNodeOutcome, SYMBOLIC_SECTOR_CASE_PARTITION_V1_SCHEMA, SectorMask,
+    SymbolicPolynomialPredicate, SymbolicPolynomialPredicateKind, SymbolicSectorCase,
+    SymbolicSectorCaseId,
 };
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA: &str =
@@ -56,7 +36,6 @@ pub(crate) const GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA: &str =
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GeneratedAffineResidualSourceAuthorityKind {
     InitialGlobal,
-    PriorEffective,
 }
 
 const fn source_point_portable_usize(value: u64) -> usize {
@@ -147,16 +126,12 @@ impl GeneratedAffineResidualPointSpecializationStats {
 }
 
 /// Prospective work for resolving one source ordinal through its retained
-/// authority.  Prior-effective counts are conservative authenticated batch
-/// bounds sealed by the prior queue; initial counts are exact except for the
-/// logarithmic binary-search ceiling.
+/// initial-global authority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualSourceNavigationLimits {
     pub(crate) max_source_view_resolutions: usize,
     pub(crate) max_initial_case_lookup_comparisons: usize,
     pub(crate) max_initial_disposition_candidate_comparisons: usize,
-    pub(crate) max_prior_authority_index_comparison_bound: usize,
-    pub(crate) max_prior_projection_payload_comparison_bound: usize,
 }
 
 impl Default for GeneratedAffineResidualSourceNavigationLimits {
@@ -165,10 +140,6 @@ impl Default for GeneratedAffineResidualSourceNavigationLimits {
             max_source_view_resolutions: 1,
             max_initial_case_lookup_comparisons: usize::BITS as usize + 1,
             max_initial_disposition_candidate_comparisons: 1_000_000_000,
-            max_prior_authority_index_comparison_bound: source_point_portable_usize(64_000_000_000),
-            max_prior_projection_payload_comparison_bound: source_point_portable_usize(
-                64_000_000_000,
-            ),
         }
     }
 }
@@ -178,8 +149,6 @@ pub(crate) struct GeneratedAffineResidualSourceNavigationStats {
     source_view_resolutions: usize,
     initial_case_lookup_comparisons: usize,
     initial_disposition_candidate_comparisons: usize,
-    prior_authority_index_comparison_bound: usize,
-    prior_projection_payload_comparison_bound: usize,
 }
 
 impl GeneratedAffineResidualSourceNavigationStats {
@@ -192,22 +161,13 @@ impl GeneratedAffineResidualSourceNavigationStats {
     pub(crate) const fn initial_disposition_candidate_comparisons(self) -> usize {
         self.initial_disposition_candidate_comparisons
     }
-    pub(crate) const fn prior_authority_index_comparison_bound(self) -> usize {
-        self.prior_authority_index_comparison_bound
-    }
-    pub(crate) const fn prior_projection_payload_comparison_bound(self) -> usize {
-        self.prior_projection_payload_comparison_bound
-    }
 }
 
-/// Aggregate bounds for one exact point lookup through either retained source
-/// version.  Initial-global classification evaluates the frozen global case
-/// partition and then performs one complete, uniqueness-checking queue scan.
-/// Prior-effective classification delegates to the already bounded exact
-/// residual-queue classifier.
+/// Aggregate bounds for one exact point lookup through the initial-global
+/// source. Classification evaluates the frozen global case partition and then
+/// performs one complete, uniqueness-checking queue scan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualSourcePointLimits {
-    pub(crate) prior_effective: GeneratedSectorAffineEffectiveResidualQueuePointLimits,
     pub(crate) initial_specialization: GeneratedAffineResidualPointSpecializationLimits,
     pub(crate) max_scope_comparison_bytes: usize,
     pub(crate) max_index_entries: usize,
@@ -223,7 +183,6 @@ pub(crate) struct GeneratedAffineResidualSourcePointLimits {
 impl Default for GeneratedAffineResidualSourcePointLimits {
     fn default() -> Self {
         Self {
-            prior_effective: GeneratedSectorAffineEffectiveResidualQueuePointLimits::default(),
             initial_specialization: GeneratedAffineResidualPointSpecializationLimits::default(),
             max_scope_comparison_bytes: 64 * 1024 * 1024,
             max_index_entries: 1_000_000,
@@ -238,9 +197,7 @@ impl Default for GeneratedAffineResidualSourcePointLimits {
     }
 }
 
-/// Exact outer work performed by one successful source-neutral point lookup.
-/// The delegated prior owner keeps its more detailed arithmetic census behind
-/// its sealed certificate; this layer records the exact residual queue scan.
+/// Exact outer work performed by one successful initial-global point lookup.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct GeneratedAffineResidualSourcePointStats {
     kind: Option<GeneratedAffineResidualSourceAuthorityKind>,
@@ -252,7 +209,6 @@ pub(crate) struct GeneratedAffineResidualSourcePointStats {
     initial_predicate_scans: usize,
     initial_predicate_evaluations: usize,
     initial_specialization: GeneratedAffineResidualPointSpecializationStats,
-    prior_effective_owner: Option<GeneratedSectorAffinePointStats>,
     work_item_scans: usize,
     initial_disposition_candidate_comparisons: usize,
 }
@@ -286,9 +242,6 @@ impl GeneratedAffineResidualSourcePointStats {
         self,
     ) -> GeneratedAffineResidualPointSpecializationStats {
         self.initial_specialization
-    }
-    pub(crate) const fn prior_effective_owner(self) -> Option<GeneratedSectorAffinePointStats> {
-        self.prior_effective_owner
     }
     pub(crate) const fn work_item_scans(self) -> usize {
         self.work_item_scans
@@ -334,7 +287,6 @@ pub(crate) enum GeneratedAffineResidualSourcePointError {
         limit: usize,
     },
     InitialCoverage(ParametricSectorCoverageError),
-    PriorEffective(GeneratedSectorAffineEffectiveResidualQueueError),
     SourceView(GeneratedAffineResidualSourceViewError),
     SymbolicaPanic,
 }
@@ -350,7 +302,6 @@ impl fmt::Debug for GeneratedAffineResidualSourcePointError {
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
             Self::ResourceLimit { .. } => "ResourceLimit",
             Self::InitialCoverage(_) => "InitialCoverage",
-            Self::PriorEffective(_) => "PriorEffective",
             Self::SourceView(_) => "SourceView",
             Self::SymbolicaPanic => "SymbolicaPanic",
         };
@@ -381,9 +332,6 @@ impl fmt::Display for GeneratedAffineResidualSourcePointError {
             Self::InitialCoverage(_) => {
                 formatter.write_str("initial residual source point classification failed")
             }
-            Self::PriorEffective(_) => {
-                formatter.write_str("prior residual source point classification failed")
-            }
             Self::SourceView(_) => formatter.write_str("residual source point navigation failed"),
             Self::SymbolicaPanic => formatter
                 .write_str("Symbolica panicked during residual source point classification"),
@@ -393,29 +341,6 @@ impl fmt::Display for GeneratedAffineResidualSourcePointError {
 
 // Nested proof diagnostics remain redacted at this source-version boundary.
 impl std::error::Error for GeneratedAffineResidualSourcePointError {}
-
-/// Source-wide conservative navigation work which is not represented by the
-/// exact scalar fields returned on individual initial-global views.
-///
-/// Prior-effective resolution follows sealed owner indices and projection
-/// authentication paths. Its queue has already computed complete batch bounds
-/// for those operations; a later collection compiler must admit these bounds
-/// before resolving any prior source item.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct GeneratedAffineResidualSourceBatchNavigationCensus {
-    prior_authority_index_comparison_bound: usize,
-    prior_projection_payload_comparison_bound: usize,
-}
-
-impl GeneratedAffineResidualSourceBatchNavigationCensus {
-    pub(crate) const fn prior_authority_index_comparison_bound(self) -> usize {
-        self.prior_authority_index_comparison_bound
-    }
-
-    pub(crate) const fn prior_projection_payload_comparison_bound(self) -> usize {
-        self.prior_projection_payload_comparison_bound
-    }
-}
 
 /// Scalar identity shared by both initial-global outcomes.
 ///
@@ -1643,615 +1568,16 @@ impl GeneratedAffineInitialGlobalBooleanBindingCensus {
     }
 }
 
-/// Source-neutral scalar identity for one terminal inherited from a prior
-/// affine epoch.
-///
-/// The current-owner view also carries a V1 inventory locator and outcome.
-/// Neither value is needed by the next epoch, so this projection deliberately
-/// retains only the ordinal in the exact source authority.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorTerminalSourceView<'source> {
-    work_item_ordinal: usize,
-    lifetime: std::marker::PhantomData<&'source ()>,
-}
-
-impl GeneratedAffineResidualPriorTerminalSourceView<'_> {
-    pub(crate) const fn work_item_ordinal(self) -> usize {
-        self.work_item_ordinal
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorTerminalSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorTerminalSourceView")
-            .field("work_item_ordinal", &self.work_item_ordinal)
-            .field("private_prior_terminal_authority", &"<redacted>")
-            .finish()
-    }
-}
-
-/// Which retained Boolean fact selects one positional unsupported-source atom.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GeneratedAffineResidualPriorAtomPolarity {
-    EqualZero,
-    NonZero,
-}
-
-const fn prior_atom_polarity_to_current_owner(
-    polarity: GeneratedAffineResidualPriorAtomPolarity,
-) -> GeneratedSectorAffineEffectiveResidualAtomPolarity {
-    match polarity {
-        GeneratedAffineResidualPriorAtomPolarity::EqualZero => {
-            GeneratedSectorAffineEffectiveResidualAtomPolarity::EqualZero
-        }
-        GeneratedAffineResidualPriorAtomPolarity::NonZero => {
-            GeneratedSectorAffineEffectiveResidualAtomPolarity::NonZero
-        }
-    }
-}
-
-/// One source-neutral atom borrowed through the exact prior authority.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorAtomSourceView<'source> {
-    locus_ordinal: usize,
-    polynomial: &'source ParametricPolynomial,
-}
-
-impl<'source> GeneratedAffineResidualPriorAtomSourceView<'source> {
-    pub(crate) const fn locus_ordinal(self) -> usize {
-        self.locus_ordinal
-    }
-
-    pub(crate) const fn polynomial(self) -> &'source ParametricPolynomial {
-        self.polynomial
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorAtomSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorAtomSourceView")
-            .field("locus_ordinal", &self.locus_ordinal)
-            .field("private_payload", &"<redacted>")
-            .finish()
-    }
-}
-
-/// Unsupported prior terminal projected without its V1 case locator, source
-/// case, Boolean cover, branch certificate, or owning source allocation.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorUnsupportedSourceView<'source> {
-    terminal: GeneratedAffineResidualPriorTerminalSourceView<'source>,
-    // This current-owner view is sealed inside this module. Its broad methods
-    // never cross the authority API; only positional atoms and reasons do.
-    inner: GeneratedSectorAffineEffectiveResidualUnsupportedSourceView<'source>,
-}
-
-impl<'source> GeneratedAffineResidualPriorUnsupportedSourceView<'source> {
-    pub(crate) const fn terminal(self) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-        self.terminal
-    }
-
-    pub(crate) const fn atom_count(
-        self,
-        polarity: GeneratedAffineResidualPriorAtomPolarity,
-    ) -> usize {
-        self.inner
-            .atom_count(prior_atom_polarity_to_current_owner(polarity))
-    }
-
-    pub(crate) fn atom(
-        self,
-        polarity: GeneratedAffineResidualPriorAtomPolarity,
-        position: usize,
-    ) -> Option<GeneratedAffineResidualPriorAtomSourceView<'source>> {
-        let atom = self
-            .inner
-            .atom(prior_atom_polarity_to_current_owner(polarity), position)?;
-        Some(GeneratedAffineResidualPriorAtomSourceView {
-            locus_ordinal: atom.locus_ordinal(),
-            polynomial: atom.polynomial(),
-        })
-    }
-
-    pub(crate) const fn unsupported_reason_count(self) -> usize {
-        self.inner.unsupported_reason_count()
-    }
-
-    pub(crate) fn unsupported_reason(
-        self,
-        position: usize,
-    ) -> Option<&'source ResidualAffineBranchUnsupportedReason> {
-        self.inner.unsupported_reason(position)
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorUnsupportedSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorUnsupportedSourceView")
-            .field("terminal", &self.terminal)
-            .field(
-                "equal_zero_atom_count",
-                &self.atom_count(GeneratedAffineResidualPriorAtomPolarity::EqualZero),
-            )
-            .field(
-                "nonzero_atom_count",
-                &self.atom_count(GeneratedAffineResidualPriorAtomPolarity::NonZero),
-            )
-            .field("unsupported_reason_count", &self.unsupported_reason_count())
-            .field("private_prior_unsupported_authority", &"<redacted>")
-            .finish()
-    }
-}
-
-/// Source-neutral projection of a mapped prior guard class.
-///
-/// Base and free-index conditions expose only their exact polynomial. The
-/// `ParametricNonZeroCondition` and its origin set remain sealed in the prior
-/// owner graph.
-#[derive(Clone, Copy)]
-pub(crate) enum GeneratedAffineResidualPriorGuardClassSourceView<'source> {
-    Contradiction,
-    DischargedNonzeroIntegerConstant,
-    BaseAssumption {
-        condition_polynomial: &'source ParametricPolynomial,
-    },
-    FreeIndexDependent {
-        condition_polynomial: &'source ParametricPolynomial,
-    },
-}
-
-impl<'source> GeneratedAffineResidualPriorGuardClassSourceView<'source> {
-    pub(crate) const fn condition_polynomial(self) -> Option<&'source ParametricPolynomial> {
-        match self {
-            Self::BaseAssumption {
-                condition_polynomial,
-            }
-            | Self::FreeIndexDependent {
-                condition_polynomial,
-            } => Some(condition_polynomial),
-            Self::Contradiction | Self::DischargedNonzeroIntegerConstant => None,
-        }
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorGuardClassSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match self {
-            Self::Contradiction => "Contradiction",
-            Self::DischargedNonzeroIntegerConstant => "DischargedNonzeroIntegerConstant",
-            Self::BaseAssumption { .. } => "BaseAssumption",
-            Self::FreeIndexDependent { .. } => "FreeIndexDependent",
-        };
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorGuardClassSourceView")
-            .field("kind", &kind)
-            .field("private_payload", &"<redacted>")
-            .finish()
-    }
-}
-
-/// One positional prior guard projected at the unified authority boundary.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorGuardSourceView<'source> {
-    structural_locus_ordinal: usize,
-    mapped_polynomial: &'source ParametricPolynomial,
-    composition_stats: ResidualUnitAffinePolynomialCompositionStats,
-    class: GeneratedAffineResidualPriorGuardClassSourceView<'source>,
-}
-
-impl<'source> GeneratedAffineResidualPriorGuardSourceView<'source> {
-    pub(crate) const fn structural_locus_ordinal(self) -> usize {
-        self.structural_locus_ordinal
-    }
-
-    pub(crate) const fn mapped_polynomial(self) -> &'source ParametricPolynomial {
-        self.mapped_polynomial
-    }
-
-    pub(crate) const fn composition_stats(self) -> ResidualUnitAffinePolynomialCompositionStats {
-        self.composition_stats
-    }
-
-    pub(crate) const fn class(self) -> GeneratedAffineResidualPriorGuardClassSourceView<'source> {
-        self.class
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorGuardSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorGuardSourceView")
-            .field("structural_locus_ordinal", &self.structural_locus_ordinal)
-            .field("composition_stats", &self.composition_stats)
-            .field("class", &self.class)
-            .field("private_payload", &"<redacted>")
-            .finish()
-    }
-}
-
-fn project_prior_guard_entry<'source>(
-    entry: &'source ResidualAffineBranchGuardCompositionEntry,
-) -> GeneratedAffineResidualPriorGuardSourceView<'source> {
-    let class = match entry.class() {
-        ResidualAffineBranchGuardCompositionClass::Contradiction => {
-            GeneratedAffineResidualPriorGuardClassSourceView::Contradiction
-        }
-        ResidualAffineBranchGuardCompositionClass::DischargedNonzeroIntegerConstant => {
-            GeneratedAffineResidualPriorGuardClassSourceView::DischargedNonzeroIntegerConstant
-        }
-        ResidualAffineBranchGuardCompositionClass::BaseAssumption(condition) => {
-            GeneratedAffineResidualPriorGuardClassSourceView::BaseAssumption {
-                condition_polynomial: condition.polynomial(),
-            }
-        }
-        ResidualAffineBranchGuardCompositionClass::FreeIndexDependent(condition) => {
-            GeneratedAffineResidualPriorGuardClassSourceView::FreeIndexDependent {
-                condition_polynomial: condition.polynomial(),
-            }
-        }
-    };
-    GeneratedAffineResidualPriorGuardSourceView {
-        structural_locus_ordinal: entry.structural_locus_ordinal(),
-        mapped_polynomial: entry.mapped_polynomial(),
-        composition_stats: entry.composition_stats(),
-        class,
-    }
-}
-
-/// Shared projected target payload. This carries no ordinary-actionable
-/// binding and is therefore also sound for an exceptional child's consumed
-/// target.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorTargetSourceView<'source> {
-    terminal: GeneratedAffineResidualPriorTerminalSourceView<'source>,
-    inner: GeneratedSectorAffineEffectiveResidualTargetSourceView<'source>,
-}
-
-impl<'source> GeneratedAffineResidualPriorTargetSourceView<'source> {
-    pub(crate) const fn terminal(self) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-        self.terminal
-    }
-
-    pub(crate) const fn affine_map(self) -> &'source ResidualAffineIntegerMap {
-        self.inner.affine_map()
-    }
-
-    pub(crate) const fn guard_entry_count(self) -> usize {
-        self.inner.guard_entry_count()
-    }
-
-    pub(crate) fn guard_entry(
-        self,
-        position: usize,
-    ) -> Option<GeneratedAffineResidualPriorGuardSourceView<'source>> {
-        self.inner
-            .guard_entry(position)
-            .map(project_prior_guard_entry)
-    }
-
-    pub(crate) const fn constant_count(self) -> usize {
-        self.inner.constant_count()
-    }
-
-    pub(crate) fn constant(self, position: usize) -> Option<&'source Integer> {
-        self.inner.constant(position)
-    }
-
-    pub(crate) const fn free_position_count(self) -> usize {
-        self.inner.free_position_count()
-    }
-
-    pub(crate) fn free_position(self, position: usize) -> Option<usize> {
-        self.inner.free_position(position)
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorTargetSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorTargetSourceView")
-            .field("terminal", &self.terminal)
-            .field("guard_entry_count", &self.guard_entry_count())
-            .field("constant_count", &self.constant_count())
-            .field("free_position_count", &self.free_position_count())
-            .field("private_payload", &"<redacted>")
-            .finish()
-    }
-}
-
-/// One actionable prior target projected without old inventory/group/case
-/// locators or raw guard-entry/class payloads.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum GeneratedAffineResidualPriorActionableBinding {
-    Unprocessed,
-    Unconsumed,
-}
-
-/// Opaque binding retained by the Boolean certificate so replay can prove
-/// that a coalesced actionable view still denotes the same owner outcome.
-/// The discriminator has no accessor and its Debug output is redacted.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GeneratedAffineResidualPriorActionableBindingSeal {
-    binding: GeneratedAffineResidualPriorActionableBinding,
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorActionableBindingSeal {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorActionableBindingSeal")
-            .field("private_binding", &"<redacted>")
-            .finish()
-    }
-}
-
-#[cfg(test)]
-impl GeneratedAffineResidualPriorActionableBindingSeal {
-    pub(crate) fn tamper_for_test(&mut self) {
-        self.binding = match self.binding {
-            GeneratedAffineResidualPriorActionableBinding::Unprocessed => {
-                GeneratedAffineResidualPriorActionableBinding::Unconsumed
-            }
-            GeneratedAffineResidualPriorActionableBinding::Unconsumed => {
-                GeneratedAffineResidualPriorActionableBinding::Unprocessed
-            }
-        };
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorActionableSourceView<'source> {
-    target: GeneratedAffineResidualPriorTargetSourceView<'source>,
-    binding: GeneratedAffineResidualPriorActionableBindingSeal,
-}
-
-impl<'source> GeneratedAffineResidualPriorActionableSourceView<'source> {
-    pub(crate) const fn terminal(self) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-        self.target.terminal()
-    }
-
-    pub(crate) const fn binding_seal(self) -> GeneratedAffineResidualPriorActionableBindingSeal {
-        self.binding
-    }
-
-    pub(crate) const fn target(self) -> GeneratedAffineResidualPriorTargetSourceView<'source> {
-        self.target
-    }
-
-    pub(crate) const fn affine_map(self) -> &'source ResidualAffineIntegerMap {
-        self.target.affine_map()
-    }
-
-    pub(crate) const fn guard_entry_count(self) -> usize {
-        self.target.guard_entry_count()
-    }
-
-    pub(crate) fn guard_entry(
-        self,
-        position: usize,
-    ) -> Option<GeneratedAffineResidualPriorGuardSourceView<'source>> {
-        self.target.guard_entry(position)
-    }
-
-    pub(crate) const fn constant_count(self) -> usize {
-        self.target.constant_count()
-    }
-
-    pub(crate) fn constant(self, position: usize) -> Option<&'source Integer> {
-        self.target.constant(position)
-    }
-
-    pub(crate) const fn free_position_count(self) -> usize {
-        self.target.free_position_count()
-    }
-
-    pub(crate) fn free_position(self, position: usize) -> Option<usize> {
-        self.target.free_position(position)
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorActionableSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorActionableSourceView")
-            .field("terminal", &self.terminal())
-            .field("guard_entry_count", &self.guard_entry_count())
-            .field("constant_count", &self.constant_count())
-            .field("free_position_count", &self.free_position_count())
-            .field("private_prior_actionable_authority", &"<redacted>")
-            .finish()
-    }
-}
-
-/// One exceptional predicate projected without its relative case or
-/// partition.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorExceptionalPredicateSourceView<'source> {
-    locus_ordinal: usize,
-    kind: SymbolicPolynomialPredicateKind,
-    polynomial: &'source ParametricPolynomial,
-}
-
-impl<'source> GeneratedAffineResidualPriorExceptionalPredicateSourceView<'source> {
-    pub(crate) const fn locus_ordinal(self) -> usize {
-        self.locus_ordinal
-    }
-
-    pub(crate) const fn kind(self) -> SymbolicPolynomialPredicateKind {
-        self.kind
-    }
-
-    pub(crate) const fn polynomial(self) -> &'source ParametricPolynomial {
-        self.polynomial
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorExceptionalPredicateSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorExceptionalPredicateSourceView")
-            .field("locus_ordinal", &self.locus_ordinal)
-            .field("kind", &self.kind)
-            .field("private_payload", &"<redacted>")
-            .finish()
-    }
-}
-
-/// One exceptional prior child. The inherited target and exact predicate
-/// sequence are projected, while the relative case/partition and leak/domain
-/// owner payload remain sealed.
-#[derive(Clone, Copy)]
-pub(crate) struct GeneratedAffineResidualPriorExceptionalSourceView<'source> {
-    target: GeneratedAffineResidualPriorTargetSourceView<'source>,
-    inner: GeneratedSectorAffineEffectiveResidualExceptionalSourceView<'source>,
-}
-
-impl<'source> GeneratedAffineResidualPriorExceptionalSourceView<'source> {
-    pub(crate) const fn terminal(self) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-        self.target.terminal()
-    }
-
-    pub(crate) const fn target(self) -> GeneratedAffineResidualPriorTargetSourceView<'source> {
-        self.target
-    }
-
-    pub(crate) const fn predicate_count(self) -> usize {
-        self.inner.predicate_count()
-    }
-
-    pub(crate) fn predicate(
-        self,
-        position: usize,
-    ) -> Option<GeneratedAffineResidualPriorExceptionalPredicateSourceView<'source>> {
-        let predicate = self.inner.predicate(position)?;
-        Some(GeneratedAffineResidualPriorExceptionalPredicateSourceView {
-            locus_ordinal: predicate.locus_ordinal(),
-            kind: predicate.kind(),
-            polynomial: predicate.polynomial(),
-        })
-    }
-}
-
-impl fmt::Debug for GeneratedAffineResidualPriorExceptionalSourceView<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("GeneratedAffineResidualPriorExceptionalSourceView")
-            .field("target", &self.target)
-            .field("predicate_count", &self.predicate_count())
-            .field("private_exceptional_authority", &"<redacted>")
-            .finish()
-    }
-}
-
-/// Lifetime-bound, source-neutral prior-effective source. The two actionable
-/// owner dispositions are coalesced; their distinction survives only in the
-/// opaque binding seal retained for Boolean replay.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum GeneratedAffineResidualPriorSourceView<'source> {
-    Unsupported(GeneratedAffineResidualPriorUnsupportedSourceView<'source>),
-    Actionable(GeneratedAffineResidualPriorActionableSourceView<'source>),
-    ExceptionalDomain(GeneratedAffineResidualPriorExceptionalSourceView<'source>),
-    ExceptionalLeak(GeneratedAffineResidualPriorExceptionalSourceView<'source>),
-}
-
-impl<'source> GeneratedAffineResidualPriorSourceView<'source> {
-    pub(crate) const fn terminal(self) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-        match self {
-            Self::Unsupported(view) => view.terminal(),
-            Self::Actionable(view) => view.terminal(),
-            Self::ExceptionalDomain(view) | Self::ExceptionalLeak(view) => view.terminal(),
-        }
-    }
-}
-
-fn project_prior_terminal<'source>(
-    terminal: GeneratedSectorAffineEffectiveResidualTerminalSourceView<'source>,
-) -> GeneratedAffineResidualPriorTerminalSourceView<'source> {
-    GeneratedAffineResidualPriorTerminalSourceView {
-        work_item_ordinal: terminal.work_item_ordinal(),
-        lifetime: std::marker::PhantomData,
-    }
-}
-
-fn project_prior_target<'source>(
-    inner: GeneratedSectorAffineEffectiveResidualTargetSourceView<'source>,
-) -> GeneratedAffineResidualPriorTargetSourceView<'source> {
-    GeneratedAffineResidualPriorTargetSourceView {
-        terminal: project_prior_terminal(inner.terminal()),
-        inner,
-    }
-}
-
-fn project_prior_actionable<'source>(
-    inner: GeneratedSectorAffineEffectiveResidualTargetSourceView<'source>,
-    binding: GeneratedAffineResidualPriorActionableBinding,
-) -> GeneratedAffineResidualPriorActionableSourceView<'source> {
-    GeneratedAffineResidualPriorActionableSourceView {
-        target: project_prior_target(inner),
-        binding: GeneratedAffineResidualPriorActionableBindingSeal { binding },
-    }
-}
-
-fn project_prior_exceptional<'source>(
-    inner: GeneratedSectorAffineEffectiveResidualExceptionalSourceView<'source>,
-) -> GeneratedAffineResidualPriorExceptionalSourceView<'source> {
-    GeneratedAffineResidualPriorExceptionalSourceView {
-        target: project_prior_target(inner.target()),
-        inner,
-    }
-}
-
-fn project_prior_source_view<'source>(
-    inner: GeneratedSectorAffineEffectiveResidualSourceView<'source>,
-) -> GeneratedAffineResidualPriorSourceView<'source> {
-    match inner {
-        GeneratedSectorAffineEffectiveResidualSourceView::UnsupportedInventoryTerminal(inner) => {
-            GeneratedAffineResidualPriorSourceView::Unsupported(
-                GeneratedAffineResidualPriorUnsupportedSourceView {
-                    terminal: project_prior_terminal(inner.terminal()),
-                    inner,
-                },
-            )
-        }
-        GeneratedSectorAffineEffectiveResidualSourceView::UnprocessedActionableCase(inner) => {
-            GeneratedAffineResidualPriorSourceView::Actionable(project_prior_actionable(
-                inner,
-                GeneratedAffineResidualPriorActionableBinding::Unprocessed,
-            ))
-        }
-        GeneratedSectorAffineEffectiveResidualSourceView::UnconsumedTargetRoot(inner) => {
-            GeneratedAffineResidualPriorSourceView::Actionable(project_prior_actionable(
-                inner,
-                GeneratedAffineResidualPriorActionableBinding::Unconsumed,
-            ))
-        }
-        GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalDomain(inner) => {
-            GeneratedAffineResidualPriorSourceView::ExceptionalDomain(project_prior_exceptional(
-                inner,
-            ))
-        }
-        GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalLeak(inner) => {
-            GeneratedAffineResidualPriorSourceView::ExceptionalLeak(project_prior_exceptional(
-                inner,
-            ))
-        }
-    }
-}
-
 /// Source-neutral lifetime-bound input for one generated affine epoch.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum GeneratedAffineResidualSourceView<'source> {
     InitialGlobal(GeneratedAffineInitialGlobalSourceView<'source>),
-    PriorEffective(GeneratedAffineResidualPriorSourceView<'source>),
 }
 
 impl GeneratedAffineResidualSourceView<'_> {
     pub(crate) const fn work_item_ordinal(self) -> usize {
         match self {
             Self::InitialGlobal(view) => view.terminal().work_item_ordinal(),
-            Self::PriorEffective(view) => view.terminal().work_item_ordinal(),
         }
     }
 }
@@ -2260,7 +1586,7 @@ impl GeneratedAffineResidualSourceView<'_> {
 ///
 /// The concrete source variant is module-private. Sibling modules may create
 /// an authority through the typed constructors and use its common operations,
-/// but cannot pattern-match it to recover either raw source `Arc`. No source
+/// but cannot pattern-match it to recover the retained raw source `Arc`. No source
 /// fabricates a queue or copies predicates, affine maps, guards, or relations.
 /// Cloning this authority clones only its single retained `Arc` handle.
 #[derive(Clone)]
@@ -2271,15 +1597,13 @@ pub(crate) struct GeneratedAffineResidualSourceAuthority {
 #[derive(Clone)]
 enum GeneratedAffineResidualSourceAuthorityInner {
     InitialGlobal(Arc<GeneratedSectorLiveLeafQueueCertificate>),
-    PriorEffective(Arc<GeneratedSectorAffineEffectiveResidualQueueCertificate>),
 }
 
 /// One successful replay of the exact source authority for a complete affine
 /// compilation batch.
 ///
-/// Initial-global sessions retain the unforgeable V1 queue-replay token needed
-/// by positional child compilation.  Prior-effective sessions need no child
-/// token because their residual leaves are already disjoint terminals.
+/// Sessions retain the unforgeable V1 queue-replay token needed by positional
+/// child compilation.
 pub(crate) struct GeneratedAffineResidualSourceReplaySession<'scope> {
     authority: &'scope GeneratedAffineResidualSourceAuthority,
     inner: GeneratedAffineResidualSourceReplaySessionInner<'scope>,
@@ -2287,7 +1611,6 @@ pub(crate) struct GeneratedAffineResidualSourceReplaySession<'scope> {
 
 enum GeneratedAffineResidualSourceReplaySessionInner<'scope> {
     InitialGlobal(ResidualProductLocusBooleanReplaySession<'scope>),
-    PriorEffective,
 }
 
 impl<'scope> GeneratedAffineResidualSourceReplaySession<'scope> {
@@ -2304,15 +1627,6 @@ impl<'scope> GeneratedAffineResidualSourceReplaySession<'scope> {
                 GeneratedAffineResidualSourceReplaySessionInner::InitialGlobal(replay),
             ) => authenticated_initial_global_source_view(source, Some(replay), work_item_ordinal)
                 .map(GeneratedAffineResidualSourceView::InitialGlobal),
-            (
-                GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source),
-                GeneratedAffineResidualSourceReplaySessionInner::PriorEffective,
-            ) => source
-                .authenticated_source_view(work_item_ordinal)
-                .map(project_prior_source_view)
-                .map(GeneratedAffineResidualSourceView::PriorEffective)
-                .map_err(GeneratedAffineResidualSourceViewError::PriorEffective),
-            _ => Err(GeneratedAffineResidualSourceViewError::ReplaySessionMismatch),
         }
     }
 }
@@ -2334,14 +1648,6 @@ impl GeneratedAffineResidualSourceAuthority {
         }
     }
 
-    pub(crate) fn prior_effective(
-        source: Arc<GeneratedSectorAffineEffectiveResidualQueueCertificate>,
-    ) -> Self {
-        Self {
-            inner: GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source),
-        }
-    }
-
     pub(crate) const fn schema(&self) -> &'static str {
         GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA
     }
@@ -2350,9 +1656,6 @@ impl GeneratedAffineResidualSourceAuthority {
         match &self.inner {
             GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(_) => {
                 GeneratedAffineResidualSourceAuthorityKind::InitialGlobal
-            }
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(_) => {
-                GeneratedAffineResidualSourceAuthorityKind::PriorEffective
             }
         }
     }
@@ -2383,7 +1686,6 @@ impl GeneratedAffineResidualSourceAuthority {
             GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(source) => {
                 source.work_items().len()
             }
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => source.len(),
         }
     }
 
@@ -2411,9 +1713,7 @@ impl GeneratedAffineResidualSourceAuthority {
         .map_err(|_| GeneratedAffineResidualSourcePointError::SymbolicaPanic)?
     }
 
-    /// Number of generated parametric source rows behind either source
-    /// version.  Later epochs inherit the same exact initial row-span
-    /// allocation through their owner graph.
+    /// Number of generated parametric source rows behind this source.
     pub(crate) fn source_row_count(&self) -> usize {
         self.initial_scope().discovery().row_span().rows().len()
     }
@@ -2426,25 +1726,6 @@ impl GeneratedAffineResidualSourceAuthority {
             .row_span()
             .rows()
             .get(source_row_ordinal)
-    }
-
-    pub(crate) fn source_batch_navigation_census(
-        &self,
-    ) -> GeneratedAffineResidualSourceBatchNavigationCensus {
-        match &self.inner {
-            GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(_) => {
-                GeneratedAffineResidualSourceBatchNavigationCensus::default()
-            }
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => {
-                let stats = source.stats();
-                GeneratedAffineResidualSourceBatchNavigationCensus {
-                    prior_authority_index_comparison_bound: stats
-                        .authority_index_comparison_bound(),
-                    prior_projection_payload_comparison_bound: stats
-                        .projection_payload_comparison_bound(),
-                }
-            }
-        }
     }
 
     /// Replay this exact source once and mint the unforgeable session used by
@@ -2464,12 +1745,6 @@ impl GeneratedAffineResidualSourceAuthority {
                         .map_err(GeneratedAffineResidualSourceAuthorityError::InitialGlobal)?,
                 )
             }
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => {
-                source
-                    .replay(family, context)
-                    .map_err(GeneratedAffineResidualSourceAuthorityError::PriorEffective)?;
-                GeneratedAffineResidualSourceReplaySessionInner::PriorEffective
-            }
         };
         Ok(GeneratedAffineResidualSourceReplaySession {
             authority: self,
@@ -2477,25 +1752,20 @@ impl GeneratedAffineResidualSourceAuthority {
         })
     }
 
-    /// Exact allocation identity without exposing either retained source.
+    /// Exact allocation identity without exposing the retained source.
     pub(crate) fn same_source_allocation(&self, other: &Self) -> bool {
         match (&self.inner, &other.inner) {
             (
                 GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(left),
                 GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(right),
             ) => Arc::ptr_eq(left, right),
-            (
-                GeneratedAffineResidualSourceAuthorityInner::PriorEffective(left),
-                GeneratedAffineResidualSourceAuthorityInner::PriorEffective(right),
-            ) => Arc::ptr_eq(left, right),
-            _ => false,
         }
     }
 
     /// Resolve one source-ordered ordinal through the exact retained variant.
     ///
     /// This accepts no caller-created locator.  The returned references are
-    /// tied to this authority borrow, and neither branch exposes its owning
+    /// tied to this authority borrow and does not expose its owning
     /// `Arc` or a broad source certificate.  Callers compiling a complete
     /// epoch must use [`Self::replay_session`] and resolve views through that
     /// session; this ordinary inspection path cannot mint a compilable
@@ -2511,11 +1781,6 @@ impl GeneratedAffineResidualSourceAuthority {
                 authenticated_initial_global_source_view(source, None, work_item_ordinal)
                     .map(GeneratedAffineResidualSourceView::InitialGlobal)
             }
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => source
-                .authenticated_source_view(work_item_ordinal)
-                .map(project_prior_source_view)
-                .map(GeneratedAffineResidualSourceView::PriorEffective)
-                .map_err(GeneratedAffineResidualSourceViewError::PriorEffective),
         }
     }
 
@@ -2574,23 +1839,6 @@ impl GeneratedAffineResidualSourceAuthority {
                         limits.max_initial_disposition_candidate_comparisons,
                     )?;
                 }
-                GeneratedAffineResidualSourceAuthorityInner::PriorEffective(_) => {
-                    let census = self.source_batch_navigation_census();
-                    stats.prior_authority_index_comparison_bound =
-                        census.prior_authority_index_comparison_bound();
-                    stats.prior_projection_payload_comparison_bound =
-                        census.prior_projection_payload_comparison_bound();
-                    source_point_check_limit(
-                        "prior authority index comparison bound",
-                        stats.prior_authority_index_comparison_bound,
-                        limits.max_prior_authority_index_comparison_bound,
-                    )?;
-                    source_point_check_limit(
-                        "prior projection payload comparison bound",
-                        stats.prior_projection_payload_comparison_bound,
-                        limits.max_prior_projection_payload_comparison_bound,
-                    )?;
-                }
             }
             let view = self
                 .authenticated_source_view(work_item_ordinal)
@@ -2598,22 +1846,20 @@ impl GeneratedAffineResidualSourceAuthority {
             if view.work_item_ordinal() != work_item_ordinal {
                 return Err(GeneratedAffineResidualSourcePointError::AuthorityMismatch);
             }
-            if let GeneratedAffineResidualSourceView::InitialGlobal(initial) = view {
-                let terminal = initial.terminal();
-                if terminal.case_lookup_comparisons() > stats.initial_case_lookup_comparisons
-                    || terminal.source_disposition_candidate_comparisons()
-                        != stats.initial_disposition_candidate_comparisons
-                {
-                    return Err(GeneratedAffineResidualSourcePointError::AuthorityMismatch);
-                }
+            let GeneratedAffineResidualSourceView::InitialGlobal(initial) = view;
+            let terminal = initial.terminal();
+            if terminal.case_lookup_comparisons() > stats.initial_case_lookup_comparisons
+                || terminal.source_disposition_candidate_comparisons()
+                    != stats.initial_disposition_candidate_comparisons
+            {
+                return Err(GeneratedAffineResidualSourcePointError::AuthorityMismatch);
             }
             Ok((view, stats))
         }))
         .map_err(|_| GeneratedAffineResidualSourcePointError::SymbolicaPanic)?
     }
 
-    /// Replay the retained source allocation without reconstructing or
-    /// converting it to the other source version.
+    /// Replay the retained source allocation without reconstructing it.
     pub(crate) fn replay(
         &self,
         family: &IntegralFamily,
@@ -2623,20 +1869,13 @@ impl GeneratedAffineResidualSourceAuthority {
             GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(source) => source
                 .replay(family, context)
                 .map_err(GeneratedAffineResidualSourceAuthorityError::InitialGlobal),
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => source
-                .replay(family, context)
-                .map_err(GeneratedAffineResidualSourceAuthorityError::PriorEffective),
         }
     }
 
-    /// Both variants inherit their family/context/sector/order scope from the
-    /// exact initial global queue retained in their authority graph.
+    /// The source scope is the exact retained initial-global queue.
     fn initial_scope(&self) -> &GeneratedSectorLiveLeafQueueCertificate {
         match &self.inner {
             GeneratedAffineResidualSourceAuthorityInner::InitialGlobal(source) => source.as_ref(),
-            GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => {
-                source.owner().source_queue().as_ref()
-            }
         }
     }
 }
@@ -2872,22 +2111,6 @@ fn classify_source_point_inner(
                     }
                     GeneratedAffineResidualSourcePointDisposition::Work { work_item_ordinal }
                 }
-            }
-        }
-        GeneratedAffineResidualSourceAuthorityInner::PriorEffective(source) => {
-            let classified = source
-                .classification_for_indices(family, context, indices, limits.prior_effective)
-                .map_err(GeneratedAffineResidualSourcePointError::PriorEffective)?;
-            stats.prior_effective_owner = Some(classified.owner_stats());
-            stats.work_item_scans = classified.work_item_scans();
-            match classified.disposition() {
-                GeneratedSectorAffineEffectiveResidualQueuePointDisposition::Excluded => {
-                    GeneratedAffineResidualSourcePointDisposition::Excluded
-                }
-                GeneratedSectorAffineEffectiveResidualQueuePointDisposition::Work {
-                    work_item_ordinal,
-                    ..
-                } => GeneratedAffineResidualSourcePointDisposition::Work { work_item_ordinal },
             }
         }
     };
@@ -3347,13 +2570,12 @@ fn bounded_canonical_product_decomposition<'source>(
     Ok((candidate.product_locus_ordinal() == product_locus_ordinal).then_some(candidate))
 }
 
-/// Redacted authentication failure at the source-neutral dispatch seam.
+/// Redacted authentication failure at the sealed source dispatch seam.
 pub(crate) enum GeneratedAffineResidualSourceViewError {
     InitialGlobalSchemaMismatch,
     InitialGlobalWorkItemOutOfRange,
     InitialGlobalAuthorityMismatch,
     ReplaySessionMismatch,
-    PriorEffective(GeneratedSectorAffineEffectiveResidualSourceViewError),
 }
 
 impl fmt::Debug for GeneratedAffineResidualSourceViewError {
@@ -3363,7 +2585,6 @@ impl fmt::Debug for GeneratedAffineResidualSourceViewError {
             Self::InitialGlobalWorkItemOutOfRange => "InitialGlobalWorkItemOutOfRange",
             Self::InitialGlobalAuthorityMismatch => "InitialGlobalAuthorityMismatch",
             Self::ReplaySessionMismatch => "ReplaySessionMismatch",
-            Self::PriorEffective(_) => "PriorEffective",
         };
         formatter
             .debug_struct("GeneratedAffineResidualSourceViewError")
@@ -3387,9 +2608,6 @@ impl fmt::Display for GeneratedAffineResidualSourceViewError {
             }
             Self::ReplaySessionMismatch => {
                 formatter.write_str("residual source replay-session authority mismatch")
-            }
-            Self::PriorEffective(_) => {
-                formatter.write_str("prior effective residual source authentication failed")
             }
         }
     }
@@ -3456,8 +2674,6 @@ impl std::error::Error for GeneratedAffineInitialGlobalPredicateSourceViewError 
 
 /// Redacted failure while sealing one actual initial-global V1 Boolean cover.
 pub(crate) enum GeneratedAffineInitialGlobalBooleanCoverError {
-    WrongSourceKind,
-    SourceProvedEmpty,
     BindingCensusMismatch,
     BindingMismatch,
     ReplaySessionRequired,
@@ -3466,15 +2682,12 @@ pub(crate) enum GeneratedAffineInitialGlobalBooleanCoverError {
     AffineBranch,
     AffineTerminal,
     ResourceCountOverflow { resource: &'static str },
-    SourceView(GeneratedAffineResidualSourceViewError),
     V1Cover(ResidualProductLocusBooleanCoverError),
 }
 
 impl fmt::Debug for GeneratedAffineInitialGlobalBooleanCoverError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self {
-            Self::WrongSourceKind => "WrongSourceKind",
-            Self::SourceProvedEmpty => "SourceProvedEmpty",
             Self::BindingCensusMismatch => "BindingCensusMismatch",
             Self::BindingMismatch => "BindingMismatch",
             Self::ReplaySessionRequired => "ReplaySessionRequired",
@@ -3483,7 +2696,6 @@ impl fmt::Debug for GeneratedAffineInitialGlobalBooleanCoverError {
             Self::AffineBranch => "AffineBranch",
             Self::AffineTerminal => "AffineTerminal",
             Self::ResourceCountOverflow { .. } => "ResourceCountOverflow",
-            Self::SourceView(_) => "SourceView",
             Self::V1Cover(_) => "V1Cover",
         };
         formatter
@@ -3497,12 +2709,6 @@ impl fmt::Debug for GeneratedAffineInitialGlobalBooleanCoverError {
 impl fmt::Display for GeneratedAffineInitialGlobalBooleanCoverError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::WrongSourceKind => {
-                formatter.write_str("initial-global Boolean cover requested from another source")
-            }
-            Self::SourceProvedEmpty => {
-                formatter.write_str("initial-global Boolean source is already proved empty")
-            }
             Self::BindingCensusMismatch | Self::BindingMismatch => {
                 formatter.write_str("initial-global Boolean source binding mismatch")
             }
@@ -3521,9 +2727,6 @@ impl fmt::Display for GeneratedAffineInitialGlobalBooleanCoverError {
             }
             Self::ResourceCountOverflow { .. } => {
                 formatter.write_str("initial-global Boolean source resource count overflow")
-            }
-            Self::SourceView(_) => {
-                formatter.write_str("initial-global Boolean source authentication failed")
             }
             Self::V1Cover(_) => {
                 formatter.write_str("initial-global sealed V1 Boolean compilation failed")
@@ -3550,14 +2753,12 @@ impl fmt::Debug for GeneratedAffineResidualSourceAuthority {
 
 pub(crate) enum GeneratedAffineResidualSourceAuthorityError {
     InitialGlobal(GeneratedSectorLiveLeafQueueError),
-    PriorEffective(GeneratedSectorAffineEffectiveResidualQueueError),
 }
 
 impl fmt::Debug for GeneratedAffineResidualSourceAuthorityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self {
             Self::InitialGlobal(_) => "InitialGlobal",
-            Self::PriorEffective(_) => "PriorEffective",
         };
         formatter
             .debug_struct("GeneratedAffineResidualSourceAuthorityError")
@@ -3573,9 +2774,6 @@ impl fmt::Display for GeneratedAffineResidualSourceAuthorityError {
             Self::InitialGlobal(_) => {
                 formatter.write_str("initial global residual source replay failed")
             }
-            Self::PriorEffective(_) => {
-                formatter.write_str("prior effective residual source replay failed")
-            }
         }
     }
 }
@@ -3583,2094 +2781,3 @@ impl fmt::Display for GeneratedAffineResidualSourceAuthorityError {
 // Deliberately do not delegate `Error::source`: the wrapped V1 error formats
 // operational detail, while this seam promises redacted diagnostics.
 impl std::error::Error for GeneratedAffineResidualSourceAuthorityError {}
-
-/// Shared test-only construction of a genuinely exact delegated owner
-/// envelope.  Keeping this next to the source-neutral adapter lets both its
-/// direct tests and the composed Boolean tests exercise the same full chain.
-#[cfg(test)]
-pub(crate) mod point_test_support {
-    use crate::generated_residual_affine_when_bad_compilation::{
-        GeneratedResidualAffineWhenBadPointLimits, GeneratedResidualAffineWhenBadPointStats,
-    };
-    use crate::generated_sector_affine_effective_coverage::{
-        GeneratedSectorAffinePointLimits, GeneratedSectorAffinePointSpecializationLimits,
-        GeneratedSectorAffinePointSpecializationStats, GeneratedSectorAffinePointStats,
-    };
-    use crate::residual_affine_integer_system::{
-        ResidualAffineIntegerMapPointLimits, ResidualAffineIntegerMapPointStats,
-    };
-
-    fn exact_specialization_limits(
-        stats: GeneratedSectorAffinePointSpecializationStats,
-    ) -> GeneratedSectorAffinePointSpecializationLimits {
-        GeneratedSectorAffinePointSpecializationLimits {
-            max_source_terms: stats.source_terms(),
-            max_source_exponent_entries: stats.source_exponent_entries(),
-            max_preflight_validation_source_term_scan_bound: stats
-                .preflight_validation_source_term_scan_bound(),
-            max_preflight_validation_source_exponent_entry_scan_bound: stats
-                .preflight_validation_source_exponent_entry_scan_bound(),
-            max_output_term_bound: stats.output_term_bound(),
-            max_output_exponent_entry_bound: stats.output_exponent_entry_bound(),
-            max_power_operation_bound: stats.power_operation_bound(),
-            max_largest_output_integer_bit_bound: stats.largest_output_integer_bit_bound(),
-            max_integer_bit_work_bound: stats.integer_bit_work_bound(),
-            max_retained_output_term_bound: stats.retained_output_term_bound(),
-            max_retained_output_byte_bound: stats.retained_output_byte_bound(),
-        }
-    }
-
-    fn exact_map_limits(
-        stats: ResidualAffineIntegerMapPointStats,
-    ) -> ResidualAffineIntegerMapPointLimits {
-        ResidualAffineIntegerMapPointLimits {
-            max_ambient_arity: stats.ambient_arity(),
-            max_matrix_entries_inspected: stats.matrix_entries_inspected(),
-            max_nonzero_multiplications: stats.nonzero_multiplications(),
-            max_additions: stats.additions(),
-            max_fixed_point_comparisons: stats.fixed_point_comparisons(),
-            max_peak_temporary_bytes: stats.peak_temporary_bytes(),
-            max_integer_bits: stats.largest_integer_bits(),
-            max_integer_bit_work: stats.integer_bit_work(),
-        }
-    }
-
-    fn exact_relative_limits(
-        stats: GeneratedResidualAffineWhenBadPointStats,
-    ) -> GeneratedResidualAffineWhenBadPointLimits {
-        GeneratedResidualAffineWhenBadPointLimits {
-            max_context_fingerprint_comparison_bytes: stats.context_fingerprint_comparison_bytes(),
-            max_index_entries: stats.index_entries(),
-            max_cases: stats.cases(),
-            max_classifications: stats.classifications(),
-            max_predicates: stats.predicates(),
-            max_source_terms: stats.source_terms(),
-            max_source_exponent_entries: stats.source_exponent_entries(),
-            max_preflight_validation_source_term_scan_bound: stats
-                .preflight_validation_source_term_scan_bound(),
-            max_preflight_validation_source_exponent_entry_scan_bound: stats
-                .preflight_validation_source_exponent_entry_scan_bound(),
-            max_output_term_bound: stats.output_term_bound(),
-            max_output_exponent_entry_bound: stats.output_exponent_entry_bound(),
-            max_power_operation_bound: stats.power_operation_bound(),
-            max_largest_output_integer_bit_bound: stats.largest_output_integer_bit_bound(),
-            max_integer_bit_work_bound: stats.integer_bit_work_bound(),
-            max_retained_output_term_bound: stats.retained_output_term_bound(),
-            max_retained_output_byte_bound: stats.retained_output_byte_bound(),
-        }
-    }
-
-    pub(crate) fn exact_owner_limits(
-        stats: GeneratedSectorAffinePointStats,
-    ) -> GeneratedSectorAffinePointLimits {
-        GeneratedSectorAffinePointLimits {
-            map: exact_map_limits(stats.map().unwrap_or_default()),
-            relative: exact_relative_limits(stats.relative().unwrap_or_default()),
-            global_specialization: exact_specialization_limits(stats.global_specialization()),
-            boolean_specialization: exact_specialization_limits(stats.boolean_specialization()),
-            max_family_fingerprint_comparison_bytes: stats.family_fingerprint_comparison_bytes(),
-            max_context_fingerprint_comparison_bytes: stats.context_fingerprint_comparison_bytes(),
-            max_index_entries: stats.index_entries(),
-            max_global_cases: stats.global_cases(),
-            max_global_classifications: stats.global_classifications(),
-            max_global_predicates: stats.global_predicates(),
-            max_work_items_scanned: stats.work_items_scanned(),
-            max_inventory_terminal_scans: stats.inventory_terminal_scans(),
-            max_boolean_nodes_scanned: stats.boolean_nodes_scanned(),
-            max_boolean_ready_terminals: stats.boolean_ready_terminals(),
-            max_boolean_predicates: stats.boolean_predicates(),
-            max_owner_terminal_record_scans: stats.owner_terminal_record_scans(),
-            max_inventory_case_lookups: stats.inventory_case_lookups(),
-            max_group_pass_scans: stats.group_pass_scans(),
-            max_group_case_references_scanned: stats.group_case_references_scanned(),
-            max_target_disposition_scans: stats.target_disposition_scans(),
-            max_attempt_scans: stats.attempt_scans(),
-            max_child_output_lookups: stats.child_output_lookups(),
-            max_sealed_rule_scans: stats.sealed_rule_scans(),
-            max_residual_work_scans: stats.residual_work_scans(),
-            max_child_offset_arithmetic: stats.child_offset_arithmetic(),
-            max_child_offset_comparisons: stats.child_offset_comparisons(),
-            max_child_authority_comparisons: stats.child_authority_comparisons(),
-        }
-    }
-
-    /// Visit every positive field in the delegated owner envelope with exactly
-    /// that field reduced by one.  Both source and Boolean composition tests use
-    /// this single exhaustive field list.
-    pub(crate) fn for_each_positive_owner_one_below(
-        stats: GeneratedSectorAffinePointStats,
-        mut visit: impl FnMut(&'static str, GeneratedSectorAffinePointLimits, usize),
-    ) {
-        let exact = exact_owner_limits(stats);
-        macro_rules! visit_one_below {
-            ($requested:expr; $($path:ident).+) => {{
-                let requested = $requested;
-                if requested > 0 {
-                    let mut one_below = exact;
-                    one_below.$($path).+ = requested - 1;
-                    visit(stringify!($($path).+), one_below, requested);
-                }
-            }};
-        }
-        macro_rules! outer {
-            ($field:ident, $getter:ident) => {
-                visit_one_below!(stats.$getter(); $field);
-            };
-        }
-        outer!(
-            max_family_fingerprint_comparison_bytes,
-            family_fingerprint_comparison_bytes
-        );
-        outer!(
-            max_context_fingerprint_comparison_bytes,
-            context_fingerprint_comparison_bytes
-        );
-        outer!(max_index_entries, index_entries);
-        outer!(max_global_cases, global_cases);
-        outer!(max_global_classifications, global_classifications);
-        outer!(max_global_predicates, global_predicates);
-        outer!(max_work_items_scanned, work_items_scanned);
-        outer!(max_inventory_terminal_scans, inventory_terminal_scans);
-        outer!(max_boolean_nodes_scanned, boolean_nodes_scanned);
-        outer!(max_boolean_ready_terminals, boolean_ready_terminals);
-        outer!(max_boolean_predicates, boolean_predicates);
-        outer!(max_owner_terminal_record_scans, owner_terminal_record_scans);
-        outer!(max_inventory_case_lookups, inventory_case_lookups);
-        outer!(max_group_pass_scans, group_pass_scans);
-        outer!(
-            max_group_case_references_scanned,
-            group_case_references_scanned
-        );
-        outer!(max_target_disposition_scans, target_disposition_scans);
-        outer!(max_attempt_scans, attempt_scans);
-        outer!(max_child_output_lookups, child_output_lookups);
-        outer!(max_sealed_rule_scans, sealed_rule_scans);
-        outer!(max_residual_work_scans, residual_work_scans);
-        outer!(max_child_offset_arithmetic, child_offset_arithmetic);
-        outer!(max_child_offset_comparisons, child_offset_comparisons);
-        outer!(max_child_authority_comparisons, child_authority_comparisons);
-
-        macro_rules! specialization {
-            ($stage:ident, $stage_stats:expr, $field:ident, $getter:ident) => {
-                visit_one_below!($stage_stats.$getter(); $stage.$field);
-            };
-        }
-        macro_rules! all_specialization {
-            ($stage:ident, $stage_stats:expr) => {
-                specialization!($stage, $stage_stats, max_source_terms, source_terms);
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_source_exponent_entries,
-                    source_exponent_entries
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_preflight_validation_source_term_scan_bound,
-                    preflight_validation_source_term_scan_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_preflight_validation_source_exponent_entry_scan_bound,
-                    preflight_validation_source_exponent_entry_scan_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_output_term_bound,
-                    output_term_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_output_exponent_entry_bound,
-                    output_exponent_entry_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_power_operation_bound,
-                    power_operation_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_largest_output_integer_bit_bound,
-                    largest_output_integer_bit_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_integer_bit_work_bound,
-                    integer_bit_work_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_retained_output_term_bound,
-                    retained_output_term_bound
-                );
-                specialization!(
-                    $stage,
-                    $stage_stats,
-                    max_retained_output_byte_bound,
-                    retained_output_byte_bound
-                );
-            };
-        }
-        all_specialization!(global_specialization, stats.global_specialization());
-        all_specialization!(boolean_specialization, stats.boolean_specialization());
-
-        if let Some(map) = stats.map() {
-            macro_rules! map_field {
-                ($field:ident, $getter:ident) => {
-                    visit_one_below!(map.$getter(); map.$field);
-                };
-            }
-            map_field!(max_ambient_arity, ambient_arity);
-            map_field!(max_matrix_entries_inspected, matrix_entries_inspected);
-            map_field!(max_nonzero_multiplications, nonzero_multiplications);
-            map_field!(max_additions, additions);
-            map_field!(max_fixed_point_comparisons, fixed_point_comparisons);
-            map_field!(max_peak_temporary_bytes, peak_temporary_bytes);
-            map_field!(max_integer_bits, largest_integer_bits);
-            map_field!(max_integer_bit_work, integer_bit_work);
-        }
-
-        if let Some(relative) = stats.relative() {
-            macro_rules! relative_field {
-                ($field:ident, $getter:ident) => {
-                    visit_one_below!(relative.$getter(); relative.$field);
-                };
-            }
-            relative_field!(
-                max_context_fingerprint_comparison_bytes,
-                context_fingerprint_comparison_bytes
-            );
-            relative_field!(max_index_entries, index_entries);
-            relative_field!(max_cases, cases);
-            relative_field!(max_classifications, classifications);
-            relative_field!(max_predicates, predicates);
-            relative_field!(max_source_terms, source_terms);
-            relative_field!(max_source_exponent_entries, source_exponent_entries);
-            relative_field!(
-                max_preflight_validation_source_term_scan_bound,
-                preflight_validation_source_term_scan_bound
-            );
-            relative_field!(
-                max_preflight_validation_source_exponent_entry_scan_bound,
-                preflight_validation_source_exponent_entry_scan_bound
-            );
-            relative_field!(max_output_term_bound, output_term_bound);
-            relative_field!(max_output_exponent_entry_bound, output_exponent_entry_bound);
-            relative_field!(max_power_operation_bound, power_operation_bound);
-            relative_field!(
-                max_largest_output_integer_bit_bound,
-                largest_output_integer_bit_bound
-            );
-            relative_field!(max_integer_bit_work_bound, integer_bit_work_bound);
-            relative_field!(max_retained_output_term_bound, retained_output_term_bound);
-            relative_field!(max_retained_output_byte_bound, retained_output_byte_bound);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use super::{
-        GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA,
-        GeneratedAffineInitialGlobalBooleanAtomPolarity,
-        GeneratedAffineInitialGlobalBooleanCoverError,
-        GeneratedAffineInitialGlobalPredicateLookupLimits,
-        GeneratedAffineInitialGlobalPredicateSourceViewError,
-        GeneratedAffineInitialGlobalReadySourceView, GeneratedAffineInitialGlobalSemanticOutcome,
-        GeneratedAffineInitialGlobalSourceView, GeneratedAffineInitialGlobalTerminalSourceView,
-        GeneratedAffineResidualPointSpecializationLimits,
-        GeneratedAffineResidualPointSpecializationStats,
-        GeneratedAffineResidualPriorActionableSourceView, GeneratedAffineResidualPriorAtomPolarity,
-        GeneratedAffineResidualPriorExceptionalSourceView,
-        GeneratedAffineResidualPriorGuardClassSourceView, GeneratedAffineResidualPriorSourceView,
-        GeneratedAffineResidualPriorTargetSourceView,
-        GeneratedAffineResidualPriorUnsupportedSourceView, GeneratedAffineResidualSourceAuthority,
-        GeneratedAffineResidualSourceAuthorityError, GeneratedAffineResidualSourceAuthorityKind,
-        GeneratedAffineResidualSourcePointDisposition, GeneratedAffineResidualSourcePointError,
-        GeneratedAffineResidualSourcePointLimits, GeneratedAffineResidualSourceView,
-        GeneratedAffineResidualSourceViewError, authenticate_initial_global_semantic_outcome,
-    };
-    use crate::generated_residual_affine_when_bad_compilation::GeneratedResidualAffineWhenBadPointError;
-    use crate::generated_sector_affine_effective_coverage::{
-        GeneratedSectorAffineEffectiveCoverageCertificate,
-        GeneratedSectorAffineEffectiveCoverageCompiler,
-        GeneratedSectorAffineEffectiveCoverageConfig, GeneratedSectorAffineEffectiveCoverageLimits,
-        GeneratedSectorAffinePointError,
-    };
-    use crate::generated_sector_affine_effective_residual_queue::{
-        GeneratedSectorAffineEffectiveResidualQueueCertificate,
-        GeneratedSectorAffineEffectiveResidualQueueCompiler,
-        GeneratedSectorAffineEffectiveResidualQueueError,
-        GeneratedSectorAffineEffectiveResidualQueueLimits,
-        GeneratedSectorAffineEffectiveResidualSourceView,
-        GeneratedSectorAffineEffectiveResidualSourceViewError,
-        GeneratedSectorAffineEffectiveResidualTargetSourceView,
-    };
-    use crate::residual_affine_integer_system::ResidualAffineIntegerMapPointError;
-    use crate::{
-        AffineDenominator, CoefficientContext, CoordinateEqualityEmptyReason,
-        CoordinateEqualityLeafStatus, GeneratedResidualAffineCaseInventoryCompiler,
-        GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafOutcome,
-        GeneratedSectorLiveLeafQueueCertificate, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueError, GeneratedSectorLiveLeafQueueLimits,
-        GeneratedSectorQueuedSourceDisposition, IntegralFamily, IntegralOrderingPolicy,
-        ParametricCoefficientContext, ParametricIbpGenerator,
-        ResidualAffineBranchGuardCompositionClass, ResidualProductLocusBooleanCoverError,
-        ResidualProductLocusBooleanCoverLimits, SectorMask, SectorOrthantSide,
-    };
-
-    fn equal_mass_two_loop_family(name: &str) -> IntegralFamily {
-        let coefficients = CoefficientContext::new(["d", "m2"]);
-        let zero = coefficients.zero();
-        let one = coefficients.one();
-        let minus_m2 = coefficients.parse("-m2").unwrap();
-        IntegralFamily::new(
-            name,
-            vec!["k1".into(), "k2".into()],
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parameter("d").unwrap(),
-            vec![
-                AffineDenominator::new(
-                    minus_m2.clone(),
-                    vec![one.clone(), zero.clone(), zero.clone()],
-                ),
-                AffineDenominator::new(
-                    minus_m2.clone(),
-                    vec![zero.clone(), zero.clone(), one.clone()],
-                ),
-                AffineDenominator::new(minus_m2, vec![one.clone(), coefficients.integer(2), one]),
-            ],
-            Vec::new(),
-            vec![zero.clone(), zero.clone(), zero],
-        )
-        .unwrap()
-    }
-
-    fn massive_tadpole_family(name: &str) -> IntegralFamily {
-        let coefficients = CoefficientContext::new(["d", "m2"]);
-        IntegralFamily::new(
-            name,
-            vec!["k".into()],
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parameter("d").unwrap(),
-            vec![AffineDenominator::new(
-                coefficients.parse("-m2").unwrap(),
-                vec![coefficients.one()],
-            )],
-            Vec::new(),
-            vec![coefficients.zero()],
-        )
-        .unwrap()
-    }
-
-    fn max_guard_root_tadpole_family(name: &str) -> IntegralFamily {
-        // Retain one inert base-field symbol because Symbolica's current
-        // zero-variable polynomial formatter does not support this path.
-        let coefficients = CoefficientContext::new(["unused"]);
-        IntegralFamily::new(
-            name,
-            vec!["k".into()],
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parse("18446744073709551614").unwrap(),
-            vec![AffineDenominator::new(
-                coefficients.zero(),
-                vec![coefficients.one()],
-            )],
-            Vec::new(),
-            vec![coefficients.zero()],
-        )
-        .unwrap()
-    }
-
-    fn one_loop_initial_global_fixture(
-        family: IntegralFamily,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedSectorLiveLeafQueueCertificate>,
-    ) {
-        let context = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .context()
-            .clone();
-        let discovery = GeneratedSectorDiscoveryCompiler::compile(
-            &family,
-            &context,
-            SectorMask::try_new([true]).unwrap(),
-            IntegralOrderingPolicy::RustRedUnshiftedV1,
-            GeneratedSectorDiscoveryLimits::default(),
-        )
-        .unwrap();
-        let mut queue_limits = GeneratedSectorLiveLeafQueueLimits::default();
-        queue_limits.translation_radius = 1;
-        let queue = GeneratedSectorLiveLeafQueueCompiler::compile(
-            &family,
-            &context,
-            &discovery,
-            queue_limits,
-        )
-        .unwrap();
-        (family, context, Arc::new(queue))
-    }
-
-    fn initial_global_fixture(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedSectorLiveLeafQueueCertificate>,
-    ) {
-        initial_global_sector_fixture(name, "001")
-    }
-
-    fn initial_global_sector_fixture(
-        name: &str,
-        sector: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedSectorLiveLeafQueueCertificate>,
-    ) {
-        let family = equal_mass_two_loop_family(name);
-        let context = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .context()
-            .clone();
-        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
-        discovery_limits.adaptive.max_search_depth = 0;
-        let discovery = GeneratedSectorDiscoveryCompiler::compile(
-            &family,
-            &context,
-            SectorMask::try_from_bit_string(sector).unwrap(),
-            IntegralOrderingPolicy::RustRedUnshiftedV1,
-            discovery_limits,
-        )
-        .unwrap();
-        let mut queue_limits = GeneratedSectorLiveLeafQueueLimits::default();
-        queue_limits.translation_radius = 0;
-        queue_limits.max_translation_points = 1;
-        let queue = GeneratedSectorLiveLeafQueueCompiler::compile(
-            &family,
-            &context,
-            &discovery,
-            queue_limits,
-        )
-        .unwrap();
-        (family, context, Arc::new(queue))
-    }
-
-    fn prior_effective_fixture(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedSectorAffineEffectiveResidualQueueCertificate>,
-    ) {
-        let (family, context, source_queue) = initial_global_fixture(name);
-        let inventory = Arc::new(
-            GeneratedResidualAffineCaseInventoryCompiler::compile(
-                &family,
-                &context,
-                source_queue,
-                GeneratedResidualAffineCaseInventoryLimits::default(),
-            )
-            .unwrap(),
-        );
-        let owner: Arc<GeneratedSectorAffineEffectiveCoverageCertificate> = Arc::new(
-            GeneratedSectorAffineEffectiveCoverageCompiler::compile(
-                &family,
-                &context,
-                inventory,
-                GeneratedSectorAffineEffectiveCoverageConfig::new(0),
-                GeneratedSectorAffineEffectiveCoverageLimits::default(),
-            )
-            .unwrap(),
-        );
-        let queue = GeneratedSectorAffineEffectiveResidualQueueCompiler::compile(
-            &family,
-            &context,
-            owner,
-            GeneratedSectorAffineEffectiveResidualQueueLimits::default(),
-        )
-        .unwrap();
-        (family, context, Arc::new(queue))
-    }
-
-    fn wrong_context(
-        context: &ParametricCoefficientContext,
-        scope: &str,
-    ) -> ParametricCoefficientContext {
-        ParametricCoefficientContext::try_new(context.base(), scope, context.index_count()).unwrap()
-    }
-
-    fn exact_point_specialization_limits(
-        stats: GeneratedAffineResidualPointSpecializationStats,
-    ) -> GeneratedAffineResidualPointSpecializationLimits {
-        GeneratedAffineResidualPointSpecializationLimits {
-            max_source_terms: stats.source_terms(),
-            max_source_exponent_entries: stats.source_exponent_entries(),
-            max_preflight_validation_source_term_scan_bound: stats
-                .preflight_validation_source_term_scan_bound(),
-            max_preflight_validation_source_exponent_entry_scan_bound: stats
-                .preflight_validation_source_exponent_entry_scan_bound(),
-            max_output_term_bound: stats.output_term_bound(),
-            max_output_exponent_entry_bound: stats.output_exponent_entry_bound(),
-            max_power_operation_bound: stats.power_operation_bound(),
-            max_largest_output_integer_bit_bound: stats.largest_output_integer_bit_bound(),
-            max_integer_bit_work_bound: stats.integer_bit_work_bound(),
-            max_retained_output_term_bound: stats.retained_output_term_bound(),
-            max_retained_output_byte_bound: stats.retained_output_byte_bound(),
-        }
-    }
-
-    fn exact_source_point_limits(
-        stats: super::GeneratedAffineResidualSourcePointStats,
-    ) -> GeneratedAffineResidualSourcePointLimits {
-        let initial_work_item_scans = (stats.kind()
-            == Some(GeneratedAffineResidualSourceAuthorityKind::InitialGlobal))
-        .then_some(stats.work_item_scans())
-        .unwrap_or(0);
-        let prior_effective = stats.prior_effective_owner().map_or_else(
-            Default::default,
-            |owner| {
-                crate::generated_sector_affine_effective_residual_queue::GeneratedSectorAffineEffectiveResidualQueuePointLimits {
-                    owner: super::point_test_support::exact_owner_limits(owner),
-                    max_work_item_scans: stats.work_item_scans(),
-                }
-            },
-        );
-        GeneratedAffineResidualSourcePointLimits {
-            prior_effective,
-            initial_specialization: exact_point_specialization_limits(
-                stats.initial_specialization(),
-            ),
-            max_scope_comparison_bytes: stats.scope_comparison_bytes(),
-            max_index_entries: stats.index_entries(),
-            max_initial_orthant_index_scans: stats.initial_orthant_index_scans(),
-            max_initial_case_scans: stats.initial_case_scans(),
-            max_initial_classification_scans: stats.initial_classification_scans(),
-            max_initial_predicate_scans: stats.initial_predicate_scans(),
-            max_initial_predicate_evaluations: stats.initial_predicate_evaluations(),
-            max_initial_work_item_scans: initial_work_item_scans,
-            max_initial_disposition_candidate_comparisons: stats
-                .initial_disposition_candidate_comparisons(),
-        }
-    }
-
-    fn is_source_point_resource_limit(error: &GeneratedAffineResidualSourcePointError) -> bool {
-        matches!(
-            error,
-            GeneratedAffineResidualSourcePointError::ResourceLimit { .. }
-                | GeneratedAffineResidualSourcePointError::PriorEffective(
-                    GeneratedSectorAffineEffectiveResidualQueueError::ResourceLimit { .. }
-                )
-        ) || matches!(
-            error,
-            GeneratedAffineResidualSourcePointError::PriorEffective(
-                GeneratedSectorAffineEffectiveResidualQueueError::Point(
-                    GeneratedSectorAffinePointError::ResourceLimit { .. }
-                        | GeneratedSectorAffinePointError::AffineMap(
-                            ResidualAffineIntegerMapPointError::ResourceLimit { .. }
-                        )
-                        | GeneratedSectorAffinePointError::RelativePoint(
-                            GeneratedResidualAffineWhenBadPointError::ResourceLimit { .. }
-                        )
-                )
-            )
-        )
-    }
-
-    fn assert_prior_source_exact_and_every_positive_one_below(
-        authority: &GeneratedAffineResidualSourceAuthority,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        point: &[i64],
-        baseline: super::GeneratedAffineResidualSourcePointClassification,
-    ) {
-        let stats = baseline.stats();
-        let owner = stats
-            .prior_effective_owner()
-            .expect("PriorEffective Work must retain its delegated owner census");
-        let exact = exact_source_point_limits(stats);
-        let exact_classified = authority
-            .classification_for_indices(family, context, point, exact)
-            .unwrap();
-        assert_eq!(exact_classified.disposition(), baseline.disposition());
-        assert_eq!(exact_classified.stats(), stats);
-
-        let mut tested_positive_limits = 0usize;
-        macro_rules! reject_one_below {
-            ($requested:expr; $($path:ident).+) => {{
-                let requested = $requested;
-                if requested > 0 {
-                    tested_positive_limits += 1;
-                    let mut one_below = exact;
-                    one_below.$($path).+ = requested - 1;
-                    let error = authority
-                        .classification_for_indices(family, context, point, one_below)
-                        .unwrap_err();
-                    assert!(
-                        is_source_point_resource_limit(&error),
-                        "{} prior one-below returned {error:?}",
-                        stringify!($($path).+),
-                    );
-                }
-            }};
-        }
-
-        reject_one_below!(stats.scope_comparison_bytes(); max_scope_comparison_bytes);
-        reject_one_below!(stats.index_entries(); max_index_entries);
-        reject_one_below!(stats.work_item_scans(); prior_effective.max_work_item_scans);
-
-        macro_rules! owner_outer {
-            ($field:ident, $getter:ident) => {
-                reject_one_below!(owner.$getter(); prior_effective.owner.$field);
-            };
-        }
-        owner_outer!(
-            max_family_fingerprint_comparison_bytes,
-            family_fingerprint_comparison_bytes
-        );
-        owner_outer!(
-            max_context_fingerprint_comparison_bytes,
-            context_fingerprint_comparison_bytes
-        );
-        owner_outer!(max_index_entries, index_entries);
-        owner_outer!(max_global_cases, global_cases);
-        owner_outer!(max_global_classifications, global_classifications);
-        owner_outer!(max_global_predicates, global_predicates);
-        owner_outer!(max_work_items_scanned, work_items_scanned);
-        owner_outer!(max_inventory_terminal_scans, inventory_terminal_scans);
-        owner_outer!(max_boolean_nodes_scanned, boolean_nodes_scanned);
-        owner_outer!(max_boolean_ready_terminals, boolean_ready_terminals);
-        owner_outer!(max_boolean_predicates, boolean_predicates);
-        owner_outer!(max_owner_terminal_record_scans, owner_terminal_record_scans);
-        owner_outer!(max_inventory_case_lookups, inventory_case_lookups);
-        owner_outer!(max_group_pass_scans, group_pass_scans);
-        owner_outer!(
-            max_group_case_references_scanned,
-            group_case_references_scanned
-        );
-        owner_outer!(max_target_disposition_scans, target_disposition_scans);
-        owner_outer!(max_attempt_scans, attempt_scans);
-        owner_outer!(max_child_output_lookups, child_output_lookups);
-        owner_outer!(max_sealed_rule_scans, sealed_rule_scans);
-        owner_outer!(max_residual_work_scans, residual_work_scans);
-        owner_outer!(max_child_offset_arithmetic, child_offset_arithmetic);
-        owner_outer!(max_child_offset_comparisons, child_offset_comparisons);
-        owner_outer!(max_child_authority_comparisons, child_authority_comparisons);
-
-        macro_rules! specialization_one_below {
-            ($stage:ident, $stage_stats:expr, $field:ident, $getter:ident) => {
-                reject_one_below!(
-                    $stage_stats.$getter();
-                    prior_effective.owner.$stage.$field
-                );
-            };
-        }
-        macro_rules! all_specialization_one_below {
-            ($stage:ident, $stage_stats:expr) => {
-                specialization_one_below!($stage, $stage_stats, max_source_terms, source_terms);
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_source_exponent_entries,
-                    source_exponent_entries
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_preflight_validation_source_term_scan_bound,
-                    preflight_validation_source_term_scan_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_preflight_validation_source_exponent_entry_scan_bound,
-                    preflight_validation_source_exponent_entry_scan_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_output_term_bound,
-                    output_term_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_output_exponent_entry_bound,
-                    output_exponent_entry_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_power_operation_bound,
-                    power_operation_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_largest_output_integer_bit_bound,
-                    largest_output_integer_bit_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_integer_bit_work_bound,
-                    integer_bit_work_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_retained_output_term_bound,
-                    retained_output_term_bound
-                );
-                specialization_one_below!(
-                    $stage,
-                    $stage_stats,
-                    max_retained_output_byte_bound,
-                    retained_output_byte_bound
-                );
-            };
-        }
-        all_specialization_one_below!(global_specialization, owner.global_specialization());
-        all_specialization_one_below!(boolean_specialization, owner.boolean_specialization());
-
-        if let Some(map) = owner.map() {
-            macro_rules! map_one_below {
-                ($field:ident, $getter:ident) => {
-                    reject_one_below!(map.$getter(); prior_effective.owner.map.$field);
-                };
-            }
-            map_one_below!(max_ambient_arity, ambient_arity);
-            map_one_below!(max_matrix_entries_inspected, matrix_entries_inspected);
-            map_one_below!(max_nonzero_multiplications, nonzero_multiplications);
-            map_one_below!(max_additions, additions);
-            map_one_below!(max_fixed_point_comparisons, fixed_point_comparisons);
-            map_one_below!(max_peak_temporary_bytes, peak_temporary_bytes);
-            map_one_below!(max_integer_bits, largest_integer_bits);
-            map_one_below!(max_integer_bit_work, integer_bit_work);
-        }
-
-        if let Some(relative) = owner.relative() {
-            macro_rules! relative_one_below {
-                ($field:ident, $getter:ident) => {
-                    reject_one_below!(relative.$getter(); prior_effective.owner.relative.$field);
-                };
-            }
-            relative_one_below!(
-                max_context_fingerprint_comparison_bytes,
-                context_fingerprint_comparison_bytes
-            );
-            relative_one_below!(max_index_entries, index_entries);
-            relative_one_below!(max_cases, cases);
-            relative_one_below!(max_classifications, classifications);
-            relative_one_below!(max_predicates, predicates);
-            relative_one_below!(max_source_terms, source_terms);
-            relative_one_below!(max_source_exponent_entries, source_exponent_entries);
-            relative_one_below!(
-                max_preflight_validation_source_term_scan_bound,
-                preflight_validation_source_term_scan_bound
-            );
-            relative_one_below!(
-                max_preflight_validation_source_exponent_entry_scan_bound,
-                preflight_validation_source_exponent_entry_scan_bound
-            );
-            relative_one_below!(max_output_term_bound, output_term_bound);
-            relative_one_below!(max_output_exponent_entry_bound, output_exponent_entry_bound);
-            relative_one_below!(max_power_operation_bound, power_operation_bound);
-            relative_one_below!(
-                max_largest_output_integer_bit_bound,
-                largest_output_integer_bit_bound
-            );
-            relative_one_below!(max_integer_bit_work_bound, integer_bit_work_bound);
-            relative_one_below!(max_retained_output_term_bound, retained_output_term_bound);
-            relative_one_below!(max_retained_output_byte_bound, retained_output_byte_bound);
-        }
-        assert!(tested_positive_limits > 0);
-    }
-
-    fn assert_authority_debug_is_redacted(
-        authority: &GeneratedAffineResidualSourceAuthority,
-        family_fingerprint: &str,
-        context_fingerprint: &str,
-    ) {
-        let rendered = format!("{authority:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(family_fingerprint));
-        assert!(!rendered.contains(context_fingerprint));
-        for private in [
-            "ParametricRelation",
-            "private_predicate",
-            "split_recentered_relation",
-            "source_queue",
-            "ordered_child_outputs",
-        ] {
-            assert!(!rendered.contains(private), "leaked {private}: {rendered}");
-        }
-    }
-
-    fn assert_replay_error_is_redacted(
-        error: &GeneratedAffineResidualSourceAuthorityError,
-        forbidden: &[&str],
-    ) {
-        let rendered = format!("{error} {error:?}");
-        assert!(rendered.contains("<redacted>"));
-        for private in forbidden {
-            assert!(!rendered.contains(private), "leaked {private}: {rendered}");
-        }
-        assert!(std::error::Error::source(error).is_none());
-    }
-
-    fn assert_send_sync<T: Send + Sync>() {}
-
-    #[test]
-    fn sealed_authority_and_error_remain_thread_safe() {
-        assert_send_sync::<GeneratedAffineResidualSourceAuthority>();
-        assert_send_sync::<GeneratedAffineResidualSourceAuthorityError>();
-        assert_send_sync::<GeneratedAffineResidualSourceView<'static>>();
-        assert_send_sync::<GeneratedAffineResidualSourceViewError>();
-        assert_send_sync::<GeneratedAffineInitialGlobalPredicateSourceViewError>();
-    }
-
-    #[test]
-    fn initial_global_unified_views_are_lifetime_bound_narrow_and_explicitly_bounded() {
-        let (family, context, source) = one_loop_initial_global_fixture(massive_tadpole_family(
-            "authority-initial-unified-view-private-family",
-        ));
-        let source_strong_count = Arc::strong_count(&source);
-        let authority = GeneratedAffineResidualSourceAuthority::initial_global(Arc::clone(&source));
-        authority.replay(&family, &context).unwrap();
-        assert_eq!(Arc::strong_count(&source), source_strong_count + 1);
-        assert!(!authority.is_empty());
-
-        let coverage = source.discovery().coverage();
-        let mut ready_sources = 0usize;
-        let mut resolved_predicates = 0usize;
-        for ordinal in 0..authority.len() {
-            let strong_before = Arc::strong_count(&source);
-            let view = authority.authenticated_source_view(ordinal).unwrap();
-            assert_eq!(Arc::strong_count(&source), strong_before);
-            assert_eq!(view.work_item_ordinal(), ordinal);
-            let GeneratedAffineResidualSourceView::InitialGlobal(view) = view else {
-                panic!("initial authority returned a prior-effective view")
-            };
-            let terminal = view.terminal();
-            assert_eq!(terminal.work_item_ordinal(), ordinal);
-            assert_eq!(
-                terminal.source_identity_bytes(),
-                coverage.partition().source_identity().len()
-            );
-            assert!(terminal.case_lookup_comparisons() > 0);
-            assert!(
-                terminal.case_lookup_comparisons() <= usize::BITS as usize + 1,
-                "binary lookup exceeded its word-sized logarithmic bound"
-            );
-            let expected_disposition_comparisons =
-                match source.work_items()[ordinal].source_disposition() {
-                    GeneratedSectorQueuedSourceDisposition::Uncovered => 0,
-                    GeneratedSectorQueuedSourceDisposition::Unsupported { candidate_ordinals } => {
-                        candidate_ordinals.len()
-                    }
-                };
-            assert_eq!(
-                terminal.source_disposition_candidate_comparisons(),
-                expected_disposition_comparisons
-            );
-
-            let rendered = format!("{view:?}");
-            assert!(rendered.contains("<redacted>"));
-            for private in [
-                "source_case",
-                "source_queue",
-                "source_extraction",
-                "structural_loci",
-                "product_zero_decompositions",
-                "PartialReelimination",
-                family.fingerprint_ref(),
-                context.fingerprint(),
-            ] {
-                assert!(!rendered.contains(private), "leaked {private}: {rendered}");
-            }
-
-            let GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(ready) = view else {
-                continue;
-            };
-            ready_sources += 1;
-            let item = &source.work_items()[ordinal];
-            let source_case = coverage
-                .partition()
-                .case(item.source_case())
-                .expect("replayed source case");
-            assert_eq!(
-                ready.source_predicate_count(),
-                source_case.predicates().len()
-            );
-
-            for predicate_ordinal in 0..ready.source_predicate_count() {
-                let predicate = ready
-                    .authenticated_predicate_view(
-                        predicate_ordinal,
-                        GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                            usize::MAX,
-                            usize::MAX,
-                            usize::MAX,
-                        ),
-                    )
-                    .unwrap();
-                resolved_predicates += 1;
-                let expected = &source_case.predicates()[predicate_ordinal];
-                assert_eq!(predicate.predicate_ordinal(), predicate_ordinal);
-                assert_eq!(predicate.kind(), expected.kind());
-                assert_eq!(predicate.polynomial(), expected.polynomial());
-                assert_eq!(
-                    predicate.atom_polynomial(predicate.atom_count()),
-                    None,
-                    "unrelated global loci must not be addressable"
-                );
-                for atom_position in 0..predicate.atom_count() {
-                    let locus = predicate.atom_locus_ordinal(atom_position).unwrap();
-                    assert_eq!(
-                        predicate.atom_polynomial(atom_position),
-                        coverage.structural_locus(locus)
-                    );
-                }
-
-                let stats = predicate.stats();
-                assert!(stats.structural_locus_comparisons() > 0);
-                let structural_too_small = ready
-                    .authenticated_predicate_view(
-                        predicate_ordinal,
-                        GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                            stats.structural_locus_comparisons() - 1,
-                            usize::MAX,
-                            usize::MAX,
-                        ),
-                    )
-                    .unwrap_err();
-                assert_eq!(
-                    structural_too_small,
-                    GeneratedAffineInitialGlobalPredicateSourceViewError::StructuralLocusComparisonLimit
-                );
-                if stats.product_decomposition_comparisons() > 0 {
-                    let product_too_small = ready
-                        .authenticated_predicate_view(
-                            predicate_ordinal,
-                            GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                                usize::MAX,
-                                stats.product_decomposition_comparisons() - 1,
-                                usize::MAX,
-                            ),
-                        )
-                        .unwrap_err();
-                    assert_eq!(
-                        product_too_small,
-                        GeneratedAffineInitialGlobalPredicateSourceViewError::ProductDecompositionComparisonLimit
-                    );
-                }
-                if stats.factor_locus_checks() > 0 {
-                    let factor_too_small = ready
-                        .authenticated_predicate_view(
-                            predicate_ordinal,
-                            GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                                usize::MAX,
-                                usize::MAX,
-                                stats.factor_locus_checks() - 1,
-                            ),
-                        )
-                        .unwrap_err();
-                    assert_eq!(
-                        factor_too_small,
-                        GeneratedAffineInitialGlobalPredicateSourceViewError::FactorLocusCheckLimit
-                    );
-                }
-            }
-
-            let out_of_range = ready
-                .authenticated_predicate_view(
-                    ready.source_predicate_count(),
-                    GeneratedAffineInitialGlobalPredicateLookupLimits::new(0, 0, 0),
-                )
-                .unwrap_err();
-            assert_eq!(
-                out_of_range,
-                GeneratedAffineInitialGlobalPredicateSourceViewError::PredicateOutOfRange
-            );
-            let rendered = format!("{out_of_range} {out_of_range:?}");
-            assert!(rendered.contains("<redacted>"));
-            assert!(std::error::Error::source(&out_of_range).is_none());
-        }
-        assert!(ready_sources > 0, "fixture must retain a nonempty source");
-        assert!(
-            resolved_predicates > 0,
-            "fixture must exercise bounded predicate-to-locus resolution"
-        );
-
-        let error = authority
-            .authenticated_source_view(authority.len())
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            GeneratedAffineResidualSourceViewError::InitialGlobalWorkItemOutOfRange
-        ));
-        let rendered = format!("{error} {error:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(family.fingerprint_ref()));
-        assert!(std::error::Error::source(&error).is_none());
-    }
-
-    #[test]
-    fn replay_session_seals_exact_v1_cover_atoms_payload_and_resource_boundaries() {
-        let (family, context, source) =
-            initial_global_sector_fixture("authority-sealed-boolean-cover-private-family", "011");
-        let authority = GeneratedAffineResidualSourceAuthority::initial_global(Arc::clone(&source));
-        let session = authority.replay_session(&family, &context).unwrap();
-        let (work_item_ordinal, ready) = (0..authority.len())
-            .find_map(
-                |ordinal| match session.authenticated_source_view(ordinal).unwrap() {
-                    GeneratedAffineResidualSourceView::InitialGlobal(
-                        GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(ready),
-                    ) => Some((ordinal, ready)),
-                    _ => None,
-                },
-            )
-            .expect("natural generated 011 source has a Ready Boolean leaf");
-        let census = ready.boolean_binding_census().unwrap();
-        assert_eq!(census.source_identity_pointer_comparisons(), 1);
-        assert!(census.source_identity_bytes() > 0);
-        assert!(census.scope_comparison_bytes() > 0);
-        assert!(census.sector_entry_comparisons() > 0);
-        assert!(census.structural_polynomial_equality_term_work() > 0);
-        assert!(census.structural_polynomial_equality_byte_work() > 0);
-
-        let strong_before = Arc::strong_count(&source);
-        let first = ready
-            .compile_boolean_cover_replayed(
-                &family,
-                &context,
-                census,
-                ResidualProductLocusBooleanCoverLimits::default(),
-            )
-            .unwrap();
-        assert_eq!(Arc::strong_count(&source), strong_before + 1);
-        assert_eq!(first.source_work_item_ordinal(), work_item_ordinal);
-        assert!(first.node_count() >= first.terminal_count());
-        assert!(first.retained_owned_logical_bytes_upper_bound() > 0);
-        assert!(
-            first.compilation_owned_logical_peak_upper_bound()
-                >= first.retained_owned_logical_bytes_upper_bound()
-        );
-        let preflight = crate::product_locus_boolean_cover::residual_product_locus_boolean_memory_envelope_from_limits(
-            ResidualProductLocusBooleanCoverLimits::default(),
-        )
-        .unwrap();
-        assert!(
-            first.retained_owned_logical_bytes_upper_bound()
-                <= preflight.retained_owned_logical_bytes_upper_bound()
-        );
-        assert!(
-            first.compilation_owned_logical_peak_upper_bound()
-                <= preflight.compilation_owned_logical_peak_upper_bound()
-        );
-        assert_eq!(
-            first.terminal_count(),
-            first.v1_stats().ready_terminals() + first.v1_stats().proved_empty_terminals(),
-        );
-
-        let mut terminal_count = 0usize;
-        let mut atom_count = 0usize;
-        for terminal in first.terminal_views() {
-            terminal_count += 1;
-            for polarity in [
-                GeneratedAffineInitialGlobalBooleanAtomPolarity::EqualZero,
-                GeneratedAffineInitialGlobalBooleanAtomPolarity::NonZero,
-            ] {
-                let count = match polarity {
-                    GeneratedAffineInitialGlobalBooleanAtomPolarity::EqualZero => {
-                        terminal.equal_zero_atom_count()
-                    }
-                    GeneratedAffineInitialGlobalBooleanAtomPolarity::NonZero => {
-                        terminal.nonzero_atom_count()
-                    }
-                };
-                for position in 0..count {
-                    let atom = terminal.atom(polarity, position).unwrap();
-                    assert!(atom.polynomial().term_count() > 0);
-                    assert!(format!("{atom:?}").contains("<redacted>"));
-                    atom_count += 1;
-                }
-                assert!(terminal.atom(polarity, count).is_none());
-            }
-        }
-        assert_eq!(terminal_count, first.terminal_count());
-        assert!(
-            atom_count > 0,
-            "natural 011 cover must expose authenticated atoms"
-        );
-
-        let mut second = ready
-            .compile_boolean_cover_replayed(
-                &family,
-                &context,
-                census,
-                ResidualProductLocusBooleanCoverLimits::default(),
-            )
-            .unwrap();
-        assert!(first.payload_eq_checked(&second).unwrap());
-        second.tamper_resource_census_for_test();
-        assert!(!first.payload_eq_checked(&second).unwrap());
-        assert_eq!(Arc::strong_count(&source), strong_before + 2);
-        let rendered = format!("{first:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(family.fingerprint_ref()));
-        assert!(!rendered.contains(context.fingerprint()));
-
-        let normal_ready = match authority
-            .authenticated_source_view(work_item_ordinal)
-            .unwrap()
-        {
-            GeneratedAffineResidualSourceView::InitialGlobal(
-                GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(ready),
-            ) => ready,
-            _ => panic!("session and ordinary source views disagree"),
-        };
-        assert!(matches!(
-            normal_ready.compile_boolean_cover_replayed(
-                &family,
-                &context,
-                census,
-                ResidualProductLocusBooleanCoverLimits::default(),
-            ),
-            Err(GeneratedAffineInitialGlobalBooleanCoverError::ReplaySessionRequired)
-        ));
-
-        let mut wrong_census = census;
-        wrong_census.source_identity_bytes = wrong_census.source_identity_bytes.saturating_add(1);
-        assert!(matches!(
-            ready.compile_boolean_cover_replayed(
-                &family,
-                &context,
-                wrong_census,
-                ResidualProductLocusBooleanCoverLimits::default(),
-            ),
-            Err(GeneratedAffineInitialGlobalBooleanCoverError::BindingCensusMismatch)
-        ));
-
-        let observed = first.v1_stats();
-        assert!(observed.payload_comparison_units() > 0);
-        let mut exact = ResidualProductLocusBooleanCoverLimits::default();
-        exact.max_payload_comparison_units = observed.payload_comparison_units();
-        ready
-            .compile_boolean_cover_replayed(&family, &context, census, exact)
-            .unwrap();
-        exact.max_payload_comparison_units = observed.payload_comparison_units() - 1;
-        assert!(matches!(
-            ready.compile_boolean_cover_replayed(&family, &context, census, exact),
-            Err(GeneratedAffineInitialGlobalBooleanCoverError::V1Cover(
-                ResidualProductLocusBooleanCoverError::ResourceLimit {
-                    resource: "payload comparison units",
-                    requested,
-                    limit,
-                }
-            )) if requested == observed.payload_comparison_units() && limit + 1 == requested
-        ));
-    }
-
-    #[test]
-    fn natural_product_source_exposes_only_its_canonical_factor_atoms_and_enforces_bounds() {
-        let (family, context, source) =
-            initial_global_sector_fixture("authority-initial-product-private-family", "011");
-        let authority = GeneratedAffineResidualSourceAuthority::initial_global(Arc::clone(&source));
-        authority.replay(&family, &context).unwrap();
-        assert!(
-            !source
-                .discovery()
-                .coverage()
-                .product_zero_decompositions()
-                .is_empty(),
-            "natural sunset sector must retain product provenance"
-        );
-
-        let mut found_product_predicate = false;
-        'items: for ordinal in 0..authority.len() {
-            let GeneratedAffineResidualSourceView::InitialGlobal(
-                GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(ready),
-            ) = authority.authenticated_source_view(ordinal).unwrap()
-            else {
-                continue;
-            };
-            for predicate_ordinal in 0..ready.source_predicate_count() {
-                let predicate = ready
-                    .authenticated_predicate_view(
-                        predicate_ordinal,
-                        GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                            usize::MAX,
-                            usize::MAX,
-                            usize::MAX,
-                        ),
-                    )
-                    .unwrap();
-                let stats = predicate.stats();
-                if stats.factor_locus_checks() == 0 {
-                    continue;
-                }
-                found_product_predicate = true;
-                assert!(predicate.atom_count() >= 2);
-                assert_eq!(predicate.atom_count(), stats.factor_locus_checks());
-                for atom_position in 0..predicate.atom_count() {
-                    assert!(predicate.atom_locus_ordinal(atom_position).is_some());
-                    assert!(predicate.atom_polynomial(atom_position).is_some());
-                }
-                assert!(
-                    predicate
-                        .atom_locus_ordinal(predicate.atom_count())
-                        .is_none()
-                );
-                assert!(predicate.atom_polynomial(predicate.atom_count()).is_none());
-
-                let factor_limit = ready
-                    .authenticated_predicate_view(
-                        predicate_ordinal,
-                        GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                            usize::MAX,
-                            usize::MAX,
-                            stats.factor_locus_checks() - 1,
-                        ),
-                    )
-                    .unwrap_err();
-                assert_eq!(
-                    factor_limit,
-                    GeneratedAffineInitialGlobalPredicateSourceViewError::FactorLocusCheckLimit
-                );
-                assert!(stats.product_decomposition_comparisons() > 0);
-                let product_limit = ready
-                    .authenticated_predicate_view(
-                        predicate_ordinal,
-                        GeneratedAffineInitialGlobalPredicateLookupLimits::new(
-                            usize::MAX,
-                            stats.product_decomposition_comparisons() - 1,
-                            usize::MAX,
-                        ),
-                    )
-                    .unwrap_err();
-                assert_eq!(
-                    product_limit,
-                    GeneratedAffineInitialGlobalPredicateSourceViewError::ProductDecompositionComparisonLimit
-                );
-                break 'items;
-            }
-        }
-        assert!(
-            found_product_predicate,
-            "natural sunset sector 011 must force canonical factor resolution"
-        );
-    }
-
-    #[test]
-    fn every_retained_nonempty_initial_outcome_collapses_to_ready_without_payload_exposure() {
-        let preserved = initial_global_fixture("authority-ready-preserved-private-family");
-        let partial = one_loop_initial_global_fixture(massive_tadpole_family(
-            "authority-ready-partial-private-family",
-        ));
-        let boundary = one_loop_initial_global_fixture(max_guard_root_tadpole_family(
-            "authority-ready-boundary-private-family",
-        ));
-        let mut saw_preserved = false;
-        let mut saw_partial = false;
-        let mut saw_boundary = false;
-
-        for (family, context, source) in [preserved, partial, boundary] {
-            let authority =
-                GeneratedAffineResidualSourceAuthority::initial_global(Arc::clone(&source));
-            authority.replay(&family, &context).unwrap();
-            for (ordinal, item) in source.work_items().iter().enumerate() {
-                let unified = authority.authenticated_source_view(ordinal).unwrap();
-                let GeneratedAffineResidualSourceView::InitialGlobal(unified) = unified else {
-                    panic!("initial source dispatched to prior-effective view")
-                };
-                match item.outcome() {
-                    crate::GeneratedSectorLiveLeafOutcome::CoordinateLeafProvedEmpty => {
-                        assert!(matches!(
-                            unified,
-                            GeneratedAffineInitialGlobalSourceView::CoordinateLeafProvedEmpty(_)
-                        ));
-                    }
-                    crate::GeneratedSectorLiveLeafOutcome::PreservedWithoutEqualityAssignment => {
-                        saw_preserved = true;
-                        assert!(matches!(
-                            unified,
-                            GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(_)
-                        ));
-                    }
-                    crate::GeneratedSectorLiveLeafOutcome::PartialReelimination { .. } => {
-                        saw_partial = true;
-                        assert!(matches!(
-                            unified,
-                            GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(_)
-                        ));
-                    }
-                    crate::GeneratedSectorLiveLeafOutcome::PreservedIndexBoundary { .. } => {
-                        saw_boundary = true;
-                        assert!(matches!(
-                            unified,
-                            GeneratedAffineInitialGlobalSourceView::ReadyForBooleanCover(_)
-                        ));
-                    }
-                }
-                let rendered = format!("{unified:?}");
-                for private in [
-                    "PartialReelimination",
-                    "PreservedIndexBoundary",
-                    "compilation",
-                    "witness",
-                    "assignment",
-                ] {
-                    assert!(!rendered.contains(private), "leaked {private}: {rendered}");
-                }
-            }
-        }
-
-        assert!(
-            saw_preserved,
-            "fixture must cover preserved-without-assignment"
-        );
-        assert!(saw_partial, "fixture must cover partial re-elimination");
-        assert!(
-            saw_boundary,
-            "fixture must cover the checked-index boundary"
-        );
-    }
-
-    #[test]
-    fn defensive_empty_outcome_is_distinct_from_a_ready_empty_conjunction() {
-        // V4 global coverage prunes all three coordinate-empty reason classes
-        // before live-queue construction, so no natural V2 queue fixture can
-        // reach this frozen defensive outcome. Test the pure typed binding
-        // directly: an authenticated coordinate-empty leaf is no Boolean
-        // cover, whereas a nonempty source with zero predicates is one empty
-        // conjunction ready for Boolean compilation.
-        let proved_empty = CoordinateEqualityLeafStatus::ProvedEmpty(
-            CoordinateEqualityEmptyReason::OrthantViolation {
-                index: 0,
-                value: 0,
-                equality_predicate_ordinals: vec![0].into_boxed_slice(),
-                side: SectorOrthantSide::AtLeastOne,
-            },
-        );
-        assert_eq!(
-            authenticate_initial_global_semantic_outcome(
-                &GeneratedSectorLiveLeafOutcome::CoordinateLeafProvedEmpty,
-                &proved_empty,
-            ),
-            Some(GeneratedAffineInitialGlobalSemanticOutcome::CoordinateLeafProvedEmpty)
-        );
-        assert_eq!(
-            authenticate_initial_global_semantic_outcome(
-                &GeneratedSectorLiveLeafOutcome::PreservedWithoutEqualityAssignment,
-                &CoordinateEqualityLeafStatus::NotProvedEmpty,
-            ),
-            Some(GeneratedAffineInitialGlobalSemanticOutcome::ReadyForBooleanCover)
-        );
-        assert_eq!(
-            authenticate_initial_global_semantic_outcome(
-                &GeneratedSectorLiveLeafOutcome::CoordinateLeafProvedEmpty,
-                &CoordinateEqualityLeafStatus::NotProvedEmpty,
-            ),
-            None,
-            "outcome/status disagreement must not authenticate"
-        );
-
-        let terminal = GeneratedAffineInitialGlobalTerminalSourceView {
-            work_item_ordinal: 0,
-            source_case_position: 0,
-            source_identity_bytes: 0,
-            case_lookup_comparisons: 0,
-            source_disposition_candidate_comparisons: 0,
-            lifetime: std::marker::PhantomData,
-        };
-        let empty = GeneratedAffineInitialGlobalSourceView::CoordinateLeafProvedEmpty(terminal);
-        assert!(matches!(
-            empty,
-            GeneratedAffineInitialGlobalSourceView::CoordinateLeafProvedEmpty(_)
-        ));
-        assert_eq!(
-            authenticate_initial_global_semantic_outcome(
-                &GeneratedSectorLiveLeafOutcome::PreservedWithoutEqualityAssignment,
-                &CoordinateEqualityLeafStatus::NotProvedEmpty,
-            ),
-            Some(GeneratedAffineInitialGlobalSemanticOutcome::ReadyForBooleanCover)
-        );
-    }
-
-    fn assert_target_projection_matches_current_owner(
-        expected: GeneratedSectorAffineEffectiveResidualTargetSourceView<'_>,
-        actual: GeneratedAffineResidualPriorTargetSourceView<'_>,
-    ) {
-        assert_eq!(
-            expected.terminal().work_item_ordinal(),
-            actual.terminal().work_item_ordinal()
-        );
-        assert!(std::ptr::eq(expected.affine_map(), actual.affine_map()));
-        assert_eq!(expected.guard_entry_count(), actual.guard_entry_count());
-        for position in 0..expected.guard_entry_count() {
-            let expected = expected.guard_entry(position).unwrap();
-            let actual = actual.guard_entry(position).unwrap();
-            assert_eq!(
-                expected.structural_locus_ordinal(),
-                actual.structural_locus_ordinal()
-            );
-            assert!(std::ptr::eq(
-                expected.mapped_polynomial(),
-                actual.mapped_polynomial()
-            ));
-            assert_eq!(expected.composition_stats(), actual.composition_stats());
-            match (expected.class(), actual.class()) {
-                (
-                    ResidualAffineBranchGuardCompositionClass::Contradiction,
-                    GeneratedAffineResidualPriorGuardClassSourceView::Contradiction,
-                )
-                | (
-                    ResidualAffineBranchGuardCompositionClass::DischargedNonzeroIntegerConstant,
-                    GeneratedAffineResidualPriorGuardClassSourceView::DischargedNonzeroIntegerConstant,
-                ) => {}
-                (
-                    ResidualAffineBranchGuardCompositionClass::BaseAssumption(condition),
-                    GeneratedAffineResidualPriorGuardClassSourceView::BaseAssumption {
-                        condition_polynomial,
-                    },
-                )
-                | (
-                    ResidualAffineBranchGuardCompositionClass::FreeIndexDependent(condition),
-                    GeneratedAffineResidualPriorGuardClassSourceView::FreeIndexDependent {
-                        condition_polynomial,
-                    },
-                ) => assert!(std::ptr::eq(condition.polynomial(), condition_polynomial)),
-                _ => panic!("prior guard projection changed its semantic class"),
-            }
-            let rendered = format!("{actual:?}");
-            assert!(rendered.contains("<redacted>"));
-            assert!(!rendered.contains("origin"));
-            assert!(!rendered.contains("polynomial:"));
-        }
-        assert!(actual.guard_entry(actual.guard_entry_count()).is_none());
-        assert_eq!(expected.constant_count(), actual.constant_count());
-        for position in 0..expected.constant_count() {
-            assert!(std::ptr::eq(
-                expected.constant(position).unwrap(),
-                actual.constant(position).unwrap()
-            ));
-        }
-        assert!(actual.constant(actual.constant_count()).is_none());
-        assert_eq!(expected.free_position_count(), actual.free_position_count());
-        for position in 0..expected.free_position_count() {
-            assert_eq!(
-                expected.free_position(position),
-                actual.free_position(position)
-            );
-        }
-        assert!(actual.free_position(actual.free_position_count()).is_none());
-    }
-
-    fn assert_unsupported_projection_matches_current_owner(
-        expected: crate::generated_sector_affine_effective_residual_queue::GeneratedSectorAffineEffectiveResidualUnsupportedSourceView<'_>,
-        actual: GeneratedAffineResidualPriorUnsupportedSourceView<'_>,
-    ) {
-        for (expected_polarity, actual_polarity) in [
-            (
-                crate::generated_sector_affine_effective_residual_queue::GeneratedSectorAffineEffectiveResidualAtomPolarity::EqualZero,
-                GeneratedAffineResidualPriorAtomPolarity::EqualZero,
-            ),
-            (
-                crate::generated_sector_affine_effective_residual_queue::GeneratedSectorAffineEffectiveResidualAtomPolarity::NonZero,
-                GeneratedAffineResidualPriorAtomPolarity::NonZero,
-            ),
-        ] {
-            assert_eq!(
-                expected.atom_count(expected_polarity),
-                actual.atom_count(actual_polarity)
-            );
-            for position in 0..expected.atom_count(expected_polarity) {
-                let expected = expected.atom(expected_polarity, position).unwrap();
-                let actual = actual.atom(actual_polarity, position).unwrap();
-                assert_eq!(expected.locus_ordinal(), actual.locus_ordinal());
-                assert!(std::ptr::eq(expected.polynomial(), actual.polynomial()));
-            }
-        }
-        assert_eq!(
-            expected.unsupported_reason_count(),
-            actual.unsupported_reason_count()
-        );
-        for position in 0..expected.unsupported_reason_count() {
-            assert!(std::ptr::eq(
-                expected.unsupported_reason(position).unwrap(),
-                actual.unsupported_reason(position).unwrap()
-            ));
-        }
-    }
-
-    fn assert_prior_projection_matches_current_owner(
-        expected: GeneratedSectorAffineEffectiveResidualSourceView<'_>,
-        actual: GeneratedAffineResidualPriorSourceView<'_>,
-    ) {
-        match (expected, actual) {
-            (
-                GeneratedSectorAffineEffectiveResidualSourceView::UnsupportedInventoryTerminal(
-                    expected,
-                ),
-                GeneratedAffineResidualPriorSourceView::Unsupported(actual),
-            ) => assert_unsupported_projection_matches_current_owner(expected, actual),
-            (
-                GeneratedSectorAffineEffectiveResidualSourceView::UnprocessedActionableCase(
-                    expected,
-                )
-                | GeneratedSectorAffineEffectiveResidualSourceView::UnconsumedTargetRoot(expected),
-                GeneratedAffineResidualPriorSourceView::Actionable(actual),
-            ) => assert_target_projection_matches_current_owner(expected, actual.target()),
-            (
-                GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalDomain(expected),
-                GeneratedAffineResidualPriorSourceView::ExceptionalDomain(actual),
-            )
-            | (
-                GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalLeak(expected),
-                GeneratedAffineResidualPriorSourceView::ExceptionalLeak(actual),
-            ) => {
-                assert_target_projection_matches_current_owner(expected.target(), actual.target());
-                assert_eq!(expected.predicate_count(), actual.predicate_count());
-                for position in 0..expected.predicate_count() {
-                    let expected = expected.predicate(position).unwrap();
-                    let actual = actual.predicate(position).unwrap();
-                    assert_eq!(expected.locus_ordinal(), actual.locus_ordinal());
-                    assert_eq!(expected.kind(), actual.kind());
-                    assert!(std::ptr::eq(expected.polynomial(), actual.polynomial()));
-                }
-            }
-            _ => panic!("prior source projection changed its semantic outcome"),
-        }
-    }
-
-    #[test]
-    fn prior_effective_unified_views_dispatch_exactly_and_reject_bad_ordinals_and_authority() {
-        let (family, context, source) =
-            prior_effective_fixture("authority-prior-unified-view-private-family");
-        assert!(!source.is_empty(), "fixture must retain residual work");
-        let authority =
-            GeneratedAffineResidualSourceAuthority::prior_effective(Arc::clone(&source));
-        authority.replay(&family, &context).unwrap();
-
-        for ordinal in 0..source.len() {
-            let strong_before = Arc::strong_count(&source);
-            let expected = source.authenticated_source_view(ordinal).unwrap();
-            let actual = authority.authenticated_source_view(ordinal).unwrap();
-            assert_eq!(Arc::strong_count(&source), strong_before);
-            assert_eq!(actual.work_item_ordinal(), ordinal);
-            let GeneratedAffineResidualSourceView::PriorEffective(actual) = actual else {
-                panic!("prior authority returned an initial-global view")
-            };
-            assert_eq!(
-                effective_source_view_kind(actual),
-                effective_source_view_kind(expected)
-            );
-            assert_eq!(actual.terminal().work_item_ordinal(), ordinal);
-            assert_prior_projection_matches_current_owner(expected, actual);
-            let rendered = format!("{actual:?}");
-            assert!(rendered.contains("<redacted>"));
-            assert!(!rendered.contains("polynomial:"));
-            assert!(!rendered.contains("origin"));
-            assert!(!rendered.contains(family.fingerprint_ref()));
-            assert!(!rendered.contains(context.fingerprint()));
-        }
-
-        let out_of_range = authority
-            .authenticated_source_view(authority.len())
-            .unwrap_err();
-        assert!(matches!(
-            out_of_range,
-            GeneratedAffineResidualSourceViewError::PriorEffective(
-                GeneratedSectorAffineEffectiveResidualSourceViewError::WorkItemOutOfRange
-            )
-        ));
-        let rendered = format!("{out_of_range} {out_of_range:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(family.fingerprint_ref()));
-        assert!(std::error::Error::source(&out_of_range).is_none());
-
-        let mut corrupted = source.as_ref().clone();
-        assert!(corrupted.test_only_corrupt_first_authority());
-        let corrupted =
-            GeneratedAffineResidualSourceAuthority::prior_effective(Arc::new(corrupted));
-        let error = corrupted.authenticated_source_view(0).unwrap_err();
-        assert!(matches!(
-            error,
-            GeneratedAffineResidualSourceViewError::PriorEffective(
-                GeneratedSectorAffineEffectiveResidualSourceViewError::AuthorityMismatch
-                    | GeneratedSectorAffineEffectiveResidualSourceViewError::ExceptionalAuthenticationFailed
-            )
-        ));
-        let rendered = format!("{error} {error:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(std::error::Error::source(&error).is_none());
-    }
-
-    fn effective_source_view_kind<T>(view: T) -> &'static str
-    where
-        T: EffectiveSourceViewKind,
-    {
-        view.kind()
-    }
-
-    trait EffectiveSourceViewKind {
-        fn kind(self) -> &'static str;
-    }
-
-    impl EffectiveSourceViewKind for GeneratedSectorAffineEffectiveResidualSourceView<'_> {
-        fn kind(self) -> &'static str {
-            match self {
-                GeneratedSectorAffineEffectiveResidualSourceView::UnsupportedInventoryTerminal(
-                    _,
-                ) => "unsupported",
-                GeneratedSectorAffineEffectiveResidualSourceView::UnprocessedActionableCase(_) => {
-                    "actionable"
-                }
-                GeneratedSectorAffineEffectiveResidualSourceView::UnconsumedTargetRoot(_) => {
-                    "actionable"
-                }
-                GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalDomain(_) => "domain",
-                GeneratedSectorAffineEffectiveResidualSourceView::ExceptionalLeak(_) => "leak",
-            }
-        }
-    }
-
-    impl EffectiveSourceViewKind for super::GeneratedAffineResidualPriorSourceView<'_> {
-        fn kind(self) -> &'static str {
-            match self {
-                super::GeneratedAffineResidualPriorSourceView::Unsupported(_) => "unsupported",
-                super::GeneratedAffineResidualPriorSourceView::Actionable(_) => "actionable",
-                super::GeneratedAffineResidualPriorSourceView::ExceptionalDomain(_) => "domain",
-                super::GeneratedAffineResidualPriorSourceView::ExceptionalLeak(_) => "leak",
-            }
-        }
-    }
-
-    #[test]
-    fn initial_global_authority_preserves_metadata_replay_and_exact_arc_lifetime() {
-        const WRONG_CONTEXT_SENTINEL: &str = "authority-initial-wrong-context-private";
-        let (family, context, source) =
-            initial_global_fixture("authority-initial-global-private-family");
-        let expected_family_fingerprint = family.fingerprint_ref().to_owned();
-        let expected_context_fingerprint = context.fingerprint().to_owned();
-        let expected_sector = source.sector().clone();
-        let expected_ordering = source.ordering();
-        let expected_len = source.work_items().len();
-
-        assert_eq!(Arc::strong_count(&source), 1);
-        let weak = Arc::downgrade(&source);
-        let authority = GeneratedAffineResidualSourceAuthority::initial_global(Arc::clone(&source));
-        assert_eq!(weak.strong_count(), 2);
-        let clone = authority.clone();
-        assert_eq!(weak.strong_count(), 3);
-        drop(clone);
-        assert_eq!(weak.strong_count(), 2);
-
-        assert_eq!(
-            authority.schema(),
-            GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA
-        );
-        assert_eq!(
-            authority.kind(),
-            GeneratedAffineResidualSourceAuthorityKind::InitialGlobal
-        );
-        assert_eq!(authority.family_fingerprint(), expected_family_fingerprint);
-        assert_eq!(
-            authority.context_fingerprint(),
-            expected_context_fingerprint
-        );
-        assert_eq!(authority.sector(), &expected_sector);
-        assert_eq!(authority.ordering(), expected_ordering);
-        assert_eq!(authority.arity(), expected_sector.arity());
-        assert_eq!(authority.len(), expected_len);
-        assert_eq!(authority.is_empty(), expected_len == 0);
-        authority.replay(&family, &context).unwrap();
-        assert_authority_debug_is_redacted(
-            &authority,
-            &expected_family_fingerprint,
-            &expected_context_fingerprint,
-        );
-
-        drop(source);
-        assert_eq!(weak.strong_count(), 1);
-        authority.replay(&family, &context).unwrap();
-
-        let wrong_family = equal_mass_two_loop_family("authority-initial-wrong-family-private");
-        let wrong_family_error = authority.replay(&wrong_family, &context).unwrap_err();
-        assert!(matches!(
-            wrong_family_error,
-            GeneratedAffineResidualSourceAuthorityError::InitialGlobal(_)
-        ));
-        assert_replay_error_is_redacted(
-            &wrong_family_error,
-            &[
-                wrong_family.fingerprint_ref(),
-                expected_family_fingerprint.as_str(),
-            ],
-        );
-        let wrong_context = wrong_context(&context, WRONG_CONTEXT_SENTINEL);
-        let wrong_context_error = authority.replay(&family, &wrong_context).unwrap_err();
-        assert!(matches!(
-            wrong_context_error,
-            GeneratedAffineResidualSourceAuthorityError::InitialGlobal(_)
-        ));
-        assert_replay_error_is_redacted(
-            &wrong_context_error,
-            &[WRONG_CONTEXT_SENTINEL, wrong_context.fingerprint()],
-        );
-
-        drop(authority);
-        assert_eq!(weak.strong_count(), 0);
-        assert!(weak.upgrade().is_none());
-    }
-
-    #[test]
-    fn source_point_classification_metering_rejects_checked_count_overflow() {
-        assert!(matches!(
-            super::source_point_checked_mul("case scans", usize::MAX, 3),
-            Err(
-                GeneratedAffineResidualSourcePointError::ResourceCountOverflow {
-                    resource: "case scans"
-                }
-            )
-        ));
-        assert!(matches!(
-            super::source_point_bounded_add("candidate comparisons", usize::MAX, 1, usize::MAX,),
-            Err(
-                GeneratedAffineResidualSourcePointError::ResourceCountOverflow {
-                    resource: "candidate comparisons"
-                }
-            )
-        ));
-    }
-
-    #[test]
-    fn source_neutral_point_classification_is_exact_bounded_and_version_preserving() {
-        let (family, context, source) =
-            initial_global_sector_fixture("authority-initial-point-classification-private", "011");
-        let authority = GeneratedAffineResidualSourceAuthority::initial_global(source);
-        let point = [0, 1, 2];
-        let classified = authority
-            .classification_for_indices(
-                &family,
-                &context,
-                &point,
-                GeneratedAffineResidualSourcePointLimits::default(),
-            )
-            .unwrap();
-        assert!(matches!(
-            classified.disposition(),
-            GeneratedAffineResidualSourcePointDisposition::Work { .. }
-        ));
-        assert_eq!(
-            classified.stats().kind(),
-            Some(GeneratedAffineResidualSourceAuthorityKind::InitialGlobal)
-        );
-        assert!(classified.stats().scope_comparison_bytes() > 0);
-        assert_eq!(classified.stats().index_entries(), point.len());
-        assert!(classified.stats().initial_orthant_index_scans() > 0);
-        assert!(classified.stats().initial_case_scans() > 0);
-        assert!(classified.stats().initial_classification_scans() > 0);
-        assert!(classified.stats().initial_predicate_scans() > 0);
-        assert!(classified.stats().initial_predicate_evaluations() > 0);
-        assert!(classified.stats().initial_specialization().source_terms() > 0);
-        assert!(classified.stats().work_item_scans() > 0);
-        assert!(
-            classified
-                .stats()
-                .initial_disposition_candidate_comparisons()
-                > 0,
-            "the natural unsupported Work fixture must exercise candidate authentication"
-        );
-        assert!(authority.source_row_count() > 0);
-        assert_eq!(
-            authority.source_row(0).unwrap().family_fingerprint(),
-            family.fingerprint()
-        );
-
-        assert!(matches!(
-            authority
-                .classification_for_indices(
-                    &family,
-                    &context,
-                    &[1, 1, 2],
-                    GeneratedAffineResidualSourcePointLimits::default(),
-                )
-                .unwrap()
-                .disposition(),
-            GeneratedAffineResidualSourcePointDisposition::Excluded
-        ));
-        let exact = exact_source_point_limits(classified.stats());
-        let exact_classified = authority
-            .classification_for_indices(&family, &context, &point, exact)
-            .unwrap();
-        assert_eq!(exact_classified.disposition(), classified.disposition());
-        assert_eq!(exact_classified.stats(), classified.stats());
-
-        macro_rules! source_one_below {
-            ($field:ident, $getter:ident) => {{
-                let requested = classified.stats().$getter();
-                if requested > 0 {
-                    let mut one_below = exact;
-                    one_below.$field = requested - 1;
-                    assert!(matches!(
-                        authority.classification_for_indices(&family, &context, &point, one_below,),
-                        Err(GeneratedAffineResidualSourcePointError::ResourceLimit { .. })
-                    ));
-                }
-            }};
-        }
-        source_one_below!(max_scope_comparison_bytes, scope_comparison_bytes);
-        source_one_below!(max_index_entries, index_entries);
-        source_one_below!(max_initial_orthant_index_scans, initial_orthant_index_scans);
-        source_one_below!(max_initial_case_scans, initial_case_scans);
-        source_one_below!(
-            max_initial_classification_scans,
-            initial_classification_scans
-        );
-        source_one_below!(max_initial_predicate_scans, initial_predicate_scans);
-        source_one_below!(
-            max_initial_predicate_evaluations,
-            initial_predicate_evaluations
-        );
-        source_one_below!(max_initial_work_item_scans, work_item_scans);
-        source_one_below!(
-            max_initial_disposition_candidate_comparisons,
-            initial_disposition_candidate_comparisons
-        );
-
-        macro_rules! specialization_one_below {
-            ($field:ident, $getter:ident) => {{
-                let requested = classified.stats().initial_specialization().$getter();
-                if requested > 0 {
-                    let mut one_below = exact;
-                    one_below.initial_specialization.$field = requested - 1;
-                    assert!(matches!(
-                        authority.classification_for_indices(&family, &context, &point, one_below,),
-                        Err(GeneratedAffineResidualSourcePointError::ResourceLimit { .. })
-                    ));
-                }
-            }};
-        }
-        specialization_one_below!(max_source_terms, source_terms);
-        specialization_one_below!(max_source_exponent_entries, source_exponent_entries);
-        specialization_one_below!(
-            max_preflight_validation_source_term_scan_bound,
-            preflight_validation_source_term_scan_bound
-        );
-        specialization_one_below!(
-            max_preflight_validation_source_exponent_entry_scan_bound,
-            preflight_validation_source_exponent_entry_scan_bound
-        );
-        specialization_one_below!(max_output_term_bound, output_term_bound);
-        specialization_one_below!(max_output_exponent_entry_bound, output_exponent_entry_bound);
-        specialization_one_below!(max_power_operation_bound, power_operation_bound);
-        specialization_one_below!(
-            max_largest_output_integer_bit_bound,
-            largest_output_integer_bit_bound
-        );
-        specialization_one_below!(max_integer_bit_work_bound, integer_bit_work_bound);
-        specialization_one_below!(max_retained_output_term_bound, retained_output_term_bound);
-        specialization_one_below!(max_retained_output_byte_bound, retained_output_byte_bound);
-
-        let (prior_family, prior_context, prior_source) =
-            prior_effective_fixture("authority-prior-point-classification-private");
-        let prior = GeneratedAffineResidualSourceAuthority::prior_effective(prior_source);
-        let prior_outside = prior
-            .classification_for_indices(
-                &prior_family,
-                &prior_context,
-                &[1, 0, 1],
-                GeneratedAffineResidualSourcePointLimits::default(),
-            )
-            .unwrap();
-        assert_eq!(
-            prior_outside.stats().kind(),
-            Some(GeneratedAffineResidualSourceAuthorityKind::PriorEffective)
-        );
-        assert!(matches!(
-            prior_outside.disposition(),
-            GeneratedAffineResidualSourcePointDisposition::Excluded
-        ));
-        assert!(prior_outside.stats().prior_effective_owner().is_some());
-
-        let prior_work = prior
-            .classification_for_indices(
-                &prior_family,
-                &prior_context,
-                &[-4, -4, 1],
-                GeneratedAffineResidualSourcePointLimits::default(),
-            )
-            .unwrap();
-        assert!(matches!(
-            prior_work.disposition(),
-            GeneratedAffineResidualSourcePointDisposition::Work { .. }
-        ));
-        assert!(prior_work.stats().prior_effective_owner().is_some());
-        assert!(prior_work.stats().work_item_scans() > 0);
-        assert_prior_source_exact_and_every_positive_one_below(
-            &prior,
-            &prior_family,
-            &prior_context,
-            &[-4, -4, 1],
-            prior_work,
-        );
-
-        let wrong_context = wrong_context(&context, "authority-point-wrong-context-private");
-        assert!(matches!(
-            authority.classification_for_indices(
-                &family,
-                &wrong_context,
-                &point,
-                GeneratedAffineResidualSourcePointLimits::default(),
-            ),
-            Err(GeneratedAffineResidualSourcePointError::WrongContext)
-        ));
-        assert!(matches!(
-            authority.classification_for_indices(
-                &family,
-                &context,
-                &point[..point.len() - 1],
-                GeneratedAffineResidualSourcePointLimits::default(),
-            ),
-            Err(GeneratedAffineResidualSourcePointError::WrongArity)
-        ));
-
-        let rendered = format!(
-            "{:?}",
-            authority
-                .classification_for_indices(
-                    &equal_mass_two_loop_family("authority-point-wrong-private"),
-                    &context,
-                    &point,
-                    GeneratedAffineResidualSourcePointLimits::default(),
-                )
-                .unwrap_err()
-        );
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains("authority-point-wrong-private"));
-    }
-
-    #[test]
-    fn prior_effective_authority_preserves_metadata_replay_and_exact_arc_lifetime() {
-        const WRONG_CONTEXT_SENTINEL: &str = "authority-prior-wrong-context-private";
-        let (family, context, source) =
-            prior_effective_fixture("authority-prior-effective-private-family");
-        let expected_family_fingerprint = family.fingerprint_ref().to_owned();
-        let expected_context_fingerprint = context.fingerprint().to_owned();
-        let expected_sector = source.owner().source_queue().sector().clone();
-        let expected_ordering = source.owner().source_queue().ordering();
-        let expected_len = source.len();
-
-        assert_eq!(Arc::strong_count(&source), 1);
-        let weak = Arc::downgrade(&source);
-        let authority =
-            GeneratedAffineResidualSourceAuthority::prior_effective(Arc::clone(&source));
-        assert_eq!(weak.strong_count(), 2);
-        let clone = authority.clone();
-        assert_eq!(weak.strong_count(), 3);
-        drop(clone);
-        assert_eq!(weak.strong_count(), 2);
-
-        assert_eq!(
-            authority.schema(),
-            GENERATED_AFFINE_RESIDUAL_SOURCE_AUTHORITY_V1_SCHEMA
-        );
-        assert_eq!(
-            authority.kind(),
-            GeneratedAffineResidualSourceAuthorityKind::PriorEffective
-        );
-        assert_eq!(authority.family_fingerprint(), expected_family_fingerprint);
-        assert_eq!(
-            authority.context_fingerprint(),
-            expected_context_fingerprint
-        );
-        assert_eq!(authority.sector(), &expected_sector);
-        assert_eq!(authority.ordering(), expected_ordering);
-        assert_eq!(authority.arity(), expected_sector.arity());
-        assert_eq!(authority.len(), expected_len);
-        assert_eq!(authority.is_empty(), expected_len == 0);
-        authority.replay(&family, &context).unwrap();
-        assert_authority_debug_is_redacted(
-            &authority,
-            &expected_family_fingerprint,
-            &expected_context_fingerprint,
-        );
-
-        drop(source);
-        assert_eq!(weak.strong_count(), 1);
-        authority.replay(&family, &context).unwrap();
-
-        let wrong_family = equal_mass_two_loop_family("authority-prior-wrong-family-private");
-        let wrong_family_error = authority.replay(&wrong_family, &context).unwrap_err();
-        assert!(matches!(
-            wrong_family_error,
-            GeneratedAffineResidualSourceAuthorityError::PriorEffective(_)
-        ));
-        assert_replay_error_is_redacted(
-            &wrong_family_error,
-            &[
-                wrong_family.fingerprint_ref(),
-                expected_family_fingerprint.as_str(),
-            ],
-        );
-        let wrong_context = wrong_context(&context, WRONG_CONTEXT_SENTINEL);
-        let wrong_context_error = authority.replay(&family, &wrong_context).unwrap_err();
-        assert!(matches!(
-            wrong_context_error,
-            GeneratedAffineResidualSourceAuthorityError::PriorEffective(_)
-        ));
-        assert_replay_error_is_redacted(
-            &wrong_context_error,
-            &[WRONG_CONTEXT_SENTINEL, wrong_context.fingerprint()],
-        );
-
-        drop(authority);
-        assert_eq!(weak.strong_count(), 0);
-        assert!(weak.upgrade().is_none());
-    }
-
-    #[test]
-    fn replay_error_redacts_nested_operational_detail() {
-        const SENTINEL: &str = "private-source-family-and-predicate-sentinel";
-        let error = GeneratedAffineResidualSourceAuthorityError::InitialGlobal(
-            GeneratedSectorLiveLeafQueueError::ReplayMismatch { detail: SENTINEL },
-        );
-        let rendered = format!("{error} {error:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(SENTINEL));
-        assert!(std::error::Error::source(&error).is_none());
-
-        let prior = GeneratedAffineResidualSourceAuthorityError::PriorEffective(
-            GeneratedSectorAffineEffectiveResidualQueueError::ResourceLimit {
-                resource: SENTINEL,
-                requested: 2,
-                limit: 1,
-            },
-        );
-        let rendered = format!("{prior} {prior:?}");
-        assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains(SENTINEL));
-        assert!(std::error::Error::source(&prior).is_none());
-    }
-}

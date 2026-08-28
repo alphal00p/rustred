@@ -45,7 +45,7 @@ const fn ordering_schema_for_source(
     source: GeneratedAffineResidualCaseAuthoritySourceKind,
 ) -> &'static str {
     match source {
-        GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory => {
+        GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
@@ -1269,7 +1269,7 @@ fn write_manifest_suffix(
     match case.locator() {
         GeneratedAffineResidualCaseSourceLocator::Legacy(locator)
             if authority.source_kind()
-                == GeneratedAffineResidualCaseAuthoritySourceKind::LegacyInventory =>
+                == GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory =>
         {
             write!(output, "|terminal={}", locator.boolean_record_ordinal())?;
         }
