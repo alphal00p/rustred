@@ -49,6 +49,10 @@ fork, and permanently poisons further work after catching a Rust panic. The
 diagnostic examples now live in the publish-disabled
 `rustred-legacy-oracles` workspace package, which depends one-way on a narrow
 core support facade and is excluded from the default workspace members.
+The three remaining never-compiled source drafts were audited and deleted:
+two were incomplete topology-authored shells, and the third duplicated exact
+provenance/replay algebra already owned by the live solver and Symbolica
+transcript path.
 Deeper topology-neutral core, test-support, and documentation separation
 remains pending.
 The audit and migration contract are tracked in the

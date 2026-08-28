@@ -376,8 +376,14 @@ reviewable from semantic changes.
    The package is not a default workspace member and depends one-way on the
    core's narrow hidden support facade; the default production graph does not
    link it.
-4. Resolve every unwired source explicitly as wire, move, or delete with
-   reachability evidence.
+4. **Complete:** resolve every unwired source explicitly as wire, move, or
+   delete with reachability evidence. The three never-compiled orphan drafts
+   (`five_loop_d4`, `four_loop_next_conditions`, and
+   `exact_sparse_provenance`) were deleted: the authored shells were
+   incomplete and had no executable oracle, while the provenance draft
+   duplicated the live exact/Symbolica transcript path with a second
+   handwritten algebra and replay layer. Git retains their historical text;
+   no compatibility shim or archive crate was added.
 5. Refactor the 450k-line flat core into clear topology-neutral algebra,
    family, identity, sector, solver/closure, artifact, campaign, tensor, and
    application boundaries; move large test campaigns out of production

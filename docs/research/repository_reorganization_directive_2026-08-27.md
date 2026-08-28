@@ -6,8 +6,8 @@ Status: active mandatory architecture gate. The multi-agent inventory,
 independent design audit, bounded application/CLI extraction,
 transport-neutral boundary refactor, and development Python adapter are
 complete. The physical legacy-oracle package extraction is also complete;
-deeper topology-neutral core, test-support, and documentation migrations
-remain pending.
+the three orphan-source decisions are complete; deeper topology-neutral core,
+test-support, and documentation migrations remain pending.
 
 ## Decision
 
@@ -61,6 +61,28 @@ Python package uses exactly that application boundary, adds a process-wide
 poison-on-panic coordinator, and preserves canonical bytes without a second
 semantic path. No solver algorithm, topology dispatch, or authored recurrence
 was added in either frontend phase.
+
+### Resolved orphan sources
+
+The Phase 0 reachability audit found three tracked source files that had never
+been declared in `lib.rs`, compiled by Cargo, referenced by a caller, or
+covered by an executable test. `five_loop_d4.rs` was a truncated authored
+five-loop banana shell with missing helpers and builder stages;
+`four_loop_next_conditions.rs` was only a fixed-topology schema/error skeleton
+without an inventory builder or replay implementation. Neither was a usable
+oracle, so both were deleted rather than moved into
+`rustred-legacy-oracles`. Their unauthenticated historical claims remain
+recoverable from Git and are not capability evidence.
+
+`exact_sparse_provenance.rs` was likewise deleted rather than wired. Its
+optional flattened weights duplicated the recursive provenance already
+retained and replayed by `ExactSparseElimination`, and it introduced a second
+handwritten forward-elimination, sparse-matrix, arithmetic-metering, checksum,
+and full-replay layer on the older concrete coefficient path. If explicit
+source weights or left-kernel roots become necessary, they must be built at
+the live Symbolica transcript boundary from the retained `L`, `U`, pivot,
+dependent-row, and normalization data. No compatibility shim, tombstone, or
+archive package replaces any of these files.
 
 ## Problems to audit
 
@@ -180,8 +202,8 @@ separate provenance role and are not treated as RustRed-owned stale code.
 6. **In progress:** execute mechanical moves and visibility tightening in
    small commits, with parallel tests after each phase and milestone pushes.
    The `rustred-app` extraction and transport-boundary phases are complete;
-   the physical legacy-oracle extraction is complete; deeper core/test
-   separation remains.
+   the physical legacy-oracle extraction and orphan-source deletion are
+   complete; deeper core/test separation remains.
 7. **Complete for development use:** add the PyO3 package only after the shared
    application boundary exists; prove CLI/application/Python parity, licensed
    parallel execution, safe Python-thread coordination, and wheel/sdist

@@ -66,10 +66,12 @@ loop-named module currently qualifies as generic production infrastructure.
 The structural family constructors in `three_loop.rs`, `four_loop.rs`, and
 `five_loop.rs` are useful fixtures but remain fixtures.
 
-Two source files are currently orphaned/incomplete rather than compiled
-capabilities: `four_loop_next_conditions.rs` is not wired and contains no
-builder, while `five_loop_d4.rs` is not wired and references undefined pieces.
-They must not be presented as milestones.
+Two source files identified here were orphaned/incomplete rather than compiled
+capabilities: `four_loop_next_conditions.rs` contained no builder, while
+`five_loop_d4.rs` referenced undefined pieces and ended in a partial builder.
+The Phase 0 reachability audit confirmed that neither had ever entered a module
+graph or executable test, and both were deleted rather than preserved as
+oracles. They are not milestones.
 
 ## Prioritized migration
 
