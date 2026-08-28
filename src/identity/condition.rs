@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::algebra::{
-    Coefficient, CoefficientPolynomial, ExactAlgebraLimits, IndexedAlgebraError,
-    IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
+    ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficientContext,
+    IndexedPolynomial,
 };
 use crate::family::CoefficientLocation;
 
@@ -60,10 +60,6 @@ pub enum IdentityConditionSource {
     IndexTranslation {
         offset: Box<[i64]>,
     },
-    IndexSpecialization {
-        assignment: Box<[i64]>,
-    },
-    CoefficientSpecializationDenominator,
 }
 
 impl IdentityConditionSource {
@@ -130,14 +126,6 @@ impl IdentityConditionSource {
                 write_joined(writer, offset, ",")?;
                 writer.write_str("]")
             }
-            Self::IndexSpecialization { assignment } => {
-                writer.write_str("index-specialization:[")?;
-                write_joined(writer, assignment, ",")?;
-                writer.write_str("]")
-            }
-            Self::CoefficientSpecializationDenominator => {
-                writer.write_str("coefficient-specialization-denominator")
-            }
         }
     }
 }
@@ -158,7 +146,6 @@ impl Default for IdentityConditionLimits {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IdentityConditionError {
-    ZeroPolynomial,
     MissingSource,
     ResourceLimit {
         resource: &'static str,
@@ -174,9 +161,6 @@ pub enum IdentityConditionError {
 impl fmt::Display for IdentityConditionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ZeroPolynomial => {
-                formatter.write_str("a required nonzero polynomial is identically zero")
-            }
             Self::MissingSource => {
                 formatter.write_str("an identity nonzero condition needs at least one typed source")
             }
@@ -297,112 +281,6 @@ impl ParametricNonZeroCondition {
         })
     }
 
-    pub fn specialized(
-        &self,
-        context: &IndexedCoefficientContext,
-        assignment: &[i64],
-        arithmetic_limits: IndexedAlgebraLimits,
-        condition_limits: IdentityConditionLimits,
-    ) -> Result<SpecializedNonZeroCondition, IdentityConditionError> {
-        context.validate_polynomial_context(&self.polynomial)?;
-        context.validate_index_arity(assignment)?;
-        let already_has_specialization = self.sources.iter().any(|source| {
-            matches!(
-                source,
-                IdentityConditionSource::IndexSpecialization { assignment: retained }
-                    if retained.as_ref() == assignment
-            )
-        });
-        let additional = usize::from(!already_has_specialization);
-        check_source_limit(
-            self.sources.len().checked_add(additional).ok_or(
-                IdentityConditionError::ResourceCountOverflow {
-                    resource: "identity condition sources",
-                },
-            )?,
-            condition_limits,
-        )?;
-        let polynomial =
-            context.specialize_polynomial(self.polynomial(), assignment, arithmetic_limits)?;
-        let mut sources = self.sources.clone();
-        if !already_has_specialization {
-            sources.insert(IdentityConditionSource::IndexSpecialization {
-                assignment: assignment.to_vec().into_boxed_slice(),
-            });
-        }
-        SpecializedNonZeroCondition::try_from_validated(polynomial, sources, condition_limits)
-    }
-
-    pub(crate) fn add_source(
-        &mut self,
-        source: IdentityConditionSource,
-        limits: IdentityConditionLimits,
-    ) -> Result<(), IdentityConditionError> {
-        if !self.sources.contains(&source) {
-            let requested = self.sources.len().checked_add(1).ok_or(
-                IdentityConditionError::ResourceCountOverflow {
-                    resource: "identity condition sources",
-                },
-            )?;
-            check_source_limit(requested, limits)?;
-            self.sources.insert(source);
-        }
-        Ok(())
-    }
-
-    fn merge_sources_from(
-        &mut self,
-        other: &Self,
-        limits: IdentityConditionLimits,
-    ) -> Result<(), IdentityConditionError> {
-        debug_assert_eq!(self.polynomial, other.polynomial);
-        let additional = other
-            .sources
-            .iter()
-            .filter(|source| !self.sources.contains(*source))
-            .count();
-        let requested = self.sources.len().checked_add(additional).ok_or(
-            IdentityConditionError::ResourceCountOverflow {
-                resource: "identity condition sources",
-            },
-        )?;
-        check_source_limit(requested, limits)?;
-        self.sources.extend(other.sources.iter().cloned());
-        Ok(())
-    }
-}
-
-/// One specialized base-field condition with retained identity sources.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpecializedNonZeroCondition {
-    polynomial: CoefficientPolynomial,
-    sources: BTreeSet<IdentityConditionSource>,
-}
-
-impl SpecializedNonZeroCondition {
-    fn try_from_validated(
-        polynomial: CoefficientPolynomial,
-        sources: impl IntoIterator<Item = IdentityConditionSource>,
-        limits: IdentityConditionLimits,
-    ) -> Result<Self, IdentityConditionError> {
-        if polynomial.is_zero() {
-            return Err(IdentityConditionError::ZeroPolynomial);
-        }
-        let sources = collect_sources(sources, limits)?;
-        Ok(Self {
-            polynomial,
-            sources,
-        })
-    }
-
-    pub fn polynomial(&self) -> &CoefficientPolynomial {
-        &self.polynomial
-    }
-
-    pub fn sources(&self) -> &BTreeSet<IdentityConditionSource> {
-        &self.sources
-    }
-
     pub(crate) fn add_source(
         &mut self,
         source: IdentityConditionSource,
@@ -459,48 +337,6 @@ pub(crate) fn insert_parametric_condition(
     }
 }
 
-pub(crate) fn insert_specialized_condition(
-    conditions: &mut Vec<SpecializedNonZeroCondition>,
-    condition: SpecializedNonZeroCondition,
-    limits: IdentityConditionLimits,
-) -> Result<(), IdentityConditionError> {
-    if let Some(existing) = conditions
-        .iter_mut()
-        .find(|existing| existing.polynomial == condition.polynomial)
-    {
-        existing.merge_sources_from(&condition, limits)
-    } else {
-        check_source_limit(condition.sources.len(), limits)?;
-        conditions.push(condition);
-        Ok(())
-    }
-}
-
-pub(crate) fn specialize_coefficient_with_condition(
-    context: &IndexedCoefficientContext,
-    value: &IndexedCoefficient,
-    assignment: &[i64],
-    arithmetic_limits: IndexedAlgebraLimits,
-    condition_limits: IdentityConditionLimits,
-) -> Result<(Coefficient, Option<SpecializedNonZeroCondition>), IdentityConditionError> {
-    let (value, denominator_nonzero) = context.specialize(value, assignment, arithmetic_limits)?;
-    let condition = denominator_nonzero
-        .map(|polynomial| {
-            SpecializedNonZeroCondition::try_from_validated(
-                polynomial,
-                [
-                    IdentityConditionSource::CoefficientSpecializationDenominator,
-                    IdentityConditionSource::IndexSpecialization {
-                        assignment: assignment.to_vec().into_boxed_slice(),
-                    },
-                ],
-                condition_limits,
-            )
-        })
-        .transpose()?;
-    Ok((value, condition))
-}
-
 fn collect_sources(
     sources: impl IntoIterator<Item = IdentityConditionSource>,
     limits: IdentityConditionLimits,
@@ -542,53 +378,6 @@ fn check_source_limit(
 mod tests {
     use super::*;
     use crate::algebra::CoefficientContext;
-
-    #[test]
-    fn specialized_condition_rejects_an_empty_source_set() {
-        let base = CoefficientContext::new(["x"]);
-        let polynomial = base.parameter("x").unwrap().numerator.clone();
-        assert!(matches!(
-            SpecializedNonZeroCondition::try_from_validated(
-                polynomial,
-                Vec::<IdentityConditionSource>::new(),
-                IdentityConditionLimits::default(),
-            ),
-            Err(IdentityConditionError::MissingSource)
-        ));
-    }
-
-    #[test]
-    fn coefficient_specialization_retains_denominator_provenance() {
-        let base = CoefficientContext::new(["x"]);
-        let context = IndexedCoefficientContext::try_new(&base, "denominator-source", 1).unwrap();
-        let reciprocal = &base.one() / &base.parameter("x").unwrap();
-        let indexed = context.lift(&reciprocal).unwrap();
-
-        let (value, condition) = specialize_coefficient_with_condition(
-            &context,
-            &indexed,
-            &[3],
-            IndexedAlgebraLimits::default(),
-            IdentityConditionLimits::default(),
-        )
-        .unwrap();
-
-        assert_eq!(value, reciprocal);
-        let condition = condition.expect("the nonconstant denominator must remain explicit");
-        assert_eq!(
-            condition.polynomial(),
-            &base.parameter("x").unwrap().numerator
-        );
-        assert_eq!(
-            condition.sources(),
-            &BTreeSet::from([
-                IdentityConditionSource::CoefficientSpecializationDenominator,
-                IdentityConditionSource::IndexSpecialization {
-                    assignment: vec![3].into_boxed_slice(),
-                },
-            ])
-        );
-    }
 
     #[test]
     fn stable_string_pins_nested_row_sources() {
@@ -644,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn index_arity_precedes_condition_source_preflight() {
+    fn translation_index_arity_precedes_condition_source_preflight() {
         let base = CoefficientContext::new(Vec::<String>::new());
         let context = IndexedCoefficientContext::try_new(&base, "condition-arity", 1).unwrap();
         let polynomial = context
@@ -660,20 +449,6 @@ mod tests {
 
         assert!(matches!(
             condition.translated(
-                &context,
-                &[],
-                IndexedAlgebraLimits::default(),
-                condition_limits,
-            ),
-            Err(IdentityConditionError::Coefficient(
-                IndexedAlgebraError::WrongIndexArity {
-                    expected: 1,
-                    actual: 0,
-                }
-            ))
-        ));
-        assert!(matches!(
-            condition.specialized(
                 &context,
                 &[],
                 IndexedAlgebraLimits::default(),

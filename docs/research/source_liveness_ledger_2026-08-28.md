@@ -1,7 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `f8b22e0`, immediately before indexed-algebra resource
-hardening.
+**Baseline parent:** `a677d01`, immediately before removal of the self-only
+concrete-relation specialization seam.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 86 tracked Rust source/test paths
@@ -14,7 +14,7 @@ permission to carry the whole file forward. New Rust paths must be added before
 their milestone commit, and an unclassified path blocks R3.
 
 Immediate application reachability is not the sole retention criterion. The
-generic ISP, Symanzik, symmetry, zero-sector, and concrete-specialization
+generic ISP, Symanzik, symmetry, zero-sector, and indexed-specialization
 authorities are strategic capabilities required by `GOAL.md`; their `split`
 entries retain only the topology-neutral kernel assigned to the named final
 owner, even where the current thin application does not invoke it yet.
@@ -65,7 +65,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/algebra/indexed/error.rs` | move | algebra::indexed | one topology- and provenance-neutral indexed-algebra error taxonomy, including distinct count-overflow, allocation-failure, and generated-symbol registration boundaries without caller-sized diagnostic copies |
 | `src/algebra/indexed/limits.rs` | split | algebra::indexed | retain prospective native-operation envelopes and checked resource arithmetic; integer-magnitude arithmetic uses sufficient `u64` rather than a fictitious `u128` exponent domain |
 | `src/algebra/indexed/scope.rs` | split | algebra::indexed | private lossless Symbolica namespace and context-identity construction, with exact checked byte censuses, fallible reservations, aggregate generated-name preflight, and allocation-free decimal emission separated to keep value/context dependencies acyclic |
-| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`, returning the normalized value plus its mapped pre-normalization denominator directly; bit-growth arithmetic is checked `u64`, and the one-field result ceremony/base-polynomial wrapper are deleted |
+| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain the standalone checked projection from `K(n)` to `K`, publicly returning the normalized value plus its mapped pre-normalization denominator so a future real consumer must retain the guard; bit-growth arithmetic is checked `u64`, while relation-specific wrappers are deleted |
 | `src/algebra/indexed/translation.rs` | split | algebra::indexed | retain checked affine index translation with `u64` bit-growth bounds until execution is delegated to the public Symbolica polynomial substitution API |
 | `src/algebra/indexed/value.rs` | split | algebra::indexed | retain only authenticated indexed coefficient/polynomial values with shared no-copy context identity and live queries; the redundant authenticated base-polynomial wrapper and caller-free convenience queries are deleted |
 | `src/algebra/indexed/tests/mod.rs` | split | algebra::indexed tests | private test composition only |
@@ -91,7 +91,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/build.rs` | split | family | authenticated construction, labels, condition merging, and composition of the exact/fingerprint/kinematics services |
 | `src/family/kinematics.rs` | split | family | scalar-product coordinates, affine expansions, derivative contractions, and their bounded construction |
 | `src/family/fingerprint.rs` | split | family | typed V2 family-identity preflight, census, encoding, and writer |
-| `src/family/integral.rs` | move | family | exact integral-power key and its independent construction errors; relation and symmetry layers bind or transport the family-owned value |
+| `src/family/integral.rs` | move | family | exact integral-power key and its independent raw construction errors; the self-only assignment-plus-shift constructor and its orphan error variants are deleted, while symmetry transports the family-owned value |
 | `src/family/replay.rs` | split | family | exact determinant, inverse, scalar-coordinate, and derivative-contraction replay |
 | `src/family/tests.rs` | split | family tests | retain the focused family construction, kinematics, fingerprint, matrix-boundary, and replay sentinels; subdivide only when it materially aids the next algorithm change |
 | `src/family/isp/mod.rs` | move | family::isp | narrow ISP-completion facade; no former flat-module alias |
@@ -110,10 +110,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
-| `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, raw base-polynomial conditions already validated at their construction boundary, independent source-cardinality limits, and provenance attachment around algebra-only specialization; concrete specialization ultimately moves under reduction |
-| `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
-| `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse relation arithmetic with one typed condition vector and an independent `RelationLimits` composition policy |
+| `src/identity/condition.rs` | split | identity | deterministic parametric identity-condition source sets, independent source-cardinality limits, checked affine translation, and merge semantics; specialized base-field condition/provenance ceremony is deleted until a real reduction consumer defines its owner |
+| `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition exports; do not move exports wholesale |
+| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; compact coefficient checks call the standalone indexed specialization primitive rather than reviving a concrete relation facade |
+| `src/parametric_relation.rs` | split | identity | retain only topology-neutral sparse parametric relation arithmetic with one typed parametric-condition vector and an independent `RelationLimits` composition policy; the callerless concrete relation and specialization/error seam are deleted |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |

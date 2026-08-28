@@ -23,32 +23,6 @@ impl IntegralKey {
         Self::try_from_preallocated(retained)
     }
 
-    pub(crate) fn checked_from_assignment(
-        assignment: &[i64],
-        shift: &[i64],
-    ) -> Result<Self, IntegralKeyError> {
-        if assignment.len() != shift.len() {
-            return Err(IntegralKeyError::WrongArity {
-                expected: shift.len(),
-                actual: assignment.len(),
-            });
-        }
-        let mut powers = Vec::new();
-        powers.try_reserve_exact(assignment.len()).map_err(|_| {
-            IntegralKeyError::AllocationFailure {
-                requested: assignment.len(),
-            }
-        })?;
-        for (position, (&power, &offset)) in assignment.iter().zip(shift).enumerate() {
-            powers.push(
-                power
-                    .checked_add(offset)
-                    .ok_or(IntegralKeyError::IndexOverflow { position })?,
-            );
-        }
-        Self::try_from_preallocated(powers)
-    }
-
     pub(crate) fn try_from_preallocated(powers: Vec<i64>) -> Result<Self, IntegralKeyError> {
         if powers.is_empty() {
             Err(IntegralKeyError::EmptyPowers)
@@ -66,8 +40,6 @@ impl IntegralKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IntegralKeyError {
     EmptyPowers,
-    WrongArity { expected: usize, actual: usize },
-    IndexOverflow { position: usize },
     PowerCountOverflow,
     AllocationFailure { requested: usize },
 }
@@ -76,18 +48,6 @@ impl fmt::Display for IntegralKeyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyPowers => formatter.write_str("an integral key cannot be empty"),
-            Self::WrongArity { expected, actual } => {
-                write!(
-                    formatter,
-                    "integral-key arity is {actual}, expected {expected}"
-                )
-            }
-            Self::IndexOverflow { position } => {
-                write!(
-                    formatter,
-                    "integer integral power overflow at position {position}"
-                )
-            }
             Self::PowerCountOverflow => {
                 formatter.write_str("the integral-key power count overflowed usize")
             }
@@ -108,11 +68,5 @@ mod tests {
     #[test]
     fn keys_require_at_least_one_power() {
         assert_eq!(IntegralKey::try_new([]), Err(IntegralKeyError::EmptyPowers));
-    }
-
-    #[test]
-    fn assignment_and_shift_are_added_exactly() {
-        let key = IntegralKey::checked_from_assignment(&[2, -1], &[3, -4]).unwrap();
-        assert_eq!(key.powers(), &[5, -5]);
     }
 }

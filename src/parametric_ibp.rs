@@ -1001,16 +1001,32 @@ pub(crate) fn checked_generated_row_counts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AffineDenominator, algebra::Coefficient, algebra::CoefficientContext};
+    use crate::{
+        AffineDenominator,
+        algebra::{Coefficient, CoefficientContext, IndexedAlgebraLimits},
+    };
 
-    fn coefficient_for<'a>(
-        relation: &'a crate::ConcreteRelation,
-        powers: &[i64],
-    ) -> Option<&'a Coefficient> {
+    fn indexed_coefficient_for_shift<'a>(
+        relation: &'a ParametricRelation,
+        shift: &[i64],
+    ) -> Option<&'a IndexedCoefficient> {
         relation
             .terms()
             .iter()
-            .find_map(|(key, coefficient)| (key.powers() == powers).then_some(coefficient))
+            .find_map(|(candidate, coefficient)| {
+                (candidate.values() == shift).then_some(coefficient)
+            })
+    }
+
+    fn specialize_for_test(
+        context: &IndexedCoefficientContext,
+        coefficient: &IndexedCoefficient,
+        assignment: &[i64],
+    ) -> Coefficient {
+        context
+            .specialize(coefficient, assignment, IndexedAlgebraLimits::default())
+            .unwrap()
+            .0
     }
 
     fn assert_coefficient_eq(left: &Coefficient, right: &Coefficient) {
@@ -1158,29 +1174,45 @@ mod tests {
                 differentiated_loop: 0,
             }
         );
-        let concrete = generated.ordinary_ibp()[0]
-            .specialize(generated.context(), &[3], RelationLimits::default())
-            .unwrap();
-        assert_eq!(concrete.terms().len(), 2);
+        let relation = &generated.ordinary_ibp()[0];
+        assert_eq!(relation.terms().len(), 2);
         let shifted_power = &base.integer(3) + &nu;
         let expected_same = &d - &(&base.integer(2) * &shifted_power);
         let expected_raised = &(&base.integer(2) * &m2) * &shifted_power;
-        assert_coefficient_eq(coefficient_for(&concrete, &[3]).unwrap(), &expected_same);
-        assert_coefficient_eq(coefficient_for(&concrete, &[4]).unwrap(), &expected_raised);
+        assert_coefficient_eq(
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0]).unwrap(),
+                &[3],
+            ),
+            &expected_same,
+        );
+        assert_coefficient_eq(
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[1]).unwrap(),
+                &[3],
+            ),
+            &expected_raised,
+        );
 
         // Sector signs are determined by the raw index, but a power shift is
         // still present in the coefficient at n=0.  Raw generation must not
         // use the concrete zero-index shortcut of the legacy vacuum code.
-        let at_zero = generated.ordinary_ibp()[0]
-            .specialize(generated.context(), &[0], RelationLimits::default())
-            .unwrap();
-        assert_eq!(at_zero.terms().len(), 2);
         assert_coefficient_eq(
-            coefficient_for(&at_zero, &[0]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0]).unwrap(),
+                &[0],
+            ),
             &(&d - &(&base.integer(2) * &nu)),
         );
         assert_coefficient_eq(
-            coefficient_for(&at_zero, &[1]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[1]).unwrap(),
+                &[0],
+            ),
             &(&(&base.integer(2) * &m2) * &nu),
         );
     }
@@ -1222,26 +1254,40 @@ mod tests {
                 second_external: 1,
             }
         );
-        let concrete = generated.lorentz_invariance()[0]
-            .specialize(generated.context(), &[2, 3, 4], RelationLimits::default())
-            .unwrap();
-        assert_eq!(concrete.terms().len(), 4);
+        let relation = &generated.lorentz_invariance()[0];
+        assert_eq!(relation.terms().len(), 4);
         let n1 = &base.integer(3) + &nu1;
         let n2 = &base.integer(4) + &nu2;
         assert_coefficient_eq(
-            coefficient_for(&concrete, &[2, 4, 4]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0, 1, 0]).unwrap(),
+                &[2, 3, 4],
+            ),
             &(&(&c2 * &s00) * &n1),
         );
         assert_coefficient_eq(
-            coefficient_for(&concrete, &[2, 4, 3]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0, 1, -1]).unwrap(),
+                &[2, 3, 4],
+            ),
             &(-(&s00 * &n1)),
         );
         assert_coefficient_eq(
-            coefficient_for(&concrete, &[2, 3, 5]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0, 0, 1]).unwrap(),
+                &[2, 3, 4],
+            ),
             &(-(&(&c1 * &s11) * &n2)),
         );
         assert_coefficient_eq(
-            coefficient_for(&concrete, &[2, 2, 5]).unwrap(),
+            &specialize_for_test(
+                generated.context(),
+                indexed_coefficient_for_shift(relation, &[0, -1, 1]).unwrap(),
+                &[2, 3, 4],
+            ),
             &(&s11 * &n2),
         );
     }

@@ -25,9 +25,14 @@ struct SpecializationPreflight {
 
 impl IndexedCoefficientContext {
     /// Simultaneously specialize every index and project the result to the
-    /// exact base variable map.  The original mapped denominator is retained
-    /// as a nonzero condition even when normalization cancels it.
-    pub(crate) fn specialize(
+    /// exact base variable map.
+    ///
+    /// The first return value is the normalized base-field coefficient. The
+    /// optional polynomial is the mapped, nonconstant denominator *before*
+    /// normalization and cancellation; callers that use the value outside a
+    /// known generic domain must retain that polynomial as a nonzero guard.
+    /// Constant mapped denominators return `None`.
+    pub fn specialize(
         &self,
         value: &IndexedCoefficient,
         assignment: &[i64],

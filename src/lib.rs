@@ -42,14 +42,13 @@ pub use family::{
 };
 pub use identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
-    ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition,
+    ParametricNonZeroCondition, RowId,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
 };
 pub use parametric_relation::{
-    ConcreteRelation, IndexShift, IndexSpace, ParametricRelation, ParametricRelationError,
-    RelationLimits,
+    IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, RelationLimits,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

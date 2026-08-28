@@ -5,15 +5,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, CoefficientPolynomialPart, ExactAlgebraLimits,
     IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
-    IndexedPolynomial, validate_polynomial_on_map,
+    IndexedPolynomial,
 };
-use crate::family::{IntegralKey, IntegralKeyError};
 use crate::identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
-    ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition, insert_parametric_condition,
-    insert_specialized_condition, specialize_coefficient_with_condition,
+    ParametricNonZeroCondition, RowId, insert_parametric_condition,
 };
 
 /// Complete arithmetic and identity-condition policy for relation operations.
@@ -471,64 +468,6 @@ impl ParametricRelation {
         Ok(result)
     }
 
-    pub fn specialize(
-        &self,
-        context: &IndexedCoefficientContext,
-        assignment: &[i64],
-        limits: RelationLimits,
-    ) -> Result<ConcreteRelation, ParametricRelationError> {
-        self.validate_context(context)?;
-        if assignment.len() != self.arity {
-            return Err(ParametricRelationError::WrongArity {
-                expected: self.arity,
-                actual: assignment.len(),
-            });
-        }
-        let mut result = ConcreteRelation {
-            family_fingerprint: self.family_fingerprint.clone(),
-            row_id: self.row_id.clone(),
-            arity: self.arity,
-            terms: BTreeMap::new(),
-            nonzero_conditions: Vec::new(),
-        };
-        for condition in &self.nonzero_conditions {
-            let specialized = match condition.specialized(
-                context,
-                assignment,
-                limits.arithmetic,
-                limits.identity_conditions,
-            ) {
-                Ok(specialized) => specialized,
-                Err(IdentityConditionError::ZeroPolynomial) => {
-                    return Err(ParametricRelationError::UnsatisfiableDomain);
-                }
-                Err(error) => return Err(error.into()),
-            };
-            result.add_nonzero_condition(context.base(), specialized, limits)?;
-        }
-        for (shift, coefficient) in &self.terms {
-            let (value, denominator_condition) = specialize_coefficient_with_condition(
-                context,
-                coefficient,
-                assignment,
-                limits.arithmetic,
-                limits.identity_conditions,
-            )?;
-            if let Some(condition) = denominator_condition {
-                result.add_nonzero_condition(context.base(), condition, limits)?;
-            }
-            // A symbolic term may vanish at this assignment. In that case its
-            // integral key is absent, so an overflowing assignment-plus-shift
-            // cannot reject the specialization.
-            if value.is_zero() {
-                continue;
-            }
-            let key = IntegralKey::checked_from_assignment(assignment, shift.values())?;
-            result.add_term(context.base(), key, value, limits)?;
-        }
-        Ok(result)
-    }
-
     fn validate_context(
         &self,
         context: &IndexedCoefficientContext,
@@ -592,103 +531,6 @@ fn try_reserve_relation_entries<T>(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ConcreteRelation {
-    family_fingerprint: Arc<str>,
-    row_id: RowId,
-    arity: usize,
-    terms: BTreeMap<IntegralKey, Coefficient>,
-    nonzero_conditions: Vec<SpecializedNonZeroCondition>,
-}
-
-impl ConcreteRelation {
-    pub fn family_fingerprint(&self) -> &str {
-        &self.family_fingerprint
-    }
-
-    pub fn row_id(&self) -> &RowId {
-        &self.row_id
-    }
-
-    pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
-        &self.terms
-    }
-
-    pub fn nonzero_conditions(&self) -> &[SpecializedNonZeroCondition] {
-        &self.nonzero_conditions
-    }
-
-    fn add_nonzero_condition(
-        &mut self,
-        context: &CoefficientContext,
-        mut condition: SpecializedNonZeroCondition,
-        limits: RelationLimits,
-    ) -> Result<(), ParametricRelationError> {
-        if validate_polynomial_on_map(
-            condition.polynomial(),
-            context.variables(),
-            CoefficientPolynomialPart::Numerator,
-            ExactAlgebraLimits::default(),
-        )
-        .is_err()
-        {
-            return Err(ParametricRelationError::WrongContext);
-        }
-        if condition.polynomial().is_zero() {
-            return Err(ParametricRelationError::UnsatisfiableDomain);
-        }
-        if condition.polynomial().is_constant() {
-            return Ok(());
-        }
-        condition.add_source(
-            IdentityConditionSource::RelationConditionAttached {
-                row: self.row_id.clone(),
-            },
-            limits.identity_conditions,
-        )?;
-        insert_specialized_condition(
-            &mut self.nonzero_conditions,
-            condition,
-            limits.identity_conditions,
-        )?;
-        Ok(())
-    }
-
-    fn add_term(
-        &mut self,
-        context: &CoefficientContext,
-        key: IntegralKey,
-        coefficient: Coefficient,
-        limits: RelationLimits,
-    ) -> Result<(), ParametricRelationError> {
-        if key.powers().len() != self.arity {
-            return Err(ParametricRelationError::WrongArity {
-                expected: self.arity,
-                actual: key.powers().len(),
-            });
-        }
-        if !context.contains(&coefficient) {
-            return Err(ParametricRelationError::WrongContext);
-        }
-        if coefficient.is_zero() {
-            return Ok(());
-        }
-        if let Some(current) = self.terms.get(&key) {
-            let sum = context
-                .try_add(current, &coefficient, limits.arithmetic.exact_algebra)
-                .map_err(IndexedAlgebraError::from)?;
-            if sum.is_zero() {
-                self.terms.remove(&key);
-            } else {
-                self.terms.insert(key, sum);
-            }
-        } else {
-            self.terms.insert(key, coefficient);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricRelationError {
     EmptyIndexSpace,
     WrongArity {
@@ -714,7 +556,6 @@ pub enum ParametricRelationError {
     },
     IdentityCondition(IdentityConditionError),
     Coefficient(IndexedAlgebraError),
-    IntegralKey(IntegralKeyError),
 }
 
 impl fmt::Display for ParametricRelationError {
@@ -749,7 +590,6 @@ impl fmt::Display for ParametricRelationError {
             ),
             Self::IdentityCondition(error) => error.fmt(formatter),
             Self::Coefficient(error) => error.fmt(formatter),
-            Self::IntegralKey(error) => error.fmt(formatter),
         }
     }
 }
@@ -768,15 +608,10 @@ impl From<IdentityConditionError> for ParametricRelationError {
     }
 }
 
-impl From<IntegralKeyError> for ParametricRelationError {
-    fn from(value: IntegralKeyError) -> Self {
-        Self::IntegralKey(value)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::algebra::CoefficientContext;
 
     #[test]
     fn translation_moves_keys_and_coefficient_indices_together() {
@@ -804,12 +639,13 @@ mod tests {
                 RelationLimits::default(),
             )
             .unwrap();
-        let concrete = translated
-            .specialize(&context, &[3, 7], RelationLimits::default())
+        let (shift, coefficient) = translated.terms().first_key_value().unwrap();
+        assert_eq!(shift.values(), &[2, -1]);
+        let (coefficient, denominator_nonzero) = context
+            .specialize(coefficient, &[3, 7], IndexedAlgebraLimits::default())
             .unwrap();
-        let (key, coefficient) = concrete.terms().first_key_value().unwrap();
-        assert_eq!(key.powers(), &[5, 6]);
-        assert_eq!(coefficient, &base.integer(5));
+        assert_eq!(coefficient, base.integer(5));
+        assert!(denominator_nonzero.is_none());
     }
 
     #[test]
@@ -859,78 +695,6 @@ mod tests {
             .unwrap();
         assert_eq!(sequential.terms(), direct.terms());
         assert_eq!(sequential.nonzero_conditions(), direct.nonzero_conditions());
-    }
-
-    #[test]
-    fn specialization_checks_key_overflow() {
-        let base = CoefficientContext::new(["d"]);
-        let context = IndexedCoefficientContext::try_new(&base, "relation-overflow", 1).unwrap();
-        let space = IndexSpace::try_new(1).unwrap();
-        let mut source = ParametricRelation::new(
-            "family",
-            RowId::Derived {
-                label: "source".into(),
-            },
-            &context,
-        );
-        source
-            .add_term(&context, space.unit(0, 1).unwrap(), context.one())
-            .unwrap();
-        assert!(matches!(
-            source.specialize(&context, &[i64::MAX], RelationLimits::default()),
-            Err(ParametricRelationError::IntegralKey(
-                IntegralKeyError::IndexOverflow { position: 0 }
-            ))
-        ));
-    }
-
-    #[test]
-    fn specialization_discards_zero_coefficient_before_key_arithmetic() {
-        let base = CoefficientContext::new(["d"]);
-        let context =
-            IndexedCoefficientContext::try_new(&base, "zero-before-key-overflow", 1).unwrap();
-        let space = IndexSpace::try_new(1).unwrap();
-        let coefficient = context
-            .sub(&context.index(0).unwrap(), &context.integer(i64::MAX))
-            .unwrap();
-        let mut relation = ParametricRelation::new(
-            "family",
-            RowId::Derived {
-                label: Arc::from("zero-before-key-overflow"),
-            },
-            &context,
-        );
-        relation
-            .add_term(&context, space.unit(0, 1).unwrap(), coefficient)
-            .unwrap();
-
-        let specialized = relation
-            .specialize(&context, &[i64::MAX], RelationLimits::default())
-            .unwrap();
-        assert!(specialized.terms().is_empty());
-    }
-
-    #[test]
-    fn specialization_reports_an_unsatisfiable_zero_condition() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context =
-            IndexedCoefficientContext::try_new(&base, "unsatisfiable-specialization", 1).unwrap();
-        let mut relation = ParametricRelation::new(
-            "family",
-            RowId::Derived {
-                label: Arc::from("unsatisfiable-specialization"),
-            },
-            &context,
-        );
-        let index = context.index(0).unwrap();
-        relation
-            .add_explicit_nonzero_condition(&context, context.numerator_condition(&index).unwrap())
-            .unwrap();
-
-        assert!(matches!(
-            relation.specialize(&context, &[0], RelationLimits::default()),
-            Err(ParametricRelationError::UnsatisfiableDomain)
-        ));
     }
 
     #[test]
@@ -1008,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn fallible_index_and_integral_key_construction_preserves_checked_semantics() {
+    fn fallible_index_construction_preserves_checked_semantics() {
         let space = IndexSpace::try_new(2).unwrap();
         assert_eq!(space.try_zero().unwrap().values(), &[0, 0]);
         assert_eq!(space.unit(1, -1).unwrap().values(), &[0, -1]);
@@ -1026,8 +790,6 @@ mod tests {
                 .checked_add(&IndexShift::try_new([1], 1).unwrap()),
             Err(ParametricRelationError::IndexOverflow { position: 0 })
         ));
-        assert_eq!(IntegralKey::try_new([3, -2]).unwrap().powers(), &[3, -2]);
-
         // This is rejected by Vec's capacity arithmetic without attempting a
         // material allocation, exercising the public allocation error path.
         assert!(matches!(
