@@ -27,7 +27,7 @@ impl RowId {
         output
     }
 
-    pub(crate) fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
+    pub(in crate::identity) fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
         match self {
             Self::OrdinaryIbp {
                 contraction_momentum,

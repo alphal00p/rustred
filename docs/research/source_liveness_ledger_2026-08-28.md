@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `d7c6bbe`, immediately before pruning the relation and
-parametric-condition API to the live generation/application spine.
+**Baseline parent:** `bb6a162`, immediately before the mechanical semantic
+split of the retained parametric-condition implementation.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 86 tracked Rust source/test paths
+This ledger classifies every one of the 91 tracked Rust source/test paths
 remaining after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -27,7 +27,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 27 |
+| move | 32 |
 | split | 58 |
 | delete | 0 |
 | replace | 1 |
@@ -109,10 +109,15 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/symanzik/work.rs` | split | family::symanzik | shared checked resource arithmetic and aggregate operation budgets; prevents context/operations ownership cycles |
 | `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
-| `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
-| `src/identity/condition.rs` | split | identity | deterministic parametric identity-condition source sets, independent source-cardinality limits, checked affine translation, and merge semantics; construction is crate-owned, the explicit/test convenience source is deleted, and specialized base-field ceremony waits for a real reduction consumer |
+| `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated and translated identities, with a generic derived-row variant reserved for the foundry; no adapter row mirror |
+| `src/identity/condition/mod.rs` | move | identity::condition | narrow condition facade; the temporary crate-visible relation-construction reexport narrows when relation moves under `identity` |
+| `src/identity/condition/source.rs` | move | identity::condition | deterministic atomic parametric-condition provenance and stable user-facing encoding; no adapter or recursive provenance tree |
+| `src/identity/condition/limits.rs` | move | identity::condition | independent source-cardinality policy |
+| `src/identity/condition/error.rs` | move | identity::condition | typed source, resource, and authenticated-coefficient failures |
+| `src/identity/condition/value.rs` | split | identity::condition | authenticated condition value, checked translation, deterministic source merging, and collection insertion; construction remains engine-owned and specialized base-field ceremony waits for a real reduction consumer |
+| `src/identity/condition/tests.rs` | move | identity::condition tests | focused version-stable provenance encoding sentinel; operational event provenance is exercised through real relation events |
 | `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition/`IndexSpace` exports; do not move exports wholesale |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, shared fallibly constructed zero/unit shift storage with refcount-only clones, and one completed semantic-scope token shared by ordinary and LI-only layouts; compact coefficient checks call the standalone indexed specialization primitive |
+| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, shared fallibly constructed zero/unit shift storage with refcount-only clones, and one completed semantic-scope token shared by ordinary and LI-only layouts; current compact-coefficient specialization is test-only and must not justify a production relation wrapper |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse parametric relation arithmetic with one typed parametric-condition vector and independent `RelationLimits`; public consumers receive only row/term/condition views, construction and limit-explicit mutation are crate-owned, shift vectors use checked Rust-owned allocation followed by shared no-copy storage, and default/explicit-condition conveniences are deleted |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
