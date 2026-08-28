@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `524499b`, updated for direct Symbolica runtime use.
+**Baseline parent:** `ef68f7e`, updated for direct Symbolica runtime use.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 55 tracked Rust source/test paths
+This ledger classifies every one of the 54 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 21 |
-| split | 33 |
+| split | 32 |
 | delete | 0 |
 | replace | 1 |
 
@@ -70,7 +70,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
-| `src/parametric_coefficient/symbolica_sparse.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |

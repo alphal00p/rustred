@@ -352,19 +352,18 @@ acyclic. In this diagram `A -> B` means that A may depend on B:
 rustred-app -> input, identity, sector, campaign, tensor, reduction
 Vakint RustRed mode -> input, tensor, reduction
 
-reduction -> identity, sector, tensor, family, algebra, runtime
+reduction -> identity, sector, tensor, family, algebra
 input -> tensor, family, algebra
 tensor -> family, algebra
 identity -> family, algebra
 sector -> family, algebra
-campaign -> runtime                     # never foundry
+campaign ->                             # never foundry
 family -> algebra
-algebra -> runtime, Symbolica public Rust API
-runtime -> Symbolica public Rust API
+algebra -> Symbolica public Rust API
 ```
 
 The Phase-0 core directories are `algebra`, `family`, `input`, `identity`,
-`sector`, `campaign`, `tensor`, `reduction`, and `runtime`. `campaign` remains
+`sector`, `campaign`, `tensor`, and `reduction`. `campaign` remains
 low-level work/resource infrastructure. `reduction` retains only generic
 rule-application and master-substitution primitives with real callers; it
 does not imply that a closed rule library already exists. The core has no
@@ -372,7 +371,7 @@ does not imply that a closed rule library already exists. The core has no
 
 After the reset gates pass, a fresh `foundry` and a stable `artifact` domain
 are introduced from their required contracts. The new foundry composes the
-retained identity, sector, campaign, family, algebra, and runtime services and
+retained identity, sector, campaign, family, and algebra services and
 emits immutable artifact values that reduction can consume. Its internal
 algorithm modules are designed from the mathematical closure requirements and
 Symbolica APIs, not from the deleted exact-session/closure directory shape.
@@ -389,6 +388,16 @@ at true integration boundaries; historical campaigns are deleted. Public
 re-exports are narrowed. The fresh solver is not developed inside mechanical
 file moves. Git is the archive; stale code and documentation are deleted after
 their unique evidence is retained.
+
+The current `parametric_coefficient` monolith and `runtime` wrapper are not
+final modules. Algebra is rebuilt around a single Symbolica-native field
+layer with clear base-field and index-field owners. Stored polynomial
+exponents use Symbolica's native `u16`; only checked `u32`/`u64` prospective
+arithmetic is used where an operation can widen. `u128` is not an exponent
+representation. Self-only sparse-solver, associate, residual-affine,
+parameter-identity, transcript, census, and compatibility machinery is
+deleted. Symbolica primitives are wrapped only when a real invariant or an
+infallible native trait boundary requires it.
 
 Reducing the flat root is not permission to cram unrelated responsibilities
 into a few giant files. Stable domains use parent modules and short role-named
@@ -465,8 +474,8 @@ architecture plan:
    orchestration island. Retain only independently live generic
    algebra/family/IBP/sector/campaign/reduction primitives with callers outside
    that island. Then form and prune those values under acyclic `algebra`,
-   `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, `reduction`,
-   and `runtime` owners while the package is still at the root. Prefixes such
+   `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, and
+   `reduction` owners while the package is still at the root. Prefixes such
    as `generated_`, `residual_`, and `parametric_` do not define directories.
    Every remaining long chronology/state-named file is challenged explicitly
    on each enumeration and must resolve to a small role-named owner or deletion

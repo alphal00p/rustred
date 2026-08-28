@@ -122,8 +122,7 @@ The intended repository skeleton at the reset gate is:
 │   │   │   ├── sector/
 │   │   │   ├── campaign/
 │   │   │   ├── tensor/
-│   │   │   ├── reduction/
-│   │   │   └── runtime/
+│   │   │   └── reduction/
 │   │   ├── tests/             # few black-box contract tests only
 │   │   └── benches/           # measured lanes only, when introduced
 │   ├── rustred-app/
@@ -168,21 +167,24 @@ rustred-python ──> rustred-app ──> input, identity, sector, campaign,
 Vakint RustRed mode ───────────────────────────────────────> input, tensor,
                                                              reduction
 
-reduction ──> identity, sector, tensor, family, algebra, runtime
+reduction ──> identity, sector, tensor, family, algebra
 input ──────> tensor, family, algebra
 tensor ─────> family, algebra
 identity ───> family, algebra
 sector ─────> family, algebra
-campaign ───> runtime
 family ─────> algebra
-algebra ────> runtime, Symbolica public Rust API
-runtime ────> Symbolica public Rust API
+algebra ────> Symbolica public Rust API
 ```
 
 More precisely:
 
 - `algebra` wraps checked Symbolica coefficient/polynomial/matrix operations;
-  it knows no integral family, sector, rule, or campaign.
+  it knows no integral family, sector, rule, or campaign. Its coefficient API
+  has one base field and one index-extended field with role names rather than
+  parallel historical `coefficient` and `parametric_coefficient` stacks.
+  Stored exponents use Symbolica's native `u16`; prospective widening uses
+  checked `u32`/`u64`, never a fictitious `u128` exponent domain. No self-only
+  sparse reducer or wrapper survives without a production caller.
 - `family` owns authenticated kinematics, coordinates, denominators, shifts,
   target keys, and specialization.
 - `input` parses, lowers, and normalizes external/core project descriptions
@@ -215,11 +217,13 @@ More precisely:
   Callers lower input before invoking it. It does not own a foundry, solver,
   or algebra engine. `rustred-app` is the composition layer; the core
   deliberately has no confusing `application/` directory.
-- `runtime` owns the single process-wide Symbolica initialization and bounded
-  execution facilities. It contains no physics policy.
+- There is no core `runtime` wrapper. RustRed calls Symbolica's public Rust API
+  directly; application-only rendering and memory census policy stays in
+  `rustred-app`. Add a runtime boundary later only if a real global
+  initialization, licensing, or execution-policy caller requires one.
 
 After Phase 0, a fresh `foundry` may depend on identity, sector, campaign,
-family, algebra, and runtime, and emit values owned by a new stable `artifact`
+family, and algebra, and emit values owned by a new stable `artifact`
 domain. Reduction may then consume those artifacts. Artifact models never
 depend on foundry internals. This future direction is a contract to design,
 not a reason to preserve the audited prototype's solver/session hierarchy.
@@ -249,7 +253,7 @@ dumping-ground module.
 | Current files | Final owner/action |
 |---|---|
 | root `Cargo.toml` package sections | delete; retain only virtual workspace, shared package metadata, patches, and profiles |
-| root `build.rs` | delete; replace manifest scraping with Symbolica's public `LicenseManager::get_version()` at the runtime/producer boundary, so reported version follows the dependency Cargo actually resolved |
+| root `build.rs` | delete; the application producer calls Symbolica's public `LicenseManager::get_version()` directly, so reported version follows the dependency Cargo actually resolved |
 | root `src/lib.rs` | delete and write a small `crates/rustred-core/src/lib.rs`; do not preserve wholesale re-exports or schema compatibility |
 | `src/legacy_oracle_support.rs` | delete with `legacy-oracle-support` feature and every reference to it |
 | `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_affine_denominator.rs`, `symbolica_coefficient_matrix.rs` | move live checked primitives to `algebra/`; delete bespoke operations available through Symbolica |
@@ -272,7 +276,7 @@ dumping-ground module.
 | existing `src/campaign/**` and `src/campaign/execution.rs` | retain under `campaign/`; keep deterministic resource/width/execution semantics and remove facade duplication |
 | `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete `symbolica_target_numerator` and the legacy polynomial composer; extract only the proven value/pairing/contraction/orbit/lowering/Atom-boundary kernels from the other prototypes into the semantic `tensor/` children above; delete authentication/schema/census wrappers and use Symbolica-native CAS rather than moving any file wholesale |
 | `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
-| `src/symbolica_runtime.rs` | move the single checked initialization/version boundary to `runtime/` |
+| `src/symbolica_runtime.rs` | delete; direct public Symbolica API calls replaced its trivial wrappers, and no global initialization boundary is currently required |
 
 ### Non-source repository surfaces
 
@@ -499,8 +503,9 @@ public Python import smoke test pass.
   publication, re-entry, generated-affine/cylindrical/residual, and provider
   SCCs. Do not relocate or preserve them.
 - Under the current root package, create the acyclic owners `algebra`,
-  `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, `reduction`,
-  and `runtime`. There is no Phase-0 `foundry` or `artifact` owner.
+  `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, and
+  `reduction`. There is no Phase-0 `foundry`, `artifact`, or wrapper-only
+  `runtime` owner.
 - Work cluster by cluster. Move/split only symbols justified by a live app,
   retained-core caller, upcoming Vakint use case, or fresh retained-primitive
   sentinel; delete the rest in the same rollback-sized tranche. A hypothetical

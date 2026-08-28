@@ -75,10 +75,7 @@ pub use parametric_coefficient::{
     GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
-    PartialIndexAssignment, ResidualUnitAffineCoefficientCompositionStats,
-    ResidualUnitAffineCompositionError, ResidualUnitAffineCompositionPlanLimits,
-    ResidualUnitAffinePolynomialCompositionLimits, ResidualUnitAffinePolynomialCompositionStats,
-    SpecializedNonZeroCondition,
+    PartialIndexAssignment, SpecializedNonZeroCondition,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
