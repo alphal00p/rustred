@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `fde3955`, updated for the fixed-point/case-stack deletion.
+**Baseline parent:** `b68cc28`, updated for the master-product leaf deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 72 tracked Rust source/build/test paths
+This ledger classifies every one of the 71 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 48 |
+| split | 47 |
 | delete | 1 |
 | replace | 1 |
 
@@ -78,7 +78,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generic_tensor_projector.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/master_product.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_coefficient/symbolica_sparse.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_elimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |

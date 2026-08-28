@@ -28,7 +28,6 @@ pub mod generic_tensor_family;
 pub mod generic_tensor_polynomial;
 pub mod generic_tensor_projector;
 pub mod guards;
-pub mod master_product;
 pub mod parametric_coefficient;
 pub mod parametric_elimination;
 pub mod parametric_ibp;
@@ -139,9 +138,6 @@ pub use generic_tensor_projector::{
     VacuumTensorProjectionWitness,
 };
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
-pub use master_product::{
-    MasterProduct, MasterProductError, ProductConvolutionError, ProductLinearCombination,
-};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
     GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,
