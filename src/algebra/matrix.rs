@@ -3590,7 +3590,7 @@ mod tests {
     #[test]
     fn public_symbolica_power_is_authenticated_and_fully_censused() {
         let context = CoefficientContext::new(["x", "y"]);
-        let base = context.parse("(x+y)/(1-x)").unwrap();
+        let base = context.coefficient_fixture("(x+y)/(1-x)");
         let (power, stats) = power_of_coefficient(
             &context,
             &base,
@@ -3598,8 +3598,10 @@ mod tests {
             SymbolicaCoefficientMatrixLimits::default(),
         )
         .unwrap();
-        assert_eq!(power, context.parse("(x+y)^3/(1-x)^3").unwrap());
-        context.validate(&power).unwrap();
+        assert_eq!(power, context.coefficient_fixture("(x+y)^3/(1-x)^3"));
+        context
+            .validate_with_limits(&power, ExactAlgebraLimits::default())
+            .unwrap();
         assert_eq!(stats.input_entries(), 1);
         assert_eq!(stats.output_entries(), 1);
         assert_eq!(stats.authenticated_entries(), 1);
@@ -3675,7 +3677,7 @@ mod tests {
         assert!(matches!(
             power_of_coefficient(
                 &context,
-                &context.parse("x^2").unwrap(),
+                &context.coefficient_fixture("x^2"),
                 3,
                 SymbolicaCoefficientMatrixLimits {
                     exact_algebra: ExactAlgebraLimits {
@@ -3695,7 +3697,7 @@ mod tests {
             ))
         ));
 
-        let dense_bound = context.parse("x+y").unwrap();
+        let dense_bound = context.coefficient_fixture("x+y");
         assert!(matches!(
             power_of_coefficient(
                 &context,
@@ -3759,7 +3761,7 @@ mod tests {
     #[test]
     fn public_symbolica_power_retained_byte_caps_are_exact() {
         let context = CoefficientContext::new(["x"]);
-        let base = context.parse("(x+1)/(x-1)").unwrap();
+        let base = context.coefficient_fixture("(x+1)/(x-1)");
         let (_, baseline) = power_of_coefficient(
             &context,
             &base,
@@ -3820,7 +3822,7 @@ mod tests {
         let matrix = vec![
             vec![
                 context.zero(),
-                context.parse("a/x").unwrap(),
+                context.coefficient_fixture("a/x"),
                 context.zero(),
                 context.one(),
             ],
@@ -3828,11 +3830,11 @@ mod tests {
                 context.zero(),
                 context.zero(),
                 context.parameter("b").unwrap(),
-                context.parse("1/x").unwrap(),
+                context.coefficient_fixture("1/x"),
             ],
             vec![
                 context.zero(),
-                context.parse("2*a/x").unwrap(),
+                context.coefficient_fixture("2*a/x"),
                 context.zero(),
                 context.integer(2),
             ],
@@ -3944,9 +3946,7 @@ mod tests {
     #[test]
     fn native_rank_preserves_gmp_coefficients_and_rejects_foreign_maps() {
         let context = CoefficientContext::new(["x"]);
-        let large = context
-            .parse("340282366920938463463374607431768211507")
-            .unwrap();
+        let large = context.coefficient_fixture("340282366920938463463374607431768211507");
         let matrix = vec![
             vec![large, context.zero()],
             vec![context.zero(), context.one()],
@@ -4078,7 +4078,9 @@ mod tests {
         assert_eq!(result.inverse(), matrix);
         assert_eq!(result.determinant(), &context.one());
         for coefficient in result.inverse().iter().flatten() {
-            context.validate(coefficient).unwrap();
+            context
+                .validate_with_limits(coefficient, ExactAlgebraLimits::default())
+                .unwrap();
         }
         assert_eq!(result.stats().determinant_calls(), 1);
         assert_eq!(result.stats().inverse_calls(), 1);
@@ -4118,8 +4120,11 @@ mod tests {
 
         assert_eq!(field.try_inv(&zero), None);
         assert_eq!(field.try_div(&one, &zero), None);
-        assert_eq!(field.try_inv(&x), Some(context.parse("1/x").unwrap()));
-        assert_eq!(field.try_div(&one, &x), Some(context.parse("1/x").unwrap()));
+        assert_eq!(field.try_inv(&x), Some(context.coefficient_fixture("1/x")));
+        assert_eq!(
+            field.try_div(&one, &x),
+            Some(context.coefficient_fixture("1/x"))
+        );
         assert_eq!(field.stats().exact_operations(), 2);
     }
 
@@ -4127,7 +4132,7 @@ mod tests {
     fn symbolic_nonsymmetric_inverse_and_determinant_are_exact() {
         let context = CoefficientContext::new(["a", "b", "s"]);
         let matrix = vec![
-            vec![context.parse("a/s").unwrap(), context.one()],
+            vec![context.coefficient_fixture("a/s"), context.one()],
             vec![context.parameter("b").unwrap(), context.integer(2)],
         ];
         let result = invert_and_verify_coefficient_matrix(
@@ -4136,7 +4141,10 @@ mod tests {
             SymbolicaCoefficientMatrixLimits::default(),
         )
         .unwrap();
-        assert_eq!(result.determinant(), &context.parse("(2*a-b*s)/s").unwrap());
+        assert_eq!(
+            result.determinant(),
+            &context.coefficient_fixture("(2*a-b*s)/s")
+        );
         verify_coefficient_matrix_inverse(
             &context,
             &matrix,
@@ -4488,7 +4496,7 @@ mod tests {
             vec![context.parameter("y").unwrap(), context.one()],
         ];
         let right = vec![
-            vec![context.parse("1/2").unwrap(), context.zero()],
+            vec![context.coefficient_fixture("1/2"), context.zero()],
             vec![context.one(), context.one()],
         ];
         let (product, stats) = multiply_three_coefficient_matrices(
@@ -4502,8 +4510,8 @@ mod tests {
         assert_eq!(
             product,
             vec![
-                vec![context.parse("1+(x+y)/2").unwrap(), context.one(),],
-                vec![context.parse("y+2").unwrap(), context.integer(2)],
+                vec![context.coefficient_fixture("1+(x+y)/2"), context.one(),],
+                vec![context.coefficient_fixture("y+2"), context.integer(2)],
             ]
         );
         assert_eq!(stats.product_calls(), 2);
@@ -4607,10 +4615,10 @@ mod tests {
             product,
             vec![
                 vec![
-                    context.parse("2+2*x*y+3*x^2").unwrap(),
-                    context.parse("y+3*x").unwrap(),
+                    context.coefficient_fixture("2+2*x*y+3*x^2"),
+                    context.coefficient_fixture("y+3*x"),
                 ],
-                vec![context.parse("y+3*x").unwrap(), context.integer(3)],
+                vec![context.coefficient_fixture("y+3*x"), context.integer(3)],
             ]
         );
         assert_eq!(stats.product_calls(), 2);

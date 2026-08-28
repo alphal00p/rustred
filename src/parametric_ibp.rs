@@ -1030,7 +1030,10 @@ mod tests {
             base.clone(),
             base.parameter("d").unwrap(),
             vec![
-                AffineDenominator::new(base.zero(), vec![base.parse("a/s").unwrap(), base.one()]),
+                AffineDenominator::new(
+                    base.zero(),
+                    vec![base.coefficient_fixture("a/s"), base.one()],
+                ),
                 AffineDenominator::new(
                     base.zero(),
                     vec![base.parameter("b").unwrap(), base.integer(2)],
@@ -1134,7 +1137,7 @@ mod tests {
     fn maximal_power_shift_times_parameter_is_a_typed_error_not_a_symbolica_panic() {
         let base = CoefficientContext::new(["x"]);
         let x = base.parameter("x").unwrap();
-        let maximal_power = base.parse("x^65535").unwrap();
+        let maximal_power = base.coefficient_fixture("x^65535");
         let family = IntegralFamily::new(
             "maximal-power-shift",
             vec!["k".into()],

@@ -1212,7 +1212,7 @@ mod tests {
             coefficients.clone(),
             coefficients.parameter("d").unwrap(),
             vec![AffineDenominator::new(
-                coefficients.parse("-m2").unwrap(),
+                coefficients.coefficient_fixture("-m2"),
                 vec![coefficients.one()],
             )],
             Vec::new(),

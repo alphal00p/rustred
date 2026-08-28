@@ -997,9 +997,7 @@ mod coefficient_limit_tests {
     #[test]
     fn coefficient_byte_census_bounds_a_large_integer_before_native_copy() {
         let context = CoefficientContext::new(["d"]);
-        let coefficient = context
-            .parse("123456789012345678901234567890123456789")
-            .unwrap();
+        let coefficient = context.coefficient_fixture("123456789012345678901234567890123456789");
         let exact = coefficient.to_string().len();
         assert!(exact > 32);
 
@@ -1141,11 +1139,11 @@ mod tests {
         let one = context.one();
         let input_denominators = vec![
             AffineDenominator::new(
-                context.parse("-m0").unwrap(),
+                context.coefficient_fixture("-m0"),
                 vec![one.clone(), zero.clone(), zero.clone()],
             ),
             AffineDenominator::new(
-                context.parse("-m1").unwrap(),
+                context.coefficient_fixture("-m1"),
                 vec![zero.clone(), zero.clone(), one],
             ),
         ];
@@ -1193,7 +1191,7 @@ mod tests {
             context.clone(),
             context.parameter("d").unwrap(),
             vec![AffineDenominator::new(
-                context.parse("-m").unwrap(),
+                context.coefficient_fixture("-m"),
                 vec![context.one()],
             )],
             Vec::new(),
@@ -1216,7 +1214,7 @@ mod tests {
             context.clone(),
             context.parameter("d").unwrap(),
             vec![AffineDenominator::new(
-                context.parse("-m").unwrap(),
+                context.coefficient_fixture("-m"),
                 vec![context.one()],
             )],
             Vec::new(),

@@ -1,7 +1,6 @@
 use std::{borrow::Borrow, cmp::Ordering, fmt, mem::size_of, sync::Arc};
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
-use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
 use super::ExactRational;
@@ -179,10 +178,6 @@ impl fmt::Display for ExactAlgebraError {
 }
 
 impl std::error::Error for ExactAlgebraError {}
-
-fn symbolica_coefficient_degree_is_representable(requested: u128) -> bool {
-    requested <= SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT
-}
 
 pub(crate) fn validate_coefficient_on_map(
     coefficient: &Coefficient,
@@ -690,14 +685,8 @@ pub(crate) fn coefficient_clone_owned_retained_byte_bound(
 /// Typed failures produced before constructing a Symbolica polynomial map.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoefficientContextError {
-    /// Retained for source compatibility with the pre-parametric API.
-    /// Empty contexts are now valid and represent the exact field `Q`.
-    Empty,
     DuplicateParameter(String),
-    InvalidParameter {
-        name: String,
-        reason: String,
-    },
+    InvalidParameter { name: String, reason: String },
 }
 
 /// The numerator or denominator of an exact coefficient.
@@ -716,131 +705,9 @@ impl fmt::Display for CoefficientPolynomialPart {
     }
 }
 
-/// Typed failures from exact projection into a coefficient context with one
-/// named parameter removed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CoefficientProjectionError {
-    DroppedParameterNotFound(String),
-    TargetParameterCount {
-        expected: usize,
-        actual: usize,
-    },
-    TargetParameterMismatch {
-        position: usize,
-        expected: String,
-        actual: String,
-    },
-    TargetVariableMapMismatch {
-        position: usize,
-        parameter: String,
-    },
-    TargetTemplateVariableMapMismatch {
-        part: CoefficientPolynomialPart,
-    },
-    SourceVariableMapMismatch {
-        part: CoefficientPolynomialPart,
-    },
-    MalformedExponentLayout {
-        part: CoefficientPolynomialPart,
-        coefficients: usize,
-        exponents: usize,
-        variables: usize,
-    },
-    DroppedParameterDependence {
-        parameter: String,
-        part: CoefficientPolynomialPart,
-        term: usize,
-        exponent: u16,
-    },
-    ExponentOutOfRange {
-        parameter: String,
-        part: CoefficientPolynomialPart,
-        term: usize,
-        exponent: u128,
-        limit: u128,
-    },
-    ZeroDenominator,
-}
-
-impl fmt::Display for CoefficientProjectionError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DroppedParameterNotFound(parameter) => {
-                write!(
-                    formatter,
-                    "coefficient parameter {parameter:?} is not present"
-                )
-            }
-            Self::TargetParameterCount { expected, actual } => write!(
-                formatter,
-                "coefficient projection needs {expected} target parameters, found {actual}"
-            ),
-            Self::TargetParameterMismatch {
-                position,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "coefficient projection target parameter {position} is {actual:?}, expected {expected:?}"
-            ),
-            Self::TargetVariableMapMismatch {
-                position,
-                parameter,
-            } => write!(
-                formatter,
-                "coefficient projection target parameter {position} ({parameter:?}) has a different Symbolica variable"
-            ),
-            Self::TargetTemplateVariableMapMismatch { part } => write!(
-                formatter,
-                "coefficient projection target template {part} does not use the target context variable map"
-            ),
-            Self::SourceVariableMapMismatch { part } => write!(
-                formatter,
-                "coefficient {part} does not use the source context variable map"
-            ),
-            Self::MalformedExponentLayout {
-                part,
-                coefficients,
-                exponents,
-                variables,
-            } => write!(
-                formatter,
-                "coefficient {part} has {coefficients} terms, {exponents} exponents, and {variables} variables"
-            ),
-            Self::DroppedParameterDependence {
-                parameter,
-                part,
-                term,
-                exponent,
-            } => write!(
-                formatter,
-                "coefficient {part} term {term} retains {parameter:?} with exponent {exponent}"
-            ),
-            Self::ExponentOutOfRange {
-                parameter,
-                part,
-                term,
-                exponent,
-                limit,
-            } => write!(
-                formatter,
-                "coefficient {part} term {term} has exponent {exponent} for {parameter:?}, above the Symbolica limit {limit}"
-            ),
-            Self::ZeroDenominator => {
-                formatter.write_str("coefficient projection received a zero denominator")
-            }
-        }
-    }
-}
-
-impl std::error::Error for CoefficientProjectionError {}
-
 impl fmt::Display for CoefficientContextError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Empty => {
-                formatter.write_str("a coefficient context needs at least one parameter")
-            }
             Self::DuplicateParameter(name) => {
                 write!(formatter, "coefficient parameter {name:?} is repeated")
             }
@@ -901,11 +768,9 @@ impl CoefficientContext {
         })
     }
 
-    /// Compatibility constructor for trusted static parameter labels.
-    /// Caller-controlled labels should use [`Self::try_new`].
-    pub fn new(parameter_names: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        Self::try_new(parameter_names)
-            .unwrap_or_else(|error| panic!("invalid coefficient context: {error}"))
+    #[cfg(test)]
+    pub(crate) fn new(parameter_names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self::try_new(parameter_names).expect("test coefficient labels must be valid")
     }
 
     pub fn parameter_names(&self) -> &[String] {
@@ -929,12 +794,8 @@ impl CoefficientContext {
     /// RustRed code uses this check before every proof-bearing composition so
     /// that an undeclared variable cannot be appended implicitly.
     pub fn contains(&self, coefficient: &Coefficient) -> bool {
-        self.validate(coefficient).is_ok()
-    }
-
-    /// Authenticate the exact variable map and sparse polynomial structure.
-    pub fn validate(&self, coefficient: &Coefficient) -> Result<(), ExactAlgebraError> {
         self.validate_with_limits(coefficient, ExactAlgebraLimits::default())
+            .is_ok()
     }
 
     pub fn validate_with_limits(
@@ -998,50 +859,6 @@ impl CoefficientContext {
             .into()
     }
 
-    pub fn parse(&self, expression: &str) -> Result<Coefficient, String> {
-        let atom = try_parse!(expression, default_namespace = RUSTRED_NAMESPACE)
-            .map_err(|error| error.to_string())?;
-        self.parse_atom(atom.as_view())
-    }
-
-    /// Convert an already parsed Symbolica expression into this exact base
-    /// field without formatting and reparsing it.
-    ///
-    /// Symbolica's polynomial converter may append variables which were not
-    /// present in the supplied map.  The validation after conversion is
-    /// therefore part of this boundary: an undeclared symbol, function, or
-    /// non-rational power is rejected instead of silently extending `K`.
-    pub fn parse_atom(&self, expression: AtomView<'_>) -> Result<Coefficient, String> {
-        self.parse_atom_with_limits(expression, ExactAlgebraLimits::default())
-    }
-
-    /// Convert and authenticate an Atom under explicit retained-output limits.
-    ///
-    /// These limits validate the resulting sparse rational polynomial.  They
-    /// do **not** by themselves bound Symbolica's conversion, expansion, or
-    /// GCD workspace.  Callers accepting untrusted expressions must first
-    /// enforce their own AST/degree/term-work preflight and protect the native
-    /// conversion boundary against panics.  Keeping that policy outside this
-    /// base-field type lets each expression grammar account for its own exact
-    /// expansion envelope while this method remains the single no-format/
-    /// no-reparse authentication seam.
-    pub fn parse_atom_with_limits(
-        &self,
-        expression: AtomView<'_>,
-        limits: ExactAlgebraLimits,
-    ) -> Result<Coefficient, String> {
-        let coefficient = expression
-            .try_to_rational_polynomial(&Q, &Z, Some(self.variables.clone()))
-            .map_err(|error| error.to_string())?;
-        if let Err(error) = self.validate_with_limits(&coefficient, limits) {
-            return Err(format!(
-                "coefficient is outside the declared context {:?}: {error}",
-                self.names,
-            ));
-        }
-        Ok(coefficient)
-    }
-
     /// Checked exact addition for proof-bearing code.
     pub fn try_add(
         &self,
@@ -1091,455 +908,23 @@ impl CoefficientContext {
         checked_coefficient_neg_on_map(value, &self.variables, limits)
     }
 
-    /// Project an exact coefficient into `target` after proving that
-    /// `dropped_parameter` is absent from every numerator and denominator
-    /// monomial.
-    ///
-    /// The target parameters must be exactly the source parameters, in the
-    /// same order, with the named parameter removed.  Both the labels and the
-    /// underlying Symbolica variables are authenticated.  Integer
-    /// coefficients and checked exponents are copied directly into the target
-    /// polynomial map; this path never formats or parses the coefficient.
-    pub fn project_parameter_free(
-        &self,
-        coefficient: &Coefficient,
-        dropped_parameter: &str,
-        target: &CoefficientContext,
-    ) -> Result<Coefficient, CoefficientProjectionError> {
-        let dropped_position = self
-            .names
-            .iter()
-            .position(|name| name == dropped_parameter)
-            .ok_or_else(|| {
-                CoefficientProjectionError::DroppedParameterNotFound(dropped_parameter.to_owned())
-            })?;
-        let expected_target_count = self.names.len().saturating_sub(1);
-        if target.names.len() != expected_target_count {
-            return Err(CoefficientProjectionError::TargetParameterCount {
-                expected: expected_target_count,
-                actual: target.names.len(),
-            });
-        }
-        if target.template.numerator.variables.as_ref() != target.variables.as_ref() {
-            return Err(
-                CoefficientProjectionError::TargetTemplateVariableMapMismatch {
-                    part: CoefficientPolynomialPart::Numerator,
-                },
-            );
-        }
-        if target.template.denominator.variables.as_ref() != target.variables.as_ref() {
-            return Err(
-                CoefficientProjectionError::TargetTemplateVariableMapMismatch {
-                    part: CoefficientPolynomialPart::Denominator,
-                },
-            );
-        }
-
-        let retained_positions: Vec<usize> = (0..self.names.len())
-            .filter(|position| *position != dropped_position)
-            .collect();
-        for (target_position, source_position) in retained_positions.iter().copied().enumerate() {
-            let expected = &self.names[source_position];
-            let actual = &target.names[target_position];
-            if actual != expected {
-                return Err(CoefficientProjectionError::TargetParameterMismatch {
-                    position: target_position,
-                    expected: expected.clone(),
-                    actual: actual.clone(),
-                });
-            }
-            if target.variables[target_position] != self.variables[source_position] {
-                return Err(CoefficientProjectionError::TargetVariableMapMismatch {
-                    position: target_position,
-                    parameter: expected.clone(),
-                });
-            }
-        }
-
-        if coefficient.numerator.variables.as_ref() != self.variables.as_ref() {
-            return Err(CoefficientProjectionError::SourceVariableMapMismatch {
-                part: CoefficientPolynomialPart::Numerator,
-            });
-        }
-        if coefficient.denominator.variables.as_ref() != self.variables.as_ref() {
-            return Err(CoefficientProjectionError::SourceVariableMapMismatch {
-                part: CoefficientPolynomialPart::Denominator,
-            });
-        }
-        if coefficient.denominator.is_zero() {
-            return Err(CoefficientProjectionError::ZeroDenominator);
-        }
-
-        let numerator = project_polynomial_parameter_free(
-            &coefficient.numerator,
-            &target.template.numerator,
-            &self.names,
-            &retained_positions,
-            dropped_position,
-            dropped_parameter,
-            CoefficientPolynomialPart::Numerator,
-        )?;
-        let denominator = project_polynomial_parameter_free(
-            &coefficient.denominator,
-            &target.template.denominator,
-            &self.names,
-            &retained_positions,
-            dropped_position,
-            dropped_parameter,
-            CoefficientPolynomialPart::Denominator,
-        )?;
-        if denominator.is_zero() {
-            return Err(CoefficientProjectionError::ZeroDenominator);
-        }
-
-        Ok(<Coefficient as FromNumeratorAndDenominator<
-            IntegerRing,
-            IntegerRing,
-            u16,
-        >>::from_num_den(numerator, denominator, &Z, true))
+    #[cfg(test)]
+    pub(crate) fn coefficient_fixture(&self, expression: &str) -> Coefficient {
+        let atom = try_parse!(expression, default_namespace = RUSTRED_NAMESPACE)
+            .expect("test coefficient must parse");
+        let coefficient = atom
+            .as_view()
+            .try_to_rational_polynomial(&Q, &Z, Some(self.variables.clone()))
+            .expect("test coefficient must be rational-polynomial");
+        self.validate_with_limits(&coefficient, ExactAlgebraLimits::default())
+            .expect("test coefficient must use the declared context");
+        coefficient
     }
-
-    pub fn scale_integer(&self, coefficient: &Coefficient, value: i32) -> Coefficient {
-        coefficient * &self.integer(i64::from(value))
-    }
-
-    pub fn scale_rational(
-        &self,
-        coefficient: &Coefficient,
-        value: impl Borrow<ExactRational>,
-    ) -> Coefficient {
-        coefficient * &self.rational(value)
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn project_polynomial_parameter_free(
-    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
-    target_template: &MultivariatePolynomial<IntegerRing, u16>,
-    source_names: &[String],
-    retained_positions: &[usize],
-    dropped_position: usize,
-    dropped_parameter: &str,
-    part: CoefficientPolynomialPart,
-) -> Result<MultivariatePolynomial<IntegerRing, u16>, CoefficientProjectionError> {
-    let expected_exponents = polynomial
-        .coefficients
-        .len()
-        .checked_mul(source_names.len())
-        .ok_or(CoefficientProjectionError::MalformedExponentLayout {
-            part,
-            coefficients: polynomial.coefficients.len(),
-            exponents: polynomial.exponents.len(),
-            variables: source_names.len(),
-        })?;
-    if polynomial.exponents.len() != expected_exponents {
-        return Err(CoefficientProjectionError::MalformedExponentLayout {
-            part,
-            coefficients: polynomial.coefficients.len(),
-            exponents: polynomial.exponents.len(),
-            variables: source_names.len(),
-        });
-    }
-
-    let mut projected = target_template.zero_with_capacity(polynomial.coefficients.len());
-    let mut projected_exponents = Vec::with_capacity(retained_positions.len());
-    for (term, (coefficient, exponents)) in polynomial
-        .coefficients
-        .iter()
-        .zip(polynomial.exponents.chunks_exact(source_names.len()))
-        .enumerate()
-    {
-        let dropped_exponent = exponents[dropped_position];
-        if dropped_exponent != 0 {
-            return Err(CoefficientProjectionError::DroppedParameterDependence {
-                parameter: dropped_parameter.to_owned(),
-                part,
-                term,
-                exponent: dropped_exponent,
-            });
-        }
-
-        projected_exponents.clear();
-        for source_position in retained_positions {
-            let exponent = u128::from(exponents[*source_position]);
-            if !symbolica_coefficient_degree_is_representable(exponent) {
-                return Err(CoefficientProjectionError::ExponentOutOfRange {
-                    parameter: source_names[*source_position].clone(),
-                    part,
-                    term,
-                    exponent,
-                    limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-                });
-            }
-            let exponent = u16::try_from(exponent).map_err(|_| {
-                CoefficientProjectionError::ExponentOutOfRange {
-                    parameter: source_names[*source_position].clone(),
-                    part,
-                    term,
-                    exponent,
-                    limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-                }
-            })?;
-            projected_exponents.push(exponent);
-        }
-        projected.append_monomial(coefficient.clone(), &projected_exponents);
-    }
-    Ok(projected)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_and_canonicalizes_rational_functions() {
-        let context = CoefficientContext::new(["d", "m2"]);
-        let parsed = context.parse("(3-d)/(3*m2)").unwrap();
-        let d = context.parameter("d").unwrap();
-        let m2 = context.parameter("m2").unwrap();
-        let expected = &(&context.integer(3) - &d) / &(&context.integer(3) * &m2);
-        assert_eq!(parsed, expected);
-    }
-
-    #[test]
-    fn projects_mass_free_rational_polynomial_without_parsing() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-        let d = source.parameter("d").unwrap();
-        let numerator = &(&d * &d) + &source.integer(3);
-        let denominator = &d - &source.integer(1);
-        let coefficient = &numerator / &denominator;
-
-        let projected = source
-            .project_parameter_free(&coefficient, "m2", &target)
-            .unwrap();
-        let target_d = target.parameter("d").unwrap();
-        let expected =
-            &(&(&target_d * &target_d) + &target.integer(3)) / &(&target_d - &target.integer(1));
-
-        assert_eq!(projected, expected);
-        assert_eq!(projected.get_variables(), target.template.get_variables());
-    }
-
-    #[test]
-    fn projects_zero_and_the_largest_representable_exponent() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-
-        assert_eq!(
-            source
-                .project_parameter_free(&source.zero(), "m2", &target)
-                .unwrap(),
-            target.zero()
-        );
-
-        let mut numerator = source.template.numerator.zero_with_capacity(1);
-        numerator.append_monomial(Integer::from(7), &[u16::MAX, 0]);
-        let maximal = RationalPolynomial {
-            numerator,
-            denominator: source.template.denominator.clone(),
-        };
-        let projected = source
-            .project_parameter_free(&maximal, "m2", &target)
-            .unwrap();
-        assert_eq!(projected.numerator.coefficients, vec![Integer::from(7)]);
-        assert_eq!(projected.numerator.exponents, vec![u16::MAX]);
-        assert_eq!(projected.denominator.exponents, vec![0]);
-    }
-
-    #[test]
-    fn projection_canonicalizes_fabricated_rational_polynomials() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-        let target_d = target.parameter("d").unwrap();
-
-        let mut twice_d = source.template.numerator.zero_with_capacity(1);
-        twice_d.append_monomial(Integer::from(2), &[1, 0]);
-        let two = source.template.denominator.constant(Integer::from(2));
-        let unnormalized_common_factor = RationalPolynomial {
-            numerator: twice_d,
-            denominator: two,
-        };
-        assert_eq!(
-            source
-                .project_parameter_free(&unnormalized_common_factor, "m2", &target)
-                .unwrap(),
-            target_d
-        );
-
-        let mut negative_d = source.template.numerator.zero_with_capacity(1);
-        negative_d.append_monomial(Integer::from(-1), &[1, 0]);
-        let negative_one = source.template.denominator.constant(Integer::from(-1));
-        let negative_denominator = RationalPolynomial {
-            numerator: negative_d,
-            denominator: negative_one,
-        };
-        assert_eq!(
-            source
-                .project_parameter_free(&negative_denominator, "m2", &target)
-                .unwrap(),
-            target.parameter("d").unwrap()
-        );
-
-        let mut d_plus_one = source.template.denominator.zero_with_capacity(2);
-        d_plus_one.append_monomial(Integer::from(1), &[0, 0]);
-        d_plus_one.append_monomial(Integer::from(1), &[1, 0]);
-        let zero_over_polynomial = RationalPolynomial {
-            numerator: source.template.numerator.zero(),
-            denominator: d_plus_one,
-        };
-        assert_eq!(
-            source
-                .project_parameter_free(&zero_over_polynomial, "m2", &target)
-                .unwrap(),
-            target.zero()
-        );
-    }
-
-    #[test]
-    fn rejects_dropped_parameter_dependence_in_both_polynomial_parts() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-        let d = source.parameter("d").unwrap();
-        let m2 = source.parameter("m2").unwrap();
-
-        let numerator_dependent = &d + &m2;
-        assert!(matches!(
-            source.project_parameter_free(&numerator_dependent, "m2", &target),
-            Err(CoefficientProjectionError::DroppedParameterDependence {
-                part: CoefficientPolynomialPart::Numerator,
-                exponent: 1,
-                ..
-            })
-        ));
-
-        let denominator_dependent = &d / &m2;
-        assert!(matches!(
-            source.project_parameter_free(&denominator_dependent, "m2", &target),
-            Err(CoefficientProjectionError::DroppedParameterDependence {
-                part: CoefficientPolynomialPart::Denominator,
-                exponent: 1,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn rejects_source_and_target_map_mismatches() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-        let foreign = CoefficientContext::new(["d", "mu2"]);
-
-        assert!(matches!(
-            source.project_parameter_free(&foreign.one(), "m2", &target),
-            Err(CoefficientProjectionError::SourceVariableMapMismatch {
-                part: CoefficientPolynomialPart::Numerator,
-            })
-        ));
-
-        let mut foreign_denominator = source.one();
-        foreign_denominator.denominator.variables = foreign.variables.clone();
-        assert!(matches!(
-            source.project_parameter_free(&foreign_denominator, "m2", &target),
-            Err(CoefficientProjectionError::SourceVariableMapMismatch {
-                part: CoefficientPolynomialPart::Denominator,
-            })
-        ));
-        assert!(matches!(
-            source.project_parameter_free(&source.one(), "m2", &CoefficientContext::new(["x"])),
-            Err(CoefficientProjectionError::TargetParameterMismatch { position: 0, .. })
-        ));
-
-        let mut foreign_target_variable = target.clone();
-        let foreign_target_map = CoefficientContext::new(["x"]).variables;
-        foreign_target_variable.variables = foreign_target_map.clone();
-        foreign_target_variable.template.numerator.variables = foreign_target_map.clone();
-        foreign_target_variable.template.denominator.variables = foreign_target_map;
-        assert!(matches!(
-            source.project_parameter_free(&source.one(), "m2", &foreign_target_variable),
-            Err(CoefficientProjectionError::TargetVariableMapMismatch { position: 0, .. })
-        ));
-
-        let foreign_template_map = CoefficientContext::new(["x"]).variables;
-        let mut foreign_target_numerator_template = target.clone();
-        foreign_target_numerator_template
-            .template
-            .numerator
-            .variables = foreign_template_map.clone();
-        assert!(matches!(
-            source.project_parameter_free(&source.one(), "m2", &foreign_target_numerator_template,),
-            Err(
-                CoefficientProjectionError::TargetTemplateVariableMapMismatch {
-                    part: CoefficientPolynomialPart::Numerator,
-                }
-            )
-        ));
-
-        let mut foreign_target_denominator_template = target.clone();
-        foreign_target_denominator_template
-            .template
-            .denominator
-            .variables = foreign_template_map;
-        assert!(matches!(
-            source.project_parameter_free(
-                &source.one(),
-                "m2",
-                &foreign_target_denominator_template,
-            ),
-            Err(
-                CoefficientProjectionError::TargetTemplateVariableMapMismatch {
-                    part: CoefficientPolynomialPart::Denominator,
-                }
-            )
-        ));
-        assert!(matches!(
-            source.project_parameter_free(
-                &source.one(),
-                "m2",
-                &CoefficientContext::new(["d", "x"]),
-            ),
-            Err(CoefficientProjectionError::TargetParameterCount {
-                expected: 1,
-                actual: 2,
-            })
-        ));
-        assert!(matches!(
-            source.project_parameter_free(&source.one(), "mu2", &target),
-            Err(CoefficientProjectionError::DroppedParameterNotFound(parameter))
-                if parameter == "mu2"
-        ));
-    }
-
-    #[test]
-    fn rejects_malformed_exponent_layout_and_zero_denominator() {
-        let source = CoefficientContext::new(["d", "m2"]);
-        let target = CoefficientContext::new(["d"]);
-
-        let mut malformed = source.one();
-        malformed.numerator.exponents.push(0);
-        assert!(matches!(
-            source.project_parameter_free(&malformed, "m2", &target),
-            Err(CoefficientProjectionError::MalformedExponentLayout {
-                part: CoefficientPolynomialPart::Numerator,
-                ..
-            })
-        ));
-
-        let mut zero_denominator = source.one();
-        zero_denominator.denominator.coefficients.clear();
-        zero_denominator.denominator.exponents.clear();
-        assert_eq!(
-            source.project_parameter_free(&zero_denominator, "m2", &target),
-            Err(CoefficientProjectionError::ZeroDenominator)
-        );
-
-        let mut zero_term_denominator = source.one();
-        zero_term_denominator.denominator.coefficients[0] = Integer::from(0);
-        assert_eq!(
-            source.project_parameter_free(&zero_term_denominator, "m2", &target),
-            Err(CoefficientProjectionError::ZeroDenominator)
-        );
-    }
 
     #[test]
     fn exact_authentication_rejects_malformed_sparse_polynomials_without_panicking() {
@@ -1548,7 +933,7 @@ mod tests {
         let mut malformed_layout = context.one();
         malformed_layout.numerator.exponents.push(0);
         assert!(matches!(
-            context.validate(&malformed_layout),
+            context.validate_with_limits(&malformed_layout, ExactAlgebraLimits::default()),
             Err(ExactAlgebraError::MalformedExponentLayout {
                 part: CoefficientPolynomialPart::Numerator,
                 ..
@@ -1559,7 +944,7 @@ mod tests {
         let mut explicit_zero = context.one();
         explicit_zero.numerator.coefficients[0] = Integer::from(0);
         assert!(matches!(
-            context.validate(&explicit_zero),
+            context.validate_with_limits(&explicit_zero, ExactAlgebraLimits::default()),
             Err(ExactAlgebraError::ZeroCoefficient {
                 part: CoefficientPolynomialPart::Numerator,
                 term: 0,
@@ -1570,7 +955,7 @@ mod tests {
         wrong_order.numerator.coefficients = vec![Integer::from(1), Integer::from(1)];
         wrong_order.numerator.exponents = vec![1, 0];
         assert!(matches!(
-            context.validate(&wrong_order),
+            context.validate_with_limits(&wrong_order, ExactAlgebraLimits::default()),
             Err(ExactAlgebraError::NonCanonicalMonomialOrder {
                 part: CoefficientPolynomialPart::Numerator,
                 term: 1,
@@ -1603,7 +988,7 @@ mod tests {
                 }
             }
             assert_eq!(
-                context.validate(&malformed),
+                context.validate_with_limits(&malformed, ExactAlgebraLimits::default()),
                 Err(ExactAlgebraError::ZeroCoefficient { part, term: 0 })
             );
             assert!(!context.contains(&malformed));
@@ -1613,7 +998,7 @@ mod tests {
     #[test]
     fn checked_exact_multiplication_reports_u16_exponent_overflow() {
         let context = CoefficientContext::new(["x"]);
-        let maximal = context.parse("x^65535").unwrap();
+        let maximal = context.coefficient_fixture("x^65535");
         let x = context.parameter("x").unwrap();
         assert!(matches!(
             context.try_mul(&maximal, &x, ExactAlgebraLimits::default()),
@@ -1629,9 +1014,9 @@ mod tests {
     #[test]
     fn rational_normalization_can_densify_beyond_input_pair_counts() {
         let context = CoefficientContext::new(["x"]);
-        let geometric_numerator = context.parse("x^8-1").unwrap();
-        let linear = context.parse("x-1").unwrap();
-        let reciprocal_linear = context.parse("1/(x-1)").unwrap();
+        let geometric_numerator = context.coefficient_fixture("x^8-1");
+        let linear = context.coefficient_fixture("x-1");
+        let reciprocal_linear = context.coefficient_fixture("1/(x-1)");
 
         let division = context
             .try_div(&geometric_numerator, &linear, ExactAlgebraLimits::default())
@@ -1652,8 +1037,8 @@ mod tests {
                 > geometric_numerator.numerator.nterms() * linear.denominator.nterms()
         );
 
-        let left = context.parse("1/(x-1)").unwrap();
-        let right = context.parse("(x^8-2)/(x-1)").unwrap();
+        let left = context.coefficient_fixture("1/(x-1)");
+        let right = context.coefficient_fixture("(x^8-2)/(x-1)");
         let addition = context
             .try_add(&left, &right, ExactAlgebraLimits::default())
             .unwrap();

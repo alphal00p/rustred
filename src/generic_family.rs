@@ -2240,10 +2240,10 @@ mod tests {
     fn symbolic_nonsymmetric_basis_has_guarded_exact_inverse() {
         let context = CoefficientContext::new(["d", "a", "b", "s"]);
         let d = context.parameter("d").unwrap();
-        let a_over_s = context.parse("a/s").unwrap();
+        let a_over_s = context.coefficient_fixture("a/s");
         let b = context.parameter("b").unwrap();
-        let c0 = context.parse("a+1").unwrap();
-        let c1 = context.parse("b-2").unwrap();
+        let c0 = context.coefficient_fixture("a+1");
+        let c1 = context.coefficient_fixture("b-2");
         let family = IntegralFamily::new(
             "symbolic",
             vec!["k".into()],
@@ -2254,18 +2254,18 @@ mod tests {
                 AffineDenominator::new(c0, vec![a_over_s, context.one()]),
                 AffineDenominator::new(c1, vec![b, context.integer(2)]),
             ],
-            vec![vec![context.parse("s").unwrap()]],
-            vec![context.parse("a/3").unwrap(), context.zero()],
+            vec![vec![context.coefficient_fixture("s")]],
+            vec![context.coefficient_fixture("a/3"), context.zero()],
         )
         .unwrap();
 
         assert_eq!(
             family.domain().basis_determinant(),
-            &context.parse("(2*a-b*s)/s").unwrap()
+            &context.coefficient_fixture("(2*a-b*s)/s")
         );
         assert_eq!(
             family.domain().determinant_nonzero().polynomial(),
-            &context.parse("2*a-b*s").unwrap().numerator
+            &context.coefficient_fixture("2*a-b*s").numerator
         );
         assert!(family.domain().input_denominators().iter().any(|guard| {
             guard.source()
@@ -2273,7 +2273,7 @@ mod tests {
                     denominator: 0,
                     coordinate: 0,
                 }
-                && guard.polynomial() == &context.parse("s").unwrap().numerator
+                && guard.polynomial() == &context.coefficient_fixture("s").numerator
         }));
         assert!(family.domain().input_denominators().iter().any(|guard| {
             guard.source() == &CoefficientLocation::PowerShift { denominator: 0 }
@@ -2306,10 +2306,19 @@ mod tests {
                     .all(|entry| context.contains(entry))
             );
             if size == 2 {
-                assert_eq!(family.inverse_basis()[0][1], context.parse("-x/6").unwrap());
+                assert_eq!(
+                    family.inverse_basis()[0][1],
+                    context.coefficient_fixture("-x/6")
+                );
                 assert_eq!(family.inverse_basis()[1][0], context.zero());
-                assert_eq!(family.inverse_basis()[0][0], context.parse("1/2").unwrap());
-                assert_eq!(family.inverse_basis()[1][1], context.parse("1/3").unwrap());
+                assert_eq!(
+                    family.inverse_basis()[0][0],
+                    context.coefficient_fixture("1/2")
+                );
+                assert_eq!(
+                    family.inverse_basis()[1][1],
+                    context.coefficient_fixture("1/3")
+                );
             }
             family.verify_exact_replay().unwrap();
         }
@@ -2370,7 +2379,7 @@ mod tests {
         let basis = vec![
             vec![
                 zero.clone(),
-                context.parse("x/s").unwrap(),
+                context.coefficient_fixture("x/s"),
                 zero.clone(),
                 zero.clone(),
             ],
@@ -2378,13 +2387,13 @@ mod tests {
             vec![
                 zero.clone(),
                 zero.clone(),
-                context.parse("(x+1)/t").unwrap(),
+                context.coefficient_fixture("(x+1)/t"),
                 one,
             ],
             vec![zero.clone(), zero.clone(), zero, context.integer(2)],
         ];
         let family = one_loop_family_from_basis(&context, "symbolic-size-four", basis).unwrap();
-        let determinant = context.parse("-2*x*(x+1)/(s*t)").unwrap();
+        let determinant = context.coefficient_fixture("-2*x*(x+1)/(s*t)");
 
         assert_eq!(family.domain().basis_determinant(), &determinant);
         assert_eq!(
@@ -2475,7 +2484,7 @@ mod tests {
     #[test]
     fn matrix_boundary_propagates_typed_exact_algebra_limits() {
         let context = CoefficientContext::new(["x"]);
-        let x_plus_one = context.parse("x+1").unwrap();
+        let x_plus_one = context.coefficient_fixture("x+1");
         let matrix = vec![
             vec![x_plus_one.clone(), context.one()],
             vec![context.one(), x_plus_one],
@@ -2570,13 +2579,13 @@ mod tests {
             vec!["k".into()],
             Vec::new(),
             context.clone(),
-            context.parse("d/s").unwrap(),
+            context.coefficient_fixture("d/s"),
             vec![AffineDenominator::new(
-                context.parse("m/s").unwrap(),
-                vec![context.parse("a/s").unwrap()],
+                context.coefficient_fixture("m/s"),
+                vec![context.coefficient_fixture("a/s")],
             )],
             Vec::new(),
-            vec![context.parse("nu/s").unwrap()],
+            vec![context.coefficient_fixture("nu/s")],
         )
         .unwrap();
 

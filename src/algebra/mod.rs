@@ -6,7 +6,7 @@ pub(crate) mod matrix;
 
 pub use coefficient::{
     Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomialPart,
-    CoefficientProjectionError, ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
+    ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 pub use exact::{ExactRational, ExactRationalError};

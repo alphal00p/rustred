@@ -5252,7 +5252,7 @@ mod tests {
             .iter()
             .map(|row| {
                 row.iter()
-                    .map(|entry| coefficients.parse(entry).unwrap())
+                    .map(|entry| coefficients.coefficient_fixture(entry))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -5275,11 +5275,11 @@ mod tests {
             CoefficientContext::new(compiled.base_parameter_names().iter().map(String::as_str));
         assert_eq!(
             compiled.constant(),
-            &context.parse(expected_constant).unwrap()
+            &context.coefficient_fixture(expected_constant)
         );
         assert_eq!(compiled.coefficients().len(), expected_coefficients.len());
         for (actual, expected) in compiled.coefficients().iter().zip(expected_coefficients) {
-            assert_eq!(actual, &context.parse(expected).unwrap());
+            assert_eq!(actual, &context.coefficient_fixture(expected));
         }
     }
 
@@ -5342,7 +5342,9 @@ mod tests {
         assert_coefficients(&compiled, "0", &["1/(a+1)"]);
         assert_eq!(
             compiler.parse_base_coefficient_str("(a-1)/(a+1)").unwrap(),
-            compiler.coefficient_context().parse("(a-1)/(a+1)").unwrap()
+            compiler
+                .coefficient_context()
+                .coefficient_fixture("(a-1)/(a+1)")
         );
     }
 
@@ -5406,8 +5408,8 @@ mod tests {
     #[test]
     fn gram_and_declaration_authentication_is_strict() {
         let coefficients = CoefficientContext::new(["s", "t"]);
-        let s = coefficients.parse("s").unwrap();
-        let t = coefficients.parse("t").unwrap();
+        let s = coefficients.coefficient_fixture("s");
+        let t = coefficients.coefficient_fixture("t");
         assert!(matches!(
             SymbolicaAffineDenominatorCompiler::try_new(
                 coefficients.clone(),
@@ -5904,8 +5906,8 @@ mod tests {
             (BinaryOperation::Divide, "a^2*b^2-1", "a*b-1", 2, 9),
         ];
         for (operation, left, right, actual_terms, planned_terms) in cases {
-            let left = base.combined.parse(left).unwrap();
-            let right = base.combined.parse(right).unwrap();
+            let left = base.combined.coefficient_fixture(left);
+            let right = base.combined.coefficient_fixture(right);
             let allocation = exact_operation_allocation_envelope(
                 &left,
                 &right,
@@ -5970,7 +5972,7 @@ mod tests {
         let expanded = base.compile_str("(a+1)^256*k^2").unwrap();
         assert_eq!(expanded.coefficients()[0].numerator.nterms(), 257);
 
-        let half_power = base.combined.parse("(a+1)^128").unwrap();
+        let half_power = base.combined.coefficient_fixture("(a+1)^128");
         let power_step = exact_operation_allocation_envelope(
             &half_power,
             &half_power,
@@ -6069,7 +6071,7 @@ mod tests {
             }) if requested > 0
         ));
 
-        let large_base = base.combined.parse("(a+1)^16").unwrap();
+        let large_base = base.combined.coefficient_fixture("(a+1)^16");
         let unit = planned_unit_coefficient_census(base.combined.parameter_names().len()).unwrap();
         let mut zero_power_compiler = base.clone();
         zero_power_compiler.limits.max_coefficient_integer_bits = unit.integer_bits;
@@ -6199,8 +6201,7 @@ mod tests {
 
         let large = compiler
             .coefficient_context()
-            .parse("1/(12345678901234567890123456789012345678901234567890*a+1)")
-            .unwrap();
+            .coefficient_fixture("1/(12345678901234567890123456789012345678901234567890*a+1)");
         assert!(
             large
                 .denominator
@@ -6348,8 +6349,8 @@ mod tests {
     fn retained_variable_maps_are_charged_once_per_distinct_arc() {
         let first_context = CoefficientContext::new(["a"]);
         let second_context = CoefficientContext::new(["a"]);
-        let first = first_context.parse("a+1").unwrap();
-        let second = second_context.parse("a+1").unwrap();
+        let first = first_context.coefficient_fixture("a+1");
+        let second = second_context.coefficient_fixture("a+1");
         let one = retained_variable_map_arc_bytes([&first]).unwrap();
         assert!(one > 0);
         assert_eq!(

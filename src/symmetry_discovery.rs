@@ -495,7 +495,7 @@ mod tests {
         let coefficients = CoefficientContext::new(["d", "m2"]);
         let zero = coefficients.zero();
         let one = coefficients.one();
-        let minus_m2 = coefficients.parse("-m2").unwrap();
+        let minus_m2 = coefficients.coefficient_fixture("-m2");
         IntegralFamily::new(
             "explicit-symmetry-candidate",
             vec!["k1".into(), "k2".into()],
