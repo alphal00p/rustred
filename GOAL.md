@@ -26,13 +26,14 @@ Also never escalate commands but find workaround if sanbox is being hit.
 
 ## Assignment and status
 
-The verbatim preamble records the original directive. A later user
-clarification supersedes only its strictly serial Vakint sequencing: after the
-mandatory Phase 0 restructuring and the first usable, genuinely closed
-lower-loop shards, the FORM-less Vakint validation lane starts concurrently
-and does not wait for six-loop efficiency or closure. The six-loop foundry
-remains the primary mathematical objective, and production/default execution
-remains pure Rust + Symbolica.
+The verbatim preamble records the original directive. Later user
+clarifications supersede only its strictly serial Vakint sequencing: as soon
+as mandatory Phase 0 restructuring closes, the orthogonal FORM-less Vakint
+tensor-reduction lane starts concurrently and does not wait for closed
+lower-loop shards, six-loop efficiency, or six-loop closure. Guarded IBP
+application in that lane begins as soon as the first usable, genuinely closed
+lower-loop shards exist. The six-loop foundry remains the primary mathematical
+objective, and production/default execution remains pure Rust + Symbolica.
 
 - **Status:** active, long-horizon engineering and research goal.
 - **Owner:** the primary Codex agent (`/root`), acting primarily as architect,
@@ -47,11 +48,12 @@ remains pure Rust + Symbolica.
   publication/re-entry stack and its dependent generated-affine provider
   layers as one dead prototype island. Earlier milestones remain Git evidence,
   not architecture that the reset must preserve.
-- **Cross-repository boundary:** after Phase 0 and the first genuinely closed
-  lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
-  in parallel with the higher-loop foundry work. It is developed, committed,
-  and pushed on a dedicated `vakint_rustred` feature branch created in the
-  GammaLoop repository, never folded into a RustRed commit. In the present
+- **Cross-repository boundary:** immediately after Phase 0, Vakint/GammaLoop
+  tensor-backend integration proceeds in parallel with the RustRed foundry;
+  guarded rule application joins it when the first genuinely closed lower-loop
+  RustRed artifacts exist. It is developed, committed, and pushed on a
+  dedicated `vakint_rustred` feature branch created in the GammaLoop
+  repository, never folded into a RustRed commit. In the present
   ignored co-development layout, while the core package remains temporarily at
   the RustRed repository root, Vakint may use `rustred = { package =
   "rustred", path = "../../../../" }`; after Phase 0 moves that package, the
@@ -125,11 +127,25 @@ RustRed/Vakint functionality. Through GammaLoop's existing BPHZ/R-operation
 boundary, this chain is intended to contribute to the six-loop QCD
 beta-function programme.
 
-The lower-loop Vakint mode is an early parallel validation track once closed
-RustRed shards exist. Its complete six-loop deployment, GammaLoop integration,
-AMFlow master-data production, and final physics computation remain downstream
-gates. Parallel adapter work must not displace the first offline one- through
-six-loop vacuum artifact-library goal or be presented as its completion.
+Tensor reduction is a reusable RustRed-core capability, not an algorithm
+implemented inside the Vakint adapter. Its initial public domain model and
+dispatch boundary expose two topology-neutral lanes. The implemented fast lane
+targets families proved to be single-scale vacuum kinematics with no external
+momentum shift in any denominator; `Auto` selects it from those semantic
+properties, never from topology names. A generic lane over external kinematics
+and shifted denominators is present from the first API milestone and initially
+returns an explicit typed `Unsupported` result until its implementation is
+complete. Vakint translates its matched topology/numerator into this RustRed
+request and translates the result back; the same service remains directly
+usable by RustRed's Rust, CLI, and Python surfaces.
+
+The lower-loop Vakint mode is an early parallel validation track: its generic
+tensor-reduction backend starts immediately after Phase 0, while its IBP
+application tests start once closed RustRed shards exist. Its complete
+six-loop deployment, GammaLoop integration, AMFlow master-data production, and
+final physics computation remain downstream gates. Parallel adapter work must
+not displace the first offline one- through six-loop vacuum artifact-library
+goal or be presented as its completion.
 
 Vakint's integrated steering role does not replace RustRed's own interfaces.
 The RustRed CLI and Python API remain first-class, supported, fine-grained
@@ -620,6 +636,16 @@ prototype event is not a closed branch.
 6. Use deterministic finite-field discovery and reconstruction only as a
    proposal accelerator; freeze sample schedules and verify every result
    exactly over the authenticated Symbolica coefficient domain.
+7. Treat the final worker architecture as a measured six-loop design problem,
+   not as a consequence of the Phase-0 ordinal-batch API. Share immutable
+   family/source data instead of cloning the complete symbolic state per
+   worker; isolate only bounded lane-local mutable reducers and Symbolica
+   contexts. Use coarse enough admitted work units to amortize scheduling,
+   transfer compact references or framed chunks rather than full snapshots,
+   and stream bounded results/artifacts through deterministic coordinator
+   barriers. Thread, process, and hybrid choices require RAM, CAS-scratch, and
+   communication benchmarks; per-task forks and unbounded worker I/O queues
+   are forbidden.
 
 ### Phase 4 — evidence ladder through four-loop oracles
 
@@ -629,11 +655,13 @@ prototype event is not a closed branch.
 2. Translate pinned LiteRed/LiteRed2 examples into data fixtures and progress
    them from input/identity parity through sector/symmetry, guarded-rule, and
    target-reduction parity without topology-specific production logic.
-3. Once the first closed lower-loop shards exist, create the dedicated
-   GammaLoop feature branch and develop Vakint's FORM-less `RustRed` mode in
-   parallel with Phases 3 and 5. Split this work across independent subagent
-   lanes for source/oracle audit, topology matching, RustRed adapter and rule
-   application, tensor/master handling, performance, and adversarial review.
+3. As soon as Phase 0 closes, create the dedicated GammaLoop feature branch
+   and begin Vakint's generic tensor-reduction backend boundary and FORM-less
+   `RustRed` tensor variant in parallel with Phases 3 and 5. Extend that lane
+   to guarded rule application when the first closed lower-loop shards exist.
+   Split this work across independent subagent lanes for source/oracle audit,
+   topology matching, RustRed adapter and rule application, tensor/master
+   handling, performance, and adversarial review.
 4. Reuse Vakint's existing topology matching and canonicalization engine as the
    steering authority. Fix defects found by the existing end-to-end corpus,
    add exact convention/routing witnesses at the RustRed boundary, and extend
@@ -642,12 +670,29 @@ prototype event is not a closed branch.
    six-loop vacuum manifest is accepted, canonicalized, and routed by the
    reused matcher. Defects are fixed in that matcher rather than bypassed or
    duplicated inside RustRed; topology-name dispatch is forbidden.
-5. Implement a bounded but real RustRed-core/Vakint path for lower-loop native
-   tensor reduction, scalar lowering/cancellation, guarded IBP application,
-   stable master keys, and supplied master substitution. The new path itself
-   remains pure Rust + Symbolica and uses independently generated RustRed
-   artifacts. Vakint's existing matcher supplies the canonical topology,
-   routing, and loop bindings; RustRed does not rematch it. Rebuild the current
+5. Begin the Vakint track by introducing a generic, backward-compatible tensor
+   reduction backend boundary. The existing FORM implementation remains the
+   default/compatibility backend and an authoritative lower-loop oracle, while
+   a new `RustRed` backend variant calls the tensor-reduction service actually
+   implemented in the RustRed crate. Vakint owns only matching, request/result
+   adaptation, steering, and presentation. From its first milestone, the
+   RustRed service has an `Auto` dispatch and explicit optimized-vacuum and
+   generic lanes: implement and optimize the single-scale vacuum/no-external-
+   denominator-shift lane covered by Vakint's current FORM path, and install a
+   tested typed stub for the fully generic lane without pretending support.
+   Study the existing FORM algorithm for contraction/projector efficiency and
+   use it as segregated reference/oracle evidence, while re-expressing the
+   algorithm in clean Rust and Symbolica public APIs and never invoking FORM
+   from the new backend. Exercise identical existing Vakint tensor inputs
+   through the FORM oracle and RustRed variant and compare canonical
+   tensor/scalar outputs before adding IBP application. Then implement a
+   bounded but real
+   RustRed-core/Vakint path for lower-loop scalar lowering/cancellation,
+   guarded IBP application, stable master keys, and supplied master
+   substitution. The new path itself remains pure Rust + Symbolica and uses
+   independently generated RustRed artifacts. Vakint's existing matcher
+   supplies the canonical topology, routing, and loop bindings; RustRed does
+   not rematch it. Rebuild the current
    oversized tensor prototypes as `tensor::{model,atom,lowering}` and
    `tensor::projector::{pairing,contraction,orbit,vacuum}`. Preserve the small
    mathematical kernels, use Symbolica-native polynomial/matrix operations,

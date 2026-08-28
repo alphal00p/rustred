@@ -7,7 +7,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::campaign::ParallelExecution;
 use crate::generic_family::{
     ContractionMomentum, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
 };
@@ -30,8 +29,39 @@ pub struct ParametricIbpConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricIbpError {
     BaseContextMismatch,
-    WrongIndexArity { expected: usize, actual: usize },
-    RowCountOverflow { loops: usize, externals: usize },
+    WrongIndexArity {
+        expected: usize,
+        actual: usize,
+    },
+    RowCountOverflow {
+        loops: usize,
+        externals: usize,
+    },
+    RowOrdinalOutOfRange {
+        batch: &'static str,
+        ordinal: usize,
+        rows: usize,
+    },
+    WrongSourceRowCount {
+        batch: &'static str,
+        expected: usize,
+        actual: usize,
+    },
+    SourceRowLayoutMismatch {
+        position: usize,
+        expected: &'static str,
+        actual: &'static str,
+    },
+    SourceRowScopeMismatch {
+        batch: &'static str,
+        position: usize,
+    },
+    SourceRowOrdinalMismatch {
+        batch: &'static str,
+        position: usize,
+        actual: usize,
+    },
+    CompletedSourceScopeMismatch,
     Coefficient(ParametricCoefficientError),
     Relation(ParametricRelationError),
     Family(GenericFamilyError),
@@ -51,6 +81,44 @@ impl fmt::Display for ParametricIbpError {
                 formatter,
                 "the IBP/LI row count for {loops} loops and {externals} external momenta overflowed usize"
             ),
+            Self::RowOrdinalOutOfRange {
+                batch,
+                ordinal,
+                rows,
+            } => write!(
+                formatter,
+                "{batch} row ordinal {ordinal} is outside the prepared row count {rows}"
+            ),
+            Self::WrongSourceRowCount {
+                batch,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "{batch} completion received {actual} rows, expected {expected}"
+            ),
+            Self::SourceRowLayoutMismatch {
+                position,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "source row at completion position {position} uses {actual} layout, expected {expected}"
+            ),
+            Self::SourceRowScopeMismatch { batch, position } => write!(
+                formatter,
+                "{batch} row at completion position {position} has a foreign semantic source scope"
+            ),
+            Self::SourceRowOrdinalMismatch {
+                batch,
+                position,
+                actual,
+            } => write!(
+                formatter,
+                "{batch} completion position {position} received row ordinal {actual}"
+            ),
+            Self::CompletedSourceScopeMismatch => formatter
+                .write_str("completed IBP source rows use a foreign family or coefficient context"),
             Self::Coefficient(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
             Self::Family(error) => error.fmt(formatter),
@@ -128,12 +196,218 @@ impl ParametricIbpRelations {
 #[derive(Clone, Debug)]
 pub struct ParametricIbpGenerator<'family> {
     family: &'family IntegralFamily,
-    family_fingerprint: Arc<str>,
+    source_scope: IbpSourceScope,
     context: ParametricCoefficientContext,
     index_space: IndexSpace,
     positive_units: Vec<IndexShift>,
     negative_units: Vec<IndexShift>,
     config: ParametricIbpConfig,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IbpSourceLayout {
+    CompleteOrdinary,
+    ExternalOnly,
+}
+
+#[derive(Debug)]
+enum PreparedIbpSource {
+    CompleteOrdinary { dimension: ParametricCoefficient },
+    ExternalOnly,
+}
+
+impl PreparedIbpSource {
+    const fn layout(&self) -> IbpSourceLayout {
+        match self {
+            Self::CompleteOrdinary { .. } => IbpSourceLayout::CompleteOrdinary,
+            Self::ExternalOnly => IbpSourceLayout::ExternalOnly,
+        }
+    }
+}
+
+impl IbpSourceLayout {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::CompleteOrdinary => "ordinary IBP source",
+            Self::ExternalOnly => "external-contraction IBP source",
+        }
+    }
+
+    const fn source_offset(self, loops: usize) -> Option<usize> {
+        match self {
+            Self::CompleteOrdinary => loops.checked_mul(loops),
+            Self::ExternalOnly => Some(0),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct IbpSourceScope {
+    family_fingerprint: Arc<str>,
+    context_fingerprint: Arc<str>,
+}
+
+/// Immutable ordinary or external-only IBP source work prepared once for
+/// deterministic ordinal execution by an application-owned executor.
+#[derive(Debug)]
+pub struct PreparedIbpSourceBatch<'generator, 'family> {
+    generator: &'generator ParametricIbpGenerator<'family>,
+    scope: IbpSourceScope,
+    source: PreparedIbpSource,
+    powers: Vec<ParametricCoefficient>,
+    rows: usize,
+}
+
+/// One sealed generated source row. Only a prepared batch can construct it;
+/// completion validates its semantic scope, layout, and stable ordinal.
+#[derive(Debug)]
+pub struct GeneratedIbpSourceRow {
+    scope: IbpSourceScope,
+    layout: IbpSourceLayout,
+    ordinal: usize,
+    relation: ParametricRelation,
+}
+
+/// A single validated ordered IBP source barrier accepted by LI preparation.
+#[derive(Debug)]
+pub struct CompletedIbpSourceRows {
+    scope: IbpSourceScope,
+    layout: IbpSourceLayout,
+    relations: Vec<ParametricRelation>,
+}
+
+impl CompletedIbpSourceRows {
+    pub fn len(&self) -> usize {
+        self.relations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.relations.is_empty()
+    }
+
+    pub fn into_relations(self) -> Vec<ParametricRelation> {
+        self.relations
+    }
+}
+
+impl PreparedIbpSourceBatch<'_, '_> {
+    pub const fn len(&self) -> usize {
+        self.rows
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.rows == 0
+    }
+
+    /// Generate one row at its stable layout-specific ordinal.
+    pub fn generate(&self, ordinal: usize) -> Result<GeneratedIbpSourceRow, ParametricIbpError> {
+        let layout = self.source.layout();
+        if ordinal >= self.rows {
+            return Err(ParametricIbpError::RowOrdinalOutOfRange {
+                batch: layout.name(),
+                ordinal,
+                rows: self.rows,
+            });
+        }
+        let relation = match &self.source {
+            PreparedIbpSource::CompleteOrdinary { dimension } => self
+                .generator
+                .generate_ordinary_row(ordinal, dimension, &self.powers)?,
+            PreparedIbpSource::ExternalOnly => self
+                .generator
+                .generate_external_source_row(ordinal, &self.powers)?,
+        };
+        Ok(GeneratedIbpSourceRow {
+            scope: self.scope.clone(),
+            layout,
+            ordinal,
+            relation,
+        })
+    }
+
+    /// Validate one concrete ordered execution transcript and seal its source
+    /// relations for LI preparation. A real `Vec` length is checked before
+    /// consuming results, whose order selects the lowest-ordinal failure.
+    pub fn complete(
+        self,
+        rows: Vec<Result<GeneratedIbpSourceRow, ParametricIbpError>>,
+    ) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+        let layout = self.source.layout();
+        if rows.len() != self.rows {
+            return Err(ParametricIbpError::WrongSourceRowCount {
+                batch: layout.name(),
+                expected: self.rows,
+                actual: rows.len(),
+            });
+        }
+        let mut relations = Vec::with_capacity(self.rows);
+        for (position, row) in rows.into_iter().enumerate() {
+            let row = row?;
+            if row.layout != layout {
+                return Err(ParametricIbpError::SourceRowLayoutMismatch {
+                    position,
+                    expected: layout.name(),
+                    actual: row.layout.name(),
+                });
+            }
+            if row.scope != self.scope {
+                return Err(ParametricIbpError::SourceRowScopeMismatch {
+                    batch: layout.name(),
+                    position,
+                });
+            }
+            if row.ordinal != position {
+                return Err(ParametricIbpError::SourceRowOrdinalMismatch {
+                    batch: layout.name(),
+                    position,
+                    actual: row.ordinal,
+                });
+            }
+            relations.push(row.relation);
+        }
+        Ok(CompletedIbpSourceRows {
+            scope: self.scope,
+            layout,
+            relations,
+        })
+    }
+}
+
+/// Immutable LI work prepared from one completed IBP source barrier.
+#[derive(Debug)]
+pub struct PreparedLorentzInvarianceBatch<'generator, 'family, 'ordinary> {
+    generator: &'generator ParametricIbpGenerator<'family>,
+    ordinary: &'ordinary [ParametricRelation],
+    source_offset: usize,
+    external_pairs: Vec<(usize, usize)>,
+}
+
+impl PreparedLorentzInvarianceBatch<'_, '_, '_> {
+    pub fn len(&self) -> usize {
+        self.external_pairs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.external_pairs.is_empty()
+    }
+
+    /// Generate one LI row at its lexicographic external-pair ordinal.
+    pub fn generate(&self, ordinal: usize) -> Result<ParametricRelation, ParametricIbpError> {
+        let &(first_external, second_external) =
+            self.external_pairs
+                .get(ordinal)
+                .ok_or(ParametricIbpError::RowOrdinalOutOfRange {
+                    batch: "Lorentz-invariance",
+                    ordinal,
+                    rows: self.external_pairs.len(),
+                })?;
+        self.generator.generate_li_row(
+            self.ordinary,
+            self.source_offset,
+            first_external,
+            second_external,
+        )
+    }
 }
 
 impl<'family> ParametricIbpGenerator<'family> {
@@ -198,9 +472,13 @@ impl<'family> ParametricIbpGenerator<'family> {
         let negative_units = (0..arity)
             .map(|position| index_space.unit(position, -1))
             .collect::<Result<Vec<_>, _>>()?;
+        let source_scope = IbpSourceScope {
+            family_fingerprint,
+            context_fingerprint: context.fingerprint().into(),
+        };
         Ok(Self {
             family,
-            family_fingerprint,
+            source_scope,
             context,
             index_space,
             positive_units,
@@ -221,30 +499,53 @@ impl<'family> ParametricIbpGenerator<'family> {
         self.config
     }
 
-    /// Generate the `L*(L+E)` raw ordinary IBPs.
-    pub fn generate_ordinary_ibp(&self) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        self.generate_ordinary_ibp_impl(None)
-    }
-
-    /// Generate ordinary IBPs under one explicitly bounded execution budget.
-    ///
-    /// Rows are independent and use their fixed contraction-major ordinal as
-    /// the work key.  Results, including failures, are consumed in that order,
-    /// so worker completion order cannot change the returned transcript.
-    pub fn generate_ordinary_ibp_with_execution(
+    /// Prepare the `L*(L+E)` independent ordinary rows for deterministic
+    /// ordinal execution. The returned batch owns every shared coefficient
+    /// translation needed by its rows and performs no scheduling itself.
+    pub fn prepare_ordinary_ibp(
         &self,
-        execution: &ParallelExecution,
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        self.generate_ordinary_ibp_impl(Some(execution))
-    }
-
-    fn generate_ordinary_ibp_impl(
-        &self,
-        execution: Option<&ParallelExecution>,
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+    ) -> Result<PreparedIbpSourceBatch<'_, 'family>, ParametricIbpError> {
         let (ordinary_count, _) =
             checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
+        let (dimension, powers) = self.prepare_ordinary_coefficients()?;
+        Ok(PreparedIbpSourceBatch {
+            generator: self,
+            scope: self.source_scope.clone(),
+            source: PreparedIbpSource::CompleteOrdinary { dimension },
+            powers,
+            rows: ordinary_count,
+        })
+    }
+
+    /// Prepare only the `L*E` external-contraction ordinary rows needed as
+    /// sources for LI-only generation.
+    pub fn prepare_external_ibp_sources(
+        &self,
+    ) -> Result<PreparedIbpSourceBatch<'_, 'family>, ParametricIbpError> {
+        let loops = self.family.loop_count();
+        let externals = self.family.external_count();
+        let rows = loops
+            .checked_mul(externals)
+            .ok_or(ParametricIbpError::RowCountOverflow { loops, externals })?;
+        let powers = self.prepare_ordinary_powers()?;
+        Ok(PreparedIbpSourceBatch {
+            generator: self,
+            scope: self.source_scope.clone(),
+            source: PreparedIbpSource::ExternalOnly,
+            powers,
+            rows,
+        })
+    }
+
+    fn prepare_ordinary_coefficients(
+        &self,
+    ) -> Result<(ParametricCoefficient, Vec<ParametricCoefficient>), ParametricIbpError> {
         let dimension = self.context.lift(self.family.dimension())?;
+        let powers = self.prepare_ordinary_powers()?;
+        Ok((dimension, powers))
+    }
+
+    fn prepare_ordinary_powers(&self) -> Result<Vec<ParametricCoefficient>, ParametricIbpError> {
         let powers = (0..self.family.denominator_count())
             .map(|denominator| {
                 let index = self.context.index(denominator)?;
@@ -260,17 +561,30 @@ impl<'family> ParametricIbpGenerator<'family> {
                     .map_err(ParametricIbpError::from)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        Ok(powers)
+    }
 
-        // LiteRed constructs `Outer[..., qms, lms]` and then flattens it:
-        // contraction momentum is the major index, differentiated loop minor.
-        let generate = |ordinal| self.generate_ordinary_row(ordinal, &dimension, &powers);
-        let staged = match execution {
-            Some(execution) => execution.map_ordered(ordinary_count, generate),
-            None => (0..ordinary_count).map(generate).collect(),
-        };
-        let rows = staged.into_iter().collect::<Result<Vec<_>, _>>()?;
-        debug_assert_eq!(rows.len(), ordinary_count);
-        Ok(rows)
+    /// Generate the `L*(L+E)` raw ordinary IBPs serially.
+    pub fn generate_ordinary_ibp(&self) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+        Ok(self.generate_ordinary_completed()?.into_relations())
+    }
+
+    fn generate_ordinary_completed(&self) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+        let batch = self.prepare_ordinary_ibp()?;
+        let rows = (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect();
+        batch.complete(rows)
+    }
+
+    fn generate_external_sources_completed(
+        &self,
+    ) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+        let batch = self.prepare_external_ibp_sources()?;
+        let rows = (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect();
+        batch.complete(rows)
     }
 
     fn generate_ordinary_row(
@@ -298,6 +612,46 @@ impl<'family> ParametricIbpGenerator<'family> {
             )?;
         }
 
+        self.add_ordinary_derivative_terms(&mut row, differentiated_loop, contraction, powers)?;
+        Ok(row)
+    }
+
+    fn generate_external_source_row(
+        &self,
+        ordinal: usize,
+        powers: &[ParametricCoefficient],
+    ) -> Result<ParametricRelation, ParametricIbpError> {
+        let loops = self.family.loop_count();
+        debug_assert!(loops > 0);
+        let external = ordinal / loops;
+        let differentiated_loop = ordinal % loops;
+        let contraction_index =
+            loops
+                .checked_add(external)
+                .ok_or(ParametricIbpError::RowCountOverflow {
+                    loops,
+                    externals: self.family.external_count(),
+                })?;
+        let mut row = self.empty_relation(ParametricRowId::OrdinaryIbp {
+            contraction_momentum: contraction_index,
+            differentiated_loop,
+        })?;
+        self.add_ordinary_derivative_terms(
+            &mut row,
+            differentiated_loop,
+            ContractionMomentum::External(external),
+            powers,
+        )?;
+        Ok(row)
+    }
+
+    fn add_ordinary_derivative_terms(
+        &self,
+        row: &mut ParametricRelation,
+        differentiated_loop: usize,
+        contraction: ContractionMomentum,
+        powers: &[ParametricCoefficient],
+    ) -> Result<(), ParametricIbpError> {
         for (denominator, power) in powers.iter().enumerate() {
             let derivative = self.family.derivative_contraction(
                 denominator,
@@ -305,7 +659,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                 contraction,
             )?;
             self.add_negative_derivative_term(
-                &mut row,
+                row,
                 self.positive_units[denominator].clone(),
                 power,
                 derivative.constant(),
@@ -313,31 +667,17 @@ impl<'family> ParametricIbpGenerator<'family> {
             for (target, coefficient) in derivative.denominator_coefficients().iter().enumerate() {
                 let shift =
                     self.positive_units[denominator].checked_add(&self.negative_units[target])?;
-                self.add_negative_derivative_term(&mut row, shift, power, coefficient)?;
+                self.add_negative_derivative_term(row, shift, power, coefficient)?;
             }
         }
-        Ok(row)
+        Ok(())
     }
 
     /// Generate ordinary and LI rows with their shared authenticated context.
     pub fn generate(&self) -> Result<ParametricIbpRelations, ParametricIbpError> {
-        let ordinary_ibp = self.generate_ordinary_ibp()?;
-        let lorentz_invariance = self.generate_li_from_ordinary(&ordinary_ibp)?;
-        Ok(self.relations(ordinary_ibp, lorentz_invariance))
-    }
-
-    /// Generate ordinary and LI rows using one owned execution context.
-    ///
-    /// The complete ordinary phase is a barrier before LI work begins because
-    /// LI rows are exact linear combinations of external-contraction IBPs.
-    pub fn generate_with_execution(
-        &self,
-        execution: &ParallelExecution,
-    ) -> Result<ParametricIbpRelations, ParametricIbpError> {
-        let ordinary_ibp = self.generate_ordinary_ibp_with_execution(execution)?;
-        let lorentz_invariance =
-            self.generate_li_from_ordinary_impl(&ordinary_ibp, Some(execution))?;
-        Ok(self.relations(ordinary_ibp, lorentz_invariance))
+        let ordinary = self.generate_ordinary_completed()?;
+        let lorentz_invariance = self.generate_li_from_sources(&ordinary)?;
+        Ok(self.relations(ordinary.into_relations(), lorentz_invariance))
     }
 
     fn relations(
@@ -346,7 +686,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         lorentz_invariance: Vec<ParametricRelation>,
     ) -> ParametricIbpRelations {
         ParametricIbpRelations {
-            family_fingerprint: self.family_fingerprint.clone(),
+            family_fingerprint: self.source_scope.family_fingerprint.clone(),
             context: self.context.clone(),
             ordinary_ibp,
             lorentz_invariance,
@@ -363,60 +703,58 @@ impl<'family> ParametricIbpGenerator<'family> {
         if li_count == 0 {
             return Ok(Vec::new());
         }
-        let ordinary = self.generate_ordinary_ibp()?;
-        self.generate_li_from_ordinary(&ordinary)
+        let sources = self.generate_external_sources_completed()?;
+        self.generate_li_from_sources(&sources)
     }
 
-    /// Generate only LI rows under one explicitly bounded execution budget.
-    pub fn generate_lorentz_invariance_with_execution(
+    fn generate_li_from_sources(
         &self,
-        execution: &ParallelExecution,
+        sources: &CompletedIbpSourceRows,
     ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        let (_, li_count) =
-            checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
-        if li_count == 0 {
-            return Ok(Vec::new());
+        let batch = self.prepare_lorentz_invariance(sources)?;
+        (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect()
+    }
+
+    /// Prepare LI rows from one completed ordinary or external-only source
+    /// barrier. Completion already authenticated every row, so this boundary
+    /// compares the semantic family/context scope once and does not replay the
+    /// relation slice.
+    pub fn prepare_lorentz_invariance<'generator, 'ordinary>(
+        &'generator self,
+        sources: &'ordinary CompletedIbpSourceRows,
+    ) -> Result<PreparedLorentzInvarianceBatch<'generator, 'family, 'ordinary>, ParametricIbpError>
+    {
+        if sources.scope != self.source_scope {
+            return Err(ParametricIbpError::CompletedSourceScopeMismatch);
         }
-        let ordinary = self.generate_ordinary_ibp_with_execution(execution)?;
-        self.generate_li_from_ordinary_impl(&ordinary, Some(execution))
-    }
-
-    fn generate_li_from_ordinary(
-        &self,
-        ordinary: &[ParametricRelation],
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        self.generate_li_from_ordinary_impl(ordinary, None)
-    }
-
-    fn generate_li_from_ordinary_impl(
-        &self,
-        ordinary: &[ParametricRelation],
-        execution: Option<&ParallelExecution>,
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        let (_, li_count) =
-            checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
+        let loops = self.family.loop_count();
+        let externals = self.family.external_count();
+        let source_offset = sources
+            .layout
+            .source_offset(loops)
+            .ok_or(ParametricIbpError::RowCountOverflow { loops, externals })?;
+        let (_, li_count) = checked_generated_row_counts(loops, externals)?;
         let mut pairs = Vec::with_capacity(li_count);
-        for first_external in 0..self.family.external_count() {
-            for second_external in first_external + 1..self.family.external_count() {
+        for first_external in 0..externals {
+            for second_external in first_external + 1..externals {
                 pairs.push((first_external, second_external));
             }
         }
-        let generate = |ordinal| {
-            let (first_external, second_external) = pairs[ordinal];
-            self.generate_li_row(ordinary, first_external, second_external)
-        };
-        let staged = match execution {
-            Some(execution) => execution.map_ordered(li_count, generate),
-            None => (0..li_count).map(generate).collect(),
-        };
-        let rows = staged.into_iter().collect::<Result<Vec<_>, _>>()?;
-        debug_assert_eq!(rows.len(), li_count);
-        Ok(rows)
+        debug_assert_eq!(pairs.len(), li_count);
+        Ok(PreparedLorentzInvarianceBatch {
+            generator: self,
+            ordinary: &sources.relations,
+            source_offset,
+            external_pairs: pairs,
+        })
     }
 
     fn generate_li_row(
         &self,
         ordinary: &[ParametricRelation],
+        source_offset: usize,
         first_external: usize,
         second_external: usize,
     ) -> Result<ParametricRelation, ParametricIbpError> {
@@ -427,8 +765,12 @@ impl<'family> ParametricIbpGenerator<'family> {
         let mut row = self.empty_relation(row_id.clone())?;
         for differentiated_loop in 0..self.family.loop_count() {
             // M_ba: X_{i b} B_{a i}
-            let source_a =
-                self.external_ordinary_row(ordinary, first_external, differentiated_loop)?;
+            let source_a = self.external_ordinary_row(
+                ordinary,
+                source_offset,
+                first_external,
+                differentiated_loop,
+            )?;
             let coordinate_b =
                 self.family
                     .coordinate_index(ScalarProductCoordinate::LoopExternal {
@@ -446,8 +788,12 @@ impl<'family> ParametricIbpGenerator<'family> {
             )?;
 
             // -M_ab: -X_{i a} B_{b i}
-            let source_b =
-                self.external_ordinary_row(ordinary, second_external, differentiated_loop)?;
+            let source_b = self.external_ordinary_row(
+                ordinary,
+                source_offset,
+                second_external,
+                differentiated_loop,
+            )?;
             let coordinate_a =
                 self.family
                     .coordinate_index(ScalarProductCoordinate::LoopExternal {
@@ -470,17 +816,13 @@ impl<'family> ParametricIbpGenerator<'family> {
     fn external_ordinary_row<'rows>(
         &self,
         ordinary: &'rows [ParametricRelation],
+        source_offset: usize,
         external: usize,
         differentiated_loop: usize,
     ) -> Result<&'rows ParametricRelation, ParametricIbpError> {
-        let contraction_index = self.family.loop_count().checked_add(external).ok_or(
-            ParametricIbpError::RowCountOverflow {
-                loops: self.family.loop_count(),
-                externals: self.family.external_count(),
-            },
-        )?;
-        let row = contraction_index
+        let row = external
             .checked_mul(self.family.loop_count())
+            .and_then(|offset| source_offset.checked_add(offset))
             .and_then(|offset| offset.checked_add(differentiated_loop))
             .and_then(|position| ordinary.get(position))
             .ok_or(ParametricIbpError::RowCountOverflow {
@@ -586,8 +928,11 @@ impl<'family> ParametricIbpGenerator<'family> {
         &self,
         row_id: ParametricRowId,
     ) -> Result<ParametricRelation, ParametricIbpError> {
-        let mut relation =
-            ParametricRelation::new(self.family_fingerprint.clone(), row_id, &self.context);
+        let mut relation = ParametricRelation::new(
+            self.source_scope.family_fingerprint.clone(),
+            row_id,
+            &self.context,
+        );
         // Preserve the complete family domain before any fraction-field
         // cancellation.  Tautological nonzero constants are intentionally
         // omitted by ParametricRelation.
@@ -751,6 +1096,19 @@ mod tests {
                     differentiated_loop: ordinal % 6,
                 }
             );
+        }
+    }
+
+    #[test]
+    fn li_only_with_zero_or_one_external_returns_before_source_generation() {
+        for externals in [0, 1] {
+            let family = coordinate_family(
+                &format!("li-empty-source-barrier-e{externals}"),
+                2,
+                externals,
+            );
+            let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+            assert!(generator.generate_lorentz_invariance().unwrap().is_empty());
         }
     }
 
@@ -924,7 +1282,36 @@ mod tests {
         )
         .unwrap();
         let generator = ParametricIbpGenerator::try_new(&family).unwrap();
-        let generated = generator.generate().unwrap();
+        let ordinary_batch = generator.prepare_ordinary_ibp().unwrap();
+        assert_eq!(ordinary_batch.len(), 10);
+        assert!(matches!(
+            ordinary_batch.generate(10),
+            Err(ParametricIbpError::RowOrdinalOutOfRange {
+                batch: "ordinary IBP source",
+                ordinal: 10,
+                rows: 10,
+            })
+        ));
+        let ordinary_rows = (0..ordinary_batch.len())
+            .map(|ordinal| ordinary_batch.generate(ordinal))
+            .collect();
+        let ordinary = ordinary_batch.complete(ordinary_rows).unwrap();
+        let li_batch = generator.prepare_lorentz_invariance(&ordinary).unwrap();
+        assert_eq!(li_batch.len(), 3);
+        assert!(matches!(
+            li_batch.generate(3),
+            Err(ParametricIbpError::RowOrdinalOutOfRange {
+                batch: "Lorentz-invariance",
+                ordinal: 3,
+                rows: 3,
+            })
+        ));
+        let lorentz_invariance = (0..li_batch.len())
+            .map(|ordinal| li_batch.generate(ordinal))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        drop(li_batch);
+        let generated = generator.relations(ordinary.into_relations(), lorentz_invariance);
 
         let ids = generated
             .ordinary_ibp()
@@ -1005,19 +1392,161 @@ mod tests {
                 .chain(generated.lorentz_invariance())
                 .all(|row| row.arity() == 9 && row.family_fingerprint() == family.fingerprint())
         );
+    }
 
-        // This family has ten independent ordinary source rows and three LI
-        // combinations, so it exercises both deterministic parallel phases.
-        let available = std::thread::available_parallelism().unwrap().get();
-        for n_cores in [1, 2, 4].into_iter().filter(|width| *width <= available) {
-            let execution = ParallelExecution::try_new(n_cores).unwrap();
-            let candidate = generator.generate_with_execution(&execution).unwrap();
-            assert_eq!(candidate.ordinary_ibp(), generated.ordinary_ibp());
-            assert_eq!(
-                candidate.lorentz_invariance(),
-                generated.lorentz_invariance()
-            );
-        }
+    #[test]
+    fn source_completion_seals_layout_scope_and_order_without_generator_identity() {
+        let family = coordinate_family("sealed-source-validation", 1, 2);
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let equivalent_generator = ParametricIbpGenerator::try_new(&family).unwrap();
+
+        // A separately prepared generator with the same semantic scope is a
+        // valid source; pointer identity is deliberately irrelevant.
+        let target = generator.prepare_ordinary_ibp().unwrap();
+        let equivalent = equivalent_generator.prepare_ordinary_ibp().unwrap();
+        let rows = (0..equivalent.len())
+            .map(|ordinal| equivalent.generate(ordinal))
+            .collect();
+        let completed = target.complete(rows).unwrap();
+        assert!(generator.prepare_lorentz_invariance(&completed).is_ok());
+
+        let short = generator.prepare_ordinary_ibp().unwrap();
+        let rows = (0..short.len() - 1)
+            .map(|ordinal| short.generate(ordinal))
+            .collect();
+        assert!(matches!(
+            short.complete(rows),
+            Err(ParametricIbpError::WrongSourceRowCount {
+                batch: "ordinary IBP source",
+                expected: 3,
+                actual: 2,
+            })
+        ));
+
+        let reordered = generator.prepare_ordinary_ibp().unwrap();
+        let mut rows = (0..reordered.len())
+            .map(|ordinal| reordered.generate(ordinal))
+            .collect::<Vec<_>>();
+        rows.swap(0, 1);
+        assert!(matches!(
+            reordered.complete(rows),
+            Err(ParametricIbpError::SourceRowOrdinalMismatch {
+                batch: "ordinary IBP source",
+                position: 0,
+                actual: 1,
+            })
+        ));
+
+        let wrong_layout = generator.prepare_ordinary_ibp().unwrap();
+        let ordinary_source = equivalent_generator.prepare_ordinary_ibp().unwrap();
+        let external_source = equivalent_generator.prepare_external_ibp_sources().unwrap();
+        let mut rows = (0..ordinary_source.len())
+            .map(|ordinal| ordinary_source.generate(ordinal))
+            .collect::<Vec<_>>();
+        rows[0] = external_source.generate(0);
+        assert!(matches!(
+            wrong_layout.complete(rows),
+            Err(ParametricIbpError::SourceRowLayoutMismatch {
+                position: 0,
+                expected: "ordinary IBP source",
+                actual: "external-contraction IBP source",
+            })
+        ));
+
+        let foreign_family = coordinate_family("foreign-li-source", 1, 2);
+        let foreign_generator = ParametricIbpGenerator::try_new(&foreign_family).unwrap();
+        let target = generator.prepare_ordinary_ibp().unwrap();
+        let foreign_batch = foreign_generator.prepare_ordinary_ibp().unwrap();
+        let foreign_rows = (0..foreign_batch.len())
+            .map(|ordinal| foreign_batch.generate(ordinal))
+            .collect();
+        assert!(matches!(
+            target.complete(foreign_rows),
+            Err(ParametricIbpError::SourceRowScopeMismatch {
+                batch: "ordinary IBP source",
+                position: 0,
+            })
+        ));
+
+        let foreign_batch = foreign_generator.prepare_ordinary_ibp().unwrap();
+        let rows = (0..foreign_batch.len())
+            .map(|ordinal| foreign_batch.generate(ordinal))
+            .collect();
+        let foreign_completed = foreign_batch.complete(rows).unwrap();
+        assert!(matches!(
+            generator.prepare_lorentz_invariance(&foreign_completed),
+            Err(ParametricIbpError::CompletedSourceScopeMismatch)
+        ));
+    }
+
+    #[test]
+    fn li_only_source_batch_contains_exactly_external_contractions() {
+        let family = coordinate_family("dense-external-sources", 2, 3);
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let batch = generator.prepare_external_ibp_sources().unwrap();
+        assert_eq!(batch.len(), 6);
+        let rows = (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect();
+        let sources = batch.complete(rows).unwrap();
+        assert_eq!(
+            sources
+                .relations
+                .iter()
+                .map(|row| row.row_id().clone())
+                .collect::<Vec<_>>(),
+            vec![
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 2,
+                    differentiated_loop: 0,
+                },
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 2,
+                    differentiated_loop: 1,
+                },
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 3,
+                    differentiated_loop: 0,
+                },
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 3,
+                    differentiated_loop: 1,
+                },
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 4,
+                    differentiated_loop: 0,
+                },
+                ParametricRowId::OrdinaryIbp {
+                    contraction_momentum: 4,
+                    differentiated_loop: 1,
+                },
+            ]
+        );
+        let li_batch = generator.prepare_lorentz_invariance(&sources).unwrap();
+        let rows = (0..li_batch.len())
+            .map(|ordinal| li_batch.generate(ordinal))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.row_id().clone())
+                .collect::<Vec<_>>(),
+            vec![
+                ParametricRowId::LorentzInvariance {
+                    first_external: 0,
+                    second_external: 1,
+                },
+                ParametricRowId::LorentzInvariance {
+                    first_external: 0,
+                    second_external: 2,
+                },
+                ParametricRowId::LorentzInvariance {
+                    first_external: 1,
+                    second_external: 2,
+                },
+            ]
+        );
     }
 
     #[test]

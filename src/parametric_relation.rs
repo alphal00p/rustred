@@ -6,10 +6,9 @@ use std::sync::Arc;
 
 use crate::parametric_coefficient::{insert_parametric_condition, insert_specialized_condition};
 use crate::{
-    BasePolynomial, GuardOrigin, GuardRowId, GuardedParametricCoefficient,
-    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
-    SpecializedNonZeroCondition,
+    BasePolynomial, GuardOrigin, GuardRowId, ParametricArithmeticLimits, ParametricCoefficient,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricNonZeroCondition,
+    ParametricPolynomial, SpecializedNonZeroCondition,
 };
 use crate::{algebra::Coefficient, algebra::CoefficientContext};
 
@@ -449,38 +448,6 @@ impl ParametricRelation {
         Ok(())
     }
 
-    /// Insert a coefficient returned by guarded division.  Its exceptional
-    /// domain is retained even when the normalized value is zero.
-    pub fn add_guarded_term_with_limits(
-        &mut self,
-        context: &ParametricCoefficientContext,
-        shift: IndexShift,
-        coefficient: GuardedParametricCoefficient,
-        limits: ParametricArithmeticLimits,
-    ) -> Result<(), ParametricRelationError> {
-        let mut staged = self.clone();
-        for condition in coefficient.nonzero {
-            staged.add_guarded_nonzero_condition_with_limits(context, condition, limits)?;
-        }
-        staged.add_term_in_place(context, shift, coefficient.value, limits)?;
-        *self = staged;
-        Ok(())
-    }
-
-    pub fn add_guarded_term(
-        &mut self,
-        context: &ParametricCoefficientContext,
-        shift: IndexShift,
-        coefficient: GuardedParametricCoefficient,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_guarded_term_with_limits(
-            context,
-            shift,
-            coefficient,
-            ParametricArithmeticLimits::default(),
-        )
-    }
-
     pub fn add_scaled(
         &mut self,
         context: &ParametricCoefficientContext,
@@ -537,40 +504,6 @@ impl ParametricRelation {
             self.add_term_in_place(context, shift.clone(), scaled, limits)?;
         }
         Ok(())
-    }
-
-    /// Add a relation with a scalar returned by guarded division.  This is
-    /// the elimination-facing counterpart of [`Self::add_guarded_term`].
-    pub fn add_scaled_guarded_with_limits(
-        &mut self,
-        context: &ParametricCoefficientContext,
-        other: &Self,
-        factor: GuardedParametricCoefficient,
-        limits: ParametricArithmeticLimits,
-    ) -> Result<(), ParametricRelationError> {
-        let mut staged = self.clone();
-        staged.validate_compatible(other, context)?;
-        context.validate_with_limits(&factor.value, limits.exact_algebra)?;
-        for condition in factor.nonzero {
-            staged.add_guarded_nonzero_condition_with_limits(context, condition, limits)?;
-        }
-        staged.add_scaled_in_place(context, other, &factor.value, limits)?;
-        *self = staged;
-        Ok(())
-    }
-
-    pub fn add_scaled_guarded(
-        &mut self,
-        context: &ParametricCoefficientContext,
-        other: &Self,
-        factor: GuardedParametricCoefficient,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_scaled_guarded_with_limits(
-            context,
-            other,
-            factor,
-            ParametricArithmeticLimits::default(),
-        )
     }
 
     pub fn translated(
@@ -1115,13 +1048,15 @@ mod tests {
         let n = context.index(0).unwrap();
         let polynomial = context.numerator_condition(&n).unwrap();
         let first = context
-            .nonzero_condition(
-                polynomial.clone(),
-                GuardOrigin::GuardedDivisionDivisorNumerator,
-            )
+            .nonzero_condition(polynomial.clone(), GuardOrigin::ExplicitRelationCondition)
             .unwrap();
         let second = context
-            .nonzero_condition(polynomial, GuardOrigin::GuardedDivisionDividendDenominator)
+            .nonzero_condition(
+                polynomial,
+                GuardOrigin::IndexTranslation {
+                    offset: vec![1].into_boxed_slice(),
+                },
+            )
             .unwrap();
         relation
             .add_guarded_nonzero_condition(&context, first)
@@ -1135,43 +1070,14 @@ mod tests {
         assert_eq!(
             relation.guarded_nonzero_conditions()[0].origins(),
             &std::collections::BTreeSet::from([
-                GuardOrigin::GuardedDivisionDividendDenominator,
-                GuardOrigin::GuardedDivisionDivisorNumerator,
+                GuardOrigin::ExplicitRelationCondition,
                 GuardOrigin::RelationConditionAttached {
                     row: row_id.guard_identity(),
                 },
+                GuardOrigin::IndexTranslation {
+                    offset: vec![1].into_boxed_slice(),
+                },
             ])
-        );
-    }
-
-    #[test]
-    fn guarded_zero_division_term_keeps_its_domain() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "zero-div-term", 1).unwrap();
-        let n = context.index(0).unwrap();
-        let divided = context.checked_div_guarded(&context.zero(), &n).unwrap();
-        let mut relation = ParametricRelation::new(
-            "family",
-            ParametricRowId::Derived {
-                label: Arc::from("guarded-zero"),
-            },
-            &context,
-        );
-        relation
-            .add_guarded_term(&context, IndexSpace::try_new(1).unwrap().zero(), divided)
-            .unwrap();
-        assert!(relation.terms().is_empty());
-        assert_eq!(relation.guarded_nonzero_conditions().len(), 1);
-        assert!(matches!(
-            relation.specialize(&context, &[0], ParametricArithmeticLimits::default()),
-            Err(ParametricRelationError::UnsatisfiableDomain)
-        ));
-        assert!(
-            relation
-                .specialize(&context, &[1], ParametricArithmeticLimits::default())
-                .unwrap()
-                .terms()
-                .is_empty()
         );
     }
 
@@ -1183,7 +1089,7 @@ mod tests {
         let condition = context
             .nonzero_condition(
                 context.numerator_condition(&n).unwrap(),
-                GuardOrigin::GuardedDivisionDivisorNumerator,
+                GuardOrigin::ExplicitRelationCondition,
             )
             .unwrap();
         let mut relation = ParametricRelation::new(
@@ -1206,37 +1112,6 @@ mod tests {
                     limit: 1,
                 }
             ))
-        ));
-    }
-
-    #[test]
-    fn guarded_scaled_addition_retains_a_zero_factor_domain() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "guarded-scale", 1).unwrap();
-        let row_id = ParametricRowId::Derived {
-            label: Arc::from("scale-row"),
-        };
-        let mut source = ParametricRelation::new("family", row_id.clone(), &context);
-        source
-            .add_term(
-                &context,
-                IndexSpace::try_new(1).unwrap().zero(),
-                context.one(),
-            )
-            .unwrap();
-        let factor = context
-            .checked_div_guarded(&context.zero(), &context.index(0).unwrap())
-            .unwrap();
-        let mut target = ParametricRelation::new("family", row_id, &context);
-        target
-            .add_scaled_guarded(&context, &source, factor)
-            .unwrap();
-
-        assert!(target.terms().is_empty());
-        assert_eq!(target.guarded_nonzero_conditions().len(), 1);
-        assert!(matches!(
-            target.specialize(&context, &[0], ParametricArithmeticLimits::default()),
-            Err(ParametricRelationError::UnsatisfiableDomain)
         ));
     }
 

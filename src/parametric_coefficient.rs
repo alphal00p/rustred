@@ -17,8 +17,8 @@ use symbolica::prelude::*;
 use crate::GuardOrigin;
 use crate::algebra::{
     ExactAlgebraError, ExactAlgebraLimits, checked_coefficient_add_on_map,
-    checked_coefficient_div_on_map, checked_coefficient_mul_on_map, checked_coefficient_neg_on_map,
-    checked_coefficient_sub_on_map, validate_coefficient_on_map, validate_polynomial_on_map,
+    checked_coefficient_mul_on_map, checked_coefficient_neg_on_map, checked_coefficient_sub_on_map,
+    validate_coefficient_on_map, validate_polynomial_on_map,
 };
 use crate::{algebra::Coefficient, algebra::CoefficientContext};
 
@@ -255,14 +255,6 @@ impl SpecializedNonZeroCondition {
     }
 }
 
-/// The normalized result of a parametric division plus every required
-/// pre-cancellation nonzero condition.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GuardedParametricCoefficient {
-    pub value: ParametricCoefficient,
-    pub nonzero: Vec<ParametricNonZeroCondition>,
-}
-
 impl ParametricPolynomial {
     pub fn raw(&self) -> &CoefficientPolynomial {
         &self.raw
@@ -344,7 +336,6 @@ pub enum ParametricCoefficientError {
     },
     ZeroPolynomialCondition,
     ZeroDenominator,
-    DivisionByZero,
     MalformedPolynomial {
         terms: usize,
         exponents: usize,
@@ -388,9 +379,6 @@ impl fmt::Display for ParametricCoefficientError {
             }
             Self::ZeroDenominator => {
                 formatter.write_str("rational coefficient has a zero denominator")
-            }
-            Self::DivisionByZero => {
-                formatter.write_str("attempted to divide by an identically zero coefficient")
             }
             Self::MalformedPolynomial {
                 terms,
@@ -829,138 +817,6 @@ impl ParametricCoefficientContext {
         self.validate_with_limits(value, limits)?;
         let raw = checked_coefficient_neg_on_map(&value.raw, &self.variables, limits)?;
         self.wrap_checked_with_limits(raw, limits)
-    }
-
-    /// Low-level exact field division.
-    ///
-    /// This intentionally returns no exceptional-domain provenance.  Rule
-    /// discovery, pivot normalization, and other elimination-facing code must
-    /// use [`Self::checked_div_guarded`] instead.
-    pub fn checked_div(
-        &self,
-        numerator: &ParametricCoefficient,
-        denominator: &ParametricCoefficient,
-    ) -> Result<ParametricCoefficient, ParametricCoefficientError> {
-        self.checked_div_with_limits(numerator, denominator, ExactAlgebraLimits::default())
-    }
-
-    pub fn checked_div_with_limits(
-        &self,
-        numerator: &ParametricCoefficient,
-        denominator: &ParametricCoefficient,
-        limits: ExactAlgebraLimits,
-    ) -> Result<ParametricCoefficient, ParametricCoefficientError> {
-        self.validate_with_limits(numerator, limits)?;
-        self.validate_with_limits(denominator, limits)?;
-        let raw = checked_coefficient_div_on_map(
-            &numerator.raw,
-            &denominator.raw,
-            &self.variables,
-            limits,
-        )
-        .map_err(|error| match error {
-            ExactAlgebraError::DivisionByZero => ParametricCoefficientError::DivisionByZero,
-            other => ParametricCoefficientError::ExactAlgebra(other),
-        })?;
-        self.wrap_checked_with_limits(raw, limits)
-    }
-
-    /// Divide while retaining every pre-cancellation condition needed by the
-    /// two rational operands.
-    ///
-    /// For `A/B` divided by `C/D`, the returned domain contains `B != 0`,
-    /// `D != 0`, and `C != 0` (nonzero constants are omitted).  In
-    /// particular, `0 / n` still returns the mandatory `n != 0` condition
-    /// even though its normalized value is zero.
-    pub fn checked_div_guarded(
-        &self,
-        dividend: &ParametricCoefficient,
-        divisor: &ParametricCoefficient,
-    ) -> Result<GuardedParametricCoefficient, ParametricCoefficientError> {
-        self.checked_div_guarded_with_limits(dividend, divisor, ExactAlgebraLimits::default())
-    }
-
-    pub fn checked_div_guarded_with_limits(
-        &self,
-        dividend: &ParametricCoefficient,
-        divisor: &ParametricCoefficient,
-        limits: ExactAlgebraLimits,
-    ) -> Result<GuardedParametricCoefficient, ParametricCoefficientError> {
-        self.validate_with_limits(dividend, limits)?;
-        self.validate_with_limits(divisor, limits)?;
-        if divisor.raw.numerator.is_zero() {
-            return Err(ParametricCoefficientError::DivisionByZero);
-        }
-
-        // Clone all three source polynomials before Symbolica normalizes the
-        // quotient.  Equal conditions merge their origin sets below.
-        let candidates = [
-            (
-                dividend.raw.denominator.clone(),
-                GuardOrigin::GuardedDivisionDividendDenominator,
-            ),
-            (
-                divisor.raw.denominator.clone(),
-                GuardOrigin::GuardedDivisionDivisorDenominator,
-            ),
-            (
-                divisor.raw.numerator.clone(),
-                GuardOrigin::GuardedDivisionDivisorNumerator,
-            ),
-        ];
-        let mut nonzero = Vec::with_capacity(candidates.len());
-        for (raw, origin) in candidates {
-            if raw.is_constant() {
-                debug_assert!(!raw.is_zero());
-                continue;
-            }
-            let polynomial = ParametricPolynomial {
-                raw,
-                context: self.fingerprint.clone(),
-            };
-            self.validate_polynomial_with_limits(&polynomial, limits)?;
-            let condition = self.nonzero_condition_with_origins_and_origin_limit(
-                polynomial,
-                [origin],
-                limits,
-                ParametricArithmeticLimits::default().max_guard_origins,
-            )?;
-            insert_parametric_condition(
-                &mut nonzero,
-                condition,
-                ParametricArithmeticLimits::default().max_guard_origins,
-            )?;
-        }
-
-        let value = self.checked_div_with_limits(dividend, divisor, limits)?;
-        let normalization_operations = value
-            .raw
-            .numerator
-            .nterms()
-            .checked_mul(value.raw.denominator.nterms())
-            .ok_or(ParametricCoefficientError::ResourceCountOverflow {
-                resource: "guarded division normalization term pairs",
-            })?;
-        check_limit(
-            "guarded division normalization term pairs",
-            normalization_operations,
-            limits.max_term_operations,
-        )?;
-        let normalized = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            <Coefficient as FromNumeratorAndDenominator<IntegerRing, IntegerRing, u16>>::from_num_den(
-                value.raw.numerator,
-                value.raw.denominator,
-                &Z,
-                true,
-            )
-        }))
-        .map_err(|_| {
-            ParametricCoefficientError::Symbolica(
-                "Symbolica panicked while normalizing a checked guarded division".to_owned(),
-            )
-        })?;
-        let value = self.wrap_checked_with_limits(normalized, limits)?;
-        Ok(GuardedParametricCoefficient { value, nonzero })
     }
 
     /// Apply `n -> n + shift` to a complete coefficient.
@@ -1961,7 +1817,7 @@ mod tests {
         let condition = context
             .nonzero_condition_with_origins_and_limits(
                 polynomial,
-                [GuardOrigin::GuardedDivisionDivisorNumerator],
+                [GuardOrigin::ExplicitRelationCondition],
                 ExactAlgebraLimits::default(),
             )
             .unwrap();
@@ -2064,80 +1920,6 @@ mod tests {
             context.add(&malformed, &context.one()),
             Err(ParametricCoefficientError::ExactAlgebra(
                 ExactAlgebraError::MalformedExponentLayout { .. }
-            ))
-        ));
-    }
-
-    #[test]
-    fn guarded_division_retains_divisor_numerator_for_n_over_n_and_zero_over_n() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "guarded-division", 1).unwrap();
-        let n = context.index(0).unwrap();
-
-        let n_over_n = context.checked_div_guarded(&n, &n).unwrap();
-        assert_eq!(n_over_n.value, context.one());
-        assert_eq!(n_over_n.nonzero.len(), 1);
-        assert_eq!(
-            n_over_n.nonzero[0].polynomial(),
-            &context.numerator_condition(&n).unwrap()
-        );
-        assert_eq!(
-            n_over_n.nonzero[0].origins(),
-            &BTreeSet::from([GuardOrigin::GuardedDivisionDivisorNumerator])
-        );
-
-        let zero_over_n = context.checked_div_guarded(&context.zero(), &n).unwrap();
-        assert!(zero_over_n.value.is_zero());
-        assert_eq!(zero_over_n.nonzero, n_over_n.nonzero);
-    }
-
-    #[test]
-    fn guarded_division_merges_duplicate_polynomial_origins_before_cancellation() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context =
-            ParametricCoefficientContext::try_new(&base, "division-origin-merge", 1).unwrap();
-        let n = context.index(0).unwrap();
-        let deliberately_uncancelled = ParametricCoefficient {
-            raw: RationalPolynomial {
-                numerator: n.raw.numerator.clone(),
-                denominator: n.raw.numerator.clone(),
-            },
-            context: context.fingerprint.clone(),
-        };
-
-        let divided = context
-            .checked_div_guarded(&context.one(), &deliberately_uncancelled)
-            .unwrap();
-        assert_eq!(divided.value, context.one());
-        assert_eq!(divided.nonzero.len(), 1);
-        assert_eq!(
-            divided.nonzero[0].origins(),
-            &BTreeSet::from([
-                GuardOrigin::GuardedDivisionDivisorDenominator,
-                GuardOrigin::GuardedDivisionDivisorNumerator,
-            ])
-        );
-    }
-
-    #[test]
-    fn guarded_division_obeys_caller_exact_limits() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context =
-            ParametricCoefficientContext::try_new(&base, "guarded-division-limits", 1).unwrap();
-        let n = context.index(0).unwrap();
-        let strict = ExactAlgebraLimits {
-            max_exponent: 0,
-            ..ExactAlgebraLimits::default()
-        };
-        assert!(matches!(
-            context.checked_div_guarded_with_limits(&context.zero(), &n, strict),
-            Err(ParametricCoefficientError::ExactAlgebra(
-                ExactAlgebraError::ExponentLimit {
-                    operation: crate::algebra::ExactAlgebraOperation::Authenticate,
-                    requested: 1,
-                    limit: 0,
-                    ..
-                }
             ))
         ));
     }

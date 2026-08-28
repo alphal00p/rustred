@@ -41,9 +41,9 @@ pub use generic_family::{
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
-    GuardedParametricCoefficient, ParametricArithmeticLimits, ParametricCoefficient,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricNonZeroCondition,
-    ParametricPolynomial, SpecializedNonZeroCondition,
+    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
+    ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
+    SpecializedNonZeroCondition,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,

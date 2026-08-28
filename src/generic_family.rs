@@ -727,7 +727,6 @@ impl IntegralFamily {
             derivative_contractions: Vec::new(),
         };
         family.derivative_contractions = family.build_derivative_contractions()?;
-        family.verify_exact_replay()?;
         Ok(family)
     }
 
@@ -1962,6 +1961,7 @@ fn map_symbolica_matrix_error(
             GenericFamilyError::ExactAlgebra(error)
         }
         internal @ (SymbolicaCoefficientMatrixError::ShapeMismatch { .. }
+        | SymbolicaCoefficientMatrixError::NativePowerExponentLimit { .. }
         | SymbolicaCoefficientMatrixError::NativeError { .. }
         | SymbolicaCoefficientMatrixError::NativePanic { .. }
         | SymbolicaCoefficientMatrixError::InverseVerificationFailure { .. }

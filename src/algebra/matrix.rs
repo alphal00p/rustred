@@ -33,8 +33,8 @@ use symbolica::prelude::*;
 use symbolica::tensors::matrix::MatrixError;
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits,
-    coefficient_clone_owned_retained_byte_bound,
+    Coefficient, CoefficientContext, CoefficientPolynomialPart, ExactAlgebraError,
+    ExactAlgebraLimits, ExactAlgebraOperation, coefficient_clone_owned_retained_byte_bound,
 };
 
 const DEFAULT_MAX_SINGLE_MATRIX_ENTRIES: usize = 16_000_000;
@@ -245,6 +245,10 @@ pub(crate) enum SymbolicaCoefficientMatrixError {
         error: ExactAlgebraError,
     },
     ExactAlgebra(ExactAlgebraError),
+    NativePowerExponentLimit {
+        requested: u64,
+        limit: u32,
+    },
     Singular,
     NativeError {
         operation: &'static str,
@@ -314,6 +318,10 @@ impl fmt::Display for SymbolicaCoefficientMatrixError {
                 "coefficient matrix entry ({row},{column}) is invalid: {error}"
             ),
             Self::ExactAlgebra(error) => error.fmt(formatter),
+            Self::NativePowerExponentLimit { requested, limit } => write!(
+                formatter,
+                "Symbolica coefficient power exponent {requested} exceeds its native limit {limit}"
+            ),
             Self::Singular => formatter.write_str("coefficient matrix is singular"),
             Self::NativeError { operation, kind } => {
                 write!(
@@ -370,13 +378,161 @@ enum AtomicOperation {
     Negate,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PolynomialPowerAdmission {
+    output_terms: usize,
+    max_term_operations: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CoefficientPowerAdmission {
+    numerator: PolynomialPowerAdmission,
+    denominator: PolynomialPowerAdmission,
+}
+
+impl CoefficientPowerAdmission {
+    fn max_term_operations(self) -> usize {
+        self.numerator
+            .max_term_operations
+            .max(self.denominator.max_term_operations)
+    }
+}
+
+fn polynomial_power_resource(part: CoefficientPolynomialPart, output: bool) -> &'static str {
+    match (part, output) {
+        (CoefficientPolynomialPart::Numerator, false) => {
+            "exact coefficient power numerator term operations"
+        }
+        (CoefficientPolynomialPart::Denominator, false) => {
+            "exact coefficient power denominator term operations"
+        }
+        (CoefficientPolynomialPart::Numerator, true) => {
+            "exact coefficient power numerator output terms"
+        }
+        (CoefficientPolynomialPart::Denominator, true) => {
+            "exact coefficient power denominator output terms"
+        }
+    }
+}
+
+fn polynomial_power_degree_box(
+    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    exponent: u64,
+    operation: ExactAlgebraOperation,
+    resource: &'static str,
+    limit: usize,
+) -> Result<usize, ExactAlgebraError> {
+    let mut terms = 1usize;
+    for variable in 0..polynomial.variables.len() {
+        let degree = u64::from(polynomial.degree(variable))
+            .checked_mul(exponent)
+            .ok_or(ExactAlgebraError::ExponentArithmeticOverflow {
+                operation,
+                variable,
+                width: 64,
+            })?;
+        let width = degree
+            .checked_add(1)
+            .and_then(|width| usize::try_from(width).ok())
+            .ok_or(ExactAlgebraError::ResourceCountOverflow { resource })?;
+        terms = terms
+            .checked_mul(width)
+            .ok_or(ExactAlgebraError::ResourceCountOverflow { resource })?;
+        if terms > limit {
+            return Err(ExactAlgebraError::ResourceLimit {
+                resource,
+                requested: terms,
+                limit,
+            });
+        }
+    }
+    if terms > limit {
+        Err(ExactAlgebraError::ResourceLimit {
+            resource,
+            requested: terms,
+            limit,
+        })
+    } else {
+        Ok(terms)
+    }
+}
+
+fn polynomial_power_admission(
+    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    exponent: u64,
+    part: CoefficientPolynomialPart,
+    limits: ExactAlgebraLimits,
+) -> Result<PolynomialPowerAdmission, ExactAlgebraError> {
+    if exponent == 0 {
+        return Ok(PolynomialPowerAdmission {
+            output_terms: 1,
+            max_term_operations: 0,
+        });
+    }
+    if polynomial.is_zero() {
+        return Ok(PolynomialPowerAdmission {
+            output_terms: 0,
+            max_term_operations: 0,
+        });
+    }
+
+    let output_resource = polynomial_power_resource(part, true);
+    let operation_resource = polynomial_power_resource(part, false);
+    // Symbolica's native rational-polynomial power performs repeated
+    // multiplication. Cross-GCD quotients can be denser than the sparse
+    // inputs, so use the componentwise degree box rather than nterms^e.
+    let output_terms = polynomial_power_degree_box(
+        polynomial,
+        exponent,
+        ExactAlgebraOperation::Power,
+        output_resource,
+        limits.max_polynomial_terms,
+    )?;
+    let previous_terms = polynomial_power_degree_box(
+        polynomial,
+        exponent - 1,
+        ExactAlgebraOperation::Power,
+        operation_resource,
+        limits.max_term_operations,
+    )?;
+    let base_terms = polynomial_power_degree_box(
+        polynomial,
+        1,
+        ExactAlgebraOperation::Power,
+        operation_resource,
+        limits.max_term_operations,
+    )?;
+    let max_term_operations =
+        previous_terms
+            .checked_mul(base_terms)
+            .ok_or(ExactAlgebraError::ResourceCountOverflow {
+                resource: operation_resource,
+            })?;
+    if max_term_operations > limits.max_term_operations {
+        return Err(ExactAlgebraError::ResourceLimit {
+            resource: operation_resource,
+            requested: max_term_operations,
+            limit: limits.max_term_operations,
+        });
+    }
+    Ok(PolynomialPowerAdmission {
+        output_terms,
+        max_term_operations,
+    })
+}
+
 /// Private unwind payload for fallible trait methods.  `resume_unwind` avoids
 /// invoking the process-global panic hook; the nearest matrix boundary catches
 /// and downcasts this exact type immediately.
-struct CheckedFieldAbort(ExactAlgebraError);
+struct CheckedFieldAbort(SymbolicaCoefficientMatrixError);
 
 #[cold]
 fn abort_checked_field(error: ExactAlgebraError) -> ! {
+    abort_checked_matrix(SymbolicaCoefficientMatrixError::ExactAlgebra(error))
+}
+
+#[cold]
+fn abort_checked_matrix(error: SymbolicaCoefficientMatrixError) -> ! {
     resume_unwind(Box::new(CheckedFieldAbort(error)))
 }
 
@@ -489,6 +645,103 @@ impl<'context> CheckedCoefficientField<'context> {
         }
     }
 
+    fn preflight_power_admission(
+        &self,
+        base: &Coefficient,
+        exponent: u64,
+    ) -> CoefficientPowerAdmission {
+        if let Err(error) =
+            self.context
+                .preflight_power_with_limits(base, exponent, self.limits.exact_algebra)
+        {
+            abort_checked_field(error);
+        }
+        if exponent > u64::from(u32::MAX) {
+            abort_checked_matrix(SymbolicaCoefficientMatrixError::NativePowerExponentLimit {
+                requested: exponent,
+                limit: u32::MAX,
+            });
+        }
+        let numerator = polynomial_power_admission(
+            &base.numerator,
+            exponent,
+            CoefficientPolynomialPart::Numerator,
+            self.limits.exact_algebra,
+        )
+        .unwrap_or_else(|error| abort_checked_field(error));
+        let denominator = polynomial_power_admission(
+            &base.denominator,
+            exponent,
+            CoefficientPolynomialPart::Denominator,
+            self.limits.exact_algebra,
+        )
+        .unwrap_or_else(|error| abort_checked_field(error));
+        CoefficientPowerAdmission {
+            numerator,
+            denominator,
+        }
+    }
+
+    fn charge_power_operations(&self, exponent: u64, admission: CoefficientPowerAdmission) {
+        if exponent > u64::from(u32::MAX) {
+            abort_checked_matrix(SymbolicaCoefficientMatrixError::NativePowerExponentLimit {
+                requested: exponent,
+                limit: u32::MAX,
+            });
+        }
+        let operations = usize::try_from(exponent).unwrap_or_else(|_| {
+            abort_checked_field(ExactAlgebraError::ResourceCountOverflow {
+                resource: "Symbolica coefficient power operations",
+            })
+        });
+
+        let result = {
+            let mut state = self.state.borrow_mut();
+            let exact_operations = state.stats.exact_operations.checked_add(operations).ok_or(
+                ExactAlgebraError::ResourceCountOverflow {
+                    resource: "Symbolica coefficient matrix exact operations",
+                },
+            );
+            let multiplications = state.stats.multiplications.checked_add(operations).ok_or(
+                ExactAlgebraError::ResourceCountOverflow {
+                    resource: "Symbolica coefficient matrix operation census",
+                },
+            );
+            match (exact_operations, multiplications) {
+                (Ok(exact_operations), Ok(multiplications))
+                    if exact_operations <= self.limits.max_exact_operations =>
+                {
+                    state.stats.exact_operations = exact_operations;
+                    state.stats.multiplications = multiplications;
+                    state.stats.admitted_power_exponent =
+                        state.stats.admitted_power_exponent.max(exponent);
+                    state.stats.admitted_power_term_operations = state
+                        .stats
+                        .admitted_power_term_operations
+                        .max(admission.max_term_operations());
+                    state.stats.admitted_power_numerator_terms = state
+                        .stats
+                        .admitted_power_numerator_terms
+                        .max(admission.numerator.output_terms);
+                    state.stats.admitted_power_denominator_terms = state
+                        .stats
+                        .admitted_power_denominator_terms
+                        .max(admission.denominator.output_terms);
+                    Ok(())
+                }
+                (Ok(exact_operations), Ok(_)) => Err(ExactAlgebraError::ResourceLimit {
+                    resource: "Symbolica coefficient matrix exact operations",
+                    requested: exact_operations,
+                    limit: self.limits.max_exact_operations,
+                }),
+                (Err(error), _) | (_, Err(error)) => Err(error),
+            }
+        };
+        if let Err(error) = result {
+            abort_checked_field(error);
+        }
+    }
+
     fn charge_counter(
         &self,
         select: impl FnOnce(&mut SymbolicaCoefficientMatrixStats) -> &mut usize,
@@ -524,6 +777,68 @@ impl<'context> CheckedCoefficientField<'context> {
             .validate_with_limits(&value, self.limits.exact_algebra)
         {
             abort_checked_field(error);
+        }
+        value
+    }
+
+    fn finish_power_raw(
+        &self,
+        value: Coefficient,
+        admission: CoefficientPowerAdmission,
+    ) -> Coefficient {
+        let result = (|| {
+            self.context
+                .validate_with_limits(&value, self.limits.exact_algebra)
+                .map_err(SymbolicaCoefficientMatrixError::ExactAlgebra)?;
+            let numerator_terms = value.numerator.nterms();
+            let denominator_terms = value.denominator.nterms();
+            check_limit(
+                polynomial_power_resource(CoefficientPolynomialPart::Numerator, true),
+                numerator_terms,
+                admission.numerator.output_terms,
+            )?;
+            check_limit(
+                polynomial_power_resource(CoefficientPolynomialPart::Denominator, true),
+                denominator_terms,
+                admission.denominator.output_terms,
+            )?;
+            let retained_bytes = coefficient_retained_bytes(&value)?;
+            let mut state = self.state.borrow_mut();
+            let output_retained_bytes = checked_add(
+                "coefficient matrix output retained bytes",
+                state.stats.output_retained_bytes,
+                retained_bytes,
+            )?;
+            check_limit(
+                "coefficient matrix output retained bytes",
+                output_retained_bytes,
+                self.limits.max_output_retained_bytes,
+            )?;
+            let authenticated_entries = checked_add(
+                "authenticated Symbolica matrix entries",
+                state.stats.authenticated_entries,
+                1,
+            )?;
+            let output_entries = checked_add(
+                "coefficient matrix output entries",
+                state.stats.output_entries,
+                1,
+            )?;
+            state.stats.output_retained_bytes = output_retained_bytes;
+            state.stats.authenticated_entries = authenticated_entries;
+            state.stats.output_entries = output_entries;
+            state.stats.output_power_numerator_terms = state
+                .stats
+                .output_power_numerator_terms
+                .max(numerator_terms);
+            state.stats.output_power_denominator_terms = state
+                .stats
+                .output_power_denominator_terms
+                .max(denominator_terms);
+            Ok::<(), SymbolicaCoefficientMatrixError>(())
+        })();
+        if let Err(error) = result {
+            abort_checked_matrix(error);
         }
         value
     }
@@ -687,7 +1002,9 @@ impl Ring for CheckedCoefficientField<'_> {
     fn pow(&self, base: &Coefficient, exponent: u64) -> Coefficient {
         self.charge_counter(|stats| &mut stats.power_calls);
         self.charge_counter(|stats| &mut stats.non_matrix_trait_calls);
-        self.finish_raw(self.inner.pow(base, exponent))
+        let admission = self.preflight_power_admission(base, exponent);
+        self.charge_power_operations(exponent, admission);
+        self.finish_power_raw(self.inner.pow(base, exponent), admission)
     }
 
     fn is_zero(&self, value: &Coefficient) -> bool {
@@ -1045,7 +1362,7 @@ fn call_native<T>(
     match catch_unwind(AssertUnwindSafe(callback)) {
         Ok(value) => Ok(value),
         Err(payload) => match payload.downcast::<CheckedFieldAbort>() {
-            Ok(abort) => Err(SymbolicaCoefficientMatrixError::ExactAlgebra(abort.0)),
+            Ok(abort) => Err(abort.0),
             Err(_) => Err(SymbolicaCoefficientMatrixError::NativePanic { operation }),
         },
     }
@@ -2239,6 +2556,259 @@ mod tests {
             Some(context.coefficient_fixture("1/x"))
         );
         assert_eq!(field.state.borrow().stats.exact_operations(), 2);
+    }
+
+    #[test]
+    fn native_field_power_preflights_u64_exponents_before_symbolica() {
+        let context = CoefficientContext::new(["x"]);
+        let field = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits::default(),
+            1,
+            1,
+            2,
+        );
+        let base = context.coefficient_fixture("x^40000");
+        assert!(matches!(
+            call_native("coefficient power preflight", || field.pow(&base, 2)),
+            Err(SymbolicaCoefficientMatrixError::ExactAlgebra(
+                ExactAlgebraError::ExponentLimit {
+                    operation: crate::algebra::ExactAlgebraOperation::Power,
+                    variable: 0,
+                    requested: 80_000,
+                    limit: crate::algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn native_field_power_caps_constant_exponents_and_linear_work() {
+        let context = CoefficientContext::new(Vec::<String>::new());
+        let strict = SymbolicaCoefficientMatrixLimits {
+            max_exact_operations: 2,
+            ..SymbolicaCoefficientMatrixLimits::default()
+        };
+        let field = CheckedCoefficientField::new(&context, strict, 1, 1, 2);
+        let value = call_native("constant coefficient power", || {
+            field.pow(&context.one(), 2)
+        })
+        .unwrap();
+        assert_eq!(value, context.one());
+        let stats = field.state.borrow().stats;
+        assert_eq!(stats.exact_operations(), 2);
+        assert_eq!(stats.multiplications, 2);
+        assert_eq!(stats.admitted_power_exponent, 2);
+        assert_eq!(stats.admitted_power_term_operations, 1);
+        assert_eq!(stats.admitted_power_numerator_terms, 1);
+        assert_eq!(stats.admitted_power_denominator_terms, 1);
+        assert_eq!(stats.output_power_numerator_terms, 1);
+        assert_eq!(stats.output_power_denominator_terms, 1);
+        assert_eq!(stats.authenticated_entries, 1);
+        assert_eq!(stats.output_entries, 1);
+        assert!(stats.output_retained_bytes() > 0);
+
+        let over_budget = CheckedCoefficientField::new(&context, strict, 1, 1, 2);
+        assert!(matches!(
+            call_native("constant coefficient power work cap", || {
+                over_budget.pow(&context.one(), 3)
+            }),
+            Err(SymbolicaCoefficientMatrixError::ExactAlgebra(
+                ExactAlgebraError::ResourceLimit {
+                    resource: "Symbolica coefficient matrix exact operations",
+                    requested: 3,
+                    limit: 2,
+                }
+            ))
+        ));
+
+        let native_cap = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits {
+                max_exact_operations: usize::MAX,
+                ..SymbolicaCoefficientMatrixLimits::default()
+            },
+            1,
+            1,
+            0,
+        );
+        assert!(matches!(
+            call_native("constant coefficient native power cap", || {
+                native_cap.pow(&context.one(), u64::from(u32::MAX) + 1)
+            }),
+            Err(SymbolicaCoefficientMatrixError::NativePowerExponentLimit {
+                requested,
+                limit: u32::MAX,
+            }) if requested == u64::from(u32::MAX) + 1
+        ));
+    }
+
+    #[test]
+    fn native_field_power_enforces_conservative_term_work_before_symbolica() {
+        let context = CoefficientContext::new(["x", "y"]);
+        let base = context.coefficient_fixture("x+y");
+        let exact = ExactAlgebraLimits {
+            max_term_operations: 36,
+            ..ExactAlgebraLimits::default()
+        };
+        let field = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits {
+                exact_algebra: exact,
+                ..SymbolicaCoefficientMatrixLimits::default()
+            },
+            1,
+            1,
+            3,
+        );
+        let value = call_native("bounded coefficient power", || field.pow(&base, 3)).unwrap();
+        assert_eq!(value, context.coefficient_fixture("(x+y)^3"));
+        let stats = field.state.borrow().stats;
+        assert_eq!(stats.exact_operations(), 3);
+        assert_eq!(stats.multiplications, 3);
+        assert_eq!(stats.admitted_power_exponent, 3);
+        assert_eq!(stats.admitted_power_term_operations, 36);
+        assert_eq!(stats.admitted_power_numerator_terms, 16);
+        assert_eq!(stats.admitted_power_denominator_terms, 1);
+        assert_eq!(stats.output_power_numerator_terms, 4);
+        assert_eq!(stats.output_power_denominator_terms, 1);
+
+        let rejected = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits {
+                exact_algebra: ExactAlgebraLimits {
+                    max_term_operations: 35,
+                    ..ExactAlgebraLimits::default()
+                },
+                ..SymbolicaCoefficientMatrixLimits::default()
+            },
+            1,
+            1,
+            3,
+        );
+        assert!(matches!(
+            call_native("coefficient power term-work cap", || rejected.pow(&base, 3)),
+            Err(SymbolicaCoefficientMatrixError::ExactAlgebra(
+                ExactAlgebraError::ResourceLimit {
+                    resource: "exact coefficient power numerator term operations",
+                    requested: 36,
+                    limit: 35,
+                }
+            ))
+        ));
+        let rejected_stats = rejected.state.borrow().stats;
+        assert_eq!(rejected_stats.exact_operations(), 0);
+        assert_eq!(rejected_stats.output_retained_bytes(), 0);
+    }
+
+    #[test]
+    fn native_field_power_enforces_output_retained_bytes() {
+        let context = CoefficientContext::new(Vec::<String>::new());
+        let base = context.integer(2);
+        let baseline = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits::default(),
+            1,
+            1,
+            64,
+        );
+        let value = call_native("coefficient power byte baseline", || {
+            baseline.pow(&base, 64)
+        })
+        .unwrap();
+        assert_eq!(value, context.coefficient_fixture("18446744073709551616"));
+        let stats = baseline.state.borrow().stats;
+        let output_bytes = stats.output_retained_bytes();
+        assert!(output_bytes > 0);
+        assert_eq!(stats.admitted_power_exponent, 64);
+        assert_eq!(stats.admitted_power_term_operations, 1);
+        assert_eq!(stats.admitted_power_numerator_terms, 1);
+        assert_eq!(stats.admitted_power_denominator_terms, 1);
+        assert_eq!(stats.output_power_numerator_terms, 1);
+        assert_eq!(stats.output_power_denominator_terms, 1);
+        assert_eq!(stats.authenticated_entries, 1);
+        assert_eq!(stats.output_entries, 1);
+
+        let rejected = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits {
+                max_output_retained_bytes: output_bytes - 1,
+                ..SymbolicaCoefficientMatrixLimits::default()
+            },
+            1,
+            1,
+            64,
+        );
+        assert!(matches!(
+            call_native("coefficient power retained-byte cap", || rejected.pow(&base, 64)),
+            Err(SymbolicaCoefficientMatrixError::ResourceLimit {
+                resource: "coefficient matrix output retained bytes",
+                requested,
+                limit,
+            }) if requested == output_bytes && limit == output_bytes - 1
+        ));
+        let rejected_stats = rejected.state.borrow().stats;
+        assert_eq!(rejected_stats.exact_operations(), 64);
+        assert_eq!(rejected_stats.output_retained_bytes(), 0);
+        assert_eq!(rejected_stats.output_entries, 0);
+    }
+
+    #[test]
+    fn native_field_power_handles_zero_and_rational_coefficients() {
+        let context = CoefficientContext::new(["x", "y"]);
+
+        let zero_to_zero = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits::default(),
+            1,
+            1,
+            0,
+        );
+        assert_eq!(
+            call_native("zero coefficient power zero", || {
+                zero_to_zero.pow(&context.zero(), 0)
+            })
+            .unwrap(),
+            context.one(),
+        );
+        assert_eq!(zero_to_zero.state.borrow().stats.exact_operations(), 0);
+
+        let zero_to_positive = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits::default(),
+            1,
+            1,
+            3,
+        );
+        assert!(
+            call_native("zero coefficient positive power", || {
+                zero_to_positive.pow(&context.zero(), 3)
+            })
+            .unwrap()
+            .is_zero()
+        );
+        assert_eq!(zero_to_positive.state.borrow().stats.exact_operations(), 3);
+
+        let rational = context.coefficient_fixture("(x+y)/(1-x)");
+        let rational_field = CheckedCoefficientField::new(
+            &context,
+            SymbolicaCoefficientMatrixLimits::default(),
+            1,
+            1,
+            3,
+        );
+        assert_eq!(
+            call_native("rational coefficient power", || {
+                rational_field.pow(&rational, 3)
+            })
+            .unwrap(),
+            context.coefficient_fixture("(x+y)^3/(1-x)^3"),
+        );
+        let stats = rational_field.state.borrow().stats;
+        assert_eq!(stats.admitted_power_numerator_terms, 16);
+        assert_eq!(stats.admitted_power_denominator_terms, 4);
+        assert_eq!(stats.output_power_numerator_terms, 4);
+        assert_eq!(stats.output_power_denominator_terms, 4);
     }
 
     #[test]

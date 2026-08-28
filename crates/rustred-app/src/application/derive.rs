@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use rustred::parametric_ibp::{CompletedIbpSourceRows, PreparedIbpSourceBatch};
 use rustred::{
     CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily, ParallelExecution,
-    ParallelExecutionError, ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation,
-    ParametricRowId, ScalarProductCoordinate,
+    ParallelExecutionError, ParametricIbpError, ParametricIbpGenerator, ParametricNonZeroCondition,
+    ParametricRelation, ParametricRowId, ScalarProductCoordinate,
 };
 use serde::Serialize;
 use symbolica::prelude::{AtomCore, Integer};
@@ -169,6 +170,40 @@ struct RelationTermOutputV1 {
     coefficient: String,
 }
 
+fn execute_source_batch(
+    batch: PreparedIbpSourceBatch<'_, '_>,
+    execution: &ParallelExecution,
+) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+    let rows = execution.map_ordered(batch.len(), |ordinal| batch.generate(ordinal));
+    batch.complete(rows)
+}
+
+fn execute_ordinary_batch(
+    generator: &ParametricIbpGenerator<'_>,
+    execution: &ParallelExecution,
+) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+    execute_source_batch(generator.prepare_ordinary_ibp()?, execution)
+}
+
+fn execute_li_batch(
+    generator: &ParametricIbpGenerator<'_>,
+    execution: &ParallelExecution,
+    sources: &CompletedIbpSourceRows,
+) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
+    let batch = generator.prepare_lorentz_invariance(sources)?;
+    execution
+        .map_ordered(batch.len(), |ordinal| batch.generate(ordinal))
+        .into_iter()
+        .collect()
+}
+
+fn execute_external_source_batch(
+    generator: &ParametricIbpGenerator<'_>,
+    execution: &ParallelExecution,
+) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
+    execute_source_batch(generator.prepare_external_ibp_sources()?, execution)
+}
+
 pub(crate) fn build_output(
     project: LoweredProject,
     requested_input_format: InputFormat,
@@ -202,30 +237,37 @@ pub(crate) fn build_output(
     })?;
     let (ordinary, li) = match selection {
         RelationSelection::All => {
-            let generated = generator
-                .generate_with_execution(&execution)
-                .map_err(|error| {
-                    AppError::derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
-                })?;
-            let (_, ordinary, li) = generated.into_parts();
-            (ordinary, li)
+            let ordinary = execute_ordinary_batch(&generator, &execution).map_err(|error| {
+                AppError::derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
+            })?;
+            // LI rows are exact linear combinations of external-contraction
+            // ordinary rows, so the complete ordered ordinary phase is a
+            // barrier before this second ordinal batch is prepared.
+            let li = execute_li_batch(&generator, &execution, &ordinary).map_err(|error| {
+                AppError::derivation(format!("cannot generate parametric IBP/LI rows: {error}"))
+            })?;
+            (ordinary.into_relations(), li)
         }
-        RelationSelection::Ordinary => (
-            generator
-                .generate_ordinary_ibp_with_execution(&execution)
-                .map_err(|error| {
-                    AppError::derivation(format!("cannot generate parametric IBP rows: {error}"))
-                })?,
-            Vec::new(),
-        ),
-        RelationSelection::LorentzInvariance => (
-            Vec::new(),
-            generator
-                .generate_lorentz_invariance_with_execution(&execution)
-                .map_err(|error| {
+        RelationSelection::Ordinary => {
+            let ordinary = execute_ordinary_batch(&generator, &execution).map_err(|error| {
+                AppError::derivation(format!("cannot generate parametric IBP rows: {error}"))
+            })?;
+            (ordinary.into_relations(), Vec::new())
+        }
+        RelationSelection::LorentzInvariance => {
+            if family.external_count() < 2 {
+                (Vec::new(), Vec::new())
+            } else {
+                let sources =
+                    execute_external_source_batch(&generator, &execution).map_err(|error| {
+                        AppError::derivation(format!("cannot generate parametric LI rows: {error}"))
+                    })?;
+                let li = execute_li_batch(&generator, &execution, &sources).map_err(|error| {
                     AppError::derivation(format!("cannot generate parametric LI rows: {error}"))
-                })?,
-        ),
+                })?;
+                (Vec::new(), li)
+            }
+        }
     };
     preflight_generated_relations(ordinary.iter().chain(&li), payload_census)?;
 
@@ -331,12 +373,31 @@ fn preflight_derivation_structure(
     let loops = family.loop_count();
     let externals = family.external_count();
     let denominators = family.denominator_count();
-    let contractions = loops
-        .checked_add(externals)
+    let (requested_attempts, selected_rows) =
+        derivation_structure_bounds(loops, externals, denominators, selection)?;
+    if requested_attempts > MAX_DERIVATION_TERM_ATTEMPTS {
+        return Err(AppError::limit(format!(
+            "the selected generic derivation has a conservative {requested_attempts}-term-attempt bound (L={loops}, E={externals}, N={denominators}), exceeding the application limit {MAX_DERIVATION_TERM_ATTEMPTS}"
+        )));
+    }
+
+    let minimum_render_bound = selected_rows
+        .checked_mul(4_096)
         .ok_or_else(derivation_bound_overflow)?;
-    let ordinary_rows = loops
-        .checked_mul(contractions)
-        .ok_or_else(derivation_bound_overflow)?;
+    if minimum_render_bound > MAX_OUTPUT_BYTES {
+        return Err(AppError::output_limit(format!(
+            "the selected derivation has {selected_rows} rows whose minimum conservative render bound is {minimum_render_bound} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte application output limit"
+        )));
+    }
+    Ok(())
+}
+
+fn derivation_structure_bounds(
+    loops: usize,
+    externals: usize,
+    denominators: usize,
+    selection: RelationSelection,
+) -> Result<(usize, usize), AppError> {
     let external_predecessor = externals.saturating_sub(1);
     let li_rows = if externals % 2 == 0 {
         (externals / 2)
@@ -347,6 +408,20 @@ fn preflight_derivation_structure(
             .checked_mul(external_predecessor / 2)
             .ok_or_else(derivation_bound_overflow)?
     };
+    // No source barrier or LI row exists for fewer than two external momenta.
+    // Return before even evaluating bounds for work that will not run.
+    if matches!(selection, RelationSelection::LorentzInvariance) && li_rows == 0 {
+        return Ok((0, 0));
+    }
+    let contractions = loops
+        .checked_add(externals)
+        .ok_or_else(derivation_bound_overflow)?;
+    let ordinary_rows = loops
+        .checked_mul(contractions)
+        .ok_or_else(derivation_bound_overflow)?;
+    let external_source_rows = loops
+        .checked_mul(externals)
+        .ok_or_else(derivation_bound_overflow)?;
     let denominator_successor = denominators
         .checked_add(1)
         .ok_or_else(derivation_bound_overflow)?;
@@ -355,6 +430,9 @@ fn preflight_derivation_structure(
         .and_then(|value| value.checked_add(1))
         .ok_or_else(derivation_bound_overflow)?;
     let ordinary_attempts = ordinary_rows
+        .checked_mul(ordinary_attempts_per_row)
+        .ok_or_else(derivation_bound_overflow)?;
+    let external_source_attempts = external_source_rows
         .checked_mul(ordinary_attempts_per_row)
         .ok_or_else(derivation_bound_overflow)?;
     let li_attempts_per_row = loops
@@ -367,18 +445,16 @@ fn preflight_derivation_structure(
         .ok_or_else(derivation_bound_overflow)?;
     let requested_attempts = match selection {
         RelationSelection::Ordinary => ordinary_attempts,
-        // LI construction derives the external-contraction ordinary rows as
-        // authenticated sources even when those rows are not emitted.
-        RelationSelection::All | RelationSelection::LorentzInvariance => ordinary_attempts
+        RelationSelection::All => ordinary_attempts
+            .checked_add(li_attempts)
+            .ok_or_else(derivation_bound_overflow)?,
+        // LI-only construction prepares exactly the L*E external-contraction
+        // source rows; loop-contraction ordinary rows are neither generated nor
+        // charged.
+        RelationSelection::LorentzInvariance => external_source_attempts
             .checked_add(li_attempts)
             .ok_or_else(derivation_bound_overflow)?,
     };
-    if requested_attempts > MAX_DERIVATION_TERM_ATTEMPTS {
-        return Err(AppError::limit(format!(
-            "the selected generic derivation has a conservative {requested_attempts}-term-attempt bound (L={loops}, E={externals}, N={denominators}), exceeding the application limit {MAX_DERIVATION_TERM_ATTEMPTS}"
-        )));
-    }
-
     let selected_rows = match selection {
         RelationSelection::All => ordinary_rows
             .checked_add(li_rows)
@@ -386,15 +462,28 @@ fn preflight_derivation_structure(
         RelationSelection::Ordinary => ordinary_rows,
         RelationSelection::LorentzInvariance => li_rows,
     };
-    let minimum_render_bound = selected_rows
-        .checked_mul(4_096)
-        .ok_or_else(derivation_bound_overflow)?;
-    if minimum_render_bound > MAX_OUTPUT_BYTES {
-        return Err(AppError::output_limit(format!(
-            "the selected derivation has {selected_rows} rows whose minimum conservative render bound is {minimum_render_bound} bytes, exceeding the {MAX_OUTPUT_BYTES}-byte application output limit"
-        )));
+    Ok((requested_attempts, selected_rows))
+}
+
+#[cfg(test)]
+mod derivation_structure_tests {
+    use super::*;
+
+    #[test]
+    fn li_with_zero_or_one_external_charges_no_generation_work() {
+        for externals in [0, 1] {
+            assert_eq!(
+                derivation_structure_bounds(
+                    usize::MAX,
+                    externals,
+                    usize::MAX,
+                    RelationSelection::LorentzInvariance,
+                )
+                .unwrap(),
+                (0, 0),
+            );
+        }
     }
-    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Default)]

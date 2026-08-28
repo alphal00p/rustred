@@ -462,13 +462,6 @@ impl NormalizedProjectInputV1 {
         self.canonical.to_canonical_string()
     }
 
-    /// Parse and normalize the canonical rendering again, proving that the
-    /// stable representation is accepted by the same strict v1 grammar.
-    pub fn verify_replay(&self) -> Result<(), SymbolicaIntegralInputError> {
-        let compiler = SymbolicaIntegralInputCompiler::new(self.limits)?;
-        compiler.verify_normalized_replay(self)
-    }
-
     /// Lower this normalized, topology-neutral declaration to the exact
     /// [`IntegralFamily`] consumed by parametric IBP generation.
     pub fn lower(
@@ -505,16 +498,14 @@ impl NormalizedProjectInputV1 {
     ) -> Result<Self, SymbolicaIntegralInputError> {
         guarded_symbolica("explicit input normalization", || {
             let compiler = SymbolicaIntegralInputCompiler::new(limits)?;
-            let normalized = normalize_parts(
+            normalize_parts(
                 parts,
                 NormalizedProjectSourceV1::Explicit,
                 false,
                 &compiler.syntax,
                 SymbolicaIntegralInputStats::default(),
                 limits,
-            )?;
-            compiler.verify_normalized_replay(&normalized)?;
-            Ok(normalized)
+            )
         })
     }
 }
@@ -529,7 +520,7 @@ pub struct SymbolicaIntegralInputLimits {
     pub max_preconversion_integer_bits: usize,
     /// Conservative aggregate integer-bit envelope of every packed Atom copy
     /// retained by one normalized project (source, normalized fields, Gram
-    /// symmetry copies, and canonical replay payload).
+    /// symmetry copies, and canonical rendering payload).
     pub max_retained_atom_integer_bits: usize,
     /// Conservative aggregate bytes of every packed Atom copy retained by one
     /// normalized project. This is distinct from textual input bytes because
@@ -759,7 +750,6 @@ pub enum SymbolicaIntegralInputError {
         symbol: String,
     },
     ConflictingParameterOverride,
-    CanonicalReplayMismatch,
 }
 
 impl fmt::Display for SymbolicaIntegralInputError {
@@ -905,9 +895,6 @@ impl fmt::Display for SymbolicaIntegralInputError {
             Self::ConflictingParameterOverride => {
                 formatter.write_str("hybrid TOML parameter override conflicts with parameters(...)")
             }
-            Self::CanonicalReplayMismatch => formatter.write_str(
-                "canonical I(...) rendering did not round-trip to the same normalized DTO",
-            ),
         }
     }
 }
@@ -1156,7 +1143,7 @@ impl SymbolicaIntegralInputCompiler {
                 )?),
                 None => None,
             };
-            let normalized = normalize_parts(
+            normalize_parts(
                 NormalizedProjectPartsV1 {
                     name,
                     parameters,
@@ -1172,9 +1159,7 @@ impl SymbolicaIntegralInputCompiler {
                 &self.syntax,
                 stats,
                 self.limits,
-            )?;
-            self.verify_normalized_replay(&normalized)?;
-            Ok(normalized)
+            )
         })
     }
 
@@ -1201,14 +1186,12 @@ impl SymbolicaIntegralInputCompiler {
             )?;
             let parsed =
                 parse_authenticated_source(source, RawSourceKind::CompactIntegral, self.limits)?;
-            let normalized = self.compile_atom_with_parameter_override_unverified(
+            self.compile_atom_with_parameter_override(
                 parsed.atom.as_view(),
                 source.len(),
                 parsed.preconversion_integer_bits,
                 parameter_override,
-            )?;
-            self.verify_normalized_replay(&normalized)?;
-            Ok(normalized)
+            )
         })
     }
 
@@ -1217,14 +1200,11 @@ impl SymbolicaIntegralInputCompiler {
         source: AtomView<'_>,
     ) -> Result<NormalizedProjectInputV1, SymbolicaIntegralInputError> {
         guarded_symbolica("compact integral normalization", || {
-            let normalized =
-                self.compile_atom_with_parameter_override_unverified(source, 0, 0, None)?;
-            self.verify_normalized_replay(&normalized)?;
-            Ok(normalized)
+            self.compile_atom_with_parameter_override(source, 0, 0, None)
         })
     }
 
-    fn compile_atom_with_parameter_override_unverified(
+    fn compile_atom_with_parameter_override(
         &self,
         source: AtomView<'_>,
         input_bytes: usize,
@@ -1466,35 +1446,6 @@ impl SymbolicaIntegralInputCompiler {
         )
     }
 
-    fn verify_normalized_replay(
-        &self,
-        normalized: &NormalizedProjectInputV1,
-    ) -> Result<(), SymbolicaIntegralInputError> {
-        guarded_symbolica("canonical integral replay", || {
-            let canonical = normalized.canonical_string();
-            check_limit(
-                "canonical integral bytes",
-                canonical.len(),
-                self.limits.max_input_bytes,
-            )?;
-            let replay = parse_authenticated_source(
-                &canonical,
-                RawSourceKind::CompactIntegral,
-                self.limits,
-            )?;
-            let replay_normalized = self.compile_atom_with_parameter_override_unverified(
-                replay.atom.as_view(),
-                canonical.len(),
-                replay.preconversion_integer_bits,
-                None,
-            )?;
-            if replay_normalized.canonical != normalized.canonical {
-                return Err(SymbolicaIntegralInputError::CanonicalReplayMismatch);
-            }
-            Ok(())
-        })
-    }
-
     fn parse_expression_accumulating(
         &self,
         source: &str,
@@ -1668,7 +1619,6 @@ fn lower_normalized_project(
         })?;
     for propagator in &normalized.propagators {
         let compiled = compiler.compile(propagator.expression.as_view())?;
-        compiled.verify_replay(&compiler)?;
         affine_denominators.push(compiled.affine_denominator().clone());
         denominators.push(LoweredSymbolicaDenominatorV1 {
             id: propagator.id.clone(),
@@ -4508,20 +4458,20 @@ mod tests {
     }
 
     #[test]
-    fn canonical_rendering_replays_from_fully_qualified_names() {
+    fn canonical_rendering_round_trips_once_from_fully_qualified_names() {
         let compiler = compiler();
         let normalized = compiler
-            .compile_str(&one_loop_source(1, "1"))
+            .compile_str(
+                "I(loops(k),externals(),parameters(d,m2,tensor_only),dimension(d),prop(D1,k^2-m2,1),numerator(tensor_only*vec(k,mu)))",
+            )
             .expect("compact input should normalize");
         let canonical = normalized.canonical_string();
         assert!(canonical.contains("rustred::"));
-        let replay = compiler
+        let round_trip = compiler
             .compile_str(&canonical)
             .expect("fully-qualified canonical output must be valid raw input");
-        assert_eq!(replay.canonical_atom(), normalized.canonical_atom());
-        normalized
-            .verify_replay()
-            .expect("retained replay must agree");
+        assert_eq!(round_trip.canonical_atom(), normalized.canonical_atom());
+        assert_eq!(round_trip.parameter_names(), normalized.parameter_names());
     }
 
     #[test]
@@ -4637,13 +4587,6 @@ mod tests {
             &["d".to_owned(), "m2".to_owned()]
         );
         assert_ne!(inferred.canonical_atom(), declared.canonical_atom());
-        let declared_replay = compiler
-            .compile_str(&declared.canonical_string())
-            .expect("canonical replay must retain the declared allowlist");
-        assert_eq!(
-            declared_replay.parameter_names(),
-            declared.parameter_names()
-        );
         assert_eq!(
             inferred.operational_parameter_names(),
             declared.operational_parameter_names()

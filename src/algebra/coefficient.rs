@@ -1,9 +1,7 @@
-use std::{borrow::Borrow, cmp::Ordering, fmt, mem::size_of, sync::Arc};
+use std::{cmp::Ordering, fmt, mem::size_of, sync::Arc};
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::prelude::*;
-
-use super::ExactRational;
 
 const RUSTRED_NAMESPACE: &str = "rustred";
 
@@ -15,7 +13,7 @@ pub type Coefficient = RationalPolynomial<IntegerRing, u16>;
 /// Symbolica's polynomial arithmetic panics when an operation would overflow
 /// its exponent type.  Analytic reducers use this ceiling to preflight their
 /// caller-controlled formula degrees before constructing coefficients.
-pub const SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT: u128 = u16::MAX as u128;
+pub const SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT: u16 = u16::MAX;
 
 /// Resource limits for exact rational-polynomial arithmetic.
 ///
@@ -25,7 +23,7 @@ pub const SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT: u128 = u16::MAX as u128;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExactAlgebraLimits {
     /// Largest exponent admitted by RustRed's checked representation boundary.
-    pub max_exponent: u128,
+    pub max_exponent: u16,
     /// Largest authenticated retained sparse part.
     ///
     /// A conservative native-output envelope is a separate operation-local
@@ -60,6 +58,7 @@ pub enum ExactAlgebraOperation {
     Multiply,
     Divide,
     Negate,
+    Power,
 }
 
 impl fmt::Display for ExactAlgebraOperation {
@@ -71,6 +70,7 @@ impl fmt::Display for ExactAlgebraOperation {
             Self::Multiply => formatter.write_str("multiply"),
             Self::Divide => formatter.write_str("divide"),
             Self::Negate => formatter.write_str("negate"),
+            Self::Power => formatter.write_str("power"),
         }
     }
 }
@@ -78,10 +78,6 @@ impl fmt::Display for ExactAlgebraOperation {
 /// Typed failures produced before panic-prone Symbolica arithmetic is called.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExactAlgebraError {
-    ConfiguredExponentLimit {
-        requested: u128,
-        representation_limit: u128,
-    },
     VariableMapMismatch {
         part: CoefficientPolynomialPart,
     },
@@ -104,8 +100,13 @@ pub enum ExactAlgebraError {
     ExponentLimit {
         operation: ExactAlgebraOperation,
         variable: usize,
-        requested: u128,
-        limit: u128,
+        requested: u64,
+        limit: u16,
+    },
+    ExponentArithmeticOverflow {
+        operation: ExactAlgebraOperation,
+        variable: usize,
+        width: u8,
     },
     ResourceLimit {
         resource: &'static str,
@@ -120,13 +121,6 @@ pub enum ExactAlgebraError {
 impl fmt::Display for ExactAlgebraError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ConfiguredExponentLimit {
-                requested,
-                representation_limit,
-            } => write!(
-                formatter,
-                "configured exponent limit {requested} exceeds the Symbolica representation limit {representation_limit}"
-            ),
             Self::VariableMapMismatch { part } => {
                 write!(formatter, "coefficient {part} uses a foreign variable map")
             }
@@ -162,6 +156,14 @@ impl fmt::Display for ExactAlgebraError {
                 formatter,
                 "exact {operation} needs exponent {requested} in variable {variable}, above limit {limit}"
             ),
+            Self::ExponentArithmeticOverflow {
+                operation,
+                variable,
+                width,
+            } => write!(
+                formatter,
+                "exact {operation} exponent arithmetic overflowed u{width} in variable {variable}"
+            ),
             Self::ResourceLimit {
                 resource,
                 requested,
@@ -184,7 +186,6 @@ pub(crate) fn validate_coefficient_on_map(
     variables: &Arc<Vec<PolyVariable>>,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    validate_exact_limits(limits)?;
     validate_polynomial_on_map(
         &coefficient.numerator,
         variables,
@@ -377,24 +378,12 @@ fn validate_binary_inputs(
     validate_coefficient_on_map(right, variables, limits)
 }
 
-fn validate_exact_limits(limits: ExactAlgebraLimits) -> Result<(), ExactAlgebraError> {
-    if limits.max_exponent > SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT {
-        Err(ExactAlgebraError::ConfiguredExponentLimit {
-            requested: limits.max_exponent,
-            representation_limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-        })
-    } else {
-        Ok(())
-    }
-}
-
 pub(crate) fn validate_polynomial_on_map(
     polynomial: &MultivariatePolynomial<IntegerRing, u16>,
     variables: &Arc<Vec<PolyVariable>>,
     part: CoefficientPolynomialPart,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    validate_exact_limits(limits)?;
     if polynomial.variables.as_ref() != variables.as_ref() {
         return Err(ExactAlgebraError::VariableMapMismatch { part });
     }
@@ -439,12 +428,11 @@ pub(crate) fn validate_polynomial_on_map(
         .enumerate()
     {
         for (variable, &exponent) in exponents.iter().enumerate() {
-            let requested = u128::from(exponent);
-            if requested > limits.max_exponent {
+            if exponent > limits.max_exponent {
                 return Err(ExactAlgebraError::ExponentLimit {
                     operation: ExactAlgebraOperation::Authenticate,
                     variable,
-                    requested,
+                    requested: u64::from(exponent),
                     limit: limits.max_exponent,
                 });
             }
@@ -467,15 +455,25 @@ fn preflight_cross_sum_degrees(
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
     for variable in 0..left.numerator.variables.len() {
-        let left_numerator = u128::from(left.numerator.degree(variable));
-        let left_denominator = u128::from(left.denominator.degree(variable));
-        let right_numerator = u128::from(right.numerator.degree(variable));
-        let right_denominator = u128::from(right.denominator.degree(variable));
-        let requested = left_numerator
-            .saturating_add(right_denominator)
-            .max(right_numerator.saturating_add(left_denominator))
-            .max(left_denominator.saturating_add(right_denominator));
-        check_exact_exponent(operation, variable, requested, limits)?;
+        let left_numerator = left.numerator.degree(variable);
+        let left_denominator = left.denominator.degree(variable);
+        let right_numerator = right.numerator.degree(variable);
+        let right_denominator = right.denominator.degree(variable);
+        let requested =
+            checked_pairwise_exponent_sum(left_numerator, right_denominator, operation, variable)?
+                .max(checked_pairwise_exponent_sum(
+                    right_numerator,
+                    left_denominator,
+                    operation,
+                    variable,
+                )?)
+                .max(checked_pairwise_exponent_sum(
+                    left_denominator,
+                    right_denominator,
+                    operation,
+                    variable,
+                )?);
+        check_exact_exponent(operation, variable, u64::from(requested), limits)?;
     }
     Ok(())
 }
@@ -487,9 +485,46 @@ fn preflight_product_degrees(
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
     for variable in 0..left.variables.len() {
-        let requested =
-            u128::from(left.degree(variable)).saturating_add(u128::from(right.degree(variable)));
-        check_exact_exponent(operation, variable, requested, limits)?;
+        let requested = checked_pairwise_exponent_sum(
+            left.degree(variable),
+            right.degree(variable),
+            operation,
+            variable,
+        )?;
+        check_exact_exponent(operation, variable, u64::from(requested), limits)?;
+    }
+    Ok(())
+}
+
+fn checked_pairwise_exponent_sum(
+    left: u16,
+    right: u16,
+    operation: ExactAlgebraOperation,
+    variable: usize,
+) -> Result<u32, ExactAlgebraError> {
+    u32::from(left).checked_add(u32::from(right)).ok_or(
+        ExactAlgebraError::ExponentArithmeticOverflow {
+            operation,
+            variable,
+            width: 32,
+        },
+    )
+}
+
+fn preflight_power_degrees(
+    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    exponent: u64,
+    limits: ExactAlgebraLimits,
+) -> Result<(), ExactAlgebraError> {
+    for variable in 0..polynomial.variables.len() {
+        let requested = u64::from(polynomial.degree(variable))
+            .checked_mul(exponent)
+            .ok_or(ExactAlgebraError::ExponentArithmeticOverflow {
+                operation: ExactAlgebraOperation::Power,
+                variable,
+                width: 64,
+            })?;
+        check_exact_exponent(ExactAlgebraOperation::Power, variable, requested, limits)?;
     }
     Ok(())
 }
@@ -497,10 +532,10 @@ fn preflight_product_degrees(
 fn check_exact_exponent(
     operation: ExactAlgebraOperation,
     variable: usize,
-    requested: u128,
+    requested: u64,
     limits: ExactAlgebraLimits,
 ) -> Result<(), ExactAlgebraError> {
-    if requested > limits.max_exponent {
+    if requested > u64::from(limits.max_exponent) {
         Err(ExactAlgebraError::ExponentLimit {
             operation,
             variable,
@@ -713,6 +748,17 @@ impl CoefficientContext {
         validate_coefficient_on_map(coefficient, &self.variables, limits)
     }
 
+    pub(crate) fn preflight_power_with_limits(
+        &self,
+        coefficient: &Coefficient,
+        exponent: u64,
+        limits: ExactAlgebraLimits,
+    ) -> Result<(), ExactAlgebraError> {
+        validate_coefficient_on_map(coefficient, &self.variables, limits)?;
+        preflight_power_degrees(&coefficient.numerator, exponent, limits)?;
+        preflight_power_degrees(&coefficient.denominator, exponent, limits)
+    }
+
     pub(crate) fn variables(&self) -> &Arc<Vec<PolyVariable>> {
         &self.variables
     }
@@ -734,21 +780,6 @@ impl CoefficientContext {
             .numerator
             .constant(Integer::from(value))
             .into()
-    }
-
-    pub fn rational(&self, value: impl Borrow<ExactRational>) -> Coefficient {
-        let value = value.borrow();
-        let numerator: Coefficient = self
-            .template
-            .numerator
-            .constant(value.numerator().clone())
-            .into();
-        let denominator: Coefficient = self
-            .template
-            .denominator
-            .constant(value.denominator().clone())
-            .into();
-        &numerator / &denominator
     }
 
     pub fn parameter(&self, name: &str) -> Option<Coefficient> {
@@ -913,6 +944,35 @@ mod tests {
                 operation: ExactAlgebraOperation::Multiply,
                 variable: 0,
                 requested: 65_536,
+                limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+            })
+        ));
+    }
+
+    #[test]
+    fn checked_power_preflight_uses_u64_before_native_arithmetic() {
+        let context = CoefficientContext::new(["x"]);
+        let x_squared = context.coefficient_fixture("x^2");
+        assert!(matches!(
+            context.preflight_power_with_limits(
+                &x_squared,
+                u64::MAX,
+                ExactAlgebraLimits::default(),
+            ),
+            Err(ExactAlgebraError::ExponentArithmeticOverflow {
+                operation: ExactAlgebraOperation::Power,
+                variable: 0,
+                width: 64,
+            })
+        ));
+
+        let x_40_000 = context.coefficient_fixture("x^40000");
+        assert!(matches!(
+            context.preflight_power_with_limits(&x_40_000, 2, ExactAlgebraLimits::default()),
+            Err(ExactAlgebraError::ExponentLimit {
+                operation: ExactAlgebraOperation::Power,
+                variable: 0,
+                requested: 80_000,
                 limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
             })
         ));

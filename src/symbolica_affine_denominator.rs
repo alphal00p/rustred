@@ -46,7 +46,7 @@ pub const SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA: &str = "rustred.symbolica-affi
 
 type IntegerPolynomial = MultivariatePolynomial<IntegerRing, u16>;
 
-/// Resource policy for parsing, exact evaluation, projection, and replay.
+/// Resource policy for parsing, exact evaluation, projection, and retention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SymbolicaAffineDenominatorLimits {
     pub exact_algebra: ExactAlgebraLimits,
@@ -96,7 +96,7 @@ impl Default for SymbolicaAffineDenominatorLimits {
     fn default() -> Self {
         Self {
             exact_algebra: ExactAlgebraLimits {
-                max_exponent: u16::MAX as u128,
+                max_exponent: u16::MAX,
                 max_polynomial_terms: 100_000,
                 max_term_operations: 1_000_000,
             },
@@ -325,6 +325,10 @@ pub enum SymbolicaAffineDenominatorError {
         requested: u128,
         limit: u128,
     },
+    PowerLimit {
+        requested: u64,
+        limit: u32,
+    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -365,7 +369,6 @@ pub enum SymbolicaAffineDenominatorError {
         requested: usize,
         limit: usize,
     },
-    CompilationReplayMismatch,
     SymbolicaPanic {
         stage: &'static str,
     },
@@ -465,6 +468,10 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
                 formatter,
                 "{resource} needs {requested} units, exceeding the configured limit {limit}"
             ),
+            Self::PowerLimit { requested, limit } => write!(
+                formatter,
+                "absolute power {requested} exceeds the configured limit {limit}"
+            ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed its representation")
             }
@@ -529,8 +536,6 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
                 formatter,
                 "normalized expression retains {requested} bytes, exceeding the configured limit {limit}"
             ),
-            Self::CompilationReplayMismatch => formatter
-                .write_str("recompiled affine denominator differs from its retained transcript"),
             Self::SymbolicaPanic { stage } => write!(
                 formatter,
                 "Symbolica panicked during affine-denominator {stage}"
@@ -628,25 +633,6 @@ impl CompiledSymbolicaAffineDenominator {
 
     pub const fn limits(&self) -> SymbolicaAffineDenominatorLimits {
         self.limits
-    }
-
-    /// Recompile the retained Atom against the supplied authenticated declaration.
-    pub fn verify_replay(
-        &self,
-        compiler: &SymbolicaAffineDenominatorCompiler,
-    ) -> Result<(), SymbolicaAffineDenominatorError> {
-        let mut replay = compiler.compile(self.source.as_view())?;
-        // Raw-token census data describes only a string boundary.  The retained
-        // Atom replay starts after that boundary, so preserve the authenticated
-        // transcript's raw-only fields for structural equality.
-        replay.stats.raw_token_nodes = self.stats.raw_token_nodes;
-        replay.stats.raw_token_maximum_depth = self.stats.raw_token_maximum_depth;
-        replay.stats.raw_integer_magnitude_bits = self.stats.raw_integer_magnitude_bits;
-        if replay == *self {
-            Ok(())
-        } else {
-            Err(SymbolicaAffineDenominatorError::CompilationReplayMismatch)
-        }
     }
 }
 
@@ -3296,7 +3282,7 @@ fn normalized_expression_render_byte_bound(
 fn polynomial_degrees(
     polynomial: &IntegerPolynomial,
     expected_variables: usize,
-) -> Result<Vec<usize>, SymbolicaAffineDenominatorError> {
+) -> Result<Vec<u16>, SymbolicaAffineDenominatorError> {
     if polynomial.variables.len() != expected_variables {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
@@ -3312,7 +3298,7 @@ fn polynomial_degrees(
         }
     })?;
     for variable in 0..expected_variables {
-        degrees.push(usize::from(polynomial.degree(variable)));
+        degrees.push(polynomial.degree(variable));
     }
     Ok(degrees)
 }
@@ -3331,17 +3317,19 @@ fn operation_dense_degree_boxes(
     let mut numerator_box = 1usize;
     let mut denominator_box = 1usize;
     for variable in 0..variables {
-        let sum = |left: usize,
-                   right: usize,
+        let sum = |left: u16,
+                   right: u16,
                    resource: &'static str|
-         -> Result<usize, SymbolicaAffineDenominatorError> {
-            left.checked_add(right)
+         -> Result<u32, SymbolicaAffineDenominatorError> {
+            u32::from(left)
+                .checked_add(u32::from(right))
                 .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow { resource })
         };
         let (numerator_degree, denominator_degree) = match operation {
-            BinaryOperation::Add if same_denominator => {
-                (ln[variable].max(rn[variable]), ld[variable])
-            }
+            BinaryOperation::Add if same_denominator => (
+                u32::from(ln[variable].max(rn[variable])),
+                u32::from(ld[variable]),
+            ),
             BinaryOperation::Add => (
                 sum(ln[variable], rd[variable], "addition numerator degree")?.max(sum(
                     rn[variable],
@@ -3367,24 +3355,32 @@ fn operation_dense_degree_boxes(
                 sum(ld[variable], rn[variable], "division denominator degree")?,
             ),
         };
-        numerator_box = numerator_box
-            .checked_mul(numerator_degree.checked_add(1).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "dense numerator degree box",
-                },
-            )?)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+        let numerator_width = usize::try_from(numerator_degree.checked_add(1).ok_or(
+            SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "dense numerator degree box",
-            })?;
-        denominator_box = denominator_box
-            .checked_mul(denominator_degree.checked_add(1).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "dense denominator degree box",
-                },
-            )?)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
+            },
+        )?)
+        .map_err(|_| SymbolicaAffineDenominatorError::ResourceCountOverflow {
+            resource: "dense numerator degree box",
+        })?;
+        numerator_box = numerator_box.checked_mul(numerator_width).ok_or(
+            SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                resource: "dense numerator degree box",
+            },
+        )?;
+        let denominator_width = usize::try_from(denominator_degree.checked_add(1).ok_or(
+            SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "dense denominator degree box",
-            })?;
+            },
+        )?)
+        .map_err(|_| SymbolicaAffineDenominatorError::ResourceCountOverflow {
+            resource: "dense denominator degree box",
+        })?;
+        denominator_box = denominator_box.checked_mul(denominator_width).ok_or(
+            SymbolicaAffineDenominatorError::ResourceCountOverflow {
+                resource: "dense denominator degree box",
+            },
+        )?;
     }
     Ok((numerator_box, denominator_box))
 }
@@ -3602,6 +3598,12 @@ impl<'a> CheckedEvaluator<'a> {
         if exponent == 0 {
             return Ok(self.compiler.combined.one());
         }
+
+        self.compiler.combined.preflight_power_with_limits(
+            base,
+            exponent.unsigned_abs(),
+            self.compiler.limits.exact_algebra,
+        )?;
 
         let mut clone_census = unit_census;
         clone_census.checked_add_assign(
@@ -4528,7 +4530,7 @@ fn raw_power_exponent(token: &Token) -> Option<(&str, bool)> {
     }
 }
 
-fn decimal_magnitude_u128(digits: &str) -> Option<u128> {
+fn decimal_magnitude_u64(digits: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
@@ -4551,10 +4553,9 @@ fn validate_raw_power(
     if significant.len() > limit_string.len()
         || (significant.len() == limit_string.len() && significant > limit_string.as_str())
     {
-        return Err(SymbolicaAffineDenominatorError::ResourceLimit {
-            resource: "raw absolute power",
-            requested: decimal_magnitude_u128(significant).unwrap_or(u128::MAX),
-            limit: u128::from(limits.max_abs_power),
+        return Err(SymbolicaAffineDenominatorError::PowerLimit {
+            requested: decimal_magnitude_u64(significant).unwrap_or(u64::MAX),
+            limit: limits.max_abs_power,
         });
     }
     let magnitude = significant.parse::<usize>().map_err(|_| {
@@ -5313,7 +5314,6 @@ mod tests {
             ]
         );
         assert_eq!(compiled.stats().projected_numerator_terms(), 4);
-        compiled.verify_replay(&compiler).unwrap();
     }
 
     #[test]
@@ -5499,27 +5499,14 @@ mod tests {
     }
 
     #[test]
-    fn unqualified_and_both_qualified_symbolica_spellings_replay() {
+    fn unqualified_and_qualified_symbolica_spellings_match() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
         let unqualified = compiler.compile_str("k^2+a").unwrap();
         let qualified = compiler.compile_str("rustred::k^2+rustred::a").unwrap();
-        let canonical_source = unqualified.source().to_canonical_string();
-        let canonical_normalized = unqualified.normalized_expression().to_canonical_string();
-        let source_replay = compiler.compile_str(&canonical_source).unwrap();
-        let normalized_replay = compiler.compile_str(&canonical_normalized).unwrap();
         assert_eq!(
             qualified.affine_denominator(),
             unqualified.affine_denominator()
         );
-        assert_eq!(
-            source_replay.affine_denominator(),
-            unqualified.affine_denominator()
-        );
-        assert_eq!(
-            normalized_replay.affine_denominator(),
-            unqualified.affine_denominator()
-        );
-        unqualified.verify_replay(&compiler).unwrap();
     }
 
     #[test]
@@ -5762,17 +5749,15 @@ mod tests {
         .unwrap();
         assert!(matches!(
             below.compile_str("2^3*k^2"),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw absolute power",
+            Err(SymbolicaAffineDenominatorError::PowerLimit {
                 requested: 3,
                 limit: 2,
             })
         ));
         assert!(matches!(
             exact_compiler.compile_str("2^999999999999999999999999999999999999999999"),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw absolute power",
-                requested: u128::MAX,
+            Err(SymbolicaAffineDenominatorError::PowerLimit {
+                requested: u64::MAX,
                 limit: 3,
             })
         ));
@@ -6093,6 +6078,21 @@ mod tests {
                 limit: 0,
             }) if requested > 0
         ));
+
+        let overflowing_base = base.combined.coefficient_fixture("a^40000");
+        let mut evaluator = CheckedEvaluator::new(&base);
+        assert!(matches!(
+            evaluator.checked_power(&overflowing_base, 2),
+            Err(SymbolicaAffineDenominatorError::ExactAlgebra(
+                ExactAlgebraError::ExponentLimit {
+                    operation: crate::algebra::ExactAlgebraOperation::Power,
+                    variable: 0,
+                    requested: 80_000,
+                    limit: crate::algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+                }
+            ))
+        ));
+        assert_eq!(evaluator.arithmetic_operations, 0);
     }
 
     #[test]

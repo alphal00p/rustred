@@ -2,7 +2,7 @@
 //!
 //! This module is the RustRed counterpart of LiteRed's `FeynParUF`.  It
 //! constructs `U`, `F`, and `G = U + F` from an authenticated complete affine
-//! [`IntegralFamily`](crate::IntegralFamily).  The implementation contains no
+//! [`IntegralFamily`].  The implementation contains no
 //! loop-count or topology dispatch.
 
 use std::collections::BTreeMap;
@@ -15,9 +15,8 @@ use symbolica::domains::rational_polynomial::RationalPolynomialField;
 use symbolica::prelude::*;
 
 use crate::{
-    FamilyDomain, IntegralFamily, ScalarProductCoordinate, SectorMask, algebra::Coefficient,
+    FamilyDomain, IntegralFamily, ScalarProductCoordinate, algebra::Coefficient,
     algebra::CoefficientContext, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
-    algebra::ExactRational,
 };
 
 /// Sparse polynomials in Feynman parameters with coefficients in the
@@ -373,44 +372,6 @@ impl FeynmanPolynomialContext {
         Ok(gradient)
     }
 
-    /// Set inactive parameters to zero without compressing the ordered
-    /// variable map.  This is the exact face operation used by certificates.
-    pub fn try_restrict_face(
-        &self,
-        polynomial: &FeynmanPolynomial,
-        active: &SectorMask,
-    ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
-        self.authenticate(polynomial)?;
-        let mut work = FeynmanWorkBudget::new(self.limits);
-        if active.arity() != self.parameter_count() {
-            return Err(FeynmanPolynomialError::MalformedPolynomial {
-                detail: format!(
-                    "face mask has arity {}, expected {}",
-                    active.arity(),
-                    self.parameter_count()
-                ),
-            });
-        }
-        check_limit(
-            "Feynman polynomial face terms",
-            polynomial.raw.nterms(),
-            self.limits.max_term_operations,
-        )?;
-        work.charge_term_operations(polynomial.raw.nterms())?;
-        let mut terms = BTreeMap::new();
-        for (coefficient, exponents) in polynomial.terms() {
-            if exponents
-                .iter()
-                .zip(active.active_bits())
-                .any(|(&exponent, &is_active)| exponent > 0 && !is_active)
-            {
-                continue;
-            }
-            terms.insert(exponents.to_vec(), coefficient.clone());
-        }
-        self.from_terms(terms)
-    }
-
     fn zero(&self) -> FeynmanPolynomial {
         self.wrap(self.template.zero())
     }
@@ -614,7 +575,11 @@ impl FeynmanPolynomialContext {
                 for (variable, (&left, &right)) in
                     left_exponents.iter().zip(right_exponents).enumerate()
                 {
-                    let requested = u32::from(left) + u32::from(right);
+                    let requested = u32::from(left).checked_add(u32::from(right)).ok_or(
+                        FeynmanPolynomialError::ResourceCountOverflow {
+                            resource: "prospective Feynman-parameter exponent",
+                        },
+                    )?;
                     if requested > u32::from(self.limits.max_parameter_exponent) {
                         return Err(FeynmanPolynomialError::ParameterExponentOverflow {
                             variable,
@@ -870,7 +835,11 @@ impl SymanzikPolynomials {
         let mut a = vec![vec![context.zero(); loops]; loops];
         let mut q = vec![vec![context.zero(); externals]; loops];
         let mut c = context.zero();
-        let half = context.coefficients.rational(ExactRational::new(1, 2));
+        let half = context.coefficients.try_div(
+            &context.coefficients.one(),
+            &context.coefficients.integer(2),
+            limits.exact_algebra,
+        )?;
 
         for (denominator_index, denominator) in family.denominators().iter().enumerate() {
             let constant = context.parameter_monomial(denominator_index, denominator.constant())?;
@@ -996,17 +965,6 @@ impl SymanzikPolynomials {
     /// `FeynParGdG` data.
     pub fn try_gradient(&self) -> Result<Vec<FeynmanPolynomial>, FeynmanPolynomialError> {
         self.context.try_gradient(&self.g)
-    }
-
-    /// Checked restriction of any polynomial from this family context to a
-    /// sector face.  The result retains all parameter variables in family
-    /// order.
-    pub fn try_restrict_face(
-        &self,
-        polynomial: &FeynmanPolynomial,
-        active: &SectorMask,
-    ) -> Result<FeynmanPolynomial, FeynmanPolynomialError> {
-        self.context.try_restrict_face(polynomial, active)
     }
 }
 

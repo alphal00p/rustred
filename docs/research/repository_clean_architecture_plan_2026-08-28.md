@@ -256,11 +256,11 @@ dumping-ground module.
 | root `build.rs` | delete; the application producer calls Symbolica's public `LicenseManager::get_version()` directly, so reported version follows the dependency Cargo actually resolved |
 | root `src/lib.rs` | delete and write a small `crates/rustred-core/src/lib.rs`; do not preserve wholesale re-exports or schema compatibility |
 | `src/legacy_oracle_support.rs` | delete with `legacy-oracle-support` feature and every reference to it |
-| `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_affine_denominator.rs`, `symbolica_coefficient_matrix.rs` | move live checked primitives to `algebra/`; delete bespoke operations available through Symbolica |
-| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
+| `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_affine_denominator.rs`, `symbolica_coefficient_matrix.rs` | move live checked primitives to `algebra/`; delete bespoke operations available through Symbolica and automatic recompilation of an already authenticated denominator |
+| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; trusted family and ISP constructors authenticate ingress and check their local shape, algebra, and rank invariants once, while exact replay remains an explicit proof/tamper audit; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
 | `src/shift_operators.rs` | delete wholesale; it is a closed, uncalled intermediate with only self-tests and is not a reduction implementation |
-| `src/symbolica_integral_input.rs` | move core parsing/normalization to `input/`; transport and CLI decoding remain in `rustred-app` |
-| `src/parametric_ibp.rs`, `parametric_relation.rs`, and the topology-neutral part of `generated_symbolic_row_span.rs` | move live raw IBP/LI row construction and stable row provenance to `identity/`; remove “generated” naming |
+| `src/symbolica_integral_input.rs` | move core parsing/normalization to `input/`; authenticate each ingress once, keep canonical round-trip as a focused sentinel rather than automatic constructor replay, and leave transport/CLI decoding in `rustred-app` |
+| `src/parametric_ibp.rs`, `parametric_relation.rs`, and the topology-neutral part of `generated_symbolic_row_span.rs` | move live raw IBP/LI row construction and stable row provenance to `identity/`; one prepared source-batch type covers ordinary and LI-only layouts, seals ordered results once by semantic scope/layout/ordinal, and supplies one completed source token to LI without replay; remove “generated” naming |
 | `src/parametric_sector_normalized_source.rs`, `generated_cylindrical_family_source_set.rs`, `generated_cylindrical_row_system.rs`, `generated_affine_residual_source_authority.rs`, and high-level portions of `generated_symbolic_row_span.rs` | retain only raw topology-neutral identity values already used outside the prototype under `identity/`; delete exceptional scheduling, coverage, source-authority, and provider orchestration with the solver island |
 | `src/coordinate_equality_loci.rs`, `symbolic_sector_cases.rs`, `symmetry.rs`, `symmetry_discovery.rs`, `symbolic_symmetry_transport.rs`, `zero_sectors.rs`, `zero_sector_provider.rs`, `product_locus_boolean_cover.rs`, `residual_affine_{atom_rows,integer_system,integer_lattice_kernel}.rs` | retain only independently live locus/transport/zero/factorization responsibilities under `sector/`; the legacy V1 residual-unit map and its public adapters have been deleted, and unsupported integer-normal-form cases remain typed boundaries rather than private CAS |
 | `src/family_sector_inventory.rs` | retain only independently used stable sector decisions/evidence under `sector/`; delete family-wide unresolved-work orchestration with the prototype island |
@@ -510,11 +510,26 @@ Symbolica coefficient operations, and mathematical pre-operation bounds. They
 must still be renamed and split into the semantic algebra/identity owners;
 their shorter current files are not accepted as final root modules.
 
+The retained exponent boundary now matches Symbolica's representation:
+stored and configured caps are `u16`, pairwise prospective degree sums use
+checked `u32`, and degree-by-power projections use checked `u64` before native
+or repeated arithmetic. Term and memory counts remain `usize`; integer-bit
+and sector-ordering bounds retain their independent wider domains. Native
+coefficient powers additionally enforce Symbolica's `u32` exponent ceiling,
+conservatively preflight componentwise degree-box support and
+per-multiplication term work, and charge its current linear multiplication
+schedule before entry, including for degree-zero coefficients. Every returned
+power is reauthenticated and charged to the native output-retained-byte
+budget.
+
 This audited checkpoint deletes the closed shift-operator intermediate and
 the four-file, 7,829-line tensor prototype SCC, and prunes publication-era and
 unused transform/reservation campaign branches. It also deletes the matrix
 module's now-orphaned scalar-power wrapper and its self-tests; direct native
-coefficient power is reintroduced only at a live semantic owner. Tensor is
+coefficient power remains only at Symbolica's required field boundary. The
+nominal exact-rational wrapper is deleted, and the sole half-coefficient use is
+constructed by checked division in the Symbolica rational-polynomial field
+rather than by an infallible unchecked-native conversion. Tensor is
 rebuilt only after its fresh custom-head covariant/scalar-lowering and
 rank-four pairing sentinels exist; internal self-use and root re-exports were
 not accepted as liveness. The retained admission controller is bootstrapped

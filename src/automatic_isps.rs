@@ -287,16 +287,14 @@ impl AutomaticIspCompletion {
             rank_operations: budget.operations,
             appended_isps: appended_coordinate_ordinals.len(),
         };
-        let completion = Self {
+        Ok(Self {
             family,
             input_denominator_count,
             appended_coordinate_ordinals: appended_coordinate_ordinals.into_boxed_slice(),
             rank_progression: rank_progression.into_boxed_slice(),
             limits,
             stats,
-        };
-        completion.replay()?;
-        Ok(completion)
+        })
     }
 
     pub const fn schema(&self) -> &'static str {

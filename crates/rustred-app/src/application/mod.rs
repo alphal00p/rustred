@@ -140,7 +140,7 @@ pub fn derive(request: DeriveRequest) -> Result<DeriveResult, AppError> {
 ///
 /// # Panics
 ///
-/// This function follows the panic contract documented on [`derive`].
+/// This function follows the panic contract documented on [`derive()`].
 pub fn campaign_plan(request: CampaignPlanRequest) -> Result<CampaignPlanResult, AppError> {
     validate_ingress("campaign input", &request.source)?;
     campaign::plan::plan_request(request)
@@ -150,7 +150,7 @@ pub fn campaign_plan(request: CampaignPlanRequest) -> Result<CampaignPlanResult,
 ///
 /// # Panics
 ///
-/// This function follows the panic contract documented on [`derive`].
+/// This function follows the panic contract documented on [`derive()`].
 pub fn campaign_preflight(
     request: CampaignPreflightRequest,
 ) -> Result<CampaignPreflightResult, AppError> {

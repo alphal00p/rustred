@@ -136,14 +136,6 @@ pub enum GuardOrigin {
     /// to LiteRed's effective sector support.
     PowerShiftSupport { denominator: usize },
 
-    /// Denominator of the dividend operand before guarded division.
-    GuardedDivisionDividendDenominator,
-    /// Denominator of the divisor operand before guarded division.
-    GuardedDivisionDivisorDenominator,
-    /// Numerator of the divisor before guarded division; this is the actual
-    /// nonzero requirement for division, including a normalized `0 / n`.
-    GuardedDivisionDivisorNumerator,
-
     /// A condition inserted through the polynomial-only relation API.
     ExplicitRelationCondition,
     /// The condition was attached to this relation.  Source-row atoms remain
@@ -196,15 +188,6 @@ impl GuardOrigin {
             }
             Self::PowerShiftSupport { denominator } => {
                 write!(writer, "power-shift-support:{denominator}")
-            }
-            Self::GuardedDivisionDividendDenominator => {
-                writer.write_str("guarded-division-dividend-denominator")
-            }
-            Self::GuardedDivisionDivisorDenominator => {
-                writer.write_str("guarded-division-divisor-denominator")
-            }
-            Self::GuardedDivisionDivisorNumerator => {
-                writer.write_str("guarded-division-divisor-numerator")
             }
             Self::ExplicitRelationCondition => writer.write_str("explicit-relation-condition"),
             Self::RelationConditionAttached { row } => {

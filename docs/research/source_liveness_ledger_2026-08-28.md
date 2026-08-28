@@ -1,9 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `3914d4f`, immediately before the shift/tensor/campaign prototype purge.
+**Baseline parent:** `47cf825`, immediately before the native-coefficient, dead-division,
+and redundant-replay cleanup.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 49 tracked Rust source/test paths
+This ledger classifies every one of the 48 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -20,9 +21,9 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 15 |
-| split | 32 |
-| delete | 1 |
+| move | 16 |
+| split | 31 |
+| delete | 0 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -51,7 +52,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
 | `src/algebra/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
-| `src/algebra/exact.rs` | delete | algebra | replace its two live consumers with Symbolica's native rational type; do not retain a parallel exact-number wrapper |
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
@@ -63,12 +63,12 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/work.rs` | split | campaign / rustred-app | rewrite around opaque work identities and delete publication-era variants |
-| `src/feynman_polynomials.rs` | split | family / sector | retain Symbolica-native construction under family; move face restriction to sector and delete handwritten CAS |
+| `src/feynman_polynomials.rs` | move | family | retain Symbolica-native construction; delete the uncalled face-restriction API instead of moving dead sector coupling |
 | `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay |
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
+| `src/parametric_coefficient.rs` | split | algebra | retain checked Symbolica base/index coefficient and sparse-polynomial authority; Phase 0 has no foundry owner |
+| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
