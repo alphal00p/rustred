@@ -296,8 +296,8 @@ fn raw_symbolica_is_deterministic_and_emits_the_complete_one_loop_ibp() {
         .and_then(|value| value.strip_suffix("+rustred::{}::d"))
         .expect("(d-2*n0) in canonical Symbolica order");
     assert!(
-        index.starts_with("rustred::parametric_s") && index.ends_with("::{}::n0"),
-        "unexpected fully qualified parametric index {index:?}"
+        index.starts_with("rustred::indexed_coefficient_s") && index.ends_with("::{}::n0"),
+        "unexpected fully qualified indexed coefficient symbol {index:?}"
     );
     let expected_raised = format!("-2*{index}*rustred::{{}}::m2");
     assert_eq!(

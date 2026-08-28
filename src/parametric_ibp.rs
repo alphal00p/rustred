@@ -7,15 +7,13 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::algebra::{IndexedAlgebraError, IndexedCoefficient, IndexedCoefficientContext};
 use crate::family::{
     CoefficientLocation, ContractionMomentum, IntegralFamily, IntegralFamilyError,
     ScalarProductCoordinate,
 };
 use crate::identity::{
     IdentityConditionError, IdentityConditionSource, ParametricNonZeroCondition, RowId,
-};
-use crate::parametric_coefficient::{
-    ParametricCoefficient, ParametricCoefficientContext, ParametricCoefficientError,
 };
 use crate::parametric_relation::{
     IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, RelationLimits,
@@ -66,7 +64,7 @@ pub enum ParametricIbpError {
     },
     CompletedSourceScopeMismatch,
     IdentityCondition(IdentityConditionError),
-    Coefficient(ParametricCoefficientError),
+    Coefficient(IndexedAlgebraError),
     Relation(ParametricRelationError),
     Family(IntegralFamilyError),
 }
@@ -75,11 +73,11 @@ impl fmt::Display for ParametricIbpError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BaseContextMismatch => formatter.write_str(
-                "the parametric coefficient context does not extend the family's exact base map",
+                "the indexed coefficient context does not extend the family's exact base map",
             ),
             Self::WrongIndexArity { expected, actual } => write!(
                 formatter,
-                "the parametric context has {actual} indices, expected {expected}"
+                "the indexed coefficient context has {actual} indices, expected {expected}"
             ),
             Self::RowCountOverflow { loops, externals } => write!(
                 formatter,
@@ -133,8 +131,8 @@ impl fmt::Display for ParametricIbpError {
 
 impl std::error::Error for ParametricIbpError {}
 
-impl From<ParametricCoefficientError> for ParametricIbpError {
-    fn from(value: ParametricCoefficientError) -> Self {
+impl From<IndexedAlgebraError> for ParametricIbpError {
+    fn from(value: IndexedAlgebraError) -> Self {
         Self::Coefficient(value)
     }
 }
@@ -161,7 +159,7 @@ impl From<IntegralFamilyError> for ParametricIbpError {
 #[derive(Clone, Debug)]
 pub struct ParametricIbpRelations {
     family_fingerprint: Arc<str>,
-    context: ParametricCoefficientContext,
+    context: IndexedCoefficientContext,
     ordinary_ibp: Vec<ParametricRelation>,
     lorentz_invariance: Vec<ParametricRelation>,
 }
@@ -171,7 +169,7 @@ impl ParametricIbpRelations {
         &self.family_fingerprint
     }
 
-    pub fn context(&self) -> &ParametricCoefficientContext {
+    pub fn context(&self) -> &IndexedCoefficientContext {
         &self.context
     }
 
@@ -195,7 +193,7 @@ impl ParametricIbpRelations {
     pub fn into_parts(
         self,
     ) -> (
-        ParametricCoefficientContext,
+        IndexedCoefficientContext,
         Vec<ParametricRelation>,
         Vec<ParametricRelation>,
     ) {
@@ -208,7 +206,7 @@ impl ParametricIbpRelations {
 pub struct ParametricIbpGenerator<'family> {
     family: &'family IntegralFamily,
     source_scope: IbpSourceScope,
-    context: ParametricCoefficientContext,
+    context: IndexedCoefficientContext,
     index_space: IndexSpace,
     positive_units: Vec<IndexShift>,
     negative_units: Vec<IndexShift>,
@@ -223,7 +221,7 @@ enum IbpSourceLayout {
 
 #[derive(Debug)]
 enum PreparedIbpSource {
-    CompleteOrdinary { dimension: ParametricCoefficient },
+    CompleteOrdinary { dimension: IndexedCoefficient },
     ExternalOnly,
 }
 
@@ -265,7 +263,7 @@ pub struct PreparedIbpSourceBatch<'generator, 'family> {
     generator: &'generator ParametricIbpGenerator<'family>,
     scope: IbpSourceScope,
     source: PreparedIbpSource,
-    powers: Vec<ParametricCoefficient>,
+    powers: Vec<IndexedCoefficient>,
     rows: usize,
 }
 
@@ -435,7 +433,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         // constructor.  Thus two distinct family definitions never alias an
         // index-variable identity merely because their display names agree.
         let scope = format!("ordinary-ibp|{family_fingerprint}");
-        let context = ParametricCoefficientContext::try_new(
+        let context = IndexedCoefficientContext::try_new(
             family.coefficient_context(),
             &scope,
             family.denominator_count(),
@@ -449,7 +447,7 @@ impl<'family> ParametricIbpGenerator<'family> {
     /// one shared index scope.  Both the base map and index arity are checked.
     pub fn try_with_context(
         family: &'family IntegralFamily,
-        context: ParametricCoefficientContext,
+        context: IndexedCoefficientContext,
         config: ParametricIbpConfig,
     ) -> Result<Self, ParametricIbpError> {
         let family_fingerprint = family.fingerprint().into();
@@ -459,7 +457,7 @@ impl<'family> ParametricIbpGenerator<'family> {
     fn try_with_context_and_fingerprint(
         family: &'family IntegralFamily,
         family_fingerprint: Arc<str>,
-        context: ParametricCoefficientContext,
+        context: IndexedCoefficientContext,
         config: ParametricIbpConfig,
     ) -> Result<Self, ParametricIbpError> {
         if !family
@@ -502,7 +500,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         self.family
     }
 
-    pub fn context(&self) -> &ParametricCoefficientContext {
+    pub fn context(&self) -> &IndexedCoefficientContext {
         &self.context
     }
 
@@ -550,13 +548,13 @@ impl<'family> ParametricIbpGenerator<'family> {
 
     fn prepare_ordinary_coefficients(
         &self,
-    ) -> Result<(ParametricCoefficient, Vec<ParametricCoefficient>), ParametricIbpError> {
+    ) -> Result<(IndexedCoefficient, Vec<IndexedCoefficient>), ParametricIbpError> {
         let dimension = self.context.lift(self.family.dimension())?;
         let powers = self.prepare_ordinary_powers()?;
         Ok((dimension, powers))
     }
 
-    fn prepare_ordinary_powers(&self) -> Result<Vec<ParametricCoefficient>, ParametricIbpError> {
+    fn prepare_ordinary_powers(&self) -> Result<Vec<IndexedCoefficient>, ParametricIbpError> {
         let powers = (0..self.family.denominator_count())
             .map(|denominator| {
                 let index = self.context.index(denominator)?;
@@ -601,8 +599,8 @@ impl<'family> ParametricIbpGenerator<'family> {
     fn generate_ordinary_row(
         &self,
         ordinal: usize,
-        dimension: &ParametricCoefficient,
-        powers: &[ParametricCoefficient],
+        dimension: &IndexedCoefficient,
+        powers: &[IndexedCoefficient],
     ) -> Result<ParametricRelation, ParametricIbpError> {
         let loops = self.family.loop_count();
         debug_assert!(loops > 0);
@@ -630,7 +628,7 @@ impl<'family> ParametricIbpGenerator<'family> {
     fn generate_external_source_row(
         &self,
         ordinal: usize,
-        powers: &[ParametricCoefficient],
+        powers: &[IndexedCoefficient],
     ) -> Result<ParametricRelation, ParametricIbpError> {
         let loops = self.family.loop_count();
         debug_assert!(loops > 0);
@@ -661,7 +659,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         row: &mut ParametricRelation,
         differentiated_loop: usize,
         contraction: ContractionMomentum,
-        powers: &[ParametricCoefficient],
+        powers: &[IndexedCoefficient],
     ) -> Result<(), ParametricIbpError> {
         for (denominator, power) in powers.iter().enumerate() {
             let derivative = self.family.derivative_contraction(
@@ -847,7 +845,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         &self,
         row: &mut ParametricRelation,
         shift: IndexShift,
-        power: &ParametricCoefficient,
+        power: &IndexedCoefficient,
         derivative_coefficient: &crate::algebra::Coefficient,
     ) -> Result<(), ParametricIbpError> {
         if derivative_coefficient.is_zero() {
@@ -1650,7 +1648,7 @@ mod tests {
         .unwrap();
         let wrong_base = CoefficientContext::new(["x"]);
         let wrong_context =
-            ParametricCoefficientContext::try_new(&wrong_base, "wrong-base", 1).unwrap();
+            IndexedCoefficientContext::try_new(&wrong_base, "wrong-base", 1).unwrap();
         assert!(matches!(
             ParametricIbpGenerator::try_with_context(
                 &family,
@@ -1660,7 +1658,7 @@ mod tests {
             Err(ParametricIbpError::BaseContextMismatch)
         ));
 
-        let wrong_arity = ParametricCoefficientContext::try_new(&base, "wrong-arity", 2).unwrap();
+        let wrong_arity = IndexedCoefficientContext::try_new(&base, "wrong-arity", 2).unwrap();
         assert!(matches!(
             ParametricIbpGenerator::try_with_context(
                 &family,
@@ -1697,7 +1695,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             error,
-            ParametricIbpError::Coefficient(ParametricCoefficientError::ExactAlgebra(
+            ParametricIbpError::Coefficient(IndexedAlgebraError::ExactAlgebra(
                 crate::algebra::ExactAlgebraError::ExponentLimit {
                     operation: crate::algebra::ExactAlgebraOperation::Multiply,
                     requested: 65_536,

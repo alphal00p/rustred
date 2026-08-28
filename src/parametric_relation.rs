@@ -4,22 +4,21 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::algebra::{
+    Coefficient, CoefficientContext, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
+    IndexedCoefficientContext, IndexedPolynomial,
+};
 use crate::family::{IntegralKey, IntegralKeyError};
 use crate::identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
     ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition, insert_parametric_condition,
     insert_specialized_condition, specialize_coefficient_with_condition,
 };
-use crate::parametric_coefficient::{
-    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricPolynomial,
-};
-use crate::{algebra::Coefficient, algebra::CoefficientContext};
 
 /// Complete arithmetic and identity-condition policy for relation operations.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RelationLimits {
-    pub arithmetic: ParametricArithmeticLimits,
+    pub arithmetic: IndexedAlgebraLimits,
     pub identity_conditions: IdentityConditionLimits,
 }
 
@@ -168,7 +167,7 @@ pub struct ParametricRelation {
     context_fingerprint: Arc<str>,
     row_id: RowId,
     arity: usize,
-    terms: BTreeMap<IndexShift, ParametricCoefficient>,
+    terms: BTreeMap<IndexShift, IndexedCoefficient>,
     nonzero_conditions: Vec<ParametricNonZeroCondition>,
 }
 
@@ -176,7 +175,7 @@ impl ParametricRelation {
     pub fn new(
         family_fingerprint: impl Into<Arc<str>>,
         row_id: RowId,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
     ) -> Self {
         Self {
             family_fingerprint: family_fingerprint.into(),
@@ -209,7 +208,7 @@ impl ParametricRelation {
         self.arity
     }
 
-    pub fn terms(&self) -> &BTreeMap<IndexShift, ParametricCoefficient> {
+    pub fn terms(&self) -> &BTreeMap<IndexShift, IndexedCoefficient> {
         &self.terms
     }
 
@@ -223,8 +222,8 @@ impl ParametricRelation {
 
     pub fn add_explicit_nonzero_condition(
         &mut self,
-        context: &ParametricCoefficientContext,
-        condition: ParametricPolynomial,
+        context: &IndexedCoefficientContext,
+        condition: IndexedPolynomial,
     ) -> Result<(), ParametricRelationError> {
         self.add_explicit_nonzero_condition_with_limits(
             context,
@@ -235,8 +234,8 @@ impl ParametricRelation {
 
     pub fn add_explicit_nonzero_condition_with_limits(
         &mut self,
-        context: &ParametricCoefficientContext,
-        condition: ParametricPolynomial,
+        context: &IndexedCoefficientContext,
+        condition: IndexedPolynomial,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         let condition = ParametricNonZeroCondition::try_new_with_limits(
@@ -251,7 +250,7 @@ impl ParametricRelation {
 
     pub fn add_nonzero_condition(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         condition: ParametricNonZeroCondition,
     ) -> Result<(), ParametricRelationError> {
         self.add_nonzero_condition_with_limits(context, condition, RelationLimits::default())
@@ -259,7 +258,7 @@ impl ParametricRelation {
 
     pub fn add_nonzero_condition_with_limits(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         mut condition: ParametricNonZeroCondition,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
@@ -290,18 +289,18 @@ impl ParametricRelation {
 
     pub fn add_term(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         shift: IndexShift,
-        coefficient: ParametricCoefficient,
+        coefficient: IndexedCoefficient,
     ) -> Result<(), ParametricRelationError> {
         self.add_term_with_limits(context, shift, coefficient, RelationLimits::default())
     }
 
     pub fn add_term_with_limits(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         shift: IndexShift,
-        coefficient: ParametricCoefficient,
+        coefficient: IndexedCoefficient,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         let mut staged = self.clone();
@@ -318,9 +317,9 @@ impl ParametricRelation {
     /// an otherwise unchanged relation.
     fn add_term_in_place(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         shift: IndexShift,
-        coefficient: ParametricCoefficient,
+        coefficient: IndexedCoefficient,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         self.validate_context(context)?;
@@ -375,18 +374,18 @@ impl ParametricRelation {
 
     pub fn add_scaled(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         other: &Self,
-        factor: &ParametricCoefficient,
+        factor: &IndexedCoefficient,
     ) -> Result<(), ParametricRelationError> {
         self.add_scaled_with_limits(context, other, factor, RelationLimits::default())
     }
 
     pub fn add_scaled_with_limits(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         other: &Self,
-        factor: &ParametricCoefficient,
+        factor: &IndexedCoefficient,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         let mut staged = self.clone();
@@ -398,9 +397,9 @@ impl ParametricRelation {
     /// Apply a scaled addition to an isolated relation snapshot.
     fn add_scaled_in_place(
         &mut self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         other: &Self,
-        factor: &ParametricCoefficient,
+        factor: &IndexedCoefficient,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
         self.validate_compatible(other, context)?;
@@ -431,7 +430,7 @@ impl ParametricRelation {
 
     pub fn translated(
         &self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         translation: &IndexShift,
         row_id: RowId,
         limits: RelationLimits,
@@ -473,7 +472,7 @@ impl ParametricRelation {
 
     pub fn specialize(
         &self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         assignment: &[i64],
         limits: RelationLimits,
     ) -> Result<ConcreteRelation, ParametricRelationError> {
@@ -531,7 +530,7 @@ impl ParametricRelation {
 
     fn validate_context(
         &self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
     ) -> Result<(), ParametricRelationError> {
         if self.context_fingerprint.as_ref() == context.fingerprint()
             && self.arity == context.index_count()
@@ -556,7 +555,7 @@ impl ParametricRelation {
     fn validate_compatible(
         &self,
         other: &Self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
     ) -> Result<(), ParametricRelationError> {
         self.validate_context(context)?;
         other.validate_context(context)?;
@@ -668,7 +667,7 @@ impl ConcreteRelation {
         if let Some(current) = self.terms.get(&key) {
             let sum = context
                 .try_add(current, &coefficient, limits.arithmetic.exact_algebra)
-                .map_err(crate::ParametricCoefficientError::from)?;
+                .map_err(IndexedAlgebraError::from)?;
             if sum.is_zero() {
                 self.terms.remove(&key);
             } else {
@@ -706,7 +705,7 @@ pub enum ParametricRelationError {
         requested: usize,
     },
     IdentityCondition(IdentityConditionError),
-    Coefficient(ParametricCoefficientError),
+    Coefficient(IndexedAlgebraError),
     IntegralKey(IntegralKeyError),
 }
 
@@ -749,8 +748,8 @@ impl fmt::Display for ParametricRelationError {
 
 impl std::error::Error for ParametricRelationError {}
 
-impl From<ParametricCoefficientError> for ParametricRelationError {
-    fn from(value: ParametricCoefficientError) -> Self {
+impl From<IndexedAlgebraError> for ParametricRelationError {
+    fn from(value: IndexedAlgebraError) -> Self {
         Self::Coefficient(value)
     }
 }
@@ -774,8 +773,7 @@ mod tests {
     #[test]
     fn translation_moves_keys_and_coefficient_indices_together() {
         let base = CoefficientContext::new(["d"]);
-        let context =
-            ParametricCoefficientContext::try_new(&base, "relation-translate", 2).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "relation-translate", 2).unwrap();
         let space = IndexSpace::try_new(2).unwrap();
         let mut relation = ParametricRelation::new(
             "family",
@@ -809,7 +807,7 @@ mod tests {
     #[test]
     fn translation_composes_exactly() {
         let base = CoefficientContext::new(["d"]);
-        let context = ParametricCoefficientContext::try_new(&base, "relation-compose", 2).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "relation-compose", 2).unwrap();
         let space = IndexSpace::try_new(2).unwrap();
         let mut source = ParametricRelation::new(
             "family",
@@ -858,7 +856,7 @@ mod tests {
     #[test]
     fn specialization_checks_key_overflow() {
         let base = CoefficientContext::new(["d"]);
-        let context = ParametricCoefficientContext::try_new(&base, "relation-overflow", 1).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "relation-overflow", 1).unwrap();
         let space = IndexSpace::try_new(1).unwrap();
         let mut source = ParametricRelation::new(
             "family",
@@ -882,7 +880,7 @@ mod tests {
     fn specialization_discards_zero_coefficient_before_key_arithmetic() {
         let base = CoefficientContext::new(["d"]);
         let context =
-            ParametricCoefficientContext::try_new(&base, "zero-before-key-overflow", 1).unwrap();
+            IndexedCoefficientContext::try_new(&base, "zero-before-key-overflow", 1).unwrap();
         let space = IndexSpace::try_new(1).unwrap();
         let coefficient = context
             .sub(&context.index(0).unwrap(), &context.integer(i64::MAX))
@@ -908,8 +906,7 @@ mod tests {
     fn specialization_reports_an_unsatisfiable_zero_condition() {
         let base = CoefficientContext::new(Vec::<String>::new());
         let context =
-            ParametricCoefficientContext::try_new(&base, "unsatisfiable-specialization", 1)
-                .unwrap();
+            IndexedCoefficientContext::try_new(&base, "unsatisfiable-specialization", 1).unwrap();
         let mut relation = ParametricRelation::new(
             "family",
             RowId::Derived {
@@ -931,7 +928,7 @@ mod tests {
     #[test]
     fn equal_condition_polynomials_merge_deterministic_source_sets() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "condition-merge", 1).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "condition-merge", 1).unwrap();
         let row_id = RowId::Derived {
             label: Arc::from("condition-source"),
         };
@@ -971,7 +968,7 @@ mod tests {
     #[test]
     fn custom_condition_source_limit_is_enforced_at_relation_boundary() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "condition-limit", 1).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "condition-limit", 1).unwrap();
         let n = context.index(0).unwrap();
         let condition = ParametricNonZeroCondition::try_new(
             &context,

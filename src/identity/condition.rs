@@ -3,12 +3,11 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::algebra::{Coefficient, ExactAlgebraLimits};
-use crate::family::CoefficientLocation;
-use crate::parametric_coefficient::{
-    BasePolynomial, ParametricArithmeticLimits, ParametricCoefficient,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+use crate::algebra::{
+    BasePolynomial, Coefficient, ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits,
+    IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
 };
+use crate::family::CoefficientLocation;
 
 use super::RowId;
 
@@ -169,7 +168,7 @@ pub enum IdentityConditionError {
     ResourceCountOverflow {
         resource: &'static str,
     },
-    Coefficient(ParametricCoefficientError),
+    Coefficient(IndexedAlgebraError),
 }
 
 impl fmt::Display for IdentityConditionError {
@@ -199,8 +198,8 @@ impl fmt::Display for IdentityConditionError {
 
 impl std::error::Error for IdentityConditionError {}
 
-impl From<ParametricCoefficientError> for IdentityConditionError {
-    fn from(value: ParametricCoefficientError) -> Self {
+impl From<IndexedAlgebraError> for IdentityConditionError {
+    fn from(value: IndexedAlgebraError) -> Self {
         Self::Coefficient(value)
     }
 }
@@ -208,14 +207,14 @@ impl From<ParametricCoefficientError> for IdentityConditionError {
 /// One authenticated polynomial condition over the index-extended field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParametricNonZeroCondition {
-    polynomial: ParametricPolynomial,
+    polynomial: IndexedPolynomial,
     sources: BTreeSet<IdentityConditionSource>,
 }
 
 impl ParametricNonZeroCondition {
     pub fn try_new(
-        context: &ParametricCoefficientContext,
-        polynomial: ParametricPolynomial,
+        context: &IndexedCoefficientContext,
+        polynomial: IndexedPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,
     ) -> Result<Self, IdentityConditionError> {
         Self::try_new_with_limits(
@@ -228,8 +227,8 @@ impl ParametricNonZeroCondition {
     }
 
     pub fn try_new_with_limits(
-        context: &ParametricCoefficientContext,
-        polynomial: ParametricPolynomial,
+        context: &IndexedCoefficientContext,
+        polynomial: IndexedPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,
         algebra_limits: ExactAlgebraLimits,
         condition_limits: IdentityConditionLimits,
@@ -242,7 +241,7 @@ impl ParametricNonZeroCondition {
         })
     }
 
-    pub fn polynomial(&self) -> &ParametricPolynomial {
+    pub fn polynomial(&self) -> &IndexedPolynomial {
         &self.polynomial
     }
 
@@ -261,9 +260,9 @@ impl ParametricNonZeroCondition {
 
     pub fn translated(
         &self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         shift: &[i64],
-        arithmetic_limits: ParametricArithmeticLimits,
+        arithmetic_limits: IndexedAlgebraLimits,
         condition_limits: IdentityConditionLimits,
     ) -> Result<Self, IdentityConditionError> {
         context.validate_polynomial_context(&self.polynomial)?;
@@ -300,9 +299,9 @@ impl ParametricNonZeroCondition {
 
     pub fn specialized(
         &self,
-        context: &ParametricCoefficientContext,
+        context: &IndexedCoefficientContext,
         assignment: &[i64],
-        arithmetic_limits: ParametricArithmeticLimits,
+        arithmetic_limits: IndexedAlgebraLimits,
         condition_limits: IdentityConditionLimits,
     ) -> Result<SpecializedNonZeroCondition, IdentityConditionError> {
         context.validate_polynomial_context(&self.polynomial)?;
@@ -478,10 +477,10 @@ pub(crate) fn insert_specialized_condition(
 }
 
 pub(crate) fn specialize_coefficient_with_condition(
-    context: &ParametricCoefficientContext,
-    value: &ParametricCoefficient,
+    context: &IndexedCoefficientContext,
+    value: &IndexedCoefficient,
     assignment: &[i64],
-    arithmetic_limits: ParametricArithmeticLimits,
+    arithmetic_limits: IndexedAlgebraLimits,
     condition_limits: IdentityConditionLimits,
 ) -> Result<(Coefficient, Option<SpecializedNonZeroCondition>), IdentityConditionError> {
     let specialized = context.specialize(value, assignment, arithmetic_limits)?;
@@ -585,8 +584,7 @@ mod tests {
     #[test]
     fn translation_source_limit_precedes_polynomial_translation() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context =
-            ParametricCoefficientContext::try_new(&base, "translation-source", 1).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "translation-source", 1).unwrap();
         let polynomial = context
             .numerator_condition(&context.index(0).unwrap())
             .unwrap();
@@ -596,12 +594,12 @@ mod tests {
             [IdentityConditionSource::ExplicitRelationCondition],
         )
         .unwrap();
-        let arithmetic_limits = ParametricArithmeticLimits {
+        let arithmetic_limits = IndexedAlgebraLimits {
             exact_algebra: ExactAlgebraLimits {
                 max_polynomial_terms: 0,
                 ..ExactAlgebraLimits::default()
             },
-            ..ParametricArithmeticLimits::default()
+            ..IndexedAlgebraLimits::default()
         };
         assert!(matches!(
             condition.translated(
@@ -621,7 +619,7 @@ mod tests {
     #[test]
     fn index_arity_precedes_condition_source_preflight() {
         let base = CoefficientContext::new(Vec::<String>::new());
-        let context = ParametricCoefficientContext::try_new(&base, "condition-arity", 1).unwrap();
+        let context = IndexedCoefficientContext::try_new(&base, "condition-arity", 1).unwrap();
         let polynomial = context
             .numerator_condition(&context.index(0).unwrap())
             .unwrap();
@@ -637,11 +635,11 @@ mod tests {
             condition.translated(
                 &context,
                 &[],
-                ParametricArithmeticLimits::default(),
+                IndexedAlgebraLimits::default(),
                 condition_limits,
             ),
             Err(IdentityConditionError::Coefficient(
-                ParametricCoefficientError::WrongIndexArity {
+                IndexedAlgebraError::WrongIndexArity {
                     expected: 1,
                     actual: 0,
                 }
@@ -651,11 +649,11 @@ mod tests {
             condition.specialized(
                 &context,
                 &[],
-                ParametricArithmeticLimits::default(),
+                IndexedAlgebraLimits::default(),
                 condition_limits,
             ),
             Err(IdentityConditionError::Coefficient(
-                ParametricCoefficientError::WrongIndexArity {
+                IndexedAlgebraError::WrongIndexArity {
                     expected: 1,
                     actual: 0,
                 }

@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `03232e1`, immediately before the integral-key and polynomial-owner split.
+**Baseline parent:** `2b45b1f`, immediately before the indexed-algebra tree split.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 75 tracked Rust source/test paths
+This ledger classifies every one of the 86 tracked Rust source/test paths
 remaining after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -20,8 +20,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 25 |
-| split | 49 |
+| move | 27 |
+| split | 58 |
 | delete | 0 |
 | replace | 1 |
 
@@ -52,7 +52,19 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-app/tests/cli_derive.rs` | split | rustred-app tests | fresh inline fixtures guard supported forms; prune historical breadth later |
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
-| `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary and the sole raw `CoefficientPolynomial` alias; prune duplicate or context-free surfaces during the indexed-algebra split |
+| `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary and the sole raw `CoefficientPolynomial` alias; the indexed and affine-input domains now reuse this owner |
+| `src/algebra/indexed/mod.rs` | move | algebra::indexed | narrow authenticated `K(n)` facade; the former flat parametric-coefficient module and compatibility names are deleted |
+| `src/algebra/indexed/context.rs` | split | algebra::indexed | retain authenticated base/index map construction and checked exact field arithmetic; redundant caller-free query and construction surfaces are deleted |
+| `src/algebra/indexed/error.rs` | move | algebra::indexed | one topology- and provenance-neutral indexed-algebra error taxonomy |
+| `src/algebra/indexed/limits.rs` | split | algebra::indexed | retain prospective native-operation envelopes and checked resource arithmetic while narrowing unnecessarily wide local counters |
+| `src/algebra/indexed/scope.rs` | split | algebra::indexed | private lossless Symbolica namespace and base-context identity construction, separated to keep value/context dependencies acyclic |
+| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`; remove the one-field result ceremony and base-polynomial wrapper after condition ownership is ready |
+| `src/algebra/indexed/translation.rs` | split | algebra::indexed | retain checked affine index translation until it is delegated to the public Symbolica polynomial substitution API |
+| `src/algebra/indexed/value.rs` | split | algebra::indexed | retain authenticated indexed coefficient/polynomial values; remove the redundant authenticated base-polynomial wrapper in the next semantic split |
+| `src/algebra/indexed/tests/mod.rs` | split | algebra::indexed tests | private test composition only |
+| `src/algebra/indexed/tests/context.rs` | split | algebra::indexed tests | retain map identity, construction, and checked field-operation sentinels |
+| `src/algebra/indexed/tests/specialization.rs` | split | algebra::indexed tests | retain specialization, normalization, GMP, and resource-order sentinels through native substitution migration |
+| `src/algebra/indexed/tests/translation.rs` | split | algebra::indexed tests | retain translation composition, overflow, GMP, and resource-order sentinels through native substitution migration |
 | `src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations and their admitted metadata to core callers |
 | `src/algebra/matrix/admission.rs` | split | algebra::matrix | retain shapes, operation envelopes, payload census, and authenticated conversion; keep native scratch limitations explicit |
 | `src/algebra/matrix/error.rs` | move | algebra::matrix | private typed matrix/native failure vocabulary |
@@ -93,11 +105,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
 | `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, independent source-cardinality limits, and provenance attachment around algebra-only specialization |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/parametric_coefficient.rs` | split | algebra | retain provenance-neutral checked `K(n)` coefficient/polynomial algebra below identity-owned relation conditions; its specialization result carries only an optional denominator polynomial, never identity provenance |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse relation arithmetic with one typed condition vector and an independent `RelationLimits` composition policy |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
-| `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; extract only genuinely family-neutral checked coefficient primitives into algebra and audit handwritten exponent projection against Symbolica |
+| `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps with symmetry-owned source/target condition evidence; move orchestration to foundry and prune ceremonies |

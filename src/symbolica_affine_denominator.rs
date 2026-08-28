@@ -33,7 +33,8 @@ use symbolica::prelude::*;
 use symbolica::state::Workspace;
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, CoefficientContextError, ExactAlgebraError, ExactAlgebraLimits,
+    Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomial,
+    ExactAlgebraError, ExactAlgebraLimits,
 };
 use crate::family::{AffineDenominator, ScalarProductCoordinate};
 
@@ -43,8 +44,6 @@ const CONSERVATIVE_GMP_CAPACITY_FACTOR: usize = 2;
 
 /// Stable schema identifier for the retained compilation payload.
 pub const SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA: &str = "rustred.symbolica-affine-denominator.v1";
-
-type IntegerPolynomial = MultivariatePolynomial<IntegerRing, u16>;
 
 /// Resource policy for parsing, exact evaluation, projection, and retention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1631,7 +1630,7 @@ impl SymbolicaAffineDenominatorCompiler {
         )?;
         let external_group_metadata_bytes = groups
             .checked_mul(
-                std::mem::size_of::<((usize, usize), IntegerPolynomial)>()
+                std::mem::size_of::<((usize, usize), CoefficientPolynomial)>()
                     .checked_add(64)
                     .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
                         resource: "explicit scalar-product group metadata bytes",
@@ -1649,7 +1648,7 @@ impl SymbolicaAffineDenominatorCompiler {
             "aggregate explicit scalar-product group metadata terms",
         )?;
 
-        let mut external_groups = BTreeMap::<(usize, usize), IntegerPolynomial>::new();
+        let mut external_groups = BTreeMap::<(usize, usize), CoefficientPolynomial>::new();
         for (pair, count) in external_counts {
             external_groups.insert(
                 pair,
@@ -1955,7 +1954,7 @@ impl SymbolicaAffineDenominatorCompiler {
         )?;
         let group_metadata_bytes = projection_groups
             .checked_mul(
-                std::mem::size_of::<(ProjectionGroup, IntegerPolynomial)>()
+                std::mem::size_of::<(ProjectionGroup, CoefficientPolynomial)>()
                     .checked_add(64)
                     .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
                         resource: "projection group metadata bytes",
@@ -1973,7 +1972,7 @@ impl SymbolicaAffineDenominatorCompiler {
             "aggregate projection group metadata terms",
         )?;
 
-        let mut groups = BTreeMap::<ProjectionGroup, IntegerPolynomial>::new();
+        let mut groups = BTreeMap::<ProjectionGroup, CoefficientPolynomial>::new();
         for (group, count) in group_counts {
             groups.insert(
                 group,
@@ -2140,8 +2139,8 @@ impl SymbolicaAffineDenominatorCompiler {
 
     fn projected_rational(
         &self,
-        numerator: IntegerPolynomial,
-        denominator: IntegerPolynomial,
+        numerator: CoefficientPolynomial,
+        denominator: CoefficientPolynomial,
         work: &mut ExactWorkBudget,
         projection_work: &mut ProjectionAllocationBudget,
     ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
@@ -2462,7 +2461,7 @@ fn integer_owned_heap_bytes(integer: &Integer) -> Result<usize, SymbolicaAffineD
 }
 
 fn polynomial_census(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
 ) -> Result<CoefficientCensus, SymbolicaAffineDenominatorError> {
     let polynomial_terms = polynomial.nterms();
     let exponent_entries = polynomial_terms
@@ -2513,7 +2512,7 @@ fn polynomial_census(
                 },
             )
         })?;
-    let retained_bytes = std::mem::size_of::<IntegerPolynomial>()
+    let retained_bytes = std::mem::size_of::<CoefficientPolynomial>()
         .checked_add(integer_slots)
         .and_then(|value| value.checked_add(exponent_bytes))
         .and_then(|value| value.checked_add(limb_bytes))
@@ -2744,7 +2743,7 @@ fn multiply_census(
 }
 
 fn planned_polynomial_clone_census(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
     variables: usize,
 ) -> Result<CoefficientCensus, SymbolicaAffineDenominatorError> {
     let terms = polynomial.nterms();
@@ -2773,7 +2772,7 @@ fn planned_polynomial_clone_census(
                 },
             )
         })?;
-    let retained_bytes = std::mem::size_of::<IntegerPolynomial>()
+    let retained_bytes = std::mem::size_of::<CoefficientPolynomial>()
         .checked_add(terms.checked_mul(std::mem::size_of::<Integer>()).ok_or(
             SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "planned polynomial clone retained bytes",
@@ -2820,7 +2819,7 @@ fn planned_unit_coefficient_census(
 }
 
 fn polynomial_max_integer_bits(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
 ) -> Result<usize, SymbolicaAffineDenominatorError> {
     polynomial
         .coefficients
@@ -2908,7 +2907,7 @@ fn planned_operation_polynomial_census(
         exponent_payload,
         "projected exact-operation retained bytes",
     )?;
-    let retained_bytes = std::mem::size_of::<IntegerPolynomial>()
+    let retained_bytes = std::mem::size_of::<CoefficientPolynomial>()
         .checked_add(integer_capacity)
         .and_then(|value| value.checked_add(exponent_capacity))
         .and_then(|value| value.checked_add(heap_bytes))
@@ -3158,7 +3157,7 @@ fn exact_operation_allocation_envelope(
 }
 
 fn polynomial_expression_census(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
 ) -> Result<NormalizedExpressionCensus, SymbolicaAffineDenominatorError> {
     if polynomial.is_zero() {
         return Ok(NormalizedExpressionCensus {
@@ -3280,7 +3279,7 @@ fn normalized_expression_render_byte_bound(
 }
 
 fn polynomial_degrees(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
     expected_variables: usize,
 ) -> Result<Vec<u16>, SymbolicaAffineDenominatorError> {
     if polynomial.variables.len() != expected_variables {
@@ -3790,11 +3789,11 @@ fn classify_quadratic_group(
 }
 
 fn project_polynomial_prefix(
-    source: &IntegerPolynomial,
-    target_template: &IntegerPolynomial,
+    source: &CoefficientPolynomial,
+    target_template: &CoefficientPolynomial,
     retained: usize,
     max_exponent_entries: usize,
-) -> Result<IntegerPolynomial, SymbolicaAffineDenominatorError> {
+) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
     if target_template.variables.len() != retained {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
@@ -3842,11 +3841,11 @@ fn project_polynomial_prefix(
 }
 
 fn lift_polynomial_prefix(
-    source: &IntegerPolynomial,
-    target_template: &IntegerPolynomial,
+    source: &CoefficientPolynomial,
+    target_template: &CoefficientPolynomial,
     retained: usize,
     max_exponent_entries: usize,
-) -> Result<IntegerPolynomial, SymbolicaAffineDenominatorError> {
+) -> Result<CoefficientPolynomial, SymbolicaAffineDenominatorError> {
     if source.variables.len() != retained || target_template.variables.len() < retained {
         return Err(
             SymbolicaAffineDenominatorError::InternalVerificationFailure {
@@ -3910,7 +3909,7 @@ fn coefficient_contains_momentum(
 }
 
 fn polynomial_contains_momentum(
-    polynomial: &IntegerPolynomial,
+    polynomial: &CoefficientPolynomial,
     base_count: usize,
 ) -> Result<bool, SymbolicaAffineDenominatorError> {
     if polynomial.variables.len() < base_count {

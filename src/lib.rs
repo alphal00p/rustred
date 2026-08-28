@@ -12,7 +12,6 @@ pub mod algebra;
 pub mod campaign;
 pub mod family;
 pub mod identity;
-pub mod parametric_coefficient;
 pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod sectors;
@@ -22,7 +21,10 @@ pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod zero_sectors;
 
-pub use algebra::CoefficientPolynomial;
+pub use algebra::{
+    BasePolynomial, CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits,
+    IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
+};
 pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use family::isp::{
     ISP_COMPLETION_V2_SCHEMA, IspCompletion, IspCompletionError, IspCompletionLimits,
@@ -41,10 +43,6 @@ pub use family::{
 pub use identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
     ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition,
-};
-pub use parametric_coefficient::{
-    BasePolynomial, ParametricArithmeticLimits, ParametricCoefficient,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
