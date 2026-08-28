@@ -16,13 +16,11 @@ use symbolica::atom::{NamespacedSymbol, SymbolBuilder, representation::FunView};
 use symbolica::prelude::*;
 
 use crate::{
-    AuthenticatedVacuumCovariantTensorPolynomialProjection, CovariantTensorMonomial,
-    GenericCovariantTensorNumerator, GenericTensorPolynomialError, GenericTensorPolynomialLimits,
-    GenericTensorProjectorError, GenericTensorProjectorLimits,
-    GenericVacuumTensorPolynomialProjector, IndexedSpectatorVector, IndexedVector, IntegralFamily,
+    CovariantTensorMonomial, GenericCovariantTensorNumerator, GenericTensorProjectorError,
+    GenericTensorProjectorLimits, IndexedSpectatorVector, IndexedVector, IntegralFamily,
     LoopVector, LorentzIndex, Metric, ScalarProduct, ScalarProductCoordinate,
     ScalarProductMonomial, SpectatorScalarProduct, SpectatorScalarProductMonomial, SpectatorVector,
-    TensorCovariantStructure, TensorError, WeightedCovariantTensorMonomial,
+    TensorCovariantStructure, TensorError,
 };
 
 /// Resource policy shared by normalization, decoding, and rendering.
@@ -304,50 +302,6 @@ impl CompiledSymbolicaTensorNumerator {
         }
     }
 
-    /// Convert weights to the already-declared exact family field.  An opaque
-    /// Atom is retained in this object and reported as deferred; this method
-    /// never adds a variable to the family coefficient map.
-    pub fn try_weighted_sources(
-        &self,
-        family: &IntegralFamily,
-    ) -> Result<Vec<WeightedCovariantTensorMonomial>, SymbolicaTensorNumeratorError> {
-        self.check_family(family)?;
-        let context = family.coefficient_context();
-        let mut output = Vec::with_capacity(self.terms.len());
-        for (source_term, source) in self.terms.iter().enumerate() {
-            let coefficient = source
-                .weight
-                .as_view()
-                .try_to_rational_polynomial(&Q, &Z, Some(context.variables().clone()))
-                .map_err(|_| SymbolicaTensorNumeratorError::DeferredWeight {
-                    source_term,
-                    weight: source.weight.clone(),
-                })?;
-            if context.validate(&coefficient).is_err() {
-                return Err(SymbolicaTensorNumeratorError::DeferredWeight {
-                    source_term,
-                    weight: source.weight.clone(),
-                });
-            }
-            output.push(WeightedCovariantTensorMonomial::new(
-                coefficient,
-                source.monomial.clone(),
-            ));
-        }
-        Ok(output)
-    }
-
-    /// Enter the existing authenticated covariant tensor-polynomial stack.
-    pub fn project(
-        &self,
-        family: &IntegralFamily,
-        limits: GenericTensorPolynomialLimits,
-    ) -> Result<AuthenticatedVacuumCovariantTensorPolynomialProjection, SymbolicaTensorNumeratorError>
-    {
-        let sources = self.try_weighted_sources(family)?;
-        Ok(GenericVacuumTensorPolynomialProjector::with_limits(limits).project(family, sources)?)
-    }
-
     /// Render a projected numerator using the original loop, spectator, and
     /// decorated-index atoms.  Coefficients remain exact Symbolica expressions.
     pub fn render_projected(
@@ -457,18 +411,6 @@ impl CompiledSymbolicaTensorNumerator {
             product *= atom_power(symmetric_binary(self.syntax.dot, left, right), exponent);
         }
         Ok(product)
-    }
-
-    fn check_family(&self, family: &IntegralFamily) -> Result<(), SymbolicaTensorNumeratorError> {
-        let actual = family.fingerprint();
-        if actual == self.family_fingerprint {
-            Ok(())
-        } else {
-            Err(SymbolicaTensorNumeratorError::WrongFamilyFingerprint {
-                expected: self.family_fingerprint.clone(),
-                actual,
-            })
-        }
     }
 
     fn required_index_atom(
@@ -1408,14 +1350,6 @@ pub enum SymbolicaTensorNumeratorError {
         source_term: usize,
         factor: Atom,
     },
-    DeferredWeight {
-        source_term: usize,
-        weight: Atom,
-    },
-    WrongFamilyFingerprint {
-        expected: String,
-        actual: String,
-    },
     MissingLoopIdentity {
         position: usize,
     },
@@ -1444,7 +1378,6 @@ pub enum SymbolicaTensorNumeratorError {
     },
     Tensor(TensorError),
     Projector(GenericTensorProjectorError),
-    Polynomial(GenericTensorPolynomialError),
 }
 
 impl fmt::Display for SymbolicaTensorNumeratorError {
@@ -1510,17 +1443,6 @@ impl fmt::Display for SymbolicaTensorNumeratorError {
                 formatter,
                 "source term {source_term} contains reserved tensor syntax in unsupported factor {factor}"
             ),
-            Self::DeferredWeight {
-                source_term,
-                weight,
-            } => write!(
-                formatter,
-                "source term {source_term} has opaque scalar weight {weight}; it is retained but is not in the family coefficient field"
-            ),
-            Self::WrongFamilyFingerprint { expected, actual } => write!(
-                formatter,
-                "compiled numerator belongs to family {expected:?}, not {actual:?}"
-            ),
             Self::MissingLoopIdentity { position } => {
                 write!(
                     formatter,
@@ -1566,7 +1488,6 @@ impl fmt::Display for SymbolicaTensorNumeratorError {
             }
             Self::Tensor(error) => error.fmt(formatter),
             Self::Projector(error) => error.fmt(formatter),
-            Self::Polynomial(error) => error.fmt(formatter),
         }
     }
 }
@@ -1582,11 +1503,5 @@ impl From<TensorError> for SymbolicaTensorNumeratorError {
 impl From<GenericTensorProjectorError> for SymbolicaTensorNumeratorError {
     fn from(value: GenericTensorProjectorError) -> Self {
         Self::Projector(value)
-    }
-}
-
-impl From<GenericTensorPolynomialError> for SymbolicaTensorNumeratorError {
-    fn from(value: GenericTensorPolynomialError) -> Self {
-        Self::Polynomial(value)
     }
 }

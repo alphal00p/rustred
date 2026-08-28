@@ -25,7 +25,6 @@ pub mod feynman_polynomials;
 pub mod generated_symbolic_row_span;
 pub mod generic_family;
 pub mod generic_tensor_family;
-pub mod generic_tensor_polynomial;
 pub mod generic_tensor_projector;
 pub mod guards;
 pub mod parametric_coefficient;
@@ -40,12 +39,10 @@ pub mod shift_operators;
 pub mod symbolic_symmetry_transport;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
-pub mod symbolica_target_numerator;
 pub mod symbolica_tensor_numerator;
 pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod tensor;
-pub mod tensor_reduction_engine;
 pub mod zero_sectors;
 
 pub use adaptive_rules::{
@@ -104,22 +101,6 @@ pub use generic_tensor_family::{
     GenericTensorFamilyStats, GenericTensorIntegralReduction, GenericTensorNumerator,
     GenericTensorTerm, LoweredTensorCoefficient, TensorLoweringDomain, TensorLoweringGuardOrigin,
     TensorLoweringNonZeroCondition, TensorLoweringOrigin,
-};
-pub use generic_tensor_polynomial::{
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V1_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_LOWERING_V2_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V1_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PARAMETRIC_REDUCTION_V2_SCHEMA,
-    AuthenticatedVacuumCovariantTensorPolynomialLowering,
-    AuthenticatedVacuumCovariantTensorPolynomialParametricReduction,
-    AuthenticatedVacuumCovariantTensorPolynomialProjection, CovariantTensorPolynomialMonomial,
-    GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA,
-    GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V2_SCHEMA, GenericTensorPolynomialError,
-    GenericTensorPolynomialLimits, GenericTensorPolynomialStats,
-    GenericVacuumTensorPolynomialProjector, TensorPolynomialProjectionContribution,
-    TensorPolynomialProjectionOrigin, TensorPolynomialReductionEngineError,
-    TensorPolynomialWeightGuardOrigin, TensorPolynomialWeightNonZeroCondition,
-    WeightedCovariantTensorMonomial,
 };
 pub use generic_tensor_projector::{
     AUTHENTICATED_VACUUM_TENSOR_LOWERING_V1_SCHEMA, AUTHENTICATED_VACUUM_TENSOR_LOWERING_V2_SCHEMA,
@@ -208,11 +189,6 @@ pub use symbolica_integral_input::{
     SymbolicaProjectLoweringError, SymbolicaProjectLoweringLimits, TextExternalGramInputV1,
     TextProjectPartsV1, TextPropagatorInputV1,
 };
-pub use symbolica_target_numerator::{
-    CompiledSymbolicaTargetV1, SYMBOLICA_COMPILED_TARGET_V1_SCHEMA,
-    SymbolicaTargetCompilationStats, SymbolicaTargetNumeratorCompiler,
-    SymbolicaTargetNumeratorError, SymbolicaTargetNumeratorLimits,
-};
 pub use symbolica_tensor_numerator::{
     CompiledSymbolicaTensorNumerator, SymbolicaIndexAllocation, SymbolicaIndexAllocationOrigin,
     SymbolicaSpectatorAllocation, SymbolicaTensorCompilationStats,
@@ -235,25 +211,6 @@ pub use tensor::{
     IndexedVector, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
     ScalarProductMonomial, SlotPairing, TensorConstructionLimits, TensorError, TensorMonomial,
     TensorReduction, TensorTerm, VacuumTensorProjector, perfect_matching_count, perfect_matchings,
-};
-pub use tensor_reduction_engine::{
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V1_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V2_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
-    AUTHENTICATED_VACUUM_COVARIANT_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
-    AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V1_SCHEMA,
-    AUTHENTICATED_VACUUM_TENSOR_PARAMETRIC_REDUCTION_V2_SCHEMA,
-    AuthenticatedVacuumCovariantTensorLowering,
-    AuthenticatedVacuumCovariantTensorParametricReduction,
-    AuthenticatedVacuumCovariantTensorReductionDomains,
-    AuthenticatedVacuumTensorParametricReduction, AuthenticatedVacuumTensorReductionDomains,
-    COVARIANT_TENSOR_PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA, CovariantTensorLoweringStats,
-    CovariantTensorParametricReductionResult, IncompleteTensorReductionError,
-    ScalarReductionWitness, TENSOR_PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA, TensorIntegralLeaf,
-    TensorParametricReductionComposer, TensorParametricReductionResult, TensorReducedCoefficient,
-    TensorReductionCertificateError, TensorReductionEngineError, TensorReductionEngineLimits,
-    TensorReductionEngineStats, TensorReductionGuard, TensorReductionTermOrigin,
-    TensorScalarSource,
 };
 pub use zero_sectors::{
     FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalyzer,
