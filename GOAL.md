@@ -41,15 +41,16 @@ remains pure Rust + Symbolica.
   and adversarial audits are assigned to subagents whenever they can proceed
   independently. The primary agent owns reconciliation, dependency decisions,
   integration, and capability claims.
-- **Baseline:** repository commit `e4d073b` (`Complete transport-neutral
-  application boundary`).
+- **Pre-reset baseline:** repository commit `dda284a` (`Extract committed
+  exceptional reentry construction`). Earlier milestones remain Git evidence,
+  not architecture that the reset must preserve.
 - **Cross-repository boundary:** after Phase 0 and the first genuinely closed
   lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
   in parallel with the higher-loop foundry work. It is developed, committed,
   and pushed on a dedicated `vakint_rustred` feature branch created in the
-  GammaLoop repository, never folded into a RustRed commit. During active local
-  co-development, Vakint's Cargo manifest may use a relative path dependency
-  to this RustRed checkout so uncommitted RustRed changes are exercised
+  GammaLoop repository, never folded into a RustRed commit. In the present
+  ignored co-development layout, Vakint may use `rustred = { package =
+  "rustred", path = "../../../../crates/rustred-core" }` so local changes are exercised
   immediately. Before a reproducible GammaLoop milestone is committed/pushed
   or cited as oracle evidence, the dependency is switched to the RustRed
   GitHub repository at the exact validated revision; milestone updates advance
@@ -124,11 +125,13 @@ six-loop vacuum artifact-library goal or be presented as its completion.
 
 Vakint's integrated steering role does not replace RustRed's own interfaces.
 The RustRed CLI and Python API remain first-class, supported, fine-grained
-control surfaces over the shared application/core path. They expose family
-construction, raw parametric IBP/LI generation, closure campaigns, artifact
-inspection and exact verification, and—when implemented—the individual
-tensor, scalar-reduction, rule-application, and master-substitution services.
-These interfaces accept fully generic families with external kinematics,
+control surfaces over the shared application/core path. They currently expose
+the baseline derive, roots-only campaign-planning, and preflight operations.
+They will expose family construction, raw parametric IBP/LI generation,
+closure campaigns, artifact inspection and exact verification, and the
+individual tensor, scalar-reduction, rule-application, and master-substitution
+services as those application contracts are implemented and evidenced. The
+target interfaces accept fully generic families with external kinematics,
 masses, cuts, symbolic power shifts, and numerator/ISP coordinates; they are
 not restricted to vacuum topologies or to the precomputed Vakint library.
 
@@ -179,13 +182,16 @@ corroboration only; symbolic regenerated-source replay is mandatory.
   Mathematica source and FORM-backed resources are readable reference oracles
   only.
 - A separate pinned oracle-validation job may execute the existing Vakint
-  alphaLoop, MATAD, and/or FMFT paths with the supplied FORM5 executable under
-  `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5`. This exception exists solely to
-  produce or compare authoritative lower-loop reference results. It is never a
-  RustRed dependency, never a fallback of the new mode, never copied into
-  production logic, and never part of the default FORM-less test/runtime path.
-  Oracle executable/version, inputs, conventions, and frozen outputs are
-  authenticated explicitly.
+  alphaLoop, MATAD, and/or FMFT paths with a real FORM >= 4.2.1 executable.
+  The currently supplied `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5` directory is a
+  React/Node project, not that executable, so live oracle regeneration is
+  presently unavailable while Vakint's actually embedded inline expectations
+  remain extractable. This
+  exception exists solely to produce or compare authoritative lower-loop
+  reference results. FORM is never a RustRed dependency, never a fallback of
+  the new mode, never copied into production logic, and never part of the
+  default FORM-less test/runtime path. Oracle executable/version, inputs,
+  conventions, and frozen outputs are authenticated explicitly.
 - Use the public Rust API of GMP-enabled Symbolica for all CAS work: exact
   integers/rationals, expressions, substitutions, expansion, polynomials,
   rational functions, differentiation, GCD/factorization, Groebner reduction,
@@ -232,8 +238,9 @@ general no-unit or simultaneous cases currently stop at the typed
 ### Genericity and evidence
 
 - Production algorithms accept families, sectors, graphs, maps, domains, and
-  policies as data. Loop/topology-named recurrences live only in tests,
-  examples, benchmarks, or an explicitly quarantined legacy-oracle package.
+  policies as data. Loop/topology-named inputs may live in tests, benchmarks,
+  or external frozen oracle fixtures; authored recurrence implementations do
+  not live in any RustRed package.
 - No eager `2^K` sector/orthant enumeration at high loop order, no brute-force
   `GL(L,Z)`/bounded `3^(L^2)` symmetry discovery, no eager global exact
   rational-function elimination, and no authored recurrence dispatch.
@@ -251,77 +258,102 @@ general no-unit or simultaneous cases currently stop at the typed
 - Never request privileged command escalation. Use an in-scope workaround or
   report a genuine external blocker.
 
-## Required architecture
+## Required architecture and authoritative repository reset
 
-The workspace converges on four deliberately bounded packages:
+The 2026-08-28 reset directive supersedes the former root-package location,
+four-package baseline, gradual legacy preservation, and legacy-test repair
+policy. Its tracked execution specification is
+[`docs/research/repository_clean_architecture_plan_2026-08-28.md`](docs/research/repository_clean_architecture_plan_2026-08-28.md).
+Phase 0 is now a stop-the-line repository reset: delete obsolete surfaces
+first, retain only demonstrably live generic core, and only then resume solver
+feature growth or the parallel Vakint implementation.
+
+The repository root is a **virtual Cargo workspace** with no root `src/`,
+`tests/`, or package. The deliberately bounded live packages are:
 
 ```text
-rustred-python ------> rustred-app ------> rustred core ------> Symbolica[gmp]
-                            |
-                            +-- rustred CLI binary
+rustred-python ------> rustred-app ------> rustred
+                            |                 |
+                            +-- CLI           +------> Symbolica[gmp]
 
-rustred-legacy-oracles ------------------> rustred core
+Vakint `RustRed` mode -------------------> rustred
 
-Vakint `RustRed` mode -------------------> rustred core
+Cargo package `rustred` lives at crates/rustred-core.
 ```
 
-The root `rustred` crate is the topology-neutral mathematical core and, in the
-parallel Vakint workstream as well as the complete production phase, the
-implementation home for tensor reduction, scalar lowering, guarded rule
-application, and typed master substitution.
-`rustred-app` is the typed transport-neutral composition layer and CLI host.
-`rustred-python` is a thin PyO3/maturin adapter over `rustred-app`, with no
-algebra or independent schema. `rustred-legacy-oracles` is publish-disabled,
-default-unlinked, and contains only authored historical validation logic.
+`rustred` is the topology-neutral mathematical core and the implementation
+home for tensor reduction, scalar lowering, guarded rule application, and
+typed master substitution. `rustred-app` is the typed composition layer and
+CLI host. `rustred-python` is a thin PyO3/maturin adapter over `rustred-app`,
+with no algebra or independent schema; users always write `import rustred`,
+while a native `_rustred` extension may remain a private packaging detail.
 Vakint is the concurrently developed lower-loop and ultimately complete
-user-facing steering layer over the relevant RustRed core services; it must
-not duplicate their algebra or silently fall back to FORM. The CLI and Python
-package remain parallel first-class interfaces for fine-grained generic work
-rather than compatibility shells around Vakint.
+user-facing steering layer over RustRed core services; it must not duplicate
+their algebra or silently fall back to FORM. The CLI and Python package remain
+parallel first-class interfaces for fine-grained generic work rather than
+compatibility shells around Vakint.
 
-The four-package layout is a disciplined baseline, not a prohibition on
-additional subcrates. Introduce another crate when it creates a demonstrable,
-acyclic ownership or dependency boundary, materially improves independent
-testing/compilation, and avoids a new dumping ground. Do not create transport-
+The publish-disabled `rustred-legacy-oracles` package, the core bridge/feature
+created solely for it, loop-authored standalone tools, obsolete test wrappers,
+old broad examples, stale LiteRed2/GammaLoop gitlinks, superseded dated docs,
+and compatibility APIs are deleted. Git is their archive. Do not update old
+paths, schemas, re-exports, or tests merely to keep them compiling before
+deletion. Root integration tests are not mechanically ported: extract only a
+small fresh generic contract matrix around retained services. There is no
+RustRed backward-compatibility promise during this development reset.
+
+Additional subcrates remain possible only when they create a demonstrable,
+acyclic ownership or dependency boundary, materially improve independent
+testing/compilation, and avoid a new dumping ground. Do not create transport-
 only or one-file microcrates merely to make the tree look modular.
 
 Within the core, dependency direction must be explicit and acyclic across
-these conceptual areas:
+these owned domains. In this diagram `A -> B` means that A may depend on B:
 
 ```text
-Symbolica algebra adapters
-        ↓
-family/input and authenticated coefficient contexts
-        ↓
-IBP/LI generation, sector geometry, zero/symmetry/factorization proofs
-        ↓
-exact solving, guards/WhenBad, exceptional closure, subsector feedback
-        ↓
-artifact verification/publication and deterministic campaign execution
-        ↓
-tensor/scalar/master application services behind a typed RustRed core API
-        ↓
-rustred-app adapters and, once lower-loop shards close, the parallel Vakint
-`RustRed` workstream
+rustred-app -> input, campaign, foundry, artifact, tensor, reduction
+Vakint RustRed mode -> input, tensor, reduction
+
+foundry -> private solver/{exact,closure}
+foundry -> artifact, identity, sector, campaign, family, algebra, runtime
+private solver -> identity, sector, campaign, family, algebra, runtime
+
+reduction -> artifact, tensor, family, algebra, runtime
+input -> tensor, family, algebra
+tensor -> family, algebra
+artifact -> identity, sector, family, algebra   # never solver/foundry
+identity -> family, algebra
+sector -> family, algebra
+campaign -> runtime                     # never foundry
+family -> algebra
+algebra -> runtime, Symbolica public Rust API
+runtime -> Symbolica public Rust API
 ```
+
+The core directories are `algebra`, `family`, `input`, `identity`, `sector`,
+`campaign`, `foundry`, `artifact`, `tensor`, `reduction`, and `runtime`.
+`foundry` privately owns `solver/{exact,closure}` and the high-level closure
+runner. `campaign` remains low-level work/resource infrastructure. Artifact
+models may embed stable sector evidence but never import the solver; the
+foundry emits them and reduction consumes them. The core has no `application/`
+directory because `rustred-app` is the composition layer.
 
 Private implementation names and files should describe mathematical roles,
 not historical implementation chronology. Code is factored to the highest
 professional standard practical for this project: cohesive modules, narrow
 interfaces, explicit owners, acyclic dependencies, minimal visibility, and no
-duplicated authority. Giant inline test campaigns move beside integration
-fixtures. Public re-exports are narrowed. Semantic solver changes are not
+duplicated authority. Only essential generic tests are co-located or rebuilt
+at true integration boundaries; historical campaigns are deleted. Public
+re-exports are narrowed. Semantic solver changes are not
 mixed into mechanical file moves. Git is the archive; stale code and
 documentation are deleted after their unique evidence is retained.
 
-Legacy paths are transitional evidence, not permanent architecture. Remove
-obsolete compatibility layers, V1/V2 bridges, handwritten production algebra,
-loop-authored reducers, dead modules, and stale tests/docs once their unique
-fixtures or differential evidence have moved to the appropriate current
-boundary. Retain something in `rustred-legacy-oracles` only when it has a
-specific continuing oracle purpose, cannot yet be replaced by a smaller data
-fixture, is unreachable from default production, and has an explicit retention
-or deletion decision. “Legacy” is never an acceptable production dependency.
+Legacy paths are not permanent architecture. Remove obsolete compatibility
+layers, V1/V2 bridges, handwritten production algebra, loop-authored reducers,
+dead modules, and stale tests/docs after extracting only genuinely unique
+current evidence into the new stable design/validation documents. Nothing is
+retained in a legacy package. “Legacy” is never an acceptable production
+dependency.
 
 ### Trust-boundary and compatibility discipline
 
@@ -343,105 +375,84 @@ compatibility shims. Vakint is different: its existing user-facing inputs,
 steering behavior, serialized data, supported backends, and accepted results
 must remain backward compatible. The Vakint `RustRed` mode is additive, and
 its regression gates must prove that existing modes and end-to-end tests keep
-working while the new FORM-less path is introduced.
+working while the new FORM-less path is introduced. Initially this means new
+opt-in methods/builders with `RustRedOptions`, not a new variant in Vakint's
+public exhaustive `EvaluationMethod` enum or a field added to its public
+settings layout; either source-breaking change requires a deliberate versioned
+API decision and downstream audit.
 
 ## Execution roadmap
 
 ### Phase 0 — mandatory heavy refactor and authority cleanup
 
-This phase is the important first implementation step. It executes before new
-solver feature growth and preserves a green licensed-GMP baseline after each
-rollback-sized tranche. Its purpose is to turn the current large, historically
-layered codebase into a professional base whose production call graph,
-ownership, CAS authority, test boundaries, and future Vakint-facing services
-can be understood and optimized independently.
+This phase is the immediate stop-the-line implementation step. The historical
+refactor milestones remain useful Git evidence, especially the campaign and
+exact-session/closure ownership work, but they do not oblige the new tree to
+preserve surrounding modules, APIs, schemas, tests, or the temporary legacy
+package. Do not continue untangling individual closure edges inside a
+402k-line root package before the reset below is complete.
 
-Each coherent package extraction, module-tree move, visibility tightening,
-legacy removal, and documentation consolidation is committed and pushed after
-its focused and workspace gates pass. Mechanical moves remain independently
-reviewable from semantic changes.
+Execute the rollback-sized tranches in the order specified by the clean
+architecture plan:
 
-1. Treat the completed `rustred-app` transport-neutral boundary as the fixed
-   starting point.
-2. Add `rustred-python` over `rustred-app` only: owned requests under the GIL,
-   GIL release for work, one process-wide coordinator before Symbolica
-   initialization, poison-on-panic behavior, canonical CLI/app/Python byte
-   parity, `n_cores = 1,2,4`, and clean wheel/sdist tests.
-   Preserve the shared API's generic family/kinematics model and fine-grained
-   operation boundaries; neither frontend may become vacuum-only or merely a
-   launcher for Vakint.
-3. **Complete:** create publish-disabled `rustred-legacy-oracles`, move all 35
-   compiled authored loop/topology modules, the six-module concrete
-   vacuum-family/IBP/reduction oracle engine, 35 dedicated integration tests,
-   and four diagnostic examples, and remove the former root feature and
-   concrete-engine surfaces. The package is not a default workspace member
-   and depends one-way on the core's narrow hidden support facade; the default
-   production graph does not link it.
-4. **Complete:** resolve every unwired source explicitly as wire, move, or
-   delete with reachability evidence. The three never-compiled orphan drafts
-   (`five_loop_d4`, `four_loop_next_conditions`, and
-   `exact_sparse_provenance`) were deleted: the authored shells were
-   incomplete and had no executable oracle, while the provenance draft
-   duplicated the live exact/Symbolica transcript path with a second
-   handwritten algebra and replay layer. Git retains their historical text;
-   no compatibility shim or archive crate was added.
-5. **In progress:** refactor the 450k-line flat core into clear
-   topology-neutral algebra, family, identity, sector, solver/closure,
-   artifact, campaign, tensor, and application boundaries; move large test
-   campaigns out of production modules and reduce visibility. The first
-   nested core boundary is complete: deterministic campaign planning,
-   resources, width selection, work identity, and admission live behind the
-   selective `rustred::campaign` API with private child modules and no root
-   compatibility aliases. The unused raw exact-relation compiler has also
-   been deleted after its unique GMP work, sealed-census, and exact buffer
-   boundary tests were transplanted to the live recenter kernel; Git retains
-   the obsolete i64 differential rather than a `cfg(test)` compatibility
-   authority. The exact-session foundation and transaction-core tranches are
-   also complete: physical keys, immutable solve plans, sealed physical rows,
-   the exact recenter kernel, transactional database, target catalog,
-   transactional session owner/state machine, and native sparse telemetry now
-   live as private children of
-   `solver::exact_session`. External production consumers reach only a
-   selective crate-private facade, shared fixtures live behind a test-only
-   support facade, and no old-path aliases remain. The exact-closure ownership
-   tranche is complete as well: the case inventory, publication handoff,
-   publication-epoch owner, and result batch are physically nested under
-   `solver::closure`, again without root compatibility aliases. The former
-   concrete inventory-to-epoch backedge is inverted through a private sealed
-   adapter whose sole ingress accepts the concrete committed-epoch source and
-   gives the inventory only an opaque, source-neutral owner. Its sealed
-   protocol is a separate generic leaf over the exact error and row-limit
-   types, so neither the protocol nor the inventory imports the other layer's
-   concrete implementation. The inventory no longer imports handoff, epoch,
-   or exact-session types. The coherent post-Ready cluster reparent is complete:
-   Ready analysis, condition planning, materialization, partitioning, and
-   compact publication now live under `solver::closure::post_ready`, together
-   with the cluster's inline tests and dedicated analysis/publication test
-   modules, with no old-path compatibility aliases. This was a mechanical
-   ownership move only; the session/post-Ready semantic SCC remains and is the
-   next tranche to untangle. The first construction-edge extraction above the
-   committed exceptional source is complete too: fresh exact-session assembly
-   now lives in `solver::closure::committed_exceptional_reentry`, above both
-   the publication-epoch source and its source-neutral adapter. It consumes
-   the predecessor once, preserves typed predecessor recovery, and uses a
-   sealed move-only permit for the sole shallow authority copy retained by the
-   child. Consequently `publication_epoch_owner` no longer calls or imports
-   `epoch_adapter` to construct a session. This is a scoped edge removal, not
-   a claim that the closure dependency graph is already acyclic: inventory-
-   typed replay, authenticated-row, and stable-identity responsibilities still
-   couple the epoch owner to the inventory layer, while the session/post-Ready
-   semantic SCC also remains. Those are the next boundary tranches. Other
-   mathematical clusters still need reorganization.
-6. Consolidate the research corpus into a small authoritative index for scope,
-   architecture, solver, campaigns, interfaces, references, status, and
-   acceptance. Delete reconciled stale documents rather than growing an
-   in-tree archive.
+1. Freeze the reset plan as a documentation-only milestone.
+2. Delete `rustred-legacy-oracles` wholesale, then delete its core bridge,
+   feature, dependency edges, tests, examples, and documentation promises.
+   This happens before moving the core so no legacy path is repaired merely to
+   be deleted.
+3. Generate a tracked-path liveness ledger and write compact fresh sentinels
+   for the retained capability spine before deleting its old test surfaces.
+   Then delete the entire root `tests/`, `examples/`, `tools/`, and `scripts/`
+   trees, plus stale tracked LiteRed2/GammaLoop gitlinks. Do not port or repair
+   the old binaries. Retain only the pinned Symbolica gitlink; reference trees
+   remain ignored and untracked.
+4. Form and prune the live code under acyclic `algebra`, `family`, `input`,
+   `identity`, `sector`, `campaign`, `foundry`, `artifact`, `tensor`,
+   `reduction`, and `runtime` owners while the package is still at the root.
+   `foundry` privately owns `solver::{exact,closure}`. Move a cluster only when
+   a live caller or fresh sentinel justifies it; delete the rest. Prefixes such
+   as `generated_`, `residual_`, and `parametric_` do not define directories.
+5. Replace the 750-line public facade with the smallest intentional generic
+   API required by the foundry, app/CLI/Python, and upcoming Vakint boundary.
+   Delete unreferenced generations/provider layers, eager sector machinery,
+   and compatibility APIs rather than suppressing dead-code warnings. Delete
+   a CAS duplicate only after it is dead or a Symbolica API/differential audit
+   has transferred authority; leave named live migrations for Phase 1.
+6. Convert the root to a virtual workspace only after pruning. Move the now
+   structured Cargo package named `rustred` to `crates/rustred-core`, update
+   the app dependency to `../rustred-core`, retain the root maturin
+   `pyproject.toml`, and leave no root `src/`, `tests/`, `examples/`, `tools/`,
+   or `scripts/` tree. Use a registry-shaped Symbolica dependency patched by
+   each workspace root so RustRed and GammaLoop can resolve one exact package.
+7. Complete the small fresh generic contract suite instead of porting all 103
+   root integration binaries. Preserve exact generic family/IBP/LI,
+   Symbolica, transaction/rollback, exceptional-child, zero/symmetry,
+   deterministic campaign, and app/CLI/Python evidence. Use only actually
+   embedded Vakint expectations immediately; live backend differentials wait
+   for their real external tools and are not mislabeled as frozen goldens.
+8. Replace the dated research corpus with concise stable architecture,
+   algebra, foundry, interface, validation, and LiteRed-reference documents;
+   rewrite the README for actual capabilities and delete milestone logs and
+   superseded plans.
+9. Require a zero-warning licensed workspace check, strict rustdoc, formatting,
+   exact focused tests, tree/dependency audits, and independent subagent audits
+   before declaring Phase 0 complete. Commit and push every coherent passing
+   tranche; do not squash the reset into one opaque milestone.
 
-Phase 0 is complete only when package/module ownership and dependency direction
-are explicit, no authored recurrence is reachable from the default product,
-tests/fixtures cannot be imported by production, outstanding Symbolica
-migrations have named boundaries, and the README/design index describe the
-actual tree. This phase does not claim to have changed solver semantics.
+The currently supplied `FOR_REFERENCE_ONLY_DO_NOT_PUSH/form5` path is a
+React/Node project, not a runnable FORM5 installation. Vakint's actually
+embedded expectations remain immediately extractable; live FORM-backed
+differential regeneration is an opt-in external oracle gate requiring a real
+FORM >= 4.2.1 executable. This does not block Phase 0 and never permits FORM in
+RustRed or Vakint's RustRed mode.
+
+Phase 0 is complete only when the root is virtual, package/module ownership
+and dependency direction are explicit, no legacy package or authored
+recurrence remains, root historical tests/docs are gone, production/test code
+cannot cross boundaries accidentally, outstanding Symbolica migrations have
+named boundaries, compiler and rustdoc warnings are zero, and the stable
+README/design set describes the actual tree. This phase does not claim solver
+closure or changed mathematics merely from structural deletion.
 
 ### Phase 1 — Symbolica-native foundry authority and one exact exceptional child
 
@@ -543,12 +554,14 @@ unsupported quotient, or successful map alone is not a closed branch.
    stable master keys, and supplied master substitution. The new path itself
    remains pure Rust + Symbolica and uses independently generated RustRed
    artifacts.
-6. Run Vakint's existing one- through four-loop end-to-end tests through the
-   pinned alphaLoop, MATAD, and/or FMFT backends using the reference FORM5
-   executable only in the segregated oracle job. Compare final expressions
-   over unsubstituted masters—and master-substituted results where authoritative
-   data exists—after an explicit convention map. Never copy the oracle's
-   authored recurrence tables into RustRed rules.
+6. When a real FORM >= 4.2.1 executable becomes available, run Vakint's
+   existing one- through four-loop end-to-end tests through the pinned
+   alphaLoop, MATAD, and/or FMFT backends only in the segregated oracle job.
+   Until then, consume only expectations actually embedded in the existing
+   tests; live differential-only suites are unavailable. Compare final
+   expressions over unsubstituted masters—and master-substituted results where
+   authoritative data exists—after an explicit convention map. Never copy the
+   oracle's authored recurrence tables into RustRed rules.
 7. Freeze a separate versioned four-loop raw oracle corpus where required;
    oracle absence remains explicit and cannot be filled with RustRed's own
    output.
@@ -633,8 +646,9 @@ production evaluation chain and six-loop shipped-library deployment:
 All Vakint changes from Phase 4 onward are made in the GammaLoop repository on
 the dedicated `vakint_rustred` branch, with rollback-sized commits and
 milestone pushes to that branch. The branch is created when this workstream
-begins. While iterating locally, `crates/vakint/Cargo.toml` may point to the
-local RustRed checkout for immediate cross-repository feedback. Before each
+begins. In the present ignored checkout, `crates/vakint/Cargo.toml` may use
+`rustred = { package = "rustred", path = "../../../../crates/rustred-core" }`
+for immediate cross-repository feedback. Before each
 reproducible pushed milestone, CI run, frozen oracle comparison, or published
 artifact claim, it points to the RustRed GitHub repository at the exact
 validated RustRed commit used by that milestone. Machine-specific absolute
@@ -643,13 +657,24 @@ Before every commit, both repositories' scopes are checked independently so no
 path under `FOR_REFERENCE_ONLY_DO_NOT_PUSH/` enters RustRed history.
 
 The combined Cargo graph must resolve one compatible pinned Symbolica package
-and feature set, with GMP enabled and `no_gmp` absent. A duplicated or
-revision-incompatible Symbolica dependency is rejected before exposing a
-zero-copy `Atom` boundary between Vakint and RustRed.
+and feature set, with GMP enabled and `no_gmp` absent. `rustred-core` declares
+the exact registry-shaped Symbolica version; the RustRed workspace patches it
+to the pinned vendor checkout, while GammaLoop's workspace patches the same
+package names to one jointly validated exact Git revision. GammaLoop's Hakari
+workspace-hack must also be regenerated so its direct normal/build Symbolica
+and Numerica dependencies use that same revision; a root crates.io patch does
+not override direct Git dependencies. Moving `dev` branch selectors anywhere
+in tracked manifests are forbidden for a milestone. Manifest/lock scans and
+source-qualified `cargo tree -d`/`cargo tree` audits reject duplicated or
+revision-incompatible Symbolica-family packages. Until the graph is unified,
+the cross-repository API uses owned RustRed domain values and Vakint-owned
+conversion rather than exposing `Atom`/`AtomView`. Producer version metadata
+comes from Symbolica's public `LicenseManager::get_version()`, not from
+scraping the vendored manifest.
 
 None of the Vakint/RustRed implementation layers may invoke FORM, Mathematica,
 SymPy, or copied authored recurrences. Only the segregated existing-backend
-oracle job described above may execute FORM5.
+oracle job described above may execute a real pinned FORM >= 4.2.1.
 
 ## Current evidence baseline
 
@@ -714,8 +739,9 @@ risk:
 
 Benchmarks and acceptance fixtures are data, never production dispatch.
 Ordinary/default tests must not initialize FORM or Mathematica. The separately
-declared Vakint reference-oracle job may execute pinned FORM5 only to run the
-existing alphaLoop/MATAD/FMFT comparison paths; the new mode remains FORM-less.
+declared Vakint reference-oracle job may execute a pinned real FORM >= 4.2.1
+only to run the existing alphaLoop/MATAD/FMFT comparison paths; the new mode
+remains FORM-less. The supplied `form5` directory is not such an executable.
 Reference-only trees remain untracked. Milestones are committed and pushed
 only after their declared gate passes; partial work is reported honestly and
 is not relabeled as closure.
@@ -735,9 +761,10 @@ principal supporting sources are:
 - `README.md` and the live implementation for the actual development frontier;
 - `docs/research/rustred_scope_and_acceptance.md` and
   `docs/research/litered_full_scope_spec.md` for mathematical scope;
-- `docs/research/repository_reorganization_directive_2026-08-27.md` and
-  `docs/research/python_api_directive_2026-08-27.md` for the initial
-  architecture gate;
+- `docs/research/repository_clean_architecture_plan_2026-08-28.md` for the
+  authoritative repository reset, domain DAG, deletion order, and Vakint
+  dependency/oracle boundary; older reorganization and Python directives are
+  superseded historical inputs to be deleted during Phase 0;
 - `docs/research/exact_session_when_bad_port_plan_2026-08-24.md` and the
   exceptional/refinement notes for the live solver continuation;
 - `docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md` and
