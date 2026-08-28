@@ -72,20 +72,16 @@ pub use generic_tensor_projector::{
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
-    GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,
-    ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
-    PartialIndexAssignment, SpecializedNonZeroCondition,
+    GuardedParametricCoefficient, ParametricArithmeticLimits, ParametricCoefficient,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricNonZeroCondition,
+    ParametricPolynomial, SpecializedNonZeroCondition,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
 };
 pub use parametric_relation::{
-    ConcreteIntegralKey, ConcreteRelation, IndexShift, IndexSpace,
-    PARTIAL_PARAMETRIC_RELATION_SPECIALIZATION_V1_SCHEMA, ParametricRelation,
-    ParametricRelationError, ParametricRowId, PartialParametricRelationSpecialization,
-    PartialParametricRelationSpecializationLimits, PartialParametricRelationSpecializationStats,
-    PartialSpecializationBaseAssumption,
+    ConcreteIntegralKey, ConcreteRelation, IndexShift, IndexSpace, ParametricRelation,
+    ParametricRelationError, ParametricRowId,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

@@ -6,7 +6,6 @@
 //! representation depend on the order in which algebraic operations ran.
 
 use std::fmt;
-use std::mem::size_of;
 use std::sync::Arc;
 
 fn write_joined<T: fmt::Display>(
@@ -120,13 +119,6 @@ impl GuardRowId {
             Self::Derived { label } => write!(writer, "derived:{}:{label}", label.len()),
         }
     }
-
-    pub(crate) fn shared_payload_bytes(&self) -> usize {
-        match self {
-            Self::Derived { label } => label.len(),
-            Self::OrdinaryIbp { .. } | Self::LorentzInvariance { .. } => 0,
-        }
-    }
 }
 
 /// One atomic reason why a polynomial must be nonzero.
@@ -179,19 +171,9 @@ pub enum GuardOrigin {
     IndexTranslation { offset: Box<[i64]> },
     /// Exact integer specialization applied to a guard.
     IndexSpecialization { assignment: Box<[i64]> },
-    /// Exact sparse integer specialization applied while the remaining index
-    /// variables stay symbolic.  Entries are canonicalized by increasing
-    /// index position before this provenance atom can be constructed.
-    PartialIndexSpecialization { assignments: Box<[(usize, i64)]> },
     /// Original denominator of a coefficient specialized separately from a
     /// relation.
     CoefficientSpecializationDenominator,
-    /// Original denominator of a coefficient after sparse index
-    /// specialization and before fraction normalization can cancel it.
-    CoefficientPartialSpecializationDenominator,
-    /// Mapped pre-normalization denominator of one concrete term in a source
-    /// row partially specialized on an equality locus.
-    RelationPartialSpecializationTermDenominator { row: GuardRowId, shift: Box<[i64]> },
     /// A condition inserted through the polynomial-only shift-operator API.
     ExplicitShiftOperatorCondition,
     /// The condition was attached to this operator expression.
@@ -207,124 +189,12 @@ pub enum GuardOrigin {
 }
 
 impl GuardOrigin {
-    fn retained_byte_base_bound() -> Option<usize> {
-        // One insertion can allocate a complete B-tree node with capacity
-        // for several keys and child edges. Use a deliberately loose
-        // complete-node allowance per atom without depending on libstd's
-        // private branching factor.
-        size_of::<Self>()
-            .checked_mul(16)?
-            .checked_add(32usize.checked_mul(size_of::<usize>())?)
-    }
-
-    /// Preflight the input-denominator atom constructed by ordinary
-    /// `ParametricRelation` term insertion. This has the same owned shape as
-    /// the affine wrapper's term-denominator atom, but naming the actual
-    /// variant keeps complete-row translation audits source-exact.
-    pub(crate) fn relation_input_term_denominator_retained_byte_bound(
-        row: &GuardRowId,
-        shift_len: usize,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(row.shared_payload_bytes())?
-            .checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
-    pub(crate) fn index_translation_retained_byte_bound(shift_len: usize) -> Option<usize> {
-        Self::retained_byte_base_bound()?.checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
-    pub(crate) fn index_specialization_retained_byte_bound(assignment_len: usize) -> Option<usize> {
-        Self::retained_byte_base_bound()?.checked_add(assignment_len.checked_mul(size_of::<i64>())?)
-    }
-
-    pub(crate) fn relation_translation_retained_byte_bound(
-        source_row: &GuardRowId,
-        target_row: &GuardRowId,
-        shift_len: usize,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(source_row.shared_payload_bytes())?
-            .checked_add(target_row.shared_payload_bytes())?
-            .checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
-    pub(crate) fn relation_attached_retained_byte_bound(row: &GuardRowId) -> Option<usize> {
-        Self::retained_byte_base_bound()?.checked_add(row.shared_payload_bytes())
-    }
-
     /// Version-stable identity used in user-facing output and proof payloads.
     pub fn stable_string(&self) -> String {
         let mut output = String::new();
         self.write_stable(&mut output)
             .expect("writing guard-origin provenance to String cannot fail");
         output
-    }
-
-    /// Conservative retained-byte census for one flat provenance atom.
-    ///
-    /// This includes a conservative complete B-tree-node allowance, boxed
-    /// slice payloads, and shared row-label bytes. It performs only
-    /// checked arithmetic and allocates nothing, so callers can reject a
-    /// provenance copy before cloning boxed payloads or allocating tree
-    /// nodes.
-    pub(crate) fn retained_byte_bound(&self) -> Option<usize> {
-        let mut bytes = Self::retained_byte_base_bound()?;
-        let row_bytes = |row: &GuardRowId| row.shared_payload_bytes();
-        let slice_bytes = |length: usize, element_size: usize| length.checked_mul(element_size);
-        let mut add = |payload: usize| -> Option<()> {
-            bytes = bytes.checked_add(payload)?;
-            Some(())
-        };
-
-        match self {
-            Self::RelationConditionAttached { row }
-            | Self::ShiftOperatorConditionAttached { row }
-            | Self::ShiftOperatorInputTermDenominator { row }
-            | Self::ShiftOperatorCollectedTermDenominator { row }
-            | Self::ShiftOperatorFromRelationAdapter { row }
-            | Self::ShiftOperatorToRelationAdapter { row } => add(row_bytes(row))?,
-            Self::RelationInputTermDenominator { row, shift }
-            | Self::RelationCollectedTermDenominator { row, shift }
-            | Self::RelationPartialSpecializationTermDenominator { row, shift } => {
-                add(row_bytes(row))?;
-                add(slice_bytes(shift.len(), size_of::<i64>())?)?;
-            }
-            Self::RelationScaleFactorDenominator {
-                target_row,
-                source_row,
-            } => {
-                add(row_bytes(target_row))?;
-                add(row_bytes(source_row))?;
-            }
-            Self::RelationTranslation {
-                source_row,
-                target_row,
-                offset,
-            } => {
-                add(row_bytes(source_row))?;
-                add(row_bytes(target_row))?;
-                add(slice_bytes(offset.len(), size_of::<i64>())?)?;
-            }
-            Self::IndexTranslation { offset }
-            | Self::IndexSpecialization { assignment: offset } => {
-                add(slice_bytes(offset.len(), size_of::<i64>())?)?;
-            }
-            Self::PartialIndexSpecialization { assignments } => {
-                add(slice_bytes(assignments.len(), size_of::<(usize, i64)>())?)?;
-            }
-            Self::FamilyInputCoefficientDenominator { .. }
-            | Self::FamilyBasisDeterminantNumerator
-            | Self::PowerShiftSupport { .. }
-            | Self::GuardedDivisionDividendDenominator
-            | Self::GuardedDivisionDivisorDenominator
-            | Self::GuardedDivisionDivisorNumerator
-            | Self::ExplicitRelationCondition
-            | Self::CoefficientSpecializationDenominator
-            | Self::CoefficientPartialSpecializationDenominator
-            | Self::ExplicitShiftOperatorCondition => {}
-        }
-        Some(bytes)
     }
 
     pub(crate) fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
@@ -399,28 +269,8 @@ impl GuardOrigin {
                 write_joined(writer, assignment, ",")?;
                 writer.write_str("]")
             }
-            Self::PartialIndexSpecialization { assignments } => {
-                writer.write_str("partial-index-specialization:[")?;
-                for (ordinal, (position, value)) in assignments.iter().enumerate() {
-                    if ordinal != 0 {
-                        writer.write_str(",")?;
-                    }
-                    write!(writer, "{position}={value}")?;
-                }
-                writer.write_str("]")
-            }
             Self::CoefficientSpecializationDenominator => {
                 writer.write_str("coefficient-specialization-denominator")
-            }
-            Self::CoefficientPartialSpecializationDenominator => {
-                writer.write_str("coefficient-partial-specialization-denominator")
-            }
-            Self::RelationPartialSpecializationTermDenominator { row, shift } => {
-                writer.write_str("relation-partial-specialization-term-denominator:")?;
-                row.write_stable(writer)?;
-                writer.write_str(":[")?;
-                write_joined(writer, shift, ",")?;
-                writer.write_str("]")
             }
             Self::ExplicitShiftOperatorCondition => {
                 writer.write_str("explicit-shift-operator-condition")

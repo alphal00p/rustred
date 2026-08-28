@@ -271,67 +271,6 @@ pub(crate) fn checked_coefficient_mul_on_map(
     Ok(result)
 }
 
-/// Multiply two already-canonical integer polynomials without routing the
-/// operation through rational-function GCD normalization.
-///
-/// A polynomial product visits `left.nterms() * right.nterms()` Cartesian
-/// pairs, but its retained sparse support is bounded independently by the
-/// componentwise degree box.  Keeping those two bounds separate is sound for
-/// direct polynomial multiplication: unlike a normalized rational operation,
-/// no exact quotient can densify the result beyond the input-pair count.
-pub(crate) fn checked_polynomial_mul_on_map(
-    left: &MultivariatePolynomial<IntegerRing, u16>,
-    right: &MultivariatePolynomial<IntegerRing, u16>,
-    variables: &Arc<Vec<PolyVariable>>,
-    limits: ExactAlgebraLimits,
-    max_native_output_term_bound: usize,
-) -> Result<MultivariatePolynomial<IntegerRing, u16>, ExactAlgebraError> {
-    validate_polynomial_on_map(
-        left,
-        variables,
-        CoefficientPolynomialPart::Numerator,
-        limits,
-    )?;
-    validate_polynomial_on_map(
-        right,
-        variables,
-        CoefficientPolynomialPart::Numerator,
-        limits,
-    )?;
-    preflight_product_degrees(left, right, ExactAlgebraOperation::Multiply, limits)?;
-
-    let term_pairs = checked_term_product(
-        left.nterms(),
-        right.nterms(),
-        "exact polynomial multiplication term pairs",
-    )?;
-    check_exact_resource_limit(
-        "exact polynomial multiplication term pairs",
-        term_pairs,
-        limits.max_term_operations,
-    )?;
-    let output_term_bound = polynomial_product_output_term_bound(left, right, term_pairs)?;
-    check_exact_resource_limit(
-        "exact polynomial multiplication output terms",
-        output_term_bound,
-        max_native_output_term_bound,
-    )?;
-
-    let result = left * right;
-    check_exact_resource_limit(
-        "exact polynomial multiplication output bound",
-        result.nterms(),
-        output_term_bound,
-    )?;
-    validate_polynomial_on_map(
-        &result,
-        variables,
-        CoefficientPolynomialPart::Numerator,
-        limits,
-    )?;
-    Ok(result)
-}
-
 pub(crate) fn checked_coefficient_div_on_map(
     numerator: &Coefficient,
     denominator: &Coefficient,
@@ -582,31 +521,6 @@ fn checked_term_product(
         .ok_or(ExactAlgebraError::ResourceCountOverflow { resource })
 }
 
-fn polynomial_product_output_term_bound(
-    left: &MultivariatePolynomial<IntegerRing, u16>,
-    right: &MultivariatePolynomial<IntegerRing, u16>,
-    term_pairs: usize,
-) -> Result<usize, ExactAlgebraError> {
-    if term_pairs == 0 {
-        return Ok(0);
-    }
-
-    // Cap every partial product at the Cartesian-pair count. This computes
-    // min(term_pairs, product_i(deg_i(left) + deg_i(right) + 1)) without an
-    // overflowing intermediate and is exact as an upper bound on support.
-    let mut degree_box = 1usize;
-    for variable in 0..left.variables.len() {
-        let width = usize::from(left.degree(variable))
-            .checked_add(usize::from(right.degree(variable)))
-            .and_then(|degree| degree.checked_add(1))
-            .ok_or(ExactAlgebraError::ResourceCountOverflow {
-                resource: "exact polynomial multiplication degree box",
-            })?;
-        degree_box = degree_box.saturating_mul(width).min(term_pairs);
-    }
-    Ok(degree_box)
-}
-
 fn preflight_product_terms(
     left: usize,
     right: usize,
@@ -724,13 +638,6 @@ impl fmt::Display for CoefficientContextError {
 impl std::error::Error for CoefficientContextError {}
 
 impl CoefficientContext {
-    /// Conservative bytes owned by a deep clone of this context. The names
-    /// and variable maps remain shared `Arc` payloads; only the inline context
-    /// and the sparse/GMP payload of its private template are charged.
-    pub(crate) fn clone_owned_retained_byte_bound(&self) -> Option<usize> {
-        size_of::<Self>().checked_add(coefficient_clone_owned_retained_byte_bound(&self.template)?)
-    }
-
     /// Construct a validated Symbolica variable map without allowing malformed
     /// or duplicate caller labels to reach polynomial construction.
     pub fn try_new(
@@ -1090,96 +997,5 @@ mod tests {
                 }
             ));
         }
-    }
-
-    #[test]
-    fn checked_polynomial_multiplication_covers_empty_maps_constants_and_zero() {
-        let context = CoefficientContext::new(Vec::<String>::new());
-        let zero = context.template.numerator.zero();
-        let two = context.template.numerator.constant(Integer::from(2));
-        let three = context.template.numerator.constant(Integer::from(3));
-        let one_sparse_operation = ExactAlgebraLimits {
-            max_polynomial_terms: 1,
-            max_term_operations: 1,
-            ..ExactAlgebraLimits::default()
-        };
-
-        let product = checked_polynomial_mul_on_map(
-            &two,
-            &three,
-            &context.variables,
-            one_sparse_operation,
-            one_sparse_operation.max_polynomial_terms,
-        )
-        .unwrap();
-        assert_eq!(
-            product,
-            context.template.numerator.constant(Integer::from(6))
-        );
-
-        let zero_product = checked_polynomial_mul_on_map(
-            &zero,
-            &three,
-            &context.variables,
-            ExactAlgebraLimits {
-                max_term_operations: 0,
-                ..one_sparse_operation
-            },
-            0,
-        )
-        .unwrap();
-        assert!(zero_product.is_zero());
-    }
-
-    #[test]
-    fn checked_polynomial_multiplication_rejects_invalid_configuration_and_payloads() {
-        let context = CoefficientContext::new(Vec::<String>::new());
-        let one = context.template.numerator.one();
-        assert_eq!(
-            checked_polynomial_mul_on_map(
-                &one,
-                &one,
-                &context.variables,
-                ExactAlgebraLimits {
-                    max_exponent: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT + 1,
-                    ..ExactAlgebraLimits::default()
-                },
-                ExactAlgebraLimits::default().max_polynomial_terms,
-            ),
-            Err(ExactAlgebraError::ConfiguredExponentLimit {
-                requested: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT + 1,
-                representation_limit: SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-            })
-        );
-
-        let foreign = CoefficientContext::new(["x"]);
-        assert!(matches!(
-            checked_polynomial_mul_on_map(
-                &one,
-                &foreign.template.numerator,
-                &context.variables,
-                ExactAlgebraLimits::default(),
-                ExactAlgebraLimits::default().max_polynomial_terms,
-            ),
-            Err(ExactAlgebraError::VariableMapMismatch {
-                part: CoefficientPolynomialPart::Numerator,
-            })
-        ));
-
-        let mut malformed = one.clone();
-        malformed.exponents.push(0);
-        assert!(matches!(
-            checked_polynomial_mul_on_map(
-                &malformed,
-                &one,
-                &context.variables,
-                ExactAlgebraLimits::default(),
-                ExactAlgebraLimits::default().max_polynomial_terms,
-            ),
-            Err(ExactAlgebraError::MalformedExponentLayout {
-                part: CoefficientPolynomialPart::Numerator,
-                ..
-            })
-        ));
     }
 }

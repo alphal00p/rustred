@@ -389,15 +389,19 @@ re-exports are narrowed. The fresh solver is not developed inside mechanical
 file moves. Git is the archive; stale code and documentation are deleted after
 their unique evidence is retained.
 
-The current `parametric_coefficient` monolith and `runtime` wrapper are not
-final modules. Algebra is rebuilt around a single Symbolica-native field
+The surviving `parametric_coefficient` file is a temporary migration unit,
+not a final module, and the former `runtime` wrapper is gone. Algebra is
+rebuilt around a single Symbolica-native field
 layer with clear base-field and index-field owners. Stored polynomial
 exponents use Symbolica's native `u16`; only checked `u32`/`u64` prospective
 arithmetic is used where an operation can widen. `u128` is not an exponent
 representation. Self-only sparse-solver, associate, residual-affine,
 parameter-identity, transcript, census, and compatibility machinery is
-deleted. Symbolica primitives are wrapped only when a real invariant or an
-infallible native trait boundary requires it.
+deleted. This includes the old partial-specialization/replay stack, aggregate
+concrete-specialization authorization/census stack, exact-Integer translation
+lane, retained-payload serializers, two-phase division seam, and unused
+integer-matrix adapter. Symbolica primitives are wrapped only when a real
+invariant or an infallible native trait boundary requires it.
 
 Reducing the flat root is not permission to cram unrelated responsibilities
 into a few giant files. Stable domains use parent modules and short role-named

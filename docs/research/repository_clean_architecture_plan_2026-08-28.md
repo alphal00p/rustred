@@ -499,6 +499,16 @@ public Python import smoke test pass.
 
 ### R3 — form and prune the retained domain spine in place
 
+The current deletion checkpoint has already removed the legacy sparse solver,
+coefficient projection/parser compatibility, partial-specialization/replay,
+aggregate concrete-specialization census, retained-payload serialization,
+exact-Integer translation, two-phase guarded division, and unused integer-
+matrix adapter. The remaining coefficient and relation migration units retain
+only complete K(n) translation/specialization, guard provenance, direct
+Symbolica coefficient operations, and mathematical pre-operation bounds. They
+must still be renamed and split into the semantic algebra/identity owners;
+their shorter current files are not accepted as final root modules.
+
 - Delete `src/solver/**` plus the dependent exact-session, closure,
   publication, re-entry, generated-affine/cylindrical/residual, and provider
   SCCs. Do not relocate or preserve them.

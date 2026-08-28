@@ -1,6 +1,6 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `ef68f7e`, updated for direct Symbolica runtime use.
+**Baseline parent:** `8f768ef`, immediately before the coefficient/relation and integer-matrix purge.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 54 tracked Rust source/test paths
@@ -20,9 +20,9 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 21 |
-| split | 32 |
-| delete | 0 |
+| move | 15 |
+| split | 36 |
+| delete | 2 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -51,20 +51,20 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
 | `src/algebra/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
-| `src/algebra/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/algebra/exact.rs` | delete | algebra | replace its two live consumers with Symbolica's native rational type; do not retain a parallel exact-number wrapper |
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
-| `src/campaign/admission.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
+| `src/campaign/admission.rs` | split | campaign | retain generic RAM admission; delete fixed-component and resident-transform prototype branches |
 | `src/campaign/execution.rs` | move | campaign | bounded execution authority co-located with admission and width planning |
 | `src/campaign/execution_width.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/mod.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/plan.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
+| `src/campaign/plan.rs` | split | campaign / rustred-app | move family/sector binding upward; retain only opaque generic work planning below |
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
-| `src/generic_family.rs` | move | family | live generic family construction and normalization |
+| `src/campaign/work.rs` | split | campaign / rustred-app | rewrite around opaque work identities and delete publication-era variants |
+| `src/feynman_polynomials.rs` | split | family / sector | retain Symbolica-native construction under family; move face restriction to sector and delete handwritten CAS |
+| `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay |
 | `src/generic_tensor_family.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/generic_tensor_projector.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
@@ -73,7 +73,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
-| `src/shift_operators.rs` | move | family | live generic family construction and normalization |
+| `src/shift_operators.rs` | delete | none | closed self-test/facade island with no app, IBP, reduction, or foundry caller; rebuild only a required future reduction primitive |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
