@@ -2,13 +2,14 @@
 
 Date: 2026-08-27
 
-Status: mandatory product requirement. The transport-neutral application
-boundary is complete; the dedicated Python package and outer coordinator remain
-to be implemented through the repository reorganization.
+Status: implemented development interface. The transport-neutral application
+boundary, dedicated Python package, and poison-on-panic outer coordinator are
+complete. Public distribution remains separately gated on Symbolica and
+static-LGPL redistribution review plus a reproducible manylinux build.
 
 ## Contract
 
-RustRed will provide a PyO3 package exposing the same semantic operations as
+RustRed provides a PyO3 package exposing the same semantic operations as
 the CLI. There will be one implementation path:
 
 ```text
@@ -51,12 +52,12 @@ The CLI binary lives inside `rustred-app`; a separate transport-only CLI crate
 would add no useful isolation. The app boundary is now transport-neutral:
 semantic services, public errors/options, resource limits, and canonical
 serialization live under `application`, while CLI concerns remain in the
-adapter. Direct tests prove API/CLI canonical-byte parity, and `rustred-app`
+adapter. Direct tests prove API/CLI/Python canonical-byte parity, and `rustred-app`
 depends on Symbolica only transitively through the core. The dedicated
-`rustred-python` package remains to be implemented with poison-on-panic
-containment at its outer coordinator/FFI boundary.
+`rustred-python` package implements poison-on-panic containment at its outer
+coordinator/FFI boundary.
 
-The binding should be a dedicated `cdylib`/`rlib` workspace package using
+The binding is a dedicated `cdylib`/`rlib` workspace package using
 PyO3 and maturin, with Python >= 3.11 as the initial supported floor. PyO3,
 Python objects, and packaging dependencies cannot leak into the app or core
 crates. Symbolica's Python feature is not needed: RustRed uses Symbolica's Rust
@@ -83,7 +84,7 @@ state must not be presented as safely recoverable. No binding can catch a
 native process abort, so the thread contract must still be respected
 proactively.
 
-The module must initially declare that it uses the GIL for module/object state.
+The module declares that it uses the GIL for module/object state.
 Free-threaded CPython support is a separate future audit. Cooperative
 cancellation is also a separate core capability; releasing the GIL alone does
 not make an in-flight Symbolica calculation cancellable.
@@ -114,4 +115,12 @@ Acceptance requires:
 - ordinary tests run in parallel, with only genuinely process-global license
   probes isolated.
 
-This directive records a required frontend, not a new reduction capability.
+The development gate has passed with a rebuildable sdist, clean wheel installs
+on CPython 3.11 through 3.13, exact CLI parity, typed error, concurrency,
+fork-safety, license-mode, and linkage checks. The Nix-built wheel is not a
+portable release artifact: it has Nix runpaths and a generic Linux tag. The
+sdist necessarily contains the vendored Symbolica path source. Neither sdist
+nor wheel may be published until the recorded redistribution/compliance gates
+and a clean manylinux build-and-audit pipeline have passed.
+
+This directive records a frontend, not a new reduction capability.

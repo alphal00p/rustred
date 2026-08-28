@@ -31,10 +31,11 @@ is not source-bound or proof authority yet.
 The mandatory current gate is the repository-wide structural reorganization:
 generic production code, loop-specific validation campaigns, fixtures, and
 current documentation must become visibly separate before resident equality
-integration resumes. Its typed transport-neutral application layer is now
-complete; the next frontend phase adds a PyO3 package over exactly the
-operations used by the CLI. The binding is not a second algebra or reduction
-implementation.
+integration resumes. Its typed transport-neutral application layer and PyO3
+package over exactly the operations used by the CLI are now complete for
+development use. The binding is not a second algebra or reduction
+implementation; portable publication remains a separate licensing and
+manylinux gate.
 
 ## Reading status
 
@@ -62,7 +63,11 @@ Internal forward-path values should use sealed constructors, move ownership,
 and typestate rather than repeated schema/fingerprint/replay authentication.
 Runtime authentication is for untrusted imports, durable artifacts, and live
 mutation boundaries. Backward compatibility of internal formats is explicitly
-not an acceptance requirement during this implementation stage.
+not an acceptance requirement during this implementation stage. More broadly,
+pre-release RustRed APIs, CLI/Python details, and artifact schemas may be
+replaced without compatibility shims; their callers and fixtures move in the
+same milestone. Vakint's established user-facing behavior remains backward
+compatible when its additive RustRed mode is introduced.
 Older internal schema/replay/token layers are historical scaffolding, not a
 design precedent; simplify or remove them when their code is next changed.
 

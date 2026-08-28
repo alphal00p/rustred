@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.10,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rustred"
+description = "Pure-Rust, Symbolica-native parametric IBP tools"
+readme = "crates/rustred-python/README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dynamic = ["version"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Typing :: Typed",
+]
+
+[tool.maturin]
+bindings = "pyo3"
+features = ["extension-module"]
+module-name = "rustred._rustred"
+python-source = "crates/rustred-python/python"
+manifest-path = "crates/rustred-python/Cargo.toml"
+include = [
+    { path = "crates/rustred-python/tests/**/*", format = "sdist" },
+    { path = "vendor/symbolica/lib/**/*", format = "sdist" },
+]

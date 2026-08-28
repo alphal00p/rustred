@@ -8,3 +8,5 @@ result-*
 *.profraw
 *.profdata
 .DS_Store
+/FOR_REFERENCE_ONLY_DO_NOT_PUSH/
+/.venv/

@@ -1,0 +1,21 @@
+[package]
+name = "rustred-python"
+version.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Python adapter for the RustRed application API"
+license = "MIT"
+publish = false
+
+[lib]
+name = "_rustred"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["abi3-py311"] }
+rustred-app = { path = "../rustred-app" }

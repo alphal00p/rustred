@@ -39,11 +39,13 @@ application modules own the typed requests/results, options, errors, semantic
 services, resource limits, and canonical serialization, while the CLI owns
 only arguments, OS I/O, overwrite policy, exit codes, help, and terminal
 presentation. Direct tests keep canonical output byte-identical, and the app
-now reaches Symbolica only through the core. The requested PyO3 package will
-depend on that boundary rather than implementing a second frontend pipeline.
-Its outer coordinator/FFI boundary must poison further work after catching a Rust
-panic rather than claim that invariant-failed state is reusable. Deeper
-core, legacy-oracle, test, and documentation separation also remains pending.
+now reaches Symbolica only through the core. The dedicated `rustred-python`
+PyO3 package is implemented as a thin adapter over that boundary; it has no
+direct dependency on the core or Symbolica and does not implement a second
+frontend pipeline. Its process-wide coordinator releases the GIL around work,
+serializes application calls onto one owned Rust thread, fails closed after a
+fork, and permanently poisons further work after catching a Rust panic. Deeper
+core, legacy-oracle, test, and documentation separation remains pending.
 The audit and migration contract are tracked in the
 [repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).
 
@@ -58,7 +60,7 @@ complete mathematical workflow.
 | Infer scalar parameters from family-defining expressions | Available |
 | Derive raw generic ordinary parametric IBP identities | Available through `rustred derive` and the library |
 | Derive raw generic Lorentz-invariance identities | Available through `rustred derive` and the library |
-| Call the CLI-equivalent application API from Python | Planned and mandatory, but not yet implemented. The shared owned API now exists in `rustred-app`; the next packaging phase adds a dedicated PyO3 package over it. Python will not contain algebra or a second reduction path |
+| Call the CLI-equivalent application API from Python | Available through the dedicated `rustred-python` PyO3 package for derivation, campaign planning, and campaign preflight. It delegates only to `rustred-app`, preserves canonical TOML byte parity with the CLI, and exposes typed exceptions without embedding algebra or a second reduction path |
 | Authenticate and deduplicate multiple campaign roots | Available through roots-only `rustred campaign plan`; dependency discovery and execution are not started |
 | Plan, admit, and settle RAM-aware campaign waves | Available as low-level library primitives: the versioned pre-pool width planner chooses the largest memory-feasible `E <= --n-cores`, returns a typed no-fit pause, and only a consumed plan may construct the exact bounded worker count; move-only core/estimated-memory guards and stable dispatch follow. A no-default physical-profile contract and algebra-free `campaign preflight` report are available. Named-host calibration, phase-specific task estimators, and the production frontier coordinator remain pending |
 | Derive a coverage-closed guarded replacement-rule system | **Not yet complete**; exceptional recursion, subsector feedback, and a proved fixed point remain pending |
@@ -109,7 +111,7 @@ cd rustred
 ```
 
 The supplied Nix development shell includes Rust, GCC, `m4`, `pkg-config`,
-Perl, and `cargo-nextest`:
+Perl, `cargo-nextest`, Python 3.11, Maturin, `uv`, and wheel-audit tooling:
 
 ```bash
 nix develop
@@ -128,6 +130,25 @@ not configure or replace the license.
 
 RustRed itself is distributed under the [MIT license](LICENSE). Symbolica is a
 separate dependency with its own licensing terms.
+
+### Python quick start
+
+The Python package requires Python 3.11 or newer and is built from the root
+`pyproject.toml`. From the Nix development shell, create and activate a virtual
+environment, then install the extension in editable development mode:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+maturin develop --release
+python -c 'import rustred; print(rustred.derive("I(name(t),loops(k),externals(),dimension(d),prop(D1,k^2-m2,1))", input_format="symbolica").status)'
+```
+
+The adapter also exposes `campaign_plan` and `campaign_preflight`; all three
+operations return compact result objects whose `to_toml()` method is the exact
+canonical application/CLI serialization. See the
+[`rustred-python` package guide](crates/rustred-python/README.md) for the API,
+build checks, concurrency contract, and current distribution release gates.
 
 ## Tested CLI derivation
 

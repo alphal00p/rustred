@@ -2,8 +2,8 @@
 # The root package is an implicit workspace member. Listing `.` explicitly
 # would make every nested path an explicit member prefix in Cargo, defeating
 # the vendor exclusions below.
-members = ["crates/rustred-app"]
-default-members = [".", "crates/rustred-app"]
+members = ["crates/rustred-app", "crates/rustred-python"]
+default-members = [".", "crates/rustred-app", "crates/rustred-python"]
 exclude = [
     "vendor/gammaloop",
     "vendor/symbolica",
@@ -22,6 +22,13 @@ edition = "2024"
 rust-version = "1.89"
 description = "Pure-Rust parametric IBP reductions for multiloop Feynman integrals"
 license = "MIT"
+build = "build.rs"
+exclude = [
+    "FOR_REFERENCE_ONLY_DO_NOT_PUSH/**",
+    "GOAL.md",
+    "HANDOFF.md",
+    "docs/research/**",
+]
 
 [lib]
 name = "rustred"
@@ -52,6 +59,9 @@ rand = "0.9"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
+toml = "1"
+
+[build-dependencies]
 toml = "1"
 
 [patch.crates-io]

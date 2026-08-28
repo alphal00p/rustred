@@ -17,6 +17,14 @@
               cargo
               rustfmt
               cargo-nextest
+              maturin
+              uv
+              binutils
+              (python311.withPackages (pythonPackages: with pythonPackages; [
+                auditwheel
+                pip
+                virtualenv
+              ]))
               gcc
               gnum4
               gnumake

@@ -6,12 +6,16 @@
 //! metadata and bounded representation observations needed at an application
 //! serialization boundary.
 
-use symbolica::LicenseManager;
 use symbolica::prelude::{Atom, AtomCore, Integer};
 
-/// Return the version of the vendored Symbolica runtime used by RustRed.
+/// Return the stable version payload of the vendored Symbolica runtime.
+///
+/// RustRed's build script reads this value from the vendored Symbolica Cargo
+/// manifest. It deliberately does not use Symbolica's VCS-sensitive runtime
+/// string, so canonical application output is identical in a checkout, a
+/// source archive, and a source archive nested under an unrelated Git tree.
 pub fn symbolica_runtime_version() -> &'static str {
-    LicenseManager::get_version()
+    env!("RUSTRED_SYMBOLICA_PACKAGE_VERSION")
 }
 
 /// Render one Symbolica atom using Symbolica's canonical string format.
@@ -41,4 +45,21 @@ pub fn symbolica_integer_significant_bits(value: &Integer) -> Option<usize> {
 /// Return the in-memory enum size charged for each retained Symbolica integer.
 pub const fn symbolica_integer_structural_byte_size() -> usize {
     std::mem::size_of::<Integer>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_runtime_version_matches_the_vendored_manifest() {
+        let manifest: toml::Value = toml::from_str(include_str!("../vendor/symbolica/Cargo.toml"))
+            .expect("vendored Symbolica manifest must parse");
+        let manifest_version = manifest
+            .get("package")
+            .and_then(|package| package.get("version"))
+            .and_then(toml::Value::as_str)
+            .expect("vendored Symbolica manifest package.version");
+        assert_eq!(symbolica_runtime_version(), manifest_version);
+    }
 }

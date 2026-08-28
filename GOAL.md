@@ -137,9 +137,11 @@ not restricted to vacuum topologies or to the precomputed Vakint library.
 A family/root is **closed** only if its immutable artifact proves all of the
 following:
 
-1. The family, coefficient/index contexts, kinematics, metric and propagator
-   signs, mass convention, routing, cuts, power shifts, ordering, and source
-   identity set are authenticated and fingerprinted.
+1. At the durable artifact boundary, the family, coefficient/index contexts,
+   kinematics, metric and propagator signs, mass convention, routing, cuts,
+   power shifts, ordering, and source identity set are bound once to a
+   canonical identity/fingerprint. Trusted typed values inside the producing
+   process are not repeatedly reauthenticated.
 2. All required ordinary parametric IBPs and separate LI identities are
    generated generically. For `L` loops and `E` external momenta the complete
    coordinate count is `K = L(L+1)/2 + LE`, with `L(L+E)` ordinary identities
@@ -159,9 +161,10 @@ following:
    dependency graph reaches a deterministic fixed point.
 7. No reachable leaf is `Uncovered`, `Unsupported`, resource-limited,
    interrupted, timed out, search-exhausted, or unresolved.
-8. The artifact can be loaded and independently verified without trusting the
-   process that produced it. Resumable incomplete workspace state is never
-   confused with an installed `Closed` artifact.
+8. The artifact can be validated once when loaded from an untrusted durable or
+   cross-process boundary, without trusting the process that produced it, and
+   then represented by a trusted typed owner. Resumable incomplete workspace
+   state is never confused with an installed `Closed` artifact.
 
 Failure to find a rule is not a zero proof and is not a master proof. A finite
 sample is candidate-discovery evidence only. Numerical agreement is
@@ -319,6 +322,28 @@ boundary. Retain something in `rustred-legacy-oracles` only when it has a
 specific continuing oracle purpose, cannot yet be replaced by a smaller data
 fixture, is unreachable from default production, and has an explicit retention
 or deletion decision. “Legacy” is never an acceptable production dependency.
+
+### Trust-boundary and compatibility discipline
+
+Authentication is proportional to the boundary. RustRed validates untrusted
+user input, deserialized durable artifacts, cross-process or cross-repository
+handoffs, live mutation/transaction commits, and final artifact installation.
+Once data has crossed such a boundary, sealed constructors, move ownership,
+borrowed views, and typestate carry the invariant. Internally generated values
+must not accumulate repeated fingerprint comparisons, schema round trips,
+full proof replay, or other authentication ceremonies merely to cross private
+functions. Exact closure evidence and optional independent artifact audit
+remain mandatory, but they are not licenses for redundant hot-path checking.
+
+RustRed is pre-release: its Rust APIs, CLI/Python details, internal schemas,
+workspace state, and artifact formats have no backward-compatibility promise
+while the architecture is being cleaned. Replace or delete obsolete forms
+directly and update fixtures/callers in the same milestone; do not retain
+compatibility shims. Vakint is different: its existing user-facing inputs,
+steering behavior, serialized data, supported backends, and accepted results
+must remain backward compatible. The Vakint `RustRed` mode is additive, and
+its regression gates must prove that existing modes and end-to-end tests keep
+working while the new FORM-less path is introduced.
 
 ## Execution roadmap
 
@@ -610,7 +635,7 @@ The following claims are explicitly false at this baseline:
 - campaign application is currently roots-only/preflight-oriented; and
 - there is no complete independently derived Vakint one- through four-loop
   rule corpus, physical five-/six-loop closure result, persistent closed
-  bundle, Python package, or Vakint `RustRed` mode.
+  bundle, publishable portable Python distribution, or Vakint `RustRed` mode.
 
 Capability reports, commits, and documentation must remain tied to these
 evidence levels. A generated source row, a legacy recurrence, a first
@@ -647,12 +672,14 @@ stack.
 
 ## Governing reading set and authority
 
-This goal was reconciled from the complete `HANDOFF.md` prescribed reading
-set, the live code, the full inventory of 78 research Markdown files, and
-independent research/code/reference audits. The principal current authorities
-are:
+This file is the sole current goal and sequencing authority. It was initially
+reconciled from the complete historical `HANDOFF.md` prescribed reading set,
+the live code, the full research-Markdown inventory, and independent
+research/code/reference audits. That handoff was consumed and then removed as
+stale legacy documentation; Git history retains it as evidence only. The
+principal supporting sources are:
 
-- `HANDOFF.md` and `README.md` for the actual restart frontier;
+- `README.md` and the live implementation for the actual development frontier;
 - `docs/research/rustred_scope_and_acceptance.md` and
   `docs/research/litered_full_scope_spec.md` for mathematical scope;
 - `docs/research/repository_reorganization_directive_2026-08-27.md` and

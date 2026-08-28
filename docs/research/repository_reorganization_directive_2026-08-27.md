@@ -3,9 +3,10 @@
 Date: 2026-08-27
 
 Status: active mandatory architecture gate. The multi-agent inventory,
-independent design audit, bounded application/CLI extraction, and
-transport-neutral boundary refactor are complete. Deeper core, legacy-oracle,
-test, and documentation migrations remain pending.
+independent design audit, bounded application/CLI extraction,
+transport-neutral boundary refactor, and development Python adapter are
+complete. Deeper core, legacy-oracle, test, and documentation migrations
+remain pending.
 
 ## Decision
 
@@ -41,18 +42,20 @@ stdin/stdout, overwrite policy, exit codes, help, and terminal diagnostics are
 confined to the adapter. Public calls document their panic-safety contract.
 Panic containment belongs at the outer coordinator/FFI boundary and must poison
 further work rather than claim that an invariant failure is safely recoverable.
-`rustred-python` and the publish-disabled `rustred-legacy-oracles` package are
-still to be created. Test support remains adjacent to the code it validates
-unless a later measured dependency boundary justifies another package.
+`rustred-python` now implements that boundary. The publish-disabled
+`rustred-legacy-oracles` package is still to be created. Test support remains
+adjacent to the code it validates unless a later measured dependency boundary
+justifies another package.
 
 The first migration was intentionally mechanical; the subsequent boundary
 milestone moved normalization, lowering, derivation/output, and campaign
 services under `application`, split application and CLI errors, and removed the
 app's direct Symbolica dependency through a narrow core facade. A direct
-contract suite checks API/CLI canonical-byte parity. Those operations are now
-the Python-facing boundary; the outer binding's poison-on-panic coordinator is
-the next frontend milestone. No solver algorithm, topology dispatch, or
-authored recurrence was added in this phase.
+contract suite checks API/CLI canonical-byte parity. The subsequent dedicated
+Python package uses exactly that application boundary, adds a process-wide
+poison-on-panic coordinator, and preserves canonical bytes without a second
+semantic path. No solver algorithm, topology dispatch, or authored recurrence
+was added in either frontend phase.
 
 ## Problems to audit
 
@@ -173,10 +176,12 @@ separate provenance role and are not treated as RustRed-owned stale code.
    small commits, with parallel tests after each phase and milestone pushes.
    The `rustred-app` extraction and transport-boundary phases are complete;
    deeper legacy-oracle/core/test separation remains.
-7. Add the PyO3 package only after the shared application boundary exists;
-   prove CLI/application/Python parity, licensed parallel execution, safe
-   Python-thread coordination, and wheel/sdist installation without enabling
-   Symbolica's `no_gmp` feature.
+7. **Complete for development use:** add the PyO3 package only after the shared
+   application boundary exists; prove CLI/application/Python parity, licensed
+   parallel execution, safe Python-thread coordination, and wheel/sdist
+   installation without enabling Symbolica's `no_gmp` feature. Public package
+   distribution remains gated on third-party redistribution review and a
+   reproducible manylinux build.
 8. Delete reconciled stale code/docs and re-run default plus applicable legacy
    oracle gates separately.
 9. Resume feature work only after the generic engine and test campaigns are
