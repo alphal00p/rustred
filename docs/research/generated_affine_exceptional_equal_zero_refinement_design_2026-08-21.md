@@ -13,64 +13,66 @@ sections 4--8. The vendored Symbolica public Rust API has polynomial content/
 primitive normalization and exact integer-matrix multiplication, but no
 Smith/Hermite normal form or complete integer-kernel/affine-lattice
 parameterization. RustRed must not fill that API gap with its own CAS. The
-first production refinement therefore accepts one normalized integer-affine
-equality only when an active free coordinate has literal coefficient `+1` or
-`-1`; it delegates geometry composition to Symbolica and returns a typed
-`RequiresIntegerNormalForm` unsupported outcome otherwise. The broader
+first future production refinement will therefore accept one normalized
+integer-affine equality only when an active free coordinate has literal
+coefficient `+1` or `-1`; it will delegate geometry composition to Symbolica
+and return a typed `RequiresIntegerNormalForm` unsupported outcome otherwise. The broader
 semantics below remain an acceptance target for a future public Symbolica
 normal-form API, not permission to promote the existing handwritten prototype.
 
-Implemented checkpoint (2026-08-27):
-`generated_affine_residual_case_unit_equality_refinement.rs` realizes that
-strict subset in current-target coordinates. It performs a borrowed atom-row
-logical-memory/GMP census before copying the predicate, prospects both virtual
-integer matrices before dense staging, delegates the only map product to
-Symbolica `Matrix<IntegerRing>`, and verifies the equality maps to zero through
-the existing Symbolica-backed compact substitution plan. The matrix boundary
-also admits a conservative prospective output retained-byte envelope before
-native multiplication and authenticates exact output capacity afterwards. Its
-virtual-entry census is sign-aware, records the prospective input envelope
-separately from the native census, and covers `-i128::MIN` promotion. The pinned
-default-GMP output bound treats only positive magnitudes through 127 bits as
-inline and reserves two capacity limbs beyond the rounded dot-product envelope.
+Retired implementation checkpoint (2026-08-27): a former residual-case
+prototype realized that strict subset in current-target coordinates. It
+performed a borrowed atom-row logical-memory/GMP census before copying the
+predicate, prospected both virtual integer matrices before dense staging,
+delegated the only map product to Symbolica `Matrix<IntegerRing>`, and verified
+that the equality mapped to zero
+through the existing Symbolica-backed compact substitution plan. The matrix
+boundary also admitted a conservative prospective output retained-byte
+envelope before native multiplication and authenticated exact output capacity
+afterwards. Its virtual-entry census was sign-aware, recorded the prospective
+input envelope separately from the native census, and covered `-i128::MIN`
+promotion. The pinned default-GMP output bound treated only positive magnitudes
+through 127 bits as inline and reserved two capacity limbs beyond the rounded
+dot-product envelope.
 Parallel licensed default-GMP validation passed all 23 unit-refinement tests
 and 37 matrix-boundary tests (60/60), including a genuine GMP-sized constant,
 `i128::MIN` promotion, the signed 128-bit inline boundary, the two-limb
 multi-term capacity boundary, and exact/one-below resource limits.
 
-The unit certificate itself remains authority-neutral. The adjacent
-`generated_affine_residual_case_bound_unit_equality_refinement.rs` bridge now
-consumes the exact equality-premises boundary, borrows its ordered source
-predicates without first cloning a vector, and retains that predecessor in all
-four typed classifications. A move-only failure likewise returns the exact
-predecessor for retry or rerouting. Refined replay reauthenticates the source
-predicate and parent geometry, then replays the retained unit certificate; it
-does not allocate and compare a second complete unit certificate.
+The retired unit certificate itself was authority-neutral. Its former binding
+bridge consumed the exact equality-premises boundary, borrowed its ordered
+source predicates without first cloning a vector, and retained that predecessor
+in all four typed classifications. A move-only failure likewise returned the
+exact predecessor for retry or rerouting. Refined replay reauthenticated the
+source predicate and parent geometry, then replayed the retained unit
+certificate; it did not allocate and compare a second complete unit
+certificate.
 
-The bridge's separate four-test licensed default-GMP gate passes all 4/4
-tests. Its genuine source-backed fixture finds three refinable cases and no
+The bridge's separate four-test licensed default-GMP gate passed all 4/4
+tests. Its genuine source-backed fixture found three refinable cases and no
 other classifications (`[3, 0, 0, 0]` for refined, satisfied, empty,
-unsupported), authenticates each retained source predicate, and replays each
-bound result. The other three typed wrappers are exhaustively mapped in an
-allocation-free binding test; they are not claimed as naturally occurring
+unsupported), authenticated each retained source predicate, and replayed each
+bound result. The other three typed wrappers were exhaustively mapped in an
+allocation-free binding test; they were not claimed as naturally occurring
 end-to-end outcomes of that fixture.
 
-That bridge is deliberately not yet a long-lived committed exceptional
-`Domain` resident. The immediate production seam consumes
+That bridge was deliberately never made a long-lived committed exceptional
+`Domain` resident. A future production seam will consume
 `CampaignResident<CommittedExceptionalSingletonSource>` before constructing
-any exact session. A private, transient source view compiles the authority,
-premises, and bound unit proof; a source-neutral adapter then maps and
-reclassifies every surviving `NonZero` predicate. Only a successfully admitted
+any exact session. A private, transient source view will compile the authority,
+premises, and bound unit proof; a source-neutral adapter will then map and
+reclassify every surviving `NonZero` predicate. Only a successfully admitted
 refined-source successor may construct the fresh child plan, catalog, database,
-and session. Failure returns the exact predecessor resident. No parent pivot,
-event history, or sparse-row state is imported.
+and session. Failure must return the exact predecessor resident. No parent
+pivot, event history, or sparse-row state may be imported.
 
-The first artifact at this seam is intentionally a transient mapped-`NonZero`
-certificate with a complete adapter-local retained/construction/replay census.
-It is not yet campaign-resident and does not need a durable V2 identity.
-Durable identity follows the actual refined-source owner instead of preceding
-it. A consuming suspended-session transition remains a later generic path for
-multi-target sessions whose equality target is discovered only while solving;
+The retired prototype's first artifact at this seam was intentionally a
+transient mapped-`NonZero` certificate with a complete adapter-local retained/
+construction/replay census. It was not campaign-resident and did not need a
+durable V2 identity. Any future durable identity must follow the actual
+refined-source owner instead of preceding it. A consuming suspended-session
+transition remains a later generic path for multi-target sessions whose
+equality target is discovered only while solving;
 it must converge on the same source-neutral mapper and destroy, never resume,
 the parent session. Generic IBP/LI row regeneration and completed-row
 submission remain pending. `ProvedEmpty` remains diagnostic and grants no

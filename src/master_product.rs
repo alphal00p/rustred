@@ -1,11 +1,11 @@
 //! Canonical products of stable master identifiers and exact linear
 //! combinations over those products.
 //!
-//! Factorized multiloop sectors do not naturally end in a single integral of
-//! the parent family.  For example, a four-loop corner can reduce to a
-//! tadpole times a three-loop master or to two sunset masters.  This module
-//! provides the small commutative algebra needed to represent those answers
-//! without assigning an arbitrary parent-family integral to each product.
+//! Factorized sectors do not naturally end in a single integral of the parent
+//! family: disconnected components can reduce independently and leave a
+//! product of masters. This module provides the small commutative algebra
+//! needed to represent those answers without assigning an arbitrary
+//! parent-family integral to each product.
 //!
 //! The identifier type is deliberately generic.  Callers must use a stable,
 //! canonical identifier (for example, a family fingerprint paired with a

@@ -3,7 +3,7 @@
 **Baseline:** `0d9930f`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 164 tracked Rust source/build/test paths
+This ledger classifies every one of the 160 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 137 |
+| split | 133 |
 | delete | 3 |
 | replace | 1 |
 
@@ -91,13 +91,9 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_affine_prepare_point_schedule.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_boolean_cover.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_bound_relation.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_bound_unit_equality_refinement.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_completed_bound_row.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_mapped_nonzero.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_pivot_target_matching.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_premises.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_reelimination.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_unit_equality_refinement.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_cylindrical_candidate_authority.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_family_source_set.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
