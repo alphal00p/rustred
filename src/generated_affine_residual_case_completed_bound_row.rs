@@ -6,7 +6,7 @@
 //! row, without constructing a column order or a
 //! [`PreorderedParametricElimination`](crate::parametric_elimination::PreorderedParametricElimination).
 //! The resulting certificate is therefore suitable for direct physical-row
-//! ingress and for the legacy whole-schedule re-elimination path.
+//! ingress without constructing a whole-schedule elimination owner.
 
 use std::fmt;
 use std::mem::{align_of, size_of};

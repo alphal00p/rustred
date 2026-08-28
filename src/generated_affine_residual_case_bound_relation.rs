@@ -696,17 +696,6 @@ impl GeneratedAffineResidualCaseBoundParametricRelation {
     pub(crate) fn base_assumptions(&self) -> &[GeneratedAffineResidualCaseBoundBaseAssumption] {
         &self.base_assumptions
     }
-    /// Test-only corruption/invariant fixture for the certificate-owned
-    /// re-elimination authentication seam. Production base assumptions are
-    /// created exclusively by `classify_and_retain_condition`.
-    #[cfg(test)]
-    pub(crate) fn push_base_assumption_for_reelimination_authentication_test(
-        &mut self,
-        condition: ParametricNonZeroCondition,
-    ) {
-        self.base_assumptions
-            .push(GeneratedAffineResidualCaseBoundBaseAssumption { condition });
-    }
     pub(crate) fn condition_witnesses(
         &self,
     ) -> &[GeneratedAffineResidualCaseBoundConditionWitness] {

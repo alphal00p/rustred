@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `1be1cc3`, updated after each R3 cluster milestone.
+**Baseline:** `4d63c60`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 143 tracked Rust source/build/test paths
+This ledger classifies every one of the 141 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 116 |
+| split | 114 |
 | delete | 3 |
 | replace | 1 |
 
@@ -91,7 +91,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_affine_residual_case_bound_relation.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_completed_bound_row.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_premises.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_reelimination.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_cylindrical_persistent_elimination.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_residual_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
@@ -125,7 +124,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/residual_affine_atom_rows.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_branch_guard_composition.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_branch_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/residual_affine_integer_lattice_kernel.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_integer_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_unit_affine_index_map.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |

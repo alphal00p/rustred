@@ -6475,14 +6475,18 @@ pub(super) mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
+    use crate::generated_affine_residual_case_bound_relation::{
+        GeneratedAffineResidualCaseBoundRelationCompilation,
+        GeneratedAffineResidualCaseBoundRelationCompiler,
+        GeneratedAffineResidualCaseBoundRelationLimits,
+    };
+    use crate::generated_affine_residual_case_completed_bound_row::{
+        GeneratedAffineResidualCaseCompletedBoundRowCompiler,
+        GeneratedAffineResidualCaseCompletedBoundRowLimits,
+    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
-    };
-    use crate::generated_affine_residual_case_reelimination::{
-        GeneratedAffineResidualCaseReeliminationCompilation,
-        GeneratedAffineResidualCaseReeliminationCompiler,
-        GeneratedAffineResidualCaseReeliminationLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::solver::closure::case_inventory::{
@@ -6695,45 +6699,56 @@ pub(super) mod tests {
                 )
                 .unwrap(),
             );
-            let compilation = GeneratedAffineResidualCaseReeliminationCompiler::compile(
-                family,
-                context,
-                authority,
-                premises,
-                ordering,
-                schedule,
-                GeneratedAffineResidualCaseReeliminationLimits::default(),
-            )
-            .unwrap();
-            let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
-                compilation
-            else {
-                continue;
-            };
-            let certificate = Arc::new(certificate);
-            let Some(witness_ordinal) = certificate
-                .witnesses()
-                .iter()
-                .position(|witness| witness.outcome().is_retained())
-            else {
-                continue;
-            };
-            let retained_row_ordinal = certificate.witnesses()[..witness_ordinal]
-                .iter()
-                .filter(|witness| witness.outcome().is_retained())
-                .count();
-            return Arc::new(
-                GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile_from_reelimination_for_test(
-                    family,
-                    context,
-                    certificate,
-                    retained_row_ordinal,
-                    witness_ordinal,
-                    Arc::clone(frame),
-                    GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
-                )
-                .unwrap(),
-            );
+            for layer in schedule.layers() {
+                for point_ordinal in 0..layer.point_count() {
+                    for source_row_ordinal in 0..authority.source_row_count() {
+                        let point = schedule
+                            .point_handle(layer.depth(), point_ordinal)
+                            .expect("a scheduled point must have an authenticated handle");
+                        let compilation =
+                            GeneratedAffineResidualCaseBoundRelationCompiler::compile(
+                                family,
+                                context,
+                                Arc::clone(&authority),
+                                Arc::clone(&ordering),
+                                Arc::clone(&schedule),
+                                Arc::clone(&premises),
+                                source_row_ordinal,
+                                point,
+                                GeneratedAffineResidualCaseBoundRelationLimits::default(),
+                            )
+                            .unwrap();
+                        let GeneratedAffineResidualCaseBoundRelationCompilation::Retained(bound) =
+                            compilation
+                        else {
+                            continue;
+                        };
+                        let completed = Arc::new(
+                            GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+                                family,
+                                context,
+                                Arc::clone(&authority),
+                                Arc::clone(&ordering),
+                                Arc::clone(&schedule),
+                                Arc::clone(&premises),
+                                Arc::new(bound),
+                                GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+                            )
+                            .unwrap(),
+                        );
+                        return Arc::new(
+                            GeneratedAffineResidualGroupExactPhysicalRowCompiler::compile(
+                                family,
+                                context,
+                                completed,
+                                Arc::clone(frame),
+                                GeneratedAffineResidualGroupExactPhysicalRowLimits::default(),
+                            )
+                            .unwrap(),
+                        );
+                    }
+                }
+            }
         }
         panic!("the generated-affine fixture produced no authenticated physical row")
     }

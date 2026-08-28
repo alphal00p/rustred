@@ -1417,37 +1417,6 @@ fn ceil_log2(value: usize) -> usize {
 }
 
 #[cfg(test)]
-impl GeneratedAffineResidualGroupExactPhysicalRowCompiler {
-    /// Legacy/scouting compatibility used only by differential tests. The
-    /// returned physical row owns only the completed per-row certificate.
-    pub(crate) fn compile_from_reelimination_for_test(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        source: Arc<
-            crate::generated_affine_residual_case_reelimination::GeneratedAffineResidualCaseReeliminationCertificate,
-        >,
-        retained_row_ordinal: usize,
-        witness_ordinal: usize,
-        frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-        limits: GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    ) -> Result<
-        GeneratedAffineResidualGroupExactPhysicalRow,
-        GeneratedAffineResidualGroupExactPhysicalRowError,
-    > {
-        let completed = source
-            .compile_completed_retained_source_row(
-                family,
-                context,
-                retained_row_ordinal,
-                witness_ordinal,
-                crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
-            )
-            .map_err(|_| GeneratedAffineResidualGroupExactPhysicalRowError::CompletedRow)?;
-        Self::compile(family, context, Arc::new(completed), frame, limits)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -1468,20 +1437,19 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
+    use crate::generated_affine_residual_case_bound_relation::{
+        GeneratedAffineResidualCaseBoundRelationCompilation,
+        GeneratedAffineResidualCaseBoundRelationCompiler,
+        GeneratedAffineResidualCaseBoundRelationLimits,
+    };
     use crate::generated_affine_residual_case_completed_bound_row::{
         GeneratedAffineResidualCaseCompletedBoundRow,
+        GeneratedAffineResidualCaseCompletedBoundRowCompiler,
         GeneratedAffineResidualCaseCompletedBoundRowLimits,
     };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
-    };
-    use crate::generated_affine_residual_case_reelimination::{
-        GeneratedAffineResidualCaseReeliminationCertificate,
-        GeneratedAffineResidualCaseReeliminationCompilation,
-        GeneratedAffineResidualCaseReeliminationCompiler,
-        GeneratedAffineResidualCaseReeliminationLimits,
-        GeneratedAffineResidualCaseReeliminationRowOutcome,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::solver::closure::case_inventory::{
@@ -1701,52 +1669,16 @@ mod tests {
         authority: Arc<GeneratedAffineResidualCaseAuthority>,
         maximum_depth: usize,
     ) -> Option<Arc<GeneratedAffineResidualCaseCompletedBoundRow>> {
-        let (certificate, retained_row_ordinal, witness_ordinal) =
-            legacy_source_for_authority_at_depth(fixture, authority, maximum_depth)?;
-        Some(Arc::new(
-            certificate
-                .compile_completed_retained_source_row(
-                    &fixture.family,
-                    &fixture.context,
-                    retained_row_ordinal,
-                    witness_ordinal,
-                    GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
-                )
-                .unwrap(),
-        ))
+        completed_sources_for_authority_at_depth(fixture, authority, maximum_depth)
+            .into_iter()
+            .next()
     }
 
-    fn legacy_source_for_case_at_depth(
-        fixture: &Fixture,
-        case_ordinal: usize,
-        maximum_depth: usize,
-    ) -> Option<(
-        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        usize,
-        usize,
-    )> {
-        let authority = Arc::new(
-            GeneratedAffineResidualCaseAuthority::try_new(
-                &fixture.family,
-                &fixture.context,
-                Arc::clone(&fixture.inventory),
-                case_ordinal,
-                GeneratedAffineResidualCaseAuthorityLimits::default(),
-            )
-            .unwrap(),
-        );
-        legacy_source_for_authority_at_depth(fixture, authority, maximum_depth)
-    }
-
-    fn legacy_source_for_authority_at_depth(
+    fn completed_sources_for_authority_at_depth(
         fixture: &Fixture,
         authority: Arc<GeneratedAffineResidualCaseAuthority>,
         maximum_depth: usize,
-    ) -> Option<(
-        Arc<GeneratedAffineResidualCaseReeliminationCertificate>,
-        usize,
-        usize,
-    )> {
+    ) -> Vec<Arc<GeneratedAffineResidualCaseCompletedBoundRow>> {
         let premises = match compile_generated_affine_residual_case_premises(
             &fixture.family,
             &fixture.context,
@@ -1757,7 +1689,7 @@ mod tests {
         {
             GeneratedAffineResidualCasePremisesOutcome::Ready(value) => Arc::new(value),
             GeneratedAffineResidualCasePremisesOutcome::RequiresAffineEqualityRefinement(_) => {
-                return None;
+                return Vec::new();
             }
         };
         let ordering = Arc::new(
@@ -1780,31 +1712,47 @@ mod tests {
             )
             .unwrap(),
         );
-        let compilation = GeneratedAffineResidualCaseReeliminationCompiler::compile(
-            &fixture.family,
-            &fixture.context,
-            authority,
-            premises,
-            ordering,
-            schedule,
-            GeneratedAffineResidualCaseReeliminationLimits::default(),
-        )
-        .unwrap();
-        let GeneratedAffineResidualCaseReeliminationCompilation::Eliminated(certificate) =
-            compilation
-        else {
-            return None;
-        };
-        let certificate = Arc::new(certificate);
-        let witness_ordinal = certificate
-            .witnesses()
-            .iter()
-            .position(|witness| witness.outcome().is_retained())?;
-        let retained_row_ordinal = certificate.witnesses()[..witness_ordinal]
-            .iter()
-            .filter(|witness| witness.outcome().is_retained())
-            .count();
-        Some((certificate, retained_row_ordinal, witness_ordinal))
+        let mut completed = Vec::new();
+        for layer in schedule.layers() {
+            for point_ordinal in 0..layer.point_count() {
+                for source_row_ordinal in 0..authority.source_row_count() {
+                    let point = schedule
+                        .point_handle(layer.depth(), point_ordinal)
+                        .expect("a scheduled point must have an authenticated handle");
+                    let compilation = GeneratedAffineResidualCaseBoundRelationCompiler::compile(
+                        &fixture.family,
+                        &fixture.context,
+                        Arc::clone(&authority),
+                        Arc::clone(&ordering),
+                        Arc::clone(&schedule),
+                        Arc::clone(&premises),
+                        source_row_ordinal,
+                        point,
+                        GeneratedAffineResidualCaseBoundRelationLimits::default(),
+                    )
+                    .unwrap();
+                    let GeneratedAffineResidualCaseBoundRelationCompilation::Retained(bound) =
+                        compilation
+                    else {
+                        continue;
+                    };
+                    completed.push(Arc::new(
+                        GeneratedAffineResidualCaseCompletedBoundRowCompiler::compile(
+                            &fixture.family,
+                            &fixture.context,
+                            Arc::clone(&authority),
+                            Arc::clone(&ordering),
+                            Arc::clone(&schedule),
+                            Arc::clone(&premises),
+                            Arc::new(bound),
+                            GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
+                        )
+                        .unwrap(),
+                    ));
+                }
+            }
+        }
+        completed
     }
 
     fn production_source(fixture: &Fixture) -> Arc<GeneratedAffineResidualCaseCompletedBoundRow> {
@@ -1820,41 +1768,22 @@ mod tests {
         fixture: &Fixture,
     ) -> Arc<GeneratedAffineResidualCaseCompletedBoundRow> {
         for &case_ordinal in fixture.frame.case_ordinals() {
-            let Some((certificate, _, _)) =
-                legacy_source_for_case_at_depth(fixture, case_ordinal, 1)
-            else {
-                continue;
-            };
-            let mut retained_row_ordinal = 0usize;
-            for (witness_ordinal, witness) in certificate.witnesses().iter().enumerate() {
-                let GeneratedAffineResidualCaseReeliminationRowOutcome::Retained(bound) =
-                    witness.outcome()
-                else {
-                    continue;
-                };
-                if !bound.base_assumptions().is_empty() {
-                    let authenticated = certificate
-                        .authenticate_retained_source_row(retained_row_ordinal, witness_ordinal)
-                        .unwrap();
-                    if !authenticated
-                        .relation()
-                        .guarded_nonzero_conditions()
-                        .is_empty()
-                    {
-                        return Arc::new(
-                            certificate
-                                .compile_completed_retained_source_row(
-                                    &fixture.family,
-                                    &fixture.context,
-                                    retained_row_ordinal,
-                                    witness_ordinal,
-                                    GeneratedAffineResidualCaseCompletedBoundRowLimits::default(),
-                                )
-                                .unwrap(),
-                        );
-                    }
+            let authority = Arc::new(
+                GeneratedAffineResidualCaseAuthority::try_new(
+                    &fixture.family,
+                    &fixture.context,
+                    Arc::clone(&fixture.inventory),
+                    case_ordinal,
+                    GeneratedAffineResidualCaseAuthorityLimits::default(),
+                )
+                .unwrap(),
+            );
+            for completed in completed_sources_for_authority_at_depth(fixture, authority, 1) {
+                if !completed.bound().base_assumptions().is_empty()
+                    && !completed.relation().guarded_nonzero_conditions().is_empty()
+                {
+                    return completed;
                 }
-                retained_row_ordinal += 1;
             }
         }
         panic!("concrete equal-mass fixture produced no row-local base-assumption guard")
