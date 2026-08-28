@@ -17,8 +17,7 @@ use crate::identity::{
     ParametricNonZeroCondition, ParametricRelation, ParametricRelationError, RelationLimits, RowId,
 };
 
-/// Resource policy for coefficient translations used while constructing LI
-/// identities.
+/// Resource policy for exact ordinary-IBP and Lorentz-identity construction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ParametricIbpConfig {
     pub relation_limits: RelationLimits,
@@ -27,11 +26,6 @@ pub struct ParametricIbpConfig {
 /// Typed failures from generic parametric IBP/LI generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricIbpError {
-    BaseContextMismatch,
-    WrongIndexArity {
-        expected: usize,
-        actual: usize,
-    },
     RowCountOverflow {
         loops: usize,
         externals: usize,
@@ -70,13 +64,6 @@ pub enum ParametricIbpError {
 impl fmt::Display for ParametricIbpError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BaseContextMismatch => formatter.write_str(
-                "the indexed coefficient context does not extend the family's exact base map",
-            ),
-            Self::WrongIndexArity { expected, actual } => write!(
-                formatter,
-                "the indexed coefficient context has {actual} indices, expected {expected}"
-            ),
             Self::RowCountOverflow { loops, externals } => write!(
                 formatter,
                 "the IBP/LI row count for {loops} loops and {externals} external momenta overflowed usize"
@@ -150,52 +137,6 @@ impl From<ParametricRelationError> for ParametricIbpError {
 impl From<IntegralFamilyError> for ParametricIbpError {
     fn from(value: IntegralFamilyError) -> Self {
         Self::Family(value)
-    }
-}
-
-/// Generated relations with their exact authenticated `K(n)` context.
-#[derive(Clone, Debug)]
-pub struct ParametricIbpRelations {
-    family_fingerprint: Arc<str>,
-    context: IndexedCoefficientContext,
-    ordinary_ibp: Vec<ParametricRelation>,
-    lorentz_invariance: Vec<ParametricRelation>,
-}
-
-impl ParametricIbpRelations {
-    pub fn family_fingerprint(&self) -> &str {
-        &self.family_fingerprint
-    }
-
-    pub fn context(&self) -> &IndexedCoefficientContext {
-        &self.context
-    }
-
-    /// The `L*(L+E)` ordinary rows in contraction-major, loop-minor order.
-    pub fn ordinary_ibp(&self) -> &[ParametricRelation] {
-        &self.ordinary_ibp
-    }
-
-    /// The `E*(E-1)/2` LI rows in lexicographic external-pair order.
-    pub fn lorentz_invariance(&self) -> &[ParametricRelation] {
-        &self.lorentz_invariance
-    }
-
-    /// LiteRed's `IBPLI` order: all ordinary rows followed by all LI rows.
-    pub fn ibp_li(&self) -> impl Iterator<Item = &ParametricRelation> {
-        self.ordinary_ibp
-            .iter()
-            .chain(self.lorentz_invariance.iter())
-    }
-
-    pub fn into_parts(
-        self,
-    ) -> (
-        IndexedCoefficientContext,
-        Vec<ParametricRelation>,
-        Vec<ParametricRelation>,
-    ) {
-        (self.context, self.ordinary_ibp, self.lorentz_invariance)
     }
 }
 
@@ -284,14 +225,6 @@ pub struct CompletedIbpSourceRows {
 }
 
 impl CompletedIbpSourceRows {
-    pub fn len(&self) -> usize {
-        self.relations.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.relations.is_empty()
-    }
-
     pub fn into_relations(self) -> Vec<ParametricRelation> {
         self.relations
     }
@@ -300,10 +233,6 @@ impl CompletedIbpSourceRows {
 impl PreparedIbpSourceBatch<'_, '_> {
     pub const fn len(&self) -> usize {
         self.rows
-    }
-
-    pub const fn is_empty(&self) -> bool {
-        self.rows == 0
     }
 
     /// Generate one row at its stable layout-specific ordinal.
@@ -394,10 +323,6 @@ impl PreparedLorentzInvarianceBatch<'_, '_, '_> {
         self.external_pairs.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.external_pairs.is_empty()
-    }
-
     /// Generate one LI row at its lexicographic external-pair ordinal.
     pub fn generate(&self, ordinal: usize) -> Result<ParametricRelation, ParametricIbpError> {
         let &(first_external, second_external) =
@@ -436,41 +361,7 @@ impl<'family> ParametricIbpGenerator<'family> {
             &scope,
             family.denominator_count(),
         )?;
-        Self::try_with_context_and_fingerprint(family, family_fingerprint, context, config)
-    }
-
-    /// Construct a generator with a caller-owned exact `K(n)` identity.
-    ///
-    /// This is useful when relations from several generation stages must use
-    /// one shared index scope.  Both the base map and index arity are checked.
-    pub fn try_with_context(
-        family: &'family IntegralFamily,
-        context: IndexedCoefficientContext,
-        config: ParametricIbpConfig,
-    ) -> Result<Self, ParametricIbpError> {
-        let family_fingerprint = family.fingerprint().into();
-        Self::try_with_context_and_fingerprint(family, family_fingerprint, context, config)
-    }
-
-    fn try_with_context_and_fingerprint(
-        family: &'family IntegralFamily,
-        family_fingerprint: Arc<str>,
-        context: IndexedCoefficientContext,
-        config: ParametricIbpConfig,
-    ) -> Result<Self, ParametricIbpError> {
-        if !family
-            .coefficient_context()
-            .has_same_variable_map(context.base())
-        {
-            return Err(ParametricIbpError::BaseContextMismatch);
-        }
         let arity = family.denominator_count();
-        if context.index_count() != arity {
-            return Err(ParametricIbpError::WrongIndexArity {
-                expected: arity,
-                actual: context.index_count(),
-            });
-        }
         checked_generated_row_counts(family.loop_count(), family.external_count())?;
         let index_space = IndexSpace::try_new(arity)?;
         let positive_units = (0..arity)
@@ -495,16 +386,8 @@ impl<'family> ParametricIbpGenerator<'family> {
         })
     }
 
-    pub fn family(&self) -> &IntegralFamily {
-        self.family
-    }
-
     pub fn context(&self) -> &IndexedCoefficientContext {
         &self.context
-    }
-
-    pub fn config(&self) -> ParametricIbpConfig {
-        self.config
     }
 
     /// Prepare the `L*(L+E)` independent ordinary rows for deterministic
@@ -570,29 +453,6 @@ impl<'family> ParametricIbpGenerator<'family> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(powers)
-    }
-
-    /// Generate the `L*(L+E)` raw ordinary IBPs serially.
-    pub fn generate_ordinary_ibp(&self) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        Ok(self.generate_ordinary_completed()?.into_relations())
-    }
-
-    fn generate_ordinary_completed(&self) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
-        let batch = self.prepare_ordinary_ibp()?;
-        let rows = (0..batch.len())
-            .map(|ordinal| batch.generate(ordinal))
-            .collect();
-        batch.complete(rows)
-    }
-
-    fn generate_external_sources_completed(
-        &self,
-    ) -> Result<CompletedIbpSourceRows, ParametricIbpError> {
-        let batch = self.prepare_external_ibp_sources()?;
-        let rows = (0..batch.len())
-            .map(|ordinal| batch.generate(ordinal))
-            .collect();
-        batch.complete(rows)
     }
 
     fn generate_ordinary_row(
@@ -679,50 +539,6 @@ impl<'family> ParametricIbpGenerator<'family> {
             }
         }
         Ok(())
-    }
-
-    /// Generate ordinary and LI rows with their shared authenticated context.
-    pub fn generate(&self) -> Result<ParametricIbpRelations, ParametricIbpError> {
-        let ordinary = self.generate_ordinary_completed()?;
-        let lorentz_invariance = self.generate_li_from_sources(&ordinary)?;
-        Ok(self.relations(ordinary.into_relations(), lorentz_invariance))
-    }
-
-    fn relations(
-        &self,
-        ordinary_ibp: Vec<ParametricRelation>,
-        lorentz_invariance: Vec<ParametricRelation>,
-    ) -> ParametricIbpRelations {
-        ParametricIbpRelations {
-            family_fingerprint: self.source_scope.family_fingerprint.clone(),
-            context: self.context.clone(),
-            ordinary_ibp,
-            lorentz_invariance,
-        }
-    }
-
-    /// Generate only the LI rows.  Ordinary external-contraction rows are
-    /// derived first, exactly as in LiteRed, and are not returned.
-    pub fn generate_lorentz_invariance(
-        &self,
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        let (_, li_count) =
-            checked_generated_row_counts(self.family.loop_count(), self.family.external_count())?;
-        if li_count == 0 {
-            return Ok(Vec::new());
-        }
-        let sources = self.generate_external_sources_completed()?;
-        self.generate_li_from_sources(&sources)
-    }
-
-    fn generate_li_from_sources(
-        &self,
-        sources: &CompletedIbpSourceRows,
-    ) -> Result<Vec<ParametricRelation>, ParametricIbpError> {
-        let batch = self.prepare_lorentz_invariance(sources)?;
-        (0..batch.len())
-            .map(|ordinal| batch.generate(ordinal))
-            .collect()
     }
 
     /// Prepare LI rows from one completed ordinary or external-only source
@@ -1092,29 +908,43 @@ mod tests {
     fn sentinel_topology_neutral_source_counts_cover_one_two_and_six_loops() {
         for (loops, ordinary_count) in [(1, 3), (2, 8)] {
             let family = coordinate_family(&format!("li-sentinel-l{loops}"), loops, 2);
-            let generated = ParametricIbpGenerator::try_new(&family)
-                .unwrap()
-                .generate()
+            let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+            let ordinary_batch = generator.prepare_ordinary_ibp().unwrap();
+            let ordinary_rows = (0..ordinary_batch.len())
+                .map(|ordinal| ordinary_batch.generate(ordinal))
+                .collect();
+            let ordinary = ordinary_batch.complete(ordinary_rows).unwrap();
+            let li_batch = generator.prepare_lorentz_invariance(&ordinary).unwrap();
+            let lorentz_invariance = (0..li_batch.len())
+                .map(|ordinal| li_batch.generate(ordinal))
+                .collect::<Result<Vec<_>, _>>()
                 .unwrap();
+            drop(li_batch);
+            let ordinary = ordinary.into_relations();
 
-            assert_eq!(generated.ordinary_ibp().len(), ordinary_count);
-            assert_eq!(generated.lorentz_invariance().len(), 1);
+            assert_eq!(ordinary.len(), ordinary_count);
+            assert_eq!(lorentz_invariance.len(), 1);
             assert_eq!(
-                generated.lorentz_invariance()[0].row_id(),
+                lorentz_invariance[0].row_id(),
                 &RowId::LorentzInvariance {
                     first_external: 0,
                     second_external: 1,
                 }
             );
-            assert_eq!(generated.ibp_li().count(), ordinary_count + 1);
+            assert_eq!(
+                ordinary.len() + lorentz_invariance.len(),
+                ordinary_count + 1
+            );
         }
 
         let family = coordinate_family("ordinary-source-sentinel-l6-k21", 6, 0);
         assert_eq!(family.denominator_count(), 21);
-        let rows = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate_ordinary_ibp()
-            .unwrap();
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let batch = generator.prepare_ordinary_ibp().unwrap();
+        let generated = (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect();
+        let rows = batch.complete(generated).unwrap().into_relations();
         assert_eq!(rows.len(), 36);
         for (ordinal, row) in rows.iter().enumerate() {
             assert_eq!(
@@ -1128,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn li_only_with_zero_or_one_external_returns_before_source_generation() {
+    fn prepared_li_batch_is_empty_with_fewer_than_two_externals() {
         for externals in [0, 1] {
             let family = coordinate_family(
                 &format!("li-empty-source-barrier-e{externals}"),
@@ -1136,7 +966,18 @@ mod tests {
                 externals,
             );
             let generator = ParametricIbpGenerator::try_new(&family).unwrap();
-            assert!(generator.generate_lorentz_invariance().unwrap().is_empty());
+            let source_batch = generator.prepare_external_ibp_sources().unwrap();
+            let source_rows = (0..source_batch.len())
+                .map(|ordinal| source_batch.generate(ordinal))
+                .collect();
+            let sources = source_batch.complete(source_rows).unwrap();
+            assert_eq!(
+                generator
+                    .prepare_lorentz_invariance(&sources)
+                    .unwrap()
+                    .len(),
+                0
+            );
         }
     }
 
@@ -1158,25 +999,32 @@ mod tests {
         )
         .unwrap();
         let generator = ParametricIbpGenerator::try_new(&family).unwrap();
-        let generated = generator.generate().unwrap();
+        let ordinary_batch = generator.prepare_ordinary_ibp().unwrap();
+        let ordinary_rows = (0..ordinary_batch.len())
+            .map(|ordinal| ordinary_batch.generate(ordinal))
+            .collect();
+        let ordinary = ordinary_batch.complete(ordinary_rows).unwrap();
+        let li_batch = generator.prepare_lorentz_invariance(&ordinary).unwrap();
+        assert_eq!(li_batch.len(), 0);
+        drop(li_batch);
+        let ordinary = ordinary.into_relations();
 
-        assert_eq!(generated.ordinary_ibp().len(), 1);
-        assert!(generated.lorentz_invariance().is_empty());
+        assert_eq!(ordinary.len(), 1);
         assert_eq!(
-            generated.ordinary_ibp()[0].row_id(),
+            ordinary[0].row_id(),
             &RowId::OrdinaryIbp {
                 contraction_momentum: 0,
                 differentiated_loop: 0,
             }
         );
-        let relation = &generated.ordinary_ibp()[0];
+        let relation = &ordinary[0];
         assert_eq!(relation.terms().len(), 2);
         let shifted_power = &base.integer(3) + &nu;
         let expected_same = &d - &(&base.integer(2) * &shifted_power);
         let expected_raised = &(&base.integer(2) * &m2) * &shifted_power;
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0]).unwrap(),
                 &[3],
             ),
@@ -1184,7 +1032,7 @@ mod tests {
         );
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[1]).unwrap(),
                 &[3],
             ),
@@ -1196,7 +1044,7 @@ mod tests {
         // use the concrete zero-index shortcut of the legacy vacuum code.
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0]).unwrap(),
                 &[0],
             ),
@@ -1204,7 +1052,7 @@ mod tests {
         );
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[1]).unwrap(),
                 &[0],
             ),
@@ -1235,27 +1083,36 @@ mod tests {
             vec![base.parameter("nu0").unwrap(), nu1.clone(), nu2.clone()],
         )
         .unwrap();
-        let generated = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate()
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let ordinary_batch = generator.prepare_ordinary_ibp().unwrap();
+        let ordinary_rows = (0..ordinary_batch.len())
+            .map(|ordinal| ordinary_batch.generate(ordinal))
+            .collect();
+        let ordinary = ordinary_batch.complete(ordinary_rows).unwrap();
+        let li_batch = generator.prepare_lorentz_invariance(&ordinary).unwrap();
+        let lorentz_invariance = (0..li_batch.len())
+            .map(|ordinal| li_batch.generate(ordinal))
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
+        drop(li_batch);
+        let ordinary = ordinary.into_relations();
 
-        assert_eq!(generated.ordinary_ibp().len(), 3);
-        assert_eq!(generated.lorentz_invariance().len(), 1);
+        assert_eq!(ordinary.len(), 3);
+        assert_eq!(lorentz_invariance.len(), 1);
         assert_eq!(
-            generated.lorentz_invariance()[0].row_id(),
+            lorentz_invariance[0].row_id(),
             &RowId::LorentzInvariance {
                 first_external: 0,
                 second_external: 1,
             }
         );
-        let relation = &generated.lorentz_invariance()[0];
+        let relation = &lorentz_invariance[0];
         assert_eq!(relation.terms().len(), 4);
         let n1 = &base.integer(3) + &nu1;
         let n2 = &base.integer(4) + &nu2;
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0, 1, 0]).unwrap(),
                 &[2, 3, 4],
             ),
@@ -1263,7 +1120,7 @@ mod tests {
         );
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0, 1, -1]).unwrap(),
                 &[2, 3, 4],
             ),
@@ -1271,7 +1128,7 @@ mod tests {
         );
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0, 0, 1]).unwrap(),
                 &[2, 3, 4],
             ),
@@ -1279,7 +1136,7 @@ mod tests {
         );
         assert_coefficient_eq(
             &specialize_for_test(
-                generated.context(),
+                generator.context(),
                 indexed_coefficient_for_shift(relation, &[0, -1, 1]).unwrap(),
                 &[2, 3, 4],
             ),
@@ -1357,10 +1214,9 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         drop(li_batch);
-        let generated = generator.relations(ordinary.into_relations(), lorentz_invariance);
+        let ordinary = ordinary.into_relations();
 
-        let ids = generated
-            .ordinary_ibp()
+        let ids = ordinary
             .iter()
             .map(|row| row.row_id().clone())
             .collect::<Vec<_>>();
@@ -1410,8 +1266,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            generated
-                .lorentz_invariance()
+            lorentz_invariance
                 .iter()
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
@@ -1430,7 +1285,7 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(generated.ibp_li().count(), 13);
+        assert_eq!(ordinary.len() + lorentz_invariance.len(), 13);
     }
 
     #[test]
@@ -1528,9 +1383,15 @@ mod tests {
             .map(|ordinal| batch.generate(ordinal))
             .collect();
         let sources = batch.complete(rows).unwrap();
+        let li_batch = generator.prepare_lorentz_invariance(&sources).unwrap();
+        let li_rows = (0..li_batch.len())
+            .map(|ordinal| li_batch.generate(ordinal))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        drop(li_batch);
+        let source_rows = sources.into_relations();
         assert_eq!(
-            sources
-                .relations
+            source_rows
                 .iter()
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
@@ -1561,14 +1422,10 @@ mod tests {
                 },
             ]
         );
-        let li_batch = generator.prepare_lorentz_invariance(&sources).unwrap();
-        let rows = (0..li_batch.len())
-            .map(|ordinal| li_batch.generate(ordinal))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-        assert_eq!(rows.len(), 3);
+        assert_eq!(li_rows.len(), 3);
         assert_eq!(
-            rows.iter()
+            li_rows
+                .iter()
                 .map(|row| row.row_id().clone())
                 .collect::<Vec<_>>(),
             vec![
@@ -1611,15 +1468,17 @@ mod tests {
             vec![base.zero(), base.zero()],
         )
         .unwrap();
-        let generated = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate()
-            .unwrap();
-        let determinant = generated
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let batch = generator.prepare_ordinary_ibp().unwrap();
+        let generated = (0..batch.len())
+            .map(|ordinal| batch.generate(ordinal))
+            .collect();
+        let ordinary = batch.complete(generated).unwrap().into_relations();
+        let determinant = generator
             .context()
             .lift_base_polynomial(family.domain().determinant_nonzero().polynomial())
             .unwrap();
-        let input_denominator = generated
+        let input_denominator = generator
             .context()
             .lift_base_polynomial(
                 family
@@ -1631,8 +1490,8 @@ mod tests {
                     .polynomial(),
             )
             .unwrap();
-        assert_eq!(generated.ordinary_ibp().len(), 2);
-        assert!(generated.ordinary_ibp().iter().all(|row| {
+        assert_eq!(ordinary.len(), 2);
+        assert!(ordinary.iter().all(|row| {
             row.nonzero_conditions()
                 .iter()
                 .any(|condition| condition.polynomial() == &determinant)
@@ -1641,7 +1500,7 @@ mod tests {
                     .iter()
                     .any(|condition| condition.polynomial() == &input_denominator)
         }));
-        assert!(generated.ordinary_ibp().iter().all(|row| {
+        assert!(ordinary.iter().all(|row| {
             let determinant_condition = row
                 .nonzero_conditions()
                 .iter()
@@ -1667,46 +1526,6 @@ mod tests {
     }
 
     #[test]
-    fn custom_context_must_match_family_base_and_arity() {
-        let base = CoefficientContext::new(["d"]);
-        let family = IntegralFamily::new(
-            "context-check",
-            vec!["k".into()],
-            Vec::new(),
-            base.clone(),
-            base.one(),
-            identity_denominators(&base, vec![base.zero()]),
-            Vec::new(),
-            vec![base.zero()],
-        )
-        .unwrap();
-        let wrong_base = CoefficientContext::new(["x"]);
-        let wrong_context =
-            IndexedCoefficientContext::try_new(&wrong_base, "wrong-base", 1).unwrap();
-        assert!(matches!(
-            ParametricIbpGenerator::try_with_context(
-                &family,
-                wrong_context,
-                ParametricIbpConfig::default()
-            ),
-            Err(ParametricIbpError::BaseContextMismatch)
-        ));
-
-        let wrong_arity = IndexedCoefficientContext::try_new(&base, "wrong-arity", 2).unwrap();
-        assert!(matches!(
-            ParametricIbpGenerator::try_with_context(
-                &family,
-                wrong_arity,
-                ParametricIbpConfig::default()
-            ),
-            Err(ParametricIbpError::WrongIndexArity {
-                expected: 1,
-                actual: 2
-            })
-        ));
-    }
-
-    #[test]
     fn maximal_power_shift_times_parameter_is_a_typed_error_not_a_symbolica_panic() {
         let base = CoefficientContext::new(["x"]);
         let x = base.parameter("x").unwrap();
@@ -1723,10 +1542,9 @@ mod tests {
         )
         .unwrap();
 
-        let error = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .generate_ordinary_ibp()
-            .unwrap_err();
+        let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+        let batch = generator.prepare_ordinary_ibp().unwrap();
+        let error = batch.generate(0).unwrap_err();
         assert!(matches!(
             error,
             ParametricIbpError::Coefficient(IndexedAlgebraError::ExactAlgebra(

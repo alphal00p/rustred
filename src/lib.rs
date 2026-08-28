@@ -39,9 +39,7 @@ pub use family::{
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
 };
-pub use parametric_ibp::{
-    ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
-};
+pub use parametric_ibp::{ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator};
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,
     RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorAnalysisStatus,

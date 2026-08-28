@@ -1,7 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `e024d2d`, immediately before moving the retained sparse
-relation implementation under its canonical identity owner.
+**Baseline parent:** `1d6ba18`, immediately before pruning the duplicate serial
+generator API to the prepared-batch production spine.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 101 tracked Rust source/test paths
@@ -116,8 +116,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/condition/error.rs` | move | identity::condition | typed source, resource, and authenticated-coefficient failures |
 | `src/identity/condition/value.rs` | split | identity::condition | authenticated condition value, checked translation, deterministic source merging, and collection insertion; construction remains engine-owned and specialized base-field ceremony waits for a real reduction consumer |
 | `src/identity/condition/tests.rs` | move | identity::condition tests | focused version-stable provenance encoding sentinel; operational event provenance is exercised through real relation events |
-| `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition/`IndexSpace` exports; do not move exports wholesale |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, shared fallibly constructed zero/unit shift storage with refcount-only clones, and one completed semantic-scope token shared by ordinary and LI-only layouts; current compact-coefficient specialization is test-only and must not justify a production relation wrapper |
+| `src/lib.rs` | replace | crate facade | write from retained use cases; concrete-relation, root relation/condition/row, and internal `IndexSpace` exports are gone, and remaining root reexports receive the same final audit rather than being moved wholesale |
+| `src/parametric_ibp.rs` | split | identity | retain topology-neutral prepared ordinary/external source batches, ordinal generation, completion, LI preparation, stable provenance, shared fallibly constructed zero/unit shifts, and one completed semantic-scope token; the self-test-only aggregate result, serial orchestration, custom-context constructor, and unused accessors are deleted, while compact-coefficient specialization remains test-only and cannot justify a production relation wrapper |
 | `src/identity/relation/mod.rs` | move | identity::relation | canonical narrow relation facade; the temporary crate-visible index-space seam disappears when the generator joins `identity` |
 | `src/identity/relation/index.rs` | split | identity::relation | checked index-space/shift construction, shared no-copy shift storage and its owner-local clone sentinel, value ordering, and checked translation arithmetic; only `IndexShift` inspection is public |
 | `src/identity/relation/limits.rs` | move | identity::relation | independent exact-arithmetic and condition-source policy for relation operations |
