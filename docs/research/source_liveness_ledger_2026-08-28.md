@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `6ea9e3e`, updated after each R3 cluster milestone.
+**Baseline:** `8a06a65`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 149 tracked Rust source/build/test paths
+This ledger classifies every one of the 147 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 122 |
+| split | 120 |
 | delete | 3 |
 | replace | 1 |
 
@@ -71,7 +71,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/canonical_parametric_locus_table.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/certified_rewrite.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/certified_rule_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
@@ -95,7 +94,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_affine_residual_case_reelimination.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_cylindrical_candidate_authority.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_family_source_set.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_persistent_elimination.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_residual_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_row_system.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |

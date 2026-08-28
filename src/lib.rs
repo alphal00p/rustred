@@ -29,7 +29,6 @@ pub mod automatic_isps;
 pub mod base_specialization;
 pub mod campaign;
 pub mod certified_rewrite;
-pub mod certified_rule_provider;
 pub mod conditional_reelimination;
 pub mod conditional_rules;
 pub mod coordinate_equality_loci;
@@ -49,7 +48,6 @@ mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;
 pub(crate) mod generated_affine_residual_source_authority;
 pub mod generated_cylindrical_candidate_authority;
-pub mod generated_cylindrical_family_source_set;
 pub mod generated_cylindrical_persistent_elimination;
 pub mod generated_cylindrical_residual_start;
 pub mod generated_cylindrical_row_system;
@@ -139,11 +137,6 @@ pub use certified_rewrite::{
     CertifiedRewriteLimits, CertifiedZeroReduction, CertifiedZeroReductionProof,
     ConcreteQuotientSourceRowProof, QuotientTermWitness,
 };
-pub use certified_rule_provider::{
-    CERTIFIED_FAMILY_RULE_PROVIDER_V1_SCHEMA, CERTIFIED_FAMILY_RULE_PROVIDER_V2_SCHEMA,
-    CERTIFIED_FAMILY_RULE_PROVIDER_V3_SCHEMA, CertifiedFamilyRuleProvider,
-    CertifiedFamilyRuleProviderError, CertifiedFamilyRuleProviderLimits,
-};
 pub use conditional_reelimination::{
     ConditionalCenteredPivotLocus, GENERATED_PARTIAL_REELIMINATION_V1_SCHEMA,
     GENERATED_PARTIAL_REELIMINATION_V2_SCHEMA, GeneratedPartialBaseAssumptionWitness,
@@ -201,13 +194,6 @@ pub use generated_cylindrical_candidate_authority::{
     GeneratedCylindricalCandidateAuthorityStats, GeneratedCylindricalCandidateOrderingAuthority,
     GeneratedCylindricalCenteredAssignment, GeneratedCylindricalGlobalCandidateAuthority,
     GeneratedCylindricalLocusBoundCandidateAuthority,
-};
-pub use generated_cylindrical_family_source_set::{
-    GENERATED_CYLINDRICAL_FAMILY_SOURCE_SET_V1_SCHEMA,
-    GeneratedCylindricalFamilyInventoryInterruption, GeneratedCylindricalFamilySourceBudget,
-    GeneratedCylindricalFamilySourceSetCertificate, GeneratedCylindricalFamilySourceSetCompiler,
-    GeneratedCylindricalFamilySourceSetError, GeneratedCylindricalFamilySourceSetLimits,
-    GeneratedCylindricalFamilySourceSetStats,
 };
 /// Persistent generated-row elimination authority.
 ///

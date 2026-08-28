@@ -2676,14 +2676,10 @@ mod tests {
     }
 
     #[test]
-    fn persistent_numeric_rewrite_and_multi_source_provider_schemas_are_current() {
+    fn persistent_numeric_rewrite_schema_is_current() {
         assert_eq!(
             CertifiedConcreteRewrite::SCHEMA,
             CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA
-        );
-        assert_eq!(
-            crate::CertifiedFamilyRuleProvider::SCHEMA,
-            crate::CERTIFIED_FAMILY_RULE_PROVIDER_V3_SCHEMA
         );
     }
 
