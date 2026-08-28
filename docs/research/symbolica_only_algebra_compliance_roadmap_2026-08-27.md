@@ -74,9 +74,9 @@ block the later GammaLoop numerator corpus reduction.
   It supports only one current-target affine equality with a literal `+1` or
   `-1` free pivot and has no dependency on the handwritten integer-system/
   lattice prototypes.
-- Loop-authored reduction modules and code behind `legacy-authored-oracles`,
+- Loop-authored reduction modules isolated in `rustred-legacy-oracles`,
   including the private finite-field arithmetic in
-  [`four_loop_next_modular_rank.rs`](../../src/four_loop_next_modular_rank.rs),
+  [`four_loop_next_modular_rank.rs`](../../crates/rustred-legacy-oracles/src/four_loop_next_modular_rank.rs),
   are evidence/oracle lanes. They must not be linked into a generic production
   decision path.
 - [`residual_affine_integer_lattice_kernel.rs`](../../src/residual_affine_integer_lattice_kernel.rs)

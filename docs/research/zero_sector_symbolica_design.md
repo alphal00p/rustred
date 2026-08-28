@@ -663,7 +663,7 @@ Vakint is an oracle artifact only; do not invoke FORM.
   `vxs` incidence and `kk1..kk6` mapping at FORM lines 162--189; do not assume
   the FORM order equals RustRed's order.
 - RustRed's test family routing is the generic affine encoding of
-  [`THREE_LOOP_TETRAHEDRON_ROUTINGS`](../../src/three_loop.rs) (`k1`, `k2`,
+  [`THREE_LOOP_TETRAHEDRON_ROUTINGS`](../../crates/rustred-legacy-oracles/src/three_loop.rs) (`k1`, `k2`,
   `k3`, `k3-k1`, `k1-k2`, `k2-k3`).  The production zero analyzer must know
   nothing about that constant.
 

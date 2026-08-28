@@ -240,7 +240,7 @@ algorithm in
 [`three_loop_reduction_plan.md:209-319`](three_loop_reduction_plan.md#L209)
 reduces it to `T1^3`.  It survives only because the implemented boundary layer
 currently rejects every negative power
-([`src/three_loop_pipeline.rs:276-303`](../../src/three_loop_pipeline.rs#L276)).
+([`crates/rustred-legacy-oracles/src/three_loop_pipeline.rs:276-303`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs#L276)).
 Consequently the first action for `D,N >= 1` is not a larger global matrix; it
 is completion of the already-derived tree and paw numerator boundaries.
 
@@ -262,14 +262,14 @@ The current corner pipeline correctly limits its public claim to `(D,N)=(0,0)`
 and candidate masters.  It also now reduces a whole generated identity through
 the sparse table before applying the terminal whitelist, allowing halo terms
 to cancel
-([`src/three_loop_pipeline.rs:199-227`](../../src/three_loop_pipeline.rs#L199)).
+([`crates/rustred-legacy-oracles/src/three_loop_pipeline.rs:199-227`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs#L199)).
 That whole-row behaviour should become a generic validation primitive.
 
 The target/seed conflation is literal in the current builder: it assigns
 `certified_targets(...)` to `seeds`, generates rows from that same collection,
 and later calls the same target enumerator for coverage
-([`src/three_loop_pipeline.rs:88-102`](../../src/three_loop_pipeline.rs#L88),
-[`src/three_loop_pipeline.rs:306-345`](../../src/three_loop_pipeline.rs#L306)).
+([`crates/rustred-legacy-oracles/src/three_loop_pipeline.rs:88-102`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs#L88),
+[`crates/rustred-legacy-oracles/src/three_loop_pipeline.rs:306-345`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs#L306)).
 This is adequate for the corner slice, but it gives the solver no independent
 halo policy at the next depth.
 
@@ -284,7 +284,7 @@ an elimination certificate.  A syntactically valid but algebraically false
 triangular table can therefore be loaded.
 
 `ThreeLoopReductionPipeline::from_table` calls only target-coverage validation
-([`src/three_loop_pipeline.rs:105-114`](../../src/three_loop_pipeline.rs#L105)).
+([`crates/rustred-legacy-oracles/src/three_loop_pipeline.rs:105-114`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs#L105)).
 For the corner box, an empty table is enough to leave the three genuine corners
 as whitelisted candidates while the other corners are handled analytically.
 Thus the method name/comment “certify an externally loaded sparse table” is too
@@ -601,8 +601,8 @@ halos before matrix insertion.
 The current four-loop and five-loop family constructors intentionally register
 only the identity because generated auxiliaries are generally transformed into
 linear combinations rather than permutations
-([`src/four_loop.rs:1-14`](../../src/four_loop.rs#L1),
-[`src/five_loop.rs:1-7`](../../src/five_loop.rs#L1)).  Leaving this unchanged
+([`crates/rustred-legacy-oracles/src/four_loop.rs:1-14`](../../crates/rustred-legacy-oracles/src/four_loop.rs#L1),
+[`crates/rustred-legacy-oracles/src/five_loop.rs:1-7`](../../crates/rustred-legacy-oracles/src/five_loop.rs#L1)).  Leaving this unchanged
 would discard one of the largest high-loop reductions in seed count.
 
 Introduce a proved family map containing:

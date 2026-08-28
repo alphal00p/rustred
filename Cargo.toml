@@ -2,7 +2,11 @@
 # The root package is an implicit workspace member. Listing `.` explicitly
 # would make every nested path an explicit member prefix in Cargo, defeating
 # the vendor exclusions below.
-members = ["crates/rustred-app", "crates/rustred-python"]
+members = [
+    "crates/rustred-app",
+    "crates/rustred-legacy-oracles",
+    "crates/rustred-python",
+]
 default-members = [".", "crates/rustred-app", "crates/rustred-python"]
 exclude = [
     "vendor/gammaloop",
@@ -34,26 +38,9 @@ exclude = [
 name = "rustred"
 path = "src/lib.rs"
 
-[[example]]
-name = "four_loop_next_elimination"
-required-features = ["legacy-authored-oracles"]
-
-[[example]]
-name = "four_loop_next_modular_rank"
-required-features = ["legacy-authored-oracles"]
-
-[[example]]
-name = "four_loop_three_loop_closure_probe"
-required-features = ["legacy-authored-oracles"]
-
-[[example]]
-name = "four_loop_three_loop_target_census"
-required-features = ["legacy-authored-oracles"]
-
 [features]
 default = []
 legacy-oracle-support = []
-legacy-authored-oracles = ["legacy-oracle-support"]
 
 [dependencies]
 rand = "0.9"

@@ -258,8 +258,8 @@ than replaced:
 
 The older `VakintTwoLoopAdapter` is explicitly narrow and builds an authored
 two-loop pipeline
-([`vakint_adapter.rs:1-27`](../../src/vakint_adapter.rs#L1),
-[`vakint_adapter.rs:154-193`](../../src/vakint_adapter.rs#L154)). It is useful
+([`vakint_adapter.rs:1-27`](../../crates/rustred-legacy-oracles/src/vakint_adapter.rs#L1),
+[`vakint_adapter.rs:154-193`](../../crates/rustred-legacy-oracles/src/vakint_adapter.rs#L154)). It is useful
 only as an oracle. It is not the GammaLoop integration architecture.
 
 ## 7. Critical missing services

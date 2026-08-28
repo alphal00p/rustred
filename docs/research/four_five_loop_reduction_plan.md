@@ -141,7 +141,7 @@ Vakint registers four parents in
 | BMW | `k1,k2,k3,k4,k1-k2,k3-k4,k2+k3-k1,k3-k4-k1` | 8 | `k1.k3`, `k2.k4` |
 | FG | `k1,k2,k3,k1-k3,k4,k2-k3,k1-k3+k4,k1-k2` | 8 | `k1.k4`, `k2.k4` |
 
-The rows in [`src/four_loop.rs`](../../src/four_loop.rs) agree entry by entry.
+The rows in [`crates/rustred-legacy-oracles/src/four_loop.rs`](../../crates/rustred-legacy-oracles/src/four_loop.rs) agree entry by entry.
 Its H/X rows 7 and 8 and BMW row 8 use the opposite momentum orientation from
 the display in Vakint, but `q^2=(-q)^2`, so the denominators are identical.
 
@@ -310,7 +310,7 @@ Vakint has no five-loop topology type, registry entry, backend, or fixture.
 The only five-loop RustRed constructor is therefore a RustRed-owned family,
 not a port of a Vakint family.
 
-[`src/five_loop.rs`](../../src/five_loop.rs) defines
+[`crates/rustred-legacy-oracles/src/five_loop.rs`](../../crates/rustred-legacy-oracles/src/five_loop.rs) defines
 
 ```text
 q1=k1, q2=k2, q3=k3, q4=k4, q5=k5,
@@ -803,7 +803,7 @@ with the following basis order fixed by the family constructors:
 | `H9` | H | `0x1ff` | 9 |
 | `X9` | X | `0x1ff` | 9 |
 
-H and X positions `0..8` are the physical routings in `src/four_loop.rs`;
+H and X positions `0..8` are the physical routings in `crates/rustred-legacy-oracles/src/four_loop.rs`;
 position 9 is the deterministic generated auxiliary `k1.k2`.  A genuine
 matrix column is
 
@@ -1030,7 +1030,7 @@ A reduction claim for the ten corner targets requires adaptive seed growth
 until every reachable nonterminal column is pivoted or reduced by a certified
 lower node and the pivot/free skeleton is stable under one further shell.
 
-The native 160-row implementation now lives in `src/four_loop_corner_shell.rs`
+The native 160-row implementation now lives in `crates/rustred-legacy-oracles/src/four_loop_corner_shell.rs`
 and is described in [`four_loop_corner_shell.md`](four_loop_corner_shell.md).
 The separate lower-component scalar `D1/N0` service is integrated: it closes
 all 234 coefficient-bearing occurrences in 95 preclosure rows through 28

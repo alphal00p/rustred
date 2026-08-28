@@ -44,8 +44,13 @@ PyO3 package is implemented as a thin adapter over that boundary; it has no
 direct dependency on the core or Symbolica and does not implement a second
 frontend pipeline. Its process-wide coordinator releases the GIL around work,
 serializes application calls onto one owned Rust thread, fails closed after a
-fork, and permanently poisons further work after catching a Rust panic. Deeper
-core, legacy-oracle, test, and documentation separation remains pending.
+fork, and permanently poisons further work after catching a Rust panic. The
+35 topology-authored modules, 34 dedicated integration tests, and four
+diagnostic examples now live in the publish-disabled
+`rustred-legacy-oracles` workspace package, which depends one-way on a narrow
+core support facade and is excluded from the default workspace members.
+Deeper topology-neutral core, test-support, and documentation separation
+remains pending.
 The audit and migration contract are tracked in the
 [repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).
 

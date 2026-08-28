@@ -29,11 +29,11 @@ The derivation was checked against the local RustRed, LiteRed2, and Vakint
 sources as text.  In particular:
 
 - the tetrahedron routing and its proved 24-element edge action are in
-  [`src/three_loop.rs`](../../src/three_loop.rs);
+  [`crates/rustred-legacy-oracles/src/three_loop.rs`](../../crates/rustred-legacy-oracles/src/three_loop.rs);
 - the factorized scalar numerator boundary reducer is in
-  [`src/three_loop_boundary.rs`](../../src/three_loop_boundary.rs);
+  [`crates/rustred-legacy-oracles/src/three_loop_boundary.rs`](../../crates/rustred-legacy-oracles/src/three_loop_boundary.rs);
 - the arbitrary-numerator two-loop boundary formula and its overflow-safe
-  coefficient recurrences are in [`src/two_loop.rs`](../../src/two_loop.rs);
+  coefficient recurrences are in [`crates/rustred-legacy-oracles/src/two_loop.rs`](../../crates/rustred-legacy-oracles/src/two_loop.rs);
 - the exact global tensor projector and scalar-product lowering bridge are in
   [`src/tensor.rs`](../../src/tensor.rs) and
   [`src/tensor_family.rs`](../../src/tensor_family.rs);
@@ -215,7 +215,7 @@ For example, \(\pi=(0\,1)\) gives
 \]
 
 exactly the first documented generator in
-[`src/three_loop.rs:28-45`](../../src/three_loop.rs#L28).  Enumerating all 24
+[`crates/rustred-legacy-oracles/src/three_loop.rs:28-45`](../../crates/rustred-legacy-oracles/src/three_loop.rs#L28).  Enumerating all 24
 vertex permutations, deriving (2.1), and checking all six routed squares is a
 small test independent of the generic matrix search.
 
@@ -269,7 +269,7 @@ forming machine factorials.
 
 For common use by two and three loops, the private `TadpoleWindow`,
 `next_tadpole_ratio`, `binomial_row`, and `multiply_integer_ratio` machinery in
-[`src/two_loop.rs`](../../src/two_loop.rs) should move to a small
+[`crates/rustred-legacy-oracles/src/two_loop.rs`](../../crates/rustred-legacy-oracles/src/two_loop.rs) should move to a small
 `pub(crate)` module.  Keep the sign convention explicit: equations (3.1)-(3.2)
 are for `D=p^2+m2`, while the existing two-loop reducer internally names
 `s=-m2` for `D=p^2-s`.

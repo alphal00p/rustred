@@ -172,7 +172,7 @@ shell design, not an induction theorem for arbitrary `D`.
 
 ## Implemented finite step and next proof obligation
 
-[`three_loop_b4_d2.rs`](../../src/three_loop_b4_d2.rs) now implements the
+[`three_loop_b4_d2.rs`](../../crates/rustred-legacy-oracles/src/three_loop_b4_d2.rs) now implements the
 dedicated replayable `D=2` shell described below. Its deliberately narrow
 surface freezes five symmetry-unique scalar seeds (corner, one dot, `A`,
 `C_adj`, and `C_opp`), regenerates all 45 native rows, and gives every row a

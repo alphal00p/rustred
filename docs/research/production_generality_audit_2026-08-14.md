@@ -27,7 +27,7 @@ tests or a test-only oracle crate.
 
 - `src/tensor_family.rs` exposes specialized two-loop boundary/pipeline and
   three-loop pipeline methods.
-- `src/vakint_adapter.rs` owns and constructs a
+- `crates/rustred-legacy-oracles/src/vakint_adapter.rs` owns and constructs a
   `TwoLoopReductionPipeline`.
 
 These paths must instead accept an authenticated generic family and a sealed
@@ -35,14 +35,14 @@ generated parametric-rule provider.
 
 Production hardcoded recurrences/formula dispatch currently occur in:
 
-- `src/one_loop.rs`;
-- `src/two_loop.rs` and `src/two_loop_top_dot.rs`;
-- `src/three_loop_top_dot.rs`, `src/three_loop_proper_dot.rs`, and
-  `src/three_loop_boundary.rs`;
-- `src/four_loop_boundary_halo.rs`, with transitive specialized services in
-  `src/four_loop_t1s2_closure.rs` and
-  `src/four_loop_three_loop_service.rs`; and
-- `src/five_loop_boundary.rs` and `src/five_loop_d2.rs`.
+- `crates/rustred-legacy-oracles/src/one_loop.rs`;
+- `crates/rustred-legacy-oracles/src/two_loop.rs` and `crates/rustred-legacy-oracles/src/two_loop_top_dot.rs`;
+- `crates/rustred-legacy-oracles/src/three_loop_top_dot.rs`, `crates/rustred-legacy-oracles/src/three_loop_proper_dot.rs`, and
+  `crates/rustred-legacy-oracles/src/three_loop_boundary.rs`;
+- `crates/rustred-legacy-oracles/src/four_loop_boundary_halo.rs`, with transitive specialized services in
+  `crates/rustred-legacy-oracles/src/four_loop_t1s2_closure.rs` and
+  `crates/rustred-legacy-oracles/src/four_loop_three_loop_service.rs`; and
+- `crates/rustred-legacy-oracles/src/five_loop_boundary.rs` and `crates/rustred-legacy-oracles/src/five_loop_d2.rs`.
 
 Some legacy pipelines regenerate finite rows from concrete seeds, but that is
 not a parametric recurrence derivation. Representative concrete-seed paths are

@@ -5,7 +5,8 @@ Date: 2026-08-27
 Status: active mandatory architecture gate. The multi-agent inventory,
 independent design audit, bounded application/CLI extraction,
 transport-neutral boundary refactor, and development Python adapter are
-complete. Deeper core, legacy-oracle, test, and documentation migrations
+complete. The physical legacy-oracle package extraction is also complete;
+deeper topology-neutral core, test-support, and documentation migrations
 remain pending.
 
 ## Decision
@@ -43,9 +44,13 @@ confined to the adapter. Public calls document their panic-safety contract.
 Panic containment belongs at the outer coordinator/FFI boundary and must poison
 further work rather than claim that an invariant failure is safely recoverable.
 `rustred-python` now implements that boundary. The publish-disabled
-`rustred-legacy-oracles` package is still to be created. Test support remains
-adjacent to the code it validates unless a later measured dependency boundary
-justifies another package.
+`rustred-legacy-oracles` package now owns all 35 compiled authored modules, 34
+dedicated integration tests, and four diagnostic examples. It is excluded
+from the default workspace members and depends only on the core with default
+features disabled plus the narrow hidden `legacy-oracle-support` facade. The
+former `legacy-authored-oracles` feature and root re-exports no longer exist.
+Test support remains adjacent to the code it validates unless a later measured
+dependency boundary justifies another package.
 
 The first migration was intentionally mechanical; the subsequent boundary
 milestone moved normalization, lowering, derivation/output, and campaign
@@ -64,8 +69,8 @@ completed application/CLI separation, it still mixes:
 
 - topology- and loop-neutral algebra, family, IBP, sector, and rule kernels;
 - exact-session and exceptional-closure campaign orchestration;
-- concrete one- through four-loop validation/oracle code, much of it behind
-  `legacy-authored-oracles`;
+- concrete one- through five-loop validation/oracle code, now isolated in the
+  publish-disabled `rustred-legacy-oracles` package;
 - differential bridges and test-only campaign machinery; and
 - a long research-document history whose current authority is not always
   apparent from its filename.
@@ -175,7 +180,8 @@ separate provenance role and are not treated as RustRed-owned stale code.
 6. **In progress:** execute mechanical moves and visibility tightening in
    small commits, with parallel tests after each phase and milestone pushes.
    The `rustred-app` extraction and transport-boundary phases are complete;
-   deeper legacy-oracle/core/test separation remains.
+   the physical legacy-oracle extraction is complete; deeper core/test
+   separation remains.
 7. **Complete for development use:** add the PyO3 package only after the shared
    application boundary exists; prove CLI/application/Python parity, licensed
    parallel execution, safe Python-thread coordination, and wheel/sdist

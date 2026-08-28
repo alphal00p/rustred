@@ -48,7 +48,7 @@ D_4=(k_3-k_1)^2+m^2,&D_5=(k_1-k_2)^2+m^2,
 
 Here the Rust coefficient symbol `m2` denotes \(m^2\).  This is exactly the
 routing and denominator sign registered in
-[`src/three_loop.rs:10-87`](../../src/three_loop.rs#L10), and it is the same
+[`crates/rustred-legacy-oracles/src/three_loop.rs:10-87`](../../crates/rustred-legacy-oracles/src/three_loop.rs#L10), and it is the same
 six-momentum routing registered by Vakint in
 [`topologies.rs:76-98`](../../vendor/gammaloop/crates/vakint/src/topologies.rs#L76).
 
@@ -66,11 +66,11 @@ k_2\!\cdot k_3&=(D_2+D_3-D_6-m^2)/2.
 There are six independent scalar products at three loops and six independent
 denominators, so there is no ISP.  The checked-in test substitutes this inverse
 back into every denominator exactly
-([`tests/three_loop_family.rs:16-94`](../../tests/three_loop_family.rs#L16)).
+([`crates/rustred-legacy-oracles/tests/three_loop_family.rs:16-94`](../../crates/rustred-legacy-oracles/tests/three_loop_family.rs#L16)).
 RustRed also already generates the expected nine identities
 \(\partial_{k_i}\!\cdot k_j\), including a hand-derived first identity and an
 independent invariant for all nine
-([`tests/three_loop_family.rs:218-274`](../../tests/three_loop_family.rs#L218)).
+([`crates/rustred-legacy-oracles/tests/three_loop_family.rs:218-274`](../../crates/rustred-legacy-oracles/tests/three_loop_family.rs#L218)).
 
 The six denominators are the edges
 
@@ -80,9 +80,9 @@ The six denominators are the edges
 
 of \(K_4\), in that order.  Vertex permutations give a proved 24-element
 \(S_4\) action.  RustRed records explicit unit-Jacobian generators
-([`src/three_loop.rs:23-45`](../../src/three_loop.rs#L23)), and the test derives
+([`crates/rustred-legacy-oracles/src/three_loop.rs:23-45`](../../crates/rustred-legacy-oracles/src/three_loop.rs#L23)), and the test derives
 the same group independently from all vertex permutations
-([`tests/three_loop_family.rs:97-145`](../../tests/three_loop_family.rs#L97)).
+([`crates/rustred-legacy-oracles/tests/three_loop_family.rs:97-145`](../../crates/rustred-legacy-oracles/tests/three_loop_family.rs#L97)).
 
 ## 2. Exact sector census
 
@@ -99,7 +99,7 @@ directions have a massive denominator.  Thus, for this family:
 
 The current independent enumeration finds 26 disconnected and 38 connected
 labelled sectors, and reduces them to five zero and six nonzero \(S_4\) orbits
-([`tests/three_loop_family.rs:160-215`](../../tests/three_loop_family.rs#L160)).
+([`crates/rustred-legacy-oracles/tests/three_loop_family.rs:160-215`](../../crates/rustred-legacy-oracles/tests/three_loop_family.rs#L160)).
 With bit zero corresponding to \(D_1\), the six canonical nonzero masks are:
 
 | mask | positive-index representative | active graph | treatment |
@@ -187,9 +187,9 @@ S_{a c e}=\int\frac{d^d u\,d^d v}
 
 The change \(v\mapsto-v\) converts this to the `k1+k2` sunset convention
 accepted by the existing two-loop boundary reducer
-([`src/two_loop.rs:19-34`](../../src/two_loop.rs#L19)).  The integrated
+([`crates/rustred-legacy-oracles/src/two_loop.rs:19-34`](../../crates/rustred-legacy-oracles/src/two_loop.rs#L19)).  The integrated
 two-loop pipeline fixes its two masters to the sunset and factorized product
-([`src/two_loop_pipeline.rs:151-180`](../../src/two_loop_pipeline.rs#L151)).
+([`crates/rustred-legacy-oracles/src/two_loop_pipeline.rs:151-180`](../../crates/rustred-legacy-oracles/src/two_loop_pipeline.rs#L151)).
 Consequently (4), followed by that pipeline and (1), reduces the scalar paw
 sector to \(T_1S_{111}\) and \(T_1^3\) **inside the two-loop pipeline's
 advertised finite dot box**.  An all-index paw claim additionally requires a
@@ -447,7 +447,7 @@ a claimed universal seed bound.
 
 The existing corner-only three-loop test explicitly warns that its six seeds
 and 54 identities are exploratory and not a master proof
-([`tests/three_loop_family.rs:289-316`](../../tests/three_loop_family.rs#L289)).
+([`crates/rustred-legacy-oracles/tests/three_loop_family.rs:289-316`](../../crates/rustred-legacy-oracles/tests/three_loop_family.rs#L289)).
 It must not be promoted to milestone completion evidence.
 
 ### 5.3 All integer indices require guarded parametric recurrences

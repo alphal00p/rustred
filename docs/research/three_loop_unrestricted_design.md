@@ -67,14 +67,14 @@ rules in the two genuine proper sectors.
 
 The existing components have the following precise status:
 
-- [`three_loop_boundary.rs`](../../src/three_loop_boundary.rs) gives finite
+- [`three_loop_boundary.rs`](../../crates/rustred-legacy-oracles/src/three_loop_boundary.rs) gives finite
   exact tree and paw numerator algorithms under explicit work limits and uses
   complete scalar-dot reduction for the induced sunset;
-- [`three_loop_top_dot.rs`](../../src/three_loop_top_dot.rs) proves strict
+- [`three_loop_top_dot.rs`](../../crates/rustred-legacy-oracles/src/three_loop_top_dot.rs) proves strict
   scalar-dot descent in mask `63`;
-- [`three_loop_proper_dot.rs`](../../src/three_loop_proper_dot.rs) proves both
+- [`three_loop_proper_dot.rs`](../../crates/rustred-legacy-oracles/src/three_loop_proper_dot.rs) proves both
   scalar-dot branches in `F5` and deliberately rejects dotted `B4`;
-- [`three_loop_pipeline.rs`](../../src/three_loop_pipeline.rs) proves only its
+- [`three_loop_pipeline.rs`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs) proves only its
   configured finite target box, although larger boxes may be built;
 - [`tensor.rs`](../../src/tensor.rs) and
   [`tensor_family.rs`](../../src/tensor_family.rs) already provide the native
@@ -384,7 +384,7 @@ removes every nonzero pivot combination.
 Consequently the implementation path is:
 
 1. add the direct degree-one rule (5.1);
-2. use the implemented [`three_loop_b4_d2.rs`](../../src/three_loop_b4_d2.rs)
+2. use the implemented [`three_loop_b4_d2.rs`](../../crates/rustred-legacy-oracles/src/three_loop_b4_d2.rs)
    replayable degree-two `B4` shell containing all three scalar target orbits
    and the complete one-step numerator halo on positions `2,4`;
 3. generalize the target-driven shell to arbitrary configured `(D,N)` and
@@ -463,10 +463,10 @@ reduction to a fixed (possibly redundant) basis.
 
 The paw boundary can turn arbitrary three-loop powers into arbitrarily dotted
 two-loop sunset integrals.  This prerequisite is now implemented by
-[`TwoLoopTopDotReducer`](../../src/two_loop_top_dot.rs): the paw's finite
+[`TwoLoopTopDotReducer`](../../crates/rustred-legacy-oracles/src/two_loop_top_dot.rs): the paw's finite
 polynomial/angular expansion delegates every induced positive sunset to a
 proved descending all-dot recurrence and every pinch to the exact two-line
-formula.  The retained [`TwoLoopReductionPipeline`](../../src/two_loop_pipeline.rs)
+formula.  The retained [`TwoLoopReductionPipeline`](../../crates/rustred-legacy-oracles/src/two_loop_pipeline.rs)
 and `max_two_loop_dots` field remain compatibility/finite-audit surfaces and
 do not cap actual paw dispatch. Operational state, coefficient, exponent, and
 boundary-work limits still return typed failures, so this removes the fixed

@@ -610,7 +610,8 @@ arbitrary non-vacuum pentagon milestone.
 
 All authored loop/topology reducers and hardcoded IBP weights, including the
 canonical-`I2L` `VakintTwoLoopAdapter`, are excluded from the default surface
-behind the non-default `legacy-authored-oracles` feature. Those implementations
+inside the publish-disabled, non-default-member `rustred-legacy-oracles`
+crate. Those implementations
 are regression/oracle fixtures, not admissible production derivation. No
 acceptance milestone may call them on the RustRed subject path; only freshly
 generated generic rules may produce the result being compared.

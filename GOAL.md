@@ -370,9 +370,12 @@ reviewable from semantic changes.
    Preserve the shared API's generic family/kinematics model and fine-grained
    operation boundaries; neither frontend may become vacuum-only or merely a
    launcher for Vakint.
-3. Create publish-disabled `rustred-legacy-oracles`, move authored loop- and
-   topology-specific recurrences and dedicated tests, and prove that the
-   default production core does not link them.
+3. **Complete:** create publish-disabled `rustred-legacy-oracles`, move all 35
+   compiled authored loop/topology modules, 34 dedicated integration tests,
+   and four diagnostic examples, and remove the former root feature surface.
+   The package is not a default workspace member and depends one-way on the
+   core's narrow hidden support facade; the default production graph does not
+   link it.
 4. Resolve every unwired source explicitly as wire, move, or delete with
    reachability evidence.
 5. Refactor the 450k-line flat core into clear topology-neutral algebra,

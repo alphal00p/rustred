@@ -109,15 +109,16 @@ or topology.
 Massless degenerations should be a separate zero-sector suite, not silently
 folded into the first massive acceptance matrix.
 
-## Default-public legacy module quarantine
+## Physical legacy-oracle package extraction
 
-The quarantine described below has now been applied.  With default features,
-`src/lib.rs` exposes the generic family/IBP/elimination/provider/tensor and
-symmetry layers, while every authored loop/topology module and corresponding
-crate-root re-export is behind `legacy-authored-oracles`.  All 34 wholly
-legacy integration binaries have the same crate-root feature gate.  An
-independent audit found no authored reducer left default-public and no generic
-generated module hidden by the feature.
+The earlier feature quarantine described below has now been replaced by a
+physical package boundary. With default workspace members, the root `rustred`
+crate exposes only the generic family/IBP/elimination/provider/tensor and
+symmetry layers. All 35 compiled authored loop/topology modules and their
+re-exports live in the publish-disabled `rustred-legacy-oracles` crate, along
+with all 34 wholly legacy integration binaries and four diagnostic examples.
+That crate depends one-way on `rustred` through the narrow hidden
+`legacy-oracle-support` facade; the core has no reverse dependency.
 
 Legacy/oracle groups:
 
@@ -149,27 +150,28 @@ formula; under the strict "derive, do not hardcode" rule it is quarantined as
 an optional oracle/optimization until the generic proof path
 derives/authenticates the same result.
 
-### Applied split and remaining cleanup
+### Applied extraction and remaining cleanup
 
-1. Every module in the legacy groups, and every corresponding root re-export,
-   is behind `legacy-authored-oracles` as one dependency-closed feature.
+1. Every module in the legacy groups and every corresponding re-export has
+   moved to `crates/rustred-legacy-oracles`; the former
+   `legacy-authored-oracles` core feature has been deleted without a
+   compatibility alias.
 2. The wholly legacy integration binaries (`one_loop`, `two_loop_boundary`,
    `two_loop_pipeline`, `two_loop_top_dot`, `sign_convention`, all
    `three_loop_*`, all authored/frozen `four_loop_*`, and `five_loop_*`) are
-   feature-gated. `vakint_adapter` remains feature-gated as well.
+   owned by that crate. `vakint_adapter` and its test moved with them.
 3. Generic test coverage remains default-enabled:
    `symmetry_discovery` already constructs local generic families;
    `tensor_family` owns its equal-mass fixture locally. `product_boundary` and
    `two_loop_vacuum` exercise authored/older finite paths and are in the legacy
    suite, while the `certified_*`, `generated_*`, and
    `vakint_two_loop_tensor_ibp_oracle` tests remain default generic acceptance.
-4. A later physical cleanup can move the gated files into a dev-only
-   `rustred-legacy-oracles` crate
-   that depends on `rustred`, so the dependency can only point
-   `oracle -> generic core`. Move topology constants and fixtures with it.
-   Extract any genuinely reusable GL(Z), graph, or sparse-algebra algorithm
-   behind a family-independent API before moving its caller.
-5. Default and feature-enabled checks pass, as do focused parallel nextest
-   suites.  The remaining cleanup is to remove the legacy feature and source
-   modules from the main crate after equivalent external-oracle coverage is in
-   place. Never import frozen recurrences back into the generated compiler.
+4. The package is a workspace member but not a default member, has
+   `publish = false`, and depends directly only on `rustred` with default
+   features disabled plus `legacy-oracle-support`. Reusable exact-matrix and
+   coefficient-degree helpers cross through that deliberately narrow facade;
+   Symbolica is not a direct dependency of the oracle crate.
+5. Default and legacy-package checks remain separate. The next cleanup is to
+   replace retained authored code with smaller fixtures or generic end-to-end
+   coverage where practical. Never import frozen recurrences back into the
+   generated compiler.

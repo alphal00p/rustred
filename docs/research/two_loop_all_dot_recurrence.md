@@ -2,7 +2,7 @@
 
 ## Scope
 
-`src/two_loop_top_dot.rs` is the unrestricted positive-scalar counterpart of
+`crates/rustred-legacy-oracles/src/two_loop_top_dot.rs` is the unrestricted positive-scalar counterpart of
 the finite `two_loop_pipeline`.  It uses Symbolica coefficients over
 `Q(d,m2)`, invokes neither FORM nor Mathematica, and reduces every accepted
 request to
@@ -96,12 +96,12 @@ failures are typed and occur before the protected work.
 
 ## Validation
 
-`tests/two_loop_top_dot.rs` freezes an asymmetric raw expansion, replays every
+`crates/rustred-legacy-oracles/tests/two_loop_top_dot.rs` freezes an asymmetric raw expansion, replays every
 distinct native recurrence target in a small positive box, checks all six
 permutations, verifies strict descent including an equal-dot pinch, compares
 every target in the finite pipeline's default
 `[-2,4]^3` cube, tests numerator/scaleless boundary dispatch, and exercises
-each resource and overflow guard. `tests/three_loop_boundary.rs` additionally
+each resource and overflow guard. `crates/rustred-legacy-oracles/tests/three_loop_boundary.rs` additionally
 uses an induced sunset beyond the retained finite table, replays its native
 provenance, checks all 24 parent `S4` routing images, checks a native high-dot
 paw IBP subset, and retains the decorated-paw numerator regression.

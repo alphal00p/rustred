@@ -333,7 +333,7 @@ the derivative of the already exact `A2` rule:
 
 These identities were strong reconstruction checks during discovery. They are
 now production theorems of
-[`five_loop_d3.rs`](../../src/five_loop_d3.rs): the module regenerates and
+[`five_loop_d3.rs`](../../crates/rustred-legacy-oracles/src/five_loop_d3.rs): the module regenerates and
 authenticates 100 native identities, closes the exact oriented-line algebraic
 and five-line boundary halo, eliminates over `Q(d,m2)`, and replays every
 pivot from source-row weights. In contrast, the existing exact `D=2`

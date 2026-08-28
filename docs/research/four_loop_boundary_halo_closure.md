@@ -2,12 +2,12 @@
 
 ## 1. Scope and present obstruction
 
-[`FourLoopCornerShell`](../../src/four_loop_corner_shell.rs) generates the 160
+[`FourLoopCornerShell`](../../crates/rustred-legacy-oracles/src/four_loop_corner_shell.rs) generates the 160
 native corner rows of the ten frozen H/X representatives and transports every
 raw term into a common exact basis.  Its remaining obstruction is narrow.  A
 transported term whose scalar corner is factorized is closed only when the term
 equals that corner.  A dot or numerator on the same proved factorization is
-instead retained as an [`UnsupportedBoundaryHalo`](../../src/four_loop_corner_shell.rs#L304).
+instead retained as an [`UnsupportedBoundaryHalo`](../../crates/rustred-legacy-oracles/src/four_loop_corner_shell.rs#L304).
 
 The observed certificate before this closure has
 
@@ -99,7 +99,7 @@ certified finite three-loop box, not unrestricted minimal masters.
 
 ## 2. What the existing witness proves
 
-A [`FourLoopFactorizationWitness`](../../src/four_loop_boundary.rs#L202) stores
+A [`FourLoopFactorizationWitness`](../../crates/rustred-legacy-oracles/src/four_loop_boundary.rs#L202) stores
 two exact changes of variables.
 
 First, with the parent loop momenta collected in `k`, its four selected physical
