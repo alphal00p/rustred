@@ -3,7 +3,7 @@
 //! Candidate discovery is deliberately outside this module. Callers may use
 //! explicit maps, graph automorphisms, routing equivalences, or future generic
 //! candidate backends, but every candidate must first pass through
-//! [`crate::verify_affine_family_map`]. This module then accepts the verified
+//! [`crate::sector::symmetry::verify`]. This module then accepts the verified
 //! affine map only when its denominator action is a bijective unit-scale
 //! permutation preserving formal power shifts, cuts, and sector-pattern slots.
 
@@ -11,9 +11,8 @@ use std::fmt;
 
 use crate::family::{IntegralFamily, IntegralKey};
 use crate::sector::Restrictions;
-use crate::{
-    DenominatorRowAction, JacobianWitness, SymmetryVerificationError, SymmetryVerificationLimits,
-    VerifiedAffineFamilyMap,
+use crate::sector::symmetry::{
+    DenominatorAction, Error as SymmetryError, Jacobian, Limits as SymmetryLimits, VerifiedMap,
 };
 
 pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
@@ -24,14 +23,14 @@ pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
 ///
 /// The affine certificate alone is intentionally not exposed as an integral
 /// symmetry: this wrapper additionally proves all rule-compilation
-/// preconditions which [`crate::verify_affine_family_map`] does not check.
+/// preconditions which [`crate::sector::symmetry::verify`] does not check.
 #[derive(Clone, Debug)]
 pub struct VerifiedInternalFamilyPermutationSymmetry {
     family_fingerprint: String,
     restrictions_fingerprint: String,
     restrictions: Restrictions,
     denominator_permutation: Vec<usize>,
-    affine_map: VerifiedAffineFamilyMap,
+    affine_map: VerifiedMap,
 }
 
 impl VerifiedInternalFamilyPermutationSymmetry {
@@ -57,7 +56,7 @@ impl VerifiedInternalFamilyPermutationSymmetry {
 
     /// The owned, authoritative momentum/denominator proof from which this
     /// stricter integral-symmetry certificate was compiled.
-    pub const fn affine_map(&self) -> &VerifiedAffineFamilyMap {
+    pub const fn affine_map(&self) -> &VerifiedMap {
         &self.affine_map
     }
 
@@ -109,7 +108,7 @@ impl VerifiedInternalFamilyPermutationSymmetry {
         &self,
         family: &IntegralFamily,
         restrictions: &Restrictions,
-        limits: SymmetryVerificationLimits,
+        limits: SymmetryLimits,
     ) -> Result<(), InternalSymmetryReplayError> {
         if family.fingerprint() != self.family_fingerprint {
             return Err(InternalSymmetryReplayError::FamilyFingerprintMismatch);
@@ -324,7 +323,7 @@ impl std::error::Error for InternalSymmetryCompatibilityError {}
 pub enum InternalSymmetryReplayError {
     FamilyFingerprintMismatch,
     RestrictionsMismatch,
-    AffineVerification(SymmetryVerificationError),
+    AffineVerification(SymmetryError),
     Compatibility(InternalSymmetryCompatibilityError),
     CertificateReplayMismatch,
 }
@@ -349,8 +348,8 @@ impl fmt::Display for InternalSymmetryReplayError {
 
 impl std::error::Error for InternalSymmetryReplayError {}
 
-impl From<SymmetryVerificationError> for InternalSymmetryReplayError {
-    fn from(value: SymmetryVerificationError) -> Self {
+impl From<SymmetryError> for InternalSymmetryReplayError {
+    fn from(value: SymmetryError) -> Self {
         Self::AffineVerification(value)
     }
 }
@@ -366,7 +365,7 @@ impl From<InternalSymmetryCompatibilityError> for InternalSymmetryReplayError {
 pub fn compile_internal_family_permutation_symmetry(
     family: &IntegralFamily,
     restrictions: &Restrictions,
-    affine_map: VerifiedAffineFamilyMap,
+    affine_map: VerifiedMap,
 ) -> Result<VerifiedInternalFamilyPermutationSymmetry, InternalSymmetryCompatibilityError> {
     let family_fingerprint = family.fingerprint();
     if affine_map.source_family_fingerprint() != family_fingerprint
@@ -380,7 +379,7 @@ pub fn compile_internal_family_permutation_symmetry(
             actual: restrictions.arity(),
         });
     }
-    if !matches!(affine_map.jacobian(), JacobianWitness::Unit { .. }) {
+    if !matches!(affine_map.jacobian(), Jacobian::Unit { .. }) {
         return Err(InternalSymmetryCompatibilityError::UnsupportedJacobian);
     }
 
@@ -403,7 +402,7 @@ pub fn compile_internal_family_permutation_symmetry(
         })?;
     target_hits.resize(denominator_count, 0usize);
     for (source, action) in affine_map.row_actions().iter().enumerate() {
-        let DenominatorRowAction::Monomial { target, scale } = action else {
+        let DenominatorAction::Monomial { target, scale } = action else {
             return Err(InternalSymmetryCompatibilityError::NonMonomialDenominator {
                 source_denominator: source,
             });
@@ -486,11 +485,13 @@ fn restriction_fingerprint(restrictions: &Restrictions) -> String {
 #[cfg(test)]
 mod tests {
     use super::{InternalSymmetryCompatibilityError, compile_internal_family_permutation_symmetry};
+    use crate::sector::symmetry::{
+        CoefficientMatrix, ConditionSource, Limits as SymmetryLimits, MomentumMap, verify,
+    };
     use crate::sector::{CutConstraint, Pattern, PatternSlot, Restrictions};
     use crate::{
-        AffineDenominator, CoefficientLocation, ExactMatrix, IntegralFamily, IntegralKey,
-        MomentumMap, SymmetryVerificationLimits, algebra::Coefficient, algebra::CoefficientContext,
-        symmetry::SymmetryConditionSource, verify_affine_family_map,
+        AffineDenominator, CoefficientLocation, IntegralFamily, IntegralKey,
+        algebra::CoefficientContext,
     };
 
     fn equal_mass_sunset() -> IntegralFamily {
@@ -525,20 +526,20 @@ mod tests {
         let zero = coefficients.zero();
         let one = coefficients.one();
         MomentumMap::new(
-            ExactMatrix::try_new(2, 2, [zero.clone(), one.clone(), one, zero]).unwrap(),
-            ExactMatrix::<Coefficient>::try_new(2, 0, []).unwrap(),
-            ExactMatrix::<Coefficient>::try_new(0, 0, []).unwrap(),
+            CoefficientMatrix::try_new(2, 2, [zero.clone(), one.clone(), one, zero]).unwrap(),
+            CoefficientMatrix::try_new(2, 0, []).unwrap(),
+            CoefficientMatrix::try_new(0, 0, []).unwrap(),
         )
     }
 
     #[test]
     fn explicit_candidate_compiles_replays_and_respects_restrictions() {
         let family = equal_mass_sunset();
-        let verified = verify_affine_family_map(
+        let verified = verify(
             &family,
             &family,
             swap_loop_momenta(family.coefficient_context()),
-            SymmetryVerificationLimits::default(),
+            SymmetryLimits::default(),
         )
         .unwrap();
         let determinant_condition = verified
@@ -551,14 +552,14 @@ mod tests {
         assert!(
             determinant_condition
                 .sources()
-                .contains(&SymmetryConditionSource::SourceFamily(
+                .contains(&ConditionSource::SourceFamily(
                     CoefficientLocation::BasisDeterminantNumerator,
                 ))
         );
         assert!(
             determinant_condition
                 .sources()
-                .contains(&SymmetryConditionSource::TargetFamily(
+                .contains(&ConditionSource::TargetFamily(
                     CoefficientLocation::BasisDeterminantNumerator,
                 ))
         );
@@ -581,11 +582,7 @@ mod tests {
         assert_eq!(symmetry.transport_source_key(&source).unwrap(), target);
         symmetry.replay_key_transport(&source, &target).unwrap();
         symmetry
-            .replay(
-                &family,
-                &unrestricted,
-                SymmetryVerificationLimits::default(),
-            )
+            .replay(&family, &unrestricted, SymmetryLimits::default())
             .unwrap();
 
         let asymmetric = Restrictions::try_new(

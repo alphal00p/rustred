@@ -1,11 +1,11 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `02f24a7`, immediately before splitting the canonical
-input compiler into focused implementation owners.
-**Status:** R3/input-B working authority, subordinate to `GOAL.md` and the
+**Baseline parent:** `f6b0e15`, immediately before moving exact symmetry
+verification under the sector owner tree.
+**Status:** R3/symmetry-1 working authority, subordinate to `GOAL.md` and the
 clean-repository architecture plan.
 
-This ledger classifies every one of the 151 Rust source/test paths remaining
+This ledger classifies every one of the 161 Rust source/test paths remaining
 after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -28,8 +28,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 51 |
-| split | 99 |
+| move | 52 |
+| split | 108 |
 | delete | 0 |
 | replace | 1 |
 
@@ -117,7 +117,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/condition/error.rs` | move | identity::condition | typed source, resource, and authenticated-coefficient failures |
 | `src/identity/condition/value.rs` | split | identity::condition | authenticated condition value, checked translation, deterministic source merging, and collection insertion; construction remains engine-owned and specialized base-field ceremony waits for a real reduction consumer |
 | `src/identity/condition/tests.rs` | move | identity::condition tests | focused version-stable provenance encoding sentinel; operational event provenance is exercised through real relation events |
-| `src/lib.rs` | replace | crate facade | write from retained use cases; concrete-relation, root relation/condition/row, and internal `IndexSpace` exports are gone, and remaining root reexports receive the same final audit rather than being moved wholesale |
+| `src/lib.rs` | replace | crate facade | write from retained use cases; concrete-relation, root relation/condition/row/symmetry, and internal `IndexSpace` exports are gone, and remaining root reexports receive the same final audit rather than being moved wholesale |
 | `src/identity/generator/mod.rs` | move | identity::generator | private-owner composition and canonical identity-facade exports for the prepared batch spine; no former flat-module alias |
 | `src/identity/generator/config.rs` | move | identity::generator | minimal relation-resource policy for exact ordinary-IBP and LI construction |
 | `src/identity/generator/counts.rs` | move | identity::generator | private checked topology-neutral ordinary/LI row census shared by construction and batch preparation |
@@ -148,7 +148,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/relation/tests/index.rs` | split | identity::relation tests | checked allocation, overflow, arity, and bounded-iterator sentinels |
 | `src/identity/relation/tests/translation.rs` | split | identity::relation tests | exact simultaneous key/coefficient translation and composition sentinels |
 | `src/identity/relation/tests/conditions.rs` | split | identity::relation tests | real-event provenance merging, transactional source limits, and error-ordering sentinels |
-| `src/sector/mod.rs` | move | sector | sole canonical facade over masks, direct restriction evidence, ordering, and errors; child modules are private and no root/long-name aliases remain |
+| `src/sector/mod.rs` | move | sector | sole canonical facade over masks, direct restriction evidence, ordering, errors, and exact symmetry verification; foundational children are private and no root/long-name aliases remain |
 | `src/sector/error.rs` | move | sector | typed arity, position, allocation, ordering, and descent failures plus owner-local checked collection/string helpers; the unused mask/pattern parser errors are deleted |
 | `src/sector/mask.rs` | split | sector | topology-neutral unshifted-index mask construction, shared admitted bit storage, activity views, an allocation-free exact-size corner iterator, subsector ordering, and streaming display; no parser or allocating render convenience |
 | `src/sector/restriction.rs` | split | sector | cuts, shared admitted pattern storage, streaming displays, and structured exclusion evidence without synthetic analytic zero/nonzero states or parser conveniences |
@@ -183,6 +183,16 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/input/tests/grammar.rs` | split | input tests | retain direct grammar/head/arity rejection and base-coefficient field semantics |
 | `src/input/tests/lowering.rs` | split | input tests | retain signed target, external-Gram, numerator, and exact family-lowering semantics |
 | `src/input/tests/resources.rs` | split | input tests | retain preconversion, caller-owned Atom, aggregate text, depth, integer, and unique-name resource boundaries |
-| `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
-| `src/symmetry.rs` | split | sector | retain stable proofs/maps with symmetry-owned source/target condition evidence; move orchestration to foundry and prune ceremonies |
+| `src/symmetry_discovery.rs` | split | sector::symmetry::permutation | temporarily retain verified internal-permutation compilation against the canonical verifier; move it under its real owner, decouple restrictions, and prune replay/schema/fingerprint ceremony next |
+| `src/sector/symmetry/mod.rs` | move | sector::symmetry | sole canonical exact-symmetry facade; candidate generation is explicitly outside this proof boundary and no root alias or empty candidate stub exists |
+| `src/sector/symmetry/model.rs` | split | sector::symmetry | retain shape-checked coefficient matrices, momentum/scalar-product/denominator maps, row actions, Jacobian classification, and sealed verified values; the unused in-process schema constant is deleted |
+| `src/sector/symmetry/condition.rs` | split | sector::symmetry | retain exact nonzero-condition source/value merging owned by symmetry verification |
+| `src/sector/symmetry/limits.rs` | split | sector::symmetry | retain checked verifier resource policy and live operation statistics pending the later public-surface prune |
+| `src/sector/symmetry/error.rs` | split | sector::symmetry | retain one typed topology-neutral verification and resource error taxonomy |
+| `src/sector/symmetry/verify/mod.rs` | split | sector::symmetry::verify | guarded composition of shape, map, domain, determinant, denominator, replay, and output authentication stages |
+| `src/sector/symmetry/verify/algebra.rs` | split | sector::symmetry::verify | family-semantic scalar-product lift and exact checked coefficient operations; native Symbolica remains determinant/product/congruence authority |
+| `src/sector/symmetry/verify/kinematics.rs` | split | sector::symmetry::verify | external-Gram preservation and induced scalar-product map verification |
+| `src/sector/symmetry/verify/denominator.rs` | split | sector::symmetry::verify | affine denominator-map derivation, candidate guards, and exact row classification |
+| `src/sector/symmetry/verify/matrix.rs` | split | sector::symmetry::verify | narrow shape and checked matrix-adapter composition without a second CAS |
+| `src/sector/symmetry/verify/replay.rs` | split | sector::symmetry::verify | independent exact denominator-map replay retained until the later ceremony/liveness prune |
 | `src/zero_sectors.rs` | split | sector | retain zero-sector proofs with one owner-local condition-source representation; move orchestration to foundry and prune ceremonies |

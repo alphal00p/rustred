@@ -13,7 +13,6 @@ pub mod family;
 pub mod identity;
 pub mod input;
 pub mod sector;
-pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod zero_sectors;
 
@@ -37,12 +36,6 @@ pub use family::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
-};
-pub use symmetry::{
-    AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap, AffineScalarProductMap,
-    DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap, SymmetryVerificationError,
-    SymmetryVerificationLimits, SymmetryVerificationStats, VerifiedAffineFamilyMap,
-    verify_affine_family_map,
 };
 pub use symmetry_discovery::{
     INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA, InternalSymmetryCompatibilityError,
