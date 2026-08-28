@@ -25,7 +25,7 @@ name = "rustred"
 version.workspace = true
 edition = "2024"
 rust-version = "1.89"
-description = "Pure-Rust parametric IBP reductions for multiloop Feynman integrals"
+description = "Pure-Rust, Symbolica-native parametric IBP tools"
 license = "MIT"
 exclude = [
     "FOR_REFERENCE_ONLY_DO_NOT_PUSH/**",

@@ -89,8 +89,8 @@ def main(arguments: list[str]) -> int:
                 for name in names
                 if len(Path(name).parts) == 2 and Path(name).name == "build.rs"
             ]
-            if len(root_build_scripts) != 1:
-                print(f"{path}: sdist must contain exactly one root build.rs")
+            if root_build_scripts:
+                print(f"{path}: sdist contains a forbidden root build.rs")
                 return 1
             missing = [
                 suffix

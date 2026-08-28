@@ -1,15 +1,18 @@
 # RustRed
 
-RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving,
-closing, validating, and applying parametric integration-by-parts identities.
-Its scientific pressure target is a generic, parallel rule foundry capable of
-closing single-scale vacuum families through six loops. Loop count and topology
-remain input data rather than production dispatch keys.
+RustRed is a pre-alpha, pure-Rust and Symbolica-native project. Its currently
+evidenced core derives raw topology-neutral parametric integration-by-parts and
+Lorentz-invariance identities; it does not yet close families or apply a
+reduction. Its scientific pressure target is a generic, parallel rule foundry
+capable of closing single-scale vacuum families through six loops. Loop count
+and topology remain input data rather than production dispatch keys.
 
 The project is in a deliberate repository and API reset. There is no RustRed
 backward-compatibility promise during this phase. Historical authored
 recurrences, broad integration suites, compatibility facades, and milestone
-logs are being deleted rather than migrated. Git is their archive.
+logs have been deleted rather than migrated. Git is their archive. Remaining
+reset work is the final sector/input/symmetry/zero regrouping and pruning,
+facade audit, virtual-workspace relocation, and stable documentation gate.
 
 ## Current workspace
 
@@ -29,9 +32,11 @@ logs are being deleted rather than migrated. Git is their archive.
   forbidden from RustRed production and ordinary tests.
 
 The root mathematical package is still in the temporary in-place pruning
-stage; ownership cleanup is active and the planned relocation has not yet
-completed. The currently evidenced application operations are raw family/IBP
-derivation, roots-only campaign planning, and campaign resource preflight.
+stage; the retained algebra, family, identity, and campaign domains are
+structured, while the remaining sector and input ownership cleanup and the
+planned relocation have not yet completed. The currently evidenced
+application operations are raw family/IBP derivation, roots-only campaign
+planning, and campaign resource preflight.
 Closed reusable family artifacts, general reduction, master substitution, a
 complete one-through-four-loop Vakint comparison corpus, and physical six-loop
 closure are not yet available.

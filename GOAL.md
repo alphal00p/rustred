@@ -68,14 +68,18 @@ objective, and production/default execution remains pure Rust + Symbolica.
   relevant intermediate milestone after its declared checks pass. Do not let
   unrelated architectural, solver, or cross-repository changes accumulate in
   one opaque commit.
-- **Immediate posture:** the first substantive step is to restructure the
-  current RustRed code cleanly around the stated end goal. Complete the
-  mandatory heavy structural refactor by deleting the audited dead solver
-  island and retaining only a small, demonstrably live generic capability
-  spine. The production foundry is then rebuilt cleanly rather than resumed.
-  Structural work is an enabler, not evidence of mathematical closure, but a
-  clear production architecture is a prerequisite for a maintainable and
-  scalable six-loop implementation.
+- **Immediate posture:** Phase-0 reset tranches R0-R2 and deletion of the
+  audited solver island are complete. R3/R4 ownership and facade pruning are
+  active: indexed algebra, family services, conditions, sparse relations, and
+  the prepared IBP/LI generator already have cohesive owners, with generation
+  publicly reachable only through `rustred::identity`. The remaining flat
+  sector/symmetry/zero and input/affine domains must be regrouped and pruned
+  before R5 moves the package to `crates/rustred-core`; the final facade,
+  evidence, and stable-documentation gates then close Phase 0. The production
+  foundry is rebuilt cleanly rather than resumed. Structural work is an
+  enabler, not evidence of mathematical closure, but a clear production
+  architecture is a prerequisite for a maintainable and scalable six-loop
+  implementation.
 
 ## Assigned objective
 
@@ -148,12 +152,13 @@ projection-plus-lowering composition and subsequent integral-index shifts.
 
 That fast-lane proof cannot be a caller-supplied boolean and cannot currently
 be reconstructed from `IntegralFamily` alone, because the present family model
-does not retain physical-denominator versus auxiliary-ISP roles. Phase 0/early
-tensor input design must retain authenticated denominator-role, shift, and
-common-scale metadata and let RustRed mint a sealed `VacuumTensorDomain` (or
-equivalent) token. `Auto` consumes that RustRed-owned evidence. External
-spectator vectors appearing only in a tensor numerator do not disqualify the
-fast lane; external shifts in physical denominators do.
+does not retain physical-denominator versus auxiliary-ISP roles. Phase-0
+family/input cleanup must not erase the authenticated denominator-role, shift,
+and common-scale metadata needed by the first post-reset tensor milestone;
+that milestone lets RustRed mint a sealed `VacuumTensorDomain` (or equivalent)
+token. `Auto` consumes that RustRed-owned evidence. External spectator vectors
+appearing only in a tensor numerator do not disqualify the fast lane; external
+shifts in physical denominators do.
 
 The lower-loop Vakint mode is an early parallel validation track: its generic
 tensor-reduction backend starts immediately after Phase 0, while its IBP
@@ -339,7 +344,7 @@ rustred-python ------> rustred-app ------> rustred
                             |                 |
                             +-- CLI           +------> Symbolica[gmp]
 
-Vakint `RustRed` mode -------------------> rustred
+[post-Phase-0] Vakint `RustRed` mode ----> rustred
 
 Cargo package `rustred` will live at crates/rustred-core.
 ```
@@ -383,12 +388,9 @@ Within the retained Phase-0 core, dependency direction must be explicit and
 acyclic. In this diagram `A -> B` means that A may depend on B:
 
 ```text
-rustred-app -> input, identity, sector, campaign, tensor, reduction
-Vakint RustRed mode -> input, tensor, reduction
+rustred-app -> input, identity, sector, campaign
 
-reduction -> identity, sector, tensor, family, algebra
-input -> tensor, family, algebra
-tensor -> family, algebra
+input -> family, algebra
 identity -> family, algebra
 sector -> family, algebra
 campaign ->                             # never foundry
@@ -397,18 +399,20 @@ algebra -> Symbolica public Rust API
 ```
 
 The Phase-0 core directories are `algebra`, `family`, `input`, `identity`,
-`sector`, `campaign`, `tensor`, and `reduction`. `campaign` remains
-low-level work/resource infrastructure. `reduction` retains only generic
-rule-application and master-substitution primitives with real callers; it
-does not imply that a closed rule library already exists. The core has no
-`application/` directory because `rustred-app` is the composition layer.
+`sector`, and `campaign`. `campaign` remains low-level work/resource
+infrastructure. The core has no `application/` directory because
+`rustred-app` is the composition layer. Phase 0 creates no empty `tensor` or
+`reduction` shell merely to prefigure post-reset work.
 
-After the reset gates pass, a fresh `foundry` and a stable `artifact` domain
-are introduced from their required contracts. The new foundry composes the
-retained identity, sector, campaign, family, and algebra services and
-emits immutable artifact values that reduction can consume. Its internal
-algorithm modules are designed from the mathematical closure requirements and
-Symbolica APIs, not from the deleted exact-session/closure directory shape.
+After the reset gates pass, fresh `foundry`, `artifact`, `tensor`, and
+`reduction` owners are introduced from their required contracts and first real
+application/Vakint callers. The new foundry composes the retained identity,
+sector, campaign, family, and algebra services and emits immutable artifact
+values that reduction can consume. Tensor depends on family and algebra;
+reduction may depend on identity, sector, tensor, family, algebra, and stable
+artifacts; the Vakint RustRed mode and `rustred-app` compose input, tensor, and
+reduction. Internal algorithms are designed from the mathematical closure and
+tensor contracts plus Symbolica APIs, not from the deleted prototype shape.
 Artifact models never depend on foundry internals. This is the future
 dependency direction, not a promise that any audited prototype implementation
 survives Phase 0.
@@ -511,10 +515,10 @@ architecture plan:
 4. Delete `src/solver/**` and the dependent exact-session, closure,
    publication, re-entry, generated-affine/cylindrical/residual, and provider
    orchestration island. Retain only independently live generic
-   algebra/family/IBP/sector/campaign/reduction primitives with callers outside
+   algebra/family/IBP/sector/campaign primitives with callers outside
    that island. Then form and prune those values under acyclic `algebra`,
-   `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, and
-   `reduction` owners while the package is still at the root. Prefixes such
+   `family`, `input`, `identity`, `sector`, and `campaign` owners while the
+   package is still at the root. Prefixes such
    as `generated_`, `residual_`, and `parametric_` do not define directories.
    Every remaining long chronology/state-named file is challenged explicitly
    on each enumeration and must resolve to a small role-named owner or deletion
@@ -538,8 +542,8 @@ architecture plan:
    each workspace root so RustRed and GammaLoop can resolve one exact package.
 7. Complete the small fresh generic contract suite instead of porting all 103
    root integration binaries. Preserve exact generic family/IBP/LI,
-   Symbolica coefficient/row, zero/symmetry, deterministic campaign,
-   reduction-primitive, and app/CLI/Python evidence. Phase 0 deliberately has
+   Symbolica coefficient/row, zero/symmetry, deterministic campaign, and
+   app/CLI/Python evidence. Phase 0 deliberately has
    no transaction/rollback or exceptional-child sentinel requirement. Use
    only actually embedded Vakint expectations immediately; live backend
    differentials wait for their real external tools and are not mislabeled as

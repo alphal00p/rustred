@@ -27,7 +27,7 @@ star.
 
 No current root module earns retention merely because it compiles or has a
 test. The reset retains a module only when it has a real caller in the generic
-family/IBP/campaign/reduction application spine, implements a still-required
+family/IBP/sector/campaign application spine, implements a still-required
 RustRed domain responsibility, and—after a public-API audit—does not duplicate
 a usable Symbolica facility. Everything else is deleted without a
 compatibility shim. The new public facade is written from the actual use
@@ -40,7 +40,7 @@ prototype island: there is no app, CLI, Python, or Vakint production caller.
 The entire island is deleted during this reset, not relocated. Phase 0 ends
 without a production foundry or closed-artifact publisher. Those services are
 built cleanly after the reset around retained generic algebra, family,
-topology-neutral IBP/LI, sector, campaign, tensor, and reduction primitives.
+topology-neutral IBP/LI, sector, and campaign primitives.
 
 This cleanup is a stop-the-line prerequisite. Fresh exact-closure foundry
 work, six-loop optimization, and Vakint implementation begin only after the new
@@ -119,9 +119,7 @@ The intended repository skeleton at the reset gate is:
 │   │   │   ├── input/
 │   │   │   ├── identity/
 │   │   │   ├── sector/
-│   │   │   ├── campaign/
-│   │   │   ├── tensor/
-│   │   │   └── reduction/
+│   │   │   └── campaign/
 │   │   ├── tests/             # few black-box contract tests only
 │   │   └── benches/           # measured lanes only, when introduced
 │   ├── rustred-app/
@@ -150,9 +148,10 @@ The intended repository skeleton at the reset gate is:
 is never part of this tree. In particular, the local LiteRed2, GammaLoop,
 Vakint, and FORM material is not copied into RustRed history.
 
-Post-reset work adds fresh `foundry/` and `artifact/` owners only when their
-new contracts and first production callers exist. No empty shell or relocated
-prototype is created merely to prefigure that future tree.
+Post-reset work adds fresh `foundry/`, `artifact/`, `tensor/`, and `reduction/`
+owners only when their new contracts and first production callers exist. No
+empty shell or relocated prototype is created merely to prefigure that future
+tree.
 
 ## Domain dependency DAG
 
@@ -161,14 +160,9 @@ there may be no reverse edge and no public compatibility route around this
 direction.
 
 ```text
-rustred-python ──> rustred-app ──> input, identity, sector, campaign,
-                                     tensor, reduction
-Vakint RustRed mode ───────────────────────────────────────> input, tensor,
-                                                             reduction
+rustred-python ──> rustred-app ──> input, identity, sector, campaign
 
-reduction ──> identity, sector, tensor, family, algebra
-input ──────> tensor, family, algebra
-tensor ─────> family, algebra
+input ──────> family, algebra
 identity ───> family, algebra
 sector ─────> family, algebra
 family ─────> algebra
@@ -186,9 +180,10 @@ More precisely:
   sparse reducer or wrapper survives without a production caller.
 - `family` owns authenticated kinematics, coordinates, denominators, shifts,
   target keys, and specialization.
-- `input` parses, lowers, and normalizes external/core project descriptions
-  through tensor/family-owned types. It contains no solving or frontend
-  transport policy; tensor never imports a parser.
+- `input` parses, lowers, and normalizes external/core family descriptions. It
+  contains no solving or frontend transport policy. The first post-reset
+  tensor milestone may add a one-way input-to-tensor adaptation; tensor never
+  imports a parser.
 - `identity` generates topology-neutral IBP/LI rows from a family.
 - `sector` owns sectors, graph/routing symmetries, zero/factorization proofs,
   affine loci, and transport witnesses. It calls Symbolica's public
@@ -207,25 +202,18 @@ More precisely:
   is application composition rather than a replayable core plan; the dead
   work-key wave admission/controller layer is not retained. Campaign never
   imports foundry; a future freshly built foundry may compose it.
-- `tensor` owns a lean typed tensor IR, Symbolica-Atom decoding/rendering,
-  pairing/orbit combinatorics, vacuum projection, and scalar lowering, while
-  delegating polynomial and matrix CAS work to Symbolica through algebra. Its
-  stable children are `model`, `atom`, `lowering`, and
-  `projector/{pairing,contraction,orbit,vacuum}`; opaque user weights remain
-  separate from exact family coefficients.
-- `reduction` retains generic guarded-rule application, tensor/scalar
-  reduction, and typed master-substitution primitives with real callers.
-  Callers lower input before invoking it. It does not own a foundry, solver,
-  or algebra engine. `rustred-app` is the composition layer; the core
-  deliberately has no confusing `application/` directory.
 - There is no core `runtime` wrapper. RustRed calls Symbolica's public Rust API
   directly; application-only rendering and memory census policy stays in
   `rustred-app`. Add a runtime boundary later only if a real global
   initialization, licensing, or execution-policy caller requires one.
 
 After Phase 0, a fresh `foundry` may depend on identity, sector, campaign,
-family, and algebra, and emit values owned by a new stable `artifact`
-domain. Reduction may then consume those artifacts. Artifact models never
+family, and algebra, and emit values owned by a new stable `artifact` domain.
+In parallel, `tensor` owns the typed tensor IR, pairing/orbit projection, and
+scalar lowering while delegating CAS work to Symbolica; `reduction` owns
+generic guarded-rule application and typed master substitution with real
+callers. The Vakint RustRed mode and `rustred-app` compose input, tensor, and
+reduction. Reduction may consume stable artifacts, while artifact models never
 depend on foundry internals. This future direction is a contract to design,
 not a reason to preserve the audited prototype's solver/session hierarchy.
 
@@ -273,12 +261,12 @@ dumping-ground module.
 | all `src/generated_cylindrical_*.rs` not assigned above | delete with the audited solver island |
 | all `src/generated_residual_*.rs` and same-name child test directories such as `src/generated_residual_affine_group_effective_coverage/**` | delete with the audited solver island, including coverage, queue, publication, and re-entry wrappers |
 | `src/generated_family_*.rs`, `generated_sector_*.rs`, `generated_provider_stack.rs`, `generated_when_bad.rs` | delete the prototype fixed-point/provider stack; no Phase-0 artifact-emission replacement |
-| `src/coverage_decision_dag.rs`, `adaptive_rules.rs`, `certified_rewrite.rs`, `certified_rule_provider.rs`, `certified_symmetry_provider.rs`, `conditional_rules.rs`, `parametric_rules.rs`, `parametric_sector_coverage.rs`, `parametric_sector_provider.rs`, `master_policy.rs`, `master_product.rs` | retain only independently used reduction-side rule/master values with real callers; delete closure/provider and speculative artifact layers |
+| `src/coverage_decision_dag.rs`, `adaptive_rules.rs`, `certified_rewrite.rs`, `certified_rule_provider.rs`, `certified_symmetry_provider.rs`, `conditional_rules.rs`, `parametric_rules.rs`, `parametric_sector_coverage.rs`, `parametric_sector_provider.rs`, `master_policy.rs`, `master_product.rs` | delete the prototype reduction/provider/rule/master stack; rebuild stable artifact and reduction values after Phase 0 from real foundry/Vakint callers |
 | `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; future lazy closure formula types are designed afresh |
 | existing `src/solver/**` | delete wholesale as the audited dead prototype island; do not preserve the exact-session transaction, rollback, exceptional publication, or committed-re-entry machinery |
 | `src/campaign/{mod,execution,execution_width,resource_profile,resources}.rs` and `crates/rustred-app/src/application/campaign/plan.rs` | retain checked resource/preflight metadata, width selection, and bounded ordered execution under core `campaign/`; delete core `plan.rs` with replay/schema/stats/dependency machinery and keep the sole live roots-only family/sector/job interning directly in the application; `admission.rs`, `work.rs`, the work-key wave policy/planner, move-owned reservation mapper, and width-plan-to-executor bridge are also deleted |
 | `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete the complete uncalled and untested prototype SCC rather than moving it. Rebuild `tensor/` fresh from explicit pairing/cycle, covariant-precontraction, affine-lowering, and configurable-Atom contracts, using Symbolica-native CAS and the custom-head plus Vakint vertical sentinels |
-| `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
+| `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | delete the uncalled compatibility engines; rebuild `reduction/` after Phase 0 from the first real guarded-rule/tensor/master contracts, with Vakint end-to-end tests defining results |
 | `src/symbolica_runtime.rs` | delete; direct public Symbolica API calls replaced its trivial wrappers, and no global initialization boundary is currently required |
 
 ### Non-source repository surfaces
@@ -319,11 +307,12 @@ It creates a small matrix from the essential cases:
    synthetic structural `L=6, K=21, 36-source` count (not a closure claim);
 3. exact Symbolica coefficient/row operations;
 4. exact zero/symmetry/routing witnesses, including native graph candidates;
-5. deterministic campaign planning and resource preflight for `n_cores = 1,2,4`;
-6. generic reduction-rule/master primitives with real callers;
-7. app/CLI/Python byte- and error-parity for the supported operations; and
-8. black-box artifact load/application tests only after the fresh artifact API
-   exists.
+5. deterministic campaign planning and resource preflight for
+   `n_cores = 1,2,4`; and
+6. app/CLI/Python byte- and error-parity for the supported operations.
+
+Black-box reduction/artifact load and application tests join this matrix only
+after the post-reset APIs and their first real callers exist.
 
 Phase 0 has no transaction/rollback or exceptional-child sentinel promise;
 those belonged to the deleted prototype island.
@@ -485,8 +474,8 @@ Gate: default core/app/Python check only; no legacy-suite repair.
 - Before deleting an old test surface for a retained cluster, write a compact
   fresh sentinel beside the live owner for that cluster. The initial sentinels
   cover family normalization, generic IBP/LI generation, the structural
-  six-loop source count, exact Symbolica row operations, zero/symmetry, generic
-  reduction primitives, and deterministic campaign plan/resource preflight. They are new
+  six-loop source count, exact Symbolica row operations, zero/symmetry, and
+  deterministic campaign plan/resource preflight. They are new
   contract tests, not mechanically repaired legacy binaries. Do not preserve
   transaction/rollback or exceptional-child sentinels from the solver island.
 - Remove the LiteRed2 and GammaLoop gitlinks and their `.gitmodules` entries;
@@ -537,8 +526,8 @@ module's now-orphaned scalar-power wrapper and its self-tests; direct native
 coefficient power remains only at Symbolica's required field boundary. The
 nominal exact-rational wrapper is deleted, and the sole half-coefficient use is
 constructed by checked division in the Symbolica rational-polynomial field
-rather than by an infallible unchecked-native conversion. Tensor is
-rebuilt only after its fresh custom-head covariant/scalar-lowering and
+instead of an infallible unchecked-native conversion. Post-reset tensor work
+begins only after its fresh custom-head covariant/scalar-lowering and
 rank-four pairing sentinels exist; internal self-use and root re-exports were
 not accepted as liveness. The retained core campaign boundary stops at
 resource/preflight values, width selection, and bounded ordered execution;
@@ -549,9 +538,9 @@ scheduling.
   publication, re-entry, generated-affine/cylindrical/residual, and provider
   SCCs. Do not relocate or preserve them.
 - Under the current root package, create the acyclic owners `algebra`,
-  `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, and
-  `reduction`. There is no Phase-0 `foundry`, `artifact`, or wrapper-only
-  `runtime` owner.
+  `family`, `input`, `identity`, `sector`, and `campaign`. There is no Phase-0
+  `foundry`, `artifact`, `tensor`, `reduction`, or wrapper-only `runtime`
+  owner.
 - Work cluster by cluster. Move/split only symbols justified by a live app,
   retained-core caller, upcoming Vakint use case, or fresh retained-primitive
   sentinel; delete the rest in the same rollback-sized tranche. A hypothetical

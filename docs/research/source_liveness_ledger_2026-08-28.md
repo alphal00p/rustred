@@ -130,11 +130,11 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/generator/domain.rs` | split | identity::generator | family-domain lifting into source-attributed nonzero conditions on each new relation |
 | `src/identity/generator/tests/mod.rs` | move | identity::generator tests | private focused test composition only |
 | `src/identity/generator/tests/support.rs` | move | identity::generator tests | compact topology-neutral family/relation fixtures shared by generator sentinels |
-| `src/identity/generator/tests/batch.rs` | split | identity::generator tests | retain semantic scope/layout/ordinal sealing and ordinary/external batch equivalence sentinels |
+| `src/identity/generator/tests/batch.rs` | split | identity::generator tests | retain semantic scope/layout/ordinal sealing, ordinary/external batch equivalence, and the empty LI batch for fewer than two external momenta |
 | `src/identity/generator/tests/counts.rs` | split | identity::generator tests | retain exact general and structural six-loop row censuses plus ordinal bounds |
 | `src/identity/generator/tests/domain.rs` | split | identity::generator tests | retain real family-domain provenance on generated identities |
 | `src/identity/generator/tests/limits.rs` | split | identity::generator tests | retain generator propagation of exact-algebra resource failures |
-| `src/identity/generator/tests/lorentz.rs` | split | identity::generator tests | retain LI construction and zero-row edge behavior |
+| `src/identity/generator/tests/lorentz.rs` | split | identity::generator tests | retain the LiteRed LI sign convention and exact weighted denominator shifts |
 | `src/identity/generator/tests/ordinary.rs` | split | identity::generator tests | retain exact ordinary-IBP convention and coefficients |
 | `src/identity/relation/mod.rs` | move | identity::relation | canonical narrow relation facade with its index-space seam confined to the identity tree |
 | `src/identity/relation/index.rs` | split | identity::relation | checked index-space/shift construction, shared no-copy shift storage and its owner-local clone sentinel, value ordering, and checked translation arithmetic; only `IndexShift` inspection is public |
