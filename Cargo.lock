@@ -614,13 +614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustred-legacy-oracles"
-version = "0.1.0"
-dependencies = [
- "rustred",
-]
-
-[[package]]
 name = "rustred-python"
 version = "0.1.0"
 dependencies = [

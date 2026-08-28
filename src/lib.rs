@@ -7,10 +7,9 @@
 //! identities over the exact field `K(n)`. [`IndexShiftOperatorExpression`]
 //! provides exact ordered `A`/`B` action and relation round trips; it is an
 //! intermediate whose coefficients may still contain `n`, not LiteRed's
-//! completed `ToAB` polynomial form. Loop/topology-authored fixtures and
-//! finite reducers live in the separate, publish-disabled
-//! `rustred-legacy-oracles` package. They are validation evidence rather than
-//! sources of generic parametric identities or future discovered rules.
+//! completed `ToAB` polynomial form. Loop/topology-authored recurrences are not
+//! part of the generic production crate and are not sources of generic
+//! parametric identities or future discovered rules.
 
 mod canonical_parametric_locus_table;
 mod coverage_decision_dag;
@@ -112,9 +111,6 @@ pub mod generic_tensor_family;
 pub mod generic_tensor_polynomial;
 pub mod generic_tensor_projector;
 pub mod guards;
-#[cfg(feature = "legacy-oracle-support")]
-#[doc(hidden)]
-pub mod legacy_oracle_support;
 pub mod master_policy;
 pub mod master_product;
 pub mod parallel_execution;

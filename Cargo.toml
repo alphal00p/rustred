@@ -4,7 +4,6 @@
 # the vendor exclusions below.
 members = [
     "crates/rustred-app",
-    "crates/rustred-legacy-oracles",
     "crates/rustred-python",
 ]
 default-members = [".", "crates/rustred-app", "crates/rustred-python"]
@@ -37,10 +36,6 @@ exclude = [
 [lib]
 name = "rustred"
 path = "src/lib.rs"
-
-[features]
-default = []
-legacy-oracle-support = []
 
 [dependencies]
 rand = "0.9"

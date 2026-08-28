@@ -45,23 +45,18 @@ direct dependency on the core or Symbolica and does not implement a second
 frontend pipeline. Its process-wide coordinator releases the GIL around work,
 serializes application calls onto one owned Rust thread, fails closed after a
 fork, and permanently poisons further work after catching a Rust panic. The
-35 topology-authored modules, their concrete vacuum-family/IBP/reduction
-oracle engine, 35 dedicated integration tests, and four diagnostic examples
-now live in the publish-disabled `rustred-legacy-oracles` workspace package.
-That package depends one-way on a narrow core support facade and is excluded
-from the default workspace members. The old `VacuumFamily`, concrete
-`Integral`/`IbpGenerator`, eager `SparseReducer`, and concrete tensor-family
-lowering are no longer compiled or exported by the default core; the generic
-`IntegralFamily`, parametric IBP/LI, rule-application, and authenticated tensor
-lanes are the production owners.
+topology-authored validation package and its narrow core bridge are obsolete
+reset artifacts; Git retains their history while the live workspace and core
+no longer expose them. The generic `IntegralFamily`, parametric IBP/LI,
+rule-application, and authenticated tensor lanes are the production owners.
 The three remaining never-compiled source drafts were audited and deleted:
 two were incomplete topology-authored shells, and the third duplicated exact
 provenance/replay algebra already owned by the live solver and Symbolica
 transcript path.
 Deeper topology-neutral core, test-support, and documentation separation
 remains pending.
-The audit and migration contract are tracked in the
-[repository reorganization directive](docs/research/repository_reorganization_directive_2026-08-27.md).
+The authoritative reset contract is tracked in the
+[clean-repository architecture plan](docs/research/repository_clean_architecture_plan_2026-08-28.md).
 
 ## Status
 
@@ -643,8 +638,9 @@ path; `rustred derive` only retains their numerator metadata.
 
 The multi-loop fixtures demonstrate concrete validated computations. They are
 not proofs of complete symbolic coverage for all integer powers or all
-topologies at those loop counts. Legacy authored finite-oracle modules are
-feature-gated validation material, not production topology dispatch.
+topologies at those loop counts. Historical authored finite-oracle modules no
+longer form a package or feature; Git retains them as history, not as a live
+validation surface or production topology dispatch.
 
 ## Current blockers and roadmap
 
