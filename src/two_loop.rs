@@ -13,11 +13,11 @@
 
 use std::fmt;
 
-use crate::coefficient::{
+use crate::family::PropagatorSign;
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
-use crate::family::PropagatorSign;
 use crate::{
     Coefficient, Integral, LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
 };

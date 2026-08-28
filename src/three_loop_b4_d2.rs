@@ -18,9 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
-use symbolica::prelude::AtomCore;
-
-use crate::coefficient::{
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
@@ -28,7 +26,7 @@ use crate::three_loop::equal_mass_three_loop_tetrahedron;
 use crate::{
     Coefficient, CoefficientContext, FamilyError, IbpGenerationError, IbpGenerator, Integral,
     LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, ThreeLoopBoundaryConfig,
-    ThreeLoopBoundaryError, ThreeLoopBoundaryReducer, VacuumFamily,
+    ThreeLoopBoundaryError, ThreeLoopBoundaryReducer, VacuumFamily, canonical_symbolica_atom,
 };
 
 const DENOMINATORS: usize = 6;
@@ -1019,7 +1017,7 @@ fn record_condition(
     if divisor.numerator.degree(arithmetic.dimension_position) == 0 {
         return Ok(());
     }
-    let polynomial = divisor.numerator.to_expression().to_canonical_string();
+    let polynomial = canonical_symbolica_atom(&divisor.numerator.to_expression());
     let condition = ThreeLoopB4D2NonzeroCondition { source, polynomial };
     if !conditions.contains(&condition) {
         conditions.push(condition);

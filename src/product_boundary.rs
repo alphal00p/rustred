@@ -11,11 +11,11 @@
 
 use std::fmt;
 
-use crate::coefficient::{
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
-use crate::exact::matrix_determinant;
+use crate::legacy_oracle_support::exact_matrix::matrix_determinant;
 use crate::{
     Coefficient, ExactRational, Integral, LinearCombination, PropagatorSign,
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,

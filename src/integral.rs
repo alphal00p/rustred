@@ -47,7 +47,9 @@ impl Integral {
         self.checked_numerator_degree().unwrap_or(u32::MAX)
     }
 
-    pub(crate) fn checked_shifted(&self, shifts: &[(usize, i32)]) -> Option<Self> {
+    /// Apply indexed power shifts, returning `None` for an invalid position or
+    /// any intermediate/final integer overflow.
+    pub fn checked_shifted(&self, shifts: &[(usize, i32)]) -> Option<Self> {
         let mut combined_shifts = vec![0_i64; self.powers.len()];
         for &(position, shift) in shifts {
             let accumulated = combined_shifts.get_mut(position)?;

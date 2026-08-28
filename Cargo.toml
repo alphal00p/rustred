@@ -52,7 +52,8 @@ required-features = ["legacy-authored-oracles"]
 
 [features]
 default = []
-legacy-authored-oracles = []
+legacy-oracle-support = []
+legacy-authored-oracles = ["legacy-oracle-support"]
 
 [dependencies]
 rand = "0.9"

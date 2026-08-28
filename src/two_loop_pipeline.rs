@@ -18,6 +18,7 @@ use std::fmt;
 use crate::families::equal_mass_two_loop_vacuum;
 use crate::family::FamilyError;
 use crate::ibp::{IbpGenerator, IbpIdentity};
+use crate::legacy_oracle_support::validate_reduction_table_identity_provenance;
 use crate::reduction::{
     ReductionError, ReductionStats, ReductionTable, SeedConfig, SeedGenerationError,
     SeedGenerationLimits, SparseReducer, try_generate_seeds_with_limits,
@@ -206,7 +207,7 @@ impl TwoLoopReductionPipeline {
         // expression is accepted as an IBP certificate.  The returned
         // equations are canonical, so raw and symmetry-equivalent generated
         // rows remain valid inputs.
-        let equations = self.table.validate_identity_provenance(identities)?;
+        let equations = validate_reduction_table_identity_provenance(&self.table, identities)?;
         for (identity, equation) in identities.iter().zip(equations) {
             let remainder = self.reduce_combination(&equation)?;
             if !remainder.is_zero() {

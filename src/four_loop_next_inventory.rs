@@ -13,9 +13,7 @@ use std::fmt::Write as _;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
-use symbolica::poly::PolyVariable;
-
-use crate::coefficient::{
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
@@ -836,7 +834,7 @@ impl CoefficientEnvelope {
                 actual: degrees.len(),
             });
         }
-        if coefficient.get_variables() != canonical_coefficient_variables() {
+        if coefficient.get_variables() != canonical_coefficient_template().get_variables() {
             return Err(FourLoopNextInventoryError::CoefficientVariableMapMismatch);
         }
         let mut numerator_degrees = [0_u16; 2];
@@ -997,14 +995,9 @@ impl CoefficientEnvelope {
     }
 }
 
-fn canonical_coefficient_variables() -> &'static Arc<Vec<PolyVariable>> {
-    static VARIABLES: OnceLock<Arc<Vec<PolyVariable>>> = OnceLock::new();
-    VARIABLES.get_or_init(|| {
-        crate::CoefficientContext::new(["d", "m2"])
-            .one()
-            .get_variables()
-            .clone()
-    })
+fn canonical_coefficient_template() -> &'static Coefficient {
+    static TEMPLATE: OnceLock<Coefficient> = OnceLock::new();
+    TEMPLATE.get_or_init(|| crate::CoefficientContext::new(["d", "m2"]).one())
 }
 
 fn dense_monomial_count(degrees: [u16; 2]) -> Result<u128, FourLoopNextInventoryError> {

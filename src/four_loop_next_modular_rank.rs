@@ -10,8 +10,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
-use symbolica::prelude::{Integer, IntegerRing, MultivariatePolynomial};
-
 use crate::{
     Coefficient, FOUR_LOOP_NEXT_CLOSED_ROWS, FOUR_LOOP_NEXT_CLOSED_ROWS_CHECKSUM,
     FOUR_LOOP_NEXT_CLOSED_ROWS_COLLECTED_ENTRIES, FOUR_LOOP_NEXT_CLOSED_ROWS_GLOBAL_COLUMNS,
@@ -749,15 +747,30 @@ fn evaluate_coefficient(
     {
         return Err(FourLoopNextModularRankError::CoefficientContextMismatch);
     }
-    ensure_mass_free(&coefficient.numerator, row_index, column_index, "numerator")?;
     ensure_mass_free(
-        &coefficient.denominator,
+        coefficient,
+        CoefficientPolynomialPart::Numerator,
         row_index,
         column_index,
-        "denominator",
     )?;
-    let numerator = evaluate_qd_polynomial(&coefficient.numerator, dimension, prime)?;
-    let denominator = evaluate_qd_polynomial(&coefficient.denominator, dimension, prime)?;
+    ensure_mass_free(
+        coefficient,
+        CoefficientPolynomialPart::Denominator,
+        row_index,
+        column_index,
+    )?;
+    let numerator = evaluate_qd_polynomial(
+        coefficient,
+        CoefficientPolynomialPart::Numerator,
+        dimension,
+        prime,
+    )?;
+    let denominator = evaluate_qd_polynomial(
+        coefficient,
+        CoefficientPolynomialPart::Denominator,
+        dimension,
+        prime,
+    )?;
     if denominator == 0 {
         return Err(FourLoopNextModularRankError::ZeroDenominator {
             image_index,
@@ -769,12 +782,31 @@ fn evaluate_coefficient(
     Ok(mod_mul(numerator, mod_inverse(denominator, prime), prime))
 }
 
+#[derive(Clone, Copy)]
+enum CoefficientPolynomialPart {
+    Numerator,
+    Denominator,
+}
+
+impl CoefficientPolynomialPart {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Numerator => "numerator",
+            Self::Denominator => "denominator",
+        }
+    }
+}
+
 fn ensure_mass_free(
-    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    coefficient: &Coefficient,
+    part: CoefficientPolynomialPart,
     row_index: usize,
     column_index: usize,
-    part: &'static str,
 ) -> Result<(), FourLoopNextModularRankError> {
+    let polynomial = match part {
+        CoefficientPolynomialPart::Numerator => &coefficient.numerator,
+        CoefficientPolynomialPart::Denominator => &coefficient.denominator,
+    };
     if polynomial
         .exponents
         .chunks_exact(2)
@@ -783,35 +815,37 @@ fn ensure_mass_free(
         return Err(FourLoopNextModularRankError::RetainedMassDependence {
             row_index,
             column_index,
-            part,
+            part: part.label(),
         });
     }
     Ok(())
 }
 
 fn evaluate_qd_polynomial(
-    polynomial: &MultivariatePolynomial<IntegerRing, u16>,
+    coefficient: &Coefficient,
+    part: CoefficientPolynomialPart,
     dimension: u64,
     prime: u64,
 ) -> Result<u64, FourLoopNextModularRankError> {
+    let polynomial = match part {
+        CoefficientPolynomialPart::Numerator => &coefficient.numerator,
+        CoefficientPolynomialPart::Denominator => &coefficient.denominator,
+    };
+    let signed_prime =
+        i64::try_from(prime).map_err(|_| FourLoopNextModularRankError::PrimeTooLarge(prime))?;
     let mut result = 0_u64;
     for (term, coefficient) in polynomial.coefficients.iter().enumerate() {
         let exponent = u64::from(polynomial.exponents[term * 2]);
-        let coefficient = integer_mod_prime(coefficient, prime)?;
+        let remainder = coefficient % signed_prime;
+        let remainder = remainder
+            .to_i64()
+            .ok_or(FourLoopNextModularRankError::IntegerReductionFailed)?;
+        let coefficient = u64::try_from(remainder)
+            .map_err(|_| FourLoopNextModularRankError::IntegerReductionFailed)?;
         let monomial = mod_mul(coefficient, mod_power(dimension, exponent, prime), prime);
         result = mod_add(result, monomial, prime);
     }
     Ok(result)
-}
-
-fn integer_mod_prime(value: &Integer, prime: u64) -> Result<u64, FourLoopNextModularRankError> {
-    let signed_prime =
-        i64::try_from(prime).map_err(|_| FourLoopNextModularRankError::PrimeTooLarge(prime))?;
-    let remainder = value % signed_prime;
-    let remainder = remainder
-        .to_i64()
-        .ok_or(FourLoopNextModularRankError::IntegerReductionFailed)?;
-    u64::try_from(remainder).map_err(|_| FourLoopNextModularRankError::IntegerReductionFailed)
 }
 
 #[derive(Clone, Copy)]

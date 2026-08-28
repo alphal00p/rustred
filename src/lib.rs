@@ -187,6 +187,9 @@ pub mod generic_tensor_projector;
 pub mod guards;
 pub mod ibp;
 pub mod integral;
+#[cfg(feature = "legacy-oracle-support")]
+#[doc(hidden)]
+pub mod legacy_oracle_support;
 pub mod linear;
 pub mod master_policy;
 pub mod master_product;

@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::coefficient::{
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_variable_degrees, symbolica_coefficient_degree_is_representable,
 };
 use crate::{Coefficient, CoefficientContext, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};

@@ -11,7 +11,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::Write as _;
 
-use crate::coefficient::{
+use crate::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };

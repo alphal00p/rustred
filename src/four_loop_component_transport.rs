@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::exact::{invert_matrix, matrix_determinant, matrix_multiply};
+use crate::legacy_oracle_support::exact_matrix::{
+    invert_matrix, matrix_determinant, matrix_multiply,
+};
 use crate::{
     Coefficient, ExactRational, FOUR_LOOP_NEXT_MANIFEST_SEED_CHECKSUM, FourLoopBoundaryError,
     FourLoopNextBoundaryKey, FourLoopNextInventory, FourLoopNextInventoryError,

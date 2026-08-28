@@ -10,10 +10,12 @@
 use std::array;
 use std::fmt;
 
-use crate::exact::{invert_matrix, matrix_determinant, matrix_multiply};
 use crate::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
 use crate::four_loop_boundary::{
     FourLoopBoundaryConfig, FourLoopBoundaryError, FourLoopBoundaryReducer, FourLoopScalarClass,
+};
+use crate::legacy_oracle_support::exact_matrix::{
+    invert_matrix, matrix_determinant, matrix_multiply,
 };
 use crate::{ExactRational, FamilyError, Integral, VacuumFamily};
 

@@ -20,6 +20,7 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use crate::ibp::IbpGenerator;
+use crate::legacy_oracle_support::vacuum_derivative_contraction_parts;
 use crate::three_loop::{THREE_LOOP_TETRAHEDRON_ROUTINGS, equal_mass_three_loop_tetrahedron};
 use crate::{
     Coefficient, Denominator, ExactRational, FamilyError, Integral, LinearCombination, VacuumFamily,
@@ -309,16 +310,20 @@ impl ThreeLoopProperDotReducer {
                     if power == 0 {
                         continue;
                     }
-                    let (has_constant, denominator_support) =
-                        self.family.derivative_contraction_support(
-                            denominator,
-                            differentiated_loop,
-                            contraction_loop,
-                        );
-                    if has_constant {
+                    let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
+                        &self.family,
+                        denominator,
+                        differentiated_loop,
+                        contraction_loop,
+                    );
+                    if !constant.is_zero() {
                         checked_indexed_shift(seed, &[(denominator, 1)])?;
                     }
-                    for cancelled in denominator_support {
+                    for (cancelled, _) in denominator_coefficients
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, coefficient)| !coefficient.is_zero())
+                    {
                         checked_indexed_shift(seed, &[(denominator, 1), (cancelled, -1)])?;
                     }
                 }
@@ -349,22 +354,21 @@ impl ThreeLoopProperDotReducer {
                     if power == 0 {
                         continue;
                     }
-                    let contraction = self.family.derivative_contraction(
+                    let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
+                        &self.family,
                         denominator,
                         differentiated_loop,
                         contraction_loop,
                     );
                     let derivative = self.family.coefficients().integer(-i64::from(power));
                     let row_factor = &weight * &derivative;
-                    if !contraction.constant.is_zero() {
+                    if !constant.is_zero() {
                         expected.add_term(
                             checked_indexed_shift(seed, &[(denominator, 1)])?,
-                            &row_factor * &contraction.constant,
+                            &row_factor * constant,
                         );
                     }
-                    for (cancelled, rational) in
-                        contraction.denominator_coefficients.iter().enumerate()
-                    {
+                    for (cancelled, rational) in denominator_coefficients.iter().enumerate() {
                         if rational.is_zero() {
                             continue;
                         }

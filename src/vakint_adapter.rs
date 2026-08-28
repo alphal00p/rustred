@@ -18,8 +18,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use symbolica::prelude::*;
-
+use crate::legacy_oracle_support::symbolica_atom::{
+    Atom, AtomCore, AtomView, FunctionBuilder, Symbol, get_symbol, try_parse, try_symbol,
+};
 use crate::{
     IndexedVector, Integral, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
     ScalarProductMonomial, TensorConstructionLimits, TensorError, TensorFamilyError,

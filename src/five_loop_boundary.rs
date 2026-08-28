@@ -26,9 +26,11 @@
 use std::array;
 use std::fmt;
 
-use crate::coefficient::{coefficient_product_degree_bound, coefficient_sum_degree_bound};
-use crate::exact::invert_matrix;
 use crate::five_loop::FIVE_LOOP_BANANA_ROUTINGS;
+use crate::legacy_oracle_support::coefficient_degree::{
+    coefficient_product_degree_bound, coefficient_sum_degree_bound,
+};
+use crate::legacy_oracle_support::exact_matrix::invert_matrix;
 use crate::{
     Coefficient, Denominator, ExactRational, Integral, LinearCombination,
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,

@@ -15,8 +15,11 @@ use std::array;
 use std::fmt;
 use std::mem::size_of;
 
-use crate::exact::{invert_matrix, matrix_determinant, matrix_multiply, matrix_rank};
 use crate::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
+use crate::legacy_oracle_support::exact_matrix::{
+    invert_matrix, matrix_determinant, matrix_multiply, matrix_rank,
+};
+use crate::legacy_oracle_support::exact_rational_retained_heap_bytes;
 use crate::master_product::{MasterProduct, MasterProductError, ProductLinearCombination};
 use crate::three_loop::THREE_LOOP_TETRAHEDRON_ROUTINGS;
 use crate::{Coefficient, Denominator, ExactRational, FamilyError, Integral, VacuumFamily};
@@ -267,7 +270,7 @@ impl FourLoopFactorizationWitness {
             values: impl IntoIterator<Item = &'a ExactRational>,
         ) -> Option<usize> {
             values.into_iter().try_fold(0_usize, |total, value| {
-                total.checked_add(value.retained_heap_bytes()?)
+                total.checked_add(exact_rational_retained_heap_bytes(value)?)
             })
         }
 
@@ -1380,9 +1383,22 @@ impl std::error::Error for FourLoopBoundaryError {
 
 #[cfg(test)]
 mod retained_payload_tests {
-    use symbolica::domains::integer::Integer;
-
     use super::*;
+
+    fn exact_power_of_two(mut exponent: u32) -> ExactRational {
+        let mut result = ExactRational::one();
+        let mut base = ExactRational::from(2);
+        while exponent != 0 {
+            if exponent & 1 == 1 {
+                result = result * &base;
+            }
+            exponent >>= 1;
+            if exponent != 0 {
+                base = &base * &base;
+            }
+        }
+        result
+    }
 
     fn witness_fixture() -> FourLoopFactorizationWitness {
         FourLoopFactorizationWitness {
@@ -1410,14 +1426,15 @@ mod retained_payload_tests {
 
     #[test]
     fn retained_payload_census_charges_every_gmp_rational_parent() {
-        let huge = ExactRational::from(Integer::from(2).pow(513) + Integer::from(1));
-        let huge_bytes = huge.retained_heap_bytes().unwrap();
+        let huge = exact_power_of_two(513) + ExactRational::one();
+        let huge_bytes = exact_rational_retained_heap_bytes(&huge).unwrap();
         assert!(huge_bytes > 0);
 
         let baseline = witness_fixture().retained_payload_bytes().unwrap();
         let mut global = witness_fixture();
         global.global_loop_map[0][0] = huge.clone();
-        let stored_bytes = global.global_loop_map[0][0].retained_heap_bytes().unwrap();
+        let stored_bytes =
+            exact_rational_retained_heap_bytes(&global.global_loop_map[0][0]).unwrap();
         assert_eq!(
             global.retained_payload_bytes().unwrap() - baseline,
             stored_bytes
@@ -1425,9 +1442,8 @@ mod retained_payload_tests {
 
         let mut line = witness_fixture();
         line.line_coordinates[0].coordinates[0] = huge.clone();
-        let stored_bytes = line.line_coordinates[0].coordinates[0]
-            .retained_heap_bytes()
-            .unwrap();
+        let stored_bytes =
+            exact_rational_retained_heap_bytes(&line.line_coordinates[0].coordinates[0]).unwrap();
         assert_eq!(
             line.retained_payload_bytes().unwrap() - baseline,
             stored_bytes
@@ -1435,9 +1451,9 @@ mod retained_payload_tests {
 
         let mut signature = witness_fixture();
         signature.components[0].canonical_signature[0][0] = huge.clone();
-        let stored_bytes = signature.components[0].canonical_signature[0][0]
-            .retained_heap_bytes()
-            .unwrap();
+        let stored_bytes =
+            exact_rational_retained_heap_bytes(&signature.components[0].canonical_signature[0][0])
+                .unwrap();
         assert_eq!(
             signature.retained_payload_bytes().unwrap() - baseline,
             stored_bytes
@@ -1445,9 +1461,10 @@ mod retained_payload_tests {
 
         let mut component_map = witness_fixture();
         component_map.components[0].component_loop_map[0][0] = huge;
-        let stored_bytes = component_map.components[0].component_loop_map[0][0]
-            .retained_heap_bytes()
-            .unwrap();
+        let stored_bytes = exact_rational_retained_heap_bytes(
+            &component_map.components[0].component_loop_map[0][0],
+        )
+        .unwrap();
         assert_eq!(
             component_map.retained_payload_bytes().unwrap() - baseline,
             stored_bytes

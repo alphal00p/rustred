@@ -961,30 +961,6 @@ impl VacuumFamily {
         &self.derivative_contractions[denominator][differentiated_loop][contraction_loop]
     }
 
-    /// Whether a native derivative contraction contains a nonzero constant
-    /// or denominator-basis coefficient.
-    ///
-    /// This coefficient-free Boolean view lets bounded analytic recurrences
-    /// preflight every index shift before constructing Symbolica coefficients.
-    pub(crate) fn derivative_contraction_support(
-        &self,
-        denominator: usize,
-        differentiated_loop: usize,
-        contraction_loop: usize,
-    ) -> (bool, Vec<usize>) {
-        let contraction =
-            &self.derivative_contractions[denominator][differentiated_loop][contraction_loop];
-        (
-            !contraction.constant.is_zero(),
-            contraction
-                .denominator_coefficients
-                .iter()
-                .enumerate()
-                .filter_map(|(position, coefficient)| (!coefficient.is_zero()).then_some(position))
-                .collect(),
-        )
-    }
-
     fn build_derivative_contractions(&self) -> Vec<Vec<Vec<DenominatorLinearForm>>> {
         (0..self.denominator_count())
             .map(|denominator| {

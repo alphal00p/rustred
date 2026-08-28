@@ -22,11 +22,12 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::coefficient::{
-    coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
-};
 use crate::families::equal_mass_two_loop_vacuum;
 use crate::ibp::IbpGenerator;
+use crate::legacy_oracle_support::coefficient_degree::{
+    coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
+};
+use crate::legacy_oracle_support::vacuum_derivative_contraction_parts;
 use crate::two_loop::{
     TwoLoopBoundaryConfig, TwoLoopBoundaryError, TwoLoopBoundaryReducer, pair_sector_work_estimate,
 };
@@ -711,16 +712,23 @@ impl TwoLoopTopDotReducer {
                 if power == 0 {
                     continue;
                 }
-                let (has_constant, support) =
-                    self.family
-                        .derivative_contraction_support(denominator, 0, contraction_loop);
-                if has_constant {
+                let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
+                    &self.family,
+                    denominator,
+                    0,
+                    contraction_loop,
+                );
+                if !constant.is_zero() {
                     raw_terms += 1;
                     let mut shift = [0_i32; 3];
                     shift[denominator] = 1;
                     checked_shift(seed, shift)?;
                 }
-                for cancelled in support {
+                for (cancelled, _) in denominator_coefficients
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, coefficient)| !coefficient.is_zero())
+                {
                     raw_terms += 1;
                     let mut shift = [0_i32; 3];
                     shift[denominator] += 1;

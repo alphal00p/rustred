@@ -15,21 +15,20 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use symbolica::prelude::AtomCore;
-
-use crate::coefficient::{
-    coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
-    symbolica_coefficient_degree_is_representable,
-};
 use crate::five_loop::equal_mass_five_loop_banana;
 use crate::five_loop_boundary::{
     FIVE_LOOP_BANANA_DENOMINATORS, FIVE_LOOP_BANANA_LOOP_MOMENTA, FIVE_LOOP_BANANA_PHYSICAL_LINES,
     FIVE_LOOP_BANANA_S6_ORDER, FiveLoopBananaBoundaryConfig, FiveLoopBananaBoundaryError,
     FiveLoopBananaBoundaryReducer, five_loop_banana_oriented_line_routing,
 };
+use crate::legacy_oracle_support::coefficient_degree::{
+    coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
+    symbolica_coefficient_degree_is_representable,
+};
 use crate::{
     Coefficient, CoefficientContext, FamilyError, IbpGenerationError, IbpGenerator, Integral,
     LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
+    canonical_symbolica_atom,
 };
 
 pub const FIVE_LOOP_BANANA_D3_SEED_ORBITS: usize = 4;
@@ -993,12 +992,7 @@ impl ShellBuilder {
         let mut stats = FiveLoopBananaD3Stats::default();
         let mut conditions = vec![FiveLoopBananaD3NonzeroCondition {
             source: FiveLoopBananaD3ConditionSource::GenericMassDomain,
-            polynomial: self
-                .arithmetic
-                .mass
-                .numerator
-                .to_expression()
-                .to_canonical_string(),
+            polynomial: canonical_symbolica_atom(&self.arithmetic.mass.numerator.to_expression()),
         }];
         let mut seeds = Vec::with_capacity(FIVE_LOOP_BANANA_D3_SEED_ORBITS);
         for orbit in FiveLoopBananaD3SeedOrbit::ALL {
@@ -1629,7 +1623,7 @@ fn graph_row_key(row: &GraphRow) -> String {
             format!(
                 "{:?}={}",
                 column,
-                coefficient.to_expression().to_canonical_string()
+                canonical_symbolica_atom(&coefficient.to_expression())
             )
         })
         .collect::<Vec<_>>()
@@ -1899,7 +1893,7 @@ fn record_condition(
     }
     let condition = FiveLoopBananaD3NonzeroCondition {
         source,
-        polynomial: divisor.numerator.to_expression().to_canonical_string(),
+        polynomial: canonical_symbolica_atom(&divisor.numerator.to_expression()),
     };
     if !conditions.contains(&condition) {
         conditions.push(condition);
