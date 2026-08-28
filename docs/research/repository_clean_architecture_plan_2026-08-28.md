@@ -511,7 +511,10 @@ public Python import smoke test pass.
   may use loop count only as generic data or a measured size threshold and may
   specialize only on proved semantic family classes.
 - Put a narrow domain facade in place as each cluster moves, update internal
-  imports to domain paths, and add no old-path aliases.
+  imports to domain paths, and add no old-path aliases. Do not optimize for a
+  minimal file count: split large retained implementations into cohesive
+  role-named children under their stable parent domain. Every multi-thousand-
+  line survivor must receive an explicit cohesion audit before R3 closes.
 - Keep mechanical movement and dependency inversion separate from the later
   fresh-foundry work. Every retained cluster's sentinel exists before its old
   tests or implementation variants disappear.

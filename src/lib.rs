@@ -17,9 +17,6 @@ mod direct_bad_formula_arbitrary;
 mod exact_identity;
 
 pub mod adaptive_rules;
-pub mod affine_parametric_ordering;
-pub mod affine_prepare_point_schedule;
-pub mod affine_prepare_points;
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
@@ -45,12 +42,7 @@ pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod parametric_rules;
 pub mod parametric_sector_coverage;
-pub mod product_locus_boolean_cover;
 pub mod reduction_engine;
-pub mod residual_affine_atom_rows;
-pub mod residual_affine_branch_guard_composition;
-pub mod residual_affine_branch_system;
-pub mod residual_affine_integer_system;
 pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
@@ -70,21 +62,6 @@ pub mod zero_sectors;
 pub use adaptive_rules::{
     ADAPTIVE_PARAMETRIC_RULE_SEARCH_V1_SCHEMA, AdaptiveParametricRuleProvider,
     AdaptiveRuleSearchError, AdaptiveRuleSearchLimits, AdaptiveRuleSearchStats,
-};
-pub use affine_parametric_ordering::{
-    AFFINE_START_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA,
-    AFFINE_START_PARAMETRIC_ELIMINATION_ORDERING_V1_SCHEMA, AffineParametricOrderingError,
-    AffineParametricOrderingLimits, AffineParametricOrderingStats, AffineStartGeometryRef,
-    AffineStartIntegralComplexityKey, AffineStartParametricEliminationOrdering,
-    AffineStartReplayAuthority, AffineStartSourceCertificate, AffineStartSourceKind,
-    RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
-};
-pub use affine_prepare_point_schedule::{
-    AffinePreparePointScheduleError, AffinePreparePointScheduleLimits,
-    AffinePreparePointScheduleStats,
-};
-pub use affine_prepare_points::{
-    AffinePreparePointError, AffinePreparePointLimits, AffinePreparePointStats,
 };
 pub use automatic_isps::{
     AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
@@ -248,46 +225,11 @@ pub use parametric_sector_coverage::{
     ParametricSectorLeafDisposition, ParametricSectorProductZeroDecomposition,
     SectorCoverageCandidateAttempt,
 };
-pub use product_locus_boolean_cover::{
-    RESIDUAL_PRODUCT_LOCUS_BOOLEAN_COVER_V1_SCHEMA, ResidualProductLocusBooleanCoverCertificate,
-    ResidualProductLocusBooleanCoverCompiler, ResidualProductLocusBooleanCoverError,
-    ResidualProductLocusBooleanCoverLimits, ResidualProductLocusBooleanCoverStats,
-    ResidualProductLocusBooleanDecision, ResidualProductLocusBooleanEmptyReason,
-    ResidualProductLocusBooleanNode, ResidualProductLocusBooleanNodeOutcome,
-    ResidualProductLocusBooleanPolarity,
-};
 pub use reduction_engine::{
     ConcreteRuleApplicationTrace, ConcreteRuleDecision, ConcreteRuleProvider,
     ConcreteTerminalStatus, IncompleteReductionError, PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA,
     ParametricReductionEngine, ParametricReductionResult, ReductionEngineError,
     ReductionEngineLimits, ReductionEngineStats,
-};
-pub use residual_affine_atom_rows::{
-    RESIDUAL_AFFINE_ATOM_ROW_V1_SCHEMA, ResidualAffineAtomRowCertificate,
-    ResidualAffineAtomRowError, ResidualAffineAtomRowLimits, ResidualAffineAtomRowOutcome,
-    ResidualAffineAtomRowStats, ResidualAffineAtomRowUnsupported, ResidualAffineBaseBlockWitness,
-    ResidualAffinePrimitiveRow, ResidualAffinePrimitiveRowError,
-};
-pub use residual_affine_branch_guard_composition::{
-    RESIDUAL_AFFINE_BRANCH_GUARD_COMPOSITION_V1_SCHEMA,
-    ResidualAffineBranchGuardCompositionCertificate, ResidualAffineBranchGuardCompositionClass,
-    ResidualAffineBranchGuardCompositionEntry, ResidualAffineBranchGuardCompositionError,
-    ResidualAffineBranchGuardCompositionLimits, ResidualAffineBranchGuardCompositionStats,
-};
-pub use residual_affine_branch_system::{
-    RESIDUAL_AFFINE_BRANCH_SYSTEM_V1_SCHEMA, ResidualAffineBranchEmptyReason,
-    ResidualAffineBranchSystemCertificate, ResidualAffineBranchSystemError,
-    ResidualAffineBranchSystemLimits, ResidualAffineBranchSystemOutcome,
-    ResidualAffineBranchSystemStats, ResidualAffineBranchUnsupportedReason,
-    ResidualAffineBranchZeroAtomOutcome, ResidualAffineBranchZeroAtomRecognition,
-};
-pub use residual_affine_integer_system::{
-    RESIDUAL_AFFINE_INTEGER_SYSTEM_V1_SCHEMA, ResidualAffineIntegerEmptyWitness,
-    ResidualAffineIntegerFinalRow, ResidualAffineIntegerMap, ResidualAffineIntegerRowOperation,
-    ResidualAffineIntegerSystemCertificate, ResidualAffineIntegerSystemError,
-    ResidualAffineIntegerSystemInputError, ResidualAffineIntegerSystemInputRow,
-    ResidualAffineIntegerSystemLimits, ResidualAffineIntegerSystemOutcome,
-    ResidualAffineIntegerSystemStats, ResidualAffineIntegerSystemUnsupported,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

@@ -390,6 +390,14 @@ re-exports are narrowed. The fresh solver is not developed inside mechanical
 file moves. Git is the archive; stale code and documentation are deleted after
 their unique evidence is retained.
 
+Reducing the flat root is not permission to cram unrelated responsibilities
+into a few giant files. Stable domains use parent modules and short role-named
+children; large retained implementations are split along value, algorithm,
+policy, error, and test boundaries when those boundaries are real. Every
+multi-thousand-line survivor is an explicit cohesion audit item during Phase 0,
+and its default outcome is a semantic submodule tree rather than a monolith or
+a renamed dumping ground.
+
 Legacy paths are not permanent architecture. Remove obsolete compatibility
 layers, V1/V2 bridges, handwritten production algebra, loop-authored reducers,
 dead modules, and stale tests/docs after extracting only genuinely unique

@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `b6a529e`, updated for the generated-shell deletion.
+**Baseline parent:** `14d9ba6`, updated for the affine-substrate deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 90 tracked Rust source/build/test paths
+This ledger classifies every one of the 82 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 66 |
+| split | 58 |
 | delete | 1 |
 | replace | 1 |
 
@@ -56,9 +56,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/algebra/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
-| `src/affine_parametric_ordering.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
-| `src/affine_prepare_point_schedule.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
-| `src/affine_prepare_points.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
 | `src/campaign/admission.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/execution.rs` | move | campaign | bounded execution authority co-located with admission and width planning |
@@ -96,12 +93,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_sector_coverage.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/product_locus_boolean_cover.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
-| `src/residual_affine_atom_rows.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/residual_affine_branch_guard_composition.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/residual_affine_branch_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/residual_affine_integer_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |
