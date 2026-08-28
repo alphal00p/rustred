@@ -126,7 +126,7 @@ the other.
 | Generic parametric IBP/LI generation in [`parametric_ibp.rs`](../../src/parametric_ibp.rs) | Keep and harden | The completed explicit `L=6`, 36-row gate validates topology-independent generation and deterministic regeneration only; it does not validate arity-21 cover construction, solving, or reduction. |
 | Generic affine-family map verification in [`symmetry.rs`](../../src/symmetry.rs) | Finish now | Exact family maps are the proof boundary for sector canonicalization, rule transport, and routing equivalence. Delegating its matrix algebra to Symbolica is directly on the high-loop path. |
 | [Symbolica-only production algebra compliance](symbolica_only_algebra_compliance_roadmap_2026-08-27.md) | P0 before a production six-loop claim | Reachable older parametric/concrete elimination, generic Feynman-polynomial and remaining family-matrix kernels, case transformations, integer-lattice primitives, and the later tensor path still contain handwritten algebra. The native exact-group database closes one path, not this full call graph. |
-| Bounded integer-matrix enumeration in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Retain only as a small-family fallback/oracle | Radius-one enumeration at six loops has `3^36` candidates before verification. High-loop candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the generic verifier. |
+| Bounded integer-matrix enumeration formerly in [`symmetry_discovery.rs`](../../src/symmetry_discovery.rs) | Removed | Radius-one enumeration at six loops has `3^36` candidates before verification. Candidates must come from graph automorphisms, routing equivalences, and sector signatures, then pass through the retained generic verifier. |
 | Eager Boolean-cover/case inventory over every index orthant | Replace on the high-loop path | A genuine `K=21` inactive-family probe requested symbolic case split 65,537 immediately beyond the configured 65,536 cap. The later global MTBDD avoided that partition but retained 268,427 nodes for the all-36 source. That disconnected experimental stack has been removed; the foundry needs direct target-frontier search rather than another eager global classifier. |
 | `GeneratedFamilySymbolicResidualSolveV1`, `WhenBad`, coverage, and provider work | Highest solver priority | This is the missing LiteRed-like bridge from generated identities to reusable guarded parametric rules. Exceptional branches and complete integer-domain coverage cannot be replaced by finite samples. |
 | Global eager exact Laporta prototypes and loop-authored finite closures | Oracle only | They validate identities but scale poorly and cannot define production rules. High-loop solving must be sector-local, target-driven, modular-first, and exactly replayed. |
@@ -134,9 +134,11 @@ the other.
 | General external-momentum tensor bases, arbitrary pentagons, broad Feynman-parameter polishing | Defer behind the vacuum critical path | They remain LiteRed-parity requirements but do not unlock the six-loop single-scale campaign. |
 | CLI and durable artifacts | Promote | Offline derivation and large campaign application must be separate invocations with inspectable, reproducible artifacts. |
 
-The immediate symmetry migration is therefore not a detour.  The current
-affine verifier is scalable once its candidates are supplied intelligently;
-the current exhaustive candidate generator is not.
+The symmetry boundary is therefore not a detour. The retained affine verifier
+is scalable once candidates are supplied intelligently; the former exhaustive
+candidate generator has been deleted. The next implementation step is direct
+Symbolica graph canonicalization/automorphism ingress followed by exact routing
+replay.
 
 The compliance gate is staged: foundry algebra and exceptional-domain closure
 precede the derivation-only six-loop benchmark, while tensor expansion and
@@ -195,12 +197,15 @@ For each normalized connected graph, the foundry must:
    generation; and
 7. quotient sectors/families by certified routing maps.
 
-Symmetry candidates should be generated from graph automorphisms, canonical
-edge signatures, and explicit routing solutions.  Every candidate remains
+Symmetry candidates should be generated directly through Symbolica's intrinsic
+public graph engine: physics-aware colored graphs, canonical forms and
+isomorphism maps, automorphism generators/orbits, and group sizes, followed by
+explicit routing solutions. GammaLoop's `feyngen` is a reference for encoding
+and orchestration only, not the implementation engine. Every candidate remains
 untrusted until [`verify_affine_family_map`](../../src/symmetry.rs) replays the
-complete scalar-product and denominator action.  ISP images may be affine
-linear combinations rather than permutations, so certificates must retain
-the full family map.
+complete scalar-product and denominator action. ISP images may be affine linear
+combinations rather than permutations, so certificates must retain the full
+family map.
 
 Parallel planning and execution follow the governing
 [deterministic campaign-foundry design](parallel_campaign_foundry_design_2026-08-26.md).
@@ -517,8 +522,9 @@ The following policies are critical at five and six loops:
   the requested topology manifest and target frontier, retain only reachable
   search states, and schedule bottom-up through the sector DAG. The retired
   global MTBDD experiment is scaling evidence, not a fallback backend.
-- Do not enumerate bounded `GL(L,Z)` matrices as the primary symmetry search.
-  Generate graph/routing candidates and certify them generically.
+- Do not enumerate bounded `GL(L,Z)` matrices. The retired brute-force lane is
+  not an oracle worth retaining; generate graph/routing candidates directly
+  with Symbolica's native graph API and certify them generically.
 - Do not use normalized exact rational-function elimination as the exploratory
   backend.  Discover modular pivot structure and reconstruct/replay exact
   reachable rules.
@@ -903,9 +909,10 @@ or physical-topology calculation.
     Symbolica finite-field and polynomial APIs.
 11. Extend the earlier `CampaignPlan` with topology-generic graph ingestion,
     deterministic ISP completion, factorization, graph-lifted symmetry
-    candidates, verified routing, and canonical job identity; then build the
-    canonical lazy physical-sector dependency DAG and compile immutable closed
-    job shards into deterministic multi-start campaign bundles.
+    candidates obtained directly from Symbolica's native graph engine,
+    verified routing, and canonical job identity; then build the canonical lazy
+    physical-sector dependency DAG and compile immutable closed job shards into
+    deterministic multi-start campaign bundles.
 12. Derive the complete Vakint one- through four-loop replacement-system
     corpus without FORM or copied recurrences. Use a minimal generic
     application seam to compare normalized reductions with unsubstituted

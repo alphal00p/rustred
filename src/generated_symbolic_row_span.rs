@@ -19,21 +19,13 @@ use std::sync::Arc;
 
 use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
-    IntegralFamily, InternalSymmetrySearchCompletion, InternalSymmetrySearchError,
-    InternalSymmetrySearchLimits, ParametricCoefficientContext, ParametricIbpConfig,
-    ParametricIbpError, ParametricIbpGenerator, ParametricRelation, SectorFoundationError,
-    SectorRestrictions, SymbolicSymmetryRowTransportCertificate,
+    IntegralFamily, ParametricCoefficientContext, ParametricIbpConfig, ParametricIbpError,
+    ParametricIbpGenerator, ParametricRelation, SymbolicSymmetryRowTransportCertificate,
     SymbolicSymmetryRowTransportCompiler, SymbolicSymmetryRowTransportError,
     SymbolicSymmetryRowTransportLimits, VerifiedInternalFamilyPermutationSymmetry,
-    discover_bounded_vacuum_internal_symmetries,
 };
 
 pub const GENERATED_SYMBOLIC_ROW_SPAN_V1_SCHEMA: &str = "rustred-generated-symbolic-row-span-v1";
-// This stable identity is scoped to the V1 construction schemas encoded
-// below. In particular, the bounded-search domain fingerprint carries
-// `BOUNDED_INTEGER_VACUUM_SYMMETRY_SEARCH_V1_SCHEMA`; changing its current
-// Debug-sized admission algorithm requires a construction-schema and durable-
-// identity schema bump.
 pub(crate) const GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-generated-symbolic-row-span-stable-value-identity-v1";
 
@@ -45,14 +37,6 @@ pub(crate) const GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &s
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GeneratedSymbolicRowSpanStrategy {
     Disabled,
-    BoundedVacuumInternal {
-        search: InternalSymmetrySearchLimits,
-        /// If true, a resource-limited search prefix is rejected.  If false,
-        /// every retained symmetry is still individually verified and sound,
-        /// but the augmented span is not claimed complete within the search
-        /// alphabet.
-        require_exhaustive: bool,
-    },
     VerifiedInputs,
 }
 
@@ -217,9 +201,7 @@ impl GeneratedSymbolicRowSpanStats {
 ///
 /// This certificate is intentionally reusable.  Coverage systems should
 /// eventually accept one immutable shared instance (for example behind an
-/// `Arc`) and authenticate all candidates against it.  Rebuilding and owning
-/// an identical bounded symmetry search and transported basis once per
-/// candidate is sound, but scales poorly beyond small sectors.
+/// `Arc`) and authenticate all candidates against it.
 #[derive(Clone, Debug)]
 pub struct GeneratedSymbolicRowSpanCertificate {
     schema: &'static str,
@@ -227,7 +209,6 @@ pub struct GeneratedSymbolicRowSpanCertificate {
     context_fingerprint: Arc<str>,
     ibp: ParametricIbpConfig,
     config: GeneratedSymbolicRowSpanConfig,
-    search_completion: Option<InternalSymmetrySearchCompletion>,
     symmetries: Box<[VerifiedInternalFamilyPermutationSymmetry]>,
     rows: Box<[ParametricRelation]>,
     lineages: Box<[GeneratedSymbolicRowSpanLineage]>,
@@ -249,9 +230,6 @@ impl GeneratedSymbolicRowSpanCertificate {
     }
     pub const fn config(&self) -> GeneratedSymbolicRowSpanConfig {
         self.config
-    }
-    pub const fn search_completion(&self) -> Option<&InternalSymmetrySearchCompletion> {
-        self.search_completion.as_ref()
     }
     pub fn symmetries(&self) -> &[VerifiedInternalFamilyPermutationSymmetry] {
         &self.symmetries
@@ -304,7 +282,6 @@ impl GeneratedSymbolicRowSpanCertificate {
             && self.context_fingerprint == other.context_fingerprint
             && self.ibp == other.ibp
             && self.config == other.config
-            && self.search_completion == other.search_completion
             && self.stats == other.stats
             && self.symmetries.len() == other.symmetries.len()
             && self
@@ -339,7 +316,7 @@ impl GeneratedSymbolicRowSpanCertificate {
         writer: &mut ExactIdentityWriter<'_>,
         tag: &str,
     ) -> Result<(), ExactIdentityError> {
-        writer.begin_record(tag, 11)?;
+        writer.begin_record(tag, 10)?;
         writer.string(
             "identity_schema",
             GENERATED_SYMBOLIC_ROW_SPAN_STABLE_VALUE_IDENTITY_V1_SCHEMA,
@@ -349,11 +326,6 @@ impl GeneratedSymbolicRowSpanCertificate {
         writer.string("context_fingerprint", &self.context_fingerprint)?;
         write_ibp_config_identity(writer, "ibp_config", self.ibp)?;
         write_row_span_config_identity(writer, "config", self.config)?;
-        write_search_completion_identity(
-            writer,
-            "search_completion",
-            self.search_completion.as_ref(),
-        )?;
         writer.begin_sequence("symmetries", self.symmetries.len())?;
         for (ordinal, symmetry) in self.symmetries.iter().enumerate() {
             writer.begin_record("symmetry", 2)?;
@@ -416,15 +388,6 @@ fn write_row_span_strategy_identity(
             writer.variant("variant", "Disabled")?;
             writer.begin_record("fields", 0)?;
         }
-        GeneratedSymbolicRowSpanStrategy::BoundedVacuumInternal {
-            search,
-            require_exhaustive,
-        } => {
-            writer.variant("variant", "BoundedVacuumInternal")?;
-            writer.begin_record("fields", 2)?;
-            write_internal_symmetry_search_limits_identity(writer, "search", search)?;
-            writer.boolean("require_exhaustive", require_exhaustive)?;
-        }
         GeneratedSymbolicRowSpanStrategy::VerifiedInputs => {
             writer.variant("variant", "VerifiedInputs")?;
             writer.begin_record("fields", 0)?;
@@ -455,34 +418,6 @@ fn write_row_span_limits_identity(
         "max_aggregate_manifest_bytes",
         limits.max_aggregate_manifest_bytes,
     )?;
-    writer.end_record()
-}
-
-fn write_internal_symmetry_search_limits_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    limits: InternalSymmetrySearchLimits,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 10)?;
-    writer.unsigned_u64("coefficient_radius", u64::from(limits.coefficient_radius))?;
-    writer.usize("max_loop_map_entries", limits.max_loop_map_entries)?;
-    writer.usize("max_enumerated_matrices", limits.max_enumerated_matrices)?;
-    writer.usize(
-        "max_integer_determinant_operations",
-        limits.max_integer_determinant_operations,
-    )?;
-    writer.usize("max_integer_bits", limits.max_integer_bits)?;
-    writer.usize("max_verifier_calls", limits.max_verifier_calls)?;
-    writer.usize("max_retained_symmetries", limits.max_retained_symmetries)?;
-    writer.usize(
-        "max_retained_certificate_entries",
-        limits.max_retained_certificate_entries,
-    )?;
-    writer.usize(
-        "max_retained_certificate_bytes",
-        limits.max_retained_certificate_bytes,
-    )?;
-    write_symmetry_verification_limits_identity(writer, "verification", limits.verification)?;
     writer.end_record()
 }
 
@@ -567,40 +502,6 @@ fn write_symmetry_verification_limits_identity(
     )?;
     writer.usize("max_guard_polynomials", limits.max_guard_polynomials)?;
     writer.usize("max_guard_origins", limits.max_guard_origins)?;
-    writer.end_record()
-}
-
-fn write_search_completion_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    completion: Option<&InternalSymmetrySearchCompletion>,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match completion {
-        None => {
-            writer.variant("variant", "None")?;
-            writer.begin_record("fields", 0)?;
-        }
-        Some(InternalSymmetrySearchCompletion::ExhaustiveWithinBounds { domain_fingerprint }) => {
-            writer.variant("variant", "ExhaustiveWithinBounds")?;
-            writer.begin_record("fields", 1)?;
-            writer.string("domain_fingerprint", domain_fingerprint)?;
-        }
-        Some(InternalSymmetrySearchCompletion::ResourceLimited {
-            domain_fingerprint,
-            resource,
-            requested,
-            limit,
-        }) => {
-            writer.variant("variant", "ResourceLimited")?;
-            writer.begin_record("fields", 4)?;
-            writer.string("domain_fingerprint", domain_fingerprint)?;
-            writer.string("resource", resource)?;
-            writer.usize("requested", *requested)?;
-            writer.usize("limit", *limit)?;
-        }
-    }
-    writer.end_record()?;
     writer.end_record()
 }
 
@@ -831,8 +732,7 @@ fn lineage_payload_eq(
 pub struct GeneratedSymbolicRowSpanCompiler;
 
 impl GeneratedSymbolicRowSpanCompiler {
-    /// Generate canonical IBP/LI rows and optionally augment them by a bounded
-    /// generic vacuum-symmetry search.
+    /// Generate the canonical IBP/LI rows without symmetry augmentation.
     pub fn compile(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -842,41 +742,7 @@ impl GeneratedSymbolicRowSpanCompiler {
         preflight_family_shape(family, context, config.limits)?;
         match config.strategy {
             GeneratedSymbolicRowSpanStrategy::Disabled => {
-                Self::compile_impl(family, context, ibp, config, None, Vec::new())
-            }
-            GeneratedSymbolicRowSpanStrategy::BoundedVacuumInternal {
-                search,
-                require_exhaustive,
-            } => {
-                let restrictions = SectorRestrictions::unrestricted(family.denominator_count())?;
-                // The outer retention limit is authoritative for this
-                // certificate. Clamp the search itself so a tighter row-span
-                // policy cannot first accumulate a larger temporary report.
-                let mut effective_search = search;
-                effective_search.max_retained_symmetries = effective_search
-                    .max_retained_symmetries
-                    .min(config.limits.max_verified_symmetries);
-                let report = discover_bounded_vacuum_internal_symmetries(
-                    family,
-                    &restrictions,
-                    effective_search,
-                )?;
-                if require_exhaustive && !report.completion().is_exhaustive_within_bounds() {
-                    return Err(GeneratedSymbolicRowSpanError::IncompleteRequiredSearch);
-                }
-                check_limit(
-                    "generated row-span verified symmetries",
-                    report.symmetries().len(),
-                    config.limits.max_verified_symmetries,
-                )?;
-                Self::compile_impl(
-                    family,
-                    context,
-                    ibp,
-                    config,
-                    Some(report.completion().clone()),
-                    report.symmetries().to_vec(),
-                )
+                Self::compile_impl(family, context, ibp, config, Vec::new())
             }
             GeneratedSymbolicRowSpanStrategy::VerifiedInputs => {
                 Err(GeneratedSymbolicRowSpanError::MissingVerifiedSymmetryInputs)
@@ -915,7 +781,6 @@ impl GeneratedSymbolicRowSpanCompiler {
                 strategy: GeneratedSymbolicRowSpanStrategy::VerifiedInputs,
                 limits,
             },
-            None,
             symmetries.to_vec(),
         )
     }
@@ -925,7 +790,6 @@ impl GeneratedSymbolicRowSpanCompiler {
         context: &ParametricCoefficientContext,
         ibp: ParametricIbpConfig,
         config: GeneratedSymbolicRowSpanConfig,
-        search_completion: Option<InternalSymmetrySearchCompletion>,
         symmetries: Vec<VerifiedInternalFamilyPermutationSymmetry>,
     ) -> Result<GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanError> {
         if !family
@@ -1153,7 +1017,6 @@ impl GeneratedSymbolicRowSpanCompiler {
             context_fingerprint: Arc::from(context.fingerprint()),
             ibp,
             config,
-            search_completion,
             symmetries: symmetries.into_boxed_slice(),
             rows: rows.into_boxed_slice(),
             lineages: lineages.into_boxed_slice(),
@@ -1293,7 +1156,6 @@ pub enum GeneratedSymbolicRowSpanError {
         actual: usize,
     },
     MissingVerifiedSymmetryInputs,
-    IncompleteRequiredSearch,
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -1303,19 +1165,23 @@ pub enum GeneratedSymbolicRowSpanError {
         limit: usize,
     },
     Ibp(ParametricIbpError),
-    Search(InternalSymmetrySearchError),
     SymmetryReplay(crate::InternalSymmetryReplayError),
     Transport(SymbolicSymmetryRowTransportError),
-    Sector(SectorFoundationError),
 }
 
 impl fmt::Display for GeneratedSymbolicRowSpanError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SchemaMismatch => formatter.write_str("generated symbolic row-span schema mismatch"),
-            Self::ReplayMismatch => formatter.write_str("generated symbolic row-span replay mismatch"),
+            Self::SchemaMismatch => {
+                formatter.write_str("generated symbolic row-span schema mismatch")
+            }
+            Self::ReplayMismatch => {
+                formatter.write_str("generated symbolic row-span replay mismatch")
+            }
             Self::WrongFamily => formatter.write_str("generated symbolic row-span family mismatch"),
-            Self::WrongContext => formatter.write_str("generated symbolic row-span context mismatch"),
+            Self::WrongContext => {
+                formatter.write_str("generated symbolic row-span context mismatch")
+            }
             Self::WrongArity { expected, actual } => write!(
                 formatter,
                 "generated symbolic row-span arity is {actual}, expected {expected}"
@@ -1327,21 +1193,20 @@ impl fmt::Display for GeneratedSymbolicRowSpanError {
             Self::MissingVerifiedSymmetryInputs => formatter.write_str(
                 "verified-input row-span strategy requires explicit verified symmetry certificates",
             ),
-            Self::IncompleteRequiredSearch => formatter.write_str(
-                "bounded symmetry discovery was resource-limited but exhaustive completion was required",
-            ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
-            Self::ResourceLimit { resource, requested, limit } => write!(
+            Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => write!(
                 formatter,
                 "{resource} needs {requested} units, exceeding the configured limit {limit}"
             ),
             Self::Ibp(error) => error.fmt(formatter),
-            Self::Search(error) => error.fmt(formatter),
             Self::SymmetryReplay(error) => error.fmt(formatter),
             Self::Transport(error) => error.fmt(formatter),
-            Self::Sector(error) => error.fmt(formatter),
         }
     }
 }
@@ -1351,11 +1216,6 @@ impl std::error::Error for GeneratedSymbolicRowSpanError {}
 impl From<ParametricIbpError> for GeneratedSymbolicRowSpanError {
     fn from(value: ParametricIbpError) -> Self {
         Self::Ibp(value)
-    }
-}
-impl From<InternalSymmetrySearchError> for GeneratedSymbolicRowSpanError {
-    fn from(value: InternalSymmetrySearchError) -> Self {
-        Self::Search(value)
     }
 }
 impl From<crate::InternalSymmetryReplayError> for GeneratedSymbolicRowSpanError {
@@ -1368,11 +1228,6 @@ impl From<SymbolicSymmetryRowTransportError> for GeneratedSymbolicRowSpanError {
         Self::Transport(value)
     }
 }
-impl From<SectorFoundationError> for GeneratedSymbolicRowSpanError {
-    fn from(value: SectorFoundationError) -> Self {
-        Self::Sector(value)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1380,7 +1235,11 @@ mod tests {
     use crate::exact_identity::{
         ExactIdentityLimits, ExactIdentityPayload, ExactStructuralIdentity, encode_exact_identity,
     };
-    use crate::{AffineDenominator, algebra::CoefficientContext};
+    use crate::{
+        AffineDenominator, ExactMatrix, MomentumMap, SectorRestrictions,
+        SymmetryVerificationLimits, algebra::CoefficientContext,
+        compile_internal_family_permutation_symmetry, verify_affine_family_map,
+    };
 
     struct RowSpanPayload<'a>(&'a GeneratedSymbolicRowSpanCertificate);
 
@@ -1423,26 +1282,56 @@ mod tests {
         .unwrap()
     }
 
-    fn bounded_certificate(
+    fn verified_certificate(
         name: &str,
         extra_dedup_budget: usize,
     ) -> GeneratedSymbolicRowSpanCertificate {
         let family = equal_mass_sunset(name);
+        let coefficients = family.coefficient_context();
+        let restrictions = SectorRestrictions::unrestricted(family.denominator_count()).unwrap();
+        let candidate_matrices = [
+            [-1, 0, 1, 1],
+            [0, -1, -1, 0],
+            [0, -1, 1, 1],
+            [-1, -1, 1, 0],
+            [-1, -1, 0, 1],
+        ];
+        let symmetries = candidate_matrices
+            .into_iter()
+            .map(|entries| {
+                let momentum = MomentumMap::new(
+                    ExactMatrix::try_new(
+                        2,
+                        2,
+                        entries.into_iter().map(|entry| coefficients.integer(entry)),
+                    )
+                    .unwrap(),
+                    ExactMatrix::try_new(2, 0, std::iter::empty()).unwrap(),
+                    ExactMatrix::try_new(0, 0, std::iter::empty()).unwrap(),
+                );
+                let affine = verify_affine_family_map(
+                    &family,
+                    &family,
+                    momentum,
+                    SymmetryVerificationLimits::default(),
+                )
+                .unwrap();
+                compile_internal_family_permutation_symmetry(&family, &restrictions, affine)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
         let context = ParametricIbpGenerator::try_new(&family)
             .unwrap()
             .context()
             .clone();
-        let mut config = GeneratedSymbolicRowSpanConfig::default();
-        config.strategy = GeneratedSymbolicRowSpanStrategy::BoundedVacuumInternal {
-            search: InternalSymmetrySearchLimits::default(),
-            require_exhaustive: true,
-        };
-        config.limits.max_exact_dedup_comparisons += extra_dedup_budget;
-        GeneratedSymbolicRowSpanCompiler::compile(
+        let mut limits = GeneratedSymbolicRowSpanLimits::default();
+        limits.max_exact_dedup_comparisons += extra_dedup_budget;
+        GeneratedSymbolicRowSpanCompiler::compile_with_verified_symmetries(
             &family,
             &context,
             ParametricIbpConfig::default(),
-            config,
+            &symmetries,
+            limits,
         )
         .unwrap()
     }
@@ -1456,8 +1345,8 @@ mod tests {
 
     #[test]
     fn stable_identity_binds_transport_references_without_relation_duplication() {
-        let left = bounded_certificate("row-span-stable-value", 0);
-        let right = bounded_certificate("row-span-stable-value", 0);
+        let left = verified_certificate("row-span-stable-value", 0);
+        let right = verified_certificate("row-span-stable-value", 0);
         assert!(left.stats().retained_transports() > 0);
         let left_identity = identity(&left, ExactIdentityLimits::default()).unwrap();
         let right_identity = identity(&right, ExactIdentityLimits::default()).unwrap();
@@ -1469,7 +1358,7 @@ mod tests {
         );
         assert!(!left_identity.as_str().contains("transport_source="));
 
-        let changed_limits = bounded_certificate("row-span-stable-value", 1);
+        let changed_limits = verified_certificate("row-span-stable-value", 1);
         assert_ne!(
             left_identity.as_str(),
             identity(&changed_limits, ExactIdentityLimits::default())

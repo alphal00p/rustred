@@ -517,8 +517,15 @@ unsupported quotient, or successful map alone is not a closed branch.
 1. Replace eager family-wide sector enumeration with a lazy, target-driven
    dependency DAG so no high-loop path materializes `2^K` sectors or orthants.
 2. Add graph-automorphism/routing-equivalence candidate ingress to the generic
-   exact symmetry verifier; bounded matrix enumeration remains only a
-   small-family oracle.
+   exact symmetry verifier by calling Symbolica's intrinsic public graph engine
+   directly. Symbolica owns graph construction, canonical forms and
+   isomorphism comparison, recovered maps, automorphism generators/orbits, and
+   automorphism-group sizes; RustRed owns the physics-aware coloring, routing
+   interpretation, resource policy, and exact affine/momentum-map replay.
+   GammaLoop's local `feyngen` implementation is only a useful reference for
+   encoding and parallel orchestration—not a dependency, graph authority, or
+   substitute for Symbolica's native capabilities. Bounded `GL(L,Z)` matrix
+   enumeration is deleted, not retained as an oracle.
 3. Connect applicable-rule and exceptional-residual publication to the exact
    native-session lineage with atomic chronological replay.
 4. Add recursive exceptional scheduling, same-database `IdenticallyBad`

@@ -382,13 +382,9 @@ pub use symmetry::{
     VerifiedAffineFamilyMap, verify_affine_family_map,
 };
 pub use symmetry_discovery::{
-    BOUNDED_INTEGER_VACUUM_SYMMETRY_SEARCH_V1_SCHEMA,
     INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA, InternalSymmetryCompatibilityError,
     InternalSymmetryKeyTransportError, InternalSymmetryReplayError,
-    InternalSymmetrySearchCompletion, InternalSymmetrySearchError, InternalSymmetrySearchLimits,
-    InternalSymmetrySearchReport, InternalSymmetrySearchStats,
     VerifiedInternalFamilyPermutationSymmetry, compile_internal_family_permutation_symmetry,
-    discover_bounded_vacuum_internal_symmetries,
 };
 pub use tensor::{
     IndexedVector, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,

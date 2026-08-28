@@ -1,6 +1,6 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `676d73c`, updated after each R3 cluster milestone.
+**Baseline:** `d46796c`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 130 tracked Rust source/build/test paths
@@ -91,7 +91,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_live_leaf_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
-| `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | topology-neutral row span below high orchestration |
+| `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
 | `src/generated_when_bad.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
 | `src/generic_family.rs` | move | family | live generic family construction and normalization |
 | `src/generic_tensor_family.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
@@ -151,7 +151,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/symbolic_sector_cases.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/symbolic_symmetry_transport.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/symmetry_discovery.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
+| `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/tensor_reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/tensor.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
