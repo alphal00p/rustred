@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `d53321a`, immediately before nesting family algorithms.
+**Baseline parent:** `03232e1`, immediately before the integral-key and polynomial-owner split.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 74 tracked Rust source/test paths
-remaining after the current family-algorithm milestone. It is intentionally hostile to
+This ledger classifies every one of the 75 tracked Rust source/test paths
+remaining after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -20,7 +20,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 24 |
+| move | 25 |
 | split | 49 |
 | delete | 0 |
 | replace | 1 |
@@ -52,7 +52,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-app/tests/cli_derive.rs` | split | rustred-app tests | fresh inline fixtures guard supported forms; prune historical breadth later |
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
-| `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary under an unambiguous owner; prune duplicate or context-free surfaces during the later indexed-algebra split |
+| `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary and the sole raw `CoefficientPolynomial` alias; prune duplicate or context-free surfaces during the indexed-algebra split |
 | `src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations and their admitted metadata to core callers |
 | `src/algebra/matrix/admission.rs` | split | algebra::matrix | retain shapes, operation envelopes, payload census, and authenticated conversion; keep native scratch limitations explicit |
 | `src/algebra/matrix/error.rs` | move | algebra::matrix | private typed matrix/native failure vocabulary |
@@ -72,6 +72,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/build.rs` | split | family | authenticated construction, labels, condition merging, and composition of the exact/fingerprint/kinematics services |
 | `src/family/kinematics.rs` | split | family | scalar-product coordinates, affine expansions, derivative contractions, and their bounded construction |
 | `src/family/fingerprint.rs` | split | family | typed V2 family-identity preflight, census, encoding, and writer |
+| `src/family/integral.rs` | move | family | exact integral-power key and its independent construction errors; relation and symmetry layers bind or transport the family-owned value |
 | `src/family/replay.rs` | split | family | exact determinant, inverse, scalar-coordinate, and derivative-contraction replay |
 | `src/family/tests.rs` | split | family tests | retain the focused family construction, kinematics, fingerprint, matrix-boundary, and replay sentinels; subdivide only when it materially aids the next algorithm change |
 | `src/family/isp/mod.rs` | move | family::isp | narrow ISP-completion facade; no former flat-module alias |

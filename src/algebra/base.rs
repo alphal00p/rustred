@@ -10,6 +10,13 @@ const RUSTRED_NAMESPACE: &str = "rustred";
 /// Exact rational functions in the kinematic parameters.
 pub type Coefficient = RationalPolynomial<IntegerRing, u16>;
 
+/// Exact integer polynomials in the authenticated coefficient variables.
+///
+/// This is the sole raw polynomial representation shared by RustRed's domain
+/// layers.  Domain-specific wrappers may add authentication or provenance,
+/// but they must retain this algebra-owned representation internally.
+pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
+
 /// Largest exponent representable by RustRed's Symbolica coefficient domain.
 ///
 /// Symbolica's polynomial arithmetic panics when an operation would overflow

@@ -9,10 +9,10 @@
 
 use std::fmt;
 
-use crate::family::IntegralFamily;
+use crate::family::{IntegralFamily, IntegralKey};
 use crate::{
-    ConcreteIntegralKey, DenominatorRowAction, JacobianWitness, SectorRestrictions,
-    SymmetryVerificationError, SymmetryVerificationLimits, VerifiedAffineFamilyMap,
+    DenominatorRowAction, JacobianWitness, SectorRestrictions, SymmetryVerificationError,
+    SymmetryVerificationLimits, VerifiedAffineFamilyMap,
 };
 
 pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
@@ -65,8 +65,8 @@ impl VerifiedInternalFamilyPermutationSymmetry {
     /// `target_power[pi(i)] = source_power[i]`.
     pub fn transport_source_key(
         &self,
-        source: &ConcreteIntegralKey,
-    ) -> Result<ConcreteIntegralKey, InternalSymmetryKeyTransportError> {
+        source: &IntegralKey,
+    ) -> Result<IntegralKey, InternalSymmetryKeyTransportError> {
         if source.powers().len() != self.denominator_permutation.len() {
             return Err(InternalSymmetryKeyTransportError::WrongArity {
                 expected: self.denominator_permutation.len(),
@@ -85,15 +85,15 @@ impl VerifiedInternalFamilyPermutationSymmetry {
         {
             target[target_denominator] = source.powers()[source_denominator];
         }
-        ConcreteIntegralKey::try_new(target)
+        IntegralKey::try_from_preallocated(target)
             .map_err(|_| InternalSymmetryKeyTransportError::InvalidCertificateArity)
     }
 
     /// Replay an asserted source-to-target key image exactly.
     pub fn replay_key_transport(
         &self,
-        source: &ConcreteIntegralKey,
-        target: &ConcreteIntegralKey,
+        source: &IntegralKey,
+        target: &IntegralKey,
     ) -> Result<(), InternalSymmetryKeyTransportError> {
         let replayed = self.transport_source_key(source)?;
         if &replayed != target {
@@ -486,8 +486,8 @@ fn restriction_fingerprint(restrictions: &SectorRestrictions) -> String {
 mod tests {
     use super::{InternalSymmetryCompatibilityError, compile_internal_family_permutation_symmetry};
     use crate::{
-        AffineDenominator, CoefficientLocation, ConcreteIntegralKey, CutConstraint, ExactMatrix,
-        IntegralFamily, MomentumMap, SectorPattern, SectorPatternSlot, SectorRestrictions,
+        AffineDenominator, CoefficientLocation, CutConstraint, ExactMatrix, IntegralFamily,
+        IntegralKey, MomentumMap, SectorPattern, SectorPatternSlot, SectorRestrictions,
         SymmetryVerificationLimits, algebra::Coefficient, algebra::CoefficientContext,
         symmetry::SymmetryConditionSource, verify_affine_family_map,
     };
@@ -575,8 +575,8 @@ mod tests {
                 .unwrap();
 
         assert_eq!(symmetry.denominator_permutation(), &[1, 0, 2]);
-        let source = ConcreteIntegralKey::try_new([2, 3, -1]).unwrap();
-        let target = ConcreteIntegralKey::try_new([3, 2, -1]).unwrap();
+        let source = IntegralKey::try_new([2, 3, -1]).unwrap();
+        let target = IntegralKey::try_new([3, 2, -1]).unwrap();
         assert_eq!(symmetry.transport_source_key(&source).unwrap(), target);
         symmetry.replay_key_transport(&source, &target).unwrap();
         symmetry

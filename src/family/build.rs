@@ -4,14 +4,16 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+use crate::algebra::{
+    Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraError, ExactAlgebraLimits,
+};
 
 use super::error::{IntegralFamilyError, check_family_limit};
 use super::exact::{coefficients_are_equal, invert_symbolic_matrix};
 use super::fingerprint::{build_family_fingerprint, preflight_family_identity_strings};
 use super::kinematics::{build_coordinates, checked_scalar_product_count};
 use super::model::{
-    AffineDenominator, BasePolynomial, CoefficientLocation, ContractionMomentum, FamilyDomain,
+    AffineDenominator, CoefficientLocation, ContractionMomentum, FamilyDomain,
     FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
 };
 
@@ -390,7 +392,7 @@ fn validate_and_retain_input_denominator(
 
 fn make_family_nonzero_condition(
     source: CoefficientLocation,
-    polynomial: BasePolynomial,
+    polynomial: CoefficientPolynomial,
 ) -> FamilyNonZeroCondition {
     FamilyNonZeroCondition {
         polynomial,

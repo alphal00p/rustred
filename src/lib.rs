@@ -22,6 +22,7 @@ pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod zero_sectors;
 
+pub use algebra::CoefficientPolynomial;
 pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use family::isp::{
     ISP_COMPLETION_V2_SCHEMA, IspCompletion, IspCompletionError, IspCompletionLimits,
@@ -34,22 +35,23 @@ pub use family::symanzik::{
 pub use family::{
     AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
-    IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
+    IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
+    ScalarProductCoordinate,
 };
 pub use identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
     ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition,
 };
 pub use parametric_coefficient::{
-    BasePolynomial, CoefficientPolynomial, ParametricArithmeticLimits, ParametricCoefficient,
+    BasePolynomial, ParametricArithmeticLimits, ParametricCoefficient,
     ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
 };
 pub use parametric_relation::{
-    ConcreteIntegralKey, ConcreteRelation, IndexShift, IndexSpace, ParametricRelation,
-    ParametricRelationError, RelationLimits,
+    ConcreteRelation, IndexShift, IndexSpace, ParametricRelation, ParametricRelationError,
+    RelationLimits,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::family::{IntegralKey, IntegralKeyError};
 use crate::identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
     ParametricNonZeroCondition, RowId, SpecializedNonZeroCondition, insert_parametric_condition,
@@ -522,7 +523,7 @@ impl ParametricRelation {
             if value.is_zero() {
                 continue;
             }
-            let key = ConcreteIntegralKey::checked_from_assignment(assignment, shift)?;
+            let key = IntegralKey::checked_from_assignment(assignment, shift.values())?;
             result.add_term(context.base(), key, value, limits)?;
         }
         Ok(result)
@@ -590,56 +591,12 @@ fn try_reserve_relation_entries<T>(
         })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ConcreteIntegralKey(Vec<i64>);
-
-impl ConcreteIntegralKey {
-    /// Construct an exact concrete integral key from unshifted integer powers.
-    pub fn try_new(powers: impl IntoIterator<Item = i64>) -> Result<Self, ParametricRelationError> {
-        let mut retained = Vec::new();
-        for power in powers {
-            try_reserve_relation_entries("concrete integral powers", &mut retained, 1)?;
-            retained.push(power);
-        }
-        if retained.is_empty() {
-            return Err(ParametricRelationError::EmptyIndexSpace);
-        }
-        Ok(Self(retained))
-    }
-
-    fn checked_from_assignment(
-        assignment: &[i64],
-        shift: &IndexShift,
-    ) -> Result<Self, ParametricRelationError> {
-        if assignment.len() != shift.arity() {
-            return Err(ParametricRelationError::WrongArity {
-                expected: shift.arity(),
-                actual: assignment.len(),
-            });
-        }
-        let mut powers = Vec::new();
-        try_reserve_relation_entries("concrete integral powers", &mut powers, assignment.len())?;
-        for (position, (&power, &offset)) in assignment.iter().zip(shift.values()).enumerate() {
-            powers.push(
-                power
-                    .checked_add(offset)
-                    .ok_or(ParametricRelationError::IndexOverflow { position })?,
-            );
-        }
-        Ok(Self(powers))
-    }
-
-    pub fn powers(&self) -> &[i64] {
-        &self.0
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConcreteRelation {
     family_fingerprint: Arc<str>,
     row_id: RowId,
     arity: usize,
-    terms: BTreeMap<ConcreteIntegralKey, Coefficient>,
+    terms: BTreeMap<IntegralKey, Coefficient>,
     nonzero_conditions: Vec<SpecializedNonZeroCondition>,
 }
 
@@ -652,7 +609,7 @@ impl ConcreteRelation {
         &self.row_id
     }
 
-    pub fn terms(&self) -> &BTreeMap<ConcreteIntegralKey, Coefficient> {
+    pub fn terms(&self) -> &BTreeMap<IntegralKey, Coefficient> {
         &self.terms
     }
 
@@ -692,7 +649,7 @@ impl ConcreteRelation {
     fn add_term(
         &mut self,
         context: &CoefficientContext,
-        key: ConcreteIntegralKey,
+        key: IntegralKey,
         coefficient: Coefficient,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
@@ -750,6 +707,7 @@ pub enum ParametricRelationError {
     },
     IdentityCondition(IdentityConditionError),
     Coefficient(ParametricCoefficientError),
+    IntegralKey(IntegralKeyError),
 }
 
 impl fmt::Display for ParametricRelationError {
@@ -784,6 +742,7 @@ impl fmt::Display for ParametricRelationError {
             ),
             Self::IdentityCondition(error) => error.fmt(formatter),
             Self::Coefficient(error) => error.fmt(formatter),
+            Self::IntegralKey(error) => error.fmt(formatter),
         }
     }
 }
@@ -799,6 +758,12 @@ impl From<ParametricCoefficientError> for ParametricRelationError {
 impl From<IdentityConditionError> for ParametricRelationError {
     fn from(value: IdentityConditionError) -> Self {
         Self::IdentityCondition(value)
+    }
+}
+
+impl From<IntegralKeyError> for ParametricRelationError {
+    fn from(value: IntegralKeyError) -> Self {
+        Self::IntegralKey(value)
     }
 }
 
@@ -907,7 +872,9 @@ mod tests {
             .unwrap();
         assert!(matches!(
             source.specialize(&context, &[i64::MAX], RelationLimits::default()),
-            Err(ParametricRelationError::IndexOverflow { position: 0 })
+            Err(ParametricRelationError::IntegralKey(
+                IntegralKeyError::IndexOverflow { position: 0 }
+            ))
         ));
     }
 
@@ -1054,10 +1021,7 @@ mod tests {
                 .checked_add(&IndexShift::try_new([1], 1).unwrap()),
             Err(ParametricRelationError::IndexOverflow { position: 0 })
         ));
-        assert_eq!(
-            ConcreteIntegralKey::try_new([3, -2]).unwrap().powers(),
-            &[3, -2]
-        );
+        assert_eq!(IntegralKey::try_new([3, -2]).unwrap().powers(), &[3, -2]);
 
         // This is rejected by Vec's capacity arithmetic without attempting a
         // material allocation, exercising the public allocation error path.

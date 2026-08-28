@@ -5,12 +5,10 @@ use std::fmt::Write as _;
 
 use symbolica::prelude::Integer;
 
-use crate::algebra::{Coefficient, CoefficientContext};
+use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial};
 
 use super::error::{IntegralFamilyError, check_family_limit};
-use super::model::{
-    AffineDenominator, BasePolynomial, IntegralFamilyFingerprintStats, IntegralFamilyLimits,
-};
+use super::model::{AffineDenominator, IntegralFamilyFingerprintStats, IntegralFamilyLimits};
 
 pub(super) fn preflight_family_identity_strings(
     name: &str,
@@ -175,7 +173,7 @@ fn encode_fingerprint_coefficient(
 
 fn encode_fingerprint_polynomial(
     sink: &mut impl FamilyFingerprintSink,
-    polynomial: &BasePolynomial,
+    polynomial: &CoefficientPolynomial,
 ) -> Result<(), IntegralFamilyError> {
     let variables = polynomial.variables.len();
     sink.literal("Y")?;

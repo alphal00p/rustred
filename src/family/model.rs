@@ -4,15 +4,11 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use symbolica::prelude::{IntegerRing, MultivariatePolynomial};
-
 use crate::algebra::matrix::{
     DEFAULT_MAX_EXACT_OPERATIONS, DEFAULT_MAX_INPUT_RETAINED_BYTES,
     DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
 };
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
-
-pub type BasePolynomial = MultivariatePolynomial<IntegerRing, u16>;
+use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraLimits};
 
 /// One coefficient-valued family datum that can contribute a generic-domain
 /// nonzero condition.
@@ -208,12 +204,12 @@ impl DenominatorExpansion {
 /// A polynomial condition that defines the generic domain of a family.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyNonZeroCondition {
-    pub(super) polynomial: BasePolynomial,
+    pub(super) polynomial: CoefficientPolynomial,
     pub(super) sources: BTreeSet<CoefficientLocation>,
 }
 
 impl FamilyNonZeroCondition {
-    pub fn polynomial(&self) -> &BasePolynomial {
+    pub fn polynomial(&self) -> &CoefficientPolynomial {
         &self.polynomial
     }
 

@@ -23,10 +23,11 @@ use crate::algebra::matrix::{
     determinant_of_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices,
 };
-use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+use crate::algebra::{
+    Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraError, ExactAlgebraLimits,
+};
 use crate::family::{
-    BasePolynomial, CoefficientLocation, FamilyDomain, IntegralFamily, IntegralFamilyError,
-    ScalarProductCoordinate,
+    CoefficientLocation, FamilyDomain, IntegralFamily, IntegralFamilyError, ScalarProductCoordinate,
 };
 
 pub const AFFINE_FAMILY_MAP_V2_SCHEMA: &str = "rustred-affine-family-map-v2";
@@ -231,12 +232,12 @@ pub enum SymmetryConditionSource {
 /// One merged, exact nonzero condition retained by authoritative replay.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SymmetryNonZeroCondition {
-    polynomial: BasePolynomial,
+    polynomial: CoefficientPolynomial,
     sources: BTreeSet<SymmetryConditionSource>,
 }
 
 impl SymmetryNonZeroCondition {
-    pub const fn polynomial(&self) -> &BasePolynomial {
+    pub const fn polynomial(&self) -> &CoefficientPolynomial {
         &self.polynomial
     }
 
@@ -380,7 +381,7 @@ pub struct VerifiedAffineFamilyMap {
     jacobian: JacobianWitness,
     source_domain: FamilyDomain,
     target_domain: FamilyDomain,
-    candidate_denominator_conditions: Box<[BasePolynomial]>,
+    candidate_denominator_conditions: Box<[CoefficientPolynomial]>,
     nonzero_conditions: Box<[SymmetryNonZeroCondition]>,
     stats: SymmetryVerificationStats,
 }
@@ -434,12 +435,12 @@ impl VerifiedAffineFamilyMap {
 
     /// Denominators of caller-supplied rational map entries, before any
     /// cancellation in derived matrices.
-    pub fn candidate_denominator_conditions(&self) -> &[BasePolynomial] {
+    pub fn candidate_denominator_conditions(&self) -> &[CoefficientPolynomial] {
         &self.candidate_denominator_conditions
     }
 
     /// The exact numerator of `det(A)`, required to be nonzero.
-    pub const fn loop_determinant_nonzero_condition(&self) -> &BasePolynomial {
+    pub const fn loop_determinant_nonzero_condition(&self) -> &CoefficientPolynomial {
         &self.loop_determinant.numerator
     }
 
@@ -1062,7 +1063,7 @@ impl SymmetryConditionCollector {
 
     fn add(
         &mut self,
-        polynomial: BasePolynomial,
+        polynomial: CoefficientPolynomial,
         source: SymmetryConditionSource,
     ) -> Result<(), SymmetryVerificationError> {
         if let Some(existing) = self
@@ -1916,7 +1917,7 @@ fn aggregate_symbolica_resource_limit(
 fn collect_candidate_denominators<'a>(
     matrices: impl IntoIterator<Item = (&'static str, &'a ExactMatrix<Coefficient>)>,
     conditions: &mut SymmetryConditionCollector,
-) -> Result<Vec<BasePolynomial>, SymmetryVerificationError> {
+) -> Result<Vec<CoefficientPolynomial>, SymmetryVerificationError> {
     let mut candidate_denominators = Vec::new();
     for (name, matrix) in matrices {
         for row in 0..matrix.rows {

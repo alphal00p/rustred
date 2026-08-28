@@ -4,8 +4,8 @@ mod base;
 pub(crate) mod matrix;
 
 pub use base::{
-    Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomialPart,
-    ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
+    Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomial,
+    CoefficientPolynomialPart, ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
     SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 pub(crate) use base::{

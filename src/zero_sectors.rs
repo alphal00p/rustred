@@ -13,11 +13,11 @@ use std::sync::Arc;
 use symbolica::domains::rational::RationalField;
 use symbolica::prelude::*;
 
-use crate::family::{BasePolynomial as FamilyBasePolynomial, CoefficientLocation, IntegralFamily};
+use crate::family::{CoefficientLocation, IntegralFamily};
 use crate::{
     FeynmanPolynomialError, FeynmanPolynomialLimits, SectorExclusion, SectorFoundationError,
     SectorMask, SectorRestrictions, SymanzikPolynomials, algebra::Coefficient,
-    algebra::ExactAlgebraError,
+    algebra::CoefficientPolynomial, algebra::ExactAlgebraError,
 };
 
 pub const ZERO_SECTOR_CERTIFICATE_SCHEMA: &str = "rustred.zero-sector-certificate.v1";
@@ -191,12 +191,12 @@ pub enum ZeroSectorConditionSource {
 /// One exact polynomial required to remain nonzero.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ZeroSectorDomainCondition {
-    polynomial: FamilyBasePolynomial,
+    polynomial: CoefficientPolynomial,
     sources: BTreeSet<ZeroSectorConditionSource>,
 }
 
 impl ZeroSectorDomainCondition {
-    pub fn polynomial(&self) -> &FamilyBasePolynomial {
+    pub fn polynomial(&self) -> &CoefficientPolynomial {
         &self.polynomial
     }
 
@@ -218,7 +218,7 @@ impl ZeroSectorDomain {
 
     fn insert(
         &mut self,
-        polynomial: FamilyBasePolynomial,
+        polynomial: CoefficientPolynomial,
         sources: BTreeSet<ZeroSectorConditionSource>,
     ) {
         if let Some(condition) = self

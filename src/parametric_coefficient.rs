@@ -14,13 +14,11 @@ use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
 use crate::algebra::{
-    ExactAlgebraError, ExactAlgebraLimits, checked_coefficient_add_on_map,
+    CoefficientPolynomial, ExactAlgebraError, ExactAlgebraLimits, checked_coefficient_add_on_map,
     checked_coefficient_mul_on_map, checked_coefficient_neg_on_map, checked_coefficient_sub_on_map,
     validate_coefficient_on_map, validate_polynomial_on_map,
 };
 use crate::{algebra::Coefficient, algebra::CoefficientContext};
-
-pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
 
 /// A canonical coefficient known to belong to one exact `K(n)` variable map.
 ///

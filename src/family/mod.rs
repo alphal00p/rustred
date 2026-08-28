@@ -7,6 +7,7 @@ mod build;
 mod error;
 mod exact;
 mod fingerprint;
+mod integral;
 pub mod isp;
 mod kinematics;
 mod model;
@@ -17,10 +18,9 @@ pub mod symanzik;
 mod tests;
 
 pub use error::IntegralFamilyError;
+pub use integral::{IntegralKey, IntegralKeyError};
 pub use model::{
     AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyFingerprintStats,
     IntegralFamilyLimits, ScalarProductCoordinate,
 };
-
-pub(crate) use model::BasePolynomial;
