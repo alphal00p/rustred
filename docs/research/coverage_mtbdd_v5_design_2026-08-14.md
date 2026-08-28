@@ -1,14 +1,24 @@
 # Coverage V5: reduced MTBDD over authenticated factor atoms
 
-> **Post-design scaling note (2026-08-25).** The authenticated residual-path
-> cursor now avoids flattening all terminal paths, but a genuine all-inactive
+> **Implementation disposition (2026-08-28).** The private
+> `parametric_sector_residual_path` cursor was never consumed outside its own
+> tests and has been deleted rather than retained as a second residual-search
+> authority. The stage-1 MTBDD certificate is now compiled only under
+> `cfg(test)` as a compact-case differential oracle. The production-lineage
+> replacement searches the authenticated normalized formula directly in
+> [`src/parametric_sector_formula_residual.rs`](../../src/parametric_sector_formula_residual.rs);
+> its ignored all-36 test is
+> `full_six_loop_k21_normalized_source_finds_first_residual_without_mtbdd`.
+>
+> **Historical scaling note (2026-08-25).** The now-deleted residual-path
+> cursor avoided flattening all terminal paths, but a genuine all-inactive
 > all-36 `L=6`, `K=21` diagnostic still constructs 49 atoms and 268,427 rooted
 > nodes before traversal. V5 remains the compact-case oracle and an optional
 > repeated-query classifier. The six-loop primary path will instead search
 > one target frontier directly from a shared authenticated normalized-coverage
 > owner, under separate formula-search limits; this does not invalidate the
-> V5 representation or replay contract described below. The focused source is
-> [`full_six_loop_k21_source_finds_first_residual_with_bounded_cursor_memory`](../../src/parametric_sector_residual_path.rs);
+> historical V5 representation or replay contract described below. The
+> deleted focused source remains recoverable from Git history;
 > licensed parallel Nextest run `d1b3d6f2-70fe-4da2-ba36-9a671f48080a`
 > passed the complete cursor slice 6/6 with 997 tests skipped, and the ignored
 > stress took 132.985 seconds. The tested source SHA-256 was
@@ -17,7 +27,9 @@
 > SYMBOLICA_HIDE_BANNER=1 nix develop -c cargo nextest run --lib -j 4
 > --run-ignored all --no-fail-fast -E 'test(parametric_sector_residual_path)'`.
 
-Status: **revised staged design; production Coverage V5 is not implemented**.
+Status: **historical staged V5 design and test-oracle specification; its
+residual cursor was superseded by direct normalized-formula search and
+deleted**.
 
 The generic decision-DAG core at
 [`src/coverage_decision_dag.rs`](../../src/coverage_decision_dag.rs) is now
@@ -50,7 +62,7 @@ source-identity encoding, the explicit-V4 adapter over the same normalized IR,
 the complete owner-level mapping of nested frozen-core limits, provider
 integration, and outer transactional resource matrix remain staged.
 
-Original design date: 2026-08-14.  Last revised: 2026-08-25.
+Original design date: 2026-08-14.  Last revised: 2026-08-28.
 
 This note specifies the next representation for RustRed's global parametric
 sector coverage.  It records the concrete failure which motivated the change,
@@ -699,12 +711,16 @@ is still applied through the existing local applicability API and an
 inside `WhenBad` proofs remain V1-local objects; they are not replaced by a V5
 global region ID.
 
-## 11. Lazy residual conjunctions
+## 11. Historical lazy residual conjunctions (removed)
 
-Downstream conditional derivation sometimes needs one exact residual
-conjunction, not only a concrete lookup. V5 now provides a bounded
-deterministic DFS cursor over root-to-terminal paths in
-[`src/parametric_sector_residual_path.rs`](../../src/parametric_sector_residual_path.rs).
+This section records the removed V5 cursor design; it is not a current RustRed
+interface. Downstream conditional derivation still needs exact residual
+conjunctions, but the active implementation obtains them with bounded direct
+search over the normalized formula in
+[`src/parametric_sector_formula_residual.rs`](../../src/parametric_sector_formula_residual.rs),
+without first constructing an MTBDD owner. The historical cursor types below
+were private, had no caller, and were deleted with their implementation-only
+tests.
 
 ```rust
 pub struct ParametricSectorResidualPathDecision {
@@ -946,9 +962,11 @@ embed discovery/queue material by value and providers preflight V4 leaf
 censuses.  The complete owning-layer inventory is:
 
 - MTBDD types, builder, evaluator, and replay validator in
-  `src/parametric_sector_mtbdd.rs`, the implemented cursor/path certificates
-  in `src/parametric_sector_residual_path.rs`, repaired/wired core support from
-  `src/coverage_decision_dag.rs`, and crate-private wiring in `src/lib.rs`;
+  `src/parametric_sector_mtbdd.rs`, the stage-1 certificate retained only as
+  `cfg(test)` differential support, repaired/wired core support from
+  `src/coverage_decision_dag.rs`, and the direct normalized-formula residual
+  search in `src/parametric_sector_formula_residual.rs`; the former standalone
+  MTBDD residual cursor was deleted;
 - the versioned backend-neutral candidate bad-formula IR and one-time
   authenticated normalization seam, replacing the current private,
   backend-entangled `CandidateBadFormula` construction without weakening V4;
@@ -1093,14 +1111,15 @@ or resource semantics.
 6. **Discovery V6 and owning-certificate migration.** Add the tagged payload,
    then version family rule-system, fixed-point, depth-growth, provider-stack,
    and provider ownership/replay without flattening V5.
-7. **Completed traversal checkpoint.** The bounded residual cursor and
-   process-local path certificates retain one shared source allocation and
-   pass compact replay/resource tests plus the ignored all-36 `K=21` stress.
-   This checkpoint does not avoid global MTBDD construction.
-8. **Direct normalized-formula frontier and global region IDs.** Extract the
-   normalized source owner, search one authenticated frontier without building
-   a global MTBDD, then add Queue V3 and migrate every global `source_case`
-   consumer from section 15 while preserving local case IDs.
+7. **Retired traversal checkpoint.** The bounded MTBDD residual cursor and its
+   process-local path certificates passed their historical tests but had no
+   consumer and did not avoid global MTBDD construction. They were deleted;
+   Git retains the checkpoint.
+8. **Direct normalized-formula frontier and global region IDs.** The bounded
+   direct normalized-formula residual search is the replacement and includes
+   an ignored all-36 `K=21` stress without an MTBDD owner. Queue/global-region
+   migration remains a separate downstream step while local case IDs are
+   preserved.
 9. **Boolean-cover V2.** Consume baseline concrete factor facts and retain exact
    DPLL proof data.  Add optional positive-clause handling only if the compound
    experiment is built.

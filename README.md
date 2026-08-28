@@ -434,15 +434,12 @@ The repository currently includes tests for:
 - a fast test-only `L=6`, `K=21` coordinate-family gate proving the generic
   generator emits all 36 ordinary IBPs in deterministic row order with stable
   replay manifests; it does not claim sector coverage or reduction;
-- a bounded authenticated residual-path cursor over the existing coverage
-  MTBDD, with compact replay/resource tests and an ignored all-36 `K=21`
-  stress oracle; the latter measures 49 normalized atoms, 268,427 retained
-  nodes, and an exact 43-decision first Unsupported path, and is not a Ready or
-  reduction result;
-- a sealed, replayable normalized-coverage source and a second bounded cursor
-  that walks its authenticated candidate bad-formulas directly, retaining only
-  one three-valued assignment table and DFS frontier and constructing neither
-  the V4 materialized partition nor the V5 MTBDD;
+- a sealed, replayable normalized-coverage source and bounded cursor that walks
+  its authenticated candidate bad-formulas directly, retaining only one
+  three-valued assignment table and DFS frontier and constructing neither the
+  V4 materialized partition nor the V5 MTBDD. This direct normalized-formula
+  path replaced the unused bounded MTBDD residual cursor, which has been
+  deleted;
 - the pushed `c593865` one-pass candidate-to-normalized-source ingress
   with a safe sealed replay token. It performs `N` construction
   authentications for `N` candidates rather than the legacy `2N`; focused run
