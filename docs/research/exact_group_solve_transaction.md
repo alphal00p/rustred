@@ -99,7 +99,7 @@ The topology-neutral authority and staging layers described below now exist:
   matching, compares the shared evidence and exact event disposition, and then
   compares terminal database, target, event, and resource state. A sealed
   equality suspension authenticates and replays its mandatory terminal event.
-- `generated_affine_residual_group_ready_publication.rs` now implements the
+- `src/solver/closure/post_ready/analysis.rs` now implements the
   first Ready-consuming pre-publication analysis phase without committing the
   session. It reauthenticates the sealed transaction and selected target
   geometry, locates

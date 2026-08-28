@@ -207,7 +207,7 @@ The current-lineage components below are implemented and tested:
   retained limits; a compact reason enum alone is not proof. Publication-event
   audit replay is not implemented; normal future application will read the
   compact event directly.
-- `src/generated_affine_residual_group_ready_publication.rs` authenticates the
+- `src/solver/closure/post_ready/analysis.rs` authenticates the
   sealed Ready/session/target geometry without extracting the transaction. For
   an authenticated selector-independent compact affine map it locates the
   unique unit zero-shift pivot, verifies selector and row geometry, builds
@@ -217,14 +217,14 @@ The current-lineage components below are implemented and tested:
   is an unpublished, target-preserving typestate. Condition planning,
   materialization, relative partitioning, compact preparation, and the internal
   target-consuming application-event commit are implemented downstream.
-- `src/generated_affine_residual_group_exact_when_bad_conditions.rs` consumes
+- `src/solver/closure/post_ready/condition_plan.rs` consumes
   that typestate only into a recoverable, non-Clone condition plan. It
   authenticates identity or compact-affine target geometry and retains a
   deterministic schedule of target premises, recentered row guards, the pivot
   and descending RHS coefficients, plus fixed-width lazy hazard locators. It
   does not itself materialize a condition, consumes no target, and publishes
   no rule.
-- `src/generated_affine_residual_group_exact_when_bad_materialization.rs`
+- `src/solver/closure/post_ready/materialization.rs`
   consumes that exact plan into an owner-bound, replayable, non-publishing
   mapped transcript. It maps sources in schedule order, retaining the full
   schedule for a partition-ready result or the decisive prefix for an
@@ -233,7 +233,7 @@ The current-lineage components below are implemented and tested:
   ranges before expansion, and specializes their exact values into ordered
   boundary events with Symbolica-backed numerator classification. It still
   consumes no target and publishes no rule.
-- `src/generated_affine_residual_group_exact_when_bad_partition.rs` consumes
+- `src/solver/closure/post_ready/partition.rs` consumes
   the mapped owner into a recoverable, move-only, non-publishing partition
   compilation. It assembles the arbitrary-width OR-of-AND bad formula,
   interns first-seen loci with exact Symbolica equality and associate proofs,
@@ -251,7 +251,7 @@ The current-lineage components below are implemented and tested:
   materialization), and the largest duplicate phase-local compiler peak. The
   session takes the maximum such contribution across chronologically serial
   rejected events rather than summing mutually exclusive replay work.
-- `src/generated_affine_residual_group_exact_publication.rs` distills
+- `src/solver/closure/post_ready/publication.rs` distills
   `ReadyForPublication` into move-only commit state plus canonical loci, final
   relative cases, and a one-byte applicable/domain/leak tag per leaf. The
   exact-session commit advances the database, consumes one selected target,
@@ -930,10 +930,10 @@ creating any child session.
 The topology-neutral current-lineage modules are:
 
 ```text
-generated_affine_residual_group_ready_publication.rs
-generated_affine_residual_group_exact_when_bad_conditions.rs
-generated_affine_residual_group_exact_when_bad_materialization.rs
-generated_affine_residual_group_exact_when_bad_partition.rs
+src/solver/closure/post_ready/analysis.rs
+src/solver/closure/post_ready/condition_plan.rs
+src/solver/closure/post_ready/materialization.rs
+src/solver/closure/post_ready/partition.rs
 ```
 
 The exact target-geometry view is borrow-only and constructed solely from the

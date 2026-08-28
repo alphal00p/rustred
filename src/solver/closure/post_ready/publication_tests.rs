@@ -3,24 +3,24 @@
 use std::mem::size_of;
 use std::sync::Arc;
 
-use crate::generated_affine_residual_group_exact_publication::{
-    PreparedPublication, PublicationError, PublicationLeafDisposition, PublicationLimits,
-    publication_route_tag_bytes_for_test,
-};
-use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+use super::condition_plan::{
     GeneratedAffineResidualGroupExactConditionPlanCompiler,
     GeneratedAffineResidualGroupExactConditionPlanLimits,
 };
-use crate::generated_affine_residual_group_exact_when_bad_materialization::{
+use super::materialization::{
     GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
     GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
 };
-use crate::generated_affine_residual_group_exact_when_bad_partition::{
+use super::partition::{
     GeneratedAffineResidualGroupExactWhenBadClauseSource,
     GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
     GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
     GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
+};
+use super::publication::{
+    PreparedPublication, PublicationError, PublicationLeafDisposition, PublicationLimits,
+    publication_route_tag_bytes_for_test,
 };
 use crate::solver::exact_session::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::solver::exact_session::GeneratedAffineResidualGroupExactTargetError;

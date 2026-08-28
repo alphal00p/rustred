@@ -1103,10 +1103,9 @@ mod tests {
 
     use super::*;
     use crate::campaign::{CampaignPlan, CampaignPlanLimits, CampaignRootSpec};
-    use crate::generated_affine_residual_group_exact_publication::{
-        PreparedPublication, PublicationLimits,
+    use crate::solver::closure::post_ready::{
+        PreparedPublication, PublicationLimits, ready_for_publication,
     };
-    use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
     use crate::{IntegralFamily, IntegralOrderingPolicy, SectorMask};
 
     fn job(family: &IntegralFamily, sector: &SectorMask) -> CampaignJobKey {

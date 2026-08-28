@@ -2275,11 +2275,10 @@ mod tests {
         CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
         CampaignTaskResourceEstimate, CampaignWavePlanner,
     };
-    use crate::generated_affine_residual_group_exact_publication::{
-        PreparedPublication, PublicationLimits,
-    };
-    use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
     use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
+    use crate::solver::closure::post_ready::{
+        PreparedPublication, PublicationLimits, ready_for_publication,
+    };
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;

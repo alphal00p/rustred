@@ -16,6 +16,13 @@ use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
+use super::analysis::{
+    GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisError,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
+};
 use crate::generated_affine_parametric_ordering::{
     GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
 };
@@ -33,13 +40,6 @@ use crate::generated_affine_residual_case_reelimination::{
     GeneratedAffineResidualCaseReeliminationCompilation,
     GeneratedAffineResidualCaseReeliminationCompiler,
     GeneratedAffineResidualCaseReeliminationLimits,
-};
-use crate::generated_affine_residual_group_ready_publication::{
-    GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
-    GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
-    GeneratedAffineResidualGroupReadyPublicationAnalysisError,
-    GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
-    GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
 };
 use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
 use crate::solver::closure::case_inventory::{
@@ -1439,8 +1439,8 @@ fn combined_generated_global_provider_reduces_tadpole_powers_two_through_four() 
 
 #[test]
 fn current_lineage_test_must_not_launder_ready_into_the_old_matcher() {
-    let test_source = include_str!("generated_affine_residual_group_ready_publication_tests.rs");
-    let production_source = include_str!("generated_affine_residual_group_ready_publication.rs");
+    let test_source = include_str!("analysis_tests.rs");
+    let production_source = include_str!("analysis.rs");
     let old_compiler = ["GeneratedResidualAffineWhenBad", "Compiler::compile"].concat();
     let narrowing_conversion = ["try_to_", "index_shift"].concat();
     let i64_conversion = ["to_", "i64"].concat();

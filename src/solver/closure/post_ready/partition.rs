@@ -1,7 +1,7 @@
 //! Owning exact relative `WhenBad` partition for the current generated-affine lineage.
 //!
 //! This phase consumes only the move-only materialization produced by
-//! `generated_affine_residual_group_exact_when_bad_materialization`.  All
+//! the sibling `materialization` phase. All
 //! fallible work borrows that owner.  Only after materialization replay,
 //! deterministic condition/formula assembly, and source-neutral relative
 //! partition compilation have succeeded is the untouched owner moved into a
@@ -20,16 +20,13 @@ use std::mem::size_of;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::canonical_parametric_locus_table::{
-    CanonicalLocusTableBuilder, CanonicalLocusTableError, CanonicalLocusTableLimits,
-    CanonicalLocusTableOwner,
-};
-use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+use super::analysis::GeneratedAffineResidualGroupReadyPublicationAnalysisLimits;
+use super::condition_plan::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
     GeneratedAffineResidualGroupExactConditionPlanLimits,
     GeneratedAffineResidualGroupExactConditionSourceLocator,
 };
-use crate::generated_affine_residual_group_exact_when_bad_materialization::{
+use super::materialization::{
     GeneratedAffineResidualGroupExactBoundaryDisposition,
     GeneratedAffineResidualGroupExactDenominatorIdentityKind,
     GeneratedAffineResidualGroupExactMappedConditionClass,
@@ -41,7 +38,10 @@ use crate::generated_affine_residual_group_exact_when_bad_materialization::{
     GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPartition as MaterializedReadyForPartition,
 };
-use crate::generated_affine_residual_group_ready_publication::GeneratedAffineResidualGroupReadyPublicationAnalysisLimits;
+use crate::canonical_parametric_locus_table::{
+    CanonicalLocusTableBuilder, CanonicalLocusTableError, CanonicalLocusTableLimits,
+    CanonicalLocusTableOwner,
+};
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeLimits, AffineWhenBadArbitraryRelativePartitionCertificate,
     AffineWhenBadArbitraryRelativePartitionCompiler, AffineWhenBadAtom,
@@ -3201,15 +3201,15 @@ fn check_limit(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+    use super::super::condition_plan::{
         GeneratedAffineResidualGroupExactConditionPlanCompiler,
         GeneratedAffineResidualGroupExactConditionPlanLimits,
     };
-    use crate::generated_affine_residual_group_exact_when_bad_materialization::{
+    use super::super::materialization::{
         GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
         GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
     };
+    use super::*;
     use crate::parametric_coefficient::{
         polynomial_associate_native_boundary_calls_for_test,
         reset_polynomial_associate_native_boundary_calls_for_test,

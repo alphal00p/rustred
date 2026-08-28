@@ -413,9 +413,14 @@ reviewable from semantic changes.
    protocol is a separate generic leaf over the exact error and row-limit
    types, so neither the protocol nor the inventory imports the other layer's
    concrete implementation. The inventory no longer imports handoff, epoch,
-   or exact-session types. Ready/WhenBad
-   materialization, the remaining Ready/WhenBad/publication ownership cycles,
-   and the other mathematical clusters still need reorganization.
+   or exact-session types. The coherent post-Ready cluster reparent is complete:
+   Ready analysis, condition planning, materialization, partitioning, and
+   compact publication now live under `solver::closure::post_ready`, together
+   with the cluster's inline tests and dedicated analysis/publication test
+   modules, with no old-path compatibility aliases. This was a mechanical
+   ownership move only; the session/post-Ready semantic SCC remains and is the
+   next tranche to untangle. Other mathematical clusters still need
+   reorganization.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

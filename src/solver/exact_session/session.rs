@@ -67,23 +67,6 @@ use super::targets::{
 };
 use super::telemetry::NativeSparseScalingSnapshot;
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
-use crate::generated_affine_residual_group_exact_publication::{
-    PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
-    PublicationStats,
-};
-use crate::generated_affine_residual_group_exact_when_bad_conditions::GeneratedAffineResidualGroupExactConditionPlanCompiler;
-use crate::generated_affine_residual_group_exact_when_bad_materialization::GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler;
-use crate::generated_affine_residual_group_exact_when_bad_partition::{
-    GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
-    GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
-    GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
-    GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
-    GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
-};
-use crate::generated_affine_residual_group_ready_publication::{
-    GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
-    GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
-};
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
@@ -91,6 +74,18 @@ use crate::parametric_coefficient::symbolica_sparse::SymbolicaPersistentSparseSh
 use crate::solver::closure::case_inventory::{
     GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
     GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
+};
+use crate::solver::closure::post_ready::{
+    GeneratedAffineResidualGroupExactConditionPlanCompiler,
+    GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
+    GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
+    GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
+    GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+    GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
+    GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+    GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome, PreparedPublication,
+    PublicationLeaf, PublicationLeafDisposition, PublicationPayload, PublicationStats,
 };
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
@@ -6503,29 +6498,6 @@ pub(super) mod tests {
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
     };
-    use crate::generated_affine_residual_group_exact_when_bad_conditions::{
-        GeneratedAffineResidualGroupExactConditionPlanCompiler,
-        GeneratedAffineResidualGroupExactConditionPlanLimits,
-        GeneratedAffineResidualGroupExactConditionSourceLocator,
-    };
-    use crate::generated_affine_residual_group_exact_when_bad_materialization::{
-        GeneratedAffineResidualGroupExactWhenBadIdenticallyBadReason,
-        GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
-        GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
-    };
-    use crate::generated_affine_residual_group_exact_when_bad_partition::{
-        GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
-        GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
-        GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
-        GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
-    };
-    use crate::generated_affine_residual_group_ready_publication::{
-        GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
-        GeneratedAffineResidualGroupReadyForConditions,
-        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
-        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
-        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
-    };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
         GeneratedSectorAffineEffectiveCoverageCompiler,
@@ -6550,6 +6522,23 @@ pub(super) mod tests {
     use crate::solver::closure::case_inventory::{
         GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+    };
+    use crate::solver::closure::post_ready::{
+        GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
+        GeneratedAffineResidualGroupExactConditionPlanCompiler,
+        GeneratedAffineResidualGroupExactConditionPlanLimits,
+        GeneratedAffineResidualGroupExactConditionSourceLocator,
+        GeneratedAffineResidualGroupExactWhenBadIdenticallyBadReason,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler,
+        GeneratedAffineResidualGroupExactWhenBadMaterializationLimits,
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompilation,
+        GeneratedAffineResidualGroupExactWhenBadPartitionCompiler,
+        GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
+        GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
+        GeneratedAffineResidualGroupReadyForConditions,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
+        GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

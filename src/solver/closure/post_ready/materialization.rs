@@ -23,7 +23,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::integer::Integer;
 
-use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+use super::condition_plan::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
     GeneratedAffineResidualGroupExactConditionPlan,
     GeneratedAffineResidualGroupExactConditionPlanError,
@@ -4281,11 +4281,11 @@ fn try_vec_with_exact_capacity<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::generated_affine_residual_group_exact_when_bad_conditions::{
+    use super::super::condition_plan::{
         GeneratedAffineResidualGroupExactConditionPlanCompiler,
         GeneratedAffineResidualGroupExactConditionPlanLimits,
     };
+    use super::*;
     use crate::solver::exact_session::test_support::{
         ExactConditionPlanTestFixture, exact_condition_plan_test_fixture,
         exact_condition_plan_test_fixture_in_sector,

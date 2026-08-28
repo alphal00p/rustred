@@ -65,15 +65,6 @@ mod generated_affine_residual_case_pivot_target_matching;
 mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;
 pub(crate) mod generated_affine_residual_case_unit_equality_refinement;
-mod generated_affine_residual_group_exact_publication;
-#[cfg(test)]
-mod generated_affine_residual_group_exact_publication_tests;
-mod generated_affine_residual_group_exact_when_bad_conditions;
-mod generated_affine_residual_group_exact_when_bad_materialization;
-mod generated_affine_residual_group_exact_when_bad_partition;
-mod generated_affine_residual_group_ready_publication;
-#[cfg(test)]
-mod generated_affine_residual_group_ready_publication_tests;
 pub(crate) mod generated_affine_residual_source_authority;
 pub mod generated_cylindrical_candidate_authority;
 pub mod generated_cylindrical_family_source_set;

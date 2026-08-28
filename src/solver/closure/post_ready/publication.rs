@@ -8,11 +8,11 @@
 use std::fmt;
 use std::mem::size_of;
 
-use crate::ParametricPolynomial;
-use crate::generated_affine_residual_group_exact_when_bad_partition::{
+use super::partition::{
     GeneratedAffineResidualGroupExactWhenBadClauseSource,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
+use crate::ParametricPolynomial;
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };

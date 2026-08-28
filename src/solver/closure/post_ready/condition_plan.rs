@@ -21,7 +21,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_group_ready_publication::{
+use super::analysis::{
     GeneratedAffineResidualGroupReadyForConditions,
     GeneratedAffineResidualGroupReadyPublicationAnalysisError,
 };
