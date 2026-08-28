@@ -63,7 +63,10 @@ impl IndexShift {
         self.0.len()
     }
 
-    pub(crate) fn checked_add(&self, other: &Self) -> Result<Self, ParametricRelationError> {
+    pub(in crate::identity) fn checked_add(
+        &self,
+        other: &Self,
+    ) -> Result<Self, ParametricRelationError> {
         if self.arity() != other.arity() {
             return Err(ParametricRelationError::WrongArity {
                 expected: self.arity(),
@@ -85,12 +88,12 @@ impl IndexShift {
 /// Constructs arity-authenticated shifts without repeating length checks at
 /// every generator call site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct IndexSpace {
+pub(in crate::identity) struct IndexSpace {
     arity: usize,
 }
 
 impl IndexSpace {
-    pub(crate) fn try_new(arity: usize) -> Result<Self, ParametricRelationError> {
+    pub(in crate::identity) fn try_new(arity: usize) -> Result<Self, ParametricRelationError> {
         if arity == 0 {
             Err(ParametricRelationError::EmptyIndexSpace)
         } else {
@@ -99,14 +102,14 @@ impl IndexSpace {
     }
 
     /// Fallible zero-shift construction for resource-hardened callers.
-    pub(crate) fn try_zero(self) -> Result<IndexShift, ParametricRelationError> {
+    pub(in crate::identity) fn try_zero(self) -> Result<IndexShift, ParametricRelationError> {
         let mut values = Vec::new();
         try_reserve_relation_entries("zero index-shift components", &mut values, self.arity)?;
         values.resize(self.arity, 0);
         IndexShift::try_from_preallocated(values, self.arity)
     }
 
-    pub(crate) fn unit(
+    pub(in crate::identity) fn unit(
         self,
         position: usize,
         direction: i64,

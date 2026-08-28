@@ -21,7 +21,7 @@ pub struct ParametricRelation {
 }
 
 impl ParametricRelation {
-    pub(crate) fn new(
+    pub(in crate::identity) fn new(
         family_fingerprint: impl Into<Arc<str>>,
         row_id: RowId,
         context: &IndexedCoefficientContext,

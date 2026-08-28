@@ -1,11 +1,11 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `1d6ba18`, immediately before pruning the duplicate serial
-generator API to the prepared-batch production spine.
+**Baseline parent:** `f185197`, immediately before moving the pruned generator
+spine under its final identity owner.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 101 tracked Rust source/test paths
-remaining after the current ownership milestone. It is intentionally hostile to
+This ledger classifies every one of the 119 Rust source/test paths remaining
+after the generator ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -27,8 +27,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 37 |
-| split | 63 |
+| move | 44 |
+| split | 74 |
 | delete | 0 |
 | replace | 1 |
 
@@ -108,17 +108,35 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/symanzik/operations.rs` | split | family::symanzik | determinant, adjugate, homogeneity, and currently handwritten polynomial kernels pending the separate Symbolica-native commit |
 | `src/family/symanzik/work.rs` | split | family::symanzik | shared checked resource arithmetic and aggregate operation budgets; prevents context/operations ownership cycles |
 | `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
-| `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
+| `src/identity/mod.rs` | move | identity | sole public facade over row identity, exceptional-domain conditions, sparse relations, and prepared parametric generation; no root aliases or internal index-space bridge |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated and translated identities, with a generic derived-row variant reserved for the foundry; no adapter row mirror |
-| `src/identity/condition/mod.rs` | move | identity::condition | narrow condition facade; the temporary crate-visible relation-construction reexport narrows when relation moves under `identity` |
+| `src/identity/condition/mod.rs` | move | identity::condition | narrow private-owner facade whose construction seam is confined to the identity tree |
 | `src/identity/condition/source.rs` | move | identity::condition | deterministic atomic parametric-condition provenance and stable user-facing encoding; no adapter or recursive provenance tree |
 | `src/identity/condition/limits.rs` | move | identity::condition | independent source-cardinality policy |
 | `src/identity/condition/error.rs` | move | identity::condition | typed source, resource, and authenticated-coefficient failures |
 | `src/identity/condition/value.rs` | split | identity::condition | authenticated condition value, checked translation, deterministic source merging, and collection insertion; construction remains engine-owned and specialized base-field ceremony waits for a real reduction consumer |
 | `src/identity/condition/tests.rs` | move | identity::condition tests | focused version-stable provenance encoding sentinel; operational event provenance is exercised through real relation events |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; concrete-relation, root relation/condition/row, and internal `IndexSpace` exports are gone, and remaining root reexports receive the same final audit rather than being moved wholesale |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral prepared ordinary/external source batches, ordinal generation, completion, LI preparation, stable provenance, shared fallibly constructed zero/unit shifts, and one completed semantic-scope token; the self-test-only aggregate result, serial orchestration, custom-context constructor, and unused accessors are deleted, while compact-coefficient specialization remains test-only and cannot justify a production relation wrapper |
-| `src/identity/relation/mod.rs` | move | identity::relation | canonical narrow relation facade; the temporary crate-visible index-space seam disappears when the generator joins `identity` |
+| `src/identity/generator/mod.rs` | move | identity::generator | private-owner composition and canonical identity-facade exports for the prepared batch spine; no former flat-module alias |
+| `src/identity/generator/config.rs` | move | identity::generator | minimal relation-resource policy for exact ordinary-IBP and LI construction |
+| `src/identity/generator/counts.rs` | move | identity::generator | private checked topology-neutral ordinary/LI row census shared by construction and batch preparation |
+| `src/identity/generator/error.rs` | move | identity::generator | typed row-layout, semantic-scope, resource, algebra, relation, condition, and family failures |
+| `src/identity/generator/scope.rs` | move | identity::generator | private ordinary/external layout and shared semantic family/context scope token |
+| `src/identity/generator/model.rs` | split | identity::generator | retain only the non-cloneable family-bound generator, sealed source row/barrier, and immutable ordinary/external/LI prepared work; no serial aggregate wrapper |
+| `src/identity/generator/construction.rs` | split | identity::generator | authenticated indexed context and reusable zero/unit-shift and power preparation; remaining caller-sized infallible collections are explicitly queued for the resource-hardening tranche |
+| `src/identity/generator/source.rs` | split | identity::generator | prepared ordinary/external source batches, stable ordinal generation, ordered completion, and the sole consuming relation extraction |
+| `src/identity/generator/ordinary.rs` | split | identity::generator | topology- and loop-count-neutral ordinary and external-contraction IBP row construction |
+| `src/identity/generator/lorentz.rs` | split | identity::generator | LI pair preparation and exact weighted translation over one authenticated completed source barrier |
+| `src/identity/generator/domain.rs` | split | identity::generator | family-domain lifting into source-attributed nonzero conditions on each new relation |
+| `src/identity/generator/tests/mod.rs` | move | identity::generator tests | private focused test composition only |
+| `src/identity/generator/tests/support.rs` | move | identity::generator tests | compact topology-neutral family/relation fixtures shared by generator sentinels |
+| `src/identity/generator/tests/batch.rs` | split | identity::generator tests | retain semantic scope/layout/ordinal sealing and ordinary/external batch equivalence sentinels |
+| `src/identity/generator/tests/counts.rs` | split | identity::generator tests | retain exact general and structural six-loop row censuses plus ordinal bounds |
+| `src/identity/generator/tests/domain.rs` | split | identity::generator tests | retain real family-domain provenance on generated identities |
+| `src/identity/generator/tests/limits.rs` | split | identity::generator tests | retain generator propagation of exact-algebra resource failures |
+| `src/identity/generator/tests/lorentz.rs` | split | identity::generator tests | retain LI construction and zero-row edge behavior |
+| `src/identity/generator/tests/ordinary.rs` | split | identity::generator tests | retain exact ordinary-IBP convention and coefficients |
+| `src/identity/relation/mod.rs` | move | identity::relation | canonical narrow relation facade with its index-space seam confined to the identity tree |
 | `src/identity/relation/index.rs` | split | identity::relation | checked index-space/shift construction, shared no-copy shift storage and its owner-local clone sentinel, value ordering, and checked translation arithmetic; only `IndexShift` inspection is public |
 | `src/identity/relation/limits.rs` | move | identity::relation | independent exact-arithmetic and condition-source policy for relation operations |
 | `src/identity/relation/error.rs` | move | identity::relation | typed lattice, scope, family, domain, resource, condition, and coefficient failures |

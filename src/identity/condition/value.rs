@@ -16,7 +16,7 @@ pub struct ParametricNonZeroCondition {
 }
 
 impl ParametricNonZeroCondition {
-    pub(crate) fn try_new_with_limits(
+    pub(in crate::identity) fn try_new_with_limits(
         context: &IndexedCoefficientContext,
         polynomial: IndexedPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,

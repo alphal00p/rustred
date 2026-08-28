@@ -3,16 +3,15 @@
 //!
 //! The generic production path is loop-count and topology independent:
 //! [`IntegralFamily`] authenticates a complete affine scalar-product basis and
-//! [`ParametricIbpGenerator`] derives reusable ordinary and Lorentz-invariance
-//! identities over the exact field `K(n)`. Loop/topology-authored recurrences
-//! are not part of the generic production crate and are not sources of generic
-//! parametric identities or future discovered rules.
+//! [`identity::ParametricIbpGenerator`] derives reusable ordinary and
+//! Lorentz-invariance identities over the exact field `K(n)`. Loop/topology-
+//! authored recurrences are not part of the generic production crate and are
+//! not sources of generic parametric identities or future discovered rules.
 
 pub mod algebra;
 pub mod campaign;
 pub mod family;
 pub mod identity;
-pub mod parametric_ibp;
 pub mod sectors;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
@@ -39,7 +38,6 @@ pub use family::{
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
 };
-pub use parametric_ibp::{ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator};
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,
     RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorAnalysisStatus,

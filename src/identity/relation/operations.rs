@@ -10,7 +10,7 @@ use super::limits::RelationLimits;
 use super::model::ParametricRelation;
 
 impl ParametricRelation {
-    pub(crate) fn add_nonzero_condition_with_limits(
+    pub(in crate::identity) fn add_nonzero_condition_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         mut condition: ParametricNonZeroCondition,
@@ -41,7 +41,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub(crate) fn add_term_with_limits(
+    pub(in crate::identity) fn add_term_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         shift: IndexShift,
@@ -117,7 +117,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub(crate) fn add_scaled_with_limits(
+    pub(in crate::identity) fn add_scaled_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         other: &Self,
@@ -164,7 +164,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub(crate) fn translated(
+    pub(in crate::identity) fn translated(
         &self,
         context: &IndexedCoefficientContext,
         translation: &IndexShift,
