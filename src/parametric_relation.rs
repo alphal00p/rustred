@@ -5,8 +5,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::algebra::{
-    Coefficient, CoefficientContext, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
-    IndexedCoefficientContext, IndexedPolynomial,
+    Coefficient, CoefficientContext, CoefficientPolynomialPart, ExactAlgebraLimits,
+    IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
+    IndexedPolynomial, validate_polynomial_on_map,
 };
 use crate::family::{IntegralKey, IntegralKeyError};
 use crate::identity::{
@@ -622,13 +623,20 @@ impl ConcreteRelation {
         mut condition: SpecializedNonZeroCondition,
         limits: RelationLimits,
     ) -> Result<(), ParametricRelationError> {
-        if !context.contains(&condition.polynomial().raw().clone().into()) {
+        if validate_polynomial_on_map(
+            condition.polynomial(),
+            context.variables(),
+            CoefficientPolynomialPart::Numerator,
+            ExactAlgebraLimits::default(),
+        )
+        .is_err()
+        {
             return Err(ParametricRelationError::WrongContext);
         }
         if condition.polynomial().is_zero() {
             return Err(ParametricRelationError::UnsatisfiableDomain);
         }
-        if condition.polynomial().is_nonzero_constant() {
+        if condition.polynomial().is_constant() {
             return Ok(());
         }
         condition.add_source(

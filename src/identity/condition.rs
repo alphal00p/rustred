@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::algebra::{
-    BasePolynomial, Coefficient, ExactAlgebraLimits, IndexedAlgebraError, IndexedAlgebraLimits,
-    IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
+    Coefficient, CoefficientPolynomial, ExactAlgebraLimits, IndexedAlgebraError,
+    IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
 };
 use crate::family::CoefficientLocation;
 
@@ -330,7 +330,7 @@ impl ParametricNonZeroCondition {
                 assignment: assignment.to_vec().into_boxed_slice(),
             });
         }
-        SpecializedNonZeroCondition::try_new(polynomial, sources, condition_limits)
+        SpecializedNonZeroCondition::try_from_validated(polynomial, sources, condition_limits)
     }
 
     pub(crate) fn add_source(
@@ -375,13 +375,13 @@ impl ParametricNonZeroCondition {
 /// One specialized base-field condition with retained identity sources.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpecializedNonZeroCondition {
-    polynomial: BasePolynomial,
+    polynomial: CoefficientPolynomial,
     sources: BTreeSet<IdentityConditionSource>,
 }
 
 impl SpecializedNonZeroCondition {
-    pub fn try_new(
-        polynomial: BasePolynomial,
+    fn try_from_validated(
+        polynomial: CoefficientPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,
         limits: IdentityConditionLimits,
     ) -> Result<Self, IdentityConditionError> {
@@ -395,7 +395,7 @@ impl SpecializedNonZeroCondition {
         })
     }
 
-    pub fn polynomial(&self) -> &BasePolynomial {
+    pub fn polynomial(&self) -> &CoefficientPolynomial {
         &self.polynomial
     }
 
@@ -483,11 +483,10 @@ pub(crate) fn specialize_coefficient_with_condition(
     arithmetic_limits: IndexedAlgebraLimits,
     condition_limits: IdentityConditionLimits,
 ) -> Result<(Coefficient, Option<SpecializedNonZeroCondition>), IdentityConditionError> {
-    let specialized = context.specialize(value, assignment, arithmetic_limits)?;
-    let condition = specialized
-        .denominator_nonzero
+    let (value, denominator_nonzero) = context.specialize(value, assignment, arithmetic_limits)?;
+    let condition = denominator_nonzero
         .map(|polynomial| {
-            SpecializedNonZeroCondition::try_new(
+            SpecializedNonZeroCondition::try_from_validated(
                 polynomial,
                 [
                     IdentityConditionSource::CoefficientSpecializationDenominator,
@@ -499,7 +498,7 @@ pub(crate) fn specialize_coefficient_with_condition(
             )
         })
         .transpose()?;
-    Ok((specialized.value, condition))
+    Ok((value, condition))
 }
 
 fn collect_sources(
@@ -547,20 +546,48 @@ mod tests {
     #[test]
     fn specialized_condition_rejects_an_empty_source_set() {
         let base = CoefficientContext::new(["x"]);
-        let polynomial = BasePolynomial::try_from_raw(
-            base.parameter("x").unwrap().numerator.clone(),
-            &base,
-            ExactAlgebraLimits::default(),
-        )
-        .unwrap();
+        let polynomial = base.parameter("x").unwrap().numerator.clone();
         assert!(matches!(
-            SpecializedNonZeroCondition::try_new(
+            SpecializedNonZeroCondition::try_from_validated(
                 polynomial,
                 Vec::<IdentityConditionSource>::new(),
                 IdentityConditionLimits::default(),
             ),
             Err(IdentityConditionError::MissingSource)
         ));
+    }
+
+    #[test]
+    fn coefficient_specialization_retains_denominator_provenance() {
+        let base = CoefficientContext::new(["x"]);
+        let context = IndexedCoefficientContext::try_new(&base, "denominator-source", 1).unwrap();
+        let reciprocal = &base.one() / &base.parameter("x").unwrap();
+        let indexed = context.lift(&reciprocal).unwrap();
+
+        let (value, condition) = specialize_coefficient_with_condition(
+            &context,
+            &indexed,
+            &[3],
+            IndexedAlgebraLimits::default(),
+            IdentityConditionLimits::default(),
+        )
+        .unwrap();
+
+        assert_eq!(value, reciprocal);
+        let condition = condition.expect("the nonconstant denominator must remain explicit");
+        assert_eq!(
+            condition.polynomial(),
+            &base.parameter("x").unwrap().numerator
+        );
+        assert_eq!(
+            condition.sources(),
+            &BTreeSet::from([
+                IdentityConditionSource::CoefficientSpecializationDenominator,
+                IdentityConditionSource::IndexSpecialization {
+                    assignment: vec![3].into_boxed_slice(),
+                },
+            ])
+        );
     }
 
     #[test]

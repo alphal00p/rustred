@@ -20,7 +20,6 @@ use super::value::{IndexedCoefficient, IndexedPolynomial};
 #[derive(Clone, Debug)]
 pub struct IndexedCoefficientContext {
     pub(super) base: CoefficientContext,
-    pub(super) base_fingerprint: Arc<str>,
     pub(super) fingerprint: Arc<str>,
     pub(super) variables: Arc<Vec<PolyVariable>>,
     pub(super) index_variables: Arc<Vec<PolyVariable>>,
@@ -66,7 +65,7 @@ impl IndexedCoefficientContext {
         variables.extend(index_variables.iter().cloned());
         let variables = Arc::new(variables);
         let template = RationalPolynomial::new(&Z, variables.clone());
-        let base_fingerprint: Arc<str> = base_context_fingerprint(base).into();
+        let base_fingerprint = base_context_fingerprint(base);
         let fingerprint: Arc<str> = format!(
             "rustred-indexed-coefficient-context-v1|base={}|scope={}:{}|indices={index_count}",
             base_fingerprint,
@@ -77,7 +76,6 @@ impl IndexedCoefficientContext {
 
         Ok(Self {
             base: base.clone(),
-            base_fingerprint,
             fingerprint,
             variables,
             index_variables: Arc::new(index_variables),

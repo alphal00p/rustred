@@ -15,6 +15,6 @@ pub(crate) use base::{
     validate_coefficient_on_map, validate_polynomial_on_map,
 };
 pub use indexed::{
-    BasePolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
-    IndexedCoefficientContext, IndexedPolynomial,
+    IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
+    IndexedPolynomial,
 };

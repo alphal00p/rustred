@@ -4,13 +4,7 @@ use std::sync::Arc;
 
 use symbolica::prelude::*;
 
-use crate::algebra::{
-    Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraLimits,
-    validate_polynomial_on_map,
-};
-
-use super::error::IndexedAlgebraError;
-use super::scope::base_context_fingerprint;
+use crate::algebra::{Coefficient, CoefficientPolynomial};
 
 /// A canonical coefficient known to belong to one exact `K(n)` variable map.
 ///
@@ -35,56 +29,6 @@ impl IndexedCoefficient {
 
     pub fn to_expression(&self) -> Atom {
         self.raw.to_expression()
-    }
-}
-
-/// A polynomial over `K`'s integer polynomial ring, authenticated by its
-/// ordered base variable map.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BasePolynomial {
-    pub(super) raw: CoefficientPolynomial,
-    pub(super) context: Arc<str>,
-}
-
-impl BasePolynomial {
-    /// Authenticate a base-field polynomial against an exact coefficient
-    /// context. This is used when a later concrete quotient introduces a new
-    /// nonzero condition that did not exist in the parametric source rows.
-    pub fn try_from_raw(
-        raw: CoefficientPolynomial,
-        context: &CoefficientContext,
-        limits: ExactAlgebraLimits,
-    ) -> Result<Self, IndexedAlgebraError> {
-        validate_polynomial_on_map(
-            &raw,
-            context.variables(),
-            crate::algebra::CoefficientPolynomialPart::Numerator,
-            limits,
-        )?;
-        Ok(Self {
-            raw,
-            context: base_context_fingerprint(context).into(),
-        })
-    }
-
-    pub fn raw(&self) -> &CoefficientPolynomial {
-        &self.raw
-    }
-
-    pub fn to_expression(&self) -> Atom {
-        self.raw.to_expression()
-    }
-
-    pub fn is_zero(&self) -> bool {
-        self.raw.is_zero()
-    }
-
-    pub fn is_one(&self) -> bool {
-        self.raw.is_one()
-    }
-
-    pub fn is_nonzero_constant(&self) -> bool {
-        self.raw.is_constant() && !self.raw.is_zero()
     }
 }
 

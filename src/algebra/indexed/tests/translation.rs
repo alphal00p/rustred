@@ -15,13 +15,10 @@ fn lift_translate_and_specialize_preserve_authenticated_maps() {
     let translated = context
         .translate(&value, &[2, -3], IndexedAlgebraLimits::default())
         .unwrap();
-    let specialized = context
+    let (specialized, denominator_nonzero) = context
         .specialize(&translated, &[5, 100], IndexedAlgebraLimits::default())
         .unwrap();
     let expected = &base.integer(7) * &family_value;
-    assert_eq!(specialized.value, expected);
-    assert_eq!(
-        specialized.denominator_nonzero.unwrap().to_expression(),
-        m2.to_expression()
-    );
+    assert_eq!(specialized, expected);
+    assert_eq!(denominator_nonzero.unwrap(), m2.numerator);
 }

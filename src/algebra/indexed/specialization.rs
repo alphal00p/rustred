@@ -13,7 +13,7 @@ use super::limits::{
     IndexedAlgebraLimits, ceil_log2, check_limit, checked_indexed_add, checked_indexed_mul,
     integer_magnitude_bits, verify_polynomial_execution_envelope,
 };
-use super::value::{BasePolynomial, IndexedCoefficient, IndexedPolynomial};
+use super::value::{IndexedCoefficient, IndexedPolynomial};
 
 /// Prospective mathematical bounds used immediately by one specialization.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -21,16 +21,6 @@ struct SpecializationPreflight {
     output_term_bound: usize,
     output_exponent_entry_bound: usize,
     largest_output_integer_bit_bound: usize,
-}
-
-/// Algebra-only specialization of one `K(n)` coefficient back into `K`.
-///
-/// `denominator_nonzero` retains the mapped original denominator before
-/// Symbolica can cancel factors. The identity layer attaches typed sources.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CoefficientSpecialization {
-    pub(crate) value: Coefficient,
-    pub(crate) denominator_nonzero: Option<BasePolynomial>,
 }
 
 impl IndexedCoefficientContext {
@@ -42,7 +32,7 @@ impl IndexedCoefficientContext {
         value: &IndexedCoefficient,
         assignment: &[i64],
         limits: IndexedAlgebraLimits,
-    ) -> Result<CoefficientSpecialization, IndexedAlgebraError> {
+    ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(assignment)?;
         let numerator_preflight =
@@ -77,10 +67,7 @@ impl IndexedCoefficientContext {
         let denominator_nonzero = if denominator.is_constant() {
             None
         } else {
-            Some(BasePolynomial {
-                raw: denominator.clone(),
-                context: self.base_fingerprint.clone(),
-            })
+            Some(denominator.clone())
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             <Coefficient as FromNumeratorAndDenominator<IntegerRing, IntegerRing, u16>>::from_num_den(
@@ -97,10 +84,7 @@ impl IndexedCoefficientContext {
             )
         })?;
         validate_coefficient_on_map(&result, self.base.variables(), limits.exact_algebra)?;
-        Ok(CoefficientSpecialization {
-            value: result,
-            denominator_nonzero,
-        })
+        Ok((result, denominator_nonzero))
     }
 
     pub fn specialize_polynomial(
@@ -108,13 +92,10 @@ impl IndexedCoefficientContext {
         value: &IndexedPolynomial,
         assignment: &[i64],
         limits: IndexedAlgebraLimits,
-    ) -> Result<BasePolynomial, IndexedAlgebraError> {
+    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(assignment)?;
-        Ok(BasePolynomial {
-            raw: self.specialize_polynomial_raw(&value.raw, assignment, limits)?,
-            context: self.base_fingerprint.clone(),
-        })
+        self.specialize_polynomial_raw(&value.raw, assignment, limits)
     }
 
     fn specialize_polynomial_raw(

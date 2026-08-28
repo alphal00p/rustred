@@ -22,8 +22,8 @@ pub mod symmetry_discovery;
 pub mod zero_sectors;
 
 pub use algebra::{
-    BasePolynomial, CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits,
-    IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial,
+    CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
+    IndexedCoefficientContext, IndexedPolynomial,
 };
 pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use family::isp::{

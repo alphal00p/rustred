@@ -1,6 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `2b45b1f`, immediately before the indexed-algebra tree split.
+**Baseline parent:** `fb355e4`, immediately before redundant indexed-algebra
+wrapper removal.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 86 tracked Rust source/test paths
@@ -11,6 +12,12 @@ whole path after any named sentinel is in place, and `replace` writes a new
 authority rather than relocating the file. A `split` decision is not
 permission to carry the whole file forward. New Rust paths must be added before
 their milestone commit, and an unclassified path blocks R3.
+
+Immediate application reachability is not the sole retention criterion. The
+generic ISP, Symanzik, symmetry, zero-sector, and concrete-specialization
+authorities are strategic capabilities required by `GOAL.md`; their `split`
+entries retain only the topology-neutral kernel assigned to the named final
+owner, even where the current thin application does not invoke it yet.
 
 Regenerate this inventory after every R2-R4 milestone. Repeated long prefixes
 must become a cohesive parent module with short role-named children or be
@@ -54,13 +61,13 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
 | `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary and the sole raw `CoefficientPolynomial` alias; the indexed and affine-input domains now reuse this owner |
 | `src/algebra/indexed/mod.rs` | move | algebra::indexed | narrow authenticated `K(n)` facade; the former flat parametric-coefficient module and compatibility names are deleted |
-| `src/algebra/indexed/context.rs` | split | algebra::indexed | retain authenticated base/index map construction and checked exact field arithmetic; redundant caller-free query and construction surfaces are deleted |
+| `src/algebra/indexed/context.rs` | split | algebra::indexed | retain authenticated base/index map construction and checked exact field arithmetic; redundant caller-free surfaces and the separately stored base fingerprint are deleted |
 | `src/algebra/indexed/error.rs` | move | algebra::indexed | one topology- and provenance-neutral indexed-algebra error taxonomy |
 | `src/algebra/indexed/limits.rs` | split | algebra::indexed | retain prospective native-operation envelopes and checked resource arithmetic while narrowing unnecessarily wide local counters |
 | `src/algebra/indexed/scope.rs` | split | algebra::indexed | private lossless Symbolica namespace and base-context identity construction, separated to keep value/context dependencies acyclic |
-| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`; remove the one-field result ceremony and base-polynomial wrapper after condition ownership is ready |
+| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`, returning the normalized value plus its mapped pre-normalization denominator directly; the one-field result ceremony and base-polynomial wrapper are deleted |
 | `src/algebra/indexed/translation.rs` | split | algebra::indexed | retain checked affine index translation until it is delegated to the public Symbolica polynomial substitution API |
-| `src/algebra/indexed/value.rs` | split | algebra::indexed | retain authenticated indexed coefficient/polynomial values; remove the redundant authenticated base-polynomial wrapper in the next semantic split |
+| `src/algebra/indexed/value.rs` | split | algebra::indexed | retain only authenticated indexed coefficient/polynomial values; the redundant authenticated base-polynomial wrapper is deleted because the consuming identity layer owns the validated condition |
 | `src/algebra/indexed/tests/mod.rs` | split | algebra::indexed tests | private test composition only |
 | `src/algebra/indexed/tests/context.rs` | split | algebra::indexed tests | retain map identity, construction, and checked field-operation sentinels |
 | `src/algebra/indexed/tests/specialization.rs` | split | algebra::indexed tests | retain specialization, normalization, GMP, and resource-order sentinels through native substitution migration |
@@ -103,7 +110,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
-| `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, independent source-cardinality limits, and provenance attachment around algebra-only specialization |
+| `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, raw base-polynomial conditions already validated at their construction boundary, independent source-cardinality limits, and provenance attachment around algebra-only specialization; concrete specialization ultimately moves under reduction |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse relation arithmetic with one typed condition vector and an independent `RelationLimits` composition policy |

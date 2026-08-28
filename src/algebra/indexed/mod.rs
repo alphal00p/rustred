@@ -17,7 +17,7 @@ mod value;
 pub use context::IndexedCoefficientContext;
 pub use error::IndexedAlgebraError;
 pub use limits::IndexedAlgebraLimits;
-pub use value::{BasePolynomial, IndexedCoefficient, IndexedPolynomial};
+pub use value::{IndexedCoefficient, IndexedPolynomial};
 
 #[cfg(test)]
 mod tests;
