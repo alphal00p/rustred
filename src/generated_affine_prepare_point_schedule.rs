@@ -21,7 +21,7 @@ use crate::affine_prepare_points::{
 use crate::generated_affine_parametric_ordering::{
     GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingError,
 };
-use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthority;
+use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthority;
 use crate::{
     AffinePreparePointError, AffinePreparePointLimits, AffinePreparePointScheduleError,
     AffinePreparePointScheduleLimits, AffinePreparePointScheduleStats, AffinePreparePointStats,
@@ -930,12 +930,12 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
+    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
         GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCertificate,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
-    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,

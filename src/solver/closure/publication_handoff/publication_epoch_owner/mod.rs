@@ -17,8 +17,7 @@
 //! ownership without copying algebraic payload. Applicable-provider admission
 //! and the RAM-bounded mathematical re-entry coordinator remain separate.
 
-#[path = "generated_affine_residual_group_exact_publication_epoch_result_batch.rs"]
-pub(crate) mod result_batch;
+mod result_batch;
 
 use std::fmt;
 use std::mem::{align_of, size_of};
@@ -33,7 +32,7 @@ use crate::exact_identity::{
     ExactIdentityError, ExactIdentityLimits, ExactIdentityPayload, ExactIdentityWriter,
     ExactStructuralIdentity, encode_exact_identity,
 };
-use crate::generated_affine_residual_case_inventory::{
+use crate::solver::closure::case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
     GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseAuthoritySourceKind,
     GeneratedAffineResidualCaseSourceRowLimits, GeneratedAffineResidualCaseSourceRowView,
@@ -353,19 +352,19 @@ impl fmt::Debug for ExactPublicationEpochExceptionalSourceView<'_> {
 /// consumes one mint opportunity from an authenticated issued source lease.
 /// Lease issuance and the consuming mint are the uniqueness boundary; this
 /// source deliberately does not implement `Clone`.
-pub(crate) struct CommittedExceptionalSingletonSource {
+pub(in crate::solver::closure) struct CommittedExceptionalSingletonSource {
     event: CommittedPublicationEventHandle,
     leaf_ordinal: usize,
 }
 
-pub(crate) const COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
+const COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-committed-exceptional-singleton-stable-value-identity-v1";
 
 /// Explicit topology-neutral constructor ceilings for one narrowed child
 /// session.  The campaign estimator remains responsible for the surrounding
 /// retained/transient memory envelope and opaque Symbolica reserve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct CommittedExceptionalFreshSessionLimits {
+pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionLimits {
     pub(crate) authority: GeneratedAffineResidualCaseAuthorityLimits,
     pub(crate) physical_frame: GeneratedAffineResidualGroupPhysicalKeyLimits,
     pub(crate) solve_plan: GeneratedAffineResidualGroupSolvePlanLimits,
@@ -384,7 +383,7 @@ impl Default for CommittedExceptionalFreshSessionLimits {
 }
 
 #[derive(Debug)]
-pub(crate) enum CommittedExceptionalFreshSessionBuildError {
+pub(in crate::solver::closure) enum CommittedExceptionalFreshSessionBuildError {
     Authority(GeneratedAffineResidualCaseAuthorityError),
     InheritedSourceRowCountMismatch { expected: usize, actual: usize },
     PhysicalFrame(GeneratedAffineResidualGroupPhysicalKeyError),
@@ -397,7 +396,12 @@ pub(crate) enum CommittedExceptionalFreshSessionBuildError {
 /// owner-visible census.  This is not an RSS estimate: allocator metadata,
 /// native Symbolica state, TLS, and headroom remain in the campaign's nonzero
 /// opaque reserve.
-pub(crate) struct CommittedExceptionalFreshSessionBuild {
+pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionBuild {
+    predecessor_source: CommittedExceptionalSingletonSource,
+    candidate: CommittedExceptionalFreshSessionCandidate,
+}
+
+struct CommittedExceptionalFreshSessionCandidate {
     session: GeneratedAffineResidualGroupExactSession,
     inherited_source_rows: usize,
     conservative_visible_bytes_excluding_shared_ancestry: usize,
@@ -405,19 +409,46 @@ pub(crate) struct CommittedExceptionalFreshSessionBuild {
 
 impl CommittedExceptionalFreshSessionBuild {
     pub(crate) const fn session(&self) -> &GeneratedAffineResidualGroupExactSession {
-        &self.session
+        &self.candidate.session
     }
 
     pub(crate) const fn conservative_visible_bytes_excluding_shared_ancestry(&self) -> usize {
-        self.conservative_visible_bytes_excluding_shared_ancestry
+        self.candidate
+            .conservative_visible_bytes_excluding_shared_ancestry
     }
 
     pub(crate) const fn inherited_source_rows(&self) -> usize {
-        self.inherited_source_rows
+        self.candidate.inherited_source_rows
     }
 
     pub(crate) fn into_session(self) -> GeneratedAffineResidualGroupExactSession {
-        self.session
+        self.candidate.session
+    }
+
+    pub(in crate::solver::closure) fn recover_predecessor_source(
+        self,
+    ) -> CommittedExceptionalSingletonSource {
+        self.predecessor_source
+    }
+}
+
+/// Transactional failure from consuming one committed exceptional source.
+///
+/// The exact source owner is returned intact so a failed admitted transform
+/// can retry or restore its predecessor without minting a second authority.
+pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionBuildFailure {
+    source: CommittedExceptionalSingletonSource,
+    error: CommittedExceptionalFreshSessionBuildError,
+}
+
+impl CommittedExceptionalFreshSessionBuildFailure {
+    pub(in crate::solver::closure) fn into_parts(
+        self,
+    ) -> (
+        CommittedExceptionalSingletonSource,
+        CommittedExceptionalFreshSessionBuildError,
+    ) {
+        (self.source, self.error)
     }
 }
 
@@ -539,6 +570,10 @@ impl CommittedExceptionalSingletonSource {
         self.event.same_event_allocation(&other.event) && self.leaf_ordinal == other.leaf_ordinal
     }
 
+    pub(in crate::solver::closure) fn event_allocation_identity_for_closure(&self) -> usize {
+        self.event.event_allocation_identity_for_handoff()
+    }
+
     pub(crate) fn event_ordinal(&self) -> usize {
         self.event.view().event_ordinal()
     }
@@ -581,27 +616,48 @@ impl CommittedExceptionalSingletonSource {
         )
     }
 
-    /// Build the replacement fresh exact session from a private shallow proof
-    /// copy.  This adapter must only be called while the original source owner
-    /// is held by a `CampaignResidentTransform`: the callback returns that
-    /// untouched original on every `Err` and drops it only after the admitted
-    /// successor has been constructed and its visible census checked.
+    /// Consume this source to build one replacement fresh exact session.
+    ///
+    /// A private shallow proof copy is transferred into the successor
+    /// authority. The original owner is returned intact on every error and is
+    /// dropped only after the successor has been fully constructed and its
+    /// visible census checked, making the one-shot capability structural.
     ///
     /// The census deliberately charges the committed event allocation and
     /// event-local payload in full for each child.  It does not enumerate the
     /// separately shared event-authority/parent-plan ancestry: production must
     /// keep that graph in an admitted shared-lineage owner (or add a
     /// conservative per-child ancestry estimate) before dropping the origin.
-    pub(crate) fn try_build_fresh_exact_session_for_admitted_transform(
+    pub(in crate::solver::closure) fn try_build_fresh_exact_session_for_admitted_transform(
+        self,
+        family: &IntegralFamily,
+        context: &ParametricCoefficientContext,
+        database_epoch: usize,
+        limits: CommittedExceptionalFreshSessionLimits,
+    ) -> Result<CommittedExceptionalFreshSessionBuild, CommittedExceptionalFreshSessionBuildFailure>
+    {
+        match self.try_build_fresh_exact_session_inner(family, context, database_epoch, limits) {
+            Ok(candidate) => Ok(CommittedExceptionalFreshSessionBuild {
+                predecessor_source: self,
+                candidate,
+            }),
+            Err(error) => Err(CommittedExceptionalFreshSessionBuildFailure {
+                source: self,
+                error,
+            }),
+        }
+    }
+
+    fn try_build_fresh_exact_session_inner(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         database_epoch: usize,
         limits: CommittedExceptionalFreshSessionLimits,
-    ) -> Result<CommittedExceptionalFreshSessionBuild, CommittedExceptionalFreshSessionBuildError>
+    ) -> Result<CommittedExceptionalFreshSessionCandidate, CommittedExceptionalFreshSessionBuildError>
     {
         let authority = Arc::new(
-            GeneratedAffineResidualCaseAuthority::try_new_committed_exceptional_singleton(
+            crate::solver::closure::committed_exceptional_source::epoch_adapter::try_new_authority(
                 family,
                 context,
                 self.clone_for_admitted_transform(),
@@ -677,7 +733,7 @@ impl CommittedExceptionalSingletonSource {
                 resource: "committed exceptional fresh-session visible census",
             },
         )?;
-        Ok(CommittedExceptionalFreshSessionBuild {
+        Ok(CommittedExceptionalFreshSessionCandidate {
             session,
             inherited_source_rows,
             conservative_visible_bytes_excluding_shared_ancestry,
@@ -2219,11 +2275,11 @@ mod tests {
         CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
         CampaignTaskResourceEstimate, CampaignWavePlanner,
     };
-    use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
     use crate::generated_affine_residual_group_exact_publication::{
         PreparedPublication, PublicationLimits,
     };
     use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
+    use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
     use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
@@ -2445,7 +2501,8 @@ mod tests {
             CommittedExceptionalFreshSessionLimits::default(),
         ) {
             Ok(build) => build,
-            Err(error) => {
+            Err(failure) => {
+                let (source, error) = failure.into_parts();
                 return Err(CampaignResidentTransformBuildFailure::new(
                     source,
                     FreshDomainSessionTransformError::Build(error),
@@ -2474,6 +2531,7 @@ mod tests {
         let charged = usize::try_from(task.memory().retained_output().visible_logical().get())
             .unwrap_or(usize::MAX);
         if requested > charged {
+            let source = build.recover_predecessor_source();
             return Err(CampaignResidentTransformBuildFailure::new(
                 source,
                 FreshDomainSessionTransformError::VisibleCensusExcludingSharedAncestryUnderestimated {
@@ -2483,6 +2541,7 @@ mod tests {
             ));
         }
         if let Err(error) = build.session().replay(family, context) {
+            let source = build.recover_predecessor_source();
             return Err(CampaignResidentTransformBuildFailure::new(
                 source,
                 FreshDomainSessionTransformError::Build(

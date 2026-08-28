@@ -261,13 +261,13 @@ The current-lineage components below are implemented and tested:
   resolved relative predicates). The later epoch owner supplies algebra-free
   retry scheduling; this event alone is not mathematical residual ingress, a
   provider result, or a reduction.
-- `src/generated_affine_residual_group_exact_publication_handoff.rs` consumes
+- `src/solver/closure/publication_handoff/mod.rs` consumes
   committed receipts into a bounded canonical `(job, lane, event, leaf)`
   handoff wave. It retains one event handle per slot, one atomic byte per leaf,
   and a hard ceiling on non-Clone borrowed tickets. Acknowledgement records
   handoff acceptance only; the module does not apply a rule or prove discharge,
   coverage, closure, or a terminal.
-- `src/generated_affine_residual_group_exact_publication_epoch_owner.rs`
+- `src/solver/closure/publication_handoff/publication_epoch_owner/mod.rs`
   consumes only a fully acknowledged, quiescent handoff and algebra-free moves
   its slots into one closure-epoch scheduling owner. It keeps the single event
   handle per slot, compact flat applicable/exceptional indices, and one atomic
@@ -284,6 +284,14 @@ The current-lineage components below are implemented and tested:
   elimination, an origin-droppable shared-lineage owner, a general result
   database, or closure. Same-database rejected-candidate continuation is a
   separate exact-session transition and never enters this exceptional owner.
+- The publication owners and source-neutral case inventory are now physically
+  nested under `src/solver/closure`. The inventory imports no handoff, epoch,
+  or exact-session concrete type. A private sealed adapter is the sole concrete
+  committed-epoch ingress and erases that source only after admission, giving
+  the inventory an opaque owner and preserving one-way dependency direction.
+  The sealed protocol is a generic leaf over the unchanged exact error and
+  row-limit types; its borrowed row/predicate projections contain no inventory
+  or epoch implementation dependency.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci

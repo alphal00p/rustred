@@ -403,9 +403,19 @@ reviewable from semantic changes.
    live as private children of
    `solver::exact_session`. External production consumers reach only a
    selective crate-private facade, shared fixtures live behind a test-only
-   support facade, and no old-path aliases remain. Ready/WhenBad
-   materialization, publication/epoch scheduling, their remaining ownership
-   cycles, and the other mathematical clusters still need reorganization.
+   support facade, and no old-path aliases remain. The exact-closure ownership
+   tranche is complete as well: the case inventory, publication handoff,
+   publication-epoch owner, and result batch are physically nested under
+   `solver::closure`, again without root compatibility aliases. The former
+   concrete inventory-to-epoch backedge is inverted through a private sealed
+   adapter whose sole ingress accepts the concrete committed-epoch source and
+   gives the inventory only an opaque, source-neutral owner. Its sealed
+   protocol is a separate generic leaf over the exact error and row-limit
+   types, so neither the protocol nor the inventory imports the other layer's
+   concrete implementation. The inventory no longer imports handoff, epoch,
+   or exact-session types. Ready/WhenBad
+   materialization, the remaining Ready/WhenBad/publication ownership cycles,
+   and the other mathematical clusters still need reorganization.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

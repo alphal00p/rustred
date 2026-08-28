@@ -21,12 +21,6 @@ use std::sync::Arc;
 
 use symbolica::domains::integer::Integer;
 
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthorityError, GeneratedAffineResidualInventoryTerminalLocator,
-    GeneratedAffineResidualSameGroupTargetCaseLimits,
-    GeneratedAffineResidualSameGroupTargetCasesLimits,
-    GeneratedAffineResidualSameGroupTargetHandleLimits,
-};
 use crate::generated_affine_residual_case_reelimination::{
     GENERATED_AFFINE_RESIDUAL_CASE_REELIMINATION_V2_SCHEMA,
     GeneratedAffineResidualCaseReeliminationCertificate,
@@ -36,6 +30,12 @@ use crate::parametric_coefficient::CoefficientPolynomial;
 use crate::parametric_relation::{
     ParametricAffineFreeRecenteringLimits, ParametricAffineFreeRecenteringStats,
     ParametricRelationV2Observer, write_relation_manifest_v2_observed,
+};
+use crate::solver::closure::case_inventory::{
+    GeneratedAffineResidualCaseAuthorityError, GeneratedAffineResidualInventoryTerminalLocator,
+    GeneratedAffineResidualSameGroupTargetCaseLimits,
+    GeneratedAffineResidualSameGroupTargetCasesLimits,
+    GeneratedAffineResidualSameGroupTargetHandleLimits,
 };
 use crate::{
     IndexShift, IntegralFamily, ParametricCoefficientContext, ParametricRelation,
@@ -2925,10 +2925,6 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
@@ -2939,6 +2935,10 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,

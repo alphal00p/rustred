@@ -34,7 +34,7 @@ use std::sync::atomic::AtomicUsize;
 use symbolica::prelude::Integer;
 
 use crate::affine_parametric_ordering::integer_magnitude_bits;
-use crate::generated_affine_residual_case_inventory::{
+use crate::solver::closure::case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
     GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRecordView,
     GeneratedAffineResidualInventoryGroupSourceView,
@@ -3270,12 +3270,12 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
+    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
         GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCertificate,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
-    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,

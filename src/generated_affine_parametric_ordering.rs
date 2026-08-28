@@ -23,7 +23,7 @@ use crate::affine_parametric_ordering::{
     AffineStartIntegralComplexityKey, RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
     integer_magnitude_bits, key_component_count,
 };
-use crate::generated_affine_residual_case_inventory::{
+use crate::solver::closure::case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
     GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceLocator,
     GeneratedAffineResidualCaseSourceRecordView, GeneratedAffineResidualInventoryGroupSourceView,
@@ -723,7 +723,10 @@ struct GeneratedCaseOrderingGeometry<'source> {
 }
 
 impl<'source> GeneratedCaseOrderingGeometry<'source> {
-    fn geometry(self) -> crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseGeometryView<'source>{
+    fn geometry(
+        self,
+    ) -> crate::solver::closure::case_inventory::GeneratedAffineResidualCaseGeometryView<'source>
+    {
         self.case.source().geometry()
     }
 }
@@ -1440,13 +1443,13 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
+    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
         GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCertificate,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
         GeneratedAffineResidualInventoryCaseSourceRecordView,
     };
-    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,

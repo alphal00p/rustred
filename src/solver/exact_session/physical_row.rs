@@ -1472,11 +1472,6 @@ mod tests {
         GeneratedAffineResidualCaseCompletedBoundRow,
         GeneratedAffineResidualCaseCompletedBoundRowLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCertificate,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
@@ -1489,6 +1484,11 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationRowOutcome,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCertificate,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,

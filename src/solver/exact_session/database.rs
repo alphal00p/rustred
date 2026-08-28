@@ -40,7 +40,6 @@ use super::plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
 };
 use super::session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
-use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
 use crate::parametric_coefficient::insert_parametric_condition;
 use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
@@ -56,6 +55,7 @@ use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
     ParametricCoefficientWorkPhase,
 };
+use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
 use crate::{
     GuardOrigin, IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
     ParametricNonZeroCondition,
@@ -4757,10 +4757,6 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
@@ -4781,6 +4777,10 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,

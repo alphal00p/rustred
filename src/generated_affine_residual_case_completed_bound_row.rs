@@ -20,8 +20,8 @@ use crate::generated_affine_residual_case_bound_relation::{
     GeneratedAffineResidualCaseBoundParametricRelation,
     GeneratedAffineResidualCaseBoundRelationError,
 };
-use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthority;
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCasePremisesCertificate;
+use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthority;
 use crate::{
     IntegralFamily, ParametricArithmeticLimits, ParametricCoefficientContext, ParametricRelation,
     ParametricRelationError,

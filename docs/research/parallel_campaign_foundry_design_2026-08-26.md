@@ -866,14 +866,17 @@ consumed into an event-owned singleton resident, its stable value identity
 binds the full child scope independently of allocation coordinates, and a
 charged resident transform retains/authenticates the inherited generic-source
 authority in a fresh V3 plan/catalog before constructing an empty database/
-session. This validates state isolation but is not the production equality
-continuation order. The publication application row is not a source row, the inherited
-rows have not yet been submitted, and no parent pivot, target disposition, or
-event ledger is imported. The generated fixture stops at typed affine-equality
-refinement. The immediate adapter must consume the resident first, compile the
-unit proof from its source authority, map every surviving `NonZero`, and commit
-a refined-source successor before a child session exists. The full continuation
-witness, general integer-normal-
+session. The closure inventory remains source-neutral: a private sealed
+adapter alone accepts the concrete epoch source and hands it an opaque owner,
+so the inventory has no upward dependency on publication or exact-session
+types. This validates state isolation but is not the production equality
+continuation order. The publication application row is not a source row, the
+inherited rows have not yet been submitted, and no parent pivot, target
+disposition, or event ledger is imported. The generated fixture stops at typed
+affine-equality refinement. The immediate adapter must consume the resident
+first, compile the unit proof from its source authority, map every surviving
+`NonZero`, and commit a refined-source successor before a child session
+exists. The full continuation witness, general integer-normal-
 form equality support, shared-ancestry
 admission, multi-child re-entry coordinator, and closure are not implemented.
 

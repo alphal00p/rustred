@@ -66,10 +66,6 @@ use super::targets::{
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
 };
 use super::telemetry::NativeSparseScalingSnapshot;
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
-    GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
-};
 use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
 use crate::generated_affine_residual_group_exact_publication::{
     PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
@@ -92,6 +88,10 @@ use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
 use crate::parametric_coefficient::symbolica_sparse::SymbolicaPersistentSparseShallowCapacitySnapshot;
+use crate::solver::closure::case_inventory::{
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
+    GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
+};
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
     ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
@@ -1767,7 +1767,7 @@ impl<'session> CommittedPublicationEventView<'session> {
         limits: GeneratedAffineResidualCaseSourceRowLimits,
     ) -> Result<
         GeneratedAffineResidualCaseSourceRowView<'session>,
-        crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthorityError,
+        crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthorityError,
     > {
         self.event
             .authority
@@ -1780,10 +1780,8 @@ impl<'session> CommittedPublicationEventView<'session> {
         self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
-    ) -> Result<
-        (),
-        crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthorityError,
-    > {
+    ) -> Result<(), crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthorityError>
+    {
         self.event
             .authority
             .plan
@@ -6496,10 +6494,6 @@ pub(super) mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
@@ -6552,6 +6546,10 @@ pub(super) mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

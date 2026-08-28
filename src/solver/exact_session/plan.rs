@@ -21,7 +21,7 @@ use super::physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError, GeneratedAffineResidualGroupPhysicalKeyPreflight,
 };
-use crate::generated_affine_residual_case_inventory::{
+use crate::solver::closure::case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
     GeneratedAffineResidualCaseAuthoritySourceKind,
     GeneratedAffineResidualCaseInventoryCertificate, GeneratedAffineResidualCaseInventoryError,
@@ -1960,10 +1960,6 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseInventoryCompiler,
-        GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::parametric_sector_formula_affine_terminal::{
         ParametricSectorFormulaAffineTerminalCertificate,
@@ -1976,6 +1972,10 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseInventoryCompiler,
+        GeneratedAffineResidualCaseInventoryLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,

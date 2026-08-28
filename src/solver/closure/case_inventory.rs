@@ -17,6 +17,10 @@ use std::cell::Cell;
 
 use symbolica::domains::integer::Integer;
 
+use super::committed_exceptional_source::protocol::{
+    CommittedExceptionalSourceCensusOverflow,
+    CommittedExceptionalSourceOwner as GenericCommittedExceptionalSourceOwner,
+};
 use crate::exact_identity::{
     ExactIdentityError, ExactIdentityLimits, ExactIdentityStats, ExactStructuralIdentity,
 };
@@ -48,7 +52,6 @@ use crate::generated_affine_residual_boolean_cover::{
     GeneratedAffineResidualBooleanTerminalSourceView,
     generated_affine_residual_boolean_ready_compilation_temporary_overhead,
 };
-use crate::generated_affine_residual_group_exact_publication_handoff::publication_epoch_owner::CommittedExceptionalSingletonSource;
 use crate::generated_affine_residual_source_authority::{
     GeneratedAffineInitialGlobalBooleanAtomPolarity,
     GeneratedAffineInitialGlobalBooleanAtomSourceView,
@@ -80,6 +83,12 @@ use crate::{
     ResidualAffineBranchUnsupportedReason, ResidualAffineIntegerMap, SectorMask,
     SymbolicPolynomialPredicateKind,
 };
+
+pub(in crate::solver::closure) type CommittedExceptionalCaseSourceOwner =
+    GenericCommittedExceptionalSourceOwner<
+        GeneratedAffineResidualCaseAuthorityError,
+        GeneratedAffineResidualCaseSourceRowLimits,
+    >;
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_CASE_INVENTORY_V2_SCHEMA: &str =
     "rustred-generated-affine-residual-case-inventory-v2";
@@ -1583,7 +1592,7 @@ enum GeneratedAffineResidualCaseAuthoritySource {
         stable_identity: ExactStructuralIdentity,
     },
     CommittedExceptionalSingleton {
-        source: Arc<CommittedExceptionalSingletonSource>,
+        source: CommittedExceptionalCaseSourceOwner,
         anchor_offsets: Arc<Vec<Vec<Integer>>>,
         stable_identity: ExactStructuralIdentity,
     },
@@ -1638,6 +1647,21 @@ pub(crate) struct GeneratedAffineResidualCaseAuthority {
     group_ordinal: usize,
     limits: GeneratedAffineResidualCaseAuthorityLimits,
     stats: GeneratedAffineResidualCaseAuthorityStats,
+}
+
+/// Named, move-only handoff from the sealed committed-source adapter.
+///
+/// Keeping the opaque owner and every admitted census in one record prevents
+/// positionally interchangeable counters from crossing the assembly boundary.
+pub(in crate::solver::closure) struct CommittedExceptionalSingletonAuthorityAssembly {
+    pub(in crate::solver::closure) source: CommittedExceptionalCaseSourceOwner,
+    pub(in crate::solver::closure) anchor_offsets: Arc<Vec<Vec<Integer>>>,
+    pub(in crate::solver::closure) stable_identity: ExactStructuralIdentity,
+    pub(in crate::solver::closure) limits: GeneratedAffineResidualCaseAuthorityLimits,
+    pub(in crate::solver::closure) scope_comparison_bytes: usize,
+    pub(in crate::solver::closure) domain_scans: usize,
+    pub(in crate::solver::closure) observed_anchor_bytes: usize,
+    pub(in crate::solver::closure) owner_retained_bytes_excluding_shared_ancestry: usize,
 }
 
 impl fmt::Debug for GeneratedAffineResidualCaseAuthority {
@@ -1955,220 +1979,50 @@ impl GeneratedAffineResidualCaseAuthority {
         .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SymbolicaPanic)?
     }
 
-    /// Admit one event-bound exceptional-domain leaf as a fresh singleton
-    /// case/group.  The source can only be minted by consuming an authenticated
-    /// publication-epoch lease; this constructor replays its retained parent
-    /// generic-source authority and never treats the publication row as an IBP
-    /// source.
-    pub(crate) fn try_new_committed_exceptional_singleton(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        source: CommittedExceptionalSingletonSource,
-        limits: GeneratedAffineResidualCaseAuthorityLimits,
-    ) -> Result<Self, GeneratedAffineResidualCaseAuthorityError> {
-        catch_unwind(AssertUnwindSafe(|| {
-            let scope_comparison_bytes = case_authority_checked_sum(
-                "committed exceptional singleton scope comparison bytes",
-                [
-                    family.fingerprint_ref().len(),
-                    source.family_fingerprint().len(),
-                    context.fingerprint().len(),
-                    source.context_fingerprint().len(),
-                ],
-            )?;
-            case_authority_check_limit(
-                "committed exceptional singleton scope comparison bytes",
+    /// Final, allocation-owning assembly for the sealed epoch adapter.
+    ///
+    /// The opaque source owner cannot be constructed by this module, so this
+    /// step cannot mint authority independently of a consumed epoch source.
+    pub(in crate::solver::closure) fn assemble_committed_exceptional_singleton(
+        assembly: CommittedExceptionalSingletonAuthorityAssembly,
+    ) -> Self {
+        let CommittedExceptionalSingletonAuthorityAssembly {
+            source,
+            anchor_offsets,
+            stable_identity,
+            limits,
+            scope_comparison_bytes,
+            domain_scans,
+            observed_anchor_bytes,
+            owner_retained_bytes_excluding_shared_ancestry,
+        } = assembly;
+        let anchor_entries = source.ambient_arity();
+        let direct_source_identity = stable_identity.stats();
+        Self {
+            source: GeneratedAffineResidualCaseAuthoritySource::CommittedExceptionalSingleton {
+                source,
+                anchor_offsets,
+                stable_identity,
+            },
+            case_ordinal: 0,
+            group_ordinal: 0,
+            limits,
+            stats: GeneratedAffineResidualCaseAuthorityStats {
                 scope_comparison_bytes,
-                limits.max_scope_comparison_bytes,
-            )?;
-            if family.fingerprint_ref() != source.family_fingerprint()
-                || context.fingerprint() != source.context_fingerprint()
-                || context.index_count() != source.ambient_arity()
-                || source.sector().arity() != source.ambient_arity()
-                || source.constants().len() != source.ambient_arity()
-                || source.compact_affine_matrix().len()
-                    != source
-                        .ambient_arity()
-                        .checked_mul(source.free_positions().len())
-                        .ok_or(
-                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                                resource: "committed exceptional compact geometry entries",
-                            },
-                        )?
-            {
-                return Err(GeneratedAffineResidualCaseAuthorityError::SourceBinding);
-            }
-            for (resource, requested, limit) in [
-                (
-                    "committed exceptional source replays",
-                    1,
-                    limits.max_direct_terminal_replays,
-                ),
-                (
-                    "committed exceptional source authentications",
-                    1,
-                    limits.max_direct_terminal_authentications,
-                ),
-                (
-                    "committed exceptional case authentications",
-                    1,
-                    limits.max_direct_case_authentications,
-                ),
-                (
-                    "committed exceptional group authentications",
-                    1,
-                    limits.max_direct_group_authentications,
-                ),
-                (
-                    "committed exceptional domain scans",
-                    source
-                        .target_premises()
-                        .len()
-                        .checked_add(source.predicate_count())
-                        .ok_or(
-                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                                resource: "committed exceptional domain scans",
-                            },
-                        )?,
-                    limits.max_direct_guard_scans,
-                ),
-            ] {
-                case_authority_check_limit(resource, requested, limit)?;
-            }
-            let anchor_entries = source.ambient_arity();
-            let prospective_anchor_bytes = case_authority_checked_sum(
-                "committed exceptional singleton anchor-offset bytes",
-                [
-                    case_authority_arc_payload_control_and_padding_byte_bound::<Vec<Vec<Integer>>>(
-                    )?,
-                    size_of::<Vec<Integer>>(),
-                    anchor_entries.checked_mul(size_of::<Integer>()).ok_or(
-                        GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                            resource: "committed exceptional singleton anchor-offset bytes",
-                        },
-                    )?,
-                ],
-            )?;
-            for (resource, requested, limit) in [
-                (
-                    "committed exceptional singleton anchor-offset entries",
-                    anchor_entries,
-                    limits.max_direct_anchor_offset_entries,
-                ),
-                (
-                    "committed exceptional singleton anchor-offset integer bits",
-                    0,
-                    limits.max_direct_anchor_offset_integer_bits,
-                ),
-                (
-                    "committed exceptional singleton anchor-offset bytes",
-                    prospective_anchor_bytes,
-                    limits.max_direct_anchor_offset_bytes,
-                ),
-            ] {
-                case_authority_check_limit(resource, requested, limit)?;
-            }
-            // All allocation-sized work is admitted before replaying the
-            // retained parent source authority.
-            source.replay(family, context)?;
-            let stable_identity = source
-                .encode_durable_identity(
-                    family,
-                    context,
-                    limits.committed_parent_source_row,
-                    limits.direct_source_identity,
-                )
-                .map_err(GeneratedAffineResidualCaseAuthorityError::StableIdentity)?;
-            let mut zero_offset = Vec::new();
-            zero_offset.try_reserve_exact(anchor_entries).map_err(|_| {
-                GeneratedAffineResidualCaseAuthorityError::AllocationFailure {
-                    resource: "committed exceptional singleton anchor offset",
-                    requested: anchor_entries,
-                }
-            })?;
-            zero_offset.resize_with(anchor_entries, || Integer::from(0));
-            let mut offsets = Vec::new();
-            offsets.try_reserve_exact(1).map_err(|_| {
-                GeneratedAffineResidualCaseAuthorityError::AllocationFailure {
-                    resource: "committed exceptional singleton anchor-offset table",
-                    requested: 1,
-                }
-            })?;
-            offsets.push(zero_offset);
-            let observed_anchor_bytes = case_authority_checked_sum(
-                "committed exceptional singleton anchor-offset bytes",
-                [
-                    case_authority_arc_payload_control_and_padding_byte_bound::<Vec<Vec<Integer>>>(
-                    )?,
-                    offsets
-                        .capacity()
-                        .checked_mul(size_of::<Vec<Integer>>())
-                        .ok_or(
-                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                                resource: "committed exceptional singleton anchor-offset bytes",
-                            },
-                        )?,
-                    offsets[0]
-                        .capacity()
-                        .checked_mul(size_of::<Integer>())
-                        .ok_or(
-                            GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                                resource: "committed exceptional singleton anchor-offset bytes",
-                            },
-                        )?,
-                ],
-            )?;
-            case_authority_check_limit(
-                "committed exceptional singleton anchor-offset bytes",
-                observed_anchor_bytes,
-                limits.max_direct_anchor_offset_bytes,
-            )?;
-            let direct_owner_retained_bytes_excluding_source = case_authority_checked_sum(
-                "committed exceptional case-authority retained bytes excluding source",
-                [
-                    size_of::<Self>(),
-                    observed_anchor_bytes,
-                    case_authority_arc_payload_control_and_padding_byte_bound::<
-                        CommittedExceptionalSingletonSource,
-                    >()?,
-                    case_authority_arc_string_owned_byte_bound(stable_identity.bytes())?,
-                ],
-            )?;
-            let domain_scans = source
-                .target_premises()
-                .len()
-                .checked_add(source.predicate_count())
-                .ok_or(
-                    GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
-                        resource: "committed exceptional domain scans",
-                    },
-                )?;
-            Ok(Self {
-                source: GeneratedAffineResidualCaseAuthoritySource::CommittedExceptionalSingleton {
-                    source: Arc::new(source),
-                    anchor_offsets: Arc::new(offsets),
-                    stable_identity: stable_identity.clone(),
-                },
-                case_ordinal: 0,
-                group_ordinal: 0,
-                limits,
-                stats: GeneratedAffineResidualCaseAuthorityStats {
-                    scope_comparison_bytes,
-                    direct_terminal_replays: 1,
-                    direct_terminal_authentications: 1,
-                    direct_case_authentications: 1,
-                    direct_group_authentications: 1,
-                    direct_guard_scans: domain_scans,
-                    direct_anchor_offset_entries: anchor_entries,
-                    direct_anchor_offset_integer_bits: 0,
-                    direct_anchor_offset_bytes: observed_anchor_bytes,
-                    direct_source_identity: stable_identity.stats(),
-                    direct_owner_retained_bytes_excluding_source,
-                    ..GeneratedAffineResidualCaseAuthorityStats::default()
-                },
-            })
-        }))
-        .map_err(|_| GeneratedAffineResidualCaseAuthorityError::SymbolicaPanic)?
+                direct_terminal_replays: 1,
+                direct_terminal_authentications: 1,
+                direct_case_authentications: 1,
+                direct_group_authentications: 1,
+                direct_guard_scans: domain_scans,
+                direct_anchor_offset_entries: anchor_entries,
+                direct_anchor_offset_integer_bits: 0,
+                direct_anchor_offset_bytes: observed_anchor_bytes,
+                direct_source_identity,
+                direct_owner_retained_bytes_excluding_source:
+                    owner_retained_bytes_excluding_shared_ancestry,
+                ..GeneratedAffineResidualCaseAuthorityStats::default()
+            },
+        }
     }
 
     pub(crate) const fn case_ordinal(&self) -> usize {
@@ -2184,9 +2038,10 @@ impl GeneratedAffineResidualCaseAuthority {
         self.stats
     }
 
-    /// Bytes owned by this authority allocation itself. The retained source
-    /// pointee is deliberately excluded and is accounted by its replayable
-    /// owner.
+    /// Bytes owned by this authority-local graph. Shared source ancestry is
+    /// excluded and remains charged by its replayable owner; for a committed
+    /// exceptional source, the local erased Arc allocation and inline pointee
+    /// are included while the shared event and parent plan are excluded.
     pub(crate) const fn owner_retained_bytes_excluding_source(&self) -> usize {
         match &self.source {
             GeneratedAffineResidualCaseAuthoritySource::LegacyInventory(_) => size_of::<Self>(),
@@ -2982,12 +2837,23 @@ impl GeneratedAffineResidualCaseAuthority {
                     source,
                     ..
                 } => {
-                    return source.authenticated_source_row_view(
+                    let source_row = source.authenticated_source_row_view(
                         family,
                         context,
                         source_row_ordinal,
                         limits,
-                    );
+                    )?;
+                    let source_stats = source_row.stats();
+                    return Ok(GeneratedAffineResidualCaseSourceRowView {
+                        source_row_ordinal: source_row.source_row_ordinal(),
+                        relation: source_row.relation(),
+                        stats: GeneratedAffineResidualCaseSourceRowStats {
+                            scope_comparison_bytes: source_stats.scope_comparison_bytes(),
+                            source_rows: source_stats.source_rows(),
+                            relation_terms: source_stats.relation_terms(),
+                            guard_conditions: source_stats.guard_conditions(),
+                        },
+                    });
                 }
             };
             let source_rows = self.source_row_count();
@@ -3345,13 +3211,13 @@ impl GeneratedAffineResidualCaseAuthority {
                         )
                         .map_err(GeneratedAffineResidualCaseAuthorityError::StableIdentity)?;
                     let owner_retained = case_authority_checked_sum(
-                        "committed exceptional case-authority retained bytes excluding source",
+                        "committed exceptional case-authority retained bytes excluding shared ancestry",
                         [
                             size_of::<Self>(),
                             observed_anchor_bytes,
-                            case_authority_arc_payload_control_and_padding_byte_bound::<
-                                CommittedExceptionalSingletonSource,
-                            >()?,
+                            source
+                                .source_arc_retained_byte_bound()
+                                .map_err(map_committed_exceptional_source_census_overflow)?,
                             case_authority_arc_string_owned_byte_bound(stable_identity.bytes())?,
                         ],
                     )?;
@@ -3593,6 +3459,14 @@ fn map_inventory_authentication_authority_error(
             GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow { resource }
         }
         error => GeneratedAffineResidualCaseAuthorityError::Inventory(error),
+    }
+}
+
+fn map_committed_exceptional_source_census_overflow(
+    error: CommittedExceptionalSourceCensusOverflow,
+) -> GeneratedAffineResidualCaseAuthorityError {
+    GeneratedAffineResidualCaseAuthorityError::ResourceCountOverflow {
+        resource: error.resource(),
     }
 }
 
@@ -3904,7 +3778,26 @@ pub(crate) enum GeneratedAffineResidualCaseSourceLocator {
 pub(crate) enum GeneratedAffineResidualCaseGeometryView<'source> {
     Legacy(&'source ResidualAffineIntegerMap),
     Direct(&'source ParametricSectorFormulaAffineCylinderGeometry),
-    CommittedExceptional(&'source CommittedExceptionalSingletonSource),
+    CommittedExceptional(GeneratedAffineResidualCommittedExceptionalGeometryView<'source>),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GeneratedAffineResidualCommittedExceptionalGeometryView<'source> {
+    ambient_arity: usize,
+    constants: &'source [Integer],
+    free_positions: &'source [usize],
+    compact_affine_matrix: &'source [Integer],
+}
+
+impl<'source> GeneratedAffineResidualCommittedExceptionalGeometryView<'source> {
+    fn from_source(source: &'source CommittedExceptionalCaseSourceOwner) -> Self {
+        Self {
+            ambient_arity: source.ambient_arity(),
+            constants: source.constants(),
+            free_positions: source.free_positions(),
+            compact_affine_matrix: source.compact_affine_matrix(),
+        }
+    }
 }
 
 impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
@@ -3912,7 +3805,7 @@ impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
         match self {
             Self::Legacy(map) => map.ambient_arity(),
             Self::Direct(geometry) => geometry.ambient_arity(),
-            Self::CommittedExceptional(source) => source.ambient_arity(),
+            Self::CommittedExceptional(geometry) => geometry.ambient_arity,
         }
     }
 
@@ -3920,7 +3813,7 @@ impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
         match self {
             Self::Legacy(map) => map.free_positions(),
             Self::Direct(geometry) => geometry.free_positions(),
-            Self::CommittedExceptional(source) => source.free_positions(),
+            Self::CommittedExceptional(geometry) => geometry.free_positions,
         }
     }
 
@@ -3928,7 +3821,7 @@ impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
         match self {
             Self::Legacy(map) => map.constant(row),
             Self::Direct(geometry) => geometry.constants().get(row),
-            Self::CommittedExceptional(source) => source.constants().get(row),
+            Self::CommittedExceptional(geometry) => geometry.constants.get(row),
         }
     }
 
@@ -3953,14 +3846,14 @@ impl<'source> GeneratedAffineResidualCaseGeometryView<'source> {
                     .checked_add(free_ordinal)?;
                 geometry.compact_linear_coefficients().get(compact_position)
             }
-            Self::CommittedExceptional(source) => {
-                if row >= source.ambient_arity() || free_ordinal >= source.free_positions().len() {
+            Self::CommittedExceptional(geometry) => {
+                if row >= geometry.ambient_arity || free_ordinal >= geometry.free_positions.len() {
                     return None;
                 }
                 let compact_position = row
-                    .checked_mul(source.free_positions().len())?
+                    .checked_mul(geometry.free_positions.len())?
                     .checked_add(free_ordinal)?;
-                source.compact_affine_matrix().get(compact_position)
+                geometry.compact_affine_matrix.get(compact_position)
             }
         }
     }
@@ -4071,7 +3964,7 @@ impl<'source> GeneratedAffineResidualCaseExceptionalPredicateSourceView<'source>
 enum GeneratedAffineResidualCaseSourceViewInner<'source> {
     Legacy(GeneratedAffineResidualInventoryCaseSourceView<'source>),
     Direct(&'source ParametricSectorFormulaAffineTerminalCertificate),
-    CommittedExceptional(&'source CommittedExceptionalSingletonSource),
+    CommittedExceptional(&'source CommittedExceptionalCaseSourceOwner),
 }
 
 #[derive(Clone, Copy)]
@@ -4093,7 +3986,9 @@ impl<'source> GeneratedAffineResidualCaseSourceView<'source> {
                 )
             }
             GeneratedAffineResidualCaseSourceViewInner::CommittedExceptional(source) => {
-                GeneratedAffineResidualCaseGeometryView::CommittedExceptional(source)
+                GeneratedAffineResidualCaseGeometryView::CommittedExceptional(
+                    GeneratedAffineResidualCommittedExceptionalGeometryView::from_source(source),
+                )
             }
         }
     }
@@ -4177,7 +4072,7 @@ impl<'source> GeneratedAffineResidualCaseSourceView<'source> {
         {
             let predicate = source.predicate(predicate_ordinal)?;
             return Some(GeneratedAffineResidualCaseExceptionalPredicateSourceView {
-                predicate_ordinal,
+                predicate_ordinal: predicate.predicate_ordinal(),
                 locus_ordinal: predicate.locus_ordinal(),
                 kind: predicate.kind(),
                 polynomial: predicate.polynomial(),
@@ -9617,10 +9512,6 @@ mod tests {
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
     };
-    use crate::solver::exact_session::{
-        GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
-    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
         GeneratedResidualAffineCaseInventoryLimits, GeneratedSectorDiscoveryCompiler,
@@ -9930,20 +9821,6 @@ mod tests {
         assert_eq!(ordering.case_ordinal(), 0);
         assert_eq!(ordering.group_ordinal(), 0);
         ordering.replay(&family, &context, &authority).unwrap();
-        let frame = GeneratedAffineResidualGroupPhysicalFrame::try_new(
-            &family,
-            &context,
-            Arc::clone(&authority),
-            GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            frame.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
-        );
-        assert_eq!(frame.case_ordinals(), &[0]);
-        frame.replay(&family, &context, &authority).unwrap();
-
         let case = authority
             .authenticated_source_neutral_case_view(&context)
             .unwrap();
@@ -10101,7 +9978,6 @@ mod tests {
             }) if requested == selected_relation_terms && limit + 1 == selected_relation_terms
         ));
         authority.replay(&family, &context).unwrap();
-        drop(frame);
         drop(ordering);
         drop(authority);
         assert_eq!(weak_terminal.strong_count(), 0);

@@ -126,16 +126,18 @@ ordered positions of symbolic indices
 reversed, giving the actual target order from easier to harder
 (`vendor/LiteRed2/Source/LiteRed2026.m:2430-2438`).
 
-RustRed's inventory represents one group by ambient arity, case ordinals, an
-anchor case, free positions, a compact affine matrix, and exact anchor offsets
-(`src/generated_affine_residual_case_inventory.rs:708-716`).  Geometry equality
-requires the same arity, free positions, and compact linear coefficients
-(`src/generated_affine_residual_case_inventory.rs:4127-4142`).  The first case
-creates the group anchor
-(`src/generated_affine_residual_case_inventory.rs:4230-4249`), and every case
-offset is calculated exactly as its constant vector minus the anchor constant
-vector
-(`src/generated_affine_residual_case_inventory.rs:4417-4458`).
+RustRed's source-neutral inventory in
+`src/solver/closure/case_inventory.rs` represents one group by ambient arity,
+case ordinals, an anchor case, free positions, a compact affine matrix, and
+exact anchor offsets. Geometry equality requires the same arity, free
+positions, and compact linear coefficients. The first case creates the group
+anchor, and every case offset is calculated exactly as its constant vector
+minus the anchor constant vector. Committed publication-epoch sources enter
+only through the private sealed closure adapter; the inventory retains an
+opaque owner and has no dependency on handoff, epoch, or exact-session
+concrete types. The adapter implements a separate source-neutral generic
+protocol, preserving exact error/limit types and borrowed-row lifetimes without
+creating a protocol-to-inventory dependency.
 
 The immutable solve plan at `src/solver/exact_session/plan.rs` already
 materializes easier-to-harder order.  It constructs a

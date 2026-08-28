@@ -39,10 +39,7 @@ pub(crate) use plan::{
 pub(crate) use recenter::{integer_bits, prospective_integer_heap_bytes};
 
 #[cfg(test)]
-pub(crate) use physical_key::{
-    GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
-    GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
-};
+pub(crate) use physical_key::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
 #[cfg(test)]
 pub(crate) use physical_row::{
     GeneratedAffineResidualGroupExactPhysicalRow,

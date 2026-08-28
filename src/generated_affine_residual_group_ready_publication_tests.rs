@@ -25,10 +25,6 @@ use crate::generated_affine_prepare_point_schedule::{
 use crate::generated_affine_residual_boolean_cover::{
     GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
 };
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
-    GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-};
 use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
     compile_generated_affine_residual_case_premises,
@@ -46,6 +42,10 @@ use crate::generated_affine_residual_group_ready_publication::{
     GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
 };
 use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+use crate::solver::closure::case_inventory::{
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
+    GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+};
 use crate::solver::exact_session::{
     GeneratedAffineResidualGroupExactPhysicalRow,
     GeneratedAffineResidualGroupExactPhysicalRowCompiler,

@@ -13,8 +13,7 @@
 //! worker result buffers and downstream exceptional-source owners belongs to
 //! the future production coordinator; this handoff does not claim that layer.
 
-#[path = "generated_affine_residual_group_exact_publication_epoch_owner.rs"]
-pub(crate) mod publication_epoch_owner;
+pub(in crate::solver::closure) mod publication_epoch_owner;
 
 use std::cmp::Ordering;
 use std::fmt;

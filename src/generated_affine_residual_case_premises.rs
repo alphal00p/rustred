@@ -23,16 +23,16 @@ use std::sync::Arc;
 
 use symbolica::domains::integer::Integer;
 
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseGuardClassSourceView,
-    GeneratedAffineResidualCaseSourceLocator, GeneratedAffineResidualCaseSourceRecordView,
-    GeneratedAffineResidualCaseSourceView, GeneratedAffineResidualInventoryGroupSourceView,
-};
 use crate::generated_residual_affine_condition_accumulator::{
     GeneratedResidualAffineConditionAccumulatorLimits,
     GeneratedResidualAffineConditionAccumulatorStats, GeneratedResidualAffineConditionInput,
     GeneratedResidualAffineConditionScope, GeneratedResidualAffineConditionSourceLocator,
     accumulate_generated_residual_affine_conditions,
+};
+use crate::solver::closure::case_inventory::{
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseGuardClassSourceView,
+    GeneratedAffineResidualCaseSourceLocator, GeneratedAffineResidualCaseSourceRecordView,
+    GeneratedAffineResidualCaseSourceView, GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext,
@@ -1966,11 +1966,6 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCertificate,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
         GeneratedSectorAffineEffectiveCoverageCompiler,
@@ -1979,6 +1974,11 @@ mod tests {
     use crate::generated_sector_affine_effective_residual_queue::{
         GeneratedSectorAffineEffectiveResidualQueueCompiler,
         GeneratedSectorAffineEffectiveResidualQueueLimits,
+    };
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCertificate,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

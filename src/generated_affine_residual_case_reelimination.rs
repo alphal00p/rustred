@@ -53,13 +53,13 @@ use crate::generated_affine_residual_case_completed_bound_row::{
     GeneratedAffineResidualCaseCompletedBoundRowCompiler,
     GeneratedAffineResidualCaseCompletedBoundRowLimits,
 };
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
-};
 use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCasePremisesCertificate, GeneratedAffineResidualCasePremisesError,
 };
 use crate::parametric_elimination::PreorderedParametricElimination;
+use crate::solver::closure::case_inventory::{
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
+};
 use crate::{
     GuardOrigin, IndexShift, IntegralFamily, ParametricCoefficientContext,
     ParametricEliminationError, ParametricEliminationLimits, ParametricEliminationStats,
@@ -2917,17 +2917,17 @@ mod tests {
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
     };
-    use crate::generated_affine_residual_case_inventory::{
-        GeneratedAffineResidualCaseAuthorityLimits,
-        GeneratedAffineResidualCaseInventoryCertificate,
-        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-        GeneratedAffineResidualCaseSourceRowLimits,
-    };
     use crate::generated_affine_residual_case_premises::{
         GeneratedAffineResidualCasePremisesLimits, GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+    use crate::solver::closure::case_inventory::{
+        GeneratedAffineResidualCaseAuthorityLimits,
+        GeneratedAffineResidualCaseInventoryCertificate,
+        GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
+        GeneratedAffineResidualCaseSourceRowLimits,
+    };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
