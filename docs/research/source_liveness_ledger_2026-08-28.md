@@ -4,7 +4,7 @@
 and redundant-replay cleanup.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 47 tracked Rust source/test paths
+This ledger classifies every one of the 52 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 15 |
-| split | 31 |
+| move | 17 |
+| split | 34 |
 | delete | 0 |
 | replace | 1 |
 
@@ -53,8 +53,13 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-app/tests/cli_derive.rs` | split | rustred-app tests | fresh inline fixtures guard supported forms; prune historical breadth later |
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
-| `src/algebra/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
-| `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary under an unambiguous owner; prune duplicate or context-free surfaces during the later indexed-algebra split |
+| `src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations and their admitted metadata to core callers |
+| `src/algebra/matrix/admission.rs` | split | algebra::matrix | retain shapes, operation envelopes, payload census, and authenticated conversion; keep native scratch limitations explicit |
+| `src/algebra/matrix/error.rs` | move | algebra::matrix | private typed matrix/native failure vocabulary |
+| `src/algebra/matrix/field.rs` | split | algebra::matrix | retain checked field traits, bounded coefficient powers, and typed unwind transport required by Symbolica's infallible ring interfaces |
+| `src/algebra/matrix/operations.rs` | split | algebra::matrix | retain the narrow native rank, determinant, inverse, product, and congruence entry points with authenticated outputs |
+| `src/algebra/matrix/tests.rs` | split | algebra::matrix tests | retain focused Symbolica authority, admission-boundary, and typed-failure sentinels; reduce breadth only with equivalent black-box evidence |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
 | `src/campaign/execution.rs` | move | campaign | bounded ordered execution authority; the dead move-owned reservation mapper was deleted with admission |

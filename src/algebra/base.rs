@@ -1,3 +1,5 @@
+//! Exact, context-authenticated base-coefficient algebra backed by Symbolica.
+
 use std::{cmp::Ordering, fmt, mem::size_of, sync::Arc};
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
