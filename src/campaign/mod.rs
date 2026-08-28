@@ -6,6 +6,7 @@
 //! symbolic algebra and does not own family derivation or solver semantics.
 
 mod admission;
+mod execution;
 mod execution_width;
 mod plan;
 mod resource_profile;
@@ -22,6 +23,7 @@ pub use admission::{
     CampaignTaskExecution, CampaignTaskFailure, CampaignTaskPanic, CampaignTaskReservation,
     CampaignWaveExecutionAdmissionFailure, CampaignWaveReservation,
 };
+pub use execution::{ParallelExecution, ParallelExecutionError};
 pub use execution_width::{
     CAMPAIGN_EXECUTION_WIDTH_PLAN_V1_SCHEMA, CampaignExecutionFixedMemory,
     CampaignExecutionWidthError, CampaignExecutionWidthPause, CampaignExecutionWidthPlan,

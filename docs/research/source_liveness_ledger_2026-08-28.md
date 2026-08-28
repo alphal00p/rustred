@@ -1,8 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `d0c42dd`, updated in the R2 working tree after staged removal of
-the historical root surfaces.
-**Status:** R2 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
+**Baseline:** `db7d02b`, updated after each R3 cluster milestone.
+**Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 189 tracked Rust source/build/test paths
 remaining after the R2 root-surface deletion. It is intentionally hostile to
@@ -21,8 +20,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 21 |
-| split | 153 |
+| move | 22 |
+| split | 152 |
 | delete | 14 |
 | replace | 1 |
 
@@ -60,6 +59,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
 | `src/base_specialization.rs` | move | family | live generic family construction and normalization |
 | `src/campaign/admission.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
+| `src/campaign/execution.rs` | move | campaign | bounded execution authority co-located with admission and width planning |
 | `src/campaign/execution_width.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/mod.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/plan.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
@@ -144,7 +144,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/master_policy.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/master_product.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/parallel_execution.rs` | split | campaign / runtime | retain bounded execution only; campaign owns planning |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_coefficient/symbolica_sparse/persistent.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_coefficient/symbolica_sparse.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |

@@ -113,7 +113,6 @@ pub mod generic_tensor_projector;
 pub mod guards;
 pub mod master_policy;
 pub mod master_product;
-pub mod parallel_execution;
 pub mod parametric_coefficient;
 pub mod parametric_elimination;
 pub mod parametric_ibp;
@@ -187,6 +186,7 @@ pub use base_specialization::{
     FamilyDomainEvaluationStatus, GuardedBaseCoefficient, InapplicableFamilyDomainCondition,
     SpecializedBasePolynomial,
 };
+pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use certified_rewrite::{
     CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA, CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA,
     CERTIFIED_ZERO_REDUCTION_V1_SCHEMA, CertifiedConcreteRewrite, CertifiedConcreteRewriteProof,
@@ -527,7 +527,6 @@ pub use master_policy::{
 pub use master_product::{
     MasterProduct, MasterProductError, ProductConvolutionError, ProductLinearCombination,
 };
-pub use parallel_execution::{ParallelExecution, ParallelExecutionError};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
     GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,

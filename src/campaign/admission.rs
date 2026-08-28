@@ -22,9 +22,8 @@ use super::{
     CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignExecutionWidthPlan,
     CampaignJobKey, CampaignMemoryEstimate, CampaignResourceError, CampaignResourcePolicy,
     CampaignResourceWavePlan, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-    CampaignWavePlanner, CampaignWorkKey,
+    CampaignWavePlanner, CampaignWorkKey, ParallelExecution, ParallelExecutionError,
 };
-use crate::{ParallelExecution, ParallelExecutionError};
 
 pub const CAMPAIGN_ADMISSION_V1_SCHEMA: &str = "rustred.campaign-admission.v1";
 

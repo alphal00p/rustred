@@ -7,10 +7,10 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::campaign::ParallelExecution;
 use crate::generic_family::{
     ContractionMomentum, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
 };
-use crate::parallel_execution::ParallelExecution;
 use crate::parametric_coefficient::{
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError,
