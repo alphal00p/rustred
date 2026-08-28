@@ -20,11 +20,59 @@ use crate::algebra::matrix::{
     invert_and_verify_coefficient_matrix, verify_coefficient_matrix_inverse,
 };
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
-pub use crate::guards::CoefficientLocation;
-use crate::guards::GuardOrigin;
 
 /// A polynomial over the authenticated base-field variables.
 pub type BasePolynomial = MultivariatePolynomial<IntegerRing, u16>;
+
+/// One coefficient-valued family datum that can contribute a generic-domain
+/// nonzero condition.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CoefficientLocation {
+    Dimension,
+    DenominatorConstant {
+        denominator: usize,
+    },
+    DenominatorCoefficient {
+        denominator: usize,
+        coordinate: usize,
+    },
+    ExternalGram {
+        row: usize,
+        column: usize,
+    },
+    PowerShift {
+        denominator: usize,
+    },
+    BasisDeterminantNumerator,
+}
+
+impl CoefficientLocation {
+    /// Version-stable identity used in user-facing output and proof payloads.
+    pub fn stable_string(&self) -> String {
+        let mut output = String::new();
+        self.write_stable(&mut output)
+            .expect("writing coefficient-location provenance to String cannot fail");
+        output
+    }
+
+    pub(crate) fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
+        match self {
+            Self::Dimension => writer.write_str("dimension"),
+            Self::DenominatorConstant { denominator } => {
+                write!(writer, "denominator-constant:{denominator}")
+            }
+            Self::DenominatorCoefficient {
+                denominator,
+                coordinate,
+            } => write!(writer, "denominator-coefficient:{denominator}:{coordinate}"),
+            Self::ExternalGram { row, column } => {
+                write!(writer, "external-gram:{row}:{column}")
+            }
+            Self::PowerShift { denominator } => write!(writer, "power-shift:{denominator}"),
+            Self::BasisDeterminantNumerator => writer.write_str("basis-determinant-numerator"),
+        }
+    }
+}
 
 /// Resource policy for constructing and replaying one complete affine family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,25 +217,20 @@ impl DenominatorExpansion {
 
 /// A polynomial condition that defines the generic domain of a family.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BaseNonZeroCondition {
-    source: CoefficientLocation,
+pub struct FamilyNonZeroCondition {
     polynomial: BasePolynomial,
-    origins: BTreeSet<GuardOrigin>,
+    sources: BTreeSet<CoefficientLocation>,
 }
 
-impl BaseNonZeroCondition {
-    pub fn source(&self) -> &CoefficientLocation {
-        &self.source
-    }
-
+impl FamilyNonZeroCondition {
     pub fn polynomial(&self) -> &BasePolynomial {
         &self.polynomial
     }
 
     /// Every family datum that contributed this exact polynomial condition.
-    /// Origins are sorted independently of construction order.
-    pub fn origins(&self) -> &BTreeSet<GuardOrigin> {
-        &self.origins
+    /// Sources are sorted independently of construction order.
+    pub fn sources(&self) -> &BTreeSet<CoefficientLocation> {
+        &self.sources
     }
 }
 
@@ -198,13 +241,13 @@ impl BaseNonZeroCondition {
 /// specialization is valid only when every listed polynomial is nonzero.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyDomain {
-    input_denominators: Vec<BaseNonZeroCondition>,
+    input_denominators: Vec<FamilyNonZeroCondition>,
     basis_determinant: Coefficient,
-    determinant_nonzero: BaseNonZeroCondition,
+    determinant_nonzero: FamilyNonZeroCondition,
 }
 
 impl FamilyDomain {
-    pub fn input_denominators(&self) -> &[BaseNonZeroCondition] {
+    pub fn input_denominators(&self) -> &[FamilyNonZeroCondition] {
         &self.input_denominators
     }
 
@@ -212,11 +255,11 @@ impl FamilyDomain {
         &self.basis_determinant
     }
 
-    pub fn determinant_nonzero(&self) -> &BaseNonZeroCondition {
+    pub fn determinant_nonzero(&self) -> &FamilyNonZeroCondition {
         &self.determinant_nonzero
     }
 
-    pub fn conditions(&self) -> impl Iterator<Item = &BaseNonZeroCondition> {
+    pub fn conditions(&self) -> impl Iterator<Item = &FamilyNonZeroCondition> {
         self.input_denominators
             .iter()
             .filter(|condition| condition.polynomial != self.determinant_nonzero.polynomial)
@@ -687,7 +730,6 @@ impl IntegralFamily {
         let determinant_nonzero = make_family_nonzero_condition(
             CoefficientLocation::BasisDeterminantNumerator,
             basis_determinant.numerator.clone(),
-            GuardOrigin::FamilyBasisDeterminantNumerator,
         );
         // If the determinant numerator is already an input-denominator
         // condition, retain one polynomial with the union of both reasons.
@@ -1808,7 +1850,7 @@ fn validate_and_retain_input_denominator(
     coefficient: &Coefficient,
     location: CoefficientLocation,
     limits: ExactAlgebraLimits,
-    conditions: &mut Vec<BaseNonZeroCondition>,
+    conditions: &mut Vec<FamilyNonZeroCondition>,
 ) -> Result<(), GenericFamilyError> {
     if let Err(error) = context.validate_with_limits(coefficient, limits) {
         if matches!(error, ExactAlgebraError::VariableMapMismatch { .. }) {
@@ -1817,11 +1859,7 @@ fn validate_and_retain_input_denominator(
         return Err(GenericFamilyError::InvalidCoefficient { location, error });
     }
     if !coefficient.denominator.is_one() {
-        let condition = make_family_nonzero_condition(
-            location.clone(),
-            coefficient.denominator.clone(),
-            GuardOrigin::FamilyInputCoefficientDenominator { location },
-        );
+        let condition = make_family_nonzero_condition(location, coefficient.denominator.clone());
         if let Some(existing) = conditions
             .iter_mut()
             .find(|existing| existing.polynomial == condition.polynomial)
@@ -1837,21 +1875,16 @@ fn validate_and_retain_input_denominator(
 fn make_family_nonzero_condition(
     source: CoefficientLocation,
     polynomial: BasePolynomial,
-    origin: GuardOrigin,
-) -> BaseNonZeroCondition {
-    BaseNonZeroCondition {
-        source,
+) -> FamilyNonZeroCondition {
+    FamilyNonZeroCondition {
         polynomial,
-        origins: BTreeSet::from([origin]),
+        sources: BTreeSet::from([source]),
     }
 }
 
-fn merge_family_condition(target: &mut BaseNonZeroCondition, source: &BaseNonZeroCondition) {
+fn merge_family_condition(target: &mut FamilyNonZeroCondition, source: &FamilyNonZeroCondition) {
     debug_assert_eq!(target.polynomial, source.polynomial);
-    if source.source < target.source {
-        target.source = source.source.clone();
-    }
-    target.origins.extend(source.origins.iter().cloned());
+    target.sources.extend(source.sources.iter().cloned());
 }
 
 fn coefficients_are_equal(
@@ -2261,15 +2294,18 @@ mod tests {
             &context.coefficient_fixture("2*a-b*s").numerator
         );
         assert!(family.domain().input_denominators().iter().any(|guard| {
-            guard.source()
-                == &CoefficientLocation::DenominatorCoefficient {
+            guard
+                .sources()
+                .contains(&CoefficientLocation::DenominatorCoefficient {
                     denominator: 0,
                     coordinate: 0,
-                }
+                })
                 && guard.polynomial() == &context.coefficient_fixture("s").numerator
         }));
         assert!(family.domain().input_denominators().iter().any(|guard| {
-            guard.source() == &CoefficientLocation::PowerShift { denominator: 0 }
+            guard
+                .sources()
+                .contains(&CoefficientLocation::PowerShift { denominator: 0 })
                 && guard.polynomial() == &context.integer(3).numerator
         }));
         family.verify_exact_replay().unwrap();
@@ -2365,7 +2401,7 @@ mod tests {
     }
 
     #[test]
-    fn symbolic_size_four_tracks_pivot_sign_rational_determinant_and_guard_provenance() {
+    fn symbolic_size_four_tracks_pivot_sign_rational_determinant_and_sources() {
         let context = CoefficientContext::new(["d", "x", "s", "t"]);
         let zero = context.zero();
         let one = context.one();
@@ -2394,8 +2430,8 @@ mod tests {
             &determinant.numerator
         );
         assert_eq!(
-            family.domain().determinant_nonzero().origins(),
-            &BTreeSet::from([GuardOrigin::FamilyBasisDeterminantNumerator])
+            family.domain().determinant_nonzero().sources(),
+            &BTreeSet::from([CoefficientLocation::BasisDeterminantNumerator])
         );
         for (source, parameter) in [
             (
@@ -2417,17 +2453,13 @@ mod tests {
                 .domain()
                 .input_denominators()
                 .iter()
-                .find(|guard| guard.source() == &source)
+                .find(|guard| guard.sources().contains(&source))
                 .unwrap();
             assert_eq!(
                 guard.polynomial(),
                 &context.parameter(parameter).unwrap().numerator
             );
-            assert!(
-                guard
-                    .origins()
-                    .contains(&GuardOrigin::FamilyInputCoefficientDenominator { location: source })
-            );
+            assert!(guard.sources().contains(&source));
         }
         assert!(
             family
@@ -2565,7 +2597,7 @@ mod tests {
     }
 
     #[test]
-    fn equal_family_input_denominators_merge_all_typed_origins() {
+    fn equal_family_input_denominators_merge_all_sources() {
         let context = CoefficientContext::new(["d", "m", "a", "nu", "s"]);
         let family = IntegralFamily::new(
             "merged-input-denominators",
@@ -2588,7 +2620,7 @@ mod tests {
             condition.polynomial(),
             &context.parameter("s").unwrap().numerator
         );
-        for location in [
+        let expected_sources = BTreeSet::from([
             CoefficientLocation::Dimension,
             CoefficientLocation::DenominatorConstant { denominator: 0 },
             CoefficientLocation::DenominatorCoefficient {
@@ -2596,13 +2628,8 @@ mod tests {
                 coordinate: 0,
             },
             CoefficientLocation::PowerShift { denominator: 0 },
-        ] {
-            assert!(
-                condition
-                    .origins()
-                    .contains(&GuardOrigin::FamilyInputCoefficientDenominator { location })
-            );
-        }
+        ]);
+        assert_eq!(condition.sources(), &expected_sources);
     }
 
     #[test]

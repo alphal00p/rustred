@@ -8,6 +8,8 @@
 use std::fmt;
 use std::sync::Arc;
 
+use crate::generic_family::CoefficientLocation;
+
 fn write_joined<T: fmt::Display>(
     writer: &mut impl fmt::Write,
     values: &[T],
@@ -20,56 +22,6 @@ fn write_joined<T: fmt::Display>(
         write!(writer, "{value}")?;
     }
     Ok(())
-}
-
-/// One coefficient-valued datum supplied when constructing an integral
-/// family.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum CoefficientLocation {
-    Dimension,
-    DenominatorConstant {
-        denominator: usize,
-    },
-    DenominatorCoefficient {
-        denominator: usize,
-        coordinate: usize,
-    },
-    ExternalGram {
-        row: usize,
-        column: usize,
-    },
-    PowerShift {
-        denominator: usize,
-    },
-    BasisDeterminantNumerator,
-}
-
-impl CoefficientLocation {
-    /// Version-stable identity used in user-facing output and proof payloads.
-    pub fn stable_string(&self) -> String {
-        let mut output = String::new();
-        self.write_stable(&mut output)
-            .expect("writing coefficient-location provenance to String cannot fail");
-        output
-    }
-
-    pub(crate) fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
-        match self {
-            Self::Dimension => writer.write_str("dimension"),
-            Self::DenominatorConstant { denominator } => {
-                write!(writer, "denominator-constant:{denominator}")
-            }
-            Self::DenominatorCoefficient {
-                denominator,
-                coordinate,
-            } => write!(writer, "denominator-coefficient:{denominator}:{coordinate}"),
-            Self::ExternalGram { row, column } => {
-                write!(writer, "external-gram:{row}:{column}")
-            }
-            Self::PowerShift { denominator } => write!(writer, "power-shift:{denominator}"),
-            Self::BasisDeterminantNumerator => writer.write_str("basis-determinant-numerator"),
-        }
-    }
 }
 
 /// Stable, module-independent identity of a source relation.
@@ -132,10 +84,6 @@ pub enum GuardOrigin {
     FamilyInputCoefficientDenominator { location: CoefficientLocation },
     /// The numerator of the complete denominator-basis determinant.
     FamilyBasisDeterminantNumerator,
-    /// The numerator whose generic nonvanishing makes a power shift contribute
-    /// to LiteRed's effective sector support.
-    PowerShiftSupport { denominator: usize },
-
     /// A condition inserted through the polynomial-only relation API.
     ExplicitRelationCondition,
     /// The condition was attached to this relation.  Source-row atoms remain
@@ -185,9 +133,6 @@ impl GuardOrigin {
             }
             Self::FamilyBasisDeterminantNumerator => {
                 writer.write_str("family-basis-determinant-numerator")
-            }
-            Self::PowerShiftSupport { denominator } => {
-                write!(writer, "power-shift-support:{denominator}")
             }
             Self::ExplicitRelationCondition => writer.write_str("explicit-relation-condition"),
             Self::RelationConditionAttached { row } => {

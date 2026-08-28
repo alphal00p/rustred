@@ -34,11 +34,11 @@ pub use feynman_polynomials::{
     RawFeynmanPolynomial, SymanzikPolynomials,
 };
 pub use generic_family::{
-    AffineDenominator, BaseNonZeroCondition, ContractionMomentum, DenominatorExpansion,
-    FamilyDomain, GenericFamily, GenericFamilyError, IntegralFamily,
+    AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
+    FamilyDomain, FamilyNonZeroCondition, GenericFamily, GenericFamilyError, IntegralFamily,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
 };
-pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
+pub use guards::{GuardOrigin, GuardRowId};
 pub use parametric_coefficient::{
     BasePolynomial, CoefficientPolynomial, GuardedCoefficientSpecialization,
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,

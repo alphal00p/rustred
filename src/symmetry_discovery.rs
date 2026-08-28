@@ -485,10 +485,10 @@ fn restriction_fingerprint(restrictions: &SectorRestrictions) -> String {
 mod tests {
     use super::{InternalSymmetryCompatibilityError, compile_internal_family_permutation_symmetry};
     use crate::{
-        AffineDenominator, ConcreteIntegralKey, CutConstraint, ExactMatrix, IntegralFamily,
-        MomentumMap, SectorPattern, SectorPatternSlot, SectorRestrictions,
+        AffineDenominator, CoefficientLocation, ConcreteIntegralKey, CutConstraint, ExactMatrix,
+        IntegralFamily, MomentumMap, SectorPattern, SectorPatternSlot, SectorRestrictions,
         SymmetryVerificationLimits, algebra::Coefficient, algebra::CoefficientContext,
-        verify_affine_family_map,
+        symmetry::SymmetryConditionSource, verify_affine_family_map,
     };
 
     fn equal_mass_sunset() -> IntegralFamily {
@@ -539,6 +539,35 @@ mod tests {
             SymmetryVerificationLimits::default(),
         )
         .unwrap();
+        let determinant_condition = verified
+            .nonzero_conditions()
+            .iter()
+            .find(|condition| {
+                condition.polynomial() == family.domain().determinant_nonzero().polynomial()
+            })
+            .unwrap();
+        assert!(
+            determinant_condition
+                .sources()
+                .contains(&SymmetryConditionSource::SourceFamily(
+                    CoefficientLocation::BasisDeterminantNumerator,
+                ))
+        );
+        assert!(
+            determinant_condition
+                .sources()
+                .contains(&SymmetryConditionSource::TargetFamily(
+                    CoefficientLocation::BasisDeterminantNumerator,
+                ))
+        );
+        assert_eq!(
+            verified.stats().condition_sources(),
+            verified
+                .nonzero_conditions()
+                .iter()
+                .map(|condition| condition.sources().len())
+                .sum::<usize>()
+        );
         let unrestricted = SectorRestrictions::unrestricted(family.denominator_count()).unwrap();
         let symmetry =
             compile_internal_family_permutation_symmetry(&family, &unrestricted, verified.clone())

@@ -68,8 +68,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | calibrated execution resource profile feeding live width preflight |
 | `src/campaign/resources.rs` | move | campaign | retain checked bytes, estimates, task envelopes, estimator revisions, baselines, and their minimal construction errors; work-key wave policy/planning was deleted |
 | `src/feynman_polynomials.rs` | split | family | retain generic Symanzik construction and delete the uncalled face-restriction API; the remaining handwritten polynomial operations must be audited against Symbolica before Phase 0 closes |
-| `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay |
-| `src/guards.rs` | split | family / identity / sector | replace the global cross-domain provenance union with owner-specific family conditions, identity-row origins, and zero-sector evidence |
+| `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay; family nonzero conditions now merge deterministic `CoefficientLocation` source sets without global provenance wrappers |
+| `src/guards.rs` | split | identity | only the temporary identity-row origin union/mirror remains after family, symmetry, and zero-sector provenance became owner-local; delete this file in the identity split |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/parametric_coefficient.rs` | split | algebra / identity | retain provenance-neutral checked `K(n)` coefficient/polynomial algebra below identity-owned relation conditions; Phase 0 has no foundry owner |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
@@ -78,5 +78,5 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; extract only genuinely family-neutral checked coefficient primitives into algebra and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
-| `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/zero_sectors.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
+| `src/symmetry.rs` | split | sector | retain stable proofs/maps with symmetry-owned source/target condition evidence; move orchestration to foundry and prune ceremonies |
+| `src/zero_sectors.rs` | split | sector | retain zero-sector proofs with one owner-local condition-source representation; move orchestration to foundry and prune ceremonies |

@@ -24,7 +24,7 @@ pub(super) struct DeriveOutputV1 {
     pub(super) coordinates: Vec<CoordinateOutputV1>,
     pub(super) denominators: Vec<DenominatorOutputV1>,
     pub(super) external_gram: Vec<ExternalGramOutputV1>,
-    pub(super) domain_conditions: Vec<ConditionOutputV1>,
+    pub(super) domain_conditions: Vec<FamilyConditionOutputV1>,
     pub(super) relation_counts: RelationCountsOutputV1,
     pub(super) relations: Vec<RelationOutputV1>,
 }
@@ -98,9 +98,14 @@ pub(super) struct ExternalGramOutputV1 {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ConditionOutputV1 {
+pub(super) struct FamilyConditionOutputV1 {
     pub(super) expression: String,
     pub(super) sources: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct RelationConditionOutputV1 {
+    pub(super) expression: String,
     pub(super) origins: Vec<String>,
 }
 
@@ -119,7 +124,7 @@ pub(super) struct RelationOutputV1 {
     pub(super) stable_id: String,
     pub(super) id: RowIdOutputV1,
     pub(super) terms: Vec<RelationTermOutputV1>,
-    pub(super) nonzero_conditions: Vec<ConditionOutputV1>,
+    pub(super) nonzero_conditions: Vec<RelationConditionOutputV1>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -234,22 +239,20 @@ pub(super) fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGram
     output
 }
 
-pub(super) fn family_domain_outputs(family: &IntegralFamily) -> Vec<ConditionOutputV1> {
-    let mut merged: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
+pub(super) fn family_domain_outputs(family: &IntegralFamily) -> Vec<FamilyConditionOutputV1> {
+    let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in family.domain().conditions() {
         let expression = condition.polynomial().to_expression().to_canonical_string();
-        let entry = merged.entry(expression).or_default();
-        entry.0.insert(coefficient_location(&condition.source()));
-        entry
-            .1
-            .extend(condition.origins().iter().map(GuardOrigin::stable_string));
+        merged
+            .entry(expression)
+            .or_default()
+            .extend(condition.sources().iter().map(coefficient_location));
     }
     merged
         .into_iter()
-        .map(|(expression, (sources, origins))| ConditionOutputV1 {
+        .map(|(expression, sources)| FamilyConditionOutputV1 {
             expression,
             sources: sources.into_iter().collect(),
-            origins: origins.into_iter().collect(),
         })
         .collect()
 }
@@ -310,7 +313,9 @@ fn row_id_output(row: &ParametricRowId) -> RowIdOutputV1 {
     }
 }
 
-fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<ConditionOutputV1> {
+fn relation_conditions(
+    conditions: &[ParametricNonZeroCondition],
+) -> Vec<RelationConditionOutputV1> {
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in conditions {
         merged
@@ -320,9 +325,8 @@ fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<Conditi
     }
     merged
         .into_iter()
-        .map(|(expression, origins)| ConditionOutputV1 {
+        .map(|(expression, origins)| RelationConditionOutputV1 {
             expression,
-            sources: Vec::new(),
             origins: origins.into_iter().collect(),
         })
         .collect()

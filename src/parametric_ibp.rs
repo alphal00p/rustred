@@ -8,7 +8,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::generic_family::{
-    ContractionMomentum, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
+    CoefficientLocation, ContractionMomentum, GenericFamilyError, IntegralFamily,
+    ScalarProductCoordinate,
 };
 use crate::parametric_coefficient::{
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
@@ -938,9 +939,16 @@ impl<'family> ParametricIbpGenerator<'family> {
         // omitted by ParametricRelation.
         for condition in self.family.domain().conditions() {
             let lifted = self.context.lift_base_polynomial(condition.polynomial())?;
+            let origins = condition.sources().iter().cloned().map(|location| {
+                if location == CoefficientLocation::BasisDeterminantNumerator {
+                    crate::GuardOrigin::FamilyBasisDeterminantNumerator
+                } else {
+                    crate::GuardOrigin::FamilyInputCoefficientDenominator { location }
+                }
+            });
             let lifted = self.context.nonzero_condition_with_origins_and_limits(
                 lifted,
-                condition.origins().iter().cloned(),
+                origins,
                 self.config.arithmetic_limits.exact_algebra,
             )?;
             relation.add_guarded_nonzero_condition_with_limits(

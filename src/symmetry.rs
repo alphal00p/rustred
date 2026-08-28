@@ -25,7 +25,7 @@ use crate::algebra::matrix::{
 };
 use crate::generic_family::BasePolynomial;
 use crate::{
-    FamilyDomain, GenericFamilyError, GuardOrigin, IntegralFamily, ScalarProductCoordinate,
+    CoefficientLocation, FamilyDomain, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
     algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
     algebra::ExactAlgebraLimits,
 };
@@ -210,12 +210,12 @@ pub enum JacobianWitness {
 }
 
 /// One stable reason why a polynomial must remain nonzero for an affine map.
-/// Family origins are wrapped with their source/target role; candidate and
-/// derived origins retain their exact matrix or denominator location.
+/// Family sources are wrapped with their source/target role; candidate and
+/// derived sources retain their exact matrix or denominator location.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SymmetryGuardOrigin {
-    SourceFamily(GuardOrigin),
-    TargetFamily(GuardOrigin),
+pub enum SymmetryConditionSource {
+    SourceFamily(CoefficientLocation),
+    TargetFamily(CoefficientLocation),
     MomentumMapDenominator {
         matrix: &'static str,
         row: usize,
@@ -233,7 +233,7 @@ pub enum SymmetryGuardOrigin {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SymmetryNonZeroCondition {
     polynomial: BasePolynomial,
-    origins: BTreeSet<SymmetryGuardOrigin>,
+    sources: BTreeSet<SymmetryConditionSource>,
 }
 
 impl SymmetryNonZeroCondition {
@@ -241,8 +241,8 @@ impl SymmetryNonZeroCondition {
         &self.polynomial
     }
 
-    pub const fn origins(&self) -> &BTreeSet<SymmetryGuardOrigin> {
-        &self.origins
+    pub const fn sources(&self) -> &BTreeSet<SymmetryConditionSource> {
+        &self.sources
     }
 }
 
@@ -267,8 +267,8 @@ pub struct SymmetryVerificationLimits {
     /// Aggregate clone-owned bytes authenticated in native determinant and
     /// product outputs across one complete derivation/replay pass.
     pub max_symbolica_output_retained_bytes: usize,
-    pub max_guard_polynomials: usize,
-    pub max_guard_origins: usize,
+    pub max_nonzero_conditions: usize,
+    pub max_condition_sources: usize,
 }
 
 impl Default for SymmetryVerificationLimits {
@@ -281,8 +281,8 @@ impl Default for SymmetryVerificationLimits {
             max_symbolica_live_matrix_entries: 32_000_000,
             max_symbolica_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
             max_symbolica_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
-            max_guard_polynomials: 1_000_000,
-            max_guard_origins: 4_000_000,
+            max_nonzero_conditions: 1_000_000,
+            max_condition_sources: 4_000_000,
         }
     }
 }
@@ -303,8 +303,8 @@ pub struct SymmetryVerificationStats {
     symbolica_determinant_calls: usize,
     symbolica_product_calls: usize,
     symbolica_transpose_calls: usize,
-    guard_polynomials: usize,
-    guard_origins: usize,
+    nonzero_conditions: usize,
+    condition_sources: usize,
 }
 
 impl SymmetryVerificationStats {
@@ -357,12 +357,12 @@ impl SymmetryVerificationStats {
         self.symbolica_transpose_calls
     }
 
-    pub const fn guard_polynomials(self) -> usize {
-        self.guard_polynomials
+    pub const fn nonzero_conditions(self) -> usize {
+        self.nonzero_conditions
     }
 
-    pub const fn guard_origins(self) -> usize {
-        self.guard_origins
+    pub const fn condition_sources(self) -> usize {
+        self.condition_sources
     }
 }
 
@@ -381,8 +381,8 @@ pub struct VerifiedAffineFamilyMap {
     jacobian: JacobianWitness,
     source_domain: FamilyDomain,
     target_domain: FamilyDomain,
-    candidate_denominator_guards: Box<[BasePolynomial]>,
-    replay_guards: Box<[SymmetryNonZeroCondition]>,
+    candidate_denominator_conditions: Box<[BasePolynomial]>,
+    nonzero_conditions: Box<[SymmetryNonZeroCondition]>,
     stats: SymmetryVerificationStats,
 }
 
@@ -435,20 +435,20 @@ impl VerifiedAffineFamilyMap {
 
     /// Denominators of caller-supplied rational map entries, before any
     /// cancellation in derived matrices.
-    pub fn candidate_denominator_guards(&self) -> &[BasePolynomial] {
-        &self.candidate_denominator_guards
+    pub fn candidate_denominator_conditions(&self) -> &[BasePolynomial] {
+        &self.candidate_denominator_conditions
     }
 
     /// The exact numerator of `det(A)`, required to be nonzero.
-    pub const fn determinant_nonzero_guard(&self) -> &BasePolynomial {
+    pub const fn loop_determinant_nonzero_condition(&self) -> &BasePolynomial {
         &self.loop_determinant.numerator
     }
 
     /// Complete merged nonzero domain for replay, including both family
     /// domains, all candidate denominators, both determinant numerators, and
     /// every monomial denominator scale numerator.
-    pub fn replay_guards(&self) -> &[SymmetryNonZeroCondition] {
-        &self.replay_guards
+    pub fn nonzero_conditions(&self) -> &[SymmetryNonZeroCondition] {
+        &self.nonzero_conditions
     }
 
     pub const fn stats(&self) -> SymmetryVerificationStats {
@@ -474,8 +474,8 @@ impl VerifiedAffineFamilyMap {
             || replayed.jacobian != self.jacobian
             || replayed.source_domain != self.source_domain
             || replayed.target_domain != self.target_domain
-            || replayed.candidate_denominator_guards != self.candidate_denominator_guards
-            || replayed.replay_guards != self.replay_guards
+            || replayed.candidate_denominator_conditions != self.candidate_denominator_conditions
+            || replayed.nonzero_conditions != self.nonzero_conditions
         {
             return Err(SymmetryVerificationError::CertificateReplayMismatch);
         }
@@ -704,33 +704,33 @@ pub fn verify_affine_family_map(
     algebra.retain_matrix(&momentum.loop_external, "B")?;
     algebra.retain_matrix(&momentum.external_linear, "C")?;
 
-    let mut replay_guards = SymmetryGuardCollector::new(limits);
-    replay_guards.add_family_domain(source.domain(), true)?;
-    replay_guards.add_family_domain(target.domain(), false)?;
-    let candidate_denominator_guards = collect_candidate_denominators(
+    let mut conditions = SymmetryConditionCollector::new(limits);
+    conditions.add_family_domain(source.domain(), true)?;
+    conditions.add_family_domain(target.domain(), false)?;
+    let candidate_denominator_conditions = collect_candidate_denominators(
         [
             ("A", &momentum.loop_linear),
             ("B", &momentum.loop_external),
             ("C", &momentum.external_linear),
         ],
-        &mut replay_guards,
+        &mut conditions,
     )?;
 
     let loop_determinant = checked_determinant(&momentum.loop_linear, &mut algebra)?;
     if loop_determinant.is_zero() {
         return Err(SymmetryVerificationError::SingularLoopMap);
     }
-    replay_guards.add(
+    conditions.add(
         loop_determinant.numerator.clone(),
-        SymmetryGuardOrigin::LoopMapDeterminantNumerator,
+        SymmetryConditionSource::LoopMapDeterminantNumerator,
     )?;
     let external_determinant = checked_determinant(&momentum.external_linear, &mut algebra)?;
     if external_determinant.is_zero() {
         return Err(SymmetryVerificationError::SingularExternalMap);
     }
-    replay_guards.add(
+    conditions.add(
         external_determinant.numerator.clone(),
-        SymmetryGuardOrigin::ExternalMapDeterminantNumerator,
+        SymmetryConditionSource::ExternalMapDeterminantNumerator,
     )?;
 
     verify_external_gram(source, target, &momentum, &mut algebra)?;
@@ -738,11 +738,11 @@ pub fn verify_affine_family_map(
     let scalar_products = derive_scalar_product_map(source, target, &momentum, &mut algebra)?;
     let denominators = derive_denominator_map(source, target, &scalar_products, &mut algebra)?;
     replay_denominator_map(source, target, &momentum, &denominators, &mut algebra)?;
-    let row_actions = classify_rows(&denominators, &mut replay_guards)?;
+    let row_actions = classify_rows(&denominators, &mut conditions)?;
 
-    algebra.stats.guard_polynomials = replay_guards.polynomial_count();
-    algebra.stats.guard_origins = replay_guards.origin_count();
-    let replay_guards = replay_guards.finish();
+    algebra.stats.nonzero_conditions = conditions.condition_count();
+    algebra.stats.condition_sources = conditions.source_count();
+    let nonzero_conditions = conditions.finish();
 
     Ok(VerifiedAffineFamilyMap {
         source_family_fingerprint: source.fingerprint(),
@@ -756,8 +756,8 @@ pub fn verify_affine_family_map(
         jacobian,
         source_domain: source.domain().clone(),
         target_domain: target.domain().clone(),
-        candidate_denominator_guards: candidate_denominator_guards.into_boxed_slice(),
-        replay_guards,
+        candidate_denominator_conditions: candidate_denominator_conditions.into_boxed_slice(),
+        nonzero_conditions,
         stats: algebra.stats,
     })
 }
@@ -1028,18 +1028,18 @@ impl<'a> ReplayAlgebra<'a> {
     }
 }
 
-struct SymmetryGuardCollector {
+struct SymmetryConditionCollector {
     limits: SymmetryVerificationLimits,
     conditions: Vec<SymmetryNonZeroCondition>,
-    origin_count: usize,
+    source_count: usize,
 }
 
-impl SymmetryGuardCollector {
+impl SymmetryConditionCollector {
     fn new(limits: SymmetryVerificationLimits) -> Self {
         Self {
             limits,
             conditions: Vec::new(),
-            origin_count: 0,
+            source_count: 0,
         }
     }
 
@@ -1049,13 +1049,13 @@ impl SymmetryGuardCollector {
         source: bool,
     ) -> Result<(), SymmetryVerificationError> {
         for condition in domain.conditions() {
-            for origin in condition.origins() {
-                let origin = if source {
-                    SymmetryGuardOrigin::SourceFamily(origin.clone())
+            for family_source in condition.sources() {
+                let source = if source {
+                    SymmetryConditionSource::SourceFamily(family_source.clone())
                 } else {
-                    SymmetryGuardOrigin::TargetFamily(origin.clone())
+                    SymmetryConditionSource::TargetFamily(family_source.clone())
                 };
-                self.add(condition.polynomial().clone(), origin)?;
+                self.add(condition.polynomial().clone(), source)?;
             }
         }
         Ok(())
@@ -1064,45 +1064,53 @@ impl SymmetryGuardCollector {
     fn add(
         &mut self,
         polynomial: BasePolynomial,
-        origin: SymmetryGuardOrigin,
+        source: SymmetryConditionSource,
     ) -> Result<(), SymmetryVerificationError> {
         if let Some(existing) = self
             .conditions
             .iter_mut()
             .find(|condition| condition.polynomial == polynomial)
         {
-            if existing.origins.contains(&origin) {
+            if existing.sources.contains(&source) {
                 return Ok(());
             }
-            let requested = checked_add(self.origin_count, 1, "symmetry guard origins")?;
-            check_limit("guard origins", requested, self.limits.max_guard_origins)?;
-            existing.origins.insert(origin);
-            self.origin_count = requested;
+            let requested = checked_add(self.source_count, 1, "symmetry condition sources")?;
+            check_limit(
+                "condition sources",
+                requested,
+                self.limits.max_condition_sources,
+            )?;
+            existing.sources.insert(source);
+            self.source_count = requested;
             return Ok(());
         }
 
-        let polynomial_count = checked_add(self.conditions.len(), 1, "symmetry guard polynomials")?;
+        let condition_count = checked_add(self.conditions.len(), 1, "symmetry nonzero conditions")?;
         check_limit(
-            "guard polynomials",
-            polynomial_count,
-            self.limits.max_guard_polynomials,
+            "nonzero conditions",
+            condition_count,
+            self.limits.max_nonzero_conditions,
         )?;
-        let origin_count = checked_add(self.origin_count, 1, "symmetry guard origins")?;
-        check_limit("guard origins", origin_count, self.limits.max_guard_origins)?;
+        let source_count = checked_add(self.source_count, 1, "symmetry condition sources")?;
+        check_limit(
+            "condition sources",
+            source_count,
+            self.limits.max_condition_sources,
+        )?;
         self.conditions.push(SymmetryNonZeroCondition {
             polynomial,
-            origins: BTreeSet::from([origin]),
+            sources: BTreeSet::from([source]),
         });
-        self.origin_count = origin_count;
+        self.source_count = source_count;
         Ok(())
     }
 
-    fn polynomial_count(&self) -> usize {
+    fn condition_count(&self) -> usize {
         self.conditions.len()
     }
 
-    fn origin_count(&self) -> usize {
-        self.origin_count
+    fn source_count(&self) -> usize {
+        self.source_count
     }
 
     fn finish(self) -> Box<[SymmetryNonZeroCondition]> {
@@ -1583,7 +1591,7 @@ fn replay_denominator_map(
 
 fn classify_rows(
     map: &AffineDenominatorMap,
-    guards: &mut SymmetryGuardCollector,
+    conditions: &mut SymmetryConditionCollector,
 ) -> Result<Vec<DenominatorRowAction>, SymmetryVerificationError> {
     let mut actions = Vec::with_capacity(map.linear.rows);
     for row in 0..map.linear.rows {
@@ -1602,9 +1610,9 @@ fn classify_rows(
             continue;
         }
         let scale = map.linear.at(row, target).clone();
-        guards.add(
+        conditions.add(
             scale.numerator.clone(),
-            SymmetryGuardOrigin::DenominatorScaleNumerator {
+            SymmetryConditionSource::DenominatorScaleNumerator {
                 source_denominator: row,
                 target_denominator: target,
             },
@@ -1908,7 +1916,7 @@ fn aggregate_symbolica_resource_limit(
 
 fn collect_candidate_denominators<'a>(
     matrices: impl IntoIterator<Item = (&'static str, &'a ExactMatrix<Coefficient>)>,
-    guards: &mut SymmetryGuardCollector,
+    conditions: &mut SymmetryConditionCollector,
 ) -> Result<Vec<BasePolynomial>, SymmetryVerificationError> {
     let mut candidate_denominators = Vec::new();
     for (name, matrix) in matrices {
@@ -1919,9 +1927,9 @@ fn collect_candidate_denominators<'a>(
                 if denominator.is_one() {
                     continue;
                 }
-                guards.add(
+                conditions.add(
                     denominator.clone(),
-                    SymmetryGuardOrigin::MomentumMapDenominator {
+                    SymmetryConditionSource::MomentumMapDenominator {
                         matrix: name,
                         row,
                         column,
@@ -1929,7 +1937,7 @@ fn collect_candidate_denominators<'a>(
                 )?;
                 if !candidate_denominators
                     .iter()
-                    .any(|guard| guard == &denominator)
+                    .any(|condition| condition == &denominator)
                 {
                     candidate_denominators.push(denominator);
                 }

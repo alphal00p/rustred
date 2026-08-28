@@ -6,7 +6,7 @@ use crate::application::error::AppError;
 use crate::application::model::MetadataValue;
 use crate::application::options::RelationSelection;
 
-use super::model::{ConditionOutputV1, DeriveOutputV1};
+use super::model::{DeriveOutputV1, FamilyConditionOutputV1, RelationConditionOutputV1};
 
 const MAX_DERIVATION_TERM_ATTEMPTS: usize = 2_000_000;
 const PAYLOAD_NODE_BYTES: usize = 4_096;
@@ -144,8 +144,8 @@ mod tests {
 pub(super) struct GeneratedPayloadCensus {
     relations: usize,
     relation_terms: usize,
-    guard_conditions: usize,
-    guard_origins: usize,
+    nonzero_conditions: usize,
+    condition_sources: usize,
     polynomial_terms: usize,
     exponent_entries: usize,
     integer_bits: usize,
@@ -195,17 +195,18 @@ pub(super) fn preflight_family_payload(
         census_coefficient(shift, &mut census)?;
     }
     for condition in family.domain().conditions() {
-        census.guard_conditions = checked_census_add(census.guard_conditions, 1)?;
-        census.guard_origins = checked_census_add(census.guard_origins, condition.origins().len())?;
-        let origin_bytes = condition
-            .origins()
+        census.nonzero_conditions = checked_census_add(census.nonzero_conditions, 1)?;
+        census.condition_sources =
+            checked_census_add(census.condition_sources, condition.sources().len())?;
+        let source_bytes = condition
+            .sources()
             .len()
             .checked_mul(PAYLOAD_NODE_BYTES)
             .ok_or_else(derivation_bound_overflow)?;
         add_generated_payload_bound(
             &mut census,
             PAYLOAD_NODE_BYTES
-                .checked_add(origin_bytes)
+                .checked_add(source_bytes)
                 .ok_or_else(derivation_bound_overflow)?,
         )?;
         census_polynomial(
@@ -285,10 +286,10 @@ pub(super) fn preflight_generated_relations<'a>(
             )?;
         }
         for condition in relation.guarded_nonzero_conditions() {
-            census.guard_conditions = checked_census_add(census.guard_conditions, 1)?;
-            census.guard_origins =
-                checked_census_add(census.guard_origins, condition.origins().len())?;
-            let origin_bytes = condition
+            census.nonzero_conditions = checked_census_add(census.nonzero_conditions, 1)?;
+            census.condition_sources =
+                checked_census_add(census.condition_sources, condition.origins().len())?;
+            let source_bytes = condition
                 .origins()
                 .len()
                 .checked_mul(PAYLOAD_NODE_BYTES)
@@ -296,7 +297,7 @@ pub(super) fn preflight_generated_relations<'a>(
             add_generated_payload_bound(
                 &mut census,
                 PAYLOAD_NODE_BYTES
-                    .checked_add(origin_bytes)
+                    .checked_add(source_bytes)
                     .ok_or_else(derivation_bound_overflow)?,
             )?;
             census_polynomial(
@@ -392,15 +393,15 @@ fn add_generated_payload_bound(
         .ok_or_else(derivation_bound_overflow)?;
     if census.retained_render_bound > MAX_OUTPUT_BYTES {
         return Err(AppError::output_limit(format!(
-            "application algebraic output payload has a conservative {}-byte retained/render bound after {} relations, {} terms, {} polynomial terms, {} exponent entries, {} integer bits, {} guard conditions, and {} guard origins; the application limit is {MAX_OUTPUT_BYTES} bytes",
+            "application algebraic output payload has a conservative {}-byte retained/render bound after {} relations, {} terms, {} polynomial terms, {} exponent entries, {} integer bits, {} nonzero conditions, and {} condition sources; the application limit is {MAX_OUTPUT_BYTES} bytes",
             census.retained_render_bound,
             census.relations,
             census.relation_terms,
             census.polynomial_terms,
             census.exponent_entries,
             census.integer_bits,
-            census.guard_conditions,
-            census.guard_origins,
+            census.nonzero_conditions,
+            census.condition_sources,
         )));
     }
     Ok(())
@@ -517,7 +518,7 @@ pub(super) fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), AppE
         add_node(&[&gram.left, &gram.right, &gram.value], 2)?;
     }
     for condition in &output.domain_conditions {
-        add_condition_bound(condition, &mut add_node)?;
+        add_family_condition_bound(condition, &mut add_node)?;
     }
     for relation in &output.relations {
         add_node(
@@ -532,20 +533,28 @@ pub(super) fn preflight_output_bound(output: &DeriveOutputV1) -> Result<(), AppE
             add_node(&[&term.coefficient], term.shift.len())?;
         }
         for condition in &relation.nonzero_conditions {
-            add_condition_bound(condition, &mut add_node)?;
+            add_relation_condition_bound(condition, &mut add_node)?;
         }
     }
     Ok(())
 }
 
-fn add_condition_bound(
-    condition: &ConditionOutputV1,
+fn add_family_condition_bound(
+    condition: &FamilyConditionOutputV1,
     add_node: &mut impl FnMut(&[&str], usize) -> Result<(), AppError>,
 ) -> Result<(), AppError> {
     add_node(&[&condition.expression], 0)?;
     for source in &condition.sources {
         add_node(&[source], 0)?;
     }
+    Ok(())
+}
+
+fn add_relation_condition_bound(
+    condition: &RelationConditionOutputV1,
+    add_node: &mut impl FnMut(&[&str], usize) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    add_node(&[&condition.expression], 0)?;
     for origin in &condition.origins {
         add_node(&[origin], 0)?;
     }

@@ -15,9 +15,9 @@ use symbolica::prelude::*;
 
 use crate::generic_family::BasePolynomial as FamilyBasePolynomial;
 use crate::{
-    CoefficientLocation, FeynmanPolynomialError, FeynmanPolynomialLimits, GuardOrigin,
-    IntegralFamily, SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions,
-    SymanzikPolynomials, algebra::Coefficient, algebra::ExactAlgebraError,
+    CoefficientLocation, FeynmanPolynomialError, FeynmanPolynomialLimits, IntegralFamily,
+    SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions, SymanzikPolynomials,
+    algebra::Coefficient, algebra::ExactAlgebraError,
 };
 
 pub const ZERO_SECTOR_CERTIFICATE_SCHEMA: &str = "rustred.zero-sector-certificate.v1";
@@ -193,7 +193,6 @@ pub enum ZeroSectorConditionSource {
 pub struct ZeroSectorDomainCondition {
     polynomial: FamilyBasePolynomial,
     sources: BTreeSet<ZeroSectorConditionSource>,
-    origins: BTreeSet<GuardOrigin>,
 }
 
 impl ZeroSectorDomainCondition {
@@ -203,10 +202,6 @@ impl ZeroSectorDomainCondition {
 
     pub fn sources(&self) -> &BTreeSet<ZeroSectorConditionSource> {
         &self.sources
-    }
-
-    pub fn origins(&self) -> &BTreeSet<GuardOrigin> {
-        &self.origins
     }
 }
 
@@ -224,21 +219,18 @@ impl ZeroSectorDomain {
     fn insert(
         &mut self,
         polynomial: FamilyBasePolynomial,
-        source: ZeroSectorConditionSource,
-        origins: BTreeSet<GuardOrigin>,
+        sources: BTreeSet<ZeroSectorConditionSource>,
     ) {
         if let Some(condition) = self
             .conditions
             .iter_mut()
             .find(|condition| condition.polynomial == polynomial)
         {
-            condition.sources.insert(source);
-            condition.origins.extend(origins);
+            condition.sources.extend(sources);
         } else {
             self.conditions.push(ZeroSectorDomainCondition {
                 polynomial,
-                sources: BTreeSet::from([source]),
-                origins,
+                sources,
             });
         }
     }
@@ -469,11 +461,13 @@ impl ZeroSectorAnalyzer {
         let symanzik = SymanzikPolynomials::try_from_family_with_limits(family, limits.feynman)?;
         let mut domain = ZeroSectorDomain::default();
         for condition in family.domain().conditions() {
-            domain.insert(
-                condition.polynomial().clone(),
-                ZeroSectorConditionSource::Family(condition.source().clone()),
-                condition.origins().clone(),
-            );
+            let sources = condition
+                .sources()
+                .iter()
+                .cloned()
+                .map(ZeroSectorConditionSource::Family)
+                .collect();
+            domain.insert(condition.polynomial().clone(), sources);
         }
 
         let mut support = Vec::with_capacity(family.denominator_count());
@@ -491,11 +485,9 @@ impl ZeroSectorAnalyzer {
                 return Err(ZeroSectorError::UnsupportedShiftedCut { denominator });
             }
             if nonzero && !shift.numerator.is_constant() {
-                let origin = GuardOrigin::PowerShiftSupport { denominator };
                 domain.insert(
                     shift.numerator.clone(),
-                    ZeroSectorConditionSource::PowerShiftSupport { denominator },
-                    BTreeSet::from([origin]),
+                    BTreeSet::from([ZeroSectorConditionSource::PowerShiftSupport { denominator }]),
                 );
             }
             support.push(nonzero);
@@ -1221,6 +1213,24 @@ mod tests {
         .unwrap()
     }
 
+    fn family_and_power_support_conditions() -> IntegralFamily {
+        let coefficients = CoefficientContext::new(["d", "s", "nu"]);
+        IntegralFamily::new(
+            "zero-sector-condition-sources",
+            vec!["k".into()],
+            Vec::new(),
+            coefficients.clone(),
+            coefficients.coefficient_fixture("d/s"),
+            vec![AffineDenominator::new(
+                coefficients.zero(),
+                vec![coefficients.one()],
+            )],
+            Vec::new(),
+            vec![coefficients.parameter("nu").unwrap()],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn sentinel_zero_sector_decisions_are_explicit_and_on_demand() {
         let family = one_denominator_massive_family();
@@ -1239,5 +1249,41 @@ mod tests {
             analyzer.analyze_sector(&active),
             ZeroSectorDecision::NoZeroCertificate(_)
         ));
+    }
+
+    #[test]
+    fn domain_evidence_uses_only_zero_sector_sources() {
+        let family = family_and_power_support_conditions();
+        let analyzer =
+            ZeroSectorAnalyzer::try_unrestricted(&family, PowerShiftPolicy::FormalGeneric).unwrap();
+        let coefficients = family.coefficient_context();
+
+        let family_condition = analyzer
+            .domain
+            .conditions()
+            .iter()
+            .find(|condition| {
+                condition.polynomial() == &coefficients.parameter("s").unwrap().numerator
+            })
+            .unwrap();
+        assert_eq!(
+            family_condition.sources(),
+            &BTreeSet::from([ZeroSectorConditionSource::Family(
+                CoefficientLocation::Dimension,
+            )])
+        );
+
+        let power_support = analyzer
+            .domain
+            .conditions()
+            .iter()
+            .find(|condition| {
+                condition.polynomial() == &coefficients.parameter("nu").unwrap().numerator
+            })
+            .unwrap();
+        assert_eq!(
+            power_support.sources(),
+            &BTreeSet::from([ZeroSectorConditionSource::PowerShiftSupport { denominator: 0 }])
+        );
     }
 }
