@@ -14,8 +14,8 @@ use crate::parametric_coefficient::{
     ParametricPolynomialAssociateLimits, ParametricPolynomialAssociateStats,
 };
 use crate::{
-    ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    algebra::ExactAlgebraLimits,
 };
 
 pub(crate) const CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA: &str =
@@ -1208,7 +1208,7 @@ mod tests {
     use symbolica::domains::integer::Integer;
 
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
     use crate::parametric_coefficient::{
         ParametricArithmeticLimits, inject_polynomial_associate_native_boundary_panic_for_test,
         polynomial_associate_native_boundary_calls_for_test,

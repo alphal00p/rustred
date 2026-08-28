@@ -21,7 +21,7 @@ use crate::parametric_relation::{
     ParametricRelation, ParametricRelationV2Observer, write_relation_manifest_v2_observed,
     write_typed_polynomial,
 };
-use crate::{Coefficient, CoefficientLocation, GuardOrigin, GuardRowId};
+use crate::{CoefficientLocation, GuardOrigin, GuardRowId, algebra::Coefficient};
 
 pub(crate) const EXACT_STRUCTURAL_IDENTITY_V1_SCHEMA: &str = "rustred-exact-structural-identity-v1";
 
@@ -1879,8 +1879,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        CoefficientContext, CoefficientLocation, GuardOrigin, GuardRowId, IndexSpace,
-        ParametricCoefficientContext, ParametricRelation, ParametricRowId,
+        CoefficientLocation, GuardOrigin, GuardRowId, IndexSpace, ParametricCoefficientContext,
+        ParametricRelation, ParametricRowId, algebra::CoefficientContext,
     };
 
     #[derive(Clone)]

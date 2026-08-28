@@ -1559,7 +1559,9 @@ impl From<crate::ParametricCoefficientError> for GeneratedPartialReeliminationEr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AffineDenominator, CoefficientContext, IndexSpace, IntegralOrderingPolicy};
+    use crate::{
+        AffineDenominator, IndexSpace, IntegralOrderingPolicy, algebra::CoefficientContext,
+    };
 
     fn family() -> IntegralFamily {
         let coefficients = CoefficientContext::new(["d", "m2"]);

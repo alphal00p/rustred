@@ -1219,8 +1219,9 @@ impl From<SectorFoundationError> for GeneratedSectorDiscoveryError {
 mod v5_tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedWhenBadCompiler, ParametricIbpGenerator,
+        AffineDenominator, GeneratedWhenBadCompiler, ParametricIbpGenerator,
         ParametricReductionRuleCandidate, ParametricSectorLeafDisposition,
+        algebra::CoefficientContext,
     };
 
     fn one_loop_family(name: &str) -> IntegralFamily {

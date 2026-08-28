@@ -1692,15 +1692,15 @@ mod tests {
         reset_replayed_cylindrical_core_construction_count_for_test,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, FamilySectorInventoryCompiler,
-        FamilySectorInventoryLimits, GeneratedCylindricalCandidateAuthority,
-        GeneratedCylindricalCandidateAuthorityLimits,
+        AffineDenominator, FamilySectorInventoryCompiler, FamilySectorInventoryLimits,
+        GeneratedCylindricalCandidateAuthority, GeneratedCylindricalCandidateAuthorityLimits,
         GeneratedCylindricalPersistentEliminationCertificate,
         GeneratedCylindricalPersistentEliminationLimits, GeneratedCylindricalRowSystemCertificate,
         GeneratedCylindricalRowSystemLimits, GeneratedCylindricalSectorRootStartCertificate,
         GeneratedCylindricalSectorRootStartLimits, GeneratedCylindricalWhenBadCompilation,
         GeneratedCylindricalWhenBadCompiler, GeneratedSymbolicRowSpanConfig, ParametricIbpConfig,
         ParametricIbpGenerator, PowerShiftPolicy, SectorRestrictions, WhenBadCompilerLimits,
+        algebra::CoefficientContext,
     };
 
     // Exact replay-work ceilings used by the authentic one-loop persistent

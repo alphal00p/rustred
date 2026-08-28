@@ -22,15 +22,16 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::{
-    Coefficient, ConcreteIntegralKey, ConcreteRelation, ExactAlgebraError, ExactAlgebraLimits,
-    GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA, GeneratedCylindricalCandidateAuthorityError,
-    GeneratedCylindricalWhenBadCertificate, IndexShift, IntegralFamily, IntegralOrderingPolicy,
-    ParametricArithmeticLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricElimination, ParametricEliminationError, ParametricEliminationOrdering,
-    ParametricEliminationTrace, ParametricRelation, ParametricRelationError, SectorFoundationError,
-    SectorMask, SpecializedNonZeroCondition, StrictDescentWitness, WhenBadCandidateSourceAuthority,
+    ConcreteIntegralKey, ConcreteRelation, GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA,
+    GeneratedCylindricalCandidateAuthorityError, GeneratedCylindricalWhenBadCertificate,
+    IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricArithmeticLimits,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricElimination,
+    ParametricEliminationError, ParametricEliminationOrdering, ParametricEliminationTrace,
+    ParametricRelation, ParametricRelationError, SectorFoundationError, SectorMask,
+    SpecializedNonZeroCondition, StrictDescentWitness, WhenBadCandidateSourceAuthority,
     WhenBadCompilerError, WhenBadLeafDisposition, WhenBadOrderingAuthority,
-    WhenBadSourceAuthentication,
+    WhenBadSourceAuthentication, algebra::Coefficient, algebra::ExactAlgebraError,
+    algebra::ExactAlgebraLimits,
 };
 
 pub const PARAMETRIC_REDUCTION_RULE_V1_SCHEMA: &str = "rustred-parametric-reduction-rule-v1";
@@ -787,7 +788,7 @@ impl ConcreteReduction {
     /// Replay the solved equation and its complete specialized guard payload.
     pub fn verify_application(
         &self,
-        context: &crate::CoefficientContext,
+        context: &crate::algebra::CoefficientContext,
         policy: IntegralOrderingPolicy,
         limits: ExactAlgebraLimits,
     ) -> Result<bool, ExactAlgebraError> {

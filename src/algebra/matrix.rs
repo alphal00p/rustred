@@ -38,7 +38,7 @@ use symbolica::domains::SelfRing;
 use symbolica::prelude::*;
 use symbolica::tensors::matrix::MatrixError;
 
-use crate::coefficient::{
+use crate::algebra::{
     Coefficient, CoefficientContext, CoefficientPolynomialPart, ExactAlgebraError,
     ExactAlgebraLimits, ExactAlgebraOperation, coefficient_clone_owned_retained_byte_bound,
 };

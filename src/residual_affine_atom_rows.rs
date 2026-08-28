@@ -22,8 +22,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use symbolica::prelude::{EuclideanDomain, Integer, Z};
 
 use crate::{
-    ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    algebra::ExactAlgebraLimits,
 };
 
 pub const RESIDUAL_AFFINE_ATOM_ROW_V1_SCHEMA: &str = "rustred-residual-affine-atom-row-v1";
@@ -1340,7 +1340,7 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoefficientContext, ParametricCoefficient};
+    use crate::{ParametricCoefficient, algebra::CoefficientContext};
 
     fn context(
         scope: &str,

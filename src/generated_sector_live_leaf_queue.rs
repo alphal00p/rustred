@@ -1574,9 +1574,9 @@ impl From<SectorFoundationError> for GeneratedSectorLiveLeafQueueError {
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedPartialReeliminationLimits,
-        GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits, IndexSpace,
-        ParametricIbpGenerator, PartialIndexAssignment,
+        AffineDenominator, GeneratedPartialReeliminationLimits, GeneratedSectorDiscoveryCompiler,
+        GeneratedSectorDiscoveryLimits, IndexSpace, ParametricIbpGenerator, PartialIndexAssignment,
+        algebra::CoefficientContext,
     };
 
     fn tadpole_family(name: &str) -> IntegralFamily {

@@ -1146,11 +1146,11 @@ where
 mod replayed_queue_tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, GeneratedSymbolicRowSpanCompiler,
-        IntegralOrderingPolicy, ParametricIbpGenerator, ParametricSectorRuleProvider,
-        ParametricSectorRuleProviderLimits,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
+        GeneratedSymbolicRowSpanCompiler, IntegralOrderingPolicy, ParametricIbpGenerator,
+        ParametricSectorRuleProvider, ParametricSectorRuleProviderLimits,
+        algebra::CoefficientContext,
     };
 
     fn family() -> IntegralFamily {

@@ -13,10 +13,9 @@ use std::sync::Arc;
 
 use crate::symmetry::SymmetryGuardOrigin;
 use crate::{
-    BasePolynomial, Coefficient, CoefficientContext, CoefficientPolynomial, ConcreteIntegralKey,
-    ConcreteRelation, ExactAlgebraError, ExactAlgebraLimits, ExactSparseElimination,
-    ExactSparseEliminationConfig, ExactSparseEliminationError, ExactSparseRow,
-    GeneratedCylindricalPersistentEliminationCertificate,
+    BasePolynomial, CoefficientPolynomial, ConcreteIntegralKey, ConcreteRelation,
+    ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
+    ExactSparseRow, GeneratedCylindricalPersistentEliminationCertificate,
     GeneratedCylindricalPersistentEliminationError, GeneratedCylindricalSourceRowOutcome,
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, InternalSymmetryKeyTransportError,
     InternalSymmetryReplayError, ParametricArithmeticLimits, ParametricCoefficientContext,
@@ -25,7 +24,8 @@ use crate::{
     SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions,
     SpecializedNonZeroCondition, StrictDescentWitness, SymmetryVerificationLimits,
     VerifiedInternalFamilyPermutationSymmetry, ZeroSectorCertificate, ZeroSectorConditionSource,
-    ZeroSectorError, ZeroSectorLimits,
+    ZeroSectorError, ZeroSectorLimits, algebra::Coefficient, algebra::CoefficientContext,
+    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA: &str = "rustred-certified-concrete-rewrite-v1";

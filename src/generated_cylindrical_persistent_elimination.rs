@@ -3014,16 +3014,16 @@ fn replay_mismatch(detail: impl Into<String>) -> GeneratedCylindricalPersistentE
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, FamilySectorInventoryCompiler,
-        FamilySectorInventoryLimits, GeneratedCylindricalResidualStartCertificate,
-        GeneratedCylindricalResidualStartLimits, GeneratedCylindricalRowSystemLimits,
-        GeneratedCylindricalSectorRootStartCertificate, GeneratedCylindricalSectorRootStartLimits,
-        GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
-        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
-        GeneratedSymbolicRowSpanConfig, IndexSpace, IntegralOrderingPolicy, ParametricIbpConfig,
-        ParametricIbpGenerator, ParametricRowId, PartialIndexAssignment,
-        PartialParametricRelationSpecializationLimits, PowerShiftPolicy, SectorMask,
-        SectorRestrictions, SymbolicPolynomialPredicateKind,
+        AffineDenominator, FamilySectorInventoryCompiler, FamilySectorInventoryLimits,
+        GeneratedCylindricalResidualStartCertificate, GeneratedCylindricalResidualStartLimits,
+        GeneratedCylindricalRowSystemLimits, GeneratedCylindricalSectorRootStartCertificate,
+        GeneratedCylindricalSectorRootStartLimits, GeneratedSectorDiscoveryCompiler,
+        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
+        GeneratedSectorLiveLeafQueueLimits, GeneratedSymbolicRowSpanConfig, IndexSpace,
+        IntegralOrderingPolicy, ParametricIbpConfig, ParametricIbpGenerator, ParametricRowId,
+        PartialIndexAssignment, PartialParametricRelationSpecializationLimits, PowerShiftPolicy,
+        SectorMask, SectorRestrictions, SymbolicPolynomialPredicateKind,
+        algebra::CoefficientContext,
     };
 
     fn synthetic_family(name: &str) -> IntegralFamily {

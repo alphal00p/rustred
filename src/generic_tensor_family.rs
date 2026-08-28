@@ -16,9 +16,9 @@ use std::sync::Arc;
 
 use crate::generic_family::BasePolynomial as FamilyBasePolynomial;
 use crate::{
-    Coefficient, ConcreteIntegralKey, ExactAlgebraError, ExactAlgebraLimits, FamilyDomain,
-    GenericFamilyError, IntegralFamily, MetricPairing, ParametricRelationError,
-    ScalarProductCoordinate, TensorReduction,
+    ConcreteIntegralKey, FamilyDomain, GenericFamilyError, IntegralFamily, MetricPairing,
+    ParametricRelationError, ScalarProductCoordinate, TensorReduction, algebra::Coefficient,
+    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 /// Stable semantic version of the generic tensor-to-family bridge.

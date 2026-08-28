@@ -724,9 +724,9 @@ mod tests {
     use crate::parametric_sector_coverage::normalize_authenticated_attempts_with_replayed_row_span;
     use crate::parametric_sector_formula_ir::NormalizedCoverageAttempt;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSymbolicRowSpanCompiler, GeneratedWhenBadCompiler,
-        IntegralOrderingPolicy, ParametricIbpGenerator,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSymbolicRowSpanCompiler, GeneratedWhenBadCompiler, IntegralOrderingPolicy,
+        ParametricIbpGenerator, algebra::CoefficientContext,
     };
 
     fn sunset_family(name: &str) -> IntegralFamily {

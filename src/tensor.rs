@@ -13,11 +13,11 @@ use std::fmt;
 
 use symbolica::prelude::*;
 
-use crate::coefficient::{Coefficient, CoefficientContext, ExactAlgebraError};
-use crate::symbolica_coefficient_matrix::{
+use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
     invert_and_verify_coefficient_matrix, power_of_coefficient,
 };
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
 
 /// Largest naive perfect-matching basis enabled by default (rank eight).
 ///

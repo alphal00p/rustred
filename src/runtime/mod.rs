@@ -53,8 +53,9 @@ mod tests {
 
     #[test]
     fn public_runtime_version_matches_the_vendored_manifest() {
-        let manifest: toml::Value = toml::from_str(include_str!("../vendor/symbolica/Cargo.toml"))
-            .expect("vendored Symbolica manifest must parse");
+        let manifest: toml::Value =
+            toml::from_str(include_str!("../../vendor/symbolica/Cargo.toml"))
+                .expect("vendored Symbolica manifest must parse");
         let manifest_version = manifest
             .get("package")
             .and_then(|package| package.get("version"))

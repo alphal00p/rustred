@@ -668,7 +668,7 @@ impl From<SectorFoundationError> for FamilySectorInventoryError {
 #[cfg(test)]
 mod replay_tamper_tests {
     use super::*;
-    use crate::{AffineDenominator, CoefficientContext, CutConstraint, SectorPattern};
+    use crate::{AffineDenominator, CutConstraint, SectorPattern, algebra::CoefficientContext};
 
     fn tadpole() -> IntegralFamily {
         let coefficients = CoefficientContext::new(["d", "m2"]);

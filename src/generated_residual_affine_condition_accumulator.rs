@@ -24,8 +24,8 @@ use crate::parametric_coefficient::{
     ParametricPolynomialAssociateLimits, ParametricPolynomialAssociateStats,
 };
 use crate::{
-    ExactAlgebraLimits, IndexShift, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+    IndexShift, ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    algebra::ExactAlgebraLimits, algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 /// Whether a condition is already known on the selected target or is newly

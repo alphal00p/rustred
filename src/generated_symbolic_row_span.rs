@@ -530,7 +530,7 @@ fn write_parametric_arithmetic_limits_identity(
 fn write_exact_algebra_limits_identity(
     writer: &mut ExactIdentityWriter<'_>,
     tag: &str,
-    limits: crate::ExactAlgebraLimits,
+    limits: crate::algebra::ExactAlgebraLimits,
 ) -> Result<(), ExactIdentityError> {
     writer.begin_record(tag, 3)?;
     writer.unsigned_u128("max_exponent", limits.max_exponent)?;
@@ -1380,7 +1380,7 @@ mod tests {
     use crate::exact_identity::{
         ExactIdentityLimits, ExactIdentityPayload, ExactStructuralIdentity, encode_exact_identity,
     };
-    use crate::{AffineDenominator, CoefficientContext};
+    use crate::{AffineDenominator, algebra::CoefficientContext};
 
     struct RowSpanPayload<'a>(&'a GeneratedSymbolicRowSpanCertificate);
 

@@ -1137,10 +1137,10 @@ impl From<SectorFoundationError> for GeneratedCylindricalSectorRootStartError {
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, CutConstraint, FamilySectorInventoryCompiler,
+        AffineDenominator, CutConstraint, FamilySectorInventoryCompiler,
         FamilySectorInventoryLimits, GeneratedCylindricalRowSystemCertificate,
         GeneratedCylindricalRowSystemError, GeneratedCylindricalRowSystemLimits,
-        ParametricIbpGenerator, SectorPattern,
+        ParametricIbpGenerator, SectorPattern, algebra::CoefficientContext,
     };
 
     fn massive_tadpole(name: &str) -> IntegralFamily {

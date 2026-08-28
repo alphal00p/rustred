@@ -16,12 +16,13 @@ use crate::parametric_coefficient::{
     coefficient_owned_retained_byte_bound, insert_specialized_condition,
 };
 use crate::{
-    Coefficient, CoefficientContext, ConcreteIntegralKey, ConcreteRelation, ExactAlgebraError,
-    ExactAlgebraLimits, GeneratedPartialReeliminationCertificate,
+    ConcreteIntegralKey, ConcreteRelation, GeneratedPartialReeliminationCertificate,
     GeneratedPartialReeliminationError, IndexSpace, IntegralFamily, IntegralOrderingPolicy,
     ParametricArithmeticLimits, ParametricCoefficientContext, ParametricCoefficientError,
     ParametricEliminationOrdering, ParametricRelation, ParametricRelationError,
     SectorFoundationError, SectorMask, SpecializedNonZeroCondition, StrictDescentWitness,
+    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
+    algebra::ExactAlgebraLimits,
 };
 
 pub const CONDITIONAL_PARAMETRIC_RULE_V1_SCHEMA: &str = "rustred-conditional-parametric-rule-v1";

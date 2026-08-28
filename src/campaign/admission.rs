@@ -2485,7 +2485,8 @@ mod tests {
         CampaignPlan, CampaignPlanLimits, CampaignRootSpec, CampaignWorkUnitKey,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+        AffineDenominator, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+        algebra::CoefficientContext,
     };
 
     fn campaign_job() -> CampaignJobKey {

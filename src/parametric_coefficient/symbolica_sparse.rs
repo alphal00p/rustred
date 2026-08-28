@@ -1248,7 +1248,7 @@ fn validate_row(
     physical_columns: usize,
     row_ordinal: usize,
     row: &SymbolicaParametricSparseInputRow<'_>,
-    exact_algebra: crate::ExactAlgebraLimits,
+    exact_algebra: crate::algebra::ExactAlgebraLimits,
 ) -> Result<(), SymbolicaParametricSparseError> {
     let mut previous = None;
     for entry in &row.entries {
@@ -1486,7 +1486,7 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
 
     fn context(scope: &str) -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(&CoefficientContext::new(["d"]), scope, 1).unwrap()

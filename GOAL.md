@@ -49,9 +49,12 @@ remains pure Rust + Symbolica.
   in parallel with the higher-loop foundry work. It is developed, committed,
   and pushed on a dedicated `vakint_rustred` feature branch created in the
   GammaLoop repository, never folded into a RustRed commit. In the present
-  ignored co-development layout, Vakint may use `rustred = { package =
-  "rustred", path = "../../../../crates/rustred-core" }` so local changes are exercised
-  immediately. Before a reproducible GammaLoop milestone is committed/pushed
+  ignored co-development layout, while the core package remains temporarily at
+  the RustRed repository root, Vakint may use `rustred = { package =
+  "rustred", path = "../../../../" }`; after Phase 0 moves that package, the
+  local path becomes `../../../../crates/rustred-core`. Either local form makes
+  uncommitted co-development changes visible immediately. Before a
+  reproducible GammaLoop milestone is committed/pushed
   or cited as oracle evidence, the dependency is switched to the RustRed
   GitHub repository at the exact validated revision; milestone updates advance
   that pin deliberately. Full six-loop artifact deployment and the production

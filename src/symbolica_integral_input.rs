@@ -19,7 +19,7 @@ use symbolica::parser::{Operator, ParseSettings, Token};
 use symbolica::prelude::*;
 use symbolica::state::Workspace;
 
-use crate::coefficient::{Coefficient, CoefficientContext, CoefficientContextError};
+use crate::algebra::{Coefficient, CoefficientContext, CoefficientContextError};
 use crate::generic_family::{
     AffineDenominator, GenericFamilyError, IntegralFamily, IntegralFamilyLimits,
 };

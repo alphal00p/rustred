@@ -24,6 +24,11 @@ use std::fmt;
 use symbolica::domains::RingOps;
 use symbolica::prelude::{Integer, Z};
 
+use crate::algebra::matrix::{
+    SymbolicaIntegerMatrixEntryRef, SymbolicaIntegerMatrixError, SymbolicaIntegerMatrixLimits,
+    SymbolicaIntegerMatrixStats, multiply_integer_matrices,
+    preflight_integer_matrix_product_with_accessors,
+};
 use crate::parametric_coefficient::{
     ResidualAffineCompactCompositionPlan, ResidualAffineCompactCompositionPlanLimits,
     ResidualAffineCompactCompositionPlanStats, ResidualAffineCompactMapView,
@@ -31,11 +36,6 @@ use crate::parametric_coefficient::{
     ResidualUnitAffinePolynomialCompositionStats,
 };
 use crate::residual_affine_atom_rows::residual_affine_atom_row_attempt_logical_memory_census;
-use crate::symbolica_coefficient_matrix::{
-    SymbolicaIntegerMatrixEntryRef, SymbolicaIntegerMatrixError, SymbolicaIntegerMatrixLimits,
-    SymbolicaIntegerMatrixStats, multiply_integer_matrices,
-    preflight_integer_matrix_product_with_accessors,
-};
 use crate::{
     ParametricCoefficientContext, ParametricPolynomial, ResidualAffineAtomRowCertificate,
     ResidualAffineAtomRowError, ResidualAffineAtomRowLimits, ResidualAffineAtomRowOutcome,
@@ -1059,7 +1059,7 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
-    use crate::{CoefficientContext, ParametricCoefficient};
+    use crate::{ParametricCoefficient, algebra::CoefficientContext};
 
     struct OwnedGeometry {
         context_fingerprint: String,
@@ -1958,12 +1958,14 @@ mod tests {
                 &[equality],
                 limits,
             ),
-            Err(GeneratedAffineResidualCaseUnitEqualityRefinementError::IntegerMatrix(
-                SymbolicaIntegerMatrixError::IntegerBitLimit {
-                    payload: crate::symbolica_coefficient_matrix::SymbolicaIntegerMatrixPayload::RightInput,
-                    ..
-                }
-            ))
+            Err(
+                GeneratedAffineResidualCaseUnitEqualityRefinementError::IntegerMatrix(
+                    SymbolicaIntegerMatrixError::IntegerBitLimit {
+                        payload: crate::algebra::matrix::SymbolicaIntegerMatrixPayload::RightInput,
+                        ..
+                    }
+                )
+            )
         ));
     }
 

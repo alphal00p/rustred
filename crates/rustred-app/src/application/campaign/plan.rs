@@ -5,7 +5,7 @@ use rustred::campaign::{
     CampaignFamilyId, CampaignJobKey, CampaignPlan, CampaignPlanLimits, CampaignRootId,
     CampaignRootSpec,
 };
-use rustred::{IntegralOrderingPolicy, SectorMask, symbolica_atom_packed_byte_size};
+use rustred::{IntegralOrderingPolicy, SectorMask, runtime::symbolica_atom_packed_byte_size};
 use serde::{Deserialize, Serialize};
 
 use super::super::error::AppError;

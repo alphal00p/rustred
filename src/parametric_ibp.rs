@@ -495,7 +495,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         row: &mut ParametricRelation,
         shift: IndexShift,
         power: &ParametricCoefficient,
-        derivative_coefficient: &crate::Coefficient,
+        derivative_coefficient: &crate::algebra::Coefficient,
     ) -> Result<(), ParametricIbpError> {
         if derivative_coefficient.is_zero() {
             return Ok(());
@@ -523,8 +523,8 @@ impl<'family> ParametricIbpGenerator<'family> {
         &self,
         target: &mut ParametricRelation,
         source: &ParametricRelation,
-        constant: &crate::Coefficient,
-        denominator_coefficients: &[crate::Coefficient],
+        constant: &crate::algebra::Coefficient,
+        denominator_coefficients: &[crate::algebra::Coefficient],
         negate: bool,
         row_id: &ParametricRowId,
     ) -> Result<(), ParametricIbpError> {
@@ -554,7 +554,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         target: &mut ParametricRelation,
         source: &ParametricRelation,
         translation: IndexShift,
-        base_factor: &crate::Coefficient,
+        base_factor: &crate::algebra::Coefficient,
         negate: bool,
         row_id: &ParametricRowId,
     ) -> Result<(), ParametricIbpError> {
@@ -639,7 +639,7 @@ pub(crate) fn checked_generated_row_counts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AffineDenominator, Coefficient, CoefficientContext};
+    use crate::{AffineDenominator, algebra::Coefficient, algebra::CoefficientContext};
 
     fn coefficient_for<'a>(
         relation: &'a crate::ConcreteRelation,
@@ -1154,10 +1154,10 @@ mod tests {
         assert!(matches!(
             error,
             ParametricIbpError::Coefficient(ParametricCoefficientError::ExactAlgebra(
-                crate::ExactAlgebraError::ExponentLimit {
-                    operation: crate::ExactAlgebraOperation::Multiply,
+                crate::algebra::ExactAlgebraError::ExponentLimit {
+                    operation: crate::algebra::ExactAlgebraOperation::Multiply,
                     requested: 65_536,
-                    limit: crate::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+                    limit: crate::algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
                     ..
                 }
             ))

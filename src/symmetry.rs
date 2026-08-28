@@ -16,18 +16,19 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
-use crate::generic_family::BasePolynomial;
-use crate::symbolica_coefficient_matrix::{
+use crate::algebra::matrix::{
     DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
     SymbolicaCoefficientMatrixStats, congruence_of_coefficient_matrix,
     determinant_of_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices,
 };
+use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
+use crate::generic_family::BasePolynomial;
 use crate::{
-    Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits, FamilyDomain,
-    GenericFamilyError, GuardOrigin, IntegralFamily, ScalarProductCoordinate,
+    FamilyDomain, GenericFamilyError, GuardOrigin, IntegralFamily, ScalarProductCoordinate,
+    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
+    algebra::ExactAlgebraLimits,
 };
 
 pub(crate) const VERIFIED_AFFINE_FAMILY_MAP_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =

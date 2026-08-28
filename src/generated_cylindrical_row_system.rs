@@ -1144,13 +1144,14 @@ fn check_limit(
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, BasePolynomial, CoefficientContext, FamilySectorInventoryCompiler,
+        AffineDenominator, BasePolynomial, FamilySectorInventoryCompiler,
         FamilySectorInventoryLimits, GeneratedCylindricalResidualStartLimits,
         GeneratedCylindricalSectorRootStartLimits, GeneratedSectorDiscoveryCompiler,
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
         GeneratedSectorLiveLeafQueueLimits, GeneratedSymbolicRowSpanConfig, IntegralOrderingPolicy,
         ParametricArithmeticLimits, ParametricIbpConfig, ParametricIbpGenerator, PowerShiftPolicy,
         SectorMask, SectorRestrictions, SymbolicPolynomialPredicateKind,
+        algebra::CoefficientContext,
     };
 
     fn massive_tadpole() -> IntegralFamily {

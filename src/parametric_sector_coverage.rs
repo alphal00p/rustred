@@ -142,7 +142,7 @@ pub struct ParametricSectorCoverageLimits {
     /// Per-multiplication conservative native-output support envelope.
     ///
     /// This is deliberately distinct from
-    /// [`crate::ExactAlgebraLimits::max_polynomial_terms`]: the latter still
+    /// [`crate::algebra::ExactAlgebraLimits::max_polynomial_terms`]: the latter still
     /// bounds both authenticated inputs and the actual canonical output.  The
     /// transient envelope only admits a proved direct-polynomial support bound
     /// before Symbolica constructs an output which may canonicalize smaller.
@@ -2245,7 +2245,7 @@ fn write_normalized_clause_source_identity(
 fn write_exact_algebra_limits_identity(
     writer: &mut ExactIdentityWriter<'_>,
     tag: &str,
-    limits: crate::ExactAlgebraLimits,
+    limits: crate::algebra::ExactAlgebraLimits,
 ) -> Result<(), ExactIdentityError> {
     writer.begin_record(tag, 3)?;
     writer.unsigned_u128("max_exponent", limits.max_exponent)?;
@@ -4383,7 +4383,7 @@ fn insert_unique_structural_locus(
     unique: &mut Vec<ParametricPolynomial>,
     polynomial: &ParametricPolynomial,
     limit: usize,
-    exact_algebra: crate::ExactAlgebraLimits,
+    exact_algebra: crate::algebra::ExactAlgebraLimits,
     stats: &mut ParametricSectorCoverageStats,
     limits: ParametricSectorCoverageLimits,
 ) -> Result<usize, ParametricSectorCoverageError> {
@@ -4414,7 +4414,7 @@ fn find_structural_locus(
     context: &ParametricCoefficientContext,
     unique: &[ParametricPolynomial],
     polynomial: &ParametricPolynomial,
-    exact_algebra: crate::ExactAlgebraLimits,
+    exact_algebra: crate::algebra::ExactAlgebraLimits,
     stats: &mut ParametricSectorCoverageStats,
     limits: ParametricSectorCoverageLimits,
 ) -> Result<Option<usize>, ParametricSectorCoverageError> {
@@ -5216,7 +5216,7 @@ fn bounded_same_structural_locus(
     context: &ParametricCoefficientContext,
     left: &ParametricPolynomial,
     right: &ParametricPolynomial,
-    mut exact: crate::ExactAlgebraLimits,
+    mut exact: crate::algebra::ExactAlgebraLimits,
     stats: &mut ParametricSectorCoverageStats,
     limits: ParametricSectorCoverageLimits,
 ) -> Result<bool, ParametricSectorCoverageError> {
@@ -5322,7 +5322,9 @@ fn effective_sector_limits(limits: ParametricSectorCoverageLimits) -> SymbolicSe
     sector
 }
 
-fn coverage_exact_algebra(limits: ParametricSectorCoverageLimits) -> crate::ExactAlgebraLimits {
+fn coverage_exact_algebra(
+    limits: ParametricSectorCoverageLimits,
+) -> crate::algebra::ExactAlgebraLimits {
     limits.generated_when_bad.when_bad.arithmetic.exact_algebra
 }
 
@@ -5668,8 +5670,8 @@ impl From<ParametricCoefficientError> for ParametricSectorCoverageError {
 mod product_zero_decomposition_tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        IntegralOrderingPolicy, ParametricIbpGenerator, algebra::CoefficientContext,
     };
 
     fn polynomial_context() -> (
@@ -6003,7 +6005,7 @@ mod product_zero_decomposition_tests {
                     .unwrap(),
             )
             .unwrap();
-        let exact = crate::ExactAlgebraLimits {
+        let exact = crate::algebra::ExactAlgebraLimits {
             max_exponent: 4,
             max_polynomial_terms: 3,
             max_term_operations: 4,
@@ -6092,11 +6094,13 @@ mod product_zero_decomposition_tests {
             )
             .unwrap_err(),
             ParametricSectorCoverageError::ParametricCoefficient(
-                ParametricCoefficientError::ExactAlgebra(crate::ExactAlgebraError::ResourceLimit {
-                    resource: "exact polynomial multiplication output terms",
-                    requested: 4,
-                    limit: 3,
-                },),
+                ParametricCoefficientError::ExactAlgebra(
+                    crate::algebra::ExactAlgebraError::ResourceLimit {
+                        resource: "exact polynomial multiplication output terms",
+                        requested: 4,
+                        limit: 3,
+                    },
+                ),
             ),
         );
         assert_eq!(strict_loci, strict_loci_before);
@@ -6137,11 +6141,13 @@ mod product_zero_decomposition_tests {
             )
             .unwrap_err(),
             ParametricSectorCoverageError::ParametricCoefficient(
-                ParametricCoefficientError::ExactAlgebra(crate::ExactAlgebraError::ResourceLimit {
-                    resource: "authenticated polynomial terms",
-                    requested: 4,
-                    limit: 3,
-                },),
+                ParametricCoefficientError::ExactAlgebra(
+                    crate::algebra::ExactAlgebraError::ResourceLimit {
+                        resource: "authenticated polynomial terms",
+                        requested: 4,
+                        limit: 3,
+                    },
+                ),
             ),
         );
         assert_eq!(retained_failure_loci, retained_failure_loci_before);
@@ -7456,7 +7462,7 @@ mod product_zero_decomposition_tests {
 #[cfg(test)]
 mod divisibility_implication_tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
 
     fn product_loci() -> (ParametricCoefficientContext, Vec<ParametricPolynomial>) {
         let context = ParametricCoefficientContext::try_new(
@@ -7562,7 +7568,7 @@ mod divisibility_implication_tests {
             .multiply_polynomial_conditions_with_limits(
                 &polynomials[0],
                 &polynomials[1],
-                crate::ExactAlgebraLimits::default(),
+                crate::algebra::ExactAlgebraLimits::default(),
             )
             .unwrap();
         polynomials.push(product);
@@ -7691,7 +7697,7 @@ mod divisibility_implication_tests {
             .multiply_polynomial_conditions_with_limits(
                 &polynomials[0],
                 &polynomials[1],
-                crate::ExactAlgebraLimits::default(),
+                crate::algebra::ExactAlgebraLimits::default(),
             )
             .unwrap();
         for indices in [[0, 0], [0, 7], [-3, 0], [-3, 7]] {
@@ -7705,7 +7711,7 @@ mod divisibility_implication_tests {
             assert_eq!(specialized.is_zero(), indices[0] == 0 || indices[1] == 0);
         }
 
-        let mut limits = crate::ExactAlgebraLimits::default();
+        let mut limits = crate::algebra::ExactAlgebraLimits::default();
         limits.max_term_operations = 0;
         assert!(
             context
@@ -7912,9 +7918,9 @@ mod divisibility_implication_tests {
 mod authenticated_row_span_seam_tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, IntegralOrderingPolicy, ParametricElimination,
+        AffineDenominator, IntegralOrderingPolicy, ParametricElimination,
         ParametricEliminationLimits, ParametricEliminationOrdering, ParametricIbpGenerator,
-        ParametricRelation, ParametricRuleLimits,
+        ParametricRelation, ParametricRuleLimits, algebra::CoefficientContext,
     };
 
     fn family(name: &str) -> IntegralFamily {

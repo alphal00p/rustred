@@ -1493,7 +1493,7 @@ fn write_parametric_arithmetic_limits_identity(
 fn write_exact_algebra_limits_identity(
     writer: &mut ExactIdentityWriter<'_>,
     tag: &str,
-    limits: crate::ExactAlgebraLimits,
+    limits: crate::algebra::ExactAlgebraLimits,
 ) -> Result<(), ExactIdentityError> {
     writer.begin_record(tag, 3)?;
     writer.unsigned_u128("max_exponent", limits.max_exponent)?;
@@ -4493,9 +4493,9 @@ impl From<crate::SectorFoundationError> for WhenBadCompilerError {
 mod adversarial_replay_tests {
     use super::*;
     use crate::{
-        CoefficientContext, IntegralOrderingPolicy, ParametricElimination,
-        ParametricEliminationLimits, ParametricEliminationOrdering, ParametricRelation,
-        ParametricRowId,
+        IntegralOrderingPolicy, ParametricElimination, ParametricEliminationLimits,
+        ParametricEliminationOrdering, ParametricRelation, ParametricRowId,
+        algebra::CoefficientContext,
     };
     use symbolica::atom::AtomCore;
 

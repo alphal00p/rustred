@@ -6,7 +6,7 @@
 //! and an [`IntegralFamily`](crate::IntegralFamily).  The Lorentz dimension is
 //! taken exclusively from [`IntegralFamily::dimension`], loop-vector ids are
 //! checked against the family's ordered loop basis, and every exact Symbolica
-//! operation is performed through the checked [`CoefficientContext`](crate::CoefficientContext)
+//! operation is performed through the checked [`CoefficientContext`](crate::algebra::CoefficientContext)
 //! API.
 //!
 //! Only vacuum projection is claimed here.  A tensor monomial containing
@@ -21,17 +21,18 @@ use std::error::Error;
 use std::fmt::{self, Write};
 use std::sync::Arc;
 
-use crate::generic_family::BasePolynomial;
-use crate::symbolica_coefficient_matrix::{
+use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
     SymbolicaCoefficientMatrixStats, invert_and_verify_coefficient_matrix, power_of_coefficient,
 };
+use crate::generic_family::BasePolynomial;
 use crate::{
-    Coefficient, CoefficientContext, ConcreteIntegralKey, ExactAlgebraError, ExactAlgebraLimits,
-    FamilyDomain, GenericTensorFamilyError, GenericTensorFamilyLimits, GenericTensorFamilyReducer,
-    GenericTensorIntegralReduction, GenericTensorNumerator, GenericTensorTerm, IndexedVector,
-    IntegralFamily, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProductCoordinate,
-    SlotPairing, TensorError, TensorMonomial, perfect_matching_count, perfect_matchings,
+    ConcreteIntegralKey, FamilyDomain, GenericTensorFamilyError, GenericTensorFamilyLimits,
+    GenericTensorFamilyReducer, GenericTensorIntegralReduction, GenericTensorNumerator,
+    GenericTensorTerm, IndexedVector, IntegralFamily, LoopVector, LorentzIndex, Metric,
+    MetricPairing, ScalarProductCoordinate, SlotPairing, TensorError, TensorMonomial,
+    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
+    algebra::ExactAlgebraLimits, perfect_matching_count, perfect_matchings,
 };
 
 /// Stable semantic version of the authenticated vacuum projector.

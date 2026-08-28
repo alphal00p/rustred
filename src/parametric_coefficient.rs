@@ -18,7 +18,7 @@ use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
 use crate::GuardOrigin;
-use crate::coefficient::{
+use crate::algebra::{
     ExactAlgebraError, ExactAlgebraLimits, checked_coefficient_add_on_map,
     checked_coefficient_div_on_map, checked_coefficient_mul_on_map, checked_coefficient_neg_on_map,
     checked_coefficient_sub_on_map, checked_polynomial_mul_on_map, validate_coefficient_on_map,
@@ -27,10 +27,10 @@ use crate::coefficient::{
 use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::residual_affine_integer_system::ResidualAffineIntegerSystemFreshPlanAuthorization;
 use crate::{
-    Coefficient, CoefficientContext, IndexShift, ResidualAffineIntegerMap,
-    ResidualAffineIntegerSystemCertificate, ResidualAffineIntegerSystemError,
-    ResidualUnitAffineIndexMapCertificate, ResidualUnitAffineIndexMapError,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+    IndexShift, ResidualAffineIntegerMap, ResidualAffineIntegerSystemCertificate,
+    ResidualAffineIntegerSystemError, ResidualUnitAffineIndexMapCertificate,
+    ResidualUnitAffineIndexMapError, algebra::Coefficient, algebra::CoefficientContext,
+    algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 pub(crate) mod symbolica_sparse;
@@ -556,7 +556,7 @@ impl BasePolynomial {
         validate_polynomial_on_map(
             &raw,
             context.variables(),
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits,
         )?;
         Ok(Self {
@@ -5499,7 +5499,7 @@ impl ParametricCoefficientContext {
             && validate_polynomial_on_map(
                 &value.raw,
                 &self.variables,
-                crate::CoefficientPolynomialPart::Numerator,
+                crate::algebra::CoefficientPolynomialPart::Numerator,
                 ExactAlgebraLimits::default(),
             )
             .is_ok()
@@ -5600,7 +5600,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &value.raw,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits,
         )?;
         Ok(())
@@ -8212,7 +8212,7 @@ impl ParametricCoefficientContext {
             && validate_polynomial_on_map(
                 &value.raw,
                 self.base.variables(),
-                crate::CoefficientPolynomialPart::Numerator,
+                crate::algebra::CoefficientPolynomialPart::Numerator,
                 ExactAlgebraLimits::default(),
             )
             .is_ok()
@@ -8329,7 +8329,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &value,
             self.base.variables(),
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             ExactAlgebraLimits::default(),
         )?;
         Ok(BasePolynomial {
@@ -9899,7 +9899,7 @@ impl ParametricCoefficientContext {
             validate_polynomial_on_map(
                 image,
                 &self.variables,
-                crate::CoefficientPolynomialPart::Numerator,
+                crate::algebra::CoefficientPolynomialPart::Numerator,
                 authentication_limits,
             )
             .map_err(ParametricCoefficientError::from)?;
@@ -10851,7 +10851,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )
         .map_err(ParametricCoefficientError::from)?;
@@ -11591,7 +11591,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &mapped,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )
         .map_err(ParametricCoefficientError::from)?;
@@ -11772,7 +11772,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &value.raw,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             exact_limits,
         )?;
         Ok(ParametricPolynomialValidationPayloadCensus {
@@ -11921,7 +11921,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             self.base.variables(),
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             ExactAlgebraLimits::default(),
         )?;
         let mut result = self
@@ -11958,7 +11958,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         check_limit(
@@ -12202,7 +12202,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &result,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         Ok(result)
@@ -12217,7 +12217,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         self.validate_index_permutation(source_to_target)?;
@@ -12248,7 +12248,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &result,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         Ok(result)
@@ -12267,7 +12267,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         check_limit(
@@ -12346,7 +12346,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &raw,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         let output_terms = raw.nterms();
@@ -12380,7 +12380,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             source,
             &self.variables,
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         check_limit(
@@ -12533,7 +12533,7 @@ impl ParametricCoefficientContext {
         validate_polynomial_on_map(
             &result,
             self.base.variables(),
-            crate::CoefficientPolynomialPart::Numerator,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;
         Ok(result)
@@ -22012,7 +22012,7 @@ mod tests {
                 )
                 .unwrap_err(),
             ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::VariableMapMismatch {
-                part: crate::CoefficientPolynomialPart::Numerator,
+                part: crate::algebra::CoefficientPolynomialPart::Numerator,
             })
         );
 
@@ -22186,7 +22186,7 @@ mod tests {
                 )
                 .unwrap_err(),
             ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::ExponentLimit {
-                operation: crate::ExactAlgebraOperation::Multiply,
+                operation: crate::algebra::ExactAlgebraOperation::Multiply,
                 variable: 0,
                 requested: 6,
                 limit: 5,
@@ -22651,7 +22651,7 @@ mod tests {
                 )
                 .unwrap_err(),
             ParametricCoefficientError::ExactAlgebra(ExactAlgebraError::VariableMapMismatch {
-                part: crate::CoefficientPolynomialPart::Numerator,
+                part: crate::algebra::CoefficientPolynomialPart::Numerator,
             })
         );
         assert!(matches!(
@@ -24329,7 +24329,7 @@ mod tests {
             context.checked_div_guarded_with_limits(&context.zero(), &n, strict),
             Err(ParametricCoefficientError::ExactAlgebra(
                 ExactAlgebraError::ExponentLimit {
-                    operation: crate::ExactAlgebraOperation::Authenticate,
+                    operation: crate::algebra::ExactAlgebraOperation::Authenticate,
                     requested: 1,
                     limit: 0,
                     ..

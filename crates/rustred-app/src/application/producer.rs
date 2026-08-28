@@ -17,7 +17,7 @@ impl ProducerOutputV1 {
         Self {
             name: "RustRed",
             rustred_version: env!("CARGO_PKG_VERSION"),
-            symbolica_version: rustred::symbolica_runtime_version(),
+            symbolica_version: rustred::runtime::symbolica_runtime_version(),
             expression_format: "rustred.symbolica-canonical-string.v1",
         }
     }

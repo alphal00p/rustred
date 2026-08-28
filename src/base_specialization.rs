@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use symbolica::prelude::{IntegerRing, MultivariatePolynomial};
 
-use crate::coefficient::{
+use crate::algebra::{
     Coefficient, CoefficientContext, CoefficientPolynomialPart, ExactAlgebraError,
     ExactAlgebraLimits, validate_polynomial_on_map,
 };

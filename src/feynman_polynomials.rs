@@ -15,8 +15,9 @@ use symbolica::domains::rational_polynomial::RationalPolynomialField;
 use symbolica::prelude::*;
 
 use crate::{
-    Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits, ExactRational,
-    FamilyDomain, IntegralFamily, ScalarProductCoordinate, SectorMask,
+    FamilyDomain, IntegralFamily, ScalarProductCoordinate, SectorMask, algebra::Coefficient,
+    algebra::CoefficientContext, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
+    algebra::ExactRational,
 };
 
 /// Sparse polynomials in Feynman parameters with coefficients in the

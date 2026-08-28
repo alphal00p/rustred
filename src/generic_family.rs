@@ -13,15 +13,15 @@ use std::sync::Arc;
 
 use symbolica::prelude::*;
 
-use crate::coefficient::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
-pub use crate::guards::CoefficientLocation;
-use crate::guards::GuardOrigin;
-use crate::symbolica_coefficient_matrix::{
+use crate::algebra::matrix::{
     DEFAULT_MAX_EXACT_OPERATIONS, DEFAULT_MAX_INPUT_RETAINED_BYTES,
     DEFAULT_MAX_OUTPUT_RETAINED_BYTES, SymbolicaCoefficientMatrixError,
     SymbolicaCoefficientMatrixLimits, determinant_of_coefficient_matrix,
     invert_and_verify_coefficient_matrix, verify_coefficient_matrix_inverse,
 };
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+pub use crate::guards::CoefficientLocation;
+use crate::guards::GuardOrigin;
 
 /// A polynomial over the authenticated base-field variables.
 pub type BasePolynomial = MultivariatePolynomial<IntegerRing, u16>;

@@ -1451,9 +1451,9 @@ mod tests {
         GeneratedAffineResidualInventoryCaseSourceRecordView,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, ParametricIbpGenerator,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
+        ParametricIbpGenerator, algebra::CoefficientContext,
     };
 
     fn equal_mass_two_loop_family(name: &str) -> IntegralFamily {

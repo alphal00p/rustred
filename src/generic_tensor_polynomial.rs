@@ -18,15 +18,15 @@ use crate::tensor_reduction_engine::{
     assemble_covariant_from_witnesses, build_covariant_numerator_lowerings,
 };
 use crate::{
-    AuthenticatedVacuumCovariantTensorProjection, CertifiedRewriteDomainCondition, Coefficient,
+    AuthenticatedVacuumCovariantTensorProjection, CertifiedRewriteDomainCondition,
     ConcreteIntegralKey, ConcreteRuleProvider, CovariantTensorLoweringStats,
-    CovariantTensorMonomial, CovariantTensorParametricReductionResult, ExactAlgebraError,
-    ExactAlgebraLimits, GenericCovariantTensorNumerator, GenericCovariantTensorTerm,
-    GenericTensorFamilyLimits, GenericTensorIntegralReduction, GenericTensorProjectorError,
-    GenericTensorProjectorLimits, GenericVacuumTensorProjector, IncompleteTensorReductionError,
-    IntegralFamily, ParametricReductionEngine, TensorCovariantStructure,
-    TensorParametricReductionComposer, TensorReductionCertificateError, TensorReductionEngineError,
-    TensorReductionGuard,
+    CovariantTensorMonomial, CovariantTensorParametricReductionResult,
+    GenericCovariantTensorNumerator, GenericCovariantTensorTerm, GenericTensorFamilyLimits,
+    GenericTensorIntegralReduction, GenericTensorProjectorError, GenericTensorProjectorLimits,
+    GenericVacuumTensorProjector, IncompleteTensorReductionError, IntegralFamily,
+    ParametricReductionEngine, TensorCovariantStructure, TensorParametricReductionComposer,
+    TensorReductionCertificateError, TensorReductionEngineError, TensorReductionGuard,
+    algebra::Coefficient, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const GENERIC_VACUUM_COVARIANT_TENSOR_POLYNOMIAL_PROJECTION_V1_SCHEMA: &str =

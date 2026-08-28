@@ -31,8 +31,8 @@ use crate::direct_bad_formula_arbitrary::{
 };
 use crate::parametric_coefficient::ParametricPolynomialAssociateLimits;
 use crate::{
-    ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial, SymbolicPolynomialPredicateKind,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    SymbolicPolynomialPredicateKind, algebra::ExactAlgebraLimits,
 };
 
 #[cfg(test)]
@@ -5460,7 +5460,7 @@ fn scalar_representation_units<T>() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
     use crate::canonical_parametric_locus_table::{
         CANONICAL_PARAMETRIC_LOCUS_TABLE_V1_SCHEMA, CanonicalLocusTableBuilder,
         CanonicalLocusTableLimits,

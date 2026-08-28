@@ -261,9 +261,9 @@ impl ParametricSectorMtbddCoverageCompiler {
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
-        ParametricSectorLeafDisposition,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        IntegralOrderingPolicy, ParametricIbpGenerator, ParametricSectorLeafDisposition,
+        algebra::CoefficientContext,
     };
 
     const ORDERING: IntegralOrderingPolicy = IntegralOrderingPolicy::RustRedUnshiftedV1;

@@ -27,8 +27,8 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use crate::{
-    ExactAlgebraLimits, ParametricCoefficient, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricPolynomial, SectorMask,
+    ParametricCoefficient, ParametricCoefficientContext, ParametricCoefficientError,
+    ParametricPolynomial, SectorMask, algebra::ExactAlgebraLimits,
 };
 
 /// Stable schema for the first structural symbolic sector-case proof.
@@ -1064,7 +1064,7 @@ impl fmt::Write for BoundedByteCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
 
     fn context() -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(

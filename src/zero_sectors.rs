@@ -15,9 +15,9 @@ use symbolica::prelude::*;
 
 use crate::generic_family::BasePolynomial as FamilyBasePolynomial;
 use crate::{
-    Coefficient, CoefficientLocation, ExactAlgebraError, FeynmanPolynomialError,
-    FeynmanPolynomialLimits, GuardOrigin, IntegralFamily, SectorExclusion, SectorFoundationError,
-    SectorMask, SectorRestrictions, SymanzikPolynomials,
+    CoefficientLocation, FeynmanPolynomialError, FeynmanPolynomialLimits, GuardOrigin,
+    IntegralFamily, SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions,
+    SymanzikPolynomials, algebra::Coefficient, algebra::ExactAlgebraError,
 };
 
 pub const ZERO_SECTOR_CERTIFICATE_SCHEMA: &str = "rustred.zero-sector-certificate.v1";

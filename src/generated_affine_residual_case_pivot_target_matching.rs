@@ -2940,10 +2940,10 @@ mod tests {
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, GuardOrigin, IntegralOrderingPolicy,
-        ParametricArithmeticLimits, ParametricIbpGenerator, SectorMask,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits, GuardOrigin,
+        IntegralOrderingPolicy, ParametricArithmeticLimits, ParametricIbpGenerator, SectorMask,
+        algebra::CoefficientContext,
     };
 
     struct NaturalFixture {

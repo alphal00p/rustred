@@ -1804,8 +1804,8 @@ fn check_limit(
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy,
-        ParametricCoefficientContext, ParametricIbpGenerator,
+        AffineDenominator, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext,
+        ParametricIbpGenerator, algebra::CoefficientContext,
     };
 
     fn pending_certificate() -> (

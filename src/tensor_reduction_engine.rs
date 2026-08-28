@@ -16,15 +16,16 @@ use std::sync::Arc;
 
 use crate::{
     AuthenticatedVacuumCovariantTensorProjection, AuthenticatedVacuumTensorLowering,
-    AuthenticatedVacuumTensorProjection, CertifiedRewriteDomainCondition, Coefficient,
-    CoefficientContext, ConcreteIntegralKey, ConcreteRuleApplicationTrace, ConcreteRuleProvider,
-    ConcreteTerminalStatus, ExactAlgebraError, ExactAlgebraLimits, GenericTensorFamilyError,
-    GenericTensorFamilyLimits, GenericTensorFamilyReducer, GenericTensorIntegralReduction,
-    GenericTensorNumerator, GenericTensorProjectionDomain, GenericTensorProjectorError,
-    GenericTensorTerm, IntegralFamily, IntegralOrderingPolicy, MetricPairing, ParametricIbpError,
-    ParametricIbpGenerator, ParametricReductionEngine, ParametricReductionResult,
-    ReductionEngineError, SpecializedNonZeroCondition, SpectatorScalarProductMonomial,
-    TensorCovariantStructure, TensorLoweringDomain, TensorLoweringOrigin,
+    AuthenticatedVacuumTensorProjection, CertifiedRewriteDomainCondition, ConcreteIntegralKey,
+    ConcreteRuleApplicationTrace, ConcreteRuleProvider, ConcreteTerminalStatus,
+    GenericTensorFamilyError, GenericTensorFamilyLimits, GenericTensorFamilyReducer,
+    GenericTensorIntegralReduction, GenericTensorNumerator, GenericTensorProjectionDomain,
+    GenericTensorProjectorError, GenericTensorTerm, IntegralFamily, IntegralOrderingPolicy,
+    MetricPairing, ParametricIbpError, ParametricIbpGenerator, ParametricReductionEngine,
+    ParametricReductionResult, ReductionEngineError, SpecializedNonZeroCondition,
+    SpectatorScalarProductMonomial, TensorCovariantStructure, TensorLoweringDomain,
+    TensorLoweringOrigin, algebra::Coefficient, algebra::CoefficientContext,
+    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const TENSOR_PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA: &str =

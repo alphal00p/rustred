@@ -32,7 +32,7 @@ use symbolica::parser::Operator;
 use symbolica::prelude::*;
 use symbolica::state::Workspace;
 
-use crate::coefficient::{
+use crate::algebra::{
     Coefficient, CoefficientContext, CoefficientContextError, ExactAlgebraError, ExactAlgebraLimits,
 };
 use crate::generic_family::{AffineDenominator, ScalarProductCoordinate};

@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::Coefficient;
+use crate::algebra::Coefficient;
 
 /// A canonical commutative product of master identifiers.
 ///

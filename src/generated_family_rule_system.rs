@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use crate::{
     AdaptiveRuleSearchError, CoordinateEqualityLocusError, CylindricalOrderingError,
-    CylindricalPreparePointError, CylindricalPreparePointScheduleError, ExactAlgebraError,
+    CylindricalPreparePointError, CylindricalPreparePointScheduleError,
     FamilySectorInventoryCertificate, FamilySectorInventoryCompiler, FamilySectorInventoryError,
     FamilySectorInventoryLimits, FamilySectorInventoryStatus, FeynmanPolynomialError,
     FullColumnRankWitness, GeneratedCylindricalCandidateAuthorityError,
@@ -48,7 +48,7 @@ use crate::{
     ParametricRelationError, ParametricRuleError, ParametricSectorCoverageError, PowerShiftPolicy,
     SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions,
     SymbolicSectorCaseError, WhenBadCompilerError, ZeroSectorCertificate, ZeroSectorError,
-    ZeroSectorResource,
+    ZeroSectorResource, algebra::ExactAlgebraError,
 };
 
 pub const GENERATED_FAMILY_RULE_SYSTEM_V1_SCHEMA: &str = "rustred.generated-family-rule-system.v1";
@@ -1928,7 +1928,7 @@ mod resource_classification_tests {
     use super::*;
 
     fn massive_tadpole() -> IntegralFamily {
-        let coefficients = crate::CoefficientContext::new(["d", "m2"]);
+        let coefficients = crate::algebra::CoefficientContext::new(["d", "m2"]);
         IntegralFamily::new(
             "family-replay-tamper",
             vec!["k".into()],

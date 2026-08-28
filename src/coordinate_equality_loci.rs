@@ -28,10 +28,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use symbolica::prelude::{EuclideanDomain, Integer, Z};
 
 use crate::{
-    ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial, PartialIndexAssignment, SectorOrthantSide,
-    SymbolicPolynomialPredicateKind, SymbolicSectorCaseError, SymbolicSectorCaseId,
-    SymbolicSectorCaseLimits, SymbolicSectorCasePartitionCertificate,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    PartialIndexAssignment, SectorOrthantSide, SymbolicPolynomialPredicateKind,
+    SymbolicSectorCaseError, SymbolicSectorCaseId, SymbolicSectorCaseLimits,
+    SymbolicSectorCasePartitionCertificate, algebra::ExactAlgebraLimits,
 };
 
 pub const COORDINATE_EQUALITY_LOCUS_V1_SCHEMA: &str = "rustred-coordinate-equality-locus-v1";
@@ -1007,7 +1007,7 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoefficientContext, SymbolicSectorCasePartitionBuilder};
+    use crate::{SymbolicSectorCasePartitionBuilder, algebra::CoefficientContext};
 
     fn context(scope: &str) -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(

@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `c113c1c`, updated after each R3 cluster milestone.
+**Baseline:** `77ef89d`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 171 tracked Rust source/build/test paths
+This ledger classifies every one of the 172 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -20,7 +20,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 22 |
+| move | 23 |
 | split | 139 |
 | delete | 9 |
 | replace | 1 |
@@ -52,6 +52,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
 | `src/adaptive_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
+| `src/algebra/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/algebra/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `src/affine_locus_bound_relation.rs` | delete | — | superseded/dead bound-relation path |
 | `src/affine_parametric_ordering.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/affine_prepare_point_schedule.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
@@ -70,7 +74,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/certified_rewrite.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/certified_rule_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/certified_symmetry_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
@@ -81,7 +84,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/direct_bad_formula_arbitrary.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/direct_bad_formula.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
-| `src/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
 | `src/family_sector_inventory.rs` | split | sector / foundry::solver | stable sector evidence below bounded inventory orchestration |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
@@ -154,6 +156,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/residual_affine_integer_lattice_kernel.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_integer_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_unit_affine_index_map.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
+| `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |
 | `src/solver/closure/case_inventory.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
@@ -184,9 +187,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/solver/exact_session/telemetry.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/solver/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
-| `src/symbolica_coefficient_matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
-| `src/symbolica_runtime.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/symbolica_target_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/symbolic_sector_cases.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |

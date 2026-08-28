@@ -23,8 +23,8 @@ use symbolica::prelude::{EuclideanDomain, Integer, Z};
 
 use crate::{
     CoordinateEqualityLeafStatus, CoordinateEqualityLocusCertificate, CoordinateEqualityLocusError,
-    ExactAlgebraLimits, ParametricCoefficientContext, ParametricCoefficientError,
-    SymbolicPolynomialPredicateKind, SymbolicSectorCaseId,
+    ParametricCoefficientContext, ParametricCoefficientError, SymbolicPolynomialPredicateKind,
+    SymbolicSectorCaseId, algebra::ExactAlgebraLimits,
 };
 
 pub const RESIDUAL_UNIT_AFFINE_INDEX_MAP_V1_SCHEMA: &str =

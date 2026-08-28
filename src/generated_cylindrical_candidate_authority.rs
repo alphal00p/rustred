@@ -2954,8 +2954,8 @@ mod tests {
         WhenBadDomainConditionSource, WhenBadOrderingAuthority, WhenBadSourceAuthentication,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, ExactAlgebraLimits, FamilySectorInventoryCompiler,
-        FamilySectorInventoryLimits, GeneratedCylindricalPersistentEliminationLimits,
+        AffineDenominator, FamilySectorInventoryCompiler, FamilySectorInventoryLimits,
+        GeneratedCylindricalPersistentEliminationLimits,
         GeneratedCylindricalResidualStartCertificate, GeneratedCylindricalResidualStartLimits,
         GeneratedCylindricalRowSystemCertificate, GeneratedCylindricalRowSystemLimits,
         GeneratedCylindricalSectorCoverageAttempt, GeneratedCylindricalSectorCoverageCompiler,
@@ -2966,7 +2966,8 @@ mod tests {
         GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
         GeneratedSectorLiveLeafQueueLimits, GeneratedSymbolicRowSpanConfig, IntegralFamily,
         ParametricIbpConfig, ParametricIbpGenerator, PowerShiftPolicy, SectorRestrictions,
-        SymbolicPolynomialPredicateKind, WhenBadLeafDisposition,
+        SymbolicPolynomialPredicateKind, WhenBadLeafDisposition, algebra::CoefficientContext,
+        algebra::ExactAlgebraLimits,
     };
     use crate::{ConcreteRuleDecision, ConcreteRuleProvider, ConcreteTerminalStatus};
 

@@ -2017,9 +2017,9 @@ mod tests {
         GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy,
-        ParallelExecution, ParametricCoefficientContext, ParametricIbpGenerator, SectorMask,
-        SymbolicPolynomialPredicateKind,
+        AffineDenominator, IntegralFamily, IntegralOrderingPolicy, ParallelExecution,
+        ParametricCoefficientContext, ParametricIbpGenerator, SectorMask,
+        SymbolicPolynomialPredicateKind, algebra::CoefficientContext,
     };
 
     struct DirectPublicationFixture {

@@ -2802,7 +2802,7 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoefficientContext, ParametricCoefficient};
+    use crate::{ParametricCoefficient, algebra::CoefficientContext};
 
     fn polynomial(
         context: &ParametricCoefficientContext,

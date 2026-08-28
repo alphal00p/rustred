@@ -14,11 +14,14 @@ use std::fmt::Write as _;
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
-use crate::coefficient::{
+use crate::algebra::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
-use crate::{Coefficient, CoefficientContext, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
+use crate::{
+    algebra::Coefficient, algebra::CoefficientContext,
+    algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+};
 
 const EXACT_SPARSE_ELIMINATION_SCHEMA: &str = "rustred-exact-sparse-elimination-v1";
 const FNV1A64_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;

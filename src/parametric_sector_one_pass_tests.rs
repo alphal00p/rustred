@@ -16,11 +16,11 @@ use crate::parametric_sector_normalized_source::{
     ParametricSectorNormalizedCoverageSourceError, ParametricSectorNormalizedCoverageSourceLimits,
 };
 use crate::{
-    AffineDenominator, CoefficientContext, GeneratedSymbolicRowSpanCertificate,
-    GeneratedSymbolicRowSpanCompiler, GeneratedWhenBadCompiler, GeneratedWhenBadError,
-    IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, ParametricElimination,
-    ParametricEliminationLimits, ParametricEliminationOrdering, ParametricIbpGenerator,
-    ParametricReductionRuleCandidate, ParametricRuleLimits, SectorMask,
+    AffineDenominator, GeneratedSymbolicRowSpanCertificate, GeneratedSymbolicRowSpanCompiler,
+    GeneratedWhenBadCompiler, GeneratedWhenBadError, IntegralFamily, IntegralOrderingPolicy,
+    ParametricCoefficientContext, ParametricElimination, ParametricEliminationLimits,
+    ParametricEliminationOrdering, ParametricIbpGenerator, ParametricReductionRuleCandidate,
+    ParametricRuleLimits, SectorMask, algebra::CoefficientContext,
 };
 
 const CANDIDATE_COUNT: usize = 3;

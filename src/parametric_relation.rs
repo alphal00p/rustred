@@ -20,7 +20,7 @@ use crate::{
     ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
     PartialIndexAssignment, SpecializedNonZeroCondition,
 };
-use crate::{Coefficient, CoefficientContext};
+use crate::{algebra::Coefficient, algebra::CoefficientContext};
 
 /// Versioned canonical text identity for a complete parametric source row.
 ///
@@ -4318,7 +4318,7 @@ mod tests {
             .nonzero_condition_from_prevalidated_parts(
                 polynomial.clone(),
                 origins,
-                crate::ExactAlgebraLimits::default(),
+                crate::algebra::ExactAlgebraLimits::default(),
                 2,
             )
             .unwrap();
@@ -4328,7 +4328,7 @@ mod tests {
             context.nonzero_condition_from_prevalidated_parts(
                 polynomial,
                 expected,
-                crate::ExactAlgebraLimits::default(),
+                crate::algebra::ExactAlgebraLimits::default(),
                 1,
             ),
             Err(ParametricCoefficientError::ResourceLimit {

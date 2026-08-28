@@ -23,10 +23,10 @@ use std::sync::Arc;
 
 use crate::certified_rewrite::{CertifiedRewriteDomainCondition, CertifiedZeroReduction};
 use crate::{
-    CertifiedConcreteRewrite, Coefficient, CoefficientContext, ConcreteIntegralKey,
-    ConcreteReduction, ConditionalConcreteReduction, ExactAlgebraError, ExactAlgebraLimits,
+    CertifiedConcreteRewrite, ConcreteIntegralKey, ConcreteReduction, ConditionalConcreteReduction,
     IntegralOrderingPolicy, ParametricCoefficientError, ParametricRelationError,
-    SpecializedNonZeroCondition,
+    SpecializedNonZeroCondition, algebra::Coefficient, algebra::CoefficientContext,
+    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA: &str = "rustred-parametric-reduction-engine-v1";

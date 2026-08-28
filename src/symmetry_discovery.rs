@@ -23,9 +23,10 @@ use symbolica::domains::integer::Integer;
 
 use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
-    CoefficientContext, ConcreteIntegralKey, DenominatorRowAction, ExactAlgebraError, ExactMatrix,
-    IntegralFamily, JacobianWitness, MomentumMap, SectorRestrictions, SymmetryVerificationError,
-    SymmetryVerificationLimits, VerifiedAffineFamilyMap, verify_affine_family_map,
+    ConcreteIntegralKey, DenominatorRowAction, ExactMatrix, IntegralFamily, JacobianWitness,
+    MomentumMap, SectorRestrictions, SymmetryVerificationError, SymmetryVerificationLimits,
+    VerifiedAffineFamilyMap, algebra::CoefficientContext, algebra::ExactAlgebraError,
+    verify_affine_family_map,
 };
 
 pub const BOUNDED_INTEGER_VACUUM_SYMMETRY_SEARCH_V1_SCHEMA: &str =

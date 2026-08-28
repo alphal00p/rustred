@@ -2737,7 +2737,7 @@ impl WorkBudget {
         &mut self,
         context: &ParametricCoefficientContext,
         coefficient: &ParametricCoefficient,
-        limits: crate::ExactAlgebraLimits,
+        limits: crate::algebra::ExactAlgebraLimits,
     ) -> Result<CoefficientWorkShape, ParametricEliminationError> {
         let numerator = self.preflight_polynomial_shape(&coefficient.raw().numerator)?;
         let denominator = self.preflight_polynomial_shape(&coefficient.raw().denominator)?;
@@ -2758,7 +2758,7 @@ impl WorkBudget {
         &mut self,
         context: &ParametricCoefficientContext,
         polynomial: &ParametricPolynomial,
-        limits: crate::ExactAlgebraLimits,
+        limits: crate::algebra::ExactAlgebraLimits,
     ) -> Result<PolynomialWorkShape, ParametricEliminationError> {
         let pending = self.preflight_polynomial_shape(polynomial.raw())?;
         self.charge_pending_polynomial_validation(pending)?;
@@ -5148,7 +5148,10 @@ fn arc_str_allocation_bound(length: usize) -> Result<usize, ParametricEliminatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CoefficientContext, ExactAlgebraError, ExactAlgebraLimits, GuardOrigin};
+    use crate::{
+        GuardOrigin, algebra::CoefficientContext, algebra::ExactAlgebraError,
+        algebra::ExactAlgebraLimits,
+    };
 
     fn synthetic_context() -> (CoefficientContext, ParametricCoefficientContext) {
         let base = CoefficientContext::new(["d"]);

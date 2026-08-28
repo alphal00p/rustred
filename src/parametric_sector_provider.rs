@@ -666,10 +666,11 @@ fn check_limit(
 mod replayed_installation_tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSymbolicRowSpanCompiler,
-        IntegralOrderingPolicy, ParametricElimination, ParametricEliminationLimits,
-        ParametricEliminationOrdering, ParametricIbpGenerator, ParametricReductionRuleCandidate,
-        ParametricRuleLimits, ParametricSectorCoverageCompiler, ParametricSectorCoverageLimits,
+        AffineDenominator, GeneratedSymbolicRowSpanCompiler, IntegralOrderingPolicy,
+        ParametricElimination, ParametricEliminationLimits, ParametricEliminationOrdering,
+        ParametricIbpGenerator, ParametricReductionRuleCandidate, ParametricRuleLimits,
+        ParametricSectorCoverageCompiler, ParametricSectorCoverageLimits,
+        algebra::CoefficientContext,
     };
 
     fn family() -> IntegralFamily {

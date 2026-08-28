@@ -58,8 +58,8 @@ use crate::solver::exact_session::{
     GeneratedAffineResidualGroupExactSessionRecenterStats,
 };
 use crate::{
-    ExactAlgebraLimits, IntegralFamily, ParametricCoefficientContext, ParametricCoefficientError,
-    ParametricPolynomial, SymbolicPolynomialPredicateKind,
+    IntegralFamily, ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
+    SymbolicPolynomialPredicateKind, algebra::ExactAlgebraLimits,
 };
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_WHEN_BAD_PARTITION_V1_SCHEMA: &str =

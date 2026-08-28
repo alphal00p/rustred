@@ -1,0 +1,21 @@
+//! Exact Symbolica-backed scalar algebra used throughout RustRed.
+
+mod coefficient;
+mod exact;
+pub(crate) mod matrix;
+
+pub use coefficient::{
+    Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomialPart,
+    CoefficientProjectionError, ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
+    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+};
+pub use exact::{ExactRational, ExactRationalError};
+
+pub(crate) use coefficient::{
+    checked_coefficient_add_on_map, checked_coefficient_div_on_map, checked_coefficient_mul_on_map,
+    checked_coefficient_neg_on_map, checked_coefficient_sub_on_map, checked_polynomial_mul_on_map,
+    coefficient_clone_owned_retained_byte_bound, coefficient_product_degree_bound,
+    coefficient_sum_degree_bound, coefficient_variable_degrees,
+    symbolica_coefficient_degree_is_representable, validate_coefficient_on_map,
+    validate_polynomial_on_map,
+};

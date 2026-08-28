@@ -1341,7 +1341,7 @@ const fn portable_usize(value: u64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
     use crate::generated_residual_affine_condition_accumulator::GeneratedResidualAffineConditionInputClass;
     use crate::parametric_coefficient::ResidualAffineCompactCompositionPlanLimits;
     use symbolica::domains::integer::Integer;

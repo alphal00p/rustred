@@ -2886,14 +2886,14 @@ fn check_limit(
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricArithmeticLimits,
-        ParametricIbpGenerator, ResidualAffineBranchSystemLimits,
-        ResidualAffineIntegerSystemCertificate, ResidualAffineIntegerSystemInputRow,
-        ResidualAffineIntegerSystemLimits, ResidualAffinePrimitiveRow,
-        ResidualProductLocusBooleanCoverCompiler, ResidualProductLocusBooleanCoverLimits,
-        ResidualProductLocusBooleanNodeOutcome, SectorMask,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
+        IntegralOrderingPolicy, ParametricArithmeticLimits, ParametricIbpGenerator,
+        ResidualAffineBranchSystemLimits, ResidualAffineIntegerSystemCertificate,
+        ResidualAffineIntegerSystemInputRow, ResidualAffineIntegerSystemLimits,
+        ResidualAffinePrimitiveRow, ResidualProductLocusBooleanCoverCompiler,
+        ResidualProductLocusBooleanCoverLimits, ResidualProductLocusBooleanNodeOutcome, SectorMask,
+        algebra::CoefficientContext,
     };
 
     fn synthetic_context(scope: &str) -> ParametricCoefficientContext {

@@ -1144,7 +1144,7 @@ fn native_matrix_semantics_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CoefficientContext;
+    use crate::algebra::CoefficientContext;
     use crate::parametric_coefficient::symbolica_sparse::{
         SymbolicaParametricSparseEntry, SymbolicaParametricSparseLimits,
         SymbolicaParametricSparseOutcome, SymbolicaParametricSparseRow, forward_reduce_last_row,

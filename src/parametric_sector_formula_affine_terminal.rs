@@ -2552,11 +2552,11 @@ mod tests {
         ParametricSectorNormalizedCoverageSourceLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
-        GeneratedWhenBadLimits, ParametricElimination, ParametricEliminationLimits,
-        ParametricEliminationOrdering, ParametricIbpGenerator, ParametricReductionRuleCandidate,
-        ParametricRuleLimits,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedWhenBadCompilation, GeneratedWhenBadCompiler, GeneratedWhenBadLimits,
+        ParametricElimination, ParametricEliminationLimits, ParametricEliminationOrdering,
+        ParametricIbpGenerator, ParametricReductionRuleCandidate, ParametricRuleLimits,
+        algebra::CoefficientContext,
     };
 
     fn massive_tadpole(name: &str) -> IntegralFamily {

@@ -3082,10 +3082,10 @@ fn check_limit(
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, CoefficientContext, CoordinateEqualityLocusExtractor,
-        GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
-        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
-        IntegralOrderingPolicy, ParametricIbpGenerator,
+        AffineDenominator, CoordinateEqualityLocusExtractor, GeneratedSectorDiscoveryCompiler,
+        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
+        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricIbpGenerator,
+        algebra::CoefficientContext,
     };
 
     fn generated_sunset_cover() -> (

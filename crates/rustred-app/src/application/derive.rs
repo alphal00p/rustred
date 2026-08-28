@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use rustred::{
     CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily, ParallelExecution,
     ParallelExecutionError, ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation,
-    ParametricRowId, ScalarProductCoordinate, canonical_symbolica_atom,
-    symbolica_atom_packed_byte_size, symbolica_integer_significant_bits,
-    symbolica_integer_structural_byte_size,
+    ParametricRowId, ScalarProductCoordinate, runtime::canonical_symbolica_atom,
+    runtime::symbolica_atom_packed_byte_size, runtime::symbolica_integer_significant_bits,
+    runtime::symbolica_integer_structural_byte_size,
 };
 use serde::Serialize;
 
@@ -491,7 +491,7 @@ fn census_atom_payload(
 }
 
 fn census_coefficient(
-    coefficient: &rustred::Coefficient,
+    coefficient: &rustred::algebra::Coefficient,
     census: &mut GeneratedPayloadCensus,
 ) -> Result<(), AppError> {
     census_polynomial(

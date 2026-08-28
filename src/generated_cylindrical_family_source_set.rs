@@ -1529,7 +1529,7 @@ fn try_reserve_exact<T>(
 #[cfg(test)]
 mod replay_tamper_tests {
     use super::*;
-    use crate::{AffineDenominator, CoefficientContext, ParametricIbpGenerator};
+    use crate::{AffineDenominator, ParametricIbpGenerator, algebra::CoefficientContext};
 
     fn certificate() -> (
         IntegralFamily,

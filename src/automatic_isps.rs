@@ -21,13 +21,13 @@
 use std::borrow::Cow;
 use std::fmt::{self, Write as _};
 
-use crate::symbolica_coefficient_matrix::{
+use crate::algebra::matrix::{
     DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits, rank_of_coefficient_matrix,
 };
 use crate::{
-    AffineDenominator, Coefficient, CoefficientContext, ExactAlgebraError, IntegralFamily,
-    IntegralFamilyLimits, ScalarProductCoordinate,
+    AffineDenominator, IntegralFamily, IntegralFamilyLimits, ScalarProductCoordinate,
+    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
 };
 
 /// Legacy schema whose work census used RustRed's former row elimination.

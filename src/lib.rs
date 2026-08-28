@@ -28,27 +28,25 @@ mod parametric_sector_normalized_source;
 #[cfg(test)]
 mod parametric_sector_one_pass_tests;
 mod solver;
-pub(crate) mod symbolica_coefficient_matrix;
 
 pub mod adaptive_rules;
 pub mod affine_locus_bound_relation;
 pub mod affine_parametric_ordering;
 pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
+pub mod algebra;
 pub mod automatic_isps;
 pub mod base_specialization;
 pub mod campaign;
 pub mod certified_rewrite;
 pub mod certified_rule_provider;
 pub mod certified_symmetry_provider;
-pub mod coefficient;
 pub mod conditional_reelimination;
 pub mod conditional_rules;
 pub mod coordinate_equality_loci;
 pub mod cylindrical_ordering;
 pub mod cylindrical_prepare_point_schedule;
 pub mod cylindrical_prepare_points;
-pub mod exact;
 pub mod exact_sparse_elimination;
 pub mod family_sector_inventory;
 pub mod feynman_polynomials;
@@ -110,13 +108,13 @@ pub mod residual_affine_branch_system;
 pub(crate) mod residual_affine_integer_lattice_kernel;
 pub mod residual_affine_integer_system;
 pub mod residual_unit_affine_index_map;
+pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
 pub mod symbolic_sector_cases;
 pub mod symbolic_symmetry_transport;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
-pub mod symbolica_runtime;
 pub mod symbolica_target_numerator;
 pub mod symbolica_tensor_numerator;
 pub mod symmetry;
@@ -186,11 +184,6 @@ pub use certified_symmetry_provider::{
     CertifiedSymmetryCanonicalizingRuleProviderLimits,
     CertifiedSymmetryCanonicalizingRuleProviderStats,
 };
-pub use coefficient::{
-    Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomialPart,
-    CoefficientProjectionError, ExactAlgebraError, ExactAlgebraLimits, ExactAlgebraOperation,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-};
 pub use conditional_reelimination::{
     ConditionalCenteredPivotLocus, GENERATED_PARTIAL_REELIMINATION_V1_SCHEMA,
     GENERATED_PARTIAL_REELIMINATION_V2_SCHEMA, GeneratedPartialBaseAssumptionWitness,
@@ -227,7 +220,6 @@ pub use cylindrical_prepare_points::{
     CYLINDRICAL_PREPARE_POINT_LAYER_V1_SCHEMA, CylindricalPreparePointError,
     CylindricalPreparePointLayer, CylindricalPreparePointLimits, CylindricalPreparePointStats,
 };
-pub use exact::{ExactRational, ExactRationalError};
 pub use exact_sparse_elimination::{
     ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
@@ -599,10 +591,6 @@ pub use symbolica_integral_input::{
     SymbolicaIntegralInputError, SymbolicaIntegralInputLimits, SymbolicaIntegralInputStats,
     SymbolicaProjectLoweringError, SymbolicaProjectLoweringLimits, TextExternalGramInputV1,
     TextProjectPartsV1, TextPropagatorInputV1,
-};
-pub use symbolica_runtime::{
-    canonical_symbolica_atom, symbolica_atom_packed_byte_size, symbolica_integer_significant_bits,
-    symbolica_integer_structural_byte_size, symbolica_runtime_version,
 };
 pub use symbolica_target_numerator::{
     CompiledSymbolicaTargetV1, SYMBOLICA_COMPILED_TARGET_V1_SCHEMA,

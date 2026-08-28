@@ -4,7 +4,7 @@ use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
-use crate::ExactRational;
+use super::ExactRational;
 
 const RUSTRED_NAMESPACE: &str = "rustred";
 

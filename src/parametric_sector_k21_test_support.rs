@@ -14,9 +14,9 @@ use crate::parametric_sector_normalized_source::{
     ParametricSectorNormalizedCoverageSourceLimits,
 };
 use crate::{
-    AffineDenominator, CoefficientContext, ConcreteIntegralKey, GeneratedSymbolicRowSpanCompiler,
-    IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, ParametricIbpGenerator,
-    SectorMask,
+    AffineDenominator, ConcreteIntegralKey, GeneratedSymbolicRowSpanCompiler, IntegralFamily,
+    IntegralOrderingPolicy, ParametricCoefficientContext, ParametricIbpGenerator, SectorMask,
+    algebra::CoefficientContext,
 };
 
 pub(crate) const SIX_LOOP_K21_ARITY: usize = 21;

@@ -132,7 +132,8 @@ mod tests {
 
     use crate::campaign::{CampaignPlan, CampaignPlanLimits, CampaignRootSpec};
     use crate::{
-        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+        AffineDenominator, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+        algebra::CoefficientContext,
     };
 
     use super::{CampaignWorkKey, CampaignWorkUnitKey};

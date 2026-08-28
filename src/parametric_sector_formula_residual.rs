@@ -1577,11 +1577,11 @@ mod tests {
         ParametricSectorNormalizedCoverageSourceLimits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
-        GeneratedWhenBadLimits, IntegralOrderingPolicy, ParametricElimination,
-        ParametricEliminationLimits, ParametricEliminationOrdering, ParametricIbpGenerator,
-        ParametricReductionRuleCandidate, ParametricRuleLimits, SectorMask,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedWhenBadCompilation, GeneratedWhenBadCompiler, GeneratedWhenBadLimits,
+        IntegralOrderingPolicy, ParametricElimination, ParametricEliminationLimits,
+        ParametricEliminationOrdering, ParametricIbpGenerator, ParametricReductionRuleCandidate,
+        ParametricRuleLimits, SectorMask, algebra::CoefficientContext,
     };
 
     fn clause_sources(source_ordinal: usize) -> Box<[NormalizedBadClauseSource]> {

@@ -36,7 +36,7 @@ use crate::{
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
     ParametricRelation, ParametricRelationError, ParametricRowId,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+    algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 /// One LiteRed shift-operator kind.
@@ -894,8 +894,9 @@ impl From<ParametricRelationError> for IndexShiftOperatorError {
 mod tests {
     use super::*;
     use crate::{
-        AffineDenominator, Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits,
-        ExactAlgebraOperation, IntegralFamily, ParametricIbpGenerator,
+        AffineDenominator, IntegralFamily, ParametricIbpGenerator, algebra::Coefficient,
+        algebra::CoefficientContext, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
+        algebra::ExactAlgebraOperation,
     };
 
     fn context(arity: usize) -> (CoefficientContext, ParametricCoefficientContext) {

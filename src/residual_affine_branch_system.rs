@@ -3654,11 +3654,11 @@ mod tests {
         sealed_guard_memory_envelope_parts_from_limits,
     };
     use crate::{
-        AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,
-        GeneratedSectorDiscoveryLimits, GeneratedSectorLiveLeafQueueCompiler,
-        GeneratedSectorLiveLeafQueueLimits, IntegralOrderingPolicy, ParametricCoefficient,
-        ParametricIbpGenerator, ParametricPolynomial, ResidualProductLocusBooleanCoverCompiler,
-        ResidualProductLocusBooleanCoverLimits, SectorMask,
+        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
+        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
+        IntegralOrderingPolicy, ParametricCoefficient, ParametricIbpGenerator,
+        ParametricPolynomial, ResidualProductLocusBooleanCoverCompiler,
+        ResidualProductLocusBooleanCoverLimits, SectorMask, algebra::CoefficientContext,
     };
 
     fn context(scope: &str, arity: usize) -> ParametricCoefficientContext {
