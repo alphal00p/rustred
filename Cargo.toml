@@ -17,6 +17,9 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 
+[workspace.dependencies]
+symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
+
 [package]
 name = "rustred"
 version.workspace = true
@@ -24,7 +27,6 @@ edition = "2024"
 rust-version = "1.89"
 description = "Pure-Rust parametric IBP reductions for multiloop Feynman integrals"
 license = "MIT"
-build = "build.rs"
 exclude = [
     "FOR_REFERENCE_ONLY_DO_NOT_PUSH/**",
     "GOAL.md",
@@ -39,10 +41,7 @@ path = "src/lib.rs"
 rand = "0.9"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
-symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
-toml = "1"
-
-[build-dependencies]
+symbolica.workspace = true
 toml = "1"
 
 [patch.crates-io]

@@ -5,8 +5,9 @@ use rustred::campaign::{
     CampaignFamilyId, CampaignJobKey, CampaignPlan, CampaignPlanLimits, CampaignRootId,
     CampaignRootSpec,
 };
-use rustred::{IntegralOrderingPolicy, SectorMask, runtime::symbolica_atom_packed_byte_size};
+use rustred::{IntegralOrderingPolicy, SectorMask};
 use serde::{Deserialize, Serialize};
+use symbolica::prelude::AtomCore;
 
 use super::super::error::AppError;
 use super::super::input::{
@@ -268,7 +269,7 @@ fn compile_roots_only_output(
         let normalized = lowered.normalized();
         bound.add(try_mul(
             "campaign canonical-expression render bound",
-            symbolica_atom_packed_byte_size(normalized.canonical_atom()),
+            normalized.canonical_atom().as_view().get_byte_size(),
             ATOM_RENDER_FACTOR,
         )?)?;
         bound.add(ROOT_RENDER_OVERHEAD)?;

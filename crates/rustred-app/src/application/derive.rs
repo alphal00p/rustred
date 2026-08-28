@@ -3,11 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use rustred::{
     CoefficientLocation, CoefficientPolynomial, GuardOrigin, IntegralFamily, ParallelExecution,
     ParallelExecutionError, ParametricIbpGenerator, ParametricNonZeroCondition, ParametricRelation,
-    ParametricRowId, ScalarProductCoordinate, runtime::canonical_symbolica_atom,
-    runtime::symbolica_atom_packed_byte_size, runtime::symbolica_integer_significant_bits,
-    runtime::symbolica_integer_structural_byte_size,
+    ParametricRowId, ScalarProductCoordinate,
 };
 use serde::Serialize;
+use symbolica::prelude::{AtomCore, Integer};
 
 use super::error::AppError;
 use super::model::{LoweredProject, MetadataValue};
@@ -257,7 +256,7 @@ pub(crate) fn build_output(
         fingerprint: family.fingerprint(),
         parametric_context_fingerprint: generator.context().fingerprint().to_owned(),
         parameters: normalized.operational_parameter_names().to_vec(),
-        dimension: canonical_symbolica_atom(&family.dimension().to_expression()),
+        dimension: family.dimension().to_expression().to_canonical_string(),
         loop_momenta: family.loop_momenta().to_vec(),
         external_momenta: family.external_momenta().to_vec(),
         denominator_count: family.denominator_count(),
@@ -422,20 +421,17 @@ fn preflight_family_payload(
     let mut census = GeneratedPayloadCensus::default();
     add_generated_payload_bound(&mut census, PAYLOAD_NODE_BYTES)?;
     census_atom_payload(
-        symbolica_atom_packed_byte_size(normalized.canonical_atom()),
+        normalized.canonical_atom().as_view().get_byte_size(),
         &mut census,
     )?;
     census_atom_payload(
-        symbolica_atom_packed_byte_size(normalized.target().numerator()),
+        normalized.target().numerator().as_view().get_byte_size(),
         &mut census,
     )?;
     for record in records {
+        census_atom_payload(record.source().as_view().get_byte_size(), &mut census)?;
         census_atom_payload(
-            symbolica_atom_packed_byte_size(record.source()),
-            &mut census,
-        )?;
-        census_atom_payload(
-            symbolica_atom_packed_byte_size(record.normalized_expression()),
+            record.normalized_expression().as_view().get_byte_size(),
             &mut census,
         )?;
     }
@@ -594,7 +590,7 @@ fn census_polynomial(
         .coefficients
         .len()
         .checked_mul(
-            symbolica_integer_structural_byte_size()
+            std::mem::size_of::<Integer>()
                 .checked_add(integer_structural_bytes)
                 .ok_or_else(derivation_bound_overflow)?,
         )
@@ -607,8 +603,7 @@ fn census_polynomial(
             .ok_or_else(derivation_bound_overflow)?,
     )?;
     for coefficient in &polynomial.coefficients {
-        let bits = symbolica_integer_significant_bits(coefficient)
-            .ok_or_else(derivation_bound_overflow)?;
+        let bits = integer_significant_bits(coefficient).ok_or_else(derivation_bound_overflow)?;
         census.integer_bits = checked_census_add(census.integer_bits, bits)?;
         // Retained magnitude needs ceil(bits/8); decimal rendering including a
         // sign is always shorter than bits+2 bytes for nonzero integers.
@@ -633,6 +628,15 @@ fn census_polynomial(
 fn checked_census_add(left: usize, right: usize) -> Result<usize, AppError> {
     left.checked_add(right)
         .ok_or_else(derivation_bound_overflow)
+}
+
+fn integer_significant_bits(value: &Integer) -> Option<usize> {
+    let bits = match value {
+        Integer::Single(value) => u64::BITS - value.unsigned_abs().leading_zeros(),
+        Integer::Double(value) => u128::BITS - value.unsigned_abs().leading_zeros(),
+        Integer::Large(value) => return usize::try_from(value.significant_bits()).ok(),
+    };
+    usize::try_from(bits).ok()
 }
 
 fn add_generated_payload_bound(
@@ -669,7 +673,7 @@ fn target_output(normalized: &rustred::NormalizedProjectInputV1) -> TargetOutput
         present: true,
         disposition: target.derive_disposition(),
         powers: Some(target.powers().to_vec()),
-        numerator: Some(canonical_symbolica_atom(target.numerator())),
+        numerator: Some(target.numerator().to_canonical_string()),
     }
 }
 
@@ -720,17 +724,17 @@ fn denominator_outputs(
             |(ordinal, ((record, denominator), power_shift))| DenominatorOutputV1 {
                 ordinal,
                 id: record.id().to_owned(),
-                source_expression: canonical_symbolica_atom(record.source()),
-                normalized_expression: canonical_symbolica_atom(record.normalized_expression()),
-                power_shift: canonical_symbolica_atom(&power_shift.to_expression()),
-                constant: canonical_symbolica_atom(&denominator.constant().to_expression()),
+                source_expression: record.source().to_canonical_string(),
+                normalized_expression: record.normalized_expression().to_canonical_string(),
+                power_shift: power_shift.to_expression().to_canonical_string(),
+                constant: denominator.constant().to_expression().to_canonical_string(),
                 coefficients: denominator
                     .coefficients()
                     .iter()
                     .enumerate()
                     .map(|(coordinate, coefficient)| AffineCoefficientOutputV1 {
                         coordinate,
-                        value: canonical_symbolica_atom(&coefficient.to_expression()),
+                        value: coefficient.to_expression().to_canonical_string(),
                     })
                     .collect(),
             },
@@ -747,7 +751,7 @@ fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGramOutputV1> {
                 column,
                 left: family.external_momenta()[row].clone(),
                 right: family.external_momenta()[column].clone(),
-                value: canonical_symbolica_atom(&value.to_expression()),
+                value: value.to_expression().to_canonical_string(),
             });
         }
     }
@@ -757,7 +761,7 @@ fn external_gram_outputs(family: &IntegralFamily) -> Vec<ExternalGramOutputV1> {
 fn family_domain_outputs(family: &IntegralFamily) -> Vec<ConditionOutputV1> {
     let mut merged: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
     for condition in family.domain().conditions() {
-        let expression = canonical_symbolica_atom(&condition.polynomial().to_expression());
+        let expression = condition.polynomial().to_expression().to_canonical_string();
         let entry = merged.entry(expression).or_default();
         entry.0.insert(coefficient_location(&condition.source()));
         entry
@@ -788,7 +792,7 @@ fn relation_output(ordinal: usize, relation: &ParametricRelation) -> RelationOut
             .iter()
             .map(|(shift, coefficient)| RelationTermOutputV1 {
                 shift: shift.values().to_vec(),
-                coefficient: canonical_symbolica_atom(&coefficient.to_expression()),
+                coefficient: coefficient.to_expression().to_canonical_string(),
             })
             .collect(),
         nonzero_conditions: relation_conditions(relation.guarded_nonzero_conditions()),
@@ -834,9 +838,7 @@ fn relation_conditions(conditions: &[ParametricNonZeroCondition]) -> Vec<Conditi
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for condition in conditions {
         merged
-            .entry(canonical_symbolica_atom(
-                &condition.polynomial().to_expression(),
-            ))
+            .entry(condition.polynomial().to_expression().to_canonical_string())
             .or_default()
             .extend(condition.origins().iter().map(GuardOrigin::stable_string));
     }

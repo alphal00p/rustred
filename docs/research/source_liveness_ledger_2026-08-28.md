@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `5b8a21f`, updated for the serialization/row-transport deletion.
+**Baseline parent:** `524499b`, updated for direct Symbolica runtime use.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 57 tracked Rust source/build/test paths
+This ledger classifies every one of the 55 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -20,14 +20,13 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 22 |
+| move | 21 |
 | split | 33 |
-| delete | 1 |
+| delete | 0 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
 |---|---|---|---|
-| `build.rs` | delete | — | replace vendored-manifest scraping with the resolved Symbolica public version API in R5 |
 | `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | retain roots-only planning needed by the live app; remove obsolete schema surface freely |
 | `crates/rustred-app/src/application/campaign/preflight.rs` | split | rustred-app::campaign | retain topology-free admission preflight needed by the live app |
 | `crates/rustred-app/src/application/derive.rs` | split | rustred-app | retain evidenced generic derivation; narrow the output/API during facade reset |
@@ -74,7 +73,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_coefficient/symbolica_sparse.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
-| `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
