@@ -25,15 +25,6 @@ use crate::parametric_elimination::{
     ParametricCoefficientWorkStats,
 };
 
-mod persistent;
-
-#[allow(unused_imports)]
-pub(crate) use persistent::{
-    SymbolicaPersistentSparseLimits, SymbolicaPersistentSparseOutcome,
-    SymbolicaPersistentSparseReducer, SymbolicaPersistentSparseShallowCapacitySnapshot,
-    SymbolicaPersistentSparseStats,
-};
-
 /// Resource envelope for one temporary native forward-reduction transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SymbolicaParametricSparseLimits {

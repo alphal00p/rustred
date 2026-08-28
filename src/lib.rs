@@ -29,11 +29,6 @@ pub mod conditional_rules;
 pub mod coordinate_equality_loci;
 pub mod exact_sparse_elimination;
 pub mod feynman_polynomials;
-pub(crate) mod generated_affine_initial_global_affine_terminal;
-pub(crate) mod generated_affine_residual_boolean_cover;
-pub(crate) mod generated_affine_residual_source_authority;
-pub(crate) mod generated_residual_affine_condition_accumulator;
-pub mod generated_residual_affine_when_bad;
 pub mod generated_sector_discovery;
 pub mod generated_sector_live_leaf_queue;
 pub mod generated_symbolic_row_span;
@@ -132,14 +127,6 @@ pub use exact_sparse_elimination::{
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
-};
-pub use generated_residual_affine_when_bad::{
-    AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA, AffineWhenBadAtom, AffineWhenBadClauseProvenance,
-    AffineWhenBadInheritedTruth, AffineWhenBadRelativeCase, AffineWhenBadRelativeCaseError,
-    AffineWhenBadRelativeCaseId, AffineWhenBadRelativeCaseLimits, AffineWhenBadRelativeCaseStats,
-    AffineWhenBadRelativeLeafClassification, AffineWhenBadRelativeLeafDisposition,
-    AffineWhenBadRelativePartitionCertificate, AffineWhenBadRelativePredicate,
-    AffineWhenBadRelativeSplit, AffineWhenBadRelativeSplitTrigger,
 };
 pub use generated_sector_discovery::{
     GENERATED_SECTOR_DISCOVERY_V1_SCHEMA, GENERATED_SECTOR_DISCOVERY_V2_SCHEMA,

@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `b742c79`, updated for the solver-island deletion.
+**Baseline parent:** `b6a529e`, updated for the generated-shell deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 96 tracked Rust source/build/test paths
+This ledger classifies every one of the 90 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 72 |
+| split | 66 |
 | delete | 1 |
 | replace | 1 |
 
@@ -78,11 +78,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
 | `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
-| `src/generated_affine_initial_global_affine_terminal.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_boolean_cover.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_live_leaf_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
@@ -95,7 +90,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
 | `src/master_product.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
-| `src/parametric_coefficient/symbolica_sparse/persistent.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_coefficient/symbolica_sparse.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_elimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
