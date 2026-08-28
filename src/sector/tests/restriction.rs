@@ -33,8 +33,8 @@ fn cuts_and_patterns_are_exclusions_never_zero_proofs() {
         }
     }
 
-    assert_eq!(restrictions.cuts().to_bit_string(), "1010");
-    assert_eq!(restrictions.pattern().to_stable_string(), "*0*1");
+    assert_eq!(restrictions.cuts().to_string(), "1010");
+    assert_eq!(restrictions.pattern().to_string(), "*0*1");
     assert!(matches!(
         CutConstraint::try_from_positions(4, [1, 1]),
         Err(Error::DuplicateIndex { position: 1 })

@@ -478,8 +478,8 @@ fn restriction_fingerprint(restrictions: &Restrictions) -> String {
     format!(
         "rustred-sector-restrictions-v1|arity={}|cuts={}|pattern={}",
         restrictions.arity(),
-        restrictions.cuts().to_bit_string(),
-        restrictions.pattern().to_stable_string(),
+        restrictions.cuts(),
+        restrictions.pattern(),
     )
 }
 

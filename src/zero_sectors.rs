@@ -1237,14 +1237,14 @@ mod tests {
         let analyzer =
             ZeroSectorAnalyzer::try_unrestricted(&family, PowerShiftPolicy::FormalGeneric).unwrap();
 
-        let inactive = Mask::try_from_bit_string("0").unwrap();
+        let inactive = Mask::try_new([false]).unwrap();
         let ZeroSectorDecision::ProvedZero(certificate) = analyzer.analyze_sector(&inactive) else {
             panic!("the inactive one-denominator sector must have a zero certificate");
         };
         assert_eq!(certificate.raw_sector(), &inactive);
         certificate.replay(&family).unwrap();
 
-        let active = Mask::try_from_bit_string("1").unwrap();
+        let active = Mask::try_new([true]).unwrap();
         assert!(matches!(
             analyzer.analyze_sector(&active),
             ZeroSectorDecision::NoZeroCertificate(_)

@@ -1,8 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `a2136f9`, immediately before moving the pruned sector
-foundation under its final owner tree.
-**Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
+**Baseline parent:** `a75958c`, immediately before hardening the sector
+foundation in its final owner tree.
+**Status:** R3/F3 working authority, subordinate to `GOAL.md` and the
+clean-repository architecture plan.
 
 This ledger classifies every one of the 129 Rust source/test paths remaining
 after the current ownership milestone. It is intentionally hostile to
@@ -34,7 +35,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Current path | Decision | Final owner | Evidence/action |
 |---|---|---|---|
-| `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | app-owned roots-only family/sector/job interning with deterministic ordinals and bounded truthful output; no core replay/dependency plan or fictional future phases |
+| `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | app-owned roots-only family/sector/job interning with deterministic ordinals and bounded truthful output, including the sole fallibly reserved sector-mask rendering boundary; no core replay/dependency plan or fictional future phases |
 | `crates/rustred-app/src/application/campaign/preflight.rs` | split | rustred-app::campaign | retain topology-free resource preflight needed by the live app |
 | `crates/rustred-app/src/application/derive/mod.rs` | split | rustred-app::derive | compose input lowering, admitted parallel IBP/LI batches, DTO conversion, and serialization without owning their representations |
 | `crates/rustred-app/src/application/derive/model.rs` | split | rustred-app::derive | retain only the deterministic application output DTO and semantic-to-transport conversion |
@@ -148,16 +149,16 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/relation/tests/translation.rs` | split | identity::relation tests | exact simultaneous key/coefficient translation and composition sentinels |
 | `src/identity/relation/tests/conditions.rs` | split | identity::relation tests | real-event provenance merging, transactional source limits, and error-ordering sentinels |
 | `src/sector/mod.rs` | move | sector | sole canonical facade over masks, direct restriction evidence, ordering, and errors; child modules are private and no root/long-name aliases remain |
-| `src/sector/error.rs` | move | sector | typed arity, position, parsing, allocation, ordering, and descent failures plus owner-local checked collection/string helpers pending the F3 parsing/render audit |
-| `src/sector/mask.rs` | split | sector | topology-neutral unshifted-index mask construction, activity views/contraction, subsector ordering, and current stable rendering; parsing/allocation behavior is challenged in F3 |
-| `src/sector/restriction.rs` | split | sector | cuts, patterns, and structured exclusion evidence without synthetic analytic zero/nonzero states |
-| `src/sector/ordering.rs` | split | sector | one deterministic ordering identity/schema, exact injective complexity keys, comparisons, and strict-descent witnesses |
+| `src/sector/error.rs` | move | sector | typed arity, position, allocation, ordering, and descent failures plus owner-local checked collection/string helpers; the unused mask/pattern parser errors are deleted |
+| `src/sector/mask.rs` | split | sector | topology-neutral unshifted-index mask construction, shared admitted bit storage, activity views, an allocation-free exact-size corner iterator, subsector ordering, and streaming display; no parser or allocating render convenience |
+| `src/sector/restriction.rs` | split | sector | cuts, shared admitted pattern storage, streaming displays, and structured exclusion evidence without synthetic analytic zero/nonzero states or parser conveniences |
+| `src/sector/ordering.rs` | split | sector | one deterministic ordering identity/schema, exact injective complexity keys with shared `u64` coordinate storage and `u128` aggregate sums, streaming display, comparisons, and strict-descent witnesses |
 | `src/sector/tests/mod.rs` | move | sector tests | private focused test composition only |
-| `src/sector/tests/support.rs` | move | sector tests | compact exhaustive index and impossible-size iterators shared by foundation sentinels |
-| `src/sector/tests/allocation.rs` | split | sector tests | retain typed fallible mask/pattern/cut allocation sentinels through F3 hardening |
-| `src/sector/tests/mask.rs` | split | sector tests | retain raw-membership, bit orientation, corner, and Boolean-lattice semantics |
-| `src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain |
-| `src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest and first-component descent witnesses |
+| `src/sector/tests/support.rs` | move | sector tests | compact exhaustive index enumerator shared by foundation sentinels |
+| `src/sector/tests/allocation.rs` | split | sector tests | retain the owner-local impossible-size iterator and typed fallible mask/pattern/cut allocation sentinels through F3 hardening |
+| `src/sector/tests/mask.rs` | split | sector tests | retain raw-membership, bit orientation, allocation-free corner, Boolean-lattice, and refcount-only clone semantics |
+| `src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain; owner-local pattern tests prove refcount-only clones |
+| `src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest, extreme-`i64` aggregate width, refcount-only coordinate clones, and first-component descent witnesses |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |

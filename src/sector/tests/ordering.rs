@@ -41,13 +41,13 @@ fn complexity_key_is_injective_strict_and_has_stable_manifest() {
 
     let key = policy.complexity_key(&[2, 0, -3]).unwrap();
     assert_eq!(key.propagators(), 1);
-    assert_eq!(key.sector().to_bit_string(), "100");
+    assert_eq!(key.sector().to_string(), "100");
     assert_eq!(key.corner_distance(), 4);
     assert_eq!(key.dots(), 1);
     assert_eq!(key.numerators(), 3);
     assert_eq!(key.index_excess(), &[1, 0, 3]);
     assert_eq!(
-        key.to_stable_string(),
+        key.to_string(),
         "rustred.unshifted-sector-order.v1|arity=3|propagators=1|sector=100|corner=4|dots=1|numerators=3|excess=[1,0,3]"
     );
 }

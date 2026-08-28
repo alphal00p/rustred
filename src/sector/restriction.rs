@@ -1,3 +1,6 @@
+use std::fmt;
+use std::sync::Arc;
+
 use super::error::{Error, try_collect_vec, try_reserve_exact};
 use super::mask::Mask;
 
@@ -58,7 +61,7 @@ impl CutConstraint {
             .required_active
             .active
             .iter()
-            .zip(&sector.active)
+            .zip(sector.active.iter())
             .filter(|&(&required, &active)| required && !active)
             .count();
         let mut missing = Vec::new();
@@ -67,7 +70,7 @@ impl CutConstraint {
             .required_active
             .active
             .iter()
-            .zip(&sector.active)
+            .zip(sector.active.iter())
             .enumerate()
         {
             if required && !active {
@@ -77,9 +80,11 @@ impl CutConstraint {
         debug_assert_eq!(missing.len(), missing_count);
         Ok(missing)
     }
+}
 
-    pub fn to_bit_string(&self) -> String {
-        self.required_active.to_bit_string()
+impl fmt::Display for CutConstraint {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.required_active.fmt(formatter)
     }
 }
 
@@ -94,9 +99,9 @@ pub enum PatternSlot {
 /// A fixed-arity sector admissibility pattern.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Pattern {
-    // Keep the fallibly reserved allocation. Converting to a boxed slice may
-    // perform a second proportional shrink allocation.
-    slots: Vec<PatternSlot>,
+    // Retain the single fallibly reserved caller-sized buffer. Arc cloning is
+    // refcount-only and does not copy the slots.
+    slots: Arc<Vec<PatternSlot>>,
 }
 
 impl Pattern {
@@ -113,26 +118,9 @@ impl Pattern {
         if slots.is_empty() {
             return Err(Error::EmptyIndexSpace);
         }
-        Ok(Self { slots })
-    }
-
-    /// Parse stable pattern characters: `*` (any), `1` (active), `0`
-    /// (inactive).
-    pub fn try_from_string(pattern: &str) -> Result<Self, Error> {
-        if pattern.is_empty() {
-            return Err(Error::EmptyIndexSpace);
-        }
-        let mut slots = Vec::new();
-        try_reserve_exact(&mut slots, pattern.len(), "sector pattern slots")?;
-        for (position, byte) in pattern.bytes().enumerate() {
-            slots.push(match byte {
-                b'*' => PatternSlot::Any,
-                b'1' => PatternSlot::Active,
-                b'0' => PatternSlot::Inactive,
-                _ => return Err(Error::InvalidPatternSlot { position, byte }),
-            });
-        }
-        Self::try_from_preallocated(slots)
+        Ok(Self {
+            slots: Arc::new(slots),
+        })
     }
 
     pub fn arity(&self) -> usize {
@@ -140,7 +128,7 @@ impl Pattern {
     }
 
     pub fn slots(&self) -> &[PatternSlot] {
-        &self.slots
+        self.slots.as_slice()
     }
 
     pub fn mismatches(&self, sector: &Mask) -> Result<Vec<PatternMismatch>, Error> {
@@ -153,13 +141,13 @@ impl Pattern {
         let mismatch_count = self
             .slots
             .iter()
-            .zip(&sector.active)
+            .zip(sector.active.iter())
             .filter(|&(&required, &actual_active)| !slot_matches(required, actual_active))
             .count();
         let mut mismatches = Vec::new();
         try_reserve_exact(&mut mismatches, mismatch_count, "sector pattern mismatches")?;
         for (position, (&required, &actual_active)) in
-            self.slots.iter().zip(&sector.active).enumerate()
+            self.slots.iter().zip(sector.active.iter()).enumerate()
         {
             if !slot_matches(required, actual_active) {
                 mismatches.push(PatternMismatch {
@@ -172,16 +160,18 @@ impl Pattern {
         debug_assert_eq!(mismatches.len(), mismatch_count);
         Ok(mismatches)
     }
+}
 
-    pub fn to_stable_string(&self) -> String {
-        self.slots
-            .iter()
-            .map(|slot| match slot {
-                PatternSlot::Any => '*',
-                PatternSlot::Active => '1',
-                PatternSlot::Inactive => '0',
-            })
-            .collect()
+impl fmt::Display for Pattern {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for slot in self.slots.iter() {
+            formatter.write_str(match slot {
+                PatternSlot::Any => "*",
+                PatternSlot::Active => "1",
+                PatternSlot::Inactive => "0",
+            })?;
+        }
+        Ok(())
     }
 }
 
@@ -279,5 +269,22 @@ fn slot_matches(required: PatternSlot, actual_active: bool) -> bool {
         PatternSlot::Any => true,
         PatternSlot::Active => actual_active,
         PatternSlot::Inactive => !actual_active,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{Pattern, PatternSlot};
+
+    #[test]
+    fn pattern_clones_share_the_fallibly_built_slot_buffer() {
+        let pattern =
+            Pattern::try_new([PatternSlot::Any, PatternSlot::Active, PatternSlot::Inactive])
+                .unwrap();
+        let cloned = pattern.clone();
+        assert!(Arc::ptr_eq(&pattern.slots, &cloned.slots));
+        assert_eq!(pattern, cloned);
     }
 }

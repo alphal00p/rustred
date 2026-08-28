@@ -401,7 +401,7 @@ fn compile_roots_only_output(
             id,
             family,
             declared_power_job,
-            declared_power_sector: record.job.sector.to_bit_string(),
+            declared_power_sector: render_mask(&record.job.sector)?,
             detected_input_form: record.draft.detected_input_form,
             input_schema: record.draft.input_schema,
             canonical_integral: record.draft.canonical_integral,
@@ -439,7 +439,7 @@ fn compile_roots_only_output(
         declared_power_jobs.push(CampaignDeclaredPowerJobOutputV1 {
             ordinal,
             family,
-            declared_power_sector: key.sector.to_bit_string(),
+            declared_power_sector: render_mask(&key.sector)?,
             ordering: ordering.stable_id(),
         });
     }
@@ -460,6 +460,17 @@ fn compile_roots_only_output(
         families: family_outputs,
         declared_power_jobs,
     })
+}
+
+fn render_mask(mask: &Mask) -> Result<String, AppError> {
+    let mut rendered = String::new();
+    rendered
+        .try_reserve_exact(mask.arity())
+        .map_err(|_| AppError::output_limit("cannot reserve campaign sector output".to_owned()))?;
+    for &active in mask.active_bits() {
+        rendered.push(if active { '1' } else { '0' });
+    }
+    Ok(rendered)
 }
 
 fn serialize_campaign_output(output: &CampaignPlanOutputV1) -> Result<String, AppError> {

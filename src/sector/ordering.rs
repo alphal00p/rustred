@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::fmt;
+use std::sync::Arc;
 
 use super::error::{Error, try_copy_string, try_reserve_exact};
 use super::mask::Mask;
@@ -6,7 +8,7 @@ use super::mask::Mask;
 /// Stable identifier of RustRed's first deterministic integral order.
 pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
 
-/// Stable field order used by [`ComplexityKey::to_stable_string`].
+/// Stable field order emitted by [`ComplexityKey`]'s display implementation.
 pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA: &str =
     "arity,propagators,sector-bits,corner-distance,dots,numerators,index-excess";
 
@@ -51,16 +53,16 @@ impl OrderingPolicy {
             "integral complexity index excess",
         )?;
         for (&active, &index) in sector.active.iter().zip(indices) {
-            let excess = if active {
+            let excess: u64 = if active {
                 debug_assert!(index >= 1);
-                u128::from((index - 1) as u64)
+                (index - 1) as u64
             } else {
-                u128::from(index.unsigned_abs())
+                index.unsigned_abs()
             };
             index_excess.push(excess);
             let target = if active { &mut dots } else { &mut numerators };
             *target = target
-                .checked_add(excess)
+                .checked_add(u128::from(excess))
                 .ok_or(Error::ComplexityOverflow {
                     measure: if active { "dots" } else { "numerators" },
                 })?;
@@ -78,7 +80,7 @@ impl OrderingPolicy {
             corner_distance,
             dots,
             numerators,
-            index_excess,
+            index_excess: Arc::new(index_excess),
         })
     }
 
@@ -132,8 +134,10 @@ pub struct ComplexityKey {
     corner_distance: u128,
     dots: u128,
     numerators: u128,
-    // Retain the fallibly reserved backing allocation.
-    index_excess: Vec<u128>,
+    // Retain the single fallibly reserved caller-sized buffer. Each coordinate
+    // is derived from an i64 and therefore fits u64; only aggregate sums widen
+    // to u128.
+    index_excess: Arc<Vec<u64>>,
 }
 
 impl ComplexityKey {
@@ -165,20 +169,16 @@ impl ComplexityKey {
         self.numerators
     }
 
-    pub fn index_excess(&self) -> &[u128] {
-        &self.index_excess
+    pub fn index_excess(&self) -> &[u64] {
+        self.index_excess.as_slice()
     }
+}
 
-    /// Stable text encoding for persistence diagnostics and golden tests.
-    pub fn to_stable_string(&self) -> String {
-        let excess = self
-            .index_excess
-            .iter()
-            .map(u128::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        format!(
-            "{}|arity={}|propagators={}|sector={}|corner={}|dots={}|numerators={}|excess=[{}]",
+impl fmt::Display for ComplexityKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}|arity={}|propagators={}|sector={}|corner={}|dots={}|numerators={}|excess=[",
             self.policy.stable_id(),
             self.arity,
             self.propagators,
@@ -186,8 +186,14 @@ impl ComplexityKey {
             self.corner_distance,
             self.dots,
             self.numerators,
-            excess
-        )
+        )?;
+        for (position, excess) in self.index_excess.iter().enumerate() {
+            if position != 0 {
+                formatter.write_str(",")?;
+            }
+            write!(formatter, "{excess}")?;
+        }
+        formatter.write_str("]")
     }
 }
 
@@ -253,7 +259,7 @@ fn first_differing_component(
             .sector
             .active
             .iter()
-            .zip(&target.sector.active)
+            .zip(target.sector.active.iter())
             .position(|(left, right)| left != right)
             .expect("different equal-arity sectors have a differing bit");
         return Some(ComplexityComponent::SectorBit { position });
@@ -270,7 +276,30 @@ fn first_differing_component(
     source
         .index_excess
         .iter()
-        .zip(&target.index_excess)
+        .zip(target.index_excess.iter())
         .position(|(left, right)| left != right)
         .map(|position| ComplexityComponent::IndexExcess { position })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::OrderingPolicy;
+
+    #[test]
+    fn complexity_key_clones_share_the_fallibly_built_excess_buffer() {
+        let key = OrderingPolicy::default()
+            .complexity_key(&[i64::MIN, 1, i64::MAX])
+            .unwrap();
+        assert_eq!(
+            key.index_excess(),
+            &[i64::MIN.unsigned_abs(), 0, (i64::MAX - 1) as u64]
+        );
+        assert_eq!(key.numerators(), u128::from(i64::MIN.unsigned_abs()));
+        assert_eq!(key.dots(), u128::from((i64::MAX - 1) as u64));
+        let cloned = key.clone();
+        assert!(Arc::ptr_eq(&key.index_excess, &cloned.index_excess));
+        assert_eq!(key, cloned);
+    }
 }

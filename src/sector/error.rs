@@ -14,14 +14,6 @@ pub enum Error {
     DuplicateIndex {
         position: usize,
     },
-    InvalidSectorBit {
-        position: usize,
-        byte: u8,
-    },
-    InvalidPatternSlot {
-        position: usize,
-        byte: u8,
-    },
     AllocationFailure {
         resource: &'static str,
         requested: usize,
@@ -49,14 +41,6 @@ impl fmt::Display for Error {
             Self::DuplicateIndex { position } => {
                 write!(formatter, "sector index {position} is repeated")
             }
-            Self::InvalidSectorBit { position, byte } => write!(
-                formatter,
-                "invalid sector bit byte {byte} at position {position}; expected 0 or 1"
-            ),
-            Self::InvalidPatternSlot { position, byte } => write!(
-                formatter,
-                "invalid sector-pattern byte {byte} at position {position}; expected *, 0, or 1"
-            ),
             Self::AllocationFailure {
                 resource,
                 requested,

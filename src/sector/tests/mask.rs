@@ -1,4 +1,6 @@
-use super::super::{Error, Mask, OrderingPolicy};
+use std::sync::Arc;
+
+use super::super::{Mask, OrderingPolicy};
 use super::support::all_indices;
 
 #[test]
@@ -28,26 +30,22 @@ fn raw_membership_is_exhaustive_and_power_shift_independent() {
 }
 
 #[test]
-fn bit_orientation_and_stable_round_trip_match_litered() {
-    let sector = Mask::try_from_bit_string("101001").unwrap();
+fn bit_orientation_display_and_corner_iterator_match_litered() {
+    let sector = Mask::try_new([true, false, true, false, false, true]).unwrap();
     assert_eq!(
         sector.active_bits(),
         &[true, false, true, false, false, true]
     );
-    assert_eq!(sector.to_bit_string(), "101001");
-    assert_eq!(sector.corner_indices(), vec![1, 0, 1, 0, 0, 1]);
-    assert_eq!(
-        sector.with_activity(1, true).unwrap().to_bit_string(),
-        "111001"
-    );
     assert_eq!(sector.to_string(), "101001");
-    assert!(matches!(
-        Mask::try_from_bit_string("10x"),
-        Err(Error::InvalidSectorBit {
-            position: 2,
-            byte: b'x'
-        })
-    ));
+    assert_eq!(
+        sector.corner_indices().collect::<Vec<_>>(),
+        vec![1, 0, 1, 0, 0, 1]
+    );
+    assert_eq!(sector.with_activity(1, true).unwrap().to_string(), "111001");
+
+    let cloned = sector.clone();
+    assert!(Arc::ptr_eq(&sector.active, &cloned.active));
+    assert_eq!(sector, cloned);
 }
 
 #[test]
