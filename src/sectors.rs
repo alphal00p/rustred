@@ -107,26 +107,12 @@ impl SectorMask {
         self.active.iter().filter(|&&active| active).count()
     }
 
-    pub fn inactive_count(&self) -> usize {
-        self.arity() - self.active_count()
-    }
-
     /// The LiteRed corner: `1` in active slots and `0` in inactive slots.
     pub fn corner_indices(&self) -> Vec<i64> {
         self.active
             .iter()
             .map(|&active| i64::from(active))
             .collect()
-    }
-
-    /// Whether raw unshifted powers lie in this sector.
-    pub fn contains_indices(&self, indices: &[i64]) -> Result<bool, SectorFoundationError> {
-        self.check_arity(indices.len())?;
-        Ok(self
-            .active
-            .iter()
-            .zip(indices)
-            .all(|(&active, &index)| active == (index >= 1)))
     }
 
     pub fn with_activity(
@@ -160,14 +146,6 @@ impl SectorMask {
 
     pub fn is_strict_subsector_of(&self, other: &Self) -> Result<bool, SectorFoundationError> {
         Ok(self != other && self.is_subsector_of(other)?)
-    }
-
-    pub fn is_supersector_of(&self, other: &Self) -> Result<bool, SectorFoundationError> {
-        other.is_subsector_of(self)
-    }
-
-    pub fn is_strict_supersector_of(&self, other: &Self) -> Result<bool, SectorFoundationError> {
-        other.is_strict_subsector_of(self)
     }
 
     pub fn to_bit_string(&self) -> String {
@@ -250,16 +228,6 @@ impl CutConstraint {
 
     pub fn required_active(&self) -> &SectorMask {
         &self.required_active
-    }
-
-    pub fn admits(&self, sector: &SectorMask) -> Result<bool, SectorFoundationError> {
-        self.required_active.check_other_arity(sector)?;
-        Ok(self
-            .required_active
-            .active
-            .iter()
-            .zip(&sector.active)
-            .all(|(&required, &active)| !required || active))
     }
 
     pub fn missing_required_active(
@@ -360,20 +328,6 @@ impl SectorPattern {
         &self.slots
     }
 
-    pub fn matches(&self, sector: &SectorMask) -> Result<bool, SectorFoundationError> {
-        if self.arity() != sector.arity() {
-            return Err(SectorFoundationError::WrongArity {
-                expected: self.arity(),
-                actual: sector.arity(),
-            });
-        }
-        Ok(self
-            .slots
-            .iter()
-            .zip(&sector.active)
-            .all(|(&required, &actual_active)| pattern_slot_matches(required, actual_active)))
-    }
-
     pub fn mismatches(
         &self,
         sector: &SectorMask,
@@ -458,14 +412,6 @@ impl SectorExclusion {
     pub fn pattern_mismatches(&self) -> &[SectorPatternMismatch] {
         &self.pattern_mismatches
     }
-
-    pub fn violates_cut(&self) -> bool {
-        !self.missing_required_active.is_empty()
-    }
-
-    pub fn violates_pattern(&self) -> bool {
-        !self.pattern_mismatches.is_empty()
-    }
 }
 
 /// Combined user cuts and sector pattern.
@@ -519,48 +465,6 @@ impl SectorRestrictions {
                 pattern_mismatches,
             }))
         }
-    }
-
-    /// Initial status before any zero/nonzero analysis is attempted.
-    pub fn initial_status(
-        &self,
-        sector: &SectorMask,
-    ) -> Result<SectorAnalysisStatus, SectorFoundationError> {
-        Ok(match self.exclusion(sector)? {
-            Some(exclusion) => SectorAnalysisStatus::Excluded(exclusion),
-            None => SectorAnalysisStatus::Unanalyzed,
-        })
-    }
-}
-
-/// Explicit sector-analysis state.
-///
-/// Only an authenticated future proof algorithm may assign `ProvedZero` or
-/// `ProvedNonZero`.  In particular, restrictions return only `Excluded` or
-/// `Unanalyzed` through [`SectorRestrictions::initial_status`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum SectorAnalysisStatus {
-    Excluded(SectorExclusion),
-    Unanalyzed,
-    ProvedZero,
-    ProvedNonZero,
-    ResourceLimited,
-    Failed,
-}
-
-impl SectorAnalysisStatus {
-    /// Whether this is an admissibility exclusion rather than an analytic
-    /// statement about the integral.
-    pub fn is_excluded(&self) -> bool {
-        matches!(self, Self::Excluded(_))
-    }
-
-    pub fn is_proved_zero(&self) -> bool {
-        matches!(self, Self::ProvedZero)
-    }
-
-    pub fn is_proved_nonzero(&self) -> bool {
-        matches!(self, Self::ProvedNonZero)
     }
 }
 
@@ -1025,8 +929,6 @@ mod tests {
                     sector.active_bits(),
                     indices.iter().map(|&index| index >= 1).collect::<Vec<_>>()
                 );
-                assert!(sector.contains_indices(&indices).unwrap());
-
                 // Deliberately vary arbitrary would-be PowerShifts.  The API
                 // has no slot for them: membership and ordering remain a
                 // function of raw n alone.
@@ -1117,7 +1019,6 @@ mod tests {
             for (right_bits, right) in sectors.iter().enumerate() {
                 let expected = (left_bits & !right_bits) == 0;
                 assert_eq!(left.is_subsector_of(right).unwrap(), expected);
-                assert_eq!(right.is_supersector_of(left).unwrap(), expected);
                 assert_eq!(
                     left.is_strict_subsector_of(right).unwrap(),
                     expected && left_bits != right_bits
@@ -1148,19 +1049,16 @@ mod tests {
                 && sector.active_bits()[2]
                 && !sector.active_bits()[1]
                 && sector.active_bits()[3];
-            let status = restrictions.initial_status(&sector).unwrap();
+            let exclusion = restrictions.exclusion(&sector).unwrap();
             if expected_admissible {
-                assert_eq!(status, SectorAnalysisStatus::Unanalyzed);
+                assert_eq!(exclusion, None);
             } else {
-                let SectorAnalysisStatus::Excluded(exclusion) = &status else {
-                    panic!("cut/pattern restriction must be Excluded, never a proof state")
-                };
-                assert!(exclusion.violates_cut() || exclusion.violates_pattern());
+                let exclusion = exclusion.expect("inadmissible sectors carry exclusion evidence");
+                assert!(
+                    !exclusion.missing_required_active().is_empty()
+                        || !exclusion.pattern_mismatches().is_empty()
+                );
             }
-            assert!(!matches!(
-                status,
-                SectorAnalysisStatus::ProvedZero | SectorAnalysisStatus::ProvedNonZero
-            ));
         }
 
         assert_eq!(restrictions.cuts().to_bit_string(), "1010");

@@ -1,11 +1,11 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `f185197`, immediately before moving the pruned generator
-spine under its final identity owner.
+**Baseline parent:** `eb80f33`, immediately before pruning the sector
+foundation to its live mathematical responsibilities.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 119 Rust source/test paths remaining
-after the generator ownership milestone. It is intentionally hostile to
+after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -147,7 +147,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/relation/tests/index.rs` | split | identity::relation tests | checked allocation, overflow, arity, and bounded-iterator sentinels |
 | `src/identity/relation/tests/translation.rs` | split | identity::relation tests | exact simultaneous key/coefficient translation and composition sentinels |
 | `src/identity/relation/tests/conditions.rs` | split | identity::relation tests | real-event provenance merging, transactional source limits, and error-ordering sentinels |
-| `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
+| `src/sectors.rs` | split | sector | retain masks, direct restriction-exclusion evidence, ordering, and sector errors without importing higher layers; the caller-free derived conveniences and misleading synthetic analysis-status/proved-nonzero states are deleted before the tree move |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |

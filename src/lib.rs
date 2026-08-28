@@ -40,9 +40,9 @@ pub use family::{
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,
-    RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorAnalysisStatus,
-    SectorExclusion, SectorFoundationError, SectorMask, SectorPattern, SectorPatternMismatch,
-    SectorPatternSlot, SectorRestrictions, StrictDescentWitness,
+    RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorExclusion,
+    SectorFoundationError, SectorMask, SectorPattern, SectorPatternMismatch, SectorPatternSlot,
+    SectorRestrictions, StrictDescentWitness,
 };
 pub use symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,
