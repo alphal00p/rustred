@@ -180,71 +180,8 @@ impl fmt::Display for ExactAlgebraError {
 
 impl std::error::Error for ExactAlgebraError {}
 
-/// Per-variable numerator and denominator degrees of an existing coefficient.
-///
-/// Existing coefficients are already representable.  Reducers use these
-/// bounds to account for nontrivial rational mass parameters before starting
-/// a caller-controlled repeated product.
-pub(crate) fn coefficient_variable_degrees(coefficient: &Coefficient) -> Vec<(u128, u128)> {
-    (0..coefficient.numerator.variables.len())
-        .map(|variable| {
-            (
-                u128::from(coefficient.numerator.degree(variable)),
-                u128::from(coefficient.denominator.degree(variable)),
-            )
-        })
-        .collect()
-}
-
-pub(crate) fn symbolica_coefficient_degree_is_representable(requested: u128) -> bool {
+fn symbolica_coefficient_degree_is_representable(requested: u128) -> bool {
     requested <= SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT
-}
-
-/// Conservative per-variable exponent bound for `left * right`.
-///
-/// Symbolica cancels cross gcds before multiplying rational polynomials, so
-/// the raw numerator/denominator degree sums can overestimate the result but
-/// can never underestimate an intermediate multiplication.  Coefficients
-/// from different variable maps are rejected conservatively.
-pub(crate) fn coefficient_product_degree_bound(left: &Coefficient, right: &Coefficient) -> u128 {
-    if left.get_variables() != right.get_variables() {
-        return u128::MAX;
-    }
-    coefficient_variable_degrees(left)
-        .into_iter()
-        .zip(coefficient_variable_degrees(right))
-        .map(
-            |((left_numerator, left_denominator), (right_numerator, right_denominator))| {
-                left_numerator
-                    .saturating_add(right_numerator)
-                    .max(left_denominator.saturating_add(right_denominator))
-            },
-        )
-        .max()
-        .unwrap_or(0)
-}
-
-/// Conservative per-variable exponent bound for `left + right`.
-///
-/// The bound mirrors cross multiplication over the two denominators.  The gcd
-/// optimization used by Symbolica can only lower these degrees.
-pub(crate) fn coefficient_sum_degree_bound(left: &Coefficient, right: &Coefficient) -> u128 {
-    if left.get_variables() != right.get_variables() {
-        return u128::MAX;
-    }
-    coefficient_variable_degrees(left)
-        .into_iter()
-        .zip(coefficient_variable_degrees(right))
-        .map(
-            |((left_numerator, left_denominator), (right_numerator, right_denominator))| {
-                left_numerator
-                    .saturating_add(right_denominator)
-                    .max(right_numerator.saturating_add(left_denominator))
-                    .max(left_denominator.saturating_add(right_denominator))
-            },
-        )
-        .max()
-        .unwrap_or(0)
 }
 
 pub(crate) fn validate_coefficient_on_map(

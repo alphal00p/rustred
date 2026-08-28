@@ -16,7 +16,6 @@ mod exact_identity;
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
-pub mod conditional_reelimination;
 pub mod feynman_polynomials;
 pub mod generated_symbolic_row_span;
 pub mod generic_family;
@@ -44,15 +43,6 @@ pub use automatic_isps::{
     AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
 };
 pub use campaign::{ParallelExecution, ParallelExecutionError};
-pub use conditional_reelimination::{
-    ConditionalCenteredPivotLocus, GENERATED_PARTIAL_REELIMINATION_V1_SCHEMA,
-    GENERATED_PARTIAL_REELIMINATION_V2_SCHEMA, GeneratedPartialBaseAssumptionWitness,
-    GeneratedPartialReeliminationCertificate, GeneratedPartialReeliminationCompilation,
-    GeneratedPartialReeliminationCompiler, GeneratedPartialReeliminationEmptySystem,
-    GeneratedPartialReeliminationError, GeneratedPartialReeliminationLimits,
-    GeneratedPartialReeliminationStats, GeneratedPartialSourceAuthentication,
-    GeneratedPartialSourceRowOutcome, GeneratedPartialSourceRowWitness,
-};
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,

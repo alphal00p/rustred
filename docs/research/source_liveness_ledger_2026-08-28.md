@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `cf22262`, updated for the scalar-rewrite SCC deletion.
+**Baseline parent:** `749c5ca`, updated for the conditional-reelimination deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 62 tracked Rust source/build/test paths
+This ledger classifies every one of the 61 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 38 |
+| split | 37 |
 | delete | 1 |
 | replace | 1 |
 
@@ -64,7 +64,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
 | `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
