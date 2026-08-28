@@ -522,9 +522,10 @@ architecture plan:
    a long semantic prefix, express that prefix once as a cohesive parent module
    and use short role names below it; do not keep a flat family of repeated
    prefixes or create a miscellaneous prefix bucket.
-5. Replace the 750-line public facade with the smallest intentional generic
-   API required by the retained spine, app/CLI/Python, and upcoming Vakint
-   boundary.
+5. The former 750-line public facade has already been reduced to a small
+   intentional surface. Complete its liveness audit and narrow it further as
+   modules reach their final owners, retaining only the generic API required by
+   the spine, app/CLI/Python, and upcoming Vakint boundary.
    Delete unreferenced generations/provider layers, eager sector machinery,
    and compatibility APIs rather than suppressing dead-code warnings. Delete
    a CAS duplicate only after it is dead or a Symbolica API/differential audit

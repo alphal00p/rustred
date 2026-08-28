@@ -229,15 +229,15 @@ domain. Reduction may then consume those artifacts. Artifact models never
 depend on foundry internals. This future direction is a contract to design,
 not a reason to preserve the audited prototype's solver/session hierarchy.
 
-## Current-to-final cluster classification
+## Reset-baseline-to-final cluster classification
 
-The mapping below covers every architectural source cluster; it is not a claim
-that a prose glob is a complete file manifest. Before R3 changes code, generate
-a tracked-path liveness ledger from `git ls-files` in which every source path is
-classified as retain/move, split, or delete. An unclassified path stops that
-tranche. “Move if live” is intentionally conditional: the reset first proves a
-symbol is needed; dead or duplicate variants in the cluster are deleted rather
-than carried to the destination.
+The mapping below records the large pre-reset source inventory and its intended
+disposition. It is historical input evidence, not a description of the current
+tree, and a prose glob is not a complete file manifest. The live R3 authority is
+the separately regenerated source-liveness ledger, in which every present Rust
+path is classified as move, split, delete, or replace. An unclassified path
+stops that tranche. “Move if live” remains intentionally conditional: dead or
+duplicate variants are deleted rather than carried to the destination.
 
 The ledger is regenerated and challenged after every R2-R4 milestone, not
 written once and trusted. A `split` classification expires: before the facade
@@ -409,16 +409,19 @@ rustred = { package = "rustred", git = "https://github.com/alphal00p/rustred.git
 The committed dependency must resolve the package named `rustred` from
 `crates/rustred-core`; its directory name is not its Cargo package name.
 
-The single-Symbolica graph is implemented, not merely asserted:
+The following single-Symbolica graph is the R5 target; it is not implemented
+yet. The current root `rustred` package still obtains Symbolica from the
+workspace path `vendor/symbolica`, `crates/rustred-core` does not yet exist, and
+GammaLoop has not yet been unified to that source identity:
 
-1. `rustred-core` requests the exact registry package version
+1. `rustred-core` will request the exact registry package version
    `symbolica = "=2.2.0"` through `[workspace.dependencies]`, with GMP enabled
-   and `no_gmp` absent. It does not use a path dependency itself.
-2. When RustRed is the workspace root, root `[patch.crates-io]` replaces
+   and `no_gmp` absent. It will not use a path dependency itself.
+2. When RustRed is the workspace root, root `[patch.crates-io]` will replace
    `symbolica`, `graphica`, and `numerica` with the pinned
    `vendor/symbolica` checkout. Thus standalone development remains offline
    and reproducible.
-3. On `vakint_rustred`, GammaLoop replaces its present moving `branch =
+3. On `vakint_rustred`, GammaLoop must replace its present moving `branch =
    "dev"` patches for those same packages with one jointly tested exact Git
    `rev`. GammaLoop's generated `crates/gammaloop-workspace-hack/Cargo.toml`
    currently also contains four direct `branch = "dev"` Symbolica/Numerica
@@ -432,8 +435,9 @@ The single-Symbolica graph is implemented, not merely asserted:
    lock resolves `0441bd7a511209dce2ca99925fe87f8b18e4bf03`; adapter work may not
    pretend these are unified. Test one revision against both workspaces and
    pin both sides before exposing shared CAS types.
-4. Delete RustRed's manifest-scraping `build.rs`; producer metadata uses the
-   resolved Symbolica public API `LicenseManager::get_version()`.
+4. RustRed's manifest-scraping `build.rs` has already been deleted; producer
+   metadata now uses the resolved Symbolica public API
+   `LicenseManager::get_version()`.
 5. Until `cargo tree` proves exactly one Symbolica source/revision, the
    cross-repository boundary exposes owned RustRed domain values rather than
    `Atom`/`AtomView`. Vakint owns conversion. A zero-copy Symbolica-`Atom`
@@ -506,10 +510,11 @@ matrix adapter. The former flat coefficient migration unit has now been
 renamed and split into `algebra::indexed`, while identity-owned conditions
 remain under `identity`. The retained implementation contains only complete
 K(n) translation/specialization, identity-condition sources, direct Symbolica
-coefficient operations, and mathematical pre-operation bounds. The next
-semantic pass removes redundant base-polynomial/result wrappers and delegates
-simultaneous substitution to Symbolica; the new tree is an ownership boundary,
-not automatic evidence that every surviving surface is final.
+coefficient operations, and mathematical pre-operation bounds. Redundant
+base-polynomial/result wrappers have also been deleted. The remaining algebra
+task is the independently audited migration of simultaneous substitution to
+Symbolica; the new tree is an ownership boundary, not automatic evidence that
+every surviving surface is final.
 
 The retained exponent boundary now matches Symbolica's representation:
 stored and configured caps are `u16`, pairwise prospective degree sums use
@@ -573,10 +578,11 @@ Gate: focused licensed sentinels stay green after every cluster; static imports
 move toward the declared DAG; no new prefix dumping ground or compatibility
 facade appears.
 
-### R4 — replace the root facade and finish liveness pruning
+### R4 — finish facade and liveness pruning
 
-- Replace the 750-line facade with the smallest intentional `rustred` API
-  required by the retained spine, app/CLI/Python, and Vakint boundary.
+- The former 750-line facade has already been reduced to a small intentional
+  surface. Finish auditing and narrowing it against the retained spine,
+  app/CLI/Python, and Vakint boundary as modules reach their final owners.
 - Delete every unreferenced source, old schema generation, compatibility
   constructor/re-export, duplicate provider stack, and eager MTBDD path. Do
   not silence dead code with broad `allow` attributes.
