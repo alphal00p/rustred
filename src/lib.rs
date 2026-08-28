@@ -13,7 +13,6 @@
 
 mod exact_identity;
 
-pub mod adaptive_rules;
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
@@ -45,10 +44,6 @@ pub mod symmetry_discovery;
 pub mod tensor;
 pub mod zero_sectors;
 
-pub use adaptive_rules::{
-    ADAPTIVE_PARAMETRIC_RULE_SEARCH_V1_SCHEMA, AdaptiveParametricRuleProvider,
-    AdaptiveRuleSearchError, AdaptiveRuleSearchLimits, AdaptiveRuleSearchStats,
-};
 pub use automatic_isps::{
     AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
     AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,

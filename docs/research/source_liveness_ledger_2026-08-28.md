@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `6f6f136`, updated for the tensor-orchestration deletion.
+**Baseline parent:** `1a0286f`, updated for the adaptive-rule leaf deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 68 tracked Rust source/build/test paths
+This ledger classifies every one of the 67 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 44 |
+| split | 43 |
 | delete | 1 |
 | replace | 1 |
 
@@ -51,7 +51,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-app/tests/cli_derive.rs` | split | rustred-app tests | fresh inline fixtures guard supported forms; prune historical breadth later |
 | `crates/rustred-python/src/coordinator.rs` | move | rustred-python | single process/fork/panic coordination boundary |
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
-| `src/adaptive_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/algebra/coefficient.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
