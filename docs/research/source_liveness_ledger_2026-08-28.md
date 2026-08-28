@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `4d843bd`, updated after each R3 cluster milestone.
+**Baseline:** `0d9930f`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 170 tracked Rust source/build/test paths
+This ledger classifies every one of the 164 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 138 |
-| delete | 8 |
+| split | 137 |
+| delete | 3 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -137,14 +137,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_sector_coverage.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/parametric_sector_formula_affine_terminal.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/parametric_sector_formula_ir.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_formula_residual.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_k21_test_support.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_mtbdd_certificate.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/parametric_sector_mtbdd.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_normalized_source.rs` | split | identity / foundry::solver | raw identity values below sector/coverage orchestration |
-| `src/parametric_sector_one_pass_tests.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/parametric_sector_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/product_locus_boolean_cover.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |

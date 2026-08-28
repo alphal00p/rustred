@@ -34,8 +34,6 @@ use crate::{
 
 pub(crate) const GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA: &str =
     "rustred-generated-affine-parametric-ordering-v2";
-pub(crate) const GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA: &str =
-    "rustred-generated-affine-parametric-ordering-v3";
 pub(crate) const GENERATED_AFFINE_PARAMETRIC_ORDERING_V4_SCHEMA: &str =
     "rustred-generated-affine-parametric-ordering-v4";
 
@@ -47,9 +45,6 @@ const fn ordering_schema_for_source(
     match source {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_PARAMETRIC_ORDERING_V2_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_PARAMETRIC_ORDERING_V3_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_PARAMETRIC_ORDERING_V4_SCHEMA
@@ -959,11 +954,9 @@ fn count_source_identity(
     case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> Result<usize, GeneratedAffineParametricOrderingError> {
-    if matches!(
-        authority.source_kind(),
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-            | GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
-    ) {
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+    {
         return authority
             .stable_value_identity()
             .filter(|identity| identity.kind() == authority.source_kind())
@@ -987,11 +980,9 @@ fn write_source_identity(
     case: GeneratedAffineResidualCaseSourceRecordView<'_>,
     group: GeneratedAffineResidualInventoryGroupSourceView<'_>,
 ) -> fmt::Result {
-    if matches!(
-        authority.source_kind(),
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-            | GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
-    ) {
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+    {
         return output.write_str(
             authority
                 .stable_value_identity()
@@ -1238,11 +1229,9 @@ fn write_manifest_prefix(
         "{schema}|key-schema={AFFINE_START_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA}:{}",
         RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
     )?;
-    if matches!(
-        authority.source_kind(),
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-            | GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
-    ) {
+    if authority.source_kind()
+        == GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+    {
         let identity = authority
             .stable_value_identity()
             .filter(|identity| identity.kind() == authority.source_kind())
@@ -1272,12 +1261,6 @@ fn write_manifest_suffix(
                 == GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory =>
         {
             write!(output, "|terminal={}", locator.boolean_record_ordinal())?;
-        }
-        GeneratedAffineResidualCaseSourceLocator::DirectFormula { .. }
-            if authority.source_kind()
-                == GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton =>
-        {
-            output.write_str("|source=direct-formula-singleton")?;
         }
         GeneratedAffineResidualCaseSourceLocator::CommittedExceptional { .. }
             if authority.source_kind()

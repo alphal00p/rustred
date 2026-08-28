@@ -98,14 +98,10 @@ use super::database::GeneratedAffineResidualGroupExactRowOutcome;
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v1";
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-exact-session-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v3";
 const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-event-v1";
-const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-exact-session-event-v2";
 const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V3_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-event-v3";
 
@@ -115,9 +111,6 @@ const fn exact_session_schema_for_source(
     match source_kind {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA
@@ -131,9 +124,6 @@ const fn exact_session_event_schema_for_source(
     match source_kind {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V1_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_EVENT_V3_SCHEMA
@@ -1657,6 +1647,17 @@ impl<'session> CommittedPublicationEventView<'session> {
 
     pub(crate) fn target_offset(self) -> &'session [Integer] {
         self.publication_parts().1.values()
+    }
+
+    /// Absolute affine constants of the retained Ready target.  These are
+    /// borrowed from the target authority; `target_offset()` remains the
+    /// distinct parent-frame-relative coordinate used by recentering.
+    pub(crate) fn target_constants(self) -> &'session [Integer] {
+        self.event
+            .authority
+            .catalog
+            .ready_target_constants(self.target_locator())
+            .expect("committed publication lost its immutable Ready-target constants")
     }
 
     pub(crate) fn terms(self) -> &'session [ExactRecenteredTerm] {

@@ -16,7 +16,6 @@ use std::sync::atomic::AtomicUsize;
 
 use super::physical_key::{
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA,
-    GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError, GeneratedAffineResidualGroupPhysicalKeyPreflight,
@@ -31,8 +30,6 @@ use crate::{IntegralFamily, ParametricCoefficientContext};
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-solve-plan-v1";
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-solve-plan-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA: &str =
     "rustred-generated-affine-residual-group-solve-plan-v3";
 const TARGET_ORDER_V1_ID: &str = "stable-ascending-physical-key-then-inventory-position-v1";
@@ -41,7 +38,7 @@ const INVENTORY_ALLOCATION_COMPARISONS: usize = 1;
 const FRAME_REPLAYS: usize = 1;
 const GROUP_AUTHENTICATIONS: usize = 1;
 const INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES: usize = 3;
-const DIRECT_RETAINED_PARENT_REFERENCES: usize = 2;
+const SINGLETON_RETAINED_PARENT_REFERENCES: usize = 2;
 const LIMIT_SCALAR_FIELDS: usize = 25;
 const STATS_SCALAR_FIELDS: usize = 29;
 
@@ -51,9 +48,6 @@ const fn solve_plan_schema_for_source(
     match source {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA
@@ -364,7 +358,6 @@ struct SortEntry {
 #[derive(Clone)]
 enum GeneratedAffineResidualGroupSolvePlanSource {
     InitialInventory(Arc<GeneratedAffineResidualCaseInventoryCertificate>),
-    DirectFormulaSingleton,
     CommittedExceptionalSingleton,
 }
 
@@ -373,9 +366,6 @@ impl GeneratedAffineResidualGroupSolvePlanSource {
         match self {
             Self::InitialInventory(_) => {
                 GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory
-            }
-            Self::DirectFormulaSingleton => {
-                GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
             }
             Self::CommittedExceptionalSingleton => {
                 GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
@@ -386,16 +376,14 @@ impl GeneratedAffineResidualGroupSolvePlanSource {
     const fn retained_parent_references(&self) -> usize {
         match self {
             Self::InitialInventory(_) => INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
-            Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => {
-                DIRECT_RETAINED_PARENT_REFERENCES
-            }
+            Self::CommittedExceptionalSingleton => SINGLETON_RETAINED_PARENT_REFERENCES,
         }
     }
 
     const fn inventory_allocation_comparisons(&self) -> usize {
         match self {
             Self::InitialInventory(_) => INVENTORY_ALLOCATION_COMPARISONS,
-            Self::DirectFormulaSingleton | Self::CommittedExceptionalSingleton => 0,
+            Self::CommittedExceptionalSingleton => 0,
         }
     }
 }
@@ -485,26 +473,6 @@ impl GeneratedAffineResidualGroupSolvePlan {
             physical_frame,
             limits,
         )
-    }
-
-    pub(crate) fn try_new_direct_formula_singleton(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        authority: Arc<GeneratedAffineResidualCaseAuthority>,
-        physical_frame: Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-        limits: GeneratedAffineResidualGroupSolvePlanLimits,
-    ) -> Result<Self, GeneratedAffineResidualGroupSolvePlanError> {
-        catch_unwind(AssertUnwindSafe(|| {
-            Self::try_new_for_source_unwind_boundary(
-                family,
-                context,
-                GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
-                authority,
-                physical_frame,
-                limits,
-            )
-        }))
-        .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
     }
 
     pub(crate) fn try_new_committed_exceptional_singleton(
@@ -851,8 +819,8 @@ impl GeneratedAffineResidualGroupSolvePlan {
     /// Replay the exact source allocation already sealed into this plan.
     ///
     /// This source-neutral dispatch is intentionally allocation-bound: the
-    /// legacy arm presents the retained inventory while the direct arm
-    /// presents the retained singleton authority and frame.  Callers cannot
+    /// inventory arm presents the retained inventory while the exceptional
+    /// arm presents the retained singleton authority and frame. Callers cannot
     /// use it to substitute an independently compiled, payload-equal source.
     pub(crate) fn replay_retained_source(
         &self,
@@ -866,14 +834,6 @@ impl GeneratedAffineResidualGroupSolvePlan {
                     family,
                     context,
                     inventory,
-                    &self.authority,
-                    &self.physical_frame,
-                    replay_limits,
-                ),
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => self
-                .replay_direct_formula_singleton(
-                    family,
-                    context,
                     &self.authority,
                     &self.physical_frame,
                     replay_limits,
@@ -895,8 +855,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
             GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(inventory) => {
                 Some(inventory)
             }
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
-            | GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => None,
+            GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => None,
         }
     }
     pub(crate) const fn authority(&self) -> &Arc<GeneratedAffineResidualCaseAuthority> {
@@ -936,18 +895,6 @@ impl GeneratedAffineResidualGroupSolvePlan {
             &self.source,
             GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(retained)
                 if Arc::ptr_eq(retained, inventory)
-        ) && Arc::ptr_eq(&self.authority, authority)
-            && Arc::ptr_eq(&self.physical_frame, physical_frame)
-    }
-
-    pub(crate) fn same_direct_parent_allocations(
-        &self,
-        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
-        physical_frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) -> bool {
-        matches!(
-            self.source,
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
         ) && Arc::ptr_eq(&self.authority, authority)
             && Arc::ptr_eq(&self.physical_frame, physical_frame)
     }
@@ -1033,72 +980,6 @@ impl GeneratedAffineResidualGroupSolvePlan {
         .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
     }
 
-    pub(crate) fn replay_direct_formula_singleton(
-        &self,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
-        physical_frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-        replay_limits: GeneratedAffineResidualGroupSolvePlanReplayLimits,
-    ) -> Result<(), GeneratedAffineResidualGroupSolvePlanError> {
-        catch_unwind(AssertUnwindSafe(|| {
-            if self.schema != GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA
-                || !matches!(
-                    self.source,
-                    GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
-                )
-            {
-                return Err(GeneratedAffineResidualGroupSolvePlanError::SchemaMismatch);
-            }
-            check_limit(
-                "solve-plan parent allocation comparisons",
-                DIRECT_RETAINED_PARENT_REFERENCES,
-                replay_limits.max_parent_allocation_comparisons,
-            )?;
-            if !Arc::ptr_eq(&self.authority, authority) {
-                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongAuthorityAllocation);
-            }
-            if !Arc::ptr_eq(&self.physical_frame, physical_frame) {
-                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongFrameAllocation);
-            }
-            check_limit(
-                "solve-plan replay combined owner bytes",
-                self.stats.replay_combined_owner_bytes,
-                replay_limits.max_combined_owner_bytes,
-            )?;
-            let payload = payload_census(
-                self.free_positions.as_ref(),
-                self.targets.as_ref(),
-                self.stable_manifest.as_ref(),
-                DIRECT_RETAINED_PARENT_REFERENCES,
-            )?;
-            check_limit(
-                "solve-plan payload comparison units",
-                payload.units,
-                replay_limits.max_payload_comparison_units,
-            )?;
-            check_limit(
-                "solve-plan payload comparison bytes",
-                payload.bytes,
-                replay_limits.max_payload_comparison_bytes,
-            )?;
-            let rebuilt = Self::try_new_for_source_unwind_boundary(
-                family,
-                context,
-                GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
-                Arc::clone(authority),
-                Arc::clone(physical_frame),
-                self.limits,
-            )?;
-            if self.payload_eq(&rebuilt) {
-                Ok(())
-            } else {
-                Err(GeneratedAffineResidualGroupSolvePlanError::ReplayMismatch)
-            }
-        }))
-        .map_err(|_| GeneratedAffineResidualGroupSolvePlanError::SymbolicaPanic)?
-    }
-
     pub(crate) fn replay_committed_exceptional_singleton(
         &self,
         family: &IntegralFamily,
@@ -1118,7 +999,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
             }
             check_limit(
                 "solve-plan parent allocation comparisons",
-                DIRECT_RETAINED_PARENT_REFERENCES,
+                SINGLETON_RETAINED_PARENT_REFERENCES,
                 replay_limits.max_parent_allocation_comparisons,
             )?;
             if !Arc::ptr_eq(&self.authority, authority) {
@@ -1136,7 +1017,7 @@ impl GeneratedAffineResidualGroupSolvePlan {
                 self.free_positions.as_ref(),
                 self.targets.as_ref(),
                 self.stable_manifest.as_ref(),
-                DIRECT_RETAINED_PARENT_REFERENCES,
+                SINGLETON_RETAINED_PARENT_REFERENCES,
             )?;
             check_limit(
                 "solve-plan payload comparison units",
@@ -1197,10 +1078,6 @@ fn same_solve_plan_source_allocation(
             GeneratedAffineResidualGroupSolvePlanSource::InitialInventory(right),
         ) => Arc::ptr_eq(left, right),
         (
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
-            GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton,
-        ) => true,
-        (
             GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
             GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton,
         ) => true,
@@ -1255,18 +1132,15 @@ fn authenticate_parents(
                 authority.context_fingerprint().len(),
             ],
         )?,
-        GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton
-        | GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => {
-            checked_sum(
-                "solve-plan scope comparison bytes",
-                [
-                    family.fingerprint_ref().len(),
-                    authority.family_fingerprint().len(),
-                    context.fingerprint().len(),
-                    authority.context_fingerprint().len(),
-                ],
-            )?
-        }
+        GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => checked_sum(
+            "solve-plan scope comparison bytes",
+            [
+                family.fingerprint_ref().len(),
+                authority.family_fingerprint().len(),
+                context.fingerprint().len(),
+                authority.context_fingerprint().len(),
+            ],
+        )?,
     };
     check_limit(
         "solve-plan scope comparison bytes",
@@ -1297,13 +1171,6 @@ fn authenticate_parents(
                 return Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation);
             }
         }
-        GeneratedAffineResidualGroupSolvePlanSource::DirectFormulaSingleton => {
-            if authority.source_kind()
-                != GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-            {
-                return Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation);
-            }
-        }
         GeneratedAffineResidualGroupSolvePlanSource::CommittedExceptionalSingleton => {
             if authority.source_kind()
                 != GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
@@ -1315,9 +1182,6 @@ fn authenticate_parents(
     let expected_frame_schema = match source.kind() {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA
@@ -1715,9 +1579,6 @@ fn write_manifest(
     output.write_str(solve_plan_schema_for_source(source_kind))?;
     match source_kind {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {}
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            output.write_str("|source=direct-formula-singleton")?;
-        }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             output.write_str("|source=committed-exceptional-singleton")?;
         }
@@ -1941,1005 +1802,5 @@ fn check_limit(
         })
     } else {
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Weak};
-
-    use symbolica::domains::integer::MultiPrecisionInteger;
-    use symbolica::prelude::Integer;
-
-    use super::super::physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
-    use super::super::targets::{
-        GeneratedAffineResidualGroupExactTargetCatalog,
-        GeneratedAffineResidualGroupExactTargetCatalogLimits,
-    };
-    use super::*;
-    use crate::affine_parametric_ordering::integer_magnitude_bits;
-    use crate::generated_affine_residual_boolean_cover::{
-        GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
-    };
-    use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
-    use crate::parametric_sector_formula_affine_terminal::{
-        ParametricSectorFormulaAffineTerminalCertificate,
-        ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
-    };
-    use crate::parametric_sector_formula_residual::{
-        ParametricSectorFormulaResidualCursor, ParametricSectorFormulaResidualLimits,
-        ParametricSectorFormulaResidualRequest,
-    };
-    use crate::parametric_sector_normalized_source::{
-        ParametricSectorNormalizedCoverageSourceCompiler,
-        ParametricSectorNormalizedCoverageSourceLimits,
-    };
-    use crate::solver::closure::case_inventory::{
-        GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseInventoryCompiler,
-        GeneratedAffineResidualCaseInventoryLimits,
-    };
-    use crate::{
-        AffineDenominator, GeneratedSectorDiscoveryCompiler, GeneratedSectorDiscoveryLimits,
-        GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueLimits,
-        IntegralOrderingPolicy, ParametricIbpGenerator, SectorMask, algebra::CoefficientContext,
-    };
-
-    fn equal_mass_two_loop_family(name: &str) -> IntegralFamily {
-        let coefficients = CoefficientContext::new(["d", "m2"]);
-        let zero = coefficients.zero();
-        let one = coefficients.one();
-        let minus_m2 = coefficients.parse("-m2").unwrap();
-        IntegralFamily::new(
-            name,
-            vec!["k1".into(), "k2".into()],
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parameter("d").unwrap(),
-            vec![
-                AffineDenominator::new(
-                    minus_m2.clone(),
-                    vec![one.clone(), zero.clone(), zero.clone()],
-                ),
-                AffineDenominator::new(
-                    minus_m2.clone(),
-                    vec![zero.clone(), zero.clone(), one.clone()],
-                ),
-                AffineDenominator::new(minus_m2, vec![one.clone(), coefficients.integer(2), one]),
-            ],
-            Vec::new(),
-            vec![zero.clone(), zero.clone(), zero],
-        )
-        .unwrap()
-    }
-
-    fn direct_actionable_terminal(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<ParametricSectorFormulaAffineTerminalCertificate>,
-    ) {
-        let family = equal_mass_two_loop_family(name);
-        let context = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .context()
-            .clone();
-        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
-        discovery_limits.adaptive.max_search_depth = 0;
-        discovery_limits
-            .coverage
-            .max_materialized_product_zero_support_terms = 0;
-        let discovery = GeneratedSectorDiscoveryCompiler::compile(
-            &family,
-            &context,
-            SectorMask::try_from_bit_string("111").unwrap(),
-            IntegralOrderingPolicy::RustRedUnshiftedV1,
-            discovery_limits,
-        )
-        .unwrap();
-        let compilations = discovery
-            .coverage()
-            .candidate_attempts()
-            .iter()
-            .map(|attempt| attempt.compilation().clone())
-            .collect();
-        let source = Arc::new(
-            ParametricSectorNormalizedCoverageSourceCompiler::compile_authenticated(
-                &family,
-                &context,
-                discovery.sector().clone(),
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                compilations,
-                ParametricSectorNormalizedCoverageSourceLimits::default(),
-            )
-            .unwrap(),
-        );
-        let mut cursor = ParametricSectorFormulaResidualCursor::try_new(
-            &family,
-            &context,
-            source,
-            ParametricSectorFormulaResidualRequest::AnyResidual,
-            ParametricSectorFormulaResidualLimits::default(),
-        )
-        .unwrap();
-        let path = Arc::new(cursor.next_path().unwrap().unwrap());
-        let terminal = Arc::new(
-            ParametricSectorFormulaAffineTerminalCompiler::compile(
-                &family,
-                &context,
-                path,
-                ParametricSectorFormulaAffineTerminalLimits::default(),
-            )
-            .unwrap(),
-        );
-        assert!(terminal.geometry().is_some());
-        (family, context, terminal)
-    }
-
-    fn direct_fixture(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<ParametricSectorFormulaAffineTerminalCertificate>,
-        Arc<GeneratedAffineResidualCaseAuthority>,
-        Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) {
-        let (family, context, terminal) = direct_actionable_terminal(name);
-        let authority = Arc::new(
-            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
-                &family,
-                &context,
-                Arc::clone(&terminal),
-                GeneratedAffineResidualCaseAuthorityLimits::default(),
-            )
-            .unwrap(),
-        );
-        let frame = Arc::new(
-            GeneratedAffineResidualGroupPhysicalFrame::try_new(
-                &family,
-                &context,
-                Arc::clone(&authority),
-                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
-            )
-            .unwrap(),
-        );
-        (family, context, terminal, authority, frame)
-    }
-
-    fn selected_fixture(
-        name: &str,
-        singleton: bool,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedAffineResidualCaseInventoryCertificate>,
-        Arc<GeneratedAffineResidualCaseAuthority>,
-        Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) {
-        let family = equal_mass_two_loop_family(name);
-        let context = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .context()
-            .clone();
-        let mut discovery_limits = GeneratedSectorDiscoveryLimits::default();
-        discovery_limits.adaptive.max_search_depth = 0;
-        let discovery = GeneratedSectorDiscoveryCompiler::compile(
-            &family,
-            &context,
-            SectorMask::try_from_bit_string("011").unwrap(),
-            IntegralOrderingPolicy::RustRedUnshiftedV1,
-            discovery_limits,
-        )
-        .unwrap();
-        let mut queue_limits = GeneratedSectorLiveLeafQueueLimits::default();
-        queue_limits.translation_radius = 0;
-        queue_limits.max_translation_points = 1;
-        let queue = Arc::new(
-            GeneratedSectorLiveLeafQueueCompiler::compile(
-                &family,
-                &context,
-                &discovery,
-                queue_limits,
-            )
-            .unwrap(),
-        );
-        let boolean = Arc::new(
-            GeneratedAffineResidualBooleanCoverCompiler::compile(
-                &family,
-                &context,
-                GeneratedAffineResidualSourceAuthority::initial_global(queue),
-                GeneratedAffineResidualBooleanCoverLimits::default(),
-            )
-            .unwrap(),
-        );
-        let inventory = Arc::new(
-            GeneratedAffineResidualCaseInventoryCompiler::compile(
-                &family,
-                &context,
-                boolean,
-                GeneratedAffineResidualCaseInventoryLimits::default(),
-            )
-            .unwrap(),
-        );
-        let group_ordinal = if singleton {
-            (0..inventory.group_count())
-                .find(|&ordinal| {
-                    inventory
-                        .authenticated_group_view(&context, ordinal)
-                        .unwrap()
-                        .case_ordinals()
-                        .len()
-                        == 1
-                })
-                .expect("the natural fixture must contain a singleton group")
-        } else {
-            (0..inventory.group_count())
-                .max_by_key(|&ordinal| {
-                    inventory
-                        .authenticated_group_view(&context, ordinal)
-                        .unwrap()
-                        .case_ordinals()
-                        .len()
-                })
-                .unwrap()
-        };
-        let group = inventory
-            .authenticated_group_view(&context, group_ordinal)
-            .unwrap();
-        if singleton {
-            assert_eq!(group.case_ordinals().len(), 1);
-        } else {
-            assert!(group.case_ordinals().len() > 1);
-        }
-        let authority = Arc::new(
-            GeneratedAffineResidualCaseAuthority::try_new(
-                &family,
-                &context,
-                Arc::clone(&inventory),
-                group.anchor_case_ordinal(),
-                GeneratedAffineResidualCaseAuthorityLimits::default(),
-            )
-            .unwrap(),
-        );
-        let frame = Arc::new(
-            GeneratedAffineResidualGroupPhysicalFrame::try_new(
-                &family,
-                &context,
-                Arc::clone(&authority),
-                GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
-            )
-            .unwrap(),
-        );
-        (family, context, inventory, authority, frame)
-    }
-
-    fn fixture(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedAffineResidualCaseInventoryCertificate>,
-        Arc<GeneratedAffineResidualCaseAuthority>,
-        Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) {
-        selected_fixture(name, false)
-    }
-
-    fn singleton_fixture(
-        name: &str,
-    ) -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedAffineResidualCaseInventoryCertificate>,
-        Arc<GeneratedAffineResidualCaseAuthority>,
-        Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) {
-        selected_fixture(name, true)
-    }
-
-    fn exact_plan(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        inventory: &Arc<GeneratedAffineResidualCaseInventoryCertificate>,
-        authority: &Arc<GeneratedAffineResidualCaseAuthority>,
-        frame: &Arc<GeneratedAffineResidualGroupPhysicalFrame>,
-    ) -> (
-        GeneratedAffineResidualGroupSolvePlanLimits,
-        GeneratedAffineResidualGroupSolvePlan,
-    ) {
-        let mut limits = GeneratedAffineResidualGroupSolvePlanLimits::default();
-        for _ in 0..32 {
-            let plan = GeneratedAffineResidualGroupSolvePlan::try_new(
-                family,
-                context,
-                Arc::clone(inventory),
-                Arc::clone(authority),
-                Arc::clone(frame),
-                limits,
-            )
-            .unwrap();
-            let stats = plan.stats();
-            let mut next = limits;
-            next.max_scope_comparison_bytes = stats.scope_comparison_bytes();
-            next.max_inventory_allocation_comparisons = stats.inventory_allocation_comparisons();
-            next.max_frame_replays = stats.frame_replays();
-            next.max_group_authentications = stats.group_authentications();
-            next.max_retained_parent_references = stats.retained_parent_references();
-            next.max_group_cases = stats.group_cases();
-            next.max_arity = stats.arity();
-            next.max_free_positions = stats.free_positions();
-            next.max_target_locators = stats.target_locators();
-            next.max_key_aggregate_preflights = stats.key_aggregate_preflights();
-            next.max_key_constructions = stats.key_constructions();
-            next.max_key_component_scans = stats.key_component_scans();
-            next.max_key_integer_bit_work = stats.key_integer_bit_work();
-            next.max_key_prospective_retained_integer_bits =
-                stats.key_prospective_retained_integer_bits();
-            next.max_key_prospective_retained_bytes = stats.key_prospective_retained_bytes();
-            next.max_key_observed_retained_integer_bits =
-                stats.key_observed_retained_integer_bits();
-            next.max_key_observed_retained_bytes = stats.key_observed_retained_bytes();
-            next.max_sort_passes = stats.sort_passes();
-            next.max_sort_comparisons = stats
-                .group_cases()
-                .checked_mul(stats.sort_passes())
-                .unwrap();
-            next.max_sort_comparison_integer_bit_work = stats.sort_comparison_integer_bit_work();
-            next.max_sort_moves = stats.sort_moves();
-            next.max_permutation_validation_scans = stats.permutation_validation_scans();
-            next.max_manifest_bytes = stats.manifest_bytes();
-            next.max_owner_retained_bytes = stats.owner_retained_bytes();
-            next.max_peak_scratch_bytes = stats.peak_scratch_bytes();
-            if next == limits {
-                return (limits, plan);
-            }
-            limits = next;
-        }
-        panic!("exact solve-plan limits did not converge")
-    }
-
-    fn assert_resource_rejected(
-        result: Result<
-            GeneratedAffineResidualGroupSolvePlan,
-            GeneratedAffineResidualGroupSolvePlanError,
-        >,
-    ) {
-        assert!(matches!(
-            result,
-            Err(GeneratedAffineResidualGroupSolvePlanError::ResourceLimit { .. })
-        ));
-    }
-
-    #[test]
-    fn direct_frame_replay_keeps_authority_and_source_allocation_boundaries_distinct() {
-        let fixture_name = "solve-plan-direct-foreign-source-allocation";
-        let (family, context, terminal, authority, frame) = direct_fixture(fixture_name);
-        assert_eq!(
-            frame.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
-        );
-        frame
-            .replay_for_source_authority(&family, &context, &authority)
-            .unwrap();
-
-        let same_source_other_authority = Arc::new(
-            GeneratedAffineResidualCaseAuthority::try_new_direct_formula_singleton(
-                &family,
-                &context,
-                Arc::clone(&terminal),
-                GeneratedAffineResidualCaseAuthorityLimits::default(),
-            )
-            .unwrap(),
-        );
-        assert!(authority.same_source_allocation_as(&same_source_other_authority));
-        frame
-            .replay_for_source_authority(&family, &context, &same_source_other_authority)
-            .unwrap();
-        assert!(matches!(
-            frame.replay(&family, &context, &same_source_other_authority),
-            Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongAuthorityAllocation)
-        ));
-
-        let (independent_family, independent_context, _, independent_authority, _) =
-            direct_fixture(fixture_name);
-        assert_eq!(
-            family.fingerprint_ref(),
-            independent_family.fingerprint_ref()
-        );
-        assert_eq!(context.fingerprint(), independent_context.fingerprint());
-        assert_eq!(authority.sector(), independent_authority.sector());
-        assert_eq!(authority.ordering(), independent_authority.ordering());
-        assert_eq!(authority.arity(), independent_authority.arity());
-        assert_eq!(
-            authority.source_row_count(),
-            independent_authority.source_row_count()
-        );
-        assert!(!authority.same_source_allocation_as(&independent_authority));
-        assert!(matches!(
-            frame.replay_for_source_authority(&family, &context, &independent_authority),
-            Err(GeneratedAffineResidualGroupPhysicalKeyError::WrongAuthorityAllocation)
-        ));
-    }
-
-    #[test]
-    fn direct_singleton_plan_has_no_inventory_and_is_schema_isolated_from_legacy() {
-        let (family, context, _, authority, frame) =
-            direct_fixture("solve-plan-direct-singleton-schema");
-        let direct = Arc::new(
-            GeneratedAffineResidualGroupSolvePlan::try_new_direct_formula_singleton(
-                &family,
-                &context,
-                Arc::clone(&authority),
-                Arc::clone(&frame),
-                GeneratedAffineResidualGroupSolvePlanLimits::default(),
-            )
-            .unwrap(),
-        );
-        assert_eq!(
-            direct.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA
-        );
-        assert_eq!(
-            direct.physical_frame().schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA
-        );
-        assert!(direct.inventory().is_none());
-        assert_eq!(direct.stats().inventory_allocation_comparisons(), 0);
-        assert_eq!(
-            direct.stats().retained_parent_references(),
-            DIRECT_RETAINED_PARENT_REFERENCES
-        );
-        assert_eq!(direct.targets().len(), 1);
-        assert_eq!(direct.targets()[0].solve_ordinal(), 0);
-        assert_eq!(direct.targets()[0].inventory_position(), 0);
-        assert_eq!(direct.targets()[0].case_ordinal(), 0);
-        assert!(
-            direct
-                .stable_manifest()
-                .starts_with(GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V2_SCHEMA)
-        );
-        assert!(
-            direct
-                .stable_manifest()
-                .contains("source=direct-formula-singleton")
-        );
-        direct
-            .replay_direct_formula_singleton(
-                &family,
-                &context,
-                &authority,
-                &frame,
-                GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-            )
-            .unwrap();
-
-        let direct_catalog = GeneratedAffineResidualGroupExactTargetCatalog::try_new(
-            &family,
-            &context,
-            Arc::clone(&direct),
-            GeneratedAffineResidualGroupExactTargetCatalogLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            direct_catalog.source_kind(),
-            GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-        );
-        assert_eq!(
-            direct_catalog.schema(),
-            super::super::targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
-        );
-        assert_eq!(direct_catalog.len(), 1);
-        assert!(direct_catalog.same_plan_allocation(&direct));
-        direct_catalog.replay(&family, &context, &direct).unwrap();
-
-        let (legacy_family, legacy_context, inventory, legacy_authority, legacy_frame) =
-            singleton_fixture("solve-plan-legacy-singleton-schema");
-        let legacy = GeneratedAffineResidualGroupSolvePlan::try_new(
-            &legacy_family,
-            &legacy_context,
-            Arc::clone(&inventory),
-            Arc::clone(&legacy_authority),
-            Arc::clone(&legacy_frame),
-            GeneratedAffineResidualGroupSolvePlanLimits::default(),
-        )
-        .unwrap();
-        assert_eq!(
-            legacy.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA
-        );
-        assert_eq!(
-            legacy.physical_frame().schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA
-        );
-        assert!(legacy.inventory().is_some());
-        assert!(
-            legacy
-                .stable_manifest()
-                .starts_with(GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA)
-        );
-        assert!(
-            !legacy
-                .stable_manifest()
-                .contains("source=direct-formula-singleton")
-        );
-        assert!(matches!(
-            direct.replay(
-                &legacy_family,
-                &legacy_context,
-                &inventory,
-                &legacy_authority,
-                &legacy_frame,
-                GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::SchemaMismatch)
-        ));
-        assert!(matches!(
-            legacy.replay_direct_formula_singleton(
-                &family,
-                &context,
-                &authority,
-                &frame,
-                GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::SchemaMismatch)
-        ));
-    }
-
-    #[test]
-    fn authenticated_natural_group_matches_independent_physical_key_oracle() {
-        let private_name = "solve-plan-natural-two-loop-private";
-        let (family, context, inventory, authority, frame) = fixture(private_name);
-        let plan = GeneratedAffineResidualGroupSolvePlan::try_new(
-            &family,
-            &context,
-            Arc::clone(&inventory),
-            Arc::clone(&authority),
-            Arc::clone(&frame),
-            GeneratedAffineResidualGroupSolvePlanLimits::default(),
-        )
-        .unwrap();
-        let group = authority.authenticated_group_view(&context).unwrap();
-        let mut oracle = group
-            .case_ordinals()
-            .iter()
-            .enumerate()
-            .map(|(inventory_position, &case_ordinal)| {
-                let key = frame
-                    .key_for_physical(
-                        frame
-                            .anchor_offset(inventory_position, case_ordinal)
-                            .unwrap(),
-                    )
-                    .unwrap();
-                (key, inventory_position, case_ordinal)
-            })
-            .collect::<Vec<_>>();
-        oracle.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-        assert_eq!(
-            plan.schema(),
-            GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V1_SCHEMA
-        );
-        assert!(plan.same_parent_allocations(&inventory, &authority, &frame));
-        assert_eq!(
-            plan.inventory().unwrap().as_ref().schema(),
-            inventory.schema()
-        );
-        assert_eq!(plan.authority().case_ordinal(), authority.case_ordinal());
-        assert_eq!(plan.physical_frame().group_ordinal(), frame.group_ordinal());
-        assert_eq!(plan.group_ordinal(), group.ordinal());
-        assert_eq!(plan.anchor_case_ordinal(), group.anchor_case_ordinal());
-        assert_eq!(plan.free_positions(), group.free_positions());
-        assert_eq!(plan.targets().len(), oracle.len());
-        for (solve_ordinal, (target, expected)) in plan.targets().iter().zip(&oracle).enumerate() {
-            assert_eq!(target.solve_ordinal(), solve_ordinal);
-            assert_eq!(target.inventory_position(), expected.1);
-            assert_eq!(target.case_ordinal(), expected.2);
-            frame.replay_key(&expected.0).unwrap();
-        }
-        assert!(
-            plan.targets()
-                .windows(2)
-                .all(|pair| pair[0].solve_ordinal() < pair[1].solve_ordinal())
-        );
-        assert_eq!(plan.stable_manifest().len(), plan.stats().manifest_bytes());
-        assert!(plan.stable_manifest().contains(TARGET_ORDER_V1_ID));
-        plan.replay(
-            &family,
-            &context,
-            &inventory,
-            &authority,
-            &frame,
-            GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-        )
-        .unwrap();
-
-        let debug = format!("{plan:?}");
-        assert!(debug.contains("<redacted>"));
-        assert!(!debug.contains(private_name));
-        assert!(!debug.contains("m2"));
-        let locator_debug = format!("{:?}", plan.targets()[0]);
-        assert!(locator_debug.contains("private_inventory_position"));
-        assert!(locator_debug.contains("private_case_ordinal"));
-        assert!(locator_debug.contains("<redacted>"));
-    }
-
-    #[test]
-    fn natural_singleton_has_exact_move_admission_and_stable_manifest_width() {
-        let (family, context, inventory, authority, frame) =
-            singleton_fixture("solve-plan-natural-singleton-private");
-        let default_plan = GeneratedAffineResidualGroupSolvePlan::try_new(
-            &family,
-            &context,
-            Arc::clone(&inventory),
-            Arc::clone(&authority),
-            Arc::clone(&frame),
-            GeneratedAffineResidualGroupSolvePlanLimits::default(),
-        )
-        .unwrap();
-        let (exact, exact_plan) = exact_plan(&family, &context, &inventory, &authority, &frame);
-        let stats = exact_plan.stats();
-        assert_eq!(stats.group_cases(), 1);
-        assert_eq!(stats.target_locators(), 1);
-        assert_eq!(stats.sort_passes(), 0);
-        assert_eq!(stats.sort_comparisons(), 0);
-        assert_eq!(stats.sort_moves(), 1);
-        assert_eq!(exact.max_sort_moves, 1);
-        assert_eq!(
-            default_plan.stable_manifest().len(),
-            exact_plan.stable_manifest().len(),
-            "fixed-width limit fields must not feed decimal digit widths back into exact limits"
-        );
-
-        let mut below = exact;
-        below.max_sort_moves = 0;
-        assert_resource_rejected(GeneratedAffineResidualGroupSolvePlan::try_new(
-            &family,
-            &context,
-            Arc::clone(&inventory),
-            Arc::clone(&authority),
-            Arc::clone(&frame),
-            below,
-        ));
-        exact_plan
-            .replay(
-                &family,
-                &context,
-                &inventory,
-                &authority,
-                &frame,
-                GeneratedAffineResidualGroupSolvePlanReplayLimits::default(),
-            )
-            .unwrap();
-    }
-
-    #[test]
-    fn arbitrary_precision_physical_keys_use_sort_entry_and_permutation_path() {
-        let (_family, context, _inventory, authority, frame) =
-            fixture("solve-plan-wide-sort-entry-private");
-        let group = authority.authenticated_group_view(&context).unwrap();
-        assert!(group.case_ordinals().len() >= 2);
-
-        let mut positive = MultiPrecisionInteger::from(1);
-        positive <<= 300_u32;
-        let mut negative = MultiPrecisionInteger::from(1);
-        negative <<= 332_u32;
-        let positive = Integer::Large(positive);
-        let negative = Integer::Large(-negative);
-        let mut entries = Vec::with_capacity(group.case_ordinals().len());
-        for (inventory_position, &case_ordinal) in group.case_ordinals().iter().enumerate() {
-            let mut values = vec![Integer::from(0); frame.arity()];
-            if inventory_position == 0 {
-                values[0] = positive.clone();
-            } else if inventory_position == 1 {
-                values[0] = negative.clone();
-            }
-            let key = frame
-                .test_key_for_borrowed_physical_values(&values)
-                .unwrap();
-            entries.push(SortEntry {
-                inventory_position,
-                case_ordinal,
-                key,
-            });
-        }
-        assert_eq!(
-            integer_magnitude_bits(&entries[0].key.shift().values()[0]).unwrap(),
-            301
-        );
-        assert!(!entries[0].key.shift().values()[0].is_negative());
-        assert_eq!(
-            integer_magnitude_bits(&entries[1].key.shift().values()[0]).unwrap(),
-            333
-        );
-        assert!(entries[1].key.shift().values()[0].is_negative());
-
-        let mut oracle = (0..entries.len()).collect::<Vec<_>>();
-        oracle.sort_by(|&left, &right| compare_sort_entries(&entries[left], &entries[right]));
-        let limits = GeneratedAffineResidualGroupSolvePlanLimits::default();
-        let mut stats = GeneratedAffineResidualGroupSolvePlanStats::default();
-        let ordered = stable_merge_sort_positions(&entries, limits, &mut stats).unwrap();
-        assert_eq!(ordered, oracle);
-        assert!(stats.sort_comparisons() > 0);
-
-        let targets = ordered
-            .iter()
-            .enumerate()
-            .map(|(solve_ordinal, &entry_position)| {
-                let entry = &entries[entry_position];
-                GeneratedAffineResidualGroupSolveTargetLocator {
-                    solve_ordinal,
-                    inventory_position: entry.inventory_position,
-                    case_ordinal: entry.case_ordinal,
-                }
-            })
-            .collect::<Vec<_>>();
-        validate_target_permutation(group, &targets, limits, &mut stats).unwrap();
-        assert_eq!(stats.permutation_validation_scans(), targets.len() * 2);
-    }
-
-    #[test]
-    fn stable_merge_sort_is_ascending_stable_and_not_raw_reverse() {
-        let values = [1_i32, 3, 2];
-        let mut stats = GeneratedAffineResidualGroupSolvePlanStats::default();
-        let order = stable_merge_sort_positions_by(
-            values.len(),
-            |left, right| {
-                Ok(values[left]
-                    .cmp(&values[right])
-                    .then_with(|| left.cmp(&right)))
-            },
-            GeneratedAffineResidualGroupSolvePlanLimits::default(),
-            &mut stats,
-        )
-        .unwrap();
-        assert_eq!(order, [0, 2, 1]);
-        assert_ne!(order, [2, 1, 0]);
-
-        let equal_values = [1_i32, 1, 0, 1];
-        let mut equal_stats = GeneratedAffineResidualGroupSolvePlanStats::default();
-        let stable = stable_merge_sort_positions_by(
-            equal_values.len(),
-            |left, right| Ok(equal_values[left].cmp(&equal_values[right])),
-            GeneratedAffineResidualGroupSolvePlanLimits::default(),
-            &mut equal_stats,
-        )
-        .unwrap();
-        assert_eq!(stable, [2, 0, 1, 3]);
-        assert!(stats.sort_comparisons() > 0);
-        assert!(equal_stats.sort_moves() > 0);
-    }
-
-    #[test]
-    fn exact_limits_replay_identity_and_every_positive_one_below_are_enforced() {
-        let private_name = "solve-plan-exact-limits-private";
-        let (family, context, inventory, authority, frame) = fixture(private_name);
-        let (exact, plan) = exact_plan(&family, &context, &inventory, &authority, &frame);
-        let stats = plan.stats();
-        assert_eq!(plan.limits(), exact);
-        assert!(stats.key_observed_retained_bytes() <= stats.key_prospective_retained_bytes());
-        assert!(
-            stats.key_observed_retained_integer_bits()
-                <= stats.key_prospective_retained_integer_bits()
-        );
-        assert!(stats.sort_comparison_integer_bit_work() > 0);
-
-        macro_rules! one_below {
-            ($field:ident, $demand:expr) => {{
-                let demand = $demand;
-                if demand > 0 {
-                    let mut below = exact;
-                    below.$field = demand - 1;
-                    assert_resource_rejected(GeneratedAffineResidualGroupSolvePlan::try_new(
-                        &family,
-                        &context,
-                        Arc::clone(&inventory),
-                        Arc::clone(&authority),
-                        Arc::clone(&frame),
-                        below,
-                    ));
-                }
-            }};
-        }
-        one_below!(max_scope_comparison_bytes, stats.scope_comparison_bytes());
-        one_below!(
-            max_inventory_allocation_comparisons,
-            stats.inventory_allocation_comparisons()
-        );
-        one_below!(max_frame_replays, stats.frame_replays());
-        one_below!(max_group_authentications, stats.group_authentications());
-        one_below!(
-            max_retained_parent_references,
-            stats.retained_parent_references()
-        );
-        one_below!(max_group_cases, stats.group_cases());
-        one_below!(max_arity, stats.arity());
-        one_below!(max_free_positions, stats.free_positions());
-        one_below!(max_target_locators, stats.target_locators());
-        one_below!(
-            max_key_aggregate_preflights,
-            stats.key_aggregate_preflights()
-        );
-        one_below!(max_key_constructions, stats.key_constructions());
-        one_below!(max_key_component_scans, stats.key_component_scans());
-        one_below!(max_key_integer_bit_work, stats.key_integer_bit_work());
-        one_below!(
-            max_key_prospective_retained_integer_bits,
-            stats.key_prospective_retained_integer_bits()
-        );
-        one_below!(
-            max_key_prospective_retained_bytes,
-            stats.key_prospective_retained_bytes()
-        );
-        one_below!(
-            max_key_observed_retained_integer_bits,
-            stats.key_observed_retained_integer_bits()
-        );
-        one_below!(
-            max_key_observed_retained_bytes,
-            stats.key_observed_retained_bytes()
-        );
-        one_below!(max_sort_passes, stats.sort_passes());
-        one_below!(
-            max_sort_comparisons,
-            stats.group_cases() * stats.sort_passes()
-        );
-        one_below!(
-            max_sort_comparison_integer_bit_work,
-            stats.sort_comparison_integer_bit_work()
-        );
-        one_below!(max_sort_moves, stats.sort_moves());
-        one_below!(
-            max_permutation_validation_scans,
-            stats.permutation_validation_scans()
-        );
-        one_below!(max_manifest_bytes, stats.manifest_bytes());
-        one_below!(max_owner_retained_bytes, stats.owner_retained_bytes());
-        one_below!(max_peak_scratch_bytes, stats.peak_scratch_bytes());
-
-        let exact_replay = GeneratedAffineResidualGroupSolvePlanReplayLimits {
-            max_parent_allocation_comparisons: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES,
-            max_combined_owner_bytes: stats.replay_combined_owner_bytes(),
-            max_payload_comparison_units: stats.payload_comparison_units(),
-            max_payload_comparison_bytes: stats.payload_comparison_bytes(),
-        };
-        plan.replay(
-            &family,
-            &context,
-            &inventory,
-            &authority,
-            &frame,
-            exact_replay,
-        )
-        .unwrap();
-        for replay_limits in [
-            GeneratedAffineResidualGroupSolvePlanReplayLimits {
-                max_parent_allocation_comparisons: INITIAL_INVENTORY_RETAINED_PARENT_REFERENCES - 1,
-                ..exact_replay
-            },
-            GeneratedAffineResidualGroupSolvePlanReplayLimits {
-                max_combined_owner_bytes: stats.replay_combined_owner_bytes() - 1,
-                ..exact_replay
-            },
-            GeneratedAffineResidualGroupSolvePlanReplayLimits {
-                max_payload_comparison_units: stats.payload_comparison_units() - 1,
-                ..exact_replay
-            },
-            GeneratedAffineResidualGroupSolvePlanReplayLimits {
-                max_payload_comparison_bytes: stats.payload_comparison_bytes() - 1,
-                ..exact_replay
-            },
-        ] {
-            assert!(matches!(
-                plan.replay(
-                    &family,
-                    &context,
-                    &inventory,
-                    &authority,
-                    &frame,
-                    replay_limits,
-                ),
-                Err(GeneratedAffineResidualGroupSolvePlanError::ResourceLimit { .. })
-            ));
-        }
-
-        let foreign_authority = Arc::new(authority.as_ref().clone());
-        assert!(!Arc::ptr_eq(&authority, &foreign_authority));
-        assert!(matches!(
-            plan.replay(
-                &family,
-                &context,
-                &inventory,
-                &foreign_authority,
-                &frame,
-                exact_replay,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::WrongAuthorityAllocation)
-        ));
-        assert!(matches!(
-            GeneratedAffineResidualGroupSolvePlan::try_new(
-                &family,
-                &context,
-                Arc::clone(&inventory),
-                Arc::clone(&foreign_authority),
-                Arc::clone(&frame),
-                exact,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::WrongAuthorityAllocation)
-        ));
-        let foreign_frame = Arc::new(frame.as_ref().clone());
-        assert!(!Arc::ptr_eq(&frame, &foreign_frame));
-        assert!(matches!(
-            plan.replay(
-                &family,
-                &context,
-                &inventory,
-                &authority,
-                &foreign_frame,
-                exact_replay,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::WrongFrameAllocation)
-        ));
-        let (_, _, foreign_inventory, _, _) = fixture(private_name);
-        assert!(!Arc::ptr_eq(&inventory, &foreign_inventory));
-        assert!(matches!(
-            plan.replay(
-                &family,
-                &context,
-                &foreign_inventory,
-                &authority,
-                &frame,
-                exact_replay,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::WrongInventoryAllocation)
-        ));
-
-        let mut wrong_schema = plan.clone();
-        wrong_schema.schema = "wrong-solve-plan-schema";
-        assert!(matches!(
-            wrong_schema.replay(
-                &family,
-                &context,
-                &inventory,
-                &authority,
-                &frame,
-                exact_replay,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::SchemaMismatch)
-        ));
-        let mut wrong_order = plan.clone();
-        Arc::make_mut(&mut wrong_order.targets)[0].solve_ordinal = usize::MAX;
-        assert!(matches!(
-            wrong_order.replay(
-                &family,
-                &context,
-                &inventory,
-                &authority,
-                &frame,
-                exact_replay,
-            ),
-            Err(GeneratedAffineResidualGroupSolvePlanError::ReplayMismatch)
-        ));
-
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<GeneratedAffineResidualGroupSolvePlan>();
-        let weak_inventory: Weak<GeneratedAffineResidualCaseInventoryCertificate> =
-            Arc::downgrade(&inventory);
-        let weak_authority: Weak<GeneratedAffineResidualCaseAuthority> = Arc::downgrade(&authority);
-        let weak_frame: Weak<GeneratedAffineResidualGroupPhysicalFrame> = Arc::downgrade(&frame);
-        drop(foreign_frame);
-        drop(foreign_authority);
-        drop(wrong_schema);
-        drop(wrong_order);
-        drop(inventory);
-        drop(authority);
-        drop(frame);
-        assert!(weak_inventory.upgrade().is_some());
-        assert!(weak_authority.upgrade().is_some());
-        assert!(weak_frame.upgrade().is_some());
-        drop(plan);
-        assert!(weak_inventory.upgrade().is_none());
-        assert!(weak_authority.upgrade().is_none());
-        assert!(weak_frame.upgrade().is_none());
     }
 }

@@ -20,6 +20,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use symbolica::prelude::Integer;
+
 use super::database::GeneratedAffineResidualGroupExactTargetStateBinding;
 use super::plan::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
@@ -42,19 +44,15 @@ use crate::{IntegralFamily, ParametricCoefficientContext, ParametricNonZeroCondi
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-catalog-v1";
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-exact-target-catalog-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-catalog-v3";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-state-v1";
-pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA: &str =
-    "rustred-generated-affine-residual-group-exact-target-state-v2";
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V3_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-target-state-v3";
 
 const TARGET_LOCATOR_COMPARISONS: usize = 9;
-const DIRECT_TARGET_LOCATOR_COMPARISONS: usize = 9;
+const SINGLETON_TARGET_LOCATOR_COMPARISONS: usize = 9;
 
 const fn exact_target_catalog_schema_for_source(
     source_kind: GeneratedAffineResidualCaseAuthoritySourceKind,
@@ -62,9 +60,6 @@ const fn exact_target_catalog_schema_for_source(
     match source_kind {
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V1_SCHEMA
-        }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
         }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA
@@ -78,9 +73,6 @@ const fn exact_target_state_schema_for_source(
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V1_SCHEMA
         }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
-        }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
             GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V3_SCHEMA
         }
@@ -92,8 +84,7 @@ const fn is_singleton_source_kind(
 ) -> bool {
     matches!(
         source_kind,
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton
-            | GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
+        GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton
     )
 }
 
@@ -459,9 +450,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         plan.replay_retained_source(family, context, limits.solve_plan_replay)
             .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
         if is_singleton_source_kind(source_kind) {
-            return Self::try_new_direct_formula_singleton_after_plan_replay(
-                family, context, plan, limits,
-            );
+            return Self::try_new_singleton_after_plan_replay(family, context, plan, limits);
         }
         let inventory = plan
             .inventory()
@@ -644,7 +633,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         })
     }
 
-    fn try_new_direct_formula_singleton_after_plan_replay(
+    fn try_new_singleton_after_plan_replay(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         plan: Arc<GeneratedAffineResidualGroupSolvePlan>,
@@ -686,7 +675,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             plan_replays: 1,
             same_group_target_collections: 0,
             targets: 1,
-            locator_comparisons: DIRECT_TARGET_LOCATOR_COMPARISONS,
+            locator_comparisons: SINGLETON_TARGET_LOCATOR_COMPARISONS,
             target_handle_resolutions: 0,
             target_case_authentications: 0,
             target_authority_constructions: 0,
@@ -810,6 +799,26 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         }
     }
 
+    /// Borrow the immutable absolute affine constants of a Ready target.
+    /// The target authority is retained by this catalog, so no reconstruction
+    /// from a parent-frame-relative physical offset is needed.
+    pub(crate) fn ready_target_constants(
+        &self,
+        locator: GeneratedAffineResidualGroupSolveTargetLocator,
+    ) -> Option<&[Integer]> {
+        match self.targets.get(locator.solve_ordinal())? {
+            GeneratedAffineResidualGroupExactTargetOutcome::Ready(target)
+                if target.locator == locator =>
+            {
+                target.authority.retained_source_neutral_case_constants()
+            }
+            GeneratedAffineResidualGroupExactTargetOutcome::Ready(_)
+            | GeneratedAffineResidualGroupExactTargetOutcome::RequiresAffineEqualityRefinement(_) => {
+                None
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn target_uses_exact_plan_authority_allocation_for_test(
         &self,
@@ -853,7 +862,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         plan.replay_retained_source(family, context, self.limits.solve_plan_replay)
             .map_err(|_| GeneratedAffineResidualGroupExactTargetError::PlanReplay)?;
         if is_singleton_source_kind(self.source_kind) {
-            return self.replay_direct_formula_singleton_after_plan_replay(family, context, plan);
+            return self.replay_singleton_after_plan_replay(family, context, plan);
         }
         if plan.inventory().is_none() {
             return Err(GeneratedAffineResidualGroupExactTargetError::PlanReplay);
@@ -989,7 +998,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
         Ok(())
     }
 
-    fn replay_direct_formula_singleton_after_plan_replay(
+    fn replay_singleton_after_plan_replay(
         &self,
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
@@ -1051,7 +1060,7 @@ impl GeneratedAffineResidualGroupExactTargetCatalog {
             plan_replays: 1,
             same_group_target_collections: 0,
             targets: 1,
-            locator_comparisons: DIRECT_TARGET_LOCATOR_COMPARISONS,
+            locator_comparisons: SINGLETON_TARGET_LOCATOR_COMPARISONS,
             target_handle_resolutions: 0,
             target_case_authentications: 0,
             target_authority_constructions: 0,
@@ -2383,11 +2392,8 @@ fn preflight_catalog_counts(
         GeneratedAffineResidualCaseAuthoritySourceKind::InitialInventory => {
             (1, TARGET_LOCATOR_COMPARISONS, targets, targets, targets)
         }
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
-        }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
-            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+            (0, SINGLETON_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
         }
     };
     let locator_comparisons = checked_mul(
@@ -2467,11 +2473,8 @@ fn validate_catalog_stats(
             stats.targets,
             stats.targets,
         ),
-        GeneratedAffineResidualCaseAuthoritySourceKind::DirectFormulaSingleton => {
-            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
-        }
         GeneratedAffineResidualCaseAuthoritySourceKind::CommittedExceptionalSingleton => {
-            (0, DIRECT_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
+            (0, SINGLETON_TARGET_LOCATOR_COMPARISONS, 0, 0, 0)
         }
     };
     if stats.plan_replays != 1

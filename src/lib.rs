@@ -16,17 +16,8 @@ mod coverage_decision_dag;
 mod direct_bad_formula;
 mod direct_bad_formula_arbitrary;
 mod exact_identity;
-mod parametric_sector_formula_affine_terminal;
 mod parametric_sector_formula_ir;
-mod parametric_sector_formula_residual;
-#[cfg(test)]
-mod parametric_sector_k21_test_support;
 mod parametric_sector_mtbdd;
-#[cfg(test)]
-mod parametric_sector_mtbdd_certificate;
-mod parametric_sector_normalized_source;
-#[cfg(test)]
-mod parametric_sector_one_pass_tests;
 mod solver;
 
 pub mod adaptive_rules;
