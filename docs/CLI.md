@@ -369,35 +369,17 @@ rustred campaign plan --input-format symbolica --root-id tadpole \
 
 The output schema is `rustred.campaign-plan-output.toml.v1`. It is sorted by
 stable mathematical keys, has the same 256 MiB conservative/final output
-limit as `derive`, and explicitly reports:
-
-```toml
-status = "ok"
-scope = "roots_only"
-
-[phases]
-root_ingress = "complete"
-target_normalization = "not_started"
-dependency_discovery = "not_started"
-derivation = "not_started"
-closure = "not_started"
-publication = "not_started"
-```
+limit as `derive`, and explicitly reports `status = "ok"` and
+`scope = "roots_only"`.
 
 Thus a successful plan authenticates, lowers, deduplicates, and records only
 the supplied declarations and their declared-power jobs. It does not normalize
 targets, enumerate subsectors, discover dependencies, derive an IBP, claim
-masters/closure, or publish replacement rules. Because dependency discovery
-has not run, roots-only output contains no dependency counts.
+masters/closure, or publish replacement rules. It contains no fictional status
+records for those unimplemented operations and no dependency counts.
 `campaign plan` deliberately rejects `--n-cores` and `--max-memory`: neither
-resource controls a roots-only metadata operation. The eventual reducer will
-use them on a future execution command:
-
-```text
-rustred campaign derive campaign.toml --n-cores 4 --max-memory 120GiB --resume work/
-rustred campaign verify bundle/ --exact
-rustred campaign inspect bundle/
-```
+resource controls a roots-only metadata operation. Future execution commands
+will be documented only when their implementations exist.
 
 ### Physical campaign preflight
 
@@ -428,22 +410,21 @@ string, identified by `unsigned_integer_encoding = "unsigned-decimal-string"`.
 
 This command invokes only the pure width planner. It does not parse a topology,
 initialize Symbolica or require a license, consume an accepted plan, construct
-a worker pool, hydrate a reducer, or start the campaign frontier. The checked-
-in example contains illustrative values, not named-host measurements.
+a worker pool, hydrate a reducer, or schedule campaign work. The checked-in
+example contains illustrative values, not named-host measurements.
 
-The library contains the static multi-root plan, a versioned host-independent
-pre-pool effective-width planner, stateless core-plus-memory wave selection, a
-move-only atomic admission authority, and low-level stable wave/resident-
-transform execution primitives. The width plan enforces
+The core library contains a versioned host-independent pre-pool effective-width
+planner, checked resource values, and bounded ordered execution. Roots-only
+family/sector/job interning is application-owned. The deleted core replay plan,
+work-key wave planner, and move-only admission controller were unused
+prototypes and are not part of the supported architecture. The width plan enforces
 `M_operational < M_enclosing`, charges the coordinator and every possible
 warmed worker plus one minimum runnable task, and returns a typed no-fit pause
 without constructing a pool. The roots-only CLI remains separate; the resource
-preflight now exposes the pure decision from an explicit profile, and the
-library admission controller can consume and retain an accepted plan. Named-
-host calibration, phase-specific estimator adapters, the plan-consuming
-frontier coordinator, reducer execution command, and checkpoint barrier are
-not connected yet. Neither campaign command derives sector rules or claims
-closure.
+preflight exposes only the pure decision from an explicit profile. Named-host
+calibration, task-specific estimator adapters, the actual foundry scheduler,
+reducer execution, and checkpointing remain unimplemented. Neither campaign
+command derives sector rules or claims closure.
 
 Multiple compact Symbolica family/integral expressions may supply the roots.
 The future execution TOML will additionally carry campaign-wide policies and
@@ -455,19 +436,18 @@ are specified in the
 For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
 `--n-cores 100` remains only a ceiling. Before building its pool, the campaign
 library now derives an effective execution width `E` with
-`1 <= E <= --n-cores`. `E=1` runs on the coordinator without a worker pool;
-`E>1` creates `E` workers, while the separate coordinator remains another
-possible Symbolica Workspace owner. The fixed baseline therefore charges the
+`1 <= E <= --n-cores`. `E=1` denotes inline coordinator execution without a
+worker pool; `E>1` denotes `E` worker threads, while the separate coordinator
+remains another possible Symbolica Workspace owner. The fixed baseline therefore charges the
 coordinator plus every possible worker (and any explicitly admitted inner
 thread), not merely the currently busy reducer owners. If the `E=1` baseline
 plus one minimum runnable task does not fit, the command returns a typed
-memory-capacity pause before pool construction. The executor acquires a core
-lease and conservative memory permits before cloning any retained reducer or
-constructing another heavyweight task owner. It keeps the unadmitted ready
-frontier compact and may deliberately leave cores idle to respect
-`--max-memory`; operators should set that value below physical RAM to retain
-headroom for the OS and Symbolica memory that its public API cannot census.
-The accepted plan already records requested width, effective width,
+memory-capacity pause before pool construction. A future foundry scheduler must
+keep unadmitted work compact, avoid per-worker clones of the complete symbolic
+state, and may deliberately leave cores idle to respect `--max-memory`;
+operators should set that value below physical RAM to retain headroom for the
+OS and Symbolica memory that its public API cannot census. The width plan
+records requested width, effective width,
 worker-thread count, enclosing/operational limits, the fixed breakdown, and
 estimator revision as physical metadata excluded from semantic hashes. Pure
 CLI reporting is available through `campaign preflight`; named-host calibration

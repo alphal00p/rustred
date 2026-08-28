@@ -139,6 +139,22 @@ complete. Vakint translates its matched topology/numerator into this RustRed
 request and translates the result back; the same service remains directly
 usable by RustRed's Rust, CLI, and Python surfaces.
 
+The RustRed API separates Lorentz projection from family-aware scalar
+lowering and also offers their composition. Projection is driven by the typed
+numerator, loop/external/spectator bindings, dimension, and caller-supplied
+Symbolica heads; topology names, masses, and propagator powers are irrelevant
+to that stage. The authenticated family/domain evidence gates the optimized
+projection-plus-lowering composition and subsequent integral-index shifts.
+
+That fast-lane proof cannot be a caller-supplied boolean and cannot currently
+be reconstructed from `IntegralFamily` alone, because the present family model
+does not retain physical-denominator versus auxiliary-ISP roles. Phase 0/early
+tensor input design must retain authenticated denominator-role, shift, and
+common-scale metadata and let RustRed mint a sealed `VacuumTensorDomain` (or
+equivalent) token. `Auto` consumes that RustRed-owned evidence. External
+spectator vectors appearing only in a tensor numerator do not disqualify the
+fast lane; external shifts in physical denominators do.
+
 The lower-loop Vakint mode is an early parallel validation track: its generic
 tensor-reduction backend starts immediately after Phase 0, while its IBP
 application tests start once closed RustRed shards exist. Its complete
@@ -680,6 +696,10 @@ prototype event is not a closed branch.
    generic lanes: implement and optimize the single-scale vacuum/no-external-
    denominator-shift lane covered by Vakint's current FORM path, and install a
    tested typed stub for the fully generic lane without pretending support.
+   Fast-lane admission uses a sealed RustRed proof derived from authenticated
+   physical-denominator roles, shifts, and common-scale metadata—not a Vakint
+   boolean, family label, or topology name—and permits numerator-only external
+   spectator vectors.
    Study the existing FORM algorithm for contraction/projector efficiency and
    use it as segregated reference/oracle evidence, while re-expressing the
    algorithm in clean Rust and Symbolica public APIs and never invoking FORM

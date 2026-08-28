@@ -75,7 +75,6 @@ struct MemoryEstimateDocumentV1 {
 struct CampaignPreflightOutputV1 {
     schema: &'static str,
     status: &'static str,
-    frontier: &'static str,
     profile_schema: &'static str,
     unsigned_integer_encoding: &'static str,
     #[serde(serialize_with = "serialize_u64_as_unsigned_decimal_string")]
@@ -202,7 +201,6 @@ pub(crate) fn preflight_request(
     let mut output = CampaignPreflightOutputV1 {
         schema: CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA,
         status: "ready",
-        frontier: "not_started",
         profile_schema: CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA,
         unsigned_integer_encoding: UNSIGNED_DECIMAL_STRING_ENCODING,
         estimator_revision: estimator_revision.get(),
@@ -216,7 +214,7 @@ pub(crate) fn preflight_request(
     };
     match outcome {
         CampaignExecutionWidthPlanningOutcome::Ready(plan) => {
-            let baseline = plan.admission_baseline();
+            let baseline = plan.baseline_memory();
             output.ready = Some(ReadyOutputV1 {
                 effective_width: plan.effective_width(),
                 worker_thread_count: plan.worker_thread_count(),

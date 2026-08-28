@@ -113,7 +113,6 @@ fn preflight_is_deterministic_license_free_and_memory_limits_width() {
         Some("rustred.campaign-execution-preflight-output.toml.v1")
     );
     assert_eq!(document["status"].as_str(), Some("ready"));
-    assert_eq!(document["frontier"].as_str(), Some("not_started"));
     assert_eq!(
         document["profile_schema"].as_str(),
         Some("rustred.campaign-execution-resource-profile.v1")

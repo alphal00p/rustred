@@ -3,16 +3,14 @@
 //! This module is deliberately algebra-free and host-independent.  It turns
 //! the invocation-wide `--n-cores` ceiling and a calibrated fixed-memory
 //! breakdown into the largest feasible effective width.  It does not inspect
-//! a topology, count the first ready wave, construct a reducer, or create a
-//! thread pool.  A checked plan must be consumed separately before
-//! [`ParallelExecution`](crate::ParallelExecution) is constructed.
+//! a topology, count a ready work batch, construct a reducer, or create a
+//! thread pool or otherwise prescribe runtime construction.
 
 use std::fmt;
 use std::num::NonZeroUsize;
 
 use super::{
     CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignTaskResourceEstimate,
-    ParallelExecution, ParallelExecutionError,
 };
 
 pub const CAMPAIGN_EXECUTION_WIDTH_PLAN_V1_SCHEMA: &str =
@@ -225,7 +223,7 @@ pub struct CampaignExecutionWidthPlan {
     worker_thread_count: usize,
     selected_fixed_memory: CampaignBytes,
     minimum_required_memory: CampaignBytes,
-    admission_baseline: CampaignBaselineMemory,
+    baseline_memory: CampaignBaselineMemory,
 }
 
 impl CampaignExecutionWidthPlan {
@@ -273,10 +271,10 @@ impl CampaignExecutionWidthPlan {
         self.minimum_required_memory
     }
 
-    /// Collapse the detailed physical breakdown into the existing runtime
-    /// admission ledger categories without losing or duplicating a byte.
-    pub const fn admission_baseline(&self) -> CampaignBaselineMemory {
-        self.admission_baseline
+    /// Collapse the detailed physical breakdown into the public campaign
+    /// baseline categories without losing or duplicating a byte.
+    pub const fn baseline_memory(&self) -> CampaignBaselineMemory {
+        self.baseline_memory
     }
 
     pub const fn operational_headroom_after_minimum(&self) -> CampaignBytes {
@@ -289,39 +287,6 @@ impl CampaignExecutionWidthPlan {
         CampaignBytes::new(
             self.request.enclosing_memory_limit.get() - self.request.operational_memory_limit.get(),
         )
-    }
-
-    /// Campaign admission keeps the physical plan for diagnostics and derives
-    /// every runtime capacity from it. Construction still consumes the plan;
-    /// returning it alongside the executor prevents an independently supplied
-    /// policy from replacing its checked metadata.
-    pub(crate) fn try_into_plan_and_parallel_execution(
-        self,
-    ) -> Result<(Self, ParallelExecution), ParallelExecutionError> {
-        ParallelExecution::validate_requested_core_budget(self.requested_core_ceiling())?;
-        let execution = self.try_construct_execution_with_factories(
-            || ParallelExecution::try_new(1),
-            ParallelExecution::try_new,
-        )?;
-        Ok((self, execution))
-    }
-
-    /// Shared construction branch used by production and by the counting
-    /// acceptance test. The pool factory is never called for inline width one.
-    fn try_construct_execution_with_factories<Execution, Error, Inline, PoolFactory>(
-        &self,
-        inline: Inline,
-        pool_factory: PoolFactory,
-    ) -> Result<Execution, Error>
-    where
-        Inline: FnOnce() -> Result<Execution, Error>,
-        PoolFactory: FnOnce(usize) -> Result<Execution, Error>,
-    {
-        if self.worker_thread_count == 0 {
-            inline()
-        } else {
-            pool_factory(self.effective_width.get())
-        }
     }
 }
 
@@ -369,9 +334,9 @@ pub struct CampaignExecutionWidthPlanner;
 
 impl CampaignExecutionWidthPlanner {
     /// Select the largest feasible width without consulting the host or
-    /// constructing a pool.  Width is not the number of tasks in the first
-    /// wave: exactly one minimum-task peak is reserved here, while the separate
-    /// wave admission layer decides how many heavyweight tasks coexist.
+    /// constructing a pool. Width is independent of task concurrency: exactly
+    /// one minimum-task peak is reserved here, and later orchestration must
+    /// account separately for any additional concurrent task peaks.
     pub fn try_plan(
         request: CampaignExecutionWidthRequest,
     ) -> Result<CampaignExecutionWidthPlanningOutcome, CampaignExecutionWidthError> {
@@ -436,15 +401,15 @@ impl CampaignExecutionWidthPlanner {
             request.fixed_memory.staged_results,
             "selected fixed memory minus staged results",
         )?;
-        let admission_baseline = CampaignBaselineMemory::try_new(
+        let baseline_memory = CampaignBaselineMemory::try_new(
             fixed_and_shared,
             request.fixed_memory.hydrated_retained_lanes,
             request.fixed_memory.staged_results,
         )
         .map_err(|_| CampaignExecutionWidthError::ByteCountOverflow {
-            operation: "collapsed campaign admission baseline",
+            operation: "collapsed campaign baseline memory",
         })?;
-        debug_assert_eq!(admission_baseline.total(), selected_fixed_memory);
+        debug_assert_eq!(baseline_memory.total(), selected_fixed_memory);
 
         Ok(CampaignExecutionWidthPlanningOutcome::Ready(
             CampaignExecutionWidthPlan {
@@ -455,7 +420,7 @@ impl CampaignExecutionWidthPlanner {
                 worker_thread_count,
                 selected_fixed_memory,
                 minimum_required_memory,
-                admission_baseline,
+                baseline_memory,
             },
         ))
     }
@@ -569,7 +534,6 @@ fn bytes_mul_usize(
 mod tests {
     use super::super::{CampaignMemoryEstimate, CampaignTaskMemoryEnvelope};
     use super::*;
-    use std::cell::Cell;
 
     fn memory(revision: CampaignEstimatorRevision, bytes: u64) -> CampaignTaskResourceEstimate {
         let envelope = CampaignTaskMemoryEnvelope::try_new(
@@ -637,7 +601,7 @@ mod tests {
             CampaignBytes::ZERO
         );
         assert_eq!(plan.enclosing_headroom(), CampaignBytes::new(124));
-        assert_eq!(plan.admission_baseline().total(), CampaignBytes::new(800));
+        assert_eq!(plan.baseline_memory().total(), CampaignBytes::new(800));
         assert_eq!(
             plan.fixed_memory().per_worker_stack_tls_workspace(),
             CampaignBytes::new(10)
@@ -795,76 +759,5 @@ mod tests {
         assert_eq!(plan.effective_width(), 1);
         assert_eq!(plan.worker_thread_count(), 0);
         assert!(plan.minimum_required_memory() <= plan.operational_memory_limit());
-    }
-
-    #[test]
-    fn counting_factory_observes_zero_e_or_exact_e_worker_threads() {
-        let inline_calls = Cell::new(0usize);
-        let pool_calls = Cell::new(0usize);
-        let requested_workers = Cell::new(usize::MAX);
-
-        let CampaignExecutionWidthPlanningOutcome::PausedForMemoryCapacity(_pause) =
-            CampaignExecutionWidthPlanner::try_plan(request(4, 20, 10, 8, 1, 3)).unwrap()
-        else {
-            panic!("request must pause before a plan exists")
-        };
-        assert_eq!(inline_calls.get(), 0);
-        assert_eq!(pool_calls.get(), 0);
-
-        let CampaignExecutionWidthPlanningOutcome::Ready(inline) =
-            CampaignExecutionWidthPlanner::try_plan(request(4, 40, 20, 8, 7, 3)).unwrap()
-        else {
-            panic!("only inline execution should fit")
-        };
-        inline
-            .try_construct_execution_with_factories(
-                || -> Result<(), ()> {
-                    inline_calls.set(inline_calls.get() + 1);
-                    Ok(())
-                },
-                |worker_count| -> Result<(), ()> {
-                    pool_calls.set(pool_calls.get() + 1);
-                    requested_workers.set(worker_count);
-                    Ok(())
-                },
-            )
-            .unwrap();
-        assert_eq!(inline_calls.get(), 1);
-        assert_eq!(pool_calls.get(), 0);
-
-        let CampaignExecutionWidthPlanningOutcome::Ready(parallel) =
-            CampaignExecutionWidthPlanner::try_plan(request(4, 100, 90, 8, 7, 3)).unwrap()
-        else {
-            panic!("parallel execution should fit")
-        };
-        parallel
-            .try_construct_execution_with_factories(
-                || -> Result<(), ()> {
-                    inline_calls.set(inline_calls.get() + 1);
-                    Ok(())
-                },
-                |worker_count| -> Result<(), ()> {
-                    pool_calls.set(pool_calls.get() + 1);
-                    requested_workers.set(worker_count);
-                    Ok(())
-                },
-            )
-            .unwrap();
-        assert_eq!(inline_calls.get(), 1);
-        assert_eq!(pool_calls.get(), 1);
-        assert_eq!(requested_workers.get(), 4);
-    }
-
-    #[test]
-    fn accepted_inline_plan_consumes_into_an_executor_without_a_worker_pool() {
-        let CampaignExecutionWidthPlanningOutcome::Ready(plan) =
-            CampaignExecutionWidthPlanner::try_plan(request(1, 100, 90, 10, 20, 10)).unwrap()
-        else {
-            panic!("inline execution must fit")
-        };
-        let (_plan, execution) = plan.try_into_plan_and_parallel_execution().unwrap();
-        assert_eq!(execution.n_cores(), 1);
-        assert_eq!(execution.worker_thread_count(), 0);
-        assert!(!execution.is_parallel());
     }
 }

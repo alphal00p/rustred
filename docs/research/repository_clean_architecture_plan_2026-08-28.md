@@ -203,9 +203,11 @@ More precisely:
   candidates and certifies them with exact affine/momentum-map replay.
   GammaLoop/feyngen is reference-only usage evidence for coloring, bucketing,
   and orchestration, never a dependency or graph implementation authority.
-- `campaign` is low-level deterministic work identity, resource admission,
-  width, checkpoint, and merge infrastructure. It never imports foundry;
-  a future freshly built foundry may compose it.
+- `campaign` owns calibrated resource metadata, preflight width selection, and
+  bounded ordered execution. The live roots-only family/sector/job interning
+  is application composition rather than a replayable core plan; the dead
+  work-key wave admission/controller layer is not retained. Campaign never
+  imports foundry; a future freshly built foundry may compose it.
 - `tensor` owns a lean typed tensor IR, Symbolica-Atom decoding/rendering,
   pairing/orbit combinatorics, vacuum projection, and scalar lowering, while
   delegating polynomial and matrix CAS work to Symbolica through algebra. Its
@@ -256,8 +258,9 @@ dumping-ground module.
 | root `build.rs` | delete; the application producer calls Symbolica's public `LicenseManager::get_version()` directly, so reported version follows the dependency Cargo actually resolved |
 | root `src/lib.rs` | delete and write a small `crates/rustred-core/src/lib.rs`; do not preserve wholesale re-exports or schema compatibility |
 | `src/legacy_oracle_support.rs` | delete with `legacy-oracle-support` feature and every reference to it |
-| `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_affine_denominator.rs`, `symbolica_coefficient_matrix.rs` | move live checked primitives to `algebra/`; delete bespoke operations available through Symbolica and automatic recompilation of an already authenticated denominator |
-| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; trusted family and ISP constructors authenticate ingress and check their local shape, algebra, and rank invariants once, while exact replay remains an explicit proof/tamper audit; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
+| `src/coefficient.rs`, `exact.rs`, `exact_identity.rs`, `parametric_coefficient.rs` and its subtree, `symbolica_coefficient_matrix.rs` | move live provenance-neutral checked primitives to `algebra/` and identity-owned relation-condition handling to `identity/`; delete bespoke operations available through Symbolica and automatic recompilation of an already authenticated denominator |
+| `src/symbolica_affine_denominator.rs` | split parsing and family-coordinate lowering under `input::affine`; move only genuinely family-neutral coefficient primitives to `algebra/`, and audit handwritten exponent projection against Symbolica rather than relabeling the complete compiler as algebra |
+| `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `guards.rs` | move live model/normalization code to `family/`, sector responsibilities to `sector/`, and identity-row provenance to `identity/` as indicated by the DAG; trusted family and ISP constructors authenticate ingress and check their local shape, algebra, and rank invariants once, while exact replay remains an explicit proof/tamper audit; the dead handwritten `base_specialization.rs` prototype has been deleted and remaining handwritten polynomial operations must be checked against Symbolica before Phase 0 closes |
 | `src/shift_operators.rs` | delete wholesale; it is a closed, uncalled intermediate with only self-tests and is not a reduction implementation |
 | `src/symbolica_integral_input.rs` | move core parsing/normalization to `input/`; authenticate each ingress once, keep canonical round-trip as a focused sentinel rather than automatic constructor replay, and leave transport/CLI decoding in `rustred-app` |
 | `src/parametric_ibp.rs`, `parametric_relation.rs`, and the topology-neutral part of `generated_symbolic_row_span.rs` | move live raw IBP/LI row construction and stable row provenance to `identity/`; one prepared source-batch type covers ordinary and LI-only layouts, seals ordered results once by semantic scope/layout/ordinal, and supplies one completed source token to LI without replay; remove “generated” naming |
@@ -274,7 +277,7 @@ dumping-ground module.
 | `src/coverage_decision_dag.rs`, `adaptive_rules.rs`, `certified_rewrite.rs`, `certified_rule_provider.rs`, `certified_symmetry_provider.rs`, `conditional_rules.rs`, `parametric_rules.rs`, `parametric_sector_coverage.rs`, `parametric_sector_provider.rs`, `master_policy.rs`, `master_product.rs` | retain only independently used reduction-side rule/master values with real callers; delete closure/provider and speculative artifact layers |
 | `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; future lazy closure formula types are designed afresh |
 | existing `src/solver/**` | delete wholesale as the audited dead prototype island; do not preserve the exact-session transaction, rollback, exceptional publication, or committed-re-entry machinery |
-| existing `src/campaign/**` and `src/campaign/execution.rs` | retain under `campaign/`; keep deterministic resource/width/execution semantics and remove facade duplication |
+| `src/campaign/{mod,execution,execution_width,resource_profile,resources}.rs` and `crates/rustred-app/src/application/campaign/plan.rs` | retain checked resource/preflight metadata, width selection, and bounded ordered execution under core `campaign/`; delete core `plan.rs` with replay/schema/stats/dependency machinery and keep the sole live roots-only family/sector/job interning directly in the application; `admission.rs`, `work.rs`, the work-key wave policy/planner, move-owned reservation mapper, and width-plan-to-executor bridge are also deleted |
 | `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete the complete uncalled and untested prototype SCC rather than moving it. Rebuild `tensor/` fresh from explicit pairing/cycle, covariant-precontraction, affine-lowering, and configurable-Atom contracts, using Symbolica-native CAS and the custom-head plus Vakint vertical sentinels |
 | `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
 | `src/symbolica_runtime.rs` | delete; direct public Symbolica API calls replaced its trivial wrappers, and no global initialization boundary is currently required |
@@ -321,7 +324,7 @@ It creates a small matrix from the essential cases:
    synthetic structural `L=6, K=21, 36-source` count (not a closure claim);
 3. exact Symbolica coefficient/row operations;
 4. exact zero/symmetry/routing witnesses, including native graph candidates;
-5. deterministic campaign planning/admission for `n_cores = 1,2,4`;
+5. deterministic campaign planning and resource preflight for `n_cores = 1,2,4`;
 6. generic reduction-rule/master primitives with real callers;
 7. app/CLI/Python byte- and error-parity for the supported operations; and
 8. black-box artifact load/application tests only after the fresh artifact API
@@ -484,7 +487,7 @@ Gate: default core/app/Python check only; no legacy-suite repair.
   fresh sentinel beside the live owner for that cluster. The initial sentinels
   cover family normalization, generic IBP/LI generation, the structural
   six-loop source count, exact Symbolica row operations, zero/symmetry, generic
-  reduction primitives, and deterministic campaign admission. They are new
+  reduction primitives, and deterministic campaign plan/resource preflight. They are new
   contract tests, not mechanically repaired legacy binaries. Do not preserve
   transaction/rollback or exceptional-child sentinels from the solver island.
 - Remove the LiteRed2 and GammaLoop gitlinks and their `.gitmodules` entries;
@@ -523,8 +526,10 @@ power is reauthenticated and charged to the native output-retained-byte
 budget.
 
 This audited checkpoint deletes the closed shift-operator intermediate and
-the four-file, 7,829-line tensor prototype SCC, and prunes publication-era and
-unused transform/reservation campaign branches. It also deletes the matrix
+the four-file, 7,829-line tensor prototype SCC, plus the uncalled campaign
+admission/work modules, their work-key wave/resource helpers, and the core
+replay/dependency plan after moving its sole live roots-only interning into the
+application. It also deletes the matrix
 module's now-orphaned scalar-power wrapper and its self-tests; direct native
 coefficient power remains only at Symbolica's required field boundary. The
 nominal exact-rational wrapper is deleted, and the sole half-coefficient use is
@@ -532,9 +537,10 @@ constructed by checked division in the Symbolica rational-polynomial field
 rather than by an infallible unchecked-native conversion. Tensor is
 rebuilt only after its fresh custom-head covariant/scalar-lowering and
 rank-four pairing sentinels exist; internal self-use and root re-exports were
-not accepted as liveness. The retained admission controller is bootstrapped
-only from a concrete checked width plan (not a stale optional plan) and keeps a
-fresh license-free exact-accounting sentinel.
+not accepted as liveness. The retained core campaign boundary stops at
+resource/preflight values, width selection, and bounded ordered execution;
+application composition owns roots-only interning and any later runtime
+scheduling.
 
 - Delete `src/solver/**` plus the dependent exact-session, closure,
   publication, re-entry, generated-affine/cylindrical/residual, and provider

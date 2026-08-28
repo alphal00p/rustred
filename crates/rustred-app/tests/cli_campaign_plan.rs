@@ -84,8 +84,16 @@ fn successful_toml(arguments: &[&str], input: &str) -> (Output, toml::Value) {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(output.stderr.is_empty());
-    let document = toml::from_str(std::str::from_utf8(&output.stdout).expect("UTF-8 output"))
-        .expect("valid campaign-plan TOML");
+    let document: toml::Value =
+        toml::from_str(std::str::from_utf8(&output.stdout).expect("UTF-8 output"))
+            .expect("valid campaign-plan TOML");
+    assert!(
+        !document
+            .as_table()
+            .expect("campaign-plan document")
+            .contains_key("phases"),
+        "roots-only output must not advertise unimplemented future phases"
+    );
     (output, document)
 }
 
@@ -128,22 +136,6 @@ fn raw_symbolica_convenience_is_deterministic_and_truthfully_roots_only() {
     );
     assert_eq!(document["status"].as_str(), Some("ok"));
     assert_eq!(document["scope"].as_str(), Some("roots_only"));
-    assert_eq!(
-        document["phases"]["root_ingress"].as_str(),
-        Some("complete")
-    );
-    assert_eq!(
-        document["phases"]["target_normalization"].as_str(),
-        Some("not_started")
-    );
-    for phase in [
-        "dependency_discovery",
-        "derivation",
-        "closure",
-        "publication",
-    ] {
-        assert_eq!(document["phases"][phase].as_str(), Some("not_started"));
-    }
     assert_eq!(document["counts"]["roots"].as_integer(), Some(1));
     assert_eq!(document["counts"]["unique_families"].as_integer(), Some(1));
     assert_eq!(
@@ -264,10 +256,6 @@ I(
             "cancellation",
         ],
         input,
-    );
-    assert_eq!(
-        document["phases"]["target_normalization"].as_str(),
-        Some("not_started")
     );
     let root = document["roots"][0].as_table().expect("cancellation root");
     assert_eq!(

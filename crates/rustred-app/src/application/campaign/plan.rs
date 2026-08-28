@@ -1,11 +1,8 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use rustred::campaign::{
-    CampaignFamilyId, CampaignJobKey, CampaignPlan, CampaignPlanLimits, CampaignRootId,
-    CampaignRootSpec,
-};
-use rustred::{IntegralOrderingPolicy, SectorMask};
+use rustred::{IntegralFamily, IntegralOrderingPolicy, SectorMask};
 use serde::{Deserialize, Serialize};
 
 use super::super::error::AppError;
@@ -22,6 +19,7 @@ use super::super::{CampaignPlanRequest, CampaignPlanResult, MAX_OUTPUT_BYTES};
 const CAMPAIGN_INPUT_SCHEMA: &str = "rustred.campaign-input.toml.v1";
 pub(crate) const CAMPAIGN_OUTPUT_SCHEMA: &str = "rustred.campaign-plan-output.toml.v1";
 const MAX_CAMPAIGN_INPUT_ROOTS: usize = 100_000;
+const MAX_CAMPAIGN_ROOT_ID_BYTES: usize = 4 * 1024;
 const ROOT_RENDER_OVERHEAD: usize = 4_096;
 const FAMILY_RENDER_OVERHEAD: usize = 2_048;
 const JOB_RENDER_OVERHEAD: usize = 1_024;
@@ -58,6 +56,50 @@ struct RootDraft {
     metadata: BTreeMap<String, MetadataValue>,
 }
 
+#[derive(Clone)]
+struct FamilyKey(Arc<IntegralFamily>);
+
+impl FamilyKey {
+    fn family(&self) -> &IntegralFamily {
+        &self.0
+    }
+
+    fn fingerprint(&self) -> &str {
+        self.0.fingerprint_ref()
+    }
+}
+
+impl PartialEq for FamilyKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.fingerprint() == other.fingerprint()
+    }
+}
+
+impl Eq for FamilyKey {}
+
+impl PartialOrd for FamilyKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FamilyKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.fingerprint().cmp(other.fingerprint())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct DeclaredPowerJobKey {
+    family: FamilyKey,
+    sector: SectorMask,
+}
+
+struct RootRecord {
+    job: DeclaredPowerJobKey,
+    draft: RootDraft,
+}
+
 #[derive(Debug, Serialize)]
 struct CampaignPlanOutputV1 {
     schema: &'static str,
@@ -65,21 +107,10 @@ struct CampaignPlanOutputV1 {
     scope: &'static str,
     ordering: &'static str,
     producer: ProducerOutputV1,
-    phases: CampaignPhaseStatusOutputV1,
     counts: CampaignCountsOutputV1,
     roots: Vec<CampaignRootOutputV1>,
     families: Vec<CampaignFamilyOutputV1>,
     declared_power_jobs: Vec<CampaignDeclaredPowerJobOutputV1>,
-}
-
-#[derive(Debug, Serialize)]
-struct CampaignPhaseStatusOutputV1 {
-    root_ingress: &'static str,
-    target_normalization: &'static str,
-    dependency_discovery: &'static str,
-    derivation: &'static str,
-    closure: &'static str,
-    publication: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +177,7 @@ fn prepare_campaign_roots(
             let id = raw_root_id.ok_or_else(|| {
                 AppError::input("raw Symbolica campaign input requires root_id".to_owned())
             })?;
-            CampaignRootId::try_new(&id).map_err(|error| {
+            validate_root_id(&id).map_err(|error| {
                 AppError::input(format!("invalid raw campaign root identifier: {error}"))
             })?;
             Ok(vec![PreparedCampaignRoot {
@@ -192,7 +223,7 @@ fn prepare_campaign_document(source: &str) -> Result<Vec<PreparedCampaignRoot>, 
     // lowering any family. Distinct labels may still intern to one job.
     let mut seen = BTreeSet::new();
     for root in &document.roots {
-        CampaignRootId::try_new(&root.id).map_err(|error| {
+        validate_root_id(&root.id).map_err(|error| {
             AppError::input(format!(
                 "invalid campaign root identifier {:?}: {error}",
                 root.id
@@ -251,16 +282,26 @@ fn prefix_root_error(id: &str, error: AppError) -> AppError {
     AppError::new(kind, format!("campaign root {id:?} is invalid: {message}"))
 }
 
+fn validate_root_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("a campaign root identifier cannot be empty".to_owned());
+    }
+    if id.len() > MAX_CAMPAIGN_ROOT_ID_BYTES {
+        return Err(format!(
+            "campaign root identifier bytes needs {} units, exceeding limit {MAX_CAMPAIGN_ROOT_ID_BYTES}",
+            id.len()
+        ));
+    }
+    Ok(())
+}
+
 fn compile_roots_only_output(
     roots: Vec<PreparedCampaignRoot>,
 ) -> Result<CampaignPlanOutputV1, AppError> {
-    let root_count = roots.len();
     let mut bound = RenderBound::new();
-    let mut specs = Vec::new();
-    specs
-        .try_reserve_exact(root_count)
-        .map_err(|_| AppError::input("cannot reserve campaign root specifications".to_owned()))?;
-    let mut drafts = BTreeMap::new();
+    let mut root_records = BTreeMap::new();
+    let mut families: BTreeSet<FamilyKey> = BTreeSet::new();
+    let mut jobs: BTreeSet<DeclaredPowerJobKey> = BTreeSet::new();
     for root in roots {
         let lowered =
             lower_project(root.project).map_err(|error| prefix_root_error(&root.id, error))?;
@@ -284,22 +325,44 @@ fn compile_roots_only_output(
                     root.id
                 ))
             })?;
-        let family = Arc::new(lowered.into_family());
-        specs.push(
-            CampaignRootSpec::try_new(&root.id, family, sector).map_err(|error| {
-                AppError::input(format!(
-                    "cannot authenticate campaign root {:?}: {error}",
-                    root.id
-                ))
-            })?,
-        );
-        let previous = drafts.insert(
+        let family = FamilyKey(Arc::new(lowered.into_family()));
+        if sector.arity() != family.family().denominator_count() {
+            return Err(AppError::input(format!(
+                "cannot compile roots-only campaign: campaign root {} has sector arity {}, expected {}",
+                root.id,
+                sector.arity(),
+                family.family().denominator_count()
+            )));
+        }
+        let family = if let Some(existing) = families.get(&family) {
+            if existing.family().limits() != family.family().limits() {
+                return Err(AppError::input(format!(
+                    "cannot compile roots-only campaign: campaign family with {} identity bytes was repeated with a different retained resource policy",
+                    family.fingerprint().len()
+                )));
+            }
+            existing.clone()
+        } else {
+            families.insert(family.clone());
+            family
+        };
+        let job = DeclaredPowerJobKey { family, sector };
+        let job = if let Some(existing) = jobs.get(&job) {
+            existing.clone()
+        } else {
+            jobs.insert(job.clone());
+            job
+        };
+        let previous = root_records.insert(
             root.id,
-            RootDraft {
-                detected_input_form: input_form,
-                input_schema,
-                canonical_integral,
-                metadata,
+            RootRecord {
+                job,
+                draft: RootDraft {
+                    detected_input_form: input_form,
+                    input_schema,
+                    canonical_integral,
+                    metadata,
+                },
             },
         );
         debug_assert!(
@@ -309,26 +372,14 @@ fn compile_roots_only_output(
     }
 
     let ordering = IntegralOrderingPolicy::RustRedUnshiftedV1;
-    let plan = CampaignPlan::compile(specs, ordering, CampaignPlanLimits::default())
-        .map_err(|error| AppError::input(format!("cannot compile roots-only campaign: {error}")))?;
-    plan.verify().map_err(|error| {
-        AppError::internal_invariant(format!("roots-only campaign replay failed: {error}"))
-    })?;
-    if plan.stats().dependency_edges() != 0 {
-        return Err(AppError::internal_invariant(
-            "roots-only campaign unexpectedly contains dependency edges".to_owned(),
-        ));
-    }
-    let family_ordinals: BTreeMap<CampaignFamilyId, usize> = plan
-        .families()
-        .keys()
+    let family_ordinals: BTreeMap<FamilyKey, usize> = families
+        .iter()
         .cloned()
         .enumerate()
         .map(|(ordinal, id)| (id, ordinal))
         .collect();
-    let job_ordinals: BTreeMap<CampaignJobKey, usize> = plan
-        .jobs()
-        .keys()
+    let job_ordinals: BTreeMap<DeclaredPowerJobKey, usize> = jobs
+        .iter()
         .cloned()
         .enumerate()
         .map(|(ordinal, job)| (job, ordinal))
@@ -336,72 +387,60 @@ fn compile_roots_only_output(
 
     let mut root_outputs = Vec::new();
     root_outputs
-        .try_reserve_exact(plan.roots().len())
+        .try_reserve_exact(root_records.len())
         .map_err(|_| AppError::output_limit("cannot reserve campaign root output".to_owned()))?;
-    for (ordinal, (id, record)) in plan.roots().iter().enumerate() {
-        let draft = drafts.remove(id.as_str()).ok_or_else(|| {
-            AppError::internal_invariant(format!(
-                "compiled campaign root {id} has no retained ingress record"
-            ))
+    for (ordinal, (id, record)) in root_records.into_iter().enumerate() {
+        let family = *family_ordinals.get(&record.job.family).ok_or_else(|| {
+            AppError::internal_invariant("root family ordinal is missing".to_owned())
         })?;
-        let family = *family_ordinals
-            .get(record.job().family_id())
-            .ok_or_else(|| {
-                AppError::internal_invariant("root family ordinal is missing".to_owned())
-            })?;
-        let declared_power_job = *job_ordinals.get(record.job()).ok_or_else(|| {
+        let declared_power_job = *job_ordinals.get(&record.job).ok_or_else(|| {
             AppError::internal_invariant("root job ordinal is missing".to_owned())
         })?;
         root_outputs.push(CampaignRootOutputV1 {
             ordinal,
-            id: id.as_str().to_owned(),
+            id,
             family,
             declared_power_job,
-            declared_power_sector: record.job().sector().to_bit_string(),
-            detected_input_form: draft.detected_input_form,
-            input_schema: draft.input_schema,
-            canonical_integral: draft.canonical_integral,
-            metadata: draft.metadata,
+            declared_power_sector: record.job.sector.to_bit_string(),
+            detected_input_form: record.draft.detected_input_form,
+            input_schema: record.draft.input_schema,
+            canonical_integral: record.draft.canonical_integral,
+            metadata: record.draft.metadata,
         });
     }
-    if !drafts.is_empty() {
-        return Err(AppError::internal_invariant(
-            "retained ingress roots were not represented in the compiled campaign".to_owned(),
-        ));
-    }
 
-    let mut families = Vec::new();
-    families
-        .try_reserve_exact(plan.families().len())
+    let mut family_outputs = Vec::new();
+    family_outputs
+        .try_reserve_exact(families.len())
         .map_err(|_| AppError::output_limit("cannot reserve campaign family output".to_owned()))?;
-    for (ordinal, (id, record)) in plan.families().iter().enumerate() {
+    for (ordinal, key) in families.iter().enumerate() {
         bound.add(FAMILY_RENDER_OVERHEAD)?;
-        bound.add_string(id.as_str())?;
-        bound.add_string(record.family().name())?;
-        families.push(CampaignFamilyOutputV1 {
+        bound.add_string(key.fingerprint())?;
+        bound.add_string(key.family().name())?;
+        family_outputs.push(CampaignFamilyOutputV1 {
             ordinal,
-            name: record.family().name().to_owned(),
-            fingerprint: id.as_str().to_owned(),
-            loop_count: record.family().loop_count(),
-            external_count: record.family().external_count(),
-            denominator_count: record.family().denominator_count(),
+            name: key.family().name().to_owned(),
+            fingerprint: key.fingerprint().to_owned(),
+            loop_count: key.family().loop_count(),
+            external_count: key.family().external_count(),
+            denominator_count: key.family().denominator_count(),
         });
     }
 
     let mut declared_power_jobs = Vec::new();
     declared_power_jobs
-        .try_reserve_exact(plan.jobs().len())
+        .try_reserve_exact(jobs.len())
         .map_err(|_| AppError::output_limit("cannot reserve campaign job output".to_owned()))?;
-    for (ordinal, key) in plan.jobs().keys().enumerate() {
+    for (ordinal, key) in jobs.iter().enumerate() {
         bound.add(JOB_RENDER_OVERHEAD)?;
-        let family = *family_ordinals.get(key.family_id()).ok_or_else(|| {
+        let family = *family_ordinals.get(&key.family).ok_or_else(|| {
             AppError::internal_invariant("job family ordinal is missing".to_owned())
         })?;
         declared_power_jobs.push(CampaignDeclaredPowerJobOutputV1 {
             ordinal,
             family,
-            declared_power_sector: key.sector().to_bit_string(),
-            ordering: key.ordering().stable_id(),
+            declared_power_sector: key.sector.to_bit_string(),
+            ordering: ordering.stable_id(),
         });
     }
     bound.finish()?;
@@ -412,21 +451,13 @@ fn compile_roots_only_output(
         scope: "roots_only",
         ordering: ordering.stable_id(),
         producer: ProducerOutputV1::current(),
-        phases: CampaignPhaseStatusOutputV1 {
-            root_ingress: "complete",
-            target_normalization: "not_started",
-            dependency_discovery: "not_started",
-            derivation: "not_started",
-            closure: "not_started",
-            publication: "not_started",
-        },
         counts: CampaignCountsOutputV1 {
-            roots: plan.stats().roots(),
-            unique_families: plan.stats().families(),
-            declared_power_jobs: plan.stats().jobs(),
+            roots: root_outputs.len(),
+            unique_families: family_outputs.len(),
+            declared_power_jobs: declared_power_jobs.len(),
         },
         roots: root_outputs,
-        families,
+        families: family_outputs,
         declared_power_jobs,
     })
 }

@@ -749,13 +749,6 @@ impl IntegralFamily {
         self.fingerprint.as_str()
     }
 
-    /// Crate-private shared owner for topology-neutral identity keys. This
-    /// avoids proportionally copying the already authenticated fingerprint
-    /// when a campaign interns many roots of one family.
-    pub(crate) const fn fingerprint_owner(&self) -> &Arc<String> {
-        &self.fingerprint
-    }
-
     pub const fn fingerprint_stats(&self) -> IntegralFamilyFingerprintStats {
         self.fingerprint_stats
     }

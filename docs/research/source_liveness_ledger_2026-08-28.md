@@ -4,7 +4,7 @@
 and redundant-replay cleanup.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 48 tracked Rust source/test paths
+This ledger classifies every one of the 45 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,20 +21,20 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 16 |
-| split | 31 |
+| move | 15 |
+| split | 29 |
 | delete | 0 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
 |---|---|---|---|
-| `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | retain roots-only planning needed by the live app; remove obsolete schema surface freely |
-| `crates/rustred-app/src/application/campaign/preflight.rs` | split | rustred-app::campaign | retain topology-free admission preflight needed by the live app |
+| `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | app-owned roots-only family/sector/job interning with deterministic ordinals and bounded truthful output; no core replay/dependency plan or fictional future phases |
+| `crates/rustred-app/src/application/campaign/preflight.rs` | split | rustred-app::campaign | retain topology-free resource preflight needed by the live app |
 | `crates/rustred-app/src/application/derive.rs` | split | rustred-app | retain evidenced generic derivation; narrow the output/API during facade reset |
 | `crates/rustred-app/src/application/error.rs` | split | rustred-app | retain typed cross-frontend errors only |
 | `crates/rustred-app/src/application/input.rs` | split | rustred-app / core input | keep transport decoding in app and move generic normalization downward |
 | `crates/rustred-app/src/application/lowering.rs` | split | rustred-app / core input | keep composition only; core owns reusable lowering semantics |
-| `crates/rustred-app/src/application/memory.rs` | split | rustred-app / runtime | retain bounded ingress/output policy actually used by live operations |
+| `crates/rustred-app/src/application/memory.rs` | split | rustred-app | retain bounded ingress/output policy actually used by live operations; it is not a core runtime owner |
 | `crates/rustred-app/src/application/model.rs` | split | rustred-app | freely replace obsolete request/output schemas |
 | `crates/rustred-app/src/application/mod.rs` | split | rustred-app | rewrite as the narrow composition facade over live core domains |
 | `crates/rustred-app/src/application/options.rs` | split | rustred-app | retain only live invocation policy; no compatibility aliases |
@@ -55,23 +55,20 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
-| `src/campaign/admission.rs` | split | campaign | retain generic RAM admission; delete fixed-component and resident-transform prototype branches |
-| `src/campaign/execution.rs` | move | campaign | bounded execution authority co-located with admission and width planning |
-| `src/campaign/execution_width.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/mod.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/plan.rs` | split | campaign / rustred-app | move family/sector binding upward; retain only opaque generic work planning below |
-| `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/campaign/work.rs` | split | campaign / rustred-app | rewrite around opaque work identities and delete publication-era variants |
-| `src/feynman_polynomials.rs` | move | family | retain Symbolica-native construction; delete the uncalled face-restriction API instead of moving dead sector coupling |
+| `src/campaign/execution.rs` | move | campaign | bounded ordered execution authority; the dead move-owned reservation mapper was deleted with admission |
+| `src/campaign/execution_width.rs` | move | campaign | live deterministic resource-preflight and width-planning infrastructure; it no longer constructs execution through admission |
+| `src/campaign/mod.rs` | move | campaign | narrow facade over resource preflight, width planning, and bounded execution; roots-only planning is application-owned |
+| `src/campaign/resource_profile.rs` | move | campaign | calibrated execution resource profile feeding live width preflight |
+| `src/campaign/resources.rs` | move | campaign | retain checked bytes, estimates, task envelopes, estimator revisions, baselines, and their minimal construction errors; work-key wave policy/planning was deleted |
+| `src/feynman_polynomials.rs` | split | family | retain generic Symanzik construction and delete the uncalled face-restriction API; the remaining handwritten polynomial operations must be audited against Symbolica before Phase 0 closes |
 | `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay |
-| `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
+| `src/guards.rs` | split | family / identity / sector | replace the global cross-domain provenance union with owner-specific family conditions, identity-row origins, and zero-sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/parametric_coefficient.rs` | split | algebra | retain checked Symbolica base/index coefficient and sparse-polynomial authority; Phase 0 has no foundry owner |
+| `src/parametric_coefficient.rs` | split | algebra / identity | retain provenance-neutral checked `K(n)` coefficient/polynomial algebra below identity-owned relation conditions; Phase 0 has no foundry owner |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; application owns execution policy |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
-| `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
-| `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
+| `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
+| `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; extract only genuinely family-neutral checked coefficient primitives into algebra and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
