@@ -1,5 +1,4 @@
-//! RustRed: a pure-Rust, Symbolica-backed port of LiteRed-style parametric IBP
-//! derivation and reduction.
+//! RustRed: pure-Rust, Symbolica-backed parametric IBP and LI derivation.
 //!
 //! The generic production path is loop-count and topology independent:
 //! [`IntegralFamily`] authenticates a complete affine scalar-product basis and
@@ -12,7 +11,7 @@ pub mod algebra;
 pub mod campaign;
 pub mod family;
 pub mod identity;
-pub mod sectors;
+pub mod sector;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
 pub mod symmetry;
@@ -37,12 +36,6 @@ pub use family::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
-};
-pub use sectors::{
-    CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,
-    RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA, SectorExclusion,
-    SectorFoundationError, SectorMask, SectorPattern, SectorPatternMismatch, SectorPatternSlot,
-    SectorRestrictions, StrictDescentWitness,
 };
 pub use symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,

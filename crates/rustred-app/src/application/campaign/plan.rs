@@ -2,7 +2,8 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use rustred::{IntegralFamily, IntegralOrderingPolicy, SectorMask};
+use rustred::IntegralFamily;
+use rustred::sector::{Mask, OrderingPolicy};
 use serde::{Deserialize, Serialize};
 
 use super::super::error::AppError;
@@ -92,7 +93,7 @@ impl Ord for FamilyKey {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct DeclaredPowerJobKey {
     family: FamilyKey,
-    sector: SectorMask,
+    sector: Mask,
 }
 
 struct RootRecord {
@@ -318,13 +319,12 @@ fn compile_roots_only_output(
         bound.add_metadata(&metadata)?;
         let canonical_integral = normalized.canonical_string();
         bound.add_string(&canonical_integral)?;
-        let sector =
-            SectorMask::try_from_indices(normalized.target().powers()).map_err(|error| {
-                AppError::input(format!(
-                    "campaign root {:?} has an invalid target sector: {error}",
-                    root.id
-                ))
-            })?;
+        let sector = Mask::try_from_indices(normalized.target().powers()).map_err(|error| {
+            AppError::input(format!(
+                "campaign root {:?} has an invalid target sector: {error}",
+                root.id
+            ))
+        })?;
         let family = FamilyKey(Arc::new(lowered.into_family()));
         if sector.arity() != family.family().denominator_count() {
             return Err(AppError::input(format!(
@@ -371,7 +371,7 @@ fn compile_roots_only_output(
         );
     }
 
-    let ordering = IntegralOrderingPolicy::RustRedUnshiftedV1;
+    let ordering = OrderingPolicy::RustRedUnshiftedV1;
     let family_ordinals: BTreeMap<FamilyKey, usize> = families
         .iter()
         .cloned()

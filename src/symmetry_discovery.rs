@@ -10,9 +10,10 @@
 use std::fmt;
 
 use crate::family::{IntegralFamily, IntegralKey};
+use crate::sector::Restrictions;
 use crate::{
-    DenominatorRowAction, JacobianWitness, SectorRestrictions, SymmetryVerificationError,
-    SymmetryVerificationLimits, VerifiedAffineFamilyMap,
+    DenominatorRowAction, JacobianWitness, SymmetryVerificationError, SymmetryVerificationLimits,
+    VerifiedAffineFamilyMap,
 };
 
 pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
@@ -28,7 +29,7 @@ pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
 pub struct VerifiedInternalFamilyPermutationSymmetry {
     family_fingerprint: String,
     restrictions_fingerprint: String,
-    restrictions: SectorRestrictions,
+    restrictions: Restrictions,
     denominator_permutation: Vec<usize>,
     affine_map: VerifiedAffineFamilyMap,
 }
@@ -50,7 +51,7 @@ impl VerifiedInternalFamilyPermutationSymmetry {
         &self.denominator_permutation
     }
 
-    pub const fn restrictions(&self) -> &SectorRestrictions {
+    pub const fn restrictions(&self) -> &Restrictions {
         &self.restrictions
     }
 
@@ -107,7 +108,7 @@ impl VerifiedInternalFamilyPermutationSymmetry {
     pub fn replay(
         &self,
         family: &IntegralFamily,
-        restrictions: &SectorRestrictions,
+        restrictions: &Restrictions,
         limits: SymmetryVerificationLimits,
     ) -> Result<(), InternalSymmetryReplayError> {
         if family.fingerprint() != self.family_fingerprint {
@@ -142,7 +143,7 @@ impl VerifiedInternalFamilyPermutationSymmetry {
     pub fn validate_restriction_compatibility(
         &self,
         family: &IntegralFamily,
-        restrictions: &SectorRestrictions,
+        restrictions: &Restrictions,
     ) -> Result<(), InternalSymmetryCompatibilityError> {
         if self.family_fingerprint() != family.fingerprint() {
             return Err(InternalSymmetryCompatibilityError::FamilyFingerprintMismatch);
@@ -364,7 +365,7 @@ impl From<InternalSymmetryCompatibilityError> for InternalSymmetryReplayError {
 /// family permutation. Candidate discovery remains outside this proof boundary.
 pub fn compile_internal_family_permutation_symmetry(
     family: &IntegralFamily,
-    restrictions: &SectorRestrictions,
+    restrictions: &Restrictions,
     affine_map: VerifiedAffineFamilyMap,
 ) -> Result<VerifiedInternalFamilyPermutationSymmetry, InternalSymmetryCompatibilityError> {
     let family_fingerprint = family.fingerprint();
@@ -473,7 +474,7 @@ pub fn compile_internal_family_permutation_symmetry(
     })
 }
 
-fn restriction_fingerprint(restrictions: &SectorRestrictions) -> String {
+fn restriction_fingerprint(restrictions: &Restrictions) -> String {
     format!(
         "rustred-sector-restrictions-v1|arity={}|cuts={}|pattern={}",
         restrictions.arity(),
@@ -485,10 +486,10 @@ fn restriction_fingerprint(restrictions: &SectorRestrictions) -> String {
 #[cfg(test)]
 mod tests {
     use super::{InternalSymmetryCompatibilityError, compile_internal_family_permutation_symmetry};
+    use crate::sector::{CutConstraint, Pattern, PatternSlot, Restrictions};
     use crate::{
-        AffineDenominator, CoefficientLocation, CutConstraint, ExactMatrix, IntegralFamily,
-        IntegralKey, MomentumMap, SectorPattern, SectorPatternSlot, SectorRestrictions,
-        SymmetryVerificationLimits, algebra::Coefficient, algebra::CoefficientContext,
+        AffineDenominator, CoefficientLocation, ExactMatrix, IntegralFamily, IntegralKey,
+        MomentumMap, SymmetryVerificationLimits, algebra::Coefficient, algebra::CoefficientContext,
         symmetry::SymmetryConditionSource, verify_affine_family_map,
     };
 
@@ -569,7 +570,7 @@ mod tests {
                 .map(|condition| condition.sources().len())
                 .sum::<usize>()
         );
-        let unrestricted = SectorRestrictions::unrestricted(family.denominator_count()).unwrap();
+        let unrestricted = Restrictions::unrestricted(family.denominator_count()).unwrap();
         let symmetry =
             compile_internal_family_permutation_symmetry(&family, &unrestricted, verified.clone())
                 .unwrap();
@@ -587,14 +588,9 @@ mod tests {
             )
             .unwrap();
 
-        let asymmetric = SectorRestrictions::try_new(
+        let asymmetric = Restrictions::try_new(
             CutConstraint::none(family.denominator_count()).unwrap(),
-            SectorPattern::try_new([
-                SectorPatternSlot::Active,
-                SectorPatternSlot::Any,
-                SectorPatternSlot::Any,
-            ])
-            .unwrap(),
+            Pattern::try_new([PatternSlot::Active, PatternSlot::Any, PatternSlot::Any]).unwrap(),
         )
         .unwrap();
         assert!(matches!(

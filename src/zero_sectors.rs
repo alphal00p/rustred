@@ -14,9 +14,9 @@ use symbolica::domains::rational::RationalField;
 use symbolica::prelude::*;
 
 use crate::family::{CoefficientLocation, IntegralFamily};
+use crate::sector::{self, Exclusion, Mask, Restrictions};
 use crate::{
-    FeynmanPolynomialError, FeynmanPolynomialLimits, SectorExclusion, SectorFoundationError,
-    SectorMask, SectorRestrictions, SymanzikPolynomials, algebra::Coefficient,
+    FeynmanPolynomialError, FeynmanPolynomialLimits, SymanzikPolynomials, algebra::Coefficient,
     algebra::CoefficientPolynomial, algebra::ExactAlgebraError,
 };
 
@@ -99,7 +99,7 @@ pub enum ZeroSectorError {
     },
     ExactAlgebra(ExactAlgebraError),
     Feynman(FeynmanPolynomialError),
-    Sector(SectorFoundationError),
+    Sector(sector::Error),
     SymbolicaPanic,
 }
 
@@ -175,8 +175,8 @@ impl From<FeynmanPolynomialError> for ZeroSectorError {
     }
 }
 
-impl From<SectorFoundationError> for ZeroSectorError {
-    fn from(value: SectorFoundationError) -> Self {
+impl From<sector::Error> for ZeroSectorError {
+    fn from(value: sector::Error) -> Self {
         Self::Sector(value)
     }
 }
@@ -264,8 +264,8 @@ pub struct ZeroSectorCertificate {
     schema: &'static str,
     family_fingerprint: Arc<str>,
     g_fingerprint: Arc<str>,
-    raw_sector: SectorMask,
-    effective_sector: SectorMask,
+    raw_sector: Mask,
+    effective_sector: Mask,
     active_parameter_order: Box<[usize]>,
     primitive_kernel: Box<[Integer]>,
     rank: usize,
@@ -287,11 +287,11 @@ impl ZeroSectorCertificate {
         &self.g_fingerprint
     }
 
-    pub fn raw_sector(&self) -> &SectorMask {
+    pub fn raw_sector(&self) -> &Mask {
         &self.raw_sector
     }
 
-    pub fn effective_sector(&self) -> &SectorMask {
+    pub fn effective_sector(&self) -> &Mask {
         &self.effective_sector
     }
 
@@ -342,8 +342,8 @@ impl ZeroSectorCertificate {
 /// zero test did not produce a certificate; it is not a nonzero proof.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FullColumnRankWitness {
-    raw_sector: SectorMask,
-    effective_sector: SectorMask,
+    raw_sector: Mask,
+    effective_sector: Mask,
     active_parameter_order: Box<[usize]>,
     rank: usize,
     exponent_row_count: usize,
@@ -351,11 +351,11 @@ pub struct FullColumnRankWitness {
 }
 
 impl FullColumnRankWitness {
-    pub fn raw_sector(&self) -> &SectorMask {
+    pub fn raw_sector(&self) -> &Mask {
         &self.raw_sector
     }
 
-    pub fn effective_sector(&self) -> &SectorMask {
+    pub fn effective_sector(&self) -> &Mask {
         &self.effective_sector
     }
 
@@ -379,7 +379,7 @@ impl FullColumnRankWitness {
 /// Complete semantics for one raw sector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ZeroSectorDecision {
-    Excluded(SectorExclusion),
+    Excluded(Exclusion),
     ProvedZero(ZeroSectorCertificate),
     NoZeroCertificate(FullColumnRankWitness),
     ResourceLimited(ZeroSectorResource),
@@ -391,8 +391,8 @@ pub enum ZeroSectorDecision {
 pub struct ZeroSectorAnalyzer {
     family_fingerprint: Arc<str>,
     symanzik: SymanzikPolynomials,
-    restrictions: SectorRestrictions,
-    power_support: SectorMask,
+    restrictions: Restrictions,
+    power_support: Mask,
     domain: ZeroSectorDomain,
     policy: PowerShiftPolicy,
     limits: ZeroSectorLimits,
@@ -401,7 +401,7 @@ pub struct ZeroSectorAnalyzer {
 impl ZeroSectorAnalyzer {
     pub fn try_new(
         family: &IntegralFamily,
-        restrictions: SectorRestrictions,
+        restrictions: Restrictions,
         policy: PowerShiftPolicy,
     ) -> Result<Self, ZeroSectorError> {
         Self::try_new_with_limits(family, restrictions, policy, ZeroSectorLimits::default())
@@ -409,7 +409,7 @@ impl ZeroSectorAnalyzer {
 
     pub fn try_new_with_limits(
         family: &IntegralFamily,
-        restrictions: SectorRestrictions,
+        restrictions: Restrictions,
         policy: PowerShiftPolicy,
         limits: ZeroSectorLimits,
     ) -> Result<Self, ZeroSectorError> {
@@ -442,13 +442,13 @@ impl ZeroSectorAnalyzer {
         policy: PowerShiftPolicy,
         limits: ZeroSectorLimits,
     ) -> Result<Self, ZeroSectorError> {
-        let restrictions = SectorRestrictions::unrestricted(family.denominator_count())?;
+        let restrictions = Restrictions::unrestricted(family.denominator_count())?;
         Self::build(family, restrictions, policy, limits)
     }
 
     fn build(
         family: &IntegralFamily,
-        restrictions: SectorRestrictions,
+        restrictions: Restrictions,
         policy: PowerShiftPolicy,
         limits: ZeroSectorLimits,
     ) -> Result<Self, ZeroSectorError> {
@@ -526,7 +526,7 @@ impl ZeroSectorAnalyzer {
             family_fingerprint: Arc::from(family.fingerprint()),
             symanzik,
             restrictions,
-            power_support: SectorMask::try_new(support)?,
+            power_support: Mask::try_new(support)?,
             domain,
             policy,
             limits,
@@ -541,11 +541,11 @@ impl ZeroSectorAnalyzer {
         &self.symanzik
     }
 
-    pub fn restrictions(&self) -> &SectorRestrictions {
+    pub fn restrictions(&self) -> &Restrictions {
         &self.restrictions
     }
 
-    pub fn power_support(&self) -> &SectorMask {
+    pub fn power_support(&self) -> &Mask {
         &self.power_support
     }
 
@@ -561,7 +561,7 @@ impl ZeroSectorAnalyzer {
         self.limits
     }
 
-    pub fn analyze_sector(&self, raw_sector: &SectorMask) -> ZeroSectorDecision {
+    pub fn analyze_sector(&self, raw_sector: &Mask) -> ZeroSectorDecision {
         match catch_unwind(AssertUnwindSafe(|| self.analyze_sector_inner(raw_sector))) {
             Ok(Ok(decision)) => decision,
             Ok(Err(error)) => decision_from_error(error),
@@ -571,7 +571,7 @@ impl ZeroSectorAnalyzer {
 
     fn analyze_sector_inner(
         &self,
-        raw_sector: &SectorMask,
+        raw_sector: &Mask,
     ) -> Result<ZeroSectorDecision, ZeroSectorError> {
         if let Some(exclusion) = self.restrictions.exclusion(raw_sector)? {
             return Ok(ZeroSectorDecision::Excluded(exclusion));
@@ -581,14 +581,14 @@ impl ZeroSectorAnalyzer {
         Ok(self.bind_effective(raw_sector, &effective))
     }
 
-    fn effective_sector(&self, raw_sector: &SectorMask) -> Result<SectorMask, ZeroSectorError> {
+    fn effective_sector(&self, raw_sector: &Mask) -> Result<Mask, ZeroSectorError> {
         if raw_sector.arity() != self.power_support.arity() {
-            return Err(ZeroSectorError::Sector(SectorFoundationError::WrongArity {
+            return Err(ZeroSectorError::Sector(sector::Error::WrongArity {
                 expected: self.power_support.arity(),
                 actual: raw_sector.arity(),
             }));
         }
-        Ok(SectorMask::try_new(
+        Ok(Mask::try_new(
             raw_sector
                 .active_bits()
                 .iter()
@@ -597,7 +597,7 @@ impl ZeroSectorAnalyzer {
         )?)
     }
 
-    fn compute_effective_checked(&self, effective: &SectorMask) -> EffectiveRankDecision {
+    fn compute_effective_checked(&self, effective: &Mask) -> EffectiveRankDecision {
         match catch_unwind(AssertUnwindSafe(|| self.compute_effective(effective))) {
             Ok(Ok(decision)) => decision,
             Ok(Err(ZeroSectorError::ResourceLimit {
@@ -616,7 +616,7 @@ impl ZeroSectorAnalyzer {
 
     fn compute_effective(
         &self,
-        effective: &SectorMask,
+        effective: &Mask,
     ) -> Result<EffectiveRankDecision, ZeroSectorError> {
         let matrix = self.exponent_matrix(effective)?;
         if matrix.rows.is_empty() {
@@ -692,9 +692,9 @@ impl ZeroSectorAnalyzer {
         })
     }
 
-    fn exponent_matrix(&self, effective: &SectorMask) -> Result<ExponentMatrix, ZeroSectorError> {
+    fn exponent_matrix(&self, effective: &Mask) -> Result<ExponentMatrix, ZeroSectorError> {
         if effective.arity() != self.symanzik.context().parameter_count() {
-            return Err(ZeroSectorError::Sector(SectorFoundationError::WrongArity {
+            return Err(ZeroSectorError::Sector(sector::Error::WrongArity {
                 expected: self.symanzik.context().parameter_count(),
                 actual: effective.arity(),
             }));
@@ -747,7 +747,7 @@ impl ZeroSectorAnalyzer {
 
     fn bind_effective(
         &self,
-        raw_sector: &SectorMask,
+        raw_sector: &Mask,
         effective: &EffectiveRankDecision,
     ) -> ZeroSectorDecision {
         let effective_sector = match self.effective_sector(raw_sector) {
@@ -1237,14 +1237,14 @@ mod tests {
         let analyzer =
             ZeroSectorAnalyzer::try_unrestricted(&family, PowerShiftPolicy::FormalGeneric).unwrap();
 
-        let inactive = SectorMask::try_from_bit_string("0").unwrap();
+        let inactive = Mask::try_from_bit_string("0").unwrap();
         let ZeroSectorDecision::ProvedZero(certificate) = analyzer.analyze_sector(&inactive) else {
             panic!("the inactive one-denominator sector must have a zero certificate");
         };
         assert_eq!(certificate.raw_sector(), &inactive);
         certificate.replay(&family).unwrap();
 
-        let active = SectorMask::try_from_bit_string("1").unwrap();
+        let active = Mask::try_from_bit_string("1").unwrap();
         assert!(matches!(
             analyzer.analyze_sector(&active),
             ZeroSectorDecision::NoZeroCertificate(_)
