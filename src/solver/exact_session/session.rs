@@ -29,12 +29,7 @@ use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
-    GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
-};
-use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
-use crate::generated_affine_residual_group_exact_database::{
+use super::database::{
     GeneratedAffineResidualGroupAuthenticatedStagedNewPivotView,
     GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseError,
     GeneratedAffineResidualGroupExactDatabaseLimits,
@@ -44,11 +39,22 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupRetainedExactSourceRecipe,
     GeneratedAffineResidualGroupRetainedExactUnitPivot, GeneratedAffineResidualGroupStagedExactRow,
 };
-use crate::generated_affine_residual_group_exact_publication::{
-    PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
-    PublicationStats,
+use super::physical_key::{
+    GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
+    GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
 };
-use crate::generated_affine_residual_group_exact_targets::{
+use super::physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
+use super::plan::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
+};
+use super::recenter::{
+    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
+    ExactRecenteredApplicationRow, ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset,
+    admit_inert_owner, bounded_add, checked_add, exact_offsets_equal, execute_target_offset,
+    observe_inert_owner, preflight_exact_geometry, translate_centered_row,
+    verify_target_offset_census,
+};
+use super::targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
     GeneratedAffineResidualGroupExactTargetCatalogLimits,
     GeneratedAffineResidualGroupExactTargetCatalogStats,
@@ -58,6 +64,16 @@ use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget,
     GeneratedAffineResidualGroupRetainedExactTarget,
     GeneratedAffineResidualGroupRetainedReadyExactTarget,
+};
+use super::telemetry::NativeSparseScalingSnapshot;
+use crate::generated_affine_residual_case_inventory::{
+    GeneratedAffineResidualCaseAuthoritySourceKind, GeneratedAffineResidualCaseSourceRowLimits,
+    GeneratedAffineResidualCaseSourceRowView, GeneratedAffineResidualInventoryGroupSourceView,
+};
+use crate::generated_affine_residual_case_premises::GeneratedAffineResidualCaseEqualityRefinementCertificate;
+use crate::generated_affine_residual_group_exact_publication::{
+    PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
+    PublicationStats,
 };
 use crate::generated_affine_residual_group_exact_when_bad_conditions::GeneratedAffineResidualGroupExactConditionPlanCompiler;
 use crate::generated_affine_residual_group_exact_when_bad_materialization::GeneratedAffineResidualGroupExactWhenBadMaterializationCompiler;
@@ -75,23 +91,7 @@ use crate::generated_affine_residual_group_ready_publication::{
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
-use crate::native_sparse_scaling::NativeSparseScalingSnapshot;
 use crate::parametric_coefficient::symbolica_sparse::SymbolicaPersistentSparseShallowCapacitySnapshot;
-use crate::solver::exact_session::GeneratedAffineResidualGroupExactPhysicalRow;
-use crate::solver::exact_session::{
-    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
-    ExactRecenteredApplicationRow, ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset,
-    admit_inert_owner, bounded_add, checked_add, exact_offsets_equal, execute_target_offset,
-    observe_inert_owner, preflight_exact_geometry, translate_centered_row,
-    verify_target_offset_census,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
-    GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
-};
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
     ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
@@ -99,7 +99,7 @@ use crate::{
 };
 
 #[cfg(test)]
-use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidualGroupExactRowOutcome;
+use super::database::GeneratedAffineResidualGroupExactRowOutcome;
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V1_SCHEMA: &str =
     "rustred-generated-affine-residual-group-exact-session-v1";
@@ -171,12 +171,12 @@ fn record_event_ledger_replacement_reservation_for_test() {
 
 /// Unforgeable safe-Rust capability for the session-only exact-database API.
 ///
-/// The type is visible to the sibling database module solely so protected
-/// methods can name it in their signatures. Its seal and constructor remain
-/// private here, it is neither `Clone` nor `Default`, and the owning session
-/// never returns a borrow. Consequently another production sibling may name
-/// the type but cannot produce a value with which to stage, authenticate, or
-/// commit a database transition.
+/// The type is visible through the exact-session facade solely so the database,
+/// target, and rejected-candidate seams can name it in protected signatures.
+/// Its seal and constructor remain private here, it is neither `Clone` nor
+/// `Default`, and the owning session never returns a borrow. Consequently
+/// another production sibling may name the type but cannot produce a value
+/// with which to stage, authenticate, or commit a database transition.
 pub(crate) struct GeneratedAffineResidualGroupExactSessionDatabaseCapability {
     _seal: GeneratedAffineResidualGroupExactSessionDatabaseCapabilitySeal,
 }
@@ -6460,10 +6460,26 @@ impl fmt::Debug for GeneratedAffineResidualGroupExactSessionStagedNewPivotView<'
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub(super) mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    use super::super::physical_key::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+    };
+    use super::super::physical_row::{
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    };
+    use super::super::plan::GeneratedAffineResidualGroupSolvePlanLimits;
+    use super::super::recenter::{
+        centered_shift_arithmetic_operations_for_test,
+        reset_centered_shift_arithmetic_operations_for_test,
+    };
+    use super::super::targets::{
+        GeneratedAffineResidualGroupAuthenticatedExactTargetView,
+        GeneratedAffineResidualGroupExactTargetStateStats,
+    };
     use crate::campaign::{
         CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
         CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits,
@@ -6492,10 +6508,6 @@ pub(crate) mod tests {
         GeneratedAffineResidualCaseReeliminationCompilation,
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
-    };
-    use crate::generated_affine_residual_group_exact_targets::{
-        GeneratedAffineResidualGroupAuthenticatedExactTargetView,
-        GeneratedAffineResidualGroupExactTargetStateStats,
     };
     use crate::generated_affine_residual_group_exact_when_bad_conditions::{
         GeneratedAffineResidualGroupExactConditionPlanCompiler,
@@ -6540,18 +6552,6 @@ pub(crate) mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
-    };
-    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
-    use crate::solver::exact_session::{
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    };
-    use crate::solver::exact_session::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
-    };
-    use crate::solver::exact_session::{
-        centered_shift_arithmetic_operations_for_test,
-        reset_centered_shift_arithmetic_operations_for_test,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,
@@ -7904,15 +7904,15 @@ pub(crate) mod tests {
         );
         assert_eq!(
             session.database.schema(),
-            crate::generated_affine_residual_group_exact_database::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
+            super::super::database::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_DATABASE_V2_SCHEMA
         );
         assert_eq!(
             session.catalog.schema(),
-            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+            super::super::targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
         );
         assert_eq!(
             session.target_state.schema(),
-            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
+            super::super::targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_STATE_V2_SCHEMA
         );
         assert_eq!(session.source_kind(), fixture.plan.source_kind());
         assert_eq!(session.database.source_kind(), fixture.plan.source_kind());
@@ -9449,390 +9449,6 @@ pub(crate) mod tests {
             .database
             .authenticate_target_state_binding(session.target_state.binding())
             .unwrap();
-    }
-
-    #[test]
-    fn production_database_transition_surface_is_session_capability_gated() {
-        let database_source = include_str!("generated_affine_residual_group_exact_database.rs");
-        let session_source = include_str!("generated_affine_residual_group_exact_session.rs");
-        let target_source = include_str!("generated_affine_residual_group_exact_targets.rs");
-        let partition_source =
-            include_str!("generated_affine_residual_group_exact_when_bad_partition.rs");
-        let capability = "GeneratedAffineResidualGroupExactSessionDatabaseCapability";
-
-        // Every production entry capable of minting, classifying, or
-        // consuming database transition authority names the unforgeable
-        // session capability in its signature.
-        for (method, expected_occurrences) in [
-            ("retain_source_recipe_for_session", 2),
-            ("retain_dependent_evidence_for_session", 1),
-            ("retain_new_pivot_evidence_for_session", 1),
-            ("plan_for_session", 1),
-            ("retain_exact_reduction_evidence_for_session", 1),
-            ("initial_target_state_binding_for_session", 1),
-            ("successor_target_state_binding_for_session", 2),
-            ("stage_replayed_row_for_session", 1),
-            ("stage_retained_source_recipe_for_session", 1),
-            ("authenticate_staged_new_pivot_for_session", 1),
-            ("authenticate_staged_dependent_for_session", 1),
-            ("prepare_staged_row_commit_for_session", 1),
-            ("abort_prepared_staged_row_commit_for_session", 1),
-            ("commit_prepared_staged_row_for_session", 1),
-        ] {
-            let marker = format!("fn {method}");
-            let occurrences = database_source
-                .match_indices(&marker)
-                .map(|(offset, _)| offset)
-                .collect::<Vec<_>>();
-            assert_eq!(
-                occurrences.len(),
-                expected_occurrences,
-                "capability-gated database seam {method} has an unexpected definition count"
-            );
-            for start in occurrences {
-                let signature_end = database_source[start..]
-                    .find(" {")
-                    .map(|offset| start + offset)
-                    .unwrap_or_else(|| panic!("unterminated signature for {method}"));
-                assert!(
-                    database_source[start..signature_end].contains(capability),
-                    "production database method {method} lacks the session capability"
-                );
-            }
-        }
-
-        // Legacy direct database names no longer exist. Explicit `_for_test`
-        // adapters complement Rust's compile-time private-field seal and are
-        // absent from a normal library build.
-        for method in [
-            "initial_target_state_binding",
-            "successor_target_state_binding",
-            "stage_replayed_row",
-            "ingest_replayed_row",
-            "authenticate_staged_new_pivot",
-            "commit_staged_row",
-            "commit_staged_row_for_session",
-            "plan",
-        ] {
-            assert!(
-                !database_source.contains(&format!("fn {method}(")),
-                "legacy direct database API {method} remains nameable"
-            );
-        }
-        for method in [
-            "initial_target_state_binding_for_test",
-            "successor_target_state_binding_for_test",
-            "stage_replayed_row_for_test",
-            "ingest_replayed_row_for_test",
-            "commit_staged_row_for_test",
-        ] {
-            let marker = format!("    pub(crate) fn {method}(");
-            let occurrences = database_source.match_indices(&marker).collect::<Vec<_>>();
-            assert_eq!(
-                occurrences.len(),
-                1,
-                "test transition adapter {method} must have exactly one definition"
-            );
-            let prefix = &database_source[..occurrences[0].0];
-            assert!(
-                prefix.ends_with("    #[cfg(test)]\n"),
-                "test transition adapter {method} is not cfg(test)-sealed"
-            );
-        }
-        for method in [
-            "stage_retained_source_recipe_for_test",
-            "prepare_staged_row_commit_for_test",
-            "abort_prepared_staged_row_commit_for_test",
-            "commit_prepared_staged_row_for_test",
-        ] {
-            let marker = format!("    fn {method}(");
-            let occurrences = database_source.match_indices(&marker).collect::<Vec<_>>();
-            assert_eq!(
-                occurrences.len(),
-                1,
-                "private test authority adapter {method} must have exactly one definition"
-            );
-            let prefix = &database_source[..occurrences[0].0];
-            assert!(
-                prefix.ends_with("    #[cfg(test)]\n"),
-                "private test authority adapter {method} is not cfg(test)-sealed"
-            );
-        }
-        assert!(!database_source.contains("pub(crate) fn authenticate_staged_dependent("));
-        assert!(
-            database_source.contains("#[cfg(test)]\n    fn authenticate_staged_new_pivot_for_test")
-        );
-        assert!(database_source.contains("#[cfg(test)]\n    fn plan_for_test("));
-
-        // Synthetic term ingress exists only so this module can exercise the
-        // sealed session wrapper. It must remain absent from production and
-        // must still require the same unforgeable session capability.
-        let synthetic_marker = "    pub(crate) fn stage_authenticated_terms_for_session(";
-        let synthetic_occurrences = database_source
-            .match_indices(synthetic_marker)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            synthetic_occurrences.len(),
-            1,
-            "synthetic session ingress must have exactly one definition"
-        );
-        let synthetic_start = synthetic_occurrences[0].0;
-        assert!(
-            database_source[..synthetic_start].ends_with("    #[cfg(test)]\n"),
-            "synthetic session ingress is not cfg(test)-sealed"
-        );
-        let synthetic_signature_end = database_source[synthetic_start..]
-            .find(" {\n")
-            .map(|offset| synthetic_start + offset)
-            .expect("unterminated synthetic session-ingress signature");
-        assert!(
-            database_source[synthetic_start..synthetic_signature_end].contains(capability),
-            "synthetic session ingress lacks the session capability"
-        );
-
-        // The capability itself has a private seal and a module-private mint;
-        // the session stores it privately and exposes no capability accessor.
-        assert!(
-            session_source
-                .contains("struct GeneratedAffineResidualGroupExactSessionDatabaseCapabilitySeal;")
-        );
-        assert!(session_source.contains("    fn mint() -> Self"));
-        let crate_visible_mint = ["pub(crate)", " fn mint() -> Self"].concat();
-        let public_mint = ["pub", " fn mint() -> Self"].concat();
-        let capability_accessor = ["fn database_", "capability(&self)"].concat();
-        assert!(!session_source.contains(&crate_visible_mint));
-        assert!(!session_source.contains(&public_mint));
-        assert!(!session_source.contains(&capability_accessor));
-
-        // New pivots cross crate-visible commit authority only through their
-        // exact sealed classification. The generic kernel remains private and
-        // Ready has no direct commit or transaction extraction surface.
-        for method in [
-            "commit_no_target",
-            "commit_rejected_candidate",
-            "commit_and_suspend_affine_equality_refinement",
-        ] {
-            assert_eq!(
-                session_source
-                    .match_indices(&format!("    pub(crate) fn {method}("))
-                    .count(),
-                1,
-                "typed session transition {method} must have exactly one definition"
-            );
-        }
-        let no_target_commit_marker = format!("    pub(crate) fn {}(", "commit_no_target");
-        let no_target_commit_start = session_source
-            .find(&no_target_commit_marker)
-            .expect("missing typed NoTarget commit");
-        let no_target_commit_signature_end = session_source[no_target_commit_start..]
-            .find(") -> Result")
-            .map(|offset| no_target_commit_start + offset)
-            .expect("unterminated typed NoTarget commit signature");
-        let no_target_commit_signature =
-            &session_source[no_target_commit_start..no_target_commit_signature_end];
-        assert!(no_target_commit_signature.contains("mut self"));
-        assert!(!no_target_commit_signature.contains("&mut self"));
-
-        let rejected_commit_marker = format!("    pub(crate) fn {}(", "commit_rejected_candidate");
-        let rejected_commit_start = session_source
-            .find(&rejected_commit_marker)
-            .expect("missing typed rejected-candidate commit");
-        let rejected_commit_signature_end = session_source[rejected_commit_start..]
-            .find(") -> Result")
-            .map(|offset| rejected_commit_start + offset)
-            .expect("unterminated typed rejected-candidate commit signature");
-        let rejected_commit_signature =
-            &session_source[rejected_commit_start..rejected_commit_signature_end];
-        assert!(rejected_commit_signature.contains("mut self"));
-        assert!(!rejected_commit_signature.contains("&mut self"));
-
-        // Rejected-candidate reconstruction remains crate-visible solely for
-        // the transactional session rollback path. Its owning fields are
-        // private, and reconstruction requires the same unforgeable session
-        // capability whose mint/accessor surface is pinned above.
-        let rejected_candidate = "GeneratedAffineResidualGroupExactWhenBadRejectedCandidate";
-        let rejected_candidate_declaration_start = partition_source
-            .find(&format!("pub(crate) struct {rejected_candidate} {{"))
-            .expect("missing rejected-candidate owner declaration");
-        let rejected_candidate_declaration_end = partition_source
-            [rejected_candidate_declaration_start..]
-            .find("\n}\n")
-            .map(|offset| rejected_candidate_declaration_start + offset)
-            .expect("unterminated rejected-candidate owner declaration");
-        let rejected_candidate_declaration = &partition_source
-            [rejected_candidate_declaration_start..rejected_candidate_declaration_end];
-        for field in ["ready", "replay_recipe"] {
-            assert!(rejected_candidate_declaration.contains(&format!("\n    {field}:")));
-            assert!(!rejected_candidate_declaration.contains(&format!("pub(crate) {field}:")));
-            assert!(!rejected_candidate_declaration.contains(&format!("pub {field}:")));
-        }
-        let reconstruction_marker = "    pub(crate) fn from_parts_for_session(";
-        assert_eq!(
-            partition_source
-                .match_indices(reconstruction_marker)
-                .count(),
-            1,
-            "rejected-candidate reconstruction must have exactly one definition"
-        );
-        let reconstruction_start = partition_source
-            .find(reconstruction_marker)
-            .expect("missing rejected-candidate reconstruction seam");
-        let reconstruction_signature_end = partition_source[reconstruction_start..]
-            .find(") -> Self")
-            .map(|offset| reconstruction_start + offset)
-            .expect("unterminated rejected-candidate reconstruction signature");
-        assert!(
-            partition_source[reconstruction_start..reconstruction_signature_end]
-                .contains(capability),
-            "rejected-candidate reconstruction lacks the session capability"
-        );
-
-        let committed_no_target = "GeneratedAffineResidualGroupExactSessionCommittedNoTarget";
-        let committed_no_target_declaration_start = session_source
-            .find(&format!("pub(crate) struct {committed_no_target} {{"))
-            .expect("missing committed NoTarget owner declaration");
-        let committed_no_target_declaration_end = session_source
-            [committed_no_target_declaration_start..]
-            .find("\n}\n")
-            .map(|offset| committed_no_target_declaration_start + offset)
-            .expect("unterminated committed NoTarget owner declaration");
-        let committed_no_target_declaration = &session_source
-            [committed_no_target_declaration_start..committed_no_target_declaration_end];
-        assert!(committed_no_target_declaration.contains("\n    session:"));
-        assert!(!committed_no_target_declaration.contains("pub(crate) session:"));
-        let committed_no_target_impl_start = session_source
-            .find(&format!("impl {committed_no_target} {{"))
-            .expect("missing committed NoTarget owner impl");
-        let committed_no_target_impl_end = session_source[committed_no_target_impl_start..]
-            .find(&format!("impl fmt::Debug for {committed_no_target}"))
-            .map(|offset| committed_no_target_impl_start + offset)
-            .expect("unterminated committed NoTarget owner impl");
-        assert!(
-            session_source[committed_no_target_impl_start..committed_no_target_impl_end]
-                .contains("fn into_session(")
-        );
-        let private_unconsumed = ["    fn commit_", "unconsumed("].concat();
-        assert!(session_source.contains(&private_unconsumed));
-        let crate_visible_unconsumed = ["pub(crate) fn commit_", "unconsumed("].concat();
-        assert!(!session_source.contains(&crate_visible_unconsumed));
-        for forbidden_method in [
-            "commit_recenter_outcome",
-            "commit_ready",
-            "commit_recenter_ready",
-        ] {
-            let forbidden = format!("pub(crate) fn {forbidden_method}(");
-            assert!(
-                !session_source.contains(&forbidden),
-                "generic or Ready commit authority escaped through {forbidden}"
-            );
-        }
-        let ready_impl_start = session_source
-            .find("impl GeneratedAffineResidualGroupExactSessionRecenterReady {")
-            .expect("missing Ready recenter impl");
-        let ready_impl_end = session_source[ready_impl_start..]
-            .find("impl fmt::Debug for GeneratedAffineResidualGroupExactSessionRecenterReady")
-            .map(|offset| ready_impl_start + offset)
-            .expect("unterminated Ready recenter impl");
-        let ready_impl = &session_source[ready_impl_start..ready_impl_end];
-        assert!(!ready_impl.contains("fn commit"));
-        assert!(!ready_impl.contains("fn into_transaction"));
-
-        // The successful equality branch is a one-way suspended owner. Its
-        // terminal event and all authorities are private, and the safe metadata
-        // impl cannot recover, resume, or stage the committed session. The old
-        // equality-only source recipe has been retired in favor of the common
-        // chronological event recipe.
-        let retired_source_recipe = [
-            "GeneratedAffineResidualGroupExactSessionSuspended",
-            "SourceRecipe",
-        ]
-        .concat();
-        assert!(!session_source.contains(&retired_source_recipe));
-        let suspended = "GeneratedAffineResidualGroupExactSessionSuspendedForRefinedEpoch";
-        let suspended_declaration_start = session_source
-            .find(&format!("pub(crate) struct {suspended} {{"))
-            .expect("missing suspended owner declaration");
-        let suspended_declaration_end = session_source[suspended_declaration_start..]
-            .find("\n}\n")
-            .map(|offset| suspended_declaration_start + offset)
-            .expect("unterminated suspended owner declaration");
-        let suspended_declaration =
-            &session_source[suspended_declaration_start..suspended_declaration_end];
-        for field in ["committed_session", "event", "target"] {
-            assert!(suspended_declaration.contains(&format!("\n    {field}:")));
-            assert!(!suspended_declaration.contains(&format!("pub(crate) {field}:")));
-            assert!(!suspended_declaration.contains(&format!("pub {field}:")));
-        }
-        let suspended_impl_start = session_source
-            .find(&format!("impl {suspended} {{"))
-            .expect("missing suspended owner impl");
-        let suspended_impl_end = session_source[suspended_impl_start..]
-            .find(&format!("impl fmt::Debug for {suspended}"))
-            .map(|offset| suspended_impl_start + offset)
-            .expect("unterminated suspended owner impl");
-        let suspended_impl = &session_source[suspended_impl_start..suspended_impl_end];
-        for forbidden in [
-            "fn session(",
-            "fn session_mut(",
-            "fn into_session(",
-            "fn resume(",
-            "fn stage_",
-            "fn transaction(",
-            "fn into_transaction(",
-            "fn source_recipe(",
-            "fn target_offset(",
-            "fn target_offset_values(",
-        ] {
-            assert!(
-                !suspended_impl.contains(forbidden),
-                "suspended session authority escaped through {forbidden}"
-            );
-        }
-
-        // Equality successor allocation and retained-target authority leave
-        // the target layer only as one sealed pair. Decomposition requires the
-        // private session capability, and no after-the-fact rebind API remains.
-        let prepared_pair =
-            "GeneratedAffineResidualGroupPreparedEqualityRefinementExactTargetSuccessor";
-        let prepared_pair_declaration_start = target_source
-            .find(&format!("pub(crate) struct {prepared_pair} {{"))
-            .expect("missing prepared equality target-successor pair");
-        let prepared_pair_declaration_end = target_source[prepared_pair_declaration_start..]
-            .find("\n}\n")
-            .map(|offset| prepared_pair_declaration_start + offset)
-            .expect("unterminated prepared equality target-successor pair");
-        let prepared_pair_declaration =
-            &target_source[prepared_pair_declaration_start..prepared_pair_declaration_end];
-        for field in ["successor", "target"] {
-            assert!(prepared_pair_declaration.contains(&format!("\n    {field}:")));
-            assert!(!prepared_pair_declaration.contains(&format!("pub(crate) {field}:")));
-            assert!(!prepared_pair_declaration.contains(&format!("pub {field}:")));
-        }
-        let pair_extraction_marker = format!("    pub(crate) fn {}(", "into_parts_for_session");
-        let pair_extraction_start = target_source
-            .find(&pair_extraction_marker)
-            .expect("missing session-gated equality pair extraction");
-        let pair_extraction_end = target_source[pair_extraction_start..]
-            .find(") -> (")
-            .map(|offset| pair_extraction_start + offset)
-            .expect("unterminated equality pair extraction signature");
-        assert!(target_source[pair_extraction_start..pair_extraction_end].contains(capability));
-        let prepared_pair_impl_start = target_source
-            .find(&format!("impl {prepared_pair} {{"))
-            .expect("missing prepared equality pair impl");
-        let prepared_pair_impl_end = target_source[prepared_pair_impl_start..]
-            .find(&format!("impl fmt::Debug for {prepared_pair}"))
-            .map(|offset| prepared_pair_impl_start + offset)
-            .expect("unterminated prepared equality pair impl");
-        let prepared_pair_impl = &target_source[prepared_pair_impl_start..prepared_pair_impl_end];
-        for forbidden in ["fn successor(", "fn target(", "fn into_parts("] {
-            assert!(
-                !prepared_pair_impl.contains(forbidden),
-                "prepared equality pair has ungated authority accessor {forbidden}"
-            );
-        }
-        let legacy_rebind = format!("fn {}(", "rebind_to_unconsumed_successor");
-        assert!(!target_source.contains(&legacy_rebind));
     }
 
     #[test]

@@ -155,15 +155,15 @@ normative for the missing `WhenBad` and publication seam.
 
 The current-lineage components below are implemented and tested:
 
-- `src/generated_affine_residual_group_exact_database.rs` stages and commits
+- `src/solver/exact_session/database.rs` stages and commits
   LiteRed-style hardest-only exact rows with consume-once transition identity.
-- `src/generated_affine_residual_group_exact_targets.rs` owns the persisted
+- `src/solver/exact_session/targets.rs` owns the persisted
   target order, current target premises, typed equality-refinement targets,
   immutable target dispositions, and exact successor preparation. Its
   `prepare_successor(..., Option<GeneratedAffineResidualGroupRetainedReadyExactTarget>)`
   can either preserve every target or consume exactly one authenticated Ready
   target.
-- `src/generated_affine_residual_group_exact_session.rs` is the sole owner of
+- `src/solver/exact_session/session.rs` is the sole owner of
   the database and exact target-state allocation. It seals them into a staged
   transaction, exposes an authenticated joint view, and returns the owning
   `GeneratedAffineResidualGroupExactSessionRecenterOutcome::{NoTarget,
@@ -737,7 +737,7 @@ The concrete premise authorities are
 target capabilities are
 `GeneratedAffineResidualGroupRetainedReadyExactTarget` and
 `GeneratedAffineResidualGroupRetainedEqualityRefinementExactTarget`
-(`src/generated_affine_residual_group_exact_targets.rs:1753-1855`).
+(`src/solver/exact_session/targets.rs:2243-2325`).
 
 Private constructors and non-`Clone` ownership prevent accidental cross-owner
 mixing. Do not add public constructors from loose ordinals/locators, but also do
@@ -1370,7 +1370,7 @@ Do not double-charge shared `Arc` payload graphs, but do charge every new
 control block, pointer slot, vector capacity, and uniquely owned transcript.
 The target-state predecessor + successor + shared-catalog peak already has a
 model in `GeneratedAffineResidualGroupExactTargetState::prepare_successor`
-(`src/generated_affine_residual_group_exact_targets.rs:1210-1328`).
+(`src/solver/exact_session/targets.rs:1485-1771`).
 
 Every reported resource dimension requires an exact-limit success test and a
 one-below transactional rejection test. Failures return the same owning

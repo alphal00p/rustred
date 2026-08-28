@@ -21,9 +21,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_group_exact_session::{
-    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
-};
 use crate::generated_affine_residual_group_ready_publication::{
     GeneratedAffineResidualGroupReadyForConditions,
     GeneratedAffineResidualGroupReadyPublicationAnalysisError,
@@ -31,6 +28,9 @@ use crate::generated_affine_residual_group_ready_publication::{
 use crate::parametric_coefficient::{
     ResidualAffineCompactCompositionPlan, ResidualAffineCompactCompositionPlanLimits,
     ResidualAffineCompactMapView, ResidualUnitAffineCompositionError,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
 };
 use crate::{IntegralFamily, ParametricCoefficientContext};
 
@@ -1061,7 +1061,7 @@ mod tests {
     use std::mem::size_of;
 
     use super::*;
-    use crate::generated_affine_residual_group_exact_session::tests::{
+    use crate::solver::exact_session::test_support::{
         ExactConditionPlanTestFixture, exact_condition_plan_test_fixture,
     };
 

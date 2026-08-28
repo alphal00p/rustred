@@ -20,7 +20,7 @@ design to the APIs and invariants needed for an atomic implementation.
 
 The topology-neutral authority and staging layers described below now exist:
 
-- `generated_affine_residual_group_exact_database.rs` performs LiteRed-style
+- `src/solver/exact_session/database.rs` performs LiteRed-style
   hardest-only top reduction without mutation, returns a non-`Clone` staged
   row, and commits only after complete allocation/version/cursor checks.  Each
   database and each successfully staged transition have separate private,
@@ -30,7 +30,7 @@ The topology-neutral authority and staging layers described below now exist:
   new-pivot evidence that is later installed and recorded. An owning prepared
   database commit can be aborted during outer preflight; once admitted, its
   checked fail-stop boundary and infallible commit tail perform no allocation.
-- `generated_affine_residual_group_exact_targets.rs` compiles the solve plan's
+- `src/solver/exact_session/targets.rs` compiles the solve plan's
   persisted target order through the retained inventory authority.  It stores
   either a Ready premises certificate or a typed affine-equality-refinement
   certificate for every target.  Its immutable state is created only from an
@@ -39,7 +39,7 @@ The topology-neutral authority and staging layers described below now exist:
   than trusting adjacent numeric versions. Fallible successors preflight their
   retained/peak byte envelopes before allocating the copied disposition buffer
   and either preserve all dispositions or consume exactly one Ready handle.
-- `generated_affine_residual_group_exact_session.rs` is the sole production
+- `src/solver/exact_session/session.rs` is the sole production
   owner joining the database and target-state allocation.  A staged session
   transaction seals the database row token together with the exact target
   state.  Its narrow joint view exposes only recentering data/provenance,
@@ -63,7 +63,7 @@ The topology-neutral authority and staging layers described below now exist:
   differential remains recoverable from Git rather than compiled under
   `cfg(test)`; the kernel accepts no raw relation, database/session token,
   solve plan, target bitmap, topology, or loop count.
-- `generated_affine_residual_group_exact_session.rs` now owns the only
+- `src/solver/exact_session/session.rs` now owns the only
   production recentering entry point. It consumes a staged session transaction,
   authenticates the post-top-reduction pivot together with its exact target
   state, and returns a non-`Clone` NoTarget, affine-equality-refinement, or
@@ -273,19 +273,22 @@ authority boundary was necessary:
    revision is the evidence for why the retained `Arc` is the row's replay
    recipe; the live owner now resides at
    `src/solver/exact_session/physical_row.rs`.
-2. The pre-transaction exact database authenticated that row and immediately
-   ingested it mutably
-   (`src/generated_affine_residual_group_exact_database.rs` at the historical
-   audit revision).
+2. At historical audit revision `596f5203`, the pre-transaction exact database
+   authenticated that row and immediately ingested it mutably in
+   `src/generated_affine_residual_group_exact_database.rs`.
    Its hardest-only loop is RustRed's current chosen algebraic policy, informed
-   by the corresponding LiteRed2 behavior
-   (`src/generated_affine_residual_group_exact_database.rs:637-742`). It
+   by the corresponding LiteRed2 behavior. Historical revision `78ac4804`
+   retains that loop at
+   `src/generated_affine_residual_group_exact_database.rs:637-742`. It
    constructs a normalized pivot and complete replacement buffers
-   (`src/generated_affine_residual_group_exact_database.rs:744-847`), but then
+   (`src/generated_affine_residual_group_exact_database.rs:744-847` at
+   `78ac4804`), but then
    commits the pivot, lookup, statistics, and cursor before target processing
-   (`src/generated_affine_residual_group_exact_database.rs:848-870`). The
+   (`src/generated_affine_residual_group_exact_database.rs:848-870` at
+   `78ac4804`). The
    dependent path likewise advances the cursor immediately
-   (`src/generated_affine_residual_group_exact_database.rs:654-664`).
+   (`src/generated_affine_residual_group_exact_database.rs:654-664` at
+   `78ac4804`).
 3. At the historical audit revision, the now-retired exact-relation prototype
    rebuilt a raw retained relation, chose that raw relation's maximum, and
    took a caller-provided unresolved-target bitmap. Its useful GMP geometry
@@ -416,12 +419,12 @@ unrepresentable in safe Rust.
 
 The current database already preallocates both pivot and lookup replacements
 before its local move-only section
-(`src/generated_affine_residual_group_exact_database.rs:810-850`). Preserve
+(`src/solver/exact_session/database.rs:2614-2626`). Preserve
 that technique, but delay the move until all outer-owner replacements have also
 been constructed. Current guard copying still contains infallible deep clones
 after reserving only the outer vector
-(`src/generated_affine_residual_group_exact_database.rs:1216-1258`,
-`src/generated_affine_residual_group_exact_database.rs:1261-1295`); this must be
+(`src/solver/exact_session/database.rs:2239-2256`,
+`src/solver/exact_session/database.rs:2342-2349`); this must be
 removed from the final commit path and remains a separate fallibility-hardening
 seam.
 

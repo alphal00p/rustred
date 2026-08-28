@@ -1951,6 +1951,10 @@ mod tests {
     use symbolica::prelude::Integer;
 
     use super::super::physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
+    use super::super::targets::{
+        GeneratedAffineResidualGroupExactTargetCatalog,
+        GeneratedAffineResidualGroupExactTargetCatalogLimits,
+    };
     use super::*;
     use crate::affine_parametric_ordering::integer_magnitude_bits;
     use crate::generated_affine_residual_boolean_cover::{
@@ -1959,10 +1963,6 @@ mod tests {
     use crate::generated_affine_residual_case_inventory::{
         GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseInventoryCompiler,
         GeneratedAffineResidualCaseInventoryLimits,
-    };
-    use crate::generated_affine_residual_group_exact_targets::{
-        GeneratedAffineResidualGroupExactTargetCatalog,
-        GeneratedAffineResidualGroupExactTargetCatalogLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::parametric_sector_formula_affine_terminal::{
@@ -2427,7 +2427,7 @@ mod tests {
         );
         assert_eq!(
             direct_catalog.schema(),
-            crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
+            super::super::targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V2_SCHEMA
         );
         assert_eq!(direct_catalog.len(), 1);
         assert!(direct_catalog.same_plan_allocation(&direct));

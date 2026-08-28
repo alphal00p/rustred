@@ -29,8 +29,18 @@ use std::sync::{
 #[cfg(test)]
 use std::cell::Cell;
 
+use super::physical_key::{
+    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
+};
+use super::physical_row::{
+    GeneratedAffineResidualGroupExactPhysicalRow,
+    GeneratedAffineResidualGroupReplayedExactPhysicalRow,
+};
+use super::plan::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
+};
+use super::session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
 use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
-use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
 use crate::parametric_coefficient::insert_parametric_condition;
 use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
@@ -45,16 +55,6 @@ use crate::parametric_coefficient::symbolica_sparse::{
 use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
     ParametricCoefficientWorkPhase,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupExactPhysicalRow,
-    GeneratedAffineResidualGroupReplayedExactPhysicalRow,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
 };
 use crate::{
     GuardOrigin, IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
@@ -1082,8 +1082,8 @@ enum ExactStagedRowPayload {
 
 /// Sealed, consume-once result of exact hardest-only row reduction.
 ///
-/// This value is intentionally non-`Clone`. Dropping it commits nothing. A
-/// future exact recenterer may request a database-authenticated staged-pivot
+/// This value is intentionally non-`Clone`. Dropping it commits nothing. An
+/// exact session recenterer may request a database-authenticated staged-pivot
 /// authority view, but only this module can construct the token or consume it
 /// into database state.
 pub(crate) struct GeneratedAffineResidualGroupStagedExactRow {
@@ -1421,8 +1421,8 @@ pub(crate) struct GeneratedAffineResidualGroupExactDatabase {
 /// The successor form is minted only after the corresponding staged row has
 /// passed every database check; competing rows at the same numeric version
 /// carry distinct transition identities.
-/// A later joint recenter/session wrapper must present this binding back to the
-/// same database before it may pair a target with a staged pivot.
+/// The joint session wrapper presents this binding back to the same database
+/// before it may pair a target with a staged pivot.
 pub(crate) struct GeneratedAffineResidualGroupExactTargetStateBinding {
     database_nonce: u64,
     transition_identity: ExactDatabaseTransitionIdentity,
@@ -4741,6 +4741,12 @@ mod tests {
 
     use symbolica::prelude::Integer;
 
+    use super::super::physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
+    use super::super::physical_row::{
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    };
+    use super::super::plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use super::*;
     use crate::generated_affine_parametric_ordering::{
         GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
@@ -4775,12 +4781,6 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
-    };
-    use crate::solver::exact_session::GeneratedAffineResidualGroupPhysicalKeyLimits;
-    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
-    use crate::solver::exact_session::{
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,

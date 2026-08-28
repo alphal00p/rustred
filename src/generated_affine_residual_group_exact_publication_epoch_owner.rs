@@ -38,13 +38,13 @@ use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseAuthoritySourceKind,
     GeneratedAffineResidualCaseSourceRowLimits, GeneratedAffineResidualCaseSourceRowView,
 };
-use crate::generated_affine_residual_group_exact_session::{
+use crate::solver::exact_session::GeneratedAffineResidualGroupSolveTargetLocator;
+use crate::solver::exact_session::{
     ApplicableRuleHandle, CommittedPublicationDomainView, CommittedPublicationEventHandle,
     CommittedPublicationEventView, CommittedPublicationLeafView, ExceptionalResidualHandle,
     ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
     GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
 };
-use crate::solver::exact_session::GeneratedAffineResidualGroupSolveTargetLocator;
 use crate::solver::exact_session::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
     GeneratedAffineResidualGroupPhysicalKeyLimits,
@@ -509,9 +509,7 @@ impl CommittedExceptionalSingletonSource {
     pub(crate) fn predicate(
         &self,
         ordinal: usize,
-    ) -> Option<
-        crate::generated_affine_residual_group_exact_session::CommittedPublicationPredicateView<'_>,
-    > {
+    ) -> Option<crate::solver::exact_session::CommittedPublicationPredicateView<'_>> {
         self.residual().domain().predicate(ordinal)
     }
 
@@ -2226,13 +2224,13 @@ mod tests {
         PreparedPublication, PublicationLimits,
     };
     use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
-    use crate::generated_affine_residual_group_exact_session::{
+    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
+    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
+    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
+    use crate::solver::exact_session::{
         GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_SESSION_V3_SCHEMA,
         GeneratedAffineResidualGroupExactSession,
     };
-    use crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
-    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
-    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
     use crate::{
         IntegralFamily, IntegralOrderingPolicy, ParallelExecution, ParametricCoefficientContext,
         SectorMask, SymbolicPolynomialPredicateKind,

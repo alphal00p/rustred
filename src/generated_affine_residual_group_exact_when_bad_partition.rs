@@ -24,12 +24,6 @@ use crate::canonical_parametric_locus_table::{
     CanonicalLocusTableBuilder, CanonicalLocusTableError, CanonicalLocusTableLimits,
     CanonicalLocusTableOwner,
 };
-use crate::generated_affine_residual_group_exact_session::{
-    GeneratedAffineResidualGroupExactSession,
-    GeneratedAffineResidualGroupExactSessionDatabaseCapability,
-    GeneratedAffineResidualGroupExactSessionRecenterReady,
-    GeneratedAffineResidualGroupExactSessionRecenterStats,
-};
 use crate::generated_affine_residual_group_exact_when_bad_conditions::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
     GeneratedAffineResidualGroupExactConditionPlanLimits,
@@ -56,6 +50,12 @@ use crate::generated_residual_affine_when_bad::{
 };
 use crate::parametric_coefficient::{
     ParametricParameterIdentityClass, ParametricPolynomialAssociateLimits,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupExactSession,
+    GeneratedAffineResidualGroupExactSessionDatabaseCapability,
+    GeneratedAffineResidualGroupExactSessionRecenterReady,
+    GeneratedAffineResidualGroupExactSessionRecenterStats,
 };
 use crate::{
     ExactAlgebraLimits, IntegralFamily, ParametricCoefficientContext, ParametricCoefficientError,
@@ -3202,9 +3202,6 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generated_affine_residual_group_exact_session::tests::{
-        ExactConditionPlanTestFixture, exact_condition_plan_test_fixture_in_sector,
-    };
     use crate::generated_affine_residual_group_exact_when_bad_conditions::{
         GeneratedAffineResidualGroupExactConditionPlanCompiler,
         GeneratedAffineResidualGroupExactConditionPlanLimits,
@@ -3216,6 +3213,9 @@ mod tests {
     use crate::parametric_coefficient::{
         polynomial_associate_native_boundary_calls_for_test,
         reset_polynomial_associate_native_boundary_calls_for_test,
+    };
+    use crate::solver::exact_session::test_support::{
+        ExactConditionPlanTestFixture, exact_condition_plan_test_fixture_in_sector,
     };
 
     #[test]

@@ -22,7 +22,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_group_exact_session::{
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
     GeneratedAffineResidualGroupExactSessionRecenterReady,
 };

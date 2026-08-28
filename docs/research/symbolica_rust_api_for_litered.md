@@ -804,7 +804,7 @@ division, carries row/equation provenance, enforces sector applicability, and
 exact-replays emitted rules. That wrapper delegates every field operation and
 row reduction to Symbolica; it is not permission to retain the handwritten
 eliminators in `exact_sparse_elimination.rs`, `parametric_elimination.rs`, or
-`generated_affine_residual_group_exact_database.rs`.
+`src/solver/exact_session/database.rs`.
 
 The first bridge may retain one narrow scalar provenance replay driven solely
 by Symbolica's `L` factors. It reproduces intermediate denominator guards,

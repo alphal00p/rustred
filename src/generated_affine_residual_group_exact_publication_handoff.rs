@@ -22,7 +22,7 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering as AtomicOrdering};
 
 use crate::campaign::CampaignJobKey;
-use crate::generated_affine_residual_group_exact_session::{
+use crate::solver::exact_session::{
     CommittedPublicationEventHandle, CommittedPublicationEventView, CommittedPublicationLeafView,
     ExceptionalResidualKind, PublicationReceipt,
 };

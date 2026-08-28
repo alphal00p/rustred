@@ -23,7 +23,6 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::integer::Integer;
 
-use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSession;
 use crate::generated_affine_residual_group_exact_when_bad_conditions::{
     GeneratedAffineResidualGroupExactConditionHazardLocator,
     GeneratedAffineResidualGroupExactConditionPlan,
@@ -42,6 +41,7 @@ use crate::parametric_coefficient::{
     ResidualUnitAffineCompositionError, ResidualUnitAffinePolynomialCompositionLimits,
     ResidualUnitAffinePolynomialCompositionStats,
 };
+use crate::solver::exact_session::GeneratedAffineResidualGroupExactSession;
 use crate::{
     IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError, ParametricPolynomial,
@@ -4282,13 +4282,13 @@ fn try_vec_with_exact_capacity<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generated_affine_residual_group_exact_session::tests::{
-        ExactConditionPlanTestFixture, exact_condition_plan_test_fixture,
-        exact_condition_plan_test_fixture_in_sector,
-    };
     use crate::generated_affine_residual_group_exact_when_bad_conditions::{
         GeneratedAffineResidualGroupExactConditionPlanCompiler,
         GeneratedAffineResidualGroupExactConditionPlanLimits,
+    };
+    use crate::solver::exact_session::test_support::{
+        ExactConditionPlanTestFixture, exact_condition_plan_test_fixture,
+        exact_condition_plan_test_fixture_in_sector,
     };
 
     fn condition_plan(

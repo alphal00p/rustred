@@ -7,16 +7,6 @@ use crate::generated_affine_residual_group_exact_publication::{
     PreparedPublication, PublicationError, PublicationLeafDisposition, PublicationLimits,
     publication_route_tag_bytes_for_test,
 };
-use crate::generated_affine_residual_group_exact_session::{
-    CommittedPublicationDomainView, CommittedPublicationEventView, CommittedPublicationLeafView,
-    ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
-    GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
-    tests::{
-        ExactConditionPlanTestFixture,
-        exact_condition_plan_test_fixture_in_sector_with_session_limits,
-    },
-};
-use crate::generated_affine_residual_group_exact_targets::GeneratedAffineResidualGroupExactTargetError;
 use crate::generated_affine_residual_group_exact_when_bad_conditions::{
     GeneratedAffineResidualGroupExactConditionPlanCompiler,
     GeneratedAffineResidualGroupExactConditionPlanLimits,
@@ -32,8 +22,18 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
     GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
-use crate::native_sparse_scaling::NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA;
 use crate::solver::exact_session::GeneratedAffineResidualGroupExactPhysicalRow;
+use crate::solver::exact_session::GeneratedAffineResidualGroupExactTargetError;
+use crate::solver::exact_session::NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA;
+use crate::solver::exact_session::{
+    CommittedPublicationDomainView, CommittedPublicationEventView, CommittedPublicationLeafView,
+    ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
+    GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
+    test_support::{
+        ExactConditionPlanTestFixture,
+        exact_condition_plan_test_fixture_in_sector_with_session_limits,
+    },
+};
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
 pub(crate) fn ready_for_publication(

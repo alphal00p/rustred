@@ -12,7 +12,7 @@
 
 use serde::{Serialize, Serializer};
 
-use crate::generated_affine_residual_group_exact_database::{
+use super::database::{
     GeneratedAffineResidualGroupExactNativeSparseScalingStats,
     GeneratedAffineResidualGroupExactNativeSparseStageStats,
 };

@@ -20,6 +20,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use super::database::GeneratedAffineResidualGroupExactTargetStateBinding;
+use super::plan::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
+    GeneratedAffineResidualGroupSolveTargetLocator,
+};
+use super::session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
 use crate::generated_affine_residual_case_inventory::{
     GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
     GeneratedAffineResidualCaseAuthoritySourceKind,
@@ -31,12 +37,6 @@ use crate::generated_affine_residual_case_premises::{
     GeneratedAffineResidualCaseEqualityRefinementCertificate,
     GeneratedAffineResidualCasePremisesCertificate, GeneratedAffineResidualCasePremisesLimits,
     GeneratedAffineResidualCasePremisesOutcome, compile_generated_affine_residual_case_premises,
-};
-use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidualGroupExactTargetStateBinding;
-use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
-    GeneratedAffineResidualGroupSolveTargetLocator,
 };
 use crate::{IntegralFamily, ParametricCoefficientContext, ParametricNonZeroCondition};
 
@@ -99,8 +99,8 @@ const fn is_singleton_source_kind(
 }
 
 /// Process-unique identity for exact target-state allocations.  The nonce is
-/// never exposed or accepted from a caller; future database/session binding
-/// must retain and compare the exact state `Arc` instead.
+/// never exposed or accepted from a caller; the live database/session binding
+/// retains and compares the exact state `Arc` instead.
 static NEXT_EXACT_TARGET_STATE_NONCE: AtomicU64 = AtomicU64::new(1);
 
 /// Complete construction/replay envelope for one plan-bound exact catalog.
@@ -1472,7 +1472,7 @@ impl GeneratedAffineResidualGroupExactTargetState {
         self.stats
     }
 
-    /// Allocation identity seam for a future database/session owner.  The
+    /// Allocation identity seam for the transactional session owner. The
     /// caller supplies an owning state handle, never a scalar nonce.
     pub(crate) fn same_allocation(self: &Arc<Self>, other: &Arc<Self>) -> bool {
         Arc::ptr_eq(self, other)
@@ -2120,8 +2120,8 @@ impl<'state> GeneratedAffineResidualGroupExactTargetStateView<'state> {
         self.state.binding()
     }
 
-    /// Exact state-allocation check for a future sealed DB/session handshake.
-    /// No scalar identity is accepted or revealed.
+    /// Exact state-allocation check for the sealed DB/session handshake. No
+    /// scalar identity is accepted or revealed.
     pub(crate) fn authenticates_state_allocation(
         &self,
         state: &Arc<GeneratedAffineResidualGroupExactTargetState>,
@@ -2737,6 +2737,18 @@ fn checked_sum<const N: usize>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::database::{
+        GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseLimits,
+    };
+    use super::super::physical_key::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+    };
+    use super::super::physical_row::{
+        GeneratedAffineResidualGroupExactPhysicalRow,
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    };
+    use super::super::plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use super::*;
     use crate::generated_affine_parametric_ordering::{
         GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
@@ -2754,9 +2766,6 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationCompilation,
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
-    };
-    use crate::generated_affine_residual_group_exact_database::{
-        GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
@@ -2777,15 +2786,6 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
-    };
-    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
-    use crate::solver::exact_session::{
-        GeneratedAffineResidualGroupExactPhysicalRow,
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    };
-    use crate::solver::exact_session::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

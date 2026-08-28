@@ -38,13 +38,6 @@ use crate::generated_affine_residual_case_reelimination::{
     GeneratedAffineResidualCaseReeliminationCompiler,
     GeneratedAffineResidualCaseReeliminationLimits,
 };
-use crate::generated_affine_residual_group_exact_session::{
-    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
-    GeneratedAffineResidualGroupExactSessionEventStats,
-    GeneratedAffineResidualGroupExactSessionLimits,
-    GeneratedAffineResidualGroupExactSessionRecenterOutcome,
-    GeneratedAffineResidualGroupExactSessionRecenterReady,
-};
 use crate::generated_affine_residual_group_ready_publication::{
     GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
     GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
@@ -57,6 +50,13 @@ use crate::solver::exact_session::{
     GeneratedAffineResidualGroupExactPhysicalRow,
     GeneratedAffineResidualGroupExactPhysicalRowCompiler,
     GeneratedAffineResidualGroupExactPhysicalRowLimits,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
+    GeneratedAffineResidualGroupExactSessionEventStats,
+    GeneratedAffineResidualGroupExactSessionLimits,
+    GeneratedAffineResidualGroupExactSessionRecenterOutcome,
+    GeneratedAffineResidualGroupExactSessionRecenterReady,
 };
 use crate::solver::exact_session::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
