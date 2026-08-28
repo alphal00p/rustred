@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rustred::{CoefficientContext, Integral, MasterProduct, ProductLinearCombination};
+use rustred::{CoefficientContext, MasterProduct, ProductLinearCombination};
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     FOUR_LOOP_T1S2_CLOSURE_COEFFICIENT_DEGREE, FOUR_LOOP_T1S2_CLOSURE_COEFFICIENT_OPERATIONS,
     FOUR_LOOP_T1S2_CLOSURE_COLLECTED_TERMS, FOUR_LOOP_T1S2_CLOSURE_COMPONENT_CALLS,

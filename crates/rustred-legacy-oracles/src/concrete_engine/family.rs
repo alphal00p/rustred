@@ -1,14 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 
-use symbolica::prelude::AtomCore;
-
-use crate::Integral;
-use crate::coefficient::{Coefficient, CoefficientContext};
-use crate::exact::{
-    ExactRational, invert_matrix, matrix_determinant, matrix_multiply, matrix_rank,
-    matrix_transpose,
+use super::Integral;
+use rustred::legacy_oracle_support::exact_matrix::{
+    invert_matrix, matrix_determinant, matrix_multiply, matrix_rank, matrix_transpose,
 };
+use rustred::legacy_oracle_support::symbolica_atom::AtomCore;
+use rustred::{Coefficient, CoefficientContext, ExactRational};
 
 #[derive(Clone, Debug)]
 pub struct Denominator {

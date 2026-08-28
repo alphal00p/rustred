@@ -5,7 +5,8 @@
 //! basis.  This establishes exact denominator lowering and all 25 raw IBPs;
 //! it does not claim a five-loop reduction or master basis.
 
-use rustred::{CoefficientContext, Denominator, ExactRational, FamilyError, VacuumFamily};
+use crate::{Denominator, FamilyError, VacuumFamily};
+use rustred::{CoefficientContext, ExactRational};
 
 pub const FIVE_LOOP_BANANA_ROUTINGS: [[i8; 5]; 6] = [
     [1, 0, 0, 0, 0],

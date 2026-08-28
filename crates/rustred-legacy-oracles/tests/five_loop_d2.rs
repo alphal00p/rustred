@@ -1,4 +1,4 @@
-use rustred::Integral;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     FiveLoopBananaD2Config, FiveLoopBananaD2Error, FiveLoopBananaD2Reducer,
 };

@@ -27,14 +27,12 @@ use std::array;
 use std::fmt;
 
 use crate::five_loop::FIVE_LOOP_BANANA_ROUTINGS;
+use crate::{Denominator, Integral, LinearCombination, VacuumFamily};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound,
 };
 use rustred::legacy_oracle_support::exact_matrix::invert_matrix;
-use rustred::{
-    Coefficient, Denominator, ExactRational, Integral, LinearCombination,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-};
+use rustred::{Coefficient, ExactRational, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 pub const FIVE_LOOP_BANANA_PHYSICAL_LINES: usize = 6;
 pub const FIVE_LOOP_BANANA_LOOP_MOMENTA: usize = 5;

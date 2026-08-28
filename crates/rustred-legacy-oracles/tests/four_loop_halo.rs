@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
-use rustred::{ExactRational, IbpGenerator, Integral, MasterProduct};
+use rustred::{ExactRational, MasterProduct};
 use rustred_legacy_oracles::{
     FOUR_LOOP_AFFINE_MAP_OPERATION_BOUND, FourLoopGenuineClassifier, FourLoopGenuineConfig,
     FourLoopGenuineCornerType, FourLoopGenuineWitness, FourLoopHaloColumnKey, FourLoopHaloConfig,
     FourLoopHaloError, FourLoopHaloMapper, FourLoopTopology, MassiveVacuumMaster,
 };
+use rustred_legacy_oracles::{IbpGenerator, Integral};
 
 fn corner_in(topology: FourLoopTopology, mask: u16) -> Integral {
     let mut powers = [0_i32; 10];

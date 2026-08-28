@@ -1,4 +1,5 @@
-use rustred::{IbpGenerator, Integral, LinearCombination};
+use rustred_legacy_oracles::{IbpGenerator, Integral, LinearCombination};
+
 use rustred_legacy_oracles::families::equal_mass_two_loop_vacuum;
 use rustred_legacy_oracles::{
     ThreeLoopBoundaryConfig, ThreeLoopBoundaryError, ThreeLoopBoundaryReducer,

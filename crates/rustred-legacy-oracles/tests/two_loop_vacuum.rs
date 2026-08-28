@@ -1,13 +1,14 @@
-use rustred::{
-    CoefficientContext, Denominator, ExactRational, IbpGenerationError, IbpGenerator, Integral,
-    LinearCombination, SeedConfig, SparseReducer, VacuumFamily, generate_seeds,
-};
+use rustred::{CoefficientContext, ExactRational};
 use rustred_legacy_oracles::families::equal_mass_two_loop_vacuum;
+use rustred_legacy_oracles::{
+    Denominator, IbpGenerationError, IbpGenerator, Integral, LinearCombination, SeedConfig,
+    SparseReducer, VacuumFamily, generate_seeds,
+};
 
 fn build_corner_reduction() -> (
-    rustred::VacuumFamily,
-    Vec<rustred::IbpIdentity>,
-    rustred::ReductionTable,
+    rustred_legacy_oracles::VacuumFamily,
+    Vec<rustred_legacy_oracles::IbpIdentity>,
+    rustred_legacy_oracles::ReductionTable,
 ) {
     let family = equal_mass_two_loop_vacuum().unwrap();
     let seeds = generate_seeds(&family, SeedConfig::default());
@@ -19,9 +20,9 @@ fn build_corner_reduction() -> (
 }
 
 fn build_one_dot_reduction() -> (
-    rustred::VacuumFamily,
-    Vec<rustred::IbpIdentity>,
-    rustred::ReductionTable,
+    rustred_legacy_oracles::VacuumFamily,
+    Vec<rustred_legacy_oracles::IbpIdentity>,
+    rustred_legacy_oracles::ReductionTable,
 ) {
     let family = equal_mass_two_loop_vacuum().unwrap();
     let seeds = generate_seeds(
@@ -73,7 +74,7 @@ fn check_family_safety() {
     );
     assert!(matches!(
         invalid,
-        Err(rustred::FamilyError::InvalidPermutation(_))
+        Err(rustred_legacy_oracles::FamilyError::InvalidPermutation(_))
     ));
 
     // A massive tadpole times a disconnected massless tadpole is scaleless.
@@ -109,7 +110,7 @@ fn check_family_safety() {
     assert!(!disconnected.is_propagator(3));
     assert!(matches!(
         disconnected.try_is_propagator(3),
-        Err(rustred::FamilyError::DenominatorOutOfRange {
+        Err(rustred_legacy_oracles::FamilyError::DenominatorOutOfRange {
             position: 3,
             denominators: 3,
         })
@@ -120,14 +121,14 @@ fn check_family_safety() {
     assert!(!disconnected.is_scaleless(&wrong_arity));
     assert!(matches!(
         disconnected.try_canonicalize(&wrong_arity),
-        Err(rustred::FamilyError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::FamilyError::WrongIntegralArity {
             expected: 3,
             actual: 2,
         })
     ));
     assert!(matches!(
         disconnected.try_is_scaleless(&wrong_arity),
-        Err(rustred::FamilyError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::FamilyError::WrongIntegralArity {
             expected: 3,
             actual: 2,
         })
@@ -135,7 +136,7 @@ fn check_family_safety() {
     let _legacy_ordering = disconnected.compare_integrals(&wrong_arity, &valid);
     assert!(matches!(
         disconnected.try_compare_integrals(&wrong_arity, &valid),
-        Err(rustred::FamilyError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::FamilyError::WrongIntegralArity {
             expected: 3,
             actual: 2,
         })
@@ -378,7 +379,7 @@ fn check_reduction_api_validation() {
     let wrong_arity = Integral::from([1, 1]);
     assert!(matches!(
         table.reduce_integral(&wrong_arity),
-        Err(rustred::ReductionError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::ReductionError::WrongIntegralArity {
             integral,
             expected: 3,
             actual: 2,
@@ -388,7 +389,7 @@ fn check_reduction_api_validation() {
     malformed_combination.add_term(wrong_arity.clone(), family.coefficients().one());
     assert!(matches!(
         table.reduce_combination(&malformed_combination),
-        Err(rustred::ReductionError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::ReductionError::WrongIntegralArity {
             integral,
             expected: 3,
             actual: 2,
@@ -401,14 +402,14 @@ fn check_reduction_api_validation() {
     bad_loop.differentiated_loop = family.loops();
     assert!(matches!(
         SparseReducer::new(family.clone()).reduce(&[bad_loop]),
-        Err(rustred::ReductionError::IdentityLoopOutOfRange { loops: 2, .. })
+        Err(rustred_legacy_oracles::ReductionError::IdentityLoopOutOfRange { loops: 2, .. })
     ));
 
     let mut bad_seed = identities[0].clone();
     bad_seed.seed = wrong_arity.clone();
     assert!(matches!(
         SparseReducer::new(family.clone()).reduce(&[bad_seed]),
-        Err(rustred::ReductionError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::ReductionError::WrongIntegralArity {
             expected: 3,
             actual: 2,
             ..
@@ -419,7 +420,7 @@ fn check_reduction_api_validation() {
     bad_term.equation = malformed_combination;
     assert!(matches!(
         SparseReducer::new(family.clone()).reduce(&[bad_term]),
-        Err(rustred::ReductionError::WrongIntegralArity {
+        Err(rustred_legacy_oracles::ReductionError::WrongIntegralArity {
             expected: 3,
             actual: 2,
             ..
@@ -436,11 +437,11 @@ fn check_reduction_api_validation() {
         .add_term(forged.seed.clone(), family.coefficients().one());
     assert!(matches!(
         SparseReducer::new(family.clone()).reduce(&[forged.clone()]),
-        Err(rustred::ReductionError::IdentityEquationMismatch { .. })
+        Err(rustred_legacy_oracles::ReductionError::IdentityEquationMismatch { .. })
     ));
     assert!(matches!(
         table.validate_identities(&[forged]),
-        Err(rustred::ReductionError::IdentityEquationMismatch { .. })
+        Err(rustred_legacy_oracles::ReductionError::IdentityEquationMismatch { .. })
     ));
 
     // A genuine raw row is accepted after safe symmetry/zero-sector
@@ -454,7 +455,8 @@ fn check_cache_roundtrip() {
     let (family, identities, table) = build_one_dot_reduction();
     let mut first = Vec::new();
     table.write(&mut first).unwrap();
-    let restored = rustred::ReductionTable::read(family.clone(), first.as_slice()).unwrap();
+    let restored =
+        rustred_legacy_oracles::ReductionTable::read(family.clone(), first.as_slice()).unwrap();
     restored.validate_identities(&identities).unwrap();
     assert_eq!(restored.rules(), table.rules());
     assert_eq!(restored.stats(), table.stats());
@@ -469,45 +471,49 @@ fn check_cache_roundtrip() {
     let mut corrupted = first.clone();
     corrupted[CACHE_HEADER_BYTES] ^= 1;
     assert!(matches!(
-        rustred::ReductionTable::read(family.clone(), corrupted.as_slice()),
-        Err(rustred::ReductionCacheError::InvalidFormat(message))
+        rustred_legacy_oracles::ReductionTable::read(family.clone(), corrupted.as_slice()),
+        Err(rustred_legacy_oracles::ReductionCacheError::InvalidFormat(message))
             if message.contains("checksum")
     ));
 
     // Both a short payload and bytes beyond the declared payload are invalid.
     assert!(matches!(
-        rustred::ReductionTable::read(family.clone(), &first[..first.len() - 1]),
-        Err(rustred::ReductionCacheError::Io(error))
+        rustred_legacy_oracles::ReductionTable::read(family.clone(), &first[..first.len() - 1]),
+        Err(rustred_legacy_oracles::ReductionCacheError::Io(error))
             if error.kind() == std::io::ErrorKind::UnexpectedEof
     ));
     let mut trailing = first.clone();
     trailing.push(0);
     assert!(matches!(
-        rustred::ReductionTable::read(family.clone(), trailing.as_slice()),
-        Err(rustred::ReductionCacheError::InvalidFormat(message))
+        rustred_legacy_oracles::ReductionTable::read(family.clone(), trailing.as_slice()),
+        Err(rustred_legacy_oracles::ReductionCacheError::InvalidFormat(message))
             if message.contains("trailing bytes")
     ));
 
     // Caller-provided limits are enforced on both input and output paths.
-    let payload_limited = rustred::ReductionCacheLimits {
+    let payload_limited = rustred_legacy_oracles::ReductionCacheLimits {
         max_payload_bytes: 0,
-        ..rustred::ReductionCacheLimits::default()
+        ..rustred_legacy_oracles::ReductionCacheLimits::default()
     };
     assert!(matches!(
-        rustred::ReductionTable::read_with_limits(
+        rustred_legacy_oracles::ReductionTable::read_with_limits(
             family.clone(),
             first.as_slice(),
             payload_limited,
         ),
-        Err(rustred::ReductionCacheError::ResourceLimit(_))
+        Err(rustred_legacy_oracles::ReductionCacheError::ResourceLimit(
+            _
+        ))
     ));
-    let rule_limited = rustred::ReductionCacheLimits {
+    let rule_limited = rustred_legacy_oracles::ReductionCacheLimits {
         max_rules: 0,
-        ..rustred::ReductionCacheLimits::default()
+        ..rustred_legacy_oracles::ReductionCacheLimits::default()
     };
     assert!(matches!(
         table.write_with_limits(Vec::new(), rule_limited),
-        Err(rustred::ReductionCacheError::ResourceLimit(_))
+        Err(rustred_legacy_oracles::ReductionCacheError::ResourceLimit(
+            _
+        ))
     ));
 
     // Algebraically identical denominators under a different family identity
@@ -528,8 +534,8 @@ fn check_cache_roundtrip() {
     )
     .unwrap();
     assert!(matches!(
-        rustred::ReductionTable::read(differently_named_family, first.as_slice()),
-        Err(rustred::ReductionCacheError::InvalidFormat(message))
+        rustred_legacy_oracles::ReductionTable::read(differently_named_family, first.as_slice()),
+        Err(rustred_legacy_oracles::ReductionCacheError::InvalidFormat(message))
             if message.contains("fingerprint")
     ));
 }

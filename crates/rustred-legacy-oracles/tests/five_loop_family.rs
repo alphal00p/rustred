@@ -1,5 +1,6 @@
-use rustred::{ExactRational, IbpGenerator, Integral};
+use rustred::ExactRational;
 use rustred_legacy_oracles::equal_mass_five_loop_banana;
+use rustred_legacy_oracles::{IbpGenerator, Integral};
 
 // Keep every Symbolica-backed structural check on one restricted worker.
 #[test]

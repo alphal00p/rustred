@@ -1,6 +1,6 @@
 //! Bridge between Lorentz tensor projection and scalar integral reduction.
 //!
-//! [`VacuumTensorProjector`](crate::VacuumTensorProjector) leaves contracted
+//! [`VacuumTensorProjector`](rustred::VacuumTensorProjector) leaves contracted
 //! loop momenta as scalar-product monomials.  This module expands those
 //! monomials in a [`VacuumFamily`](crate::VacuumFamily)'s complete denominator
 //! basis, lowering denominator powers in the corresponding scalar integral.
@@ -9,10 +9,10 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::{
-    Coefficient, FamilyError, Integral, LinearCombination, MetricPairing, ReductionError,
-    ReductionTable, TensorReduction, VacuumFamily,
+use super::{
+    FamilyError, Integral, LinearCombination, ReductionError, ReductionTable, VacuumFamily,
 };
+use rustred::{Coefficient, MetricPairing, TensorReduction};
 
 /// Default cap on distinct denominator monomials produced while expanding one
 /// projected tensor term.

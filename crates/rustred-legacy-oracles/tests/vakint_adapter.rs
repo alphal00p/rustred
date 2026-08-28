@@ -1,8 +1,8 @@
 // Keep every Symbolica-backed adapter check on one test worker.  The restricted
 // Symbolica license used in CI permits one process and requires first-thread use.
 
-use rustred::Integral;
 use rustred::legacy_oracle_support::symbolica_atom::{Atom, AtomCore, try_parse};
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     TwoLoopReductionConfig, VakintAdapterError, VakintAdapterLimits, VakintTwoLoopAdapter,
 };

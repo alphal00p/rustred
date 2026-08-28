@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 
-use symbolica::prelude::AtomCore;
-
-use crate::ibp::{IbpGenerationError, IbpGenerator, IbpIdentity};
-use crate::{Integral, LinearCombination, VacuumFamily};
+use super::ibp::{IbpGenerationError, IbpGenerator, IbpIdentity};
+use super::{Integral, LinearCombination, VacuumFamily};
+use rustred::legacy_oracle_support::symbolica_atom::AtomCore;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SeedConfig {

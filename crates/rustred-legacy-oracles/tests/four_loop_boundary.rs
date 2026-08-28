@@ -1,8 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rustred::{
-    CoefficientContext, Denominator, ExactRational, Integral, MasterProduct, VacuumFamily,
-};
+use rustred::{CoefficientContext, ExactRational, MasterProduct};
+use rustred_legacy_oracles::{Denominator, Integral, VacuumFamily};
 use rustred_legacy_oracles::{
     FourLoopBoundaryConfig, FourLoopBoundaryError, FourLoopBoundaryReducer, FourLoopScalarClass,
     FourLoopTopology, MassiveVacuumMaster, equal_mass_four_loop_vacuum,

@@ -77,7 +77,7 @@ The existing components have the following precise status:
 - [`three_loop_pipeline.rs`](../../crates/rustred-legacy-oracles/src/three_loop_pipeline.rs) proves only its
   configured finite target box, although larger boxes may be built;
 - [`tensor.rs`](../../src/tensor.rs) and
-  [`tensor_family.rs`](../../src/tensor_family.rs) already provide the native
+  [`tensor_family.rs`](../../crates/rustred-legacy-oracles/src/concrete_engine/tensor_family.rs) already provide the native
   tensor projection and complete-basis denominator lowering needed before
   scalar reduction.
 

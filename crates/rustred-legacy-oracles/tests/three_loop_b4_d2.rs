@@ -215,7 +215,7 @@ fn native_b4_d2_shell_closes_all_three_scalar_orbits_and_replays() {
             .symmetries()
             .iter()
             .map(|permutation| {
-                rustred::Integral::new(
+                rustred_legacy_oracles::Integral::new(
                     permutation
                         .iter()
                         .map(|source| representative.powers()[*source])

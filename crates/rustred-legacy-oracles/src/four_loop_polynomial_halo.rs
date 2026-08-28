@@ -22,10 +22,10 @@ use crate::{
     FourLoopGenuineWitness, FourLoopHaloConfig, FourLoopHaloError, FourLoopHaloMapper,
     FourLoopNextRawRowId, FourLoopTopology, equal_mass_four_loop_vacuum,
 };
-use rustred::{
-    Coefficient, IbpGenerationError, IbpGenerator, IbpIdentity, Integral, LinearCombination,
-    VacuumFamily,
+use crate::{
+    IbpGenerationError, IbpGenerator, IbpIdentity, Integral, LinearCombination, VacuumFamily,
 };
+use rustred::Coefficient;
 
 const BASIS: usize = 10;
 
@@ -1427,8 +1427,8 @@ impl From<IbpGenerationError> for FourLoopPolynomialHaloError {
     }
 }
 
-impl From<rustred::FamilyError> for FourLoopPolynomialHaloError {
-    fn from(error: rustred::FamilyError) -> Self {
+impl From<crate::FamilyError> for FourLoopPolynomialHaloError {
+    fn from(error: crate::FamilyError) -> Self {
         Self::Halo(FourLoopHaloError::Family(error))
     }
 }

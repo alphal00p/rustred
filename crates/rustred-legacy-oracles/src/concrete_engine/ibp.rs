@@ -1,4 +1,5 @@
-use crate::{Integral, LinearCombination, VacuumFamily};
+use super::{Integral, LinearCombination, VacuumFamily};
+use rustred::Coefficient;
 
 #[derive(Clone, Debug)]
 pub struct IbpIdentity {
@@ -195,7 +196,7 @@ impl<'family> IbpGenerator<'family> {
         &self,
         equation: &mut LinearCombination,
         integral: Integral,
-        coefficient: crate::Coefficient,
+        coefficient: Coefficient,
         canonicalize: bool,
     ) {
         if canonicalize {

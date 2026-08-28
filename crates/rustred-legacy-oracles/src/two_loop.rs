@@ -13,14 +13,13 @@
 
 use std::fmt;
 
-use rustred::family::PropagatorSign;
+use crate::PropagatorSign;
+use crate::{Integral, LinearCombination, VacuumFamily};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
-use rustred::{
-    Coefficient, Integral, LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-};
+use rustred::{Coefficient, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 /// Resource bound for one direct analytic two-loop boundary reduction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

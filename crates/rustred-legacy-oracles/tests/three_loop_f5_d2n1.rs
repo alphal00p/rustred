@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use rustred::Integral;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     THREE_LOOP_F5_D2N1_CANONICAL_REPRESENTATIVE_POWERS, THREE_LOOP_F5_D2N1_IBPS_PER_TARGET,
     THREE_LOOP_F5_D2N1_LABELLED_TARGET_POWERS, THREE_LOOP_F5_D2N1_NATIVE_IDENTITIES,

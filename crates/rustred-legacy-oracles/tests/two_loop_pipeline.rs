@@ -1,4 +1,5 @@
-use rustred::{IbpGenerator, Integral, SparseReducer};
+use rustred_legacy_oracles::{IbpGenerator, Integral, SparseReducer};
+
 use rustred_legacy_oracles::families::equal_mass_two_loop_vacuum;
 use rustred_legacy_oracles::two_loop_pipeline::{
     TwoLoopPipelineError, TwoLoopReductionConfig, TwoLoopReductionPipeline,
@@ -6,7 +7,7 @@ use rustred_legacy_oracles::two_loop_pipeline::{
 
 fn coefficient_or_zero(
     pipeline: &TwoLoopReductionPipeline,
-    reduction: &rustred::LinearCombination,
+    reduction: &rustred_legacy_oracles::LinearCombination,
     master: &Integral,
 ) -> rustred::Coefficient {
     reduction
@@ -142,11 +143,11 @@ fn check_identity_provenance(pipeline: &TwoLoopReductionPipeline) {
         .into_iter()
         .find(|identity| !identity.equation.is_zero())
         .unwrap();
-    forged.equation = rustred::LinearCombination::new();
+    forged.equation = rustred_legacy_oracles::LinearCombination::new();
     assert!(matches!(
         pipeline.validate_identities(&[forged]),
         Err(TwoLoopPipelineError::Reduction(
-            rustred::ReductionError::IdentityEquationMismatch { .. }
+            rustred_legacy_oracles::ReductionError::IdentityEquationMismatch { .. }
         ))
     ));
 }

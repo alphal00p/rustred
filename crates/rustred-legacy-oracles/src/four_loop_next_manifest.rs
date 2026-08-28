@@ -18,7 +18,7 @@ use crate::{
     FourLoopGenuineClassifier, FourLoopGenuineConfig, FourLoopGenuineCornerType,
     FourLoopGenuineError, FourLoopTopology, four_loop_corner_seed,
 };
-use rustred::{IbpGenerationError, IbpGenerator, Integral};
+use crate::{IbpGenerationError, IbpGenerator, Integral};
 
 const LOOPS: usize = 4;
 const BASIS: usize = 10;

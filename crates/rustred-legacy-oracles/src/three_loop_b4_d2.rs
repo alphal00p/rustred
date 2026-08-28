@@ -19,15 +19,16 @@ use std::error::Error;
 use std::fmt;
 
 use crate::three_loop::equal_mass_three_loop_tetrahedron;
+use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination, VacuumFamily,
+};
 use crate::{ThreeLoopBoundaryConfig, ThreeLoopBoundaryError, ThreeLoopBoundaryReducer};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::{
-    Coefficient, CoefficientContext, FamilyError, IbpGenerationError, IbpGenerator, Integral,
-    LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-    canonical_symbolica_atom,
+    Coefficient, CoefficientContext, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, canonical_symbolica_atom,
 };
 
 const DENOMINATORS: usize = 6;

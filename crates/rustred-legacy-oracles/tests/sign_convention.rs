@@ -1,10 +1,11 @@
-use rustred::family::PropagatorSign;
-use rustred::{Coefficient, ExactRational, IbpGenerator, Integral, LinearCombination};
+use rustred::{Coefficient, ExactRational};
+use rustred_legacy_oracles::PropagatorSign;
 use rustred_legacy_oracles::families::{
     equal_mass_two_loop_vacuum, equal_mass_two_loop_vacuum_reversed,
 };
 use rustred_legacy_oracles::two_loop::TwoLoopBoundaryReducer;
 use rustred_legacy_oracles::two_loop_pipeline::{TwoLoopReductionConfig, TwoLoopReductionPipeline};
+use rustred_legacy_oracles::{IbpGenerator, Integral, LinearCombination};
 
 fn odd_total_power(integral: &Integral) -> bool {
     integral

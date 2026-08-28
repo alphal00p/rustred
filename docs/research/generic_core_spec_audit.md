@@ -4,7 +4,9 @@ Date: 2026-08-13
 
 Status: historical source audit. Its mathematical formula checks remain useful;
 LiteRed2's internal traversal or row order is not a governing RustRed
-compatibility requirement.
+compatibility requirement. The concrete components discussed below have since
+moved to the publish-disabled `rustred-legacy-oracles` package and are not
+default-core APIs.
 
 ## Scope and method
 
@@ -96,7 +98,7 @@ The current `CoefficientContext::parse` passes a nominal map but does not
 verify the returned map
 ([`src/coefficient.rs:358-363`](../../src/coefficient.rs#L358)), while
 `LinearCombination::add_term` adds coefficients without a context check
-([`src/linear.rs:40-54`](../../src/linear.rs#L40)).  These APIs may remain
+([`concrete_engine/linear.rs:40-54`](../../crates/rustred-legacy-oracles/src/concrete_engine/linear.rs#L40)).  These APIs may remain
 compatibility surfaces, but the generic core cannot reuse them unwrapped.
 
 ### G2 — Blocker: the LI construction needs an explicit weighted translation formula
@@ -260,8 +262,8 @@ with an optional external-Gram guard.
 
 The existing matrix path is not reusable for the generic case:
 `Denominator::quadratic_form` and `inverse_basis` contain `ExactRational`
-([`src/family.rs:13-18`](../../src/family.rs#L13),
-[`169-177`](../../src/family.rs#L169)), and `invert_matrix` only accepts a
+([`concrete_engine/family.rs:13-18`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L13),
+[`169-177`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L169)), and `invert_matrix` only accepts a
 nonempty square matrix of that type
 ([`src/exact.rs:158-205`](../../src/exact.rs#L158)).  Its `i64` arithmetic also
 panics on overflow
@@ -291,7 +293,7 @@ generator.
 This also forbids the common concrete optimization “skip denominator `r` when
 `n_r == 0`” in a power-shifted family: `n_r+nu_r` may still be nonzero.  The
 current vacuum generator does exactly that at
-[`src/ibp.rs:80-83`](../../src/ibp.rs#L80), but it has no power-shift model and
+[`concrete_engine/ibp.rs:80-83`](../../crates/rustred-legacy-oracles/src/concrete_engine/ibp.rs#L80), but it has no power-shift model and
 must remain only a zero-shift compatibility oracle.
 
 ### G6 — Major: specify the scalar-product derivative convention explicitly
@@ -325,7 +327,7 @@ the factor encoded by `2^Boole[#1===lm]` in LiteRed at
 [`LiteRed2026.m:1817`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1817).  The
 current vacuum implementation contains a useful independent reference for the
 loop-loop cases at
-[`src/family.rs:1009-1025`](../../src/family.rs#L1009), but it has no
+[`concrete_engine/family.rs:1009-1025`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L1009), but it has no
 loop-external or external-external cases.
 
 The family constructor must require distinct loop identities, distinct
@@ -377,7 +379,7 @@ contraction momentum major and differentiated loop minor
 comes from `Outer[...,qms,lms]` followed by `Flatten` at
 [`LiteRed2026.m:1813-1819`](../../vendor/LiteRed2/Source/LiteRed2026.m#L1813).
 The current vacuum generator iterates differentiated loop first at
-[`src/ibp.rs:49-58`](../../src/ibp.rs#L49), so preserving its vector order
+[`concrete_engine/ibp.rs:49-58`](../../crates/rustred-legacy-oracles/src/concrete_engine/ibp.rs#L49), so preserving its vector order
 would be a structural mismatch even in the `E=0` adapter.
 
 For deterministic combined output, use:
@@ -391,8 +393,8 @@ For deterministic combined output, use:
 
 LiteRed's integer lattice is not `i32`-bounded.  The current `Integral` stores
 `Vec<i32>` and specializes shifts through checked `i32` conversion
-([`src/integral.rs:5-18`](../../src/integral.rs#L5),
-[`50-62`](../../src/integral.rs#L50)).  The generic core should either use an
+([`concrete_engine/integral.rs:5-18`](../../crates/rustred-legacy-oracles/src/concrete_engine/integral.rs#L5),
+[`50-62`](../../crates/rustred-legacy-oracles/src/concrete_engine/integral.rs#L50)).  The generic core should either use an
 arbitrary-precision integer key or make every boundary and addition checked
 and return a typed range error.  Silent saturation, wrapping, or a panic is not
 acceptable.  `N` and `L*(L+E)` also need checked `usize` arithmetic and resource
@@ -532,16 +534,16 @@ relation or a typed failure, never a partially evaluated coefficient.
 The authoritative specification is correct to classify the existing modules
 as compatibility/oracle layers.  They do not yet implement this slice:
 
-| Current component | Useful part | Generic-core gap |
+| Historical concrete component | Useful part | Generic-core gap |
 |---|---|---|
 | [`CoefficientContext`](../../src/coefficient.rs#L88) | canonical Symbolica constants, exact arithmetic, and a variable-map equality check | no base/parametric role split, no strict parsed-map check, no arbitrary extension/remap/substitution, empty `K` rejected |
-| [`VacuumFamily`](../../src/family.rs#L168) | loop-loop coordinate ordering, rational basis inversion, and derivative-factor reference | no externals, `A` restricted to `ExactRational`, no power shifts, no symbolic determinant domain |
-| [`IbpGenerator`](../../src/ibp.rs#L11) | concrete zero-shift vacuum derivative oracle and uncanonicalized debug path | concrete seeds only, `L^2` rows, wrong structural row nesting for LiteRed, no LI, no power shifts |
-| [`Integral`](../../src/integral.rs#L5) | typed concrete key with checked shifting | `i32` lattice and no family identity |
-| [`LinearCombination`](../../src/linear.rs#L7) | sparse duplicate combination | no family/context authentication; Symbolica may unify a foreign coefficient map |
+| [`VacuumFamily`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L168) | loop-loop coordinate ordering, rational basis inversion, and derivative-factor reference | no externals, `A` restricted to `ExactRational`, no power shifts, no symbolic determinant domain |
+| [`IbpGenerator`](../../crates/rustred-legacy-oracles/src/concrete_engine/ibp.rs#L11) | concrete zero-shift vacuum derivative oracle and uncanonicalized debug path | concrete seeds only, `L^2` rows, wrong structural row nesting for LiteRed, no LI, no power shifts |
+| [`Integral`](../../crates/rustred-legacy-oracles/src/concrete_engine/integral.rs#L5) | typed concrete key with checked shifting | `i32` lattice and no family identity |
+| [`LinearCombination`](../../crates/rustred-legacy-oracles/src/concrete_engine/linear.rs#L7) | sparse duplicate combination | no family/context authentication; Symbolica may unify a foreign coefficient map |
 
-The safest implementation boundary is therefore a new generic family/context/
-relation layer, followed by a deliberately checked adapter to these concrete
-types for oracle comparisons.  Extending `VacuumFamily` or `IbpGenerator` in
-place would make it too easy to retain their rational-only matrix, loop-only
-row ordering, concrete canonicalization, or unguarded coefficient composition.
+The implemented boundary is therefore a generic family/context/relation layer
+in core, with the old concrete types retained downstream only for oracle
+comparisons. Extending `VacuumFamily` or `IbpGenerator` in place would make it
+too easy to retain their rational-only matrix, loop-only row ordering,
+concrete canonicalization, or unguarded coefficient composition.

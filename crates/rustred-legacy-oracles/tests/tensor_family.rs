@@ -1,7 +1,9 @@
 use rustred::{
-    CoefficientContext, Denominator, ExactRational, FamilyError, IndexedVector, Integral,
-    LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct, ScalarProductMonomial,
-    SparseReducer, TensorFamilyReducer, TensorMonomial, VacuumFamily, VacuumTensorProjector,
+    CoefficientContext, ExactRational, IndexedVector, LoopVector, LorentzIndex, Metric,
+    MetricPairing, ScalarProduct, ScalarProductMonomial, TensorMonomial, VacuumTensorProjector,
+};
+use rustred_legacy_oracles::{
+    Denominator, FamilyError, Integral, SparseReducer, TensorFamilyReducer, VacuumFamily,
 };
 
 fn equal_mass_two_loop_vacuum() -> Result<VacuumFamily, FamilyError> {
@@ -108,7 +110,7 @@ fn tensor_numerators_lower_to_family_integrals() {
         TensorFamilyReducer::new(&family)
             .with_max_expansion_operations(1)
             .lower(&base, &projected),
-        Err(rustred::TensorFamilyError::OperationLimit { limit: 1, .. })
+        Err(rustred_legacy_oracles::TensorFamilyError::OperationLimit { limit: 1, .. })
     ));
     let lowered = lowering.lower(&base, &projected).unwrap();
     let scalar = lowered.coefficient(&MetricPairing::empty()).unwrap();

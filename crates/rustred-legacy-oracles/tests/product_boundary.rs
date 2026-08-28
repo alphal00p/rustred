@@ -1,7 +1,8 @@
-use rustred::{CoefficientContext, Denominator, ExactRational, Integral, VacuumFamily};
+use rustred::{CoefficientContext, ExactRational};
 use rustred_legacy_oracles::families::{
     equal_mass_two_loop_vacuum, equal_mass_two_loop_vacuum_reversed,
 };
+use rustred_legacy_oracles::{Denominator, Integral, VacuumFamily};
 use rustred_legacy_oracles::{
     ProductBoundaryConfig, ProductBoundaryError, ProductBoundaryReducer,
     equal_mass_five_loop_banana, equal_mass_four_loop_h,
@@ -263,7 +264,7 @@ fn exact_unimodular_product_boundaries() {
         },
     )
     .unwrap();
-    let mut too_many_terms = rustred::LinearCombination::new();
+    let mut too_many_terms = rustred_legacy_oracles::LinearCombination::new();
     too_many_terms.add_term(
         Integral::from([0, 1, 1]),
         combination_limited.family().coefficients().one(),
@@ -281,7 +282,7 @@ fn exact_unimodular_product_boundaries() {
         })
     ));
 
-    let mut too_many_steps = rustred::LinearCombination::new();
+    let mut too_many_steps = rustred_legacy_oracles::LinearCombination::new();
     too_many_steps.add_term(
         Integral::from([0, 2, 1]),
         combination_limited.family().coefficients().one(),
@@ -320,7 +321,7 @@ fn exact_unimodular_product_boundaries() {
         },
     )
     .unwrap();
-    let mut late_aggregate_failure = rustred::LinearCombination::new();
+    let mut late_aggregate_failure = rustred_legacy_oracles::LinearCombination::new();
     late_aggregate_failure.add_term(
         Integral::from([0, 65_536, 1]),
         aggregate_preflight.family().coefficients().one(),
@@ -351,7 +352,7 @@ fn exact_unimodular_product_boundaries() {
         },
     )
     .unwrap();
-    let mut recurrence_free = rustred::LinearCombination::new();
+    let mut recurrence_free = rustred_legacy_oracles::LinearCombination::new();
     recurrence_free.add_term(
         Integral::from([3, 0, 0]),
         zero_work.family().coefficients().one(),
@@ -366,7 +367,7 @@ fn exact_unimodular_product_boundaries() {
     );
     zero_work.reduce_combination(&recurrence_free).unwrap();
 
-    let mut one_recurrence = rustred::LinearCombination::new();
+    let mut one_recurrence = rustred_legacy_oracles::LinearCombination::new();
     one_recurrence.add_term(
         Integral::from([0, 2, 1]),
         zero_work.family().coefficients().one(),
@@ -390,7 +391,7 @@ fn exact_unimodular_product_boundaries() {
     .unwrap();
     assert!(
         zero_terms
-            .reduce_combination(&rustred::LinearCombination::new())
+            .reduce_combination(&rustred_legacy_oracles::LinearCombination::new())
             .unwrap()
             .is_zero()
     );

@@ -20,10 +20,9 @@ use crate::four_loop_genuine::{
     FourLoopGenuineClassifier, FourLoopGenuineCornerType, FourLoopGenuineError,
     FourLoopGenuineWitness,
 };
+use crate::{Denominator, FamilyError, Integral, LinearCombination, VacuumFamily};
 use rustred::master_product::MasterProduct;
-use rustred::{
-    Coefficient, Denominator, ExactRational, FamilyError, Integral, LinearCombination, VacuumFamily,
-};
+use rustred::{Coefficient, ExactRational};
 
 const LOOPS: usize = 4;
 const BASIS: usize = 10;

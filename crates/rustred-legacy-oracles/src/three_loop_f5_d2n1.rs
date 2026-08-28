@@ -4,7 +4,7 @@
 //! Its five surviving outputs are *candidate* terminals of the bounded pipeline,
 //! not a proof that they are masters of the unrestricted family.  Source weights
 //! and exceptional factors are inherited from that pipeline rather than exposed
-//! as a standalone certificate here: the current [`rustred::ReductionTable`] does
+//! as a standalone certificate here: the current [`crate::ReductionTable`] does
 //! not persist source-row weights or a separate exceptional-factor list.  Thus
 //! this wrapper certifies exact deterministic reconstruction and native-row
 //! replay over `Q(d,m2)`; its formulae retain the usual caveat that denominator
@@ -13,11 +13,11 @@
 use std::fmt;
 
 use crate::three_loop::equal_mass_three_loop_tetrahedron;
-use crate::{ThreeLoopPipelineError, ThreeLoopReductionConfig, ThreeLoopReductionPipeline};
-use rustred::{
+use crate::{
     FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination, ReductionStats,
     VacuumFamily,
 };
+use crate::{ThreeLoopPipelineError, ThreeLoopReductionConfig, ThreeLoopReductionPipeline};
 
 /// Fixed-mask F5 targets: five positive lines, line five inactive with one
 /// numerator power, and total dot degree two.

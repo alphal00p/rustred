@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::VacuumFamily;
 use crate::{
     FOUR_LOOP_NEXT_MANIFEST_SEED_CHECKSUM, FourLoopBoundaryError, FourLoopNextBoundaryKey,
     FourLoopNextInventory, FourLoopNextInventoryError, FourLoopNextInventoryStatus,
@@ -23,7 +24,7 @@ use rustred::legacy_oracle_support::exact_matrix::{
 };
 use rustred::{
     Coefficient, ExactRational, IndexedVector, LoopVector, LorentzIndex, TensorError,
-    TensorMonomial, VacuumFamily, VacuumTensorProjector,
+    TensorMonomial, VacuumTensorProjector,
 };
 
 const LOOPS: usize = 4;
@@ -1886,7 +1887,7 @@ fn evaluate_quadratic_form(
 fn verify_affine_probes(
     leaf_id: u32,
     family: &VacuumFamily,
-    source: &rustred::Denominator,
+    source: &crate::Denominator,
     loop_map: &[Vec<ExactRational>],
     basis_entries: &[InternalBasisEntry],
     image: &FourLoopComponentAffineImage,

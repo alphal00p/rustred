@@ -36,7 +36,7 @@ sources as text.  In particular:
   coefficient recurrences are in [`crates/rustred-legacy-oracles/src/two_loop.rs`](../../crates/rustred-legacy-oracles/src/two_loop.rs);
 - the exact global tensor projector and scalar-product lowering bridge are in
   [`src/tensor.rs`](../../src/tensor.rs) and
-  [`src/tensor_family.rs`](../../src/tensor_family.rs);
+  [`concrete_engine/tensor_family.rs`](../../crates/rustred-legacy-oracles/src/concrete_engine/tensor_family.rs);
 - LiteRed2's `DAverage` implements the same componentwise isotropic pairing
   recursion in [`Vectors.m:617-640`](../../vendor/LiteRed2/Source/RNL/Vectors.m#L617);
 - Vakint registers precisely the same six I3L momenta in
@@ -101,7 +101,7 @@ canonical[target] = input[permutation[target]]
 ```
 
 and chooses the lexicographically greatest power vector
-([`src/family.rs:526-547`](../../src/family.rs#L526)).  The edge permutations
+([`concrete_engine/family.rs:526-547`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L526)).  The edge permutations
 are enough to transport a scalar boundary numerator, but this ordinary
 full-vector ordering is **not** the right way to choose its factorization
 representative.  An executed test with unequal active dots showed that full
@@ -138,7 +138,7 @@ and numerator powers only as the tie-break inside a fixed representative.
 The situation changes if a tensor numerator still contains explicit
 \(k_i^\mu\).  The current family constructor proves a geometric symmetry by
 finding an exact transformation with determinant \(\pm1\), but discards it
-([`src/family.rs:792-867`](../../src/family.rs#L792)).  The scalar
+([`concrete_engine/family.rs:792-867`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L792)).  The scalar
 `canonicalize` result also does not say which symmetry won.  Reconstructing the
 map after the fact is ambiguous when the power vector has a stabilizer.
 
@@ -677,7 +677,7 @@ The global projector is valid before factorization because it uses only the
 global vacuum `O(d)` invariance and solves the exact metric-pairing Gram matrix
 ([`src/tensor.rs:658-900`](../../src/tensor.rs#L658)).  The lowering bridge
 then expresses every scalar product in the complete six-denominator basis
-([`src/tensor_family.rs:131-238`](../../src/tensor_family.rs#L131)).  At that
+([`concrete_engine/tensor_family.rs:131-238`](../../crates/rustred-legacy-oracles/src/concrete_engine/tensor_family.rs#L131)).  At that
 point all numerator information is encoded in signed powers, so scalar `S4`
 canonicalization needs no momentum witness.
 

@@ -1,6 +1,7 @@
 //! Built-in integral families used by validation milestones.
 
-use rustred::{CoefficientContext, Denominator, ExactRational, FamilyError, VacuumFamily};
+use crate::{Denominator, FamilyError, VacuumFamily};
+use rustred::{CoefficientContext, ExactRational};
 
 /// The equal-mass two-loop sunset family
 ///

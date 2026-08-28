@@ -1,4 +1,5 @@
-use rustred::{CoefficientContext, FamilyError};
+use rustred::CoefficientContext;
+use rustred_legacy_oracles::FamilyError;
 use rustred_legacy_oracles::{
     equal_mass_three_loop_tetrahedron, equal_mass_three_loop_tetrahedron_in_context,
 };

@@ -21,14 +21,15 @@ use crate::five_loop_boundary::{
     FIVE_LOOP_BANANA_S6_ORDER, FiveLoopBananaBoundaryConfig, FiveLoopBananaBoundaryError,
     FiveLoopBananaBoundaryReducer, five_loop_banana_oriented_line_routing,
 };
+use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination, VacuumFamily,
+};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::{
-    Coefficient, CoefficientContext, FamilyError, IbpGenerationError, IbpGenerator, Integral,
-    LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-    canonical_symbolica_atom,
+    Coefficient, CoefficientContext, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, canonical_symbolica_atom,
 };
 
 pub const FIVE_LOOP_BANANA_D3_SEED_ORBITS: usize = 4;

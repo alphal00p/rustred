@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
-use symbolica::prelude::*;
+use rustred::legacy_oracle_support::symbolica_atom::{Atom, Symbol};
 
-use crate::{Coefficient, Integral};
+use super::Integral;
+use rustred::Coefficient;
 
 /// A sparse linear combination of integrals with exact Symbolica coefficients.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

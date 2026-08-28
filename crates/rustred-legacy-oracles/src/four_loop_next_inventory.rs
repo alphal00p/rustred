@@ -13,6 +13,7 @@ use std::fmt::Write as _;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
+use crate::{FamilyError, Integral, VacuumFamily};
 use crate::{
     FourLoopBoundaryError, FourLoopBoundaryReducer, FourLoopFactorizationWitness,
     FourLoopGenuineClassifier, FourLoopGenuineConfig, FourLoopGenuineCornerType,
@@ -26,10 +27,7 @@ use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
-use rustred::{
-    Coefficient, FamilyError, Integral, MasterProduct, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
-    VacuumFamily,
-};
+use rustred::{Coefficient, MasterProduct, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 const BASIS: usize = 10;
 const RECURSIVE_BRANCH_SLOTS: usize = 2;

@@ -26,15 +26,14 @@ use crate::families::equal_mass_two_loop_vacuum;
 use crate::two_loop::{
     TwoLoopBoundaryConfig, TwoLoopBoundaryError, TwoLoopBoundaryReducer, pair_sector_work_estimate,
 };
-use rustred::ibp::IbpGenerator;
+use crate::{
+    Denominator, FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination,
+    VacuumFamily,
+};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
 };
-use rustred::legacy_oracle_support::vacuum_derivative_contraction_parts;
-use rustred::{
-    Coefficient, Denominator, ExactRational, FamilyError, IbpGenerationError, Integral,
-    LinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-};
+use rustred::{Coefficient, ExactRational, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 /// The native raw-row weights `E00-E01` at the oriented seed `a-e1`.
 pub const TWO_LOOP_TOP_DOT_IBP_WEIGHTS: [[i8; 2]; 2] = [[1, -1], [0, 0]];
@@ -712,19 +711,17 @@ impl TwoLoopTopDotReducer {
                 if power == 0 {
                     continue;
                 }
-                let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
-                    &self.family,
-                    denominator,
-                    0,
-                    contraction_loop,
-                );
-                if !constant.is_zero() {
+                let contraction =
+                    self.family
+                        .derivative_contraction(denominator, 0, contraction_loop);
+                if !contraction.constant.is_zero() {
                     raw_terms += 1;
                     let mut shift = [0_i32; 3];
                     shift[denominator] = 1;
                     checked_shift(seed, shift)?;
                 }
-                for (cancelled, _) in denominator_coefficients
+                for (cancelled, _) in contraction
+                    .denominator_coefficients
                     .iter()
                     .enumerate()
                     .filter(|(_, coefficient)| !coefficient.is_zero())

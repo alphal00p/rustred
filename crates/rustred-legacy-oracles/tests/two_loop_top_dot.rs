@@ -1,12 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
-use rustred::{
-    Coefficient, CoefficientContext, Denominator, Integral, LinearCombination, VacuumFamily,
-};
+use rustred::{Coefficient, CoefficientContext};
 use rustred_legacy_oracles::families::{
     equal_mass_two_loop_vacuum, equal_mass_two_loop_vacuum_reversed,
 };
+use rustred_legacy_oracles::{Denominator, Integral, LinearCombination, VacuumFamily};
 use rustred_legacy_oracles::{
     TWO_LOOP_TOP_DOT_EQUATION_TERM_BOUND, TWO_LOOP_TOP_DOT_IBP_WEIGHTS,
     TWO_LOOP_TOP_DOT_RAW_TERM_BOUND, TwoLoopReductionConfig, TwoLoopReductionPipeline,

@@ -20,11 +20,8 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use crate::three_loop::{THREE_LOOP_TETRAHEDRON_ROUTINGS, equal_mass_three_loop_tetrahedron};
-use rustred::ibp::IbpGenerator;
-use rustred::legacy_oracle_support::vacuum_derivative_contraction_parts;
-use rustred::{
-    Coefficient, Denominator, ExactRational, FamilyError, Integral, LinearCombination, VacuumFamily,
-};
+use crate::{Denominator, FamilyError, IbpGenerator, Integral, LinearCombination, VacuumFamily};
+use rustred::{Coefficient, ExactRational};
 
 pub const THREE_LOOP_F5_MASK: u8 = 31;
 pub const THREE_LOOP_B4_MASK: u8 = 43;
@@ -310,16 +307,16 @@ impl ThreeLoopProperDotReducer {
                     if power == 0 {
                         continue;
                     }
-                    let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
-                        &self.family,
+                    let contraction = self.family.derivative_contraction(
                         denominator,
                         differentiated_loop,
                         contraction_loop,
                     );
-                    if !constant.is_zero() {
+                    if !contraction.constant.is_zero() {
                         checked_indexed_shift(seed, &[(denominator, 1)])?;
                     }
-                    for (cancelled, _) in denominator_coefficients
+                    for (cancelled, _) in contraction
+                        .denominator_coefficients
                         .iter()
                         .enumerate()
                         .filter(|(_, coefficient)| !coefficient.is_zero())
@@ -354,21 +351,22 @@ impl ThreeLoopProperDotReducer {
                     if power == 0 {
                         continue;
                     }
-                    let (constant, denominator_coefficients) = vacuum_derivative_contraction_parts(
-                        &self.family,
+                    let contraction = self.family.derivative_contraction(
                         denominator,
                         differentiated_loop,
                         contraction_loop,
                     );
                     let derivative = self.family.coefficients().integer(-i64::from(power));
                     let row_factor = &weight * &derivative;
-                    if !constant.is_zero() {
+                    if !contraction.constant.is_zero() {
                         expected.add_term(
                             checked_indexed_shift(seed, &[(denominator, 1)])?,
-                            &row_factor * constant,
+                            &row_factor * &contraction.constant,
                         );
                     }
-                    for (cancelled, rational) in denominator_coefficients.iter().enumerate() {
+                    for (cancelled, rational) in
+                        contraction.denominator_coefficients.iter().enumerate()
+                    {
                         if rational.is_zero() {
                             continue;
                         }
@@ -780,7 +778,7 @@ pub enum ThreeLoopProperDotError {
         expected: LinearCombination,
         actual: LinearCombination,
     },
-    Ibp(rustred::IbpGenerationError),
+    Ibp(crate::IbpGenerationError),
     Family(FamilyError),
 }
 
@@ -904,8 +902,8 @@ impl std::error::Error for ThreeLoopProperDotError {
     }
 }
 
-impl From<rustred::IbpGenerationError> for ThreeLoopProperDotError {
-    fn from(value: rustred::IbpGenerationError) -> Self {
+impl From<crate::IbpGenerationError> for ThreeLoopProperDotError {
+    fn from(value: crate::IbpGenerationError) -> Self {
         Self::Ibp(value)
     }
 }

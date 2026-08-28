@@ -56,7 +56,6 @@ pub mod cylindrical_prepare_point_schedule;
 pub mod cylindrical_prepare_points;
 pub mod exact;
 pub mod exact_sparse_elimination;
-pub mod family;
 pub mod family_sector_inventory;
 pub mod feynman_polynomials;
 pub(crate) mod generated_affine_initial_global_affine_terminal;
@@ -137,12 +136,9 @@ pub mod generic_tensor_family;
 pub mod generic_tensor_polynomial;
 pub mod generic_tensor_projector;
 pub mod guards;
-pub mod ibp;
-pub mod integral;
 #[cfg(feature = "legacy-oracle-support")]
 #[doc(hidden)]
 pub mod legacy_oracle_support;
-pub mod linear;
 pub mod master_policy;
 pub mod master_product;
 pub mod parallel_execution;
@@ -155,7 +151,6 @@ pub mod parametric_sector_coverage;
 pub mod parametric_sector_provider;
 pub mod persistent_parametric_elimination;
 pub mod product_locus_boolean_cover;
-pub mod reduction;
 pub mod reduction_engine;
 pub mod residual_affine_atom_rows;
 pub mod residual_affine_branch_guard_composition;
@@ -175,7 +170,6 @@ pub mod symbolica_tensor_numerator;
 pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod tensor;
-pub mod tensor_family;
 pub mod tensor_reduction_engine;
 pub mod when_bad;
 pub mod zero_sector_provider;
@@ -318,10 +312,6 @@ pub use exact_sparse_elimination::{
     ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
     ExactSparseEliminationStats, ExactSparsePivotRule, ExactSparseRow,
-};
-pub use family::{
-    Denominator, FamilyConstructionLimits, FamilyError, PropagatorSign, ScalarProductExpansion,
-    VacuumFamily,
 };
 pub use family_sector_inventory::{
     FAMILY_SECTOR_INVENTORY_V1_SCHEMA, FORMAL_GENERIC_POWER_SHIFT_POLICY_V1_ID,
@@ -592,9 +582,6 @@ pub use generic_tensor_projector::{
     VacuumTensorProjectionWitness,
 };
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
-pub use ibp::{IbpGenerationError, IbpGenerator, IbpIdentity};
-pub use integral::Integral;
-pub use linear::LinearCombination;
 pub use master_policy::{
     MasterPolicyError, MasterPolicyLimits, MasterPolicyProvider, MasterPolicyTerminal,
 };
@@ -664,11 +651,6 @@ pub use product_locus_boolean_cover::{
     ResidualProductLocusBooleanDecision, ResidualProductLocusBooleanEmptyReason,
     ResidualProductLocusBooleanNode, ResidualProductLocusBooleanNodeOutcome,
     ResidualProductLocusBooleanPolarity,
-};
-pub use reduction::{
-    ReductionCacheError, ReductionCacheLimits, ReductionError, ReductionStats, ReductionTable,
-    SeedConfig, SeedGenerationError, SeedGenerationLimits, SparseReducer, generate_seeds,
-    try_generate_seeds, try_generate_seeds_with_limits,
 };
 pub use reduction_engine::{
     ConcreteRuleApplicationTrace, ConcreteRuleDecision, ConcreteRuleProvider,
@@ -783,10 +765,6 @@ pub use tensor::{
     IndexedVector, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
     ScalarProductMonomial, SlotPairing, TensorConstructionLimits, TensorError, TensorMonomial,
     TensorReduction, TensorTerm, VacuumTensorProjector, perfect_matching_count, perfect_matchings,
-};
-pub use tensor_family::{
-    DEFAULT_MAX_TENSOR_EXPANSION_OPERATIONS, DEFAULT_MAX_TENSOR_EXPANSION_TERMS, TensorFamilyError,
-    TensorFamilyReducer, TensorIntegralReduction,
 };
 pub use tensor_reduction_engine::{
     AUTHENTICATED_VACUUM_COVARIANT_TENSOR_LOWERING_V1_SCHEMA,

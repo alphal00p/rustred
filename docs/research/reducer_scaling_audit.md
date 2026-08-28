@@ -10,6 +10,11 @@ The deterministic multicore decomposition and multi-start scheduler are
 specified separately in
 [`parallel_campaign_foundry_design_2026-08-26.md`](parallel_campaign_foundry_design_2026-08-26.md).
 
+Architecture update (2026-08-28): the concrete `VacuumFamily`/`IbpGenerator`/
+`SparseReducer` stack measured here now lives in the publish-disabled
+`rustred-legacy-oracles` crate. It remains useful finite-oracle evidence, but
+none of its eager reduction architecture is linked into the default core.
+
 ## Scope and conclusion
 
 This audit covers RustRed's generic seed enumeration, momentum-space IBP
@@ -61,7 +66,7 @@ subsectors are enabled, nonpositive.  An auxiliary entry is always
 nonpositive.  Enumeration keeps `r <= max_dots` and
 `s <= max_numerator_degree`, removes scaleless integrals and exact permutation
 duplicates, then sorts by the family order
-([`src/reduction.rs:8-248`](../../src/reduction.rs#L8)).  This is the right
+([`concrete_engine/reduction.rs:8-248`](../../crates/rustred-legacy-oracles/src/concrete_engine/reduction.rs#L8)).  This is the right
 finite-domain semantics.
 
 For `P` physical propagators, `A` auxiliary scalar products, and all
@@ -104,7 +109,7 @@ a + e_r - e_s
 ```
 
 with the coefficient `-a_r`, plus the diagonal `d I(a)` term
-([`src/ibp.rs:31-114`](../../src/ibp.rs#L31)).  It checks exponent-vector
+([`concrete_engine/ibp.rs:31-114`](../../crates/rustred-legacy-oracles/src/concrete_engine/ibp.rs#L31)).  It checks exponent-vector
 arity and checked `i32` shifts, and production generation canonicalizes every
 term through exact zero and symmetry rules.  This agrees with LiteRed2's
 `GenerateIBP`, which constructs the same symbolic shifts once and evaluates
@@ -139,7 +144,7 @@ RustRed currently compares
 ```
 
 and treats the maximum as the pivot
-([`src/family.rs:620-649`](../../src/family.rs#L620)).  It is a total,
+([`concrete_engine/family.rs:620-649`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L620)).  It is a total,
 well-founded order on the bounded `i32` representation and has the essential
 dependency property: a proper subsector is easier because it has fewer active
 physical lines.
@@ -169,7 +174,7 @@ change; introduce an `order-v2` fingerprint.
 There is a separate symmetry subtlety.  `VacuumFamily::canonicalize` chooses
 the lexicographically largest exponent vector, not the maximum under
 `compare_integrals`
-([`src/family.rs:526-547`](../../src/family.rs#L526)).  This is mathematically
+([`concrete_engine/family.rs:526-547`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L526)).  This is mathematically
 valid as an orbit representative, but the representative sector can depend on
 where inactive negative powers sit.  For example the observed canonical
 terminal `I(2,1,-1,0,0,1)` is a three-edge factorized sector, yet its labelled
@@ -184,7 +189,7 @@ canonicalization always produces masks 7, 11, or 15.
 integral, and processes them once.  For every row it repeatedly scans all terms
 for a known pivot, substitutes a `HashMap` rule, divides by the new pivot, and
 stores a triangular rule
-([`src/reduction.rs:628-733`](../../src/reduction.rs#L628)).  Earlier rules are
+([`concrete_engine/reduction.rs:628-733`](../../crates/rustred-legacy-oracles/src/concrete_engine/reduction.rs#L628)).  Earlier rules are
 not back-substituted when later rules appear; recursive reduction supplies the
 final normal form.
 
@@ -193,7 +198,7 @@ This algorithm is exact.  Its performance costs are structural:
 - `LinearCombination` is a `BTreeMap<Integral,Coefficient>`, ordered by raw
   exponent lexicography rather than pivot hardness, so every leading-term
   query scans the row
-  ([`src/linear.rs:1-68`](../../src/linear.rs#L1));
+  ([`concrete_engine/linear.rs:1-68`](../../crates/rustred-legacy-oracles/src/concrete_engine/linear.rs#L1));
 - integral vectors and rational-polynomial coefficients are repeatedly cloned;
 - each substitution performs fully normalized Symbolica rational-polynomial
   additions and multiplications;
@@ -373,7 +378,7 @@ conditions are part of the rule guard and cannot be omitted.
 
 The current family layer never declares a positive auxiliary-denominator
 sector zero without the full Lee criterion
-([`src/family.rs:549-617`](../../src/family.rs#L549)).  Production seeds keep
+([`concrete_engine/family.rs:549-617`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L549)).  Production seeds keep
 auxiliaries nonpositive, so this is safe.  Four-/five-loop sector pruning still
 needs the parametric `G=U+F` rank/ideal test and monotone propagation used by
 LiteRed2's `AnalyzeSectors`

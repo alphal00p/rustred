@@ -143,8 +143,10 @@ Genuinely reusable pieces should stay default-public: `IntegralFamily` and
 family algebra, parametric IBP/LI generation, symmetry/sector analysis,
 generated row-span/elimination/coverage/provider layers, exact sparse
 elimination, generic tensor projectors/lowering, and the generic
-`MasterProduct<Id>` algebra. `tensor_family` already feature-gates its legacy
-pipeline adapters and its default test owns a local fixture. `product_boundary`
+`MasterProduct<Id>` algebra. The older concrete `tensor_family` lowering now
+lives with `VacuumFamily`, the concrete IBP generator, and the eager finite
+reducer inside the publish-disabled oracle crate. The authenticated
+`generic_tensor_family` lane remains default production. `product_boundary`
 is loop-count-parametric, but it embeds an authored equal-mass factorization
 formula; under the strict "derive, do not hardcode" rule it is quarantined as
 an optional oracle/optimization until the generic proof path
@@ -161,11 +163,12 @@ derives/authenticates the same result.
    `three_loop_*`, all authored/frozen `four_loop_*`, and `five_loop_*`) are
    owned by that crate. `vakint_adapter` and its test moved with them.
 3. Generic test coverage remains default-enabled:
-   `symmetry_discovery` already constructs local generic families;
-   `tensor_family` owns its equal-mass fixture locally. `product_boundary` and
-   `two_loop_vacuum` exercise authored/older finite paths and are in the legacy
-   suite, while the `certified_*`, `generated_*`, and
-   `vakint_two_loop_tensor_ibp_oracle` tests remain default generic acceptance.
+   `symmetry_discovery` already constructs local generic families, and
+   `generic_tensor_family` owns authenticated lowering coverage. The concrete
+   `tensor_family` fixture, `product_boundary`, and `two_loop_vacuum` exercise
+   authored/older finite paths and are in the legacy suite, while the
+   `certified_*`, `generated_*`, and `vakint_two_loop_tensor_ibp_oracle` tests
+   remain default generic acceptance.
 4. The package is a workspace member but not a default member, has
    `publish = false`, and depends directly only on `rustred` with default
    features disabled plus `legacy-oracle-support`. Reusable exact-matrix and

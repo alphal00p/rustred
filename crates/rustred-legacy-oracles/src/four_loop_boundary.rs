@@ -17,12 +17,13 @@ use std::mem::size_of;
 
 use crate::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
 use crate::three_loop::THREE_LOOP_TETRAHEDRON_ROUTINGS;
+use crate::{Denominator, FamilyError, Integral, VacuumFamily};
 use rustred::legacy_oracle_support::exact_matrix::{
     invert_matrix, matrix_determinant, matrix_multiply, matrix_rank,
 };
 use rustred::legacy_oracle_support::exact_rational_retained_heap_bytes;
 use rustred::master_product::{MasterProduct, MasterProductError, ProductLinearCombination};
-use rustred::{Coefficient, Denominator, ExactRational, FamilyError, Integral, VacuumFamily};
+use rustred::{Coefficient, ExactRational};
 
 const LOOPS: usize = 4;
 const DENOMINATORS: usize = 10;

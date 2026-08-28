@@ -1,6 +1,6 @@
 use std::fmt;
 
-use symbolica::prelude::*;
+use rustred::legacy_oracle_support::symbolica_atom::{Atom, FunctionBuilder, Symbol};
 
 /// An integral identified by integer powers of a complete denominator basis.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

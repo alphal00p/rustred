@@ -1,14 +1,10 @@
-//! Private compatibility surface for the separately packaged legacy oracles.
+//! Private dependency bridge for the separately packaged legacy oracles.
 //!
 //! This module is intentionally doc-hidden and feature-gated. It exposes only
-//! the representation-level seams needed while the authored finite-shell
-//! oracles are extracted from the production crate. New production code must
-//! use RustRed's ordinary public APIs instead.
+//! the representation-level seams needed by the authored finite-shell oracles.
+//! New production code must use RustRed's ordinary public APIs instead.
 
-use crate::{
-    Coefficient, ExactRational, IbpIdentity, LinearCombination, ReductionError, ReductionTable,
-    VacuumFamily,
-};
+use crate::ExactRational;
 
 /// Conservative coefficient-degree observations used by legacy finite-shell
 /// resource preflights.
@@ -66,20 +62,13 @@ pub mod exact_matrix {
     pub fn matrix_determinant(matrix: &[Vec<ExactRational>]) -> Result<ExactRational, String> {
         crate::exact::matrix_determinant(matrix)
     }
-}
 
-/// Borrow the cached zero-shift derivative contraction without exposing the
-/// crate-private `DenominatorLinearForm` representation.
-#[inline]
-pub fn vacuum_derivative_contraction_parts(
-    family: &VacuumFamily,
-    denominator: usize,
-    differentiated_loop: usize,
-    contraction_loop: usize,
-) -> (&Coefficient, &[ExactRational]) {
-    let contraction =
-        family.derivative_contraction(denominator, differentiated_loop, contraction_loop);
-    (&contraction.constant, &contraction.denominator_coefficients)
+    #[inline]
+    pub fn matrix_transpose(
+        matrix: &[Vec<ExactRational>],
+    ) -> Result<Vec<Vec<ExactRational>>, String> {
+        crate::exact::matrix_transpose(matrix)
+    }
 }
 
 /// Heap bytes retained by one exact rational's GMP payload.
@@ -88,17 +77,8 @@ pub fn exact_rational_retained_heap_bytes(value: &ExactRational) -> Option<usize
     value.retained_heap_bytes()
 }
 
-/// Authenticate IBP provenance without requiring the sparse table alone to
-/// close the boundary halo handled by a legacy analytic reducer.
-#[inline]
-pub fn validate_reduction_table_identity_provenance(
-    table: &ReductionTable,
-    identities: &[IbpIdentity],
-) -> Result<Vec<LinearCombination>, ReductionError> {
-    table.validate_identity_provenance(identities)
-}
-
-/// Minimal Symbolica Atom surface required by the legacy Vakint adapter.
+/// Minimal Symbolica Atom surface required by the legacy concrete engine and
+/// Vakint adapter.
 ///
 /// Deliberately do not re-export Symbolica's prelude or polynomial domains.
 pub mod symbolica_atom {
@@ -142,6 +122,17 @@ mod tests {
         assert_eq!(
             exact_matrix::matrix_multiply(&matrix, &inverse).unwrap(),
             vec![vec![ExactRational::one()]]
+        );
+        assert_eq!(
+            exact_matrix::matrix_transpose(&[
+                vec![ExactRational::from(1), ExactRational::from(2)],
+                vec![ExactRational::from(3), ExactRational::from(4)],
+            ])
+            .unwrap(),
+            vec![
+                vec![ExactRational::from(1), ExactRational::from(3)],
+                vec![ExactRational::from(2), ExactRational::from(4)],
+            ]
         );
     }
 

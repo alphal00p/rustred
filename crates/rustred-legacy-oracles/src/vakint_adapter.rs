@@ -18,14 +18,15 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::{Integral, TensorFamilyError, TensorFamilyReducer};
 use crate::{TwoLoopPipelineError, TwoLoopReductionConfig, TwoLoopReductionPipeline};
 use rustred::legacy_oracle_support::symbolica_atom::{
     Atom, AtomCore, AtomView, FunctionBuilder, Symbol, get_symbol, try_parse, try_symbol,
 };
 use rustred::{
-    IndexedVector, Integral, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
-    ScalarProductMonomial, TensorConstructionLimits, TensorError, TensorFamilyError,
-    TensorFamilyReducer, TensorMonomial, VacuumTensorProjector,
+    IndexedVector, LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct,
+    ScalarProductMonomial, TensorConstructionLimits, TensorError, TensorMonomial,
+    VacuumTensorProjector,
 };
 
 /// Resource bounds for parsing and reducing one Vakint expression.

@@ -11,15 +11,13 @@
 
 use std::fmt;
 
+use crate::{Integral, LinearCombination, PropagatorSign, VacuumFamily};
 use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound, coefficient_variable_degrees,
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::legacy_oracle_support::exact_matrix::matrix_determinant;
-use rustred::{
-    Coefficient, ExactRational, Integral, LinearCombination, PropagatorSign,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-};
+use rustred::{Coefficient, ExactRational, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProductBoundaryConfig {

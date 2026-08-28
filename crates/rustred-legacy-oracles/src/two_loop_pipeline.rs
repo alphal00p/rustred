@@ -1,7 +1,7 @@
 //! Integrated finite-box reduction for the equal-mass two-loop vacuum family.
 //!
 //! [`TwoLoopReductionPipeline`] composes a sparse top-sector IBP table with
-//! the analytic boundary reducer.  Unlike [`rustred::ReductionTable`] by itself,
+//! the analytic boundary reducer.  Unlike [`crate::ReductionTable`] by itself,
 //! it never interprets an absent rule as a new master: the only unreduced
 //! integrals admitted in a successful result are
 //!
@@ -19,14 +19,11 @@ use crate::families::equal_mass_two_loop_vacuum;
 use crate::two_loop::{
     TwoLoopBoundaryConfig, TwoLoopBoundaryError, TwoLoopBoundaryReducer, pair_sector_work_estimate,
 };
-use rustred::family::FamilyError;
-use rustred::ibp::{IbpGenerator, IbpIdentity};
-use rustred::legacy_oracle_support::validate_reduction_table_identity_provenance;
-use rustred::reduction::{
+use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, IbpIdentity, Integral, LinearCombination,
     ReductionError, ReductionStats, ReductionTable, SeedConfig, SeedGenerationError,
-    SeedGenerationLimits, SparseReducer, try_generate_seeds_with_limits,
+    SeedGenerationLimits, SparseReducer, VacuumFamily, try_generate_seeds_with_limits,
 };
-use rustred::{IbpGenerationError, Integral, LinearCombination, VacuumFamily};
 
 /// Coverage and resource limits for an integrated two-loop reduction.
 ///
@@ -207,7 +204,7 @@ impl TwoLoopReductionPipeline {
         // expression is accepted as an IBP certificate.  The returned
         // equations are canonical, so raw and symmetry-equivalent generated
         // rows remain valid inputs.
-        let equations = validate_reduction_table_identity_provenance(&self.table, identities)?;
+        let equations = self.table.validate_identity_provenance(identities)?;
         for (identity, equation) in identities.iter().zip(equations) {
             let remainder = self.reduce_combination(&equation)?;
             if !remainder.is_zero() {

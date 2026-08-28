@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
-use rustred::{
-    ExactRational, IbpGenerator, Integral, LinearCombination, ReductionTable, SeedConfig,
-    SparseReducer, VacuumFamily, generate_seeds,
-};
+use rustred::ExactRational;
 use rustred_legacy_oracles::three_loop::{
     THREE_LOOP_TETRAHEDRON_EDGES, THREE_LOOP_TETRAHEDRON_ROUTINGS,
     THREE_LOOP_TETRAHEDRON_SYMMETRY_GENERATORS, equal_mass_three_loop_tetrahedron,
+};
+use rustred_legacy_oracles::{
+    IbpGenerator, Integral, LinearCombination, ReductionTable, SeedConfig, SparseReducer,
+    VacuumFamily, generate_seeds,
 };
 
 fn rational(numerator: i64, denominator: i64) -> ExactRational {

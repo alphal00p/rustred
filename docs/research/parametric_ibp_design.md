@@ -8,7 +8,9 @@ Date: 2026-08-13
 > is [`litered_full_scope_spec.md`](litered_full_scope_spec.md).  Reusable
 > details below (authenticated coefficient contexts, typed shifts, guards,
 > specialization, and provenance) remain design input only where they agree
-> with that specification.
+> with that specification. The concrete `VacuumFamily`/`IbpGenerator` types
+> referenced here are now quarantined in `rustred-legacy-oracles`; production
+> uses `IntegralFamily` and `ParametricIbpGenerator`.
 
 ## Outcome
 

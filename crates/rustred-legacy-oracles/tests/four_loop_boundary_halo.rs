@@ -1,4 +1,5 @@
-use rustred::{Integral, MasterProduct};
+use rustred::MasterProduct;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     FOUR_LOOP_BOUNDARY_HALO_BLOCKER_OCCURRENCES, FOUR_LOOP_BOUNDARY_HALO_FORMULA_DISPATCHES,
     FOUR_LOOP_BOUNDARY_HALO_OUTPUT_PRODUCTS, FOUR_LOOP_BOUNDARY_HALO_PRECOLLECTION_TERMS,

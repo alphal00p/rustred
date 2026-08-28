@@ -14,11 +14,10 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+use crate::IbpGenerator;
 use crate::three_loop::{THREE_LOOP_TETRAHEDRON_ROUTINGS, equal_mass_three_loop_tetrahedron};
-use rustred::ibp::IbpGenerator;
-use rustred::{
-    Coefficient, Denominator, ExactRational, FamilyError, Integral, LinearCombination, VacuumFamily,
-};
+use crate::{Denominator, FamilyError, Integral, LinearCombination, VacuumFamily};
+use rustred::{Coefficient, ExactRational};
 
 /// Numerators of the fixed raw-IBP weights, with common denominator four.
 ///
@@ -482,7 +481,7 @@ pub enum ThreeLoopTopDotError {
         expected: LinearCombination,
         actual: LinearCombination,
     },
-    Ibp(rustred::IbpGenerationError),
+    Ibp(crate::IbpGenerationError),
     Family(FamilyError),
 }
 
@@ -579,8 +578,8 @@ impl std::error::Error for ThreeLoopTopDotError {
     }
 }
 
-impl From<rustred::IbpGenerationError> for ThreeLoopTopDotError {
-    fn from(value: rustred::IbpGenerationError) -> Self {
+impl From<crate::IbpGenerationError> for ThreeLoopTopDotError {
+    fn from(value: crate::IbpGenerationError) -> Self {
         Self::Ibp(value)
     }
 }

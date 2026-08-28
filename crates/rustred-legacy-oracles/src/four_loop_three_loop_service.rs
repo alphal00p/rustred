@@ -22,14 +22,17 @@ use std::error::Error;
 use std::fmt;
 
 use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination, ReductionStats,
+    VacuumFamily,
+};
+use crate::{
     MassiveVacuumMaster, OneLoopTadpoleConfig, OneLoopTadpoleError, OneLoopTadpoleReducer,
     ThreeLoopPipelineError, ThreeLoopReductionConfig, ThreeLoopReductionPipeline,
     equal_mass_three_loop_tetrahedron_in_context, three_loop_f5_d2n1_pipeline_config,
 };
 use rustred::{
-    Coefficient, CoefficientContext, FamilyError, IbpGenerationError, IbpGenerator, Integral,
-    LinearCombination, MasterProduct, MasterProductError, ProductLinearCombination, ReductionStats,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
+    Coefficient, CoefficientContext, MasterProduct, MasterProductError, ProductLinearCombination,
+    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 pub const FOUR_LOOP_THREE_LOOP_SERVICE_TARGETS: usize = 204;

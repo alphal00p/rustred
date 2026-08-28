@@ -1,7 +1,8 @@
-use rustred::{ExactRational, IbpGenerator, Integral};
+use rustred::ExactRational;
 use rustred_legacy_oracles::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
+use rustred_legacy_oracles::{IbpGenerator, Integral};
 
-fn reconstruct_denominator_rows(family: &rustred::VacuumFamily) {
+fn reconstruct_denominator_rows(family: &rustred_legacy_oracles::VacuumFamily) {
     for (denominator_index, denominator) in family.denominators().iter().enumerate() {
         let mut constant = denominator.shift().clone();
         let mut coefficients = vec![ExactRational::zero(); family.denominator_count()];

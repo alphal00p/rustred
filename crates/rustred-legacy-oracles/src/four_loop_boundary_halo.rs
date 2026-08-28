@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::Integral;
 use crate::{
     FourLoopBoundaryConfig, FourLoopBoundaryError, FourLoopBoundaryReducer,
     FourLoopFactorizationWitness, FourLoopTopology, MassiveVacuumMaster,
@@ -23,8 +24,8 @@ use rustred::legacy_oracle_support::coefficient_degree::{
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::{
-    Coefficient, CoefficientContext, Integral, MasterProduct, MasterProductError,
-    ProductLinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
+    Coefficient, CoefficientContext, MasterProduct, MasterProductError, ProductLinearCombination,
+    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 const DENOMINATORS: usize = 10;

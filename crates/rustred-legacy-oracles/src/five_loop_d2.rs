@@ -17,11 +17,11 @@ use crate::five_loop_boundary::{
     FIVE_LOOP_BANANA_PHYSICAL_LINES, FiveLoopBananaBoundaryConfig, FiveLoopBananaBoundaryError,
     FiveLoopBananaBoundaryReducer, five_loop_banana_physical_orbit_witness,
 };
-use rustred::coefficient::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT;
-use rustred::{
-    Coefficient, ExactRational, FamilyError, IbpGenerationError, IbpGenerator, Integral,
-    LinearCombination, VacuumFamily,
+use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, Integral, LinearCombination, VacuumFamily,
 };
+use rustred::coefficient::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT;
+use rustred::{Coefficient, ExactRational};
 
 const EXPLICIT_FORMULA_TERMS: usize = 4;
 const PROVENANCE_OPERATION_BOUND: usize = 4_096;

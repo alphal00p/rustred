@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use crate::{Denominator, FamilyError, IbpGenerationError, IbpGenerator, Integral, VacuumFamily};
 use crate::{
     FourLoopBoundaryError, FourLoopBoundaryHaloConfig, FourLoopBoundaryHaloError,
     FourLoopBoundaryHaloPlan, FourLoopBoundaryHaloReducer, FourLoopBoundaryHaloStats,
@@ -29,8 +30,8 @@ use rustred::legacy_oracle_support::coefficient_degree::{
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::{
-    Coefficient, CoefficientContext, Denominator, ExactRational, FamilyError, IbpGenerationError,
-    IbpGenerator, Integral, MasterProduct, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
+    Coefficient, CoefficientContext, ExactRational, MasterProduct,
+    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 const LOOPS: usize = 4;
@@ -1109,7 +1110,7 @@ impl CornerShellBuilder {
         &mut self,
         source_topology: FourLoopReferenceTopology,
         source_mapper: &FourLoopHaloMapper,
-        equation: &rustred::LinearCombination,
+        equation: &crate::LinearCombination,
     ) -> Result<NormalizationOutcome, FourLoopCornerShellError> {
         let mut output = NormalizationOutcome::default();
         for (integral, raw_coefficient) in equation.terms() {

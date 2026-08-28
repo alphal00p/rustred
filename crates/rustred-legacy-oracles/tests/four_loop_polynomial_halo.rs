@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
-use rustred::{
-    Coefficient, CoefficientContext, Denominator, ExactRational, IbpGenerator, Integral,
-    VacuumFamily,
-};
+use rustred::{Coefficient, CoefficientContext, ExactRational};
 use rustred_legacy_oracles::four_loop_polynomial_halo::{
     FOUR_LOOP_POLYNOMIAL_HALO_COLLECTED_MONOMIALS, FOUR_LOOP_POLYNOMIAL_HALO_CONVOLUTION_PRODUCTS,
     FOUR_LOOP_POLYNOMIAL_HALO_FACTOR_TERMS,
@@ -14,6 +11,7 @@ use rustred_legacy_oracles::four_loop_polynomial_halo::{
     FourLoopPolynomialBranchKind, FourLoopPolynomialHaloConfig, FourLoopPolynomialHaloError,
     FourLoopPolynomialHaloMapper,
 };
+use rustred_legacy_oracles::{Denominator, IbpGenerator, Integral, VacuumFamily};
 use rustred_legacy_oracles::{
     FourLoopGenuineClassifier, FourLoopGenuineConfig, FourLoopGenuineCornerType,
     FourLoopGenuineWitness, FourLoopNextManifest, FourLoopNextManifestConfig, FourLoopTopology,
@@ -321,7 +319,7 @@ fn check_exhaustive_manifest() {
             .iter()
             .map(|term| term.polynomial_map().branches().len())
             .sum::<usize>();
-        let mut independently_collected = rustred::LinearCombination::new();
+        let mut independently_collected = rustred_legacy_oracles::LinearCombination::new();
         for term in row.terms() {
             for branch in term.polynomial_map().branches() {
                 independently_collected.add_term(

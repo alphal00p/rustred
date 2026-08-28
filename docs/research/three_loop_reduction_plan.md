@@ -396,7 +396,7 @@ The current RustRed hardness tuple is
 ```
 
 and exact elimination pivots the maximum.  This is implemented at
-[`src/family.rs:523-552`](../../src/family.rs#L523).  It gives the desired
+[`concrete_engine/family.rs:523-552`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs#L523).  It gives the desired
 “more lines, then more total displacement, then more dots” triangular
 orientation.  Keep it for the first complete reduction; changing an order and
 changing the recurrence search simultaneously would make failures hard to
@@ -406,9 +406,9 @@ diagnose.
 
 `SeedConfig` currently bounds total dots and total numerator degree and can
 include all subsectors
-([`src/reduction.rs:8-25`](../../src/reduction.rs#L8)); enumeration removes
+([`concrete_engine/reduction.rs:8-25`](../../crates/rustred-legacy-oracles/src/concrete_engine/reduction.rs#L8)); enumeration removes
 symmetry duplicates and sorts by the family order
-([`src/reduction.rs:77-135`](../../src/reduction.rs#L77)).  Use total-degree
+([`concrete_engine/reduction.rs:77-135`](../../crates/rustred-legacy-oracles/src/concrete_engine/reduction.rs#L77)).  Use total-degree
 shells, not a componentwise cube.
 
 For a declared finite target set

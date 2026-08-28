@@ -14,10 +14,11 @@ use crate::four_loop::{FourLoopTopology, equal_mass_four_loop_vacuum};
 use crate::four_loop_boundary::{
     FourLoopBoundaryConfig, FourLoopBoundaryError, FourLoopBoundaryReducer, FourLoopScalarClass,
 };
+use crate::{FamilyError, Integral, VacuumFamily};
+use rustred::ExactRational;
 use rustred::legacy_oracle_support::exact_matrix::{
     invert_matrix, matrix_determinant, matrix_multiply,
 };
-use rustred::{ExactRational, FamilyError, Integral, VacuumFamily};
 
 const LOOPS: usize = 4;
 const SIGN_CHOICES: u128 = 1 << LOOPS;

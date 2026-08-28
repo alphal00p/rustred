@@ -1,4 +1,4 @@
-use rustred::{CoefficientContext, IbpGenerator, Integral, LinearCombination};
+use rustred::CoefficientContext;
 use rustred_legacy_oracles::{
     FIVE_LOOP_BANANA_AUXILIARY_LINE_PAIRS, FIVE_LOOP_BANANA_S6_ADJACENT_TRANSPOSITIONS,
     FIVE_LOOP_BANANA_S6_ORDER, FiveLoopBananaBoundaryConfig, FiveLoopBananaBoundaryError,
@@ -6,6 +6,7 @@ use rustred_legacy_oracles::{
     FiveLoopBananaPhysicalPermutation, FiveLoopBananaScalarClass, equal_mass_five_loop_banana,
     five_loop_banana_oriented_line_routing, five_loop_banana_physical_orbit_witness,
 };
+use rustred_legacy_oracles::{IbpGenerator, Integral, LinearCombination};
 
 fn determinant(matrix: [[i8; 5]; 5]) -> i32 {
     fn visit(

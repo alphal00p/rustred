@@ -1,4 +1,5 @@
-use rustred::{CoefficientContext, CoefficientContextError, FamilyError};
+use rustred::{CoefficientContext, CoefficientContextError};
+use rustred_legacy_oracles::FamilyError;
 use rustred_legacy_oracles::{
     OneLoopTadpoleConfig, OneLoopTadpoleError, OneLoopTadpoleReducer,
     equal_mass_two_loop_vacuum_in_context,

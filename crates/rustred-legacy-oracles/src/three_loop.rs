@@ -5,7 +5,8 @@
 //! reduction: generic boundary formulae and a proven finite-coverage solver
 //! are later milestones.
 
-use rustred::{CoefficientContext, Denominator, ExactRational, FamilyError, VacuumFamily};
+use crate::{Denominator, FamilyError, VacuumFamily};
+use rustred::{CoefficientContext, ExactRational};
 
 /// Momentum routing vectors for the six edges of the tetrahedron.
 ///

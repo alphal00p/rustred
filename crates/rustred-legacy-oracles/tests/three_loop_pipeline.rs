@@ -2,9 +2,12 @@
 // certification lives in a single integration test.
 
 use rustred::{
-    CoefficientContext, Denominator, ExactRational, IbpGenerator, IndexedVector, Integral,
-    LoopVector, LorentzIndex, Metric, MetricPairing, ReductionError, SeedGenerationError,
-    TensorFamilyReducer, TensorMonomial, VacuumFamily, VacuumTensorProjector,
+    CoefficientContext, ExactRational, IndexedVector, LoopVector, LorentzIndex, Metric,
+    MetricPairing, TensorMonomial, VacuumTensorProjector,
+};
+use rustred_legacy_oracles::{
+    Denominator, IbpGenerator, Integral, ReductionError, SeedGenerationError, TensorFamilyReducer,
+    VacuumFamily,
 };
 use rustred_legacy_oracles::{
     THREE_LOOP_TETRAHEDRON_ROUTINGS, ThreeLoopBoundaryError, ThreeLoopPipelineError,
@@ -76,7 +79,7 @@ fn certified_three_loop_dot_and_numerator_box() {
     // In particular, compact B4 positions 0,1,2,3 lift to tetrahedron-family
     // positions 0,1,3,5; F5 position 0 is central and 1..4 are outer.
     let b4_positions = [0_usize, 1, 3, 5];
-    let mut b4_dot_sum = rustred::LinearCombination::new();
+    let mut b4_dot_sum = rustred_legacy_oracles::LinearCombination::new();
     for position in b4_positions {
         let mut powers = [1, 1, 0, 1, 0, 1];
         powers[position] = 2;
@@ -89,13 +92,13 @@ fn certified_three_loop_dot_and_numerator_box() {
     }
     assert_eq!(
         b4_dot_sum,
-        rustred::LinearCombination::from_term(
+        rustred_legacy_oracles::LinearCombination::from_term(
             pipeline.masters()[2].clone(),
             coefficient.parse("(8-3*d)/(2*m2)").unwrap(),
         )
     );
 
-    let mut f5_dot_sum = rustred::LinearCombination::new();
+    let mut f5_dot_sum = rustred_legacy_oracles::LinearCombination::new();
     for position in 0..5 {
         let mut powers = [1, 1, 1, 1, 1, 0];
         powers[position] = 2;
@@ -113,13 +116,13 @@ fn certified_three_loop_dot_and_numerator_box() {
     }
     assert_eq!(
         f5_dot_sum,
-        rustred::LinearCombination::from_term(
+        rustred_legacy_oracles::LinearCombination::from_term(
             pipeline.masters()[3].clone(),
             coefficient.parse("(10-3*d)/(2*m2)").unwrap(),
         )
     );
 
-    let mut m6_dot_sum = rustred::LinearCombination::new();
+    let mut m6_dot_sum = rustred_legacy_oracles::LinearCombination::new();
     for position in 0..6 {
         let mut powers = [1; 6];
         powers[position] = 2;
@@ -132,7 +135,7 @@ fn certified_three_loop_dot_and_numerator_box() {
     }
     assert_eq!(
         m6_dot_sum,
-        rustred::LinearCombination::from_term(
+        rustred_legacy_oracles::LinearCombination::from_term(
             pipeline.masters()[4].clone(),
             coefficient.parse("3*(4-d)/(2*m2)").unwrap(),
         )
@@ -300,7 +303,7 @@ fn certified_three_loop_dot_and_numerator_box() {
         .into_iter()
         .find(|identity| !identity.equation.is_zero())
         .unwrap();
-    forged.equation = rustred::LinearCombination::new();
+    forged.equation = rustred_legacy_oracles::LinearCombination::new();
     assert!(matches!(
         pipeline.validate_identities(&[forged]),
         Err(ThreeLoopPipelineError::Reduction(
@@ -433,7 +436,7 @@ fn certified_three_loop_three_dot_scalar_box() {
 
     // The scalar transfer identity gives one relation among the three D=2
     // orbits. The extra native numerator-coupled rows are what separate them.
-    let mut transfer = rustred::LinearCombination::new();
+    let mut transfer = rustred_legacy_oracles::LinearCombination::new();
     transfer.add_scaled(
         &pipeline.reduce_integral(&d2_b4[0].0).unwrap(),
         &coefficients.integer(2),

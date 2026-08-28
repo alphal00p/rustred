@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use rustred::Integral;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::families::equal_mass_two_loop_vacuum;
 use rustred_legacy_oracles::{
     THREE_LOOP_TOP_DOT_IBP_WEIGHT_NUMERATORS, ThreeLoopTopDotConfig, ThreeLoopTopDotError,

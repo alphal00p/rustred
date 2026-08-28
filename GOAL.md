@@ -371,11 +371,12 @@ reviewable from semantic changes.
    operation boundaries; neither frontend may become vacuum-only or merely a
    launcher for Vakint.
 3. **Complete:** create publish-disabled `rustred-legacy-oracles`, move all 35
-   compiled authored loop/topology modules, 34 dedicated integration tests,
-   and four diagnostic examples, and remove the former root feature surface.
-   The package is not a default workspace member and depends one-way on the
-   core's narrow hidden support facade; the default production graph does not
-   link it.
+   compiled authored loop/topology modules, the six-module concrete
+   vacuum-family/IBP/reduction oracle engine, 35 dedicated integration tests,
+   and four diagnostic examples, and remove the former root feature and
+   concrete-engine surfaces. The package is not a default workspace member
+   and depends one-way on the core's narrow hidden support facade; the default
+   production graph does not link it.
 4. **Complete:** resolve every unwired source explicitly as wire, move, or
    delete with reachability evidence. The three never-compiled orphan drafts
    (`five_loop_d4`, `four_loop_next_conditions`, and

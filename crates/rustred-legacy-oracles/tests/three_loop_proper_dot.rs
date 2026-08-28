@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use rustred::Integral;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::families::equal_mass_two_loop_vacuum;
 use rustred_legacy_oracles::{
     THREE_LOOP_F5_CENTRAL_IBP_WEIGHTS, THREE_LOOP_F5_OUTER_IBP_WEIGHTS,

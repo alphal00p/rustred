@@ -5,8 +5,9 @@ Date: 2026-08-27
 Status: active mandatory architecture gate. The multi-agent inventory,
 independent design audit, bounded application/CLI extraction,
 transport-neutral boundary refactor, and development Python adapter are
-complete. The physical legacy-oracle package extraction is also complete;
-the three orphan-source decisions are complete; deeper topology-neutral core,
+complete. The physical legacy-oracle package extraction, including the old
+concrete vacuum-family/IBP/reduction engine, is also complete; the three
+orphan-source decisions are complete. Deeper topology-neutral core,
 test-support, and documentation migrations remain pending.
 
 ## Decision
@@ -44,11 +45,13 @@ confined to the adapter. Public calls document their panic-safety contract.
 Panic containment belongs at the outer coordinator/FFI boundary and must poison
 further work rather than claim that an invariant failure is safely recoverable.
 `rustred-python` now implements that boundary. The publish-disabled
-`rustred-legacy-oracles` package now owns all 35 compiled authored modules, 34
+`rustred-legacy-oracles` package now owns all 35 compiled authored modules,
+the six-module concrete vacuum-family/IBP/reduction oracle engine, 35
 dedicated integration tests, and four diagnostic examples. It is excluded
 from the default workspace members and depends only on the core with default
 features disabled plus the narrow hidden `legacy-oracle-support` facade. The
-former `legacy-authored-oracles` feature and root re-exports no longer exist.
+former `legacy-authored-oracles` feature, the old concrete-engine root modules,
+and their root re-exports no longer exist.
 Test support remains adjacent to the code it validates unless a later measured
 dependency boundary justifies another package.
 
@@ -202,8 +205,9 @@ separate provenance role and are not treated as RustRed-owned stale code.
 6. **In progress:** execute mechanical moves and visibility tightening in
    small commits, with parallel tests after each phase and milestone pushes.
    The `rustred-app` extraction and transport-boundary phases are complete;
-   the physical legacy-oracle extraction and orphan-source deletion are
-   complete; deeper core/test separation remains.
+   the physical legacy-oracle extraction, concrete vacuum-engine extraction,
+   and orphan-source deletion are complete; deeper core/test separation
+   remains.
 7. **Complete for development use:** add the PyO3 package only after the shared
    application boundary exists; prove CLI/application/Python parity, licensed
    parallel execution, safe Python-thread coordination, and wheel/sdist

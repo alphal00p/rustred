@@ -11,7 +11,8 @@
 //! This module is a family/IBP foundation.  It does not claim a complete
 //! four-loop reduction or a master basis.
 
-use rustred::{CoefficientContext, Denominator, ExactRational, FamilyError, VacuumFamily};
+use crate::{Denominator, FamilyError, VacuumFamily};
+use rustred::{CoefficientContext, ExactRational};
 
 /// Equal-mass four-loop parent topologies currently registered by Vakint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -13,13 +13,11 @@ use crate::three_loop::equal_mass_three_loop_tetrahedron;
 use crate::three_loop_boundary::{
     ThreeLoopBoundaryConfig, ThreeLoopBoundaryError, ThreeLoopBoundaryReducer,
 };
-use rustred::ibp::{IbpGenerator, IbpIdentity};
-use rustred::legacy_oracle_support::validate_reduction_table_identity_provenance;
-use rustred::reduction::{
+use crate::{
+    FamilyError, IbpGenerationError, IbpGenerator, IbpIdentity, Integral, LinearCombination,
     ReductionError, ReductionStats, ReductionTable, SeedConfig, SeedGenerationError,
-    SeedGenerationLimits, SparseReducer, try_generate_seeds_with_limits,
+    SeedGenerationLimits, SparseReducer, VacuumFamily, try_generate_seeds_with_limits,
 };
-use rustred::{FamilyError, IbpGenerationError, Integral, LinearCombination, VacuumFamily};
 
 /// Coverage and resource bounds of one certified three-loop table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,7 +238,7 @@ impl ThreeLoopReductionPipeline {
         // `IbpIdentity` has public fields, so an algebraic zero alone is not
         // evidence that the caller supplied the claimed total derivative.
         // Canonicalizing here also preserves acceptance of genuine raw rows.
-        let equations = validate_reduction_table_identity_provenance(&self.table, identities)?;
+        let equations = self.table.validate_identity_provenance(identities)?;
         for (identity, equation) in identities.iter().zip(equations) {
             // Reduce the complete equation before applying the terminal
             // whitelist.  Individual terms can contain the one-step IBP halo

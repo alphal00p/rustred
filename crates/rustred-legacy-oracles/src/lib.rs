@@ -5,6 +5,7 @@
 //! [`rustred`] engine. It is deliberately absent from the workspace default
 //! members and must never become a dependency of production RustRed code.
 
+mod concrete_engine;
 pub mod families;
 pub mod five_loop;
 pub mod five_loop_boundary;
@@ -40,6 +41,16 @@ pub mod two_loop;
 pub mod two_loop_pipeline;
 pub mod two_loop_top_dot;
 pub mod vakint_adapter;
+
+pub use concrete_engine::{
+    DEFAULT_MAX_TENSOR_EXPANSION_OPERATIONS, DEFAULT_MAX_TENSOR_EXPANSION_TERMS, Denominator,
+    FamilyConstructionLimits, FamilyError, IbpGenerationError, IbpGenerator, IbpIdentity, Integral,
+    LinearCombination, PropagatorSign, ReductionCacheError, ReductionCacheLimits, ReductionError,
+    ReductionStats, ReductionTable, ScalarProductExpansion, SeedConfig, SeedGenerationError,
+    SeedGenerationLimits, SparseReducer, TensorFamilyError, TensorFamilyReducer,
+    TensorIntegralReduction, VacuumFamily, generate_seeds, try_generate_seeds,
+    try_generate_seeds_with_limits,
+};
 
 pub use families::{
     equal_mass_two_loop_vacuum, equal_mass_two_loop_vacuum_in_context,

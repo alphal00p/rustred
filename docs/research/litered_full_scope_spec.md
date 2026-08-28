@@ -560,8 +560,9 @@ IntegralFamily(L,E,kinematics,denominators,power_shifts)
   -> AB round-trip tests
 ```
 
-Only after this slice passes does rule discovery begin.  Existing
-`VacuumFamily`, concrete `IbpGenerator`, and loop-specific reducers remain
-temporary compatibility/oracle layers; they do not define the new core and
-must not be presented as completion of RustRed's stated mathematical
-capability goal.
+Only after this slice passes does rule discovery begin. The old
+`VacuumFamily`, concrete `IbpGenerator`, eager finite reducer, and loop-specific
+reducers are quarantined in the publish-disabled `rustred-legacy-oracles`
+package. They are absent from the default core, remain independent validation
+oracles only, and must not be presented as completion of RustRed's stated
+mathematical capability goal.

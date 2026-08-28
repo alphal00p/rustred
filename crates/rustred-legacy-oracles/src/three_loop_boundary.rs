@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::three_loop::THREE_LOOP_TETRAHEDRON_ROUTINGS;
+use crate::{Denominator, Integral, LinearCombination, VacuumFamily};
 use crate::{
     TwoLoopPipelineError, TwoLoopReductionConfig, TwoLoopReductionPipeline, TwoLoopTopDotConfig,
     TwoLoopTopDotError, TwoLoopTopDotReducer,
@@ -21,10 +22,7 @@ use rustred::legacy_oracle_support::coefficient_degree::{
     coefficient_product_degree_bound, coefficient_sum_degree_bound,
     symbolica_coefficient_degree_is_representable,
 };
-use rustred::{
-    Coefficient, Denominator, ExactRational, Integral, LinearCombination,
-    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
-};
+use rustred::{Coefficient, ExactRational, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT};
 
 /// Resource bounds for the certified scalar three-loop boundary slice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

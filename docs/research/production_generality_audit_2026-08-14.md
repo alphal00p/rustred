@@ -1,6 +1,10 @@
 # RustRed production-generality audit
 
-Status: read-only source audit. No FORM or Mathematica process was invoked.
+Status: historical read-only source audit. No FORM or Mathematica process was
+invoked. The production-scope violation identified below has since been
+resolved structurally: loop-authored modules and the concrete
+vacuum-family/IBP/reduction engine now live only in the publish-disabled
+`rustred-legacy-oracles` package, and the default core exports neither.
 
 ## Conclusion
 
@@ -25,8 +29,9 @@ tests or a test-only oracle crate.
 
 ## P0 application paths to replace
 
-- `src/tensor_family.rs` exposes specialized two-loop boundary/pipeline and
-  three-loop pipeline methods.
+- the former concrete `tensor_family` module exposed specialized
+  two-loop/three-loop composition; it is now part of the legacy concrete
+  engine rather than the default core.
 - `crates/rustred-legacy-oracles/src/vakint_adapter.rs` owns and constructs a
   `TwoLoopReductionPipeline`.
 
@@ -89,6 +94,6 @@ oracles. They are not milestones.
 6. Add an API-boundary test which fails if a production adapter imports a
    legacy recurrence module.
 
-This migration is deliberately sequenced after the currently active
-parametric derivation slice; legacy formulae remain non-authoritative even
-before their physical relocation.
+This historical sequencing has been superseded by Phase 0: physical
+relocation is complete. Legacy formulae remain non-authoritative, and the
+generic provider/application route remains the only accepted production path.

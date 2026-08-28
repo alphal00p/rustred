@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use crate::{FamilyError, Integral, VacuumFamily};
 use crate::{
     FourLoopComponentScalarBranchKind, FourLoopComponentTransport, FourLoopComponentTransportError,
     FourLoopComponentTransportOccurrence, FourLoopComponentTransportPlan, MassiveVacuumMaster,
@@ -29,8 +30,8 @@ use rustred::legacy_oracle_support::coefficient_degree::{
     symbolica_coefficient_degree_is_representable,
 };
 use rustred::{
-    Coefficient, CoefficientContext, FamilyError, Integral, MasterProduct, MasterProductError,
-    ProductLinearCombination, SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT, VacuumFamily,
+    Coefficient, CoefficientContext, MasterProduct, MasterProductError, ProductLinearCombination,
+    SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
 /// Exact plan census of the advertised slice.
@@ -262,7 +263,7 @@ enum FourLoopT1S2LocalProof {
         requested: Integral,
         oriented: Integral,
         preflight: TwoLoopTopDotPreflight,
-        integral_output: rustred::LinearCombination,
+        integral_output: crate::LinearCombination,
     },
 }
 
@@ -1458,7 +1459,7 @@ fn replay_local_reduction(
 
 fn adapt_sunset_output(
     reducer: &TwoLoopTopDotReducer,
-    output: &rustred::LinearCombination,
+    output: &crate::LinearCombination,
 ) -> Result<ProductLinearCombination<MassiveVacuumMaster>, FourLoopT1S2ClosureError> {
     let mut adapted = ProductLinearCombination::new();
     for (integral, coefficient) in output.terms() {
@@ -2344,7 +2345,7 @@ fn hash_combination(hash: &mut u64, combination: &ProductLinearCombination<Massi
     }
 }
 
-fn hash_integral_combination(hash: &mut u64, combination: &rustred::LinearCombination) {
+fn hash_integral_combination(hash: &mut u64, combination: &crate::LinearCombination) {
     hash_u64(hash, combination.len() as u64);
     for (integral, coefficient) in combination.terms() {
         hash_i32_slice(hash, integral.powers());

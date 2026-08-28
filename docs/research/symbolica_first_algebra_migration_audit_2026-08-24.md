@@ -1,12 +1,14 @@
 # Symbolica-first algebra migration audit
 
 Status: production-code audit and implementation record, begun 2026-08-24 and
-updated 2026-08-25. This document records the migration required by RustRed's
+updated 2026-08-28. This document records the migration required by RustRed's
 public-Symbolica-first policy and the completed exact-matrix, affine-composition,
 strict polynomial-associate, generic-family coefficient-matrix, and
 affine-family symmetry slices.
 Later priorities remain an audit plan rather than a claim that all production
-algebra or all matrix consumers have migrated.
+algebra or all matrix consumers have migrated. The old concrete vacuum engine
+has since moved to `rustred-legacy-oracles`; its retained algebra is now
+evidence-only and is distinguished below from default-production debt.
 
 The companion API inventory is
 [`symbolica_exact_linear_algebra_api_inventory.md`](symbolica_exact_linear_algebra_api_inventory.md).
@@ -134,16 +136,18 @@ both sides of that call.
 | P1 (next/high) | [`vakint_adapter.rs:652-713`](../../crates/rustred-legacy-oracles/src/vakint_adapter.rs#L652): private `controlled_distribute` Cartesian Atom distribution | Pending native-first migration; not part of the affine-composition milestone | Prefer public `AtomCore::expand_in` for authenticated tensor/topology symbols; alternatively mask Pow/Fun leaves with collision-rejected simultaneous replacements around `AtomCore::expand` | A naked whole-expression `expand` is not semantics-preserving: it expands additive power bases and normalizes/collects terms that the current decoder treats as opaque or distinct. Preserve the admitted Vakint numerator grammar, typed preflight, source provenance, and spectator opacity; differential tests must authenticate the chosen native route before deleting the private distributor. |
 | P2 | [`symbolica_affine_denominator.rs:3585-3645`](../../src/symbolica_affine_denominator.rs#L3585): private coefficient power loop | Must replace now | `RationalPolynomialField::pow` through `Ring::pow` | The surrounding `AtomView` traversal and scalar-product contraction are justified semantic lowering and already use native coefficient arithmetic. The resource-envelope helper also named `checked_power` at line 4603 is bookkeeping, not algebra. |
 | P1 | [`symbolica_affine_denominator.rs:1511-2153`](../../src/symbolica_affine_denominator.rs#L1511): manual numerator grouping, projection, and lifting into momentum variables | Must replace algebra now | `RationalPolynomial::to_polynomial(momentum_variables, false)` | Keep momentum-degree classification and scalar-product semantics; delete manual exponent-row copying. |
-| P1 | [`tensor_family.rs:181-286`](../../src/tensor_family.rs#L181) and [`generic_tensor_family.rs:677-913`](../../src/generic_tensor_family.rs#L677): private denominator-shift polynomial multiplication, power, and collection | Must replace algebra now | `MultivariatePolynomial<RationalPolynomialField<Z,u16>,u32>`, native multiplication, and `Ring::pow` | Converting authenticated final monomials into integral shifts remains RustRed semantic lowering. An exponent wider than the public domain requires an explicit audited policy, not a second polynomial engine. |
+| P1 | [`generic_tensor_family.rs:677-913`](../../src/generic_tensor_family.rs#L677): private denominator-shift polynomial multiplication, power, and collection | Must replace production algebra now | `MultivariatePolynomial<RationalPolynomialField<Z,u16>,u32>`, native multiplication, and `Ring::pow` | Converting authenticated final monomials into integral shifts remains RustRed semantic lowering. An exponent wider than the public domain requires an explicit audited policy, not a second polynomial engine. |
+| P3 legacy | [`concrete_engine/tensor_family.rs:181-286`](../../crates/rustred-legacy-oracles/src/concrete_engine/tensor_family.rs#L181): older concrete denominator-shift polynomial multiplication | Replace only if this oracle is maintained | The same native polynomial composition | This publish-disabled downstream oracle is absent from the production/default graph. It may remain temporarily for differential evidence, but must never be copied back into the generic lane. |
 | P3 | [`residual_affine_integer_lattice_kernel.rs:1382-1472`](../../src/residual_affine_integer_lattice_kernel.rs#L1382) and [`residual_affine_integer_system.rs:3038-3099`](../../src/residual_affine_integer_system.rs#L3038): private gcd and extended gcd | Must replace primitives | `Integer::gcd` and `Integer::extended_gcd` | Preserve positive-gcd and deterministic Bezout conventions by normalizing and verifying the native result; retain transcript and budget accounting. |
 | P3 | [`four_loop_next_modular_rank.rs:738-838`](../../crates/rustred-legacy-oracles/src/four_loop_next_modular_rank.rs#L738) and [`four_loop_next_modular_rank.rs:1068-1130`](../../crates/rustred-legacy-oracles/src/four_loop_next_modular_rank.rs#L1068): private modular arithmetic, inversion, powering and primality | Must replace if the legacy oracle is maintained | `Zp64`/`Zp`, finite-field `Ring` operations, and `Integer::is_prime` | This module is isolated in the publish-disabled `rustred-legacy-oracles` crate; it must remain evidence-only and must not become a generic production path. Its restricted Markowitz pivot controller may remain. |
 
 ### B0 implementation and impact
 
-`ExactRational` is public, and the private matrix routines were consumed
-throughout [`family.rs`](../../src/family.rs), including basis rank/inversion
-and symmetry transformations. The coherent migration used one exact constant
-field, not a second parallel rational type:
+`ExactRational` is public, and the private matrix routines were consumed by the
+now-quarantined concrete
+[`family.rs`](../../crates/rustred-legacy-oracles/src/concrete_engine/family.rs),
+including basis rank/inversion and symmetry transformations. The coherent
+migration used one exact constant field, not a second parallel rational type:
 
 1. select `Rational`/`Q` as the only exact constant field;
 2. adapt constructors and public compatibility methods without narrowing back
@@ -476,7 +480,7 @@ encode semantics that the public matrix API does not expose.
 | [`zero_sectors.rs:774-776`](../../src/zero_sectors.rs#L774) and [`zero_sectors.rs:1047-1154`](../../src/zero_sectors.rs#L1047) | This is already the desired composition: native `Matrix<Q>::row_reduce`, followed by deterministic kernel-vector choice and primitive-integer certificate formatting. | Existing replay plus independent matrix-kernel checks. |
 | [`symmetry.rs`](../../src/symmetry.rs) | Upper-triangular scalar-product coordinates, off-diagonal folding, affine denominator semantics and an independently derived replay are domain-specific tensor-map logic. Scalar coefficient operations and all ordinary matrix kernels are native. | The V2 verifier uses native determinant/transpose/products, then directly substitutes and replays every denominator without consuming the retained scalar-product map. |
 | [`symbolica_affine_denominator.rs:1511-1765`](../../src/symbolica_affine_denominator.rs#L1511) | Recognizing and contracting the declared scalar-product function into loop/external coordinates is expression-language and family semantics. Only that grammar and contraction remain justified; manual polynomial projection/lifting must migrate to `RationalPolynomial::to_polynomial`. | Recompile the retained `Atom`, compare native momentum-polynomial decomposition, explicit bilinear expansions, and differently parenthesized inputs. |
-| [`tensor_family.rs:183-246`](../../src/tensor_family.rs#L183) and [`generic_tensor_family.rs:677-750`](../../src/generic_tensor_family.rs#L677) | Mapping final monomials to denominator-power shifts and retaining per-input origin/resource semantics are RustRed responsibilities. Polynomial multiplication, exponentiation, and collection are not; they must migrate to Symbolica even though the current key representation admits `u64`. | Differentially compare the native polynomial result with every old coefficient/key. Define a checked policy for exponents outside Symbolica's public exponent domain instead of retaining a private algebra engine. |
+| [`generic_tensor_family.rs:677-750`](../../src/generic_tensor_family.rs#L677) | Mapping final monomials to denominator-power shifts and retaining per-input origin/resource semantics are RustRed responsibilities. Polynomial multiplication, exponentiation, and collection are not; they must migrate to Symbolica even though the current key representation admits `u64`. The older concrete implementation is isolated in the legacy-oracle crate and is not production debt. | Differentially compare the native polynomial result with every retained oracle coefficient/key. Define a checked policy for exponents outside Symbolica's public exponent domain instead of retaining a private algebra engine. |
 | [`residual_unit_affine_index_map.rs:686-825`](../../src/residual_unit_affine_index_map.rs#L686) and [`coordinate_equality_loci.rs:798-888`](../../src/coordinate_equality_loci.rs#L798) | These routines recognize and certify restricted affine forms/associates used for branching; they are not general polynomial solvers. Exact division already delegates to `Z.quot_rem`. | Compare accepted forms with native polynomial/rational-polynomial equality, and reject perturbed coefficients, supports and constants. |
 
 ### Persistent sparse reducer audit
@@ -535,8 +539,9 @@ be removed merely because they contain loops or `BTreeMap`s:
 
 - [`symmetry.rs:31-118`](../../src/symmetry.rs#L31) stores checked rectangular
   certificate matrices. It should convert to `Matrix` at an algebra boundary.
-- [`linear.rs`](../../src/linear.rs),
-  [`parametric_relation.rs`](../../src/parametric_relation.rs), and
+- the quarantined concrete
+  [`linear.rs`](../../crates/rustred-legacy-oracles/src/concrete_engine/linear.rs),
+  plus [`parametric_relation.rs`](../../src/parametric_relation.rs) and
   [`generic_tensor_polynomial.rs`](../../src/generic_tensor_polynomial.rs)
   collect coefficients under integral-shift or tensor-structure keys. These
   keys are not polynomial variables in the coefficient ring.

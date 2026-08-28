@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rustred::Integral;
+use rustred_legacy_oracles::Integral;
 use rustred_legacy_oracles::{
     FIVE_LOOP_BANANA_D3_ALGEBRAIC_CANDIDATE_BOUND, FIVE_LOOP_BANANA_D3_ALGEBRAIC_ROWS,
     FIVE_LOOP_BANANA_D3_COLLECTED_NONZERO_BOUND, FIVE_LOOP_BANANA_D3_ELIMINATION_UPDATE_BOUND,
