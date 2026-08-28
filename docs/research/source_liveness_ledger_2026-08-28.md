@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `77ef89d`, updated after each R3 cluster milestone.
+**Baseline:** `4d843bd`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 172 tracked Rust source/build/test paths
+This ledger classifies every one of the 170 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,8 +21,8 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 139 |
-| delete | 9 |
+| split | 138 |
+| delete | 8 |
 | replace | 1 |
 
 | Current path | Decision | Final owner | Evidence/action |
@@ -56,7 +56,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/algebra/exact.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/matrix.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
-| `src/affine_locus_bound_relation.rs` | delete | — | superseded/dead bound-relation path |
 | `src/affine_parametric_ordering.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/affine_prepare_point_schedule.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/affine_prepare_points.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
@@ -147,7 +146,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_sector_normalized_source.rs` | split | identity / foundry::solver | raw identity values below sector/coverage orchestration |
 | `src/parametric_sector_one_pass_tests.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/parametric_sector_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/persistent_parametric_elimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/product_locus_boolean_cover.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/residual_affine_atom_rows.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |

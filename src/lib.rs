@@ -30,7 +30,6 @@ mod parametric_sector_one_pass_tests;
 mod solver;
 
 pub mod adaptive_rules;
-pub mod affine_locus_bound_relation;
 pub mod affine_parametric_ordering;
 pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
@@ -99,7 +98,6 @@ pub mod parametric_relation;
 pub mod parametric_rules;
 pub mod parametric_sector_coverage;
 pub mod parametric_sector_provider;
-pub mod persistent_parametric_elimination;
 pub mod product_locus_boolean_cover;
 pub mod reduction_engine;
 pub mod residual_affine_atom_rows;
@@ -128,14 +126,6 @@ pub mod zero_sectors;
 pub use adaptive_rules::{
     ADAPTIVE_PARAMETRIC_RULE_SEARCH_V1_SCHEMA, AdaptiveParametricRuleProvider,
     AdaptiveRuleSearchError, AdaptiveRuleSearchLimits, AdaptiveRuleSearchStats,
-};
-pub use affine_locus_bound_relation::{
-    AFFINE_LOCUS_BOUND_PARAMETRIC_RELATION_V1_SCHEMA, AffineLocusBaseAssumption,
-    AffineLocusBoundParametricRelation, AffineLocusBoundRelationCompilation,
-    AffineLocusBoundRelationCompiler, AffineLocusBoundRelationError,
-    AffineLocusBoundRelationLimits, AffineLocusBoundRelationStats,
-    AffineLocusConcreteSpecializationLimits, AffineLocusUnavailableReason,
-    AffineLocusUnavailableRowCertificate,
 };
 pub use affine_parametric_ordering::{
     AFFINE_START_INTEGRAL_COMPLEXITY_KEY_V1_SCHEMA,
@@ -498,13 +488,6 @@ pub use parametric_sector_provider::{
     PARAMETRIC_SECTOR_RULE_PROVIDER_V1_SCHEMA, ParametricSectorRuleProvider,
     ParametricSectorRuleProviderError, ParametricSectorRuleProviderLimits,
     ParametricSectorRuleProviderStats,
-};
-pub use persistent_parametric_elimination::{
-    PERSISTENT_PARAMETRIC_ELIMINATION_REFERENCE_V1_SCHEMA, PersistentParametricEliminationBatch,
-    PersistentParametricEliminationCertificate, PersistentParametricEliminationDatabase,
-    PersistentParametricEliminationError, PersistentParametricEliminationEvent,
-    PersistentParametricEliminationLimits, PersistentParametricEliminationRowOutcome,
-    PersistentParametricEliminationStats,
 };
 pub use product_locus_boolean_cover::{
     RESIDUAL_PRODUCT_LOCUS_BOOLEAN_COVER_V1_SCHEMA, ResidualProductLocusBooleanCoverCertificate,
