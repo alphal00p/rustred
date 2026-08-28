@@ -9,7 +9,6 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::mem::{align_of, size_of};
 use std::sync::Arc;
 
@@ -24,7 +23,6 @@ use crate::algebra::{
     checked_coefficient_sub_on_map, checked_polynomial_mul_on_map, validate_coefficient_on_map,
     validate_polynomial_on_map,
 };
-use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
     IndexShift, algebra::Coefficient, algebra::CoefficientContext,
     algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
@@ -33,9 +31,6 @@ use crate::{
 pub(crate) mod symbolica_sparse;
 
 pub type CoefficientPolynomial = MultivariatePolynomial<IntegerRing, u16>;
-pub(crate) const RESIDUAL_AFFINE_COMPACT_PLAN_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
-    "rustred-residual-affine-compact-plan-stable-value-identity-v1";
-
 /// Symbolica-native coefficient vector used only inside strict `K*`
 /// associate proofs. Widening is essential: two authenticated `u16` base
 /// exponents can add to `2*u16::MAX` during a projective cross product.
@@ -3177,58 +3172,6 @@ impl ResidualAffineCompactCompositionPlanStats {
     );
 }
 
-/// Redacted, stable diagnostic manifest for binding an algebra plan beside a
-/// proof-bearing authority object.
-///
-/// The checksums are only diagnostics.  They never establish authority:
-/// [`ResidualAffineCompactCompositionPlan::replay`] compares the private
-/// context fingerprint and every compact-geometry component exactly.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ResidualAffineCompactCompositionManifest {
-    schema: &'static str,
-    context_fingerprint_bytes: usize,
-    context_checksum: u64,
-    ambient_arity: usize,
-    free_count: usize,
-    geometry_checksum: u64,
-    limits: ResidualAffineCompactCompositionPlanLimits,
-    stats: ResidualAffineCompactCompositionPlanStats,
-}
-
-impl ResidualAffineCompactCompositionManifest {
-    pub(crate) const fn schema(self) -> &'static str {
-        self.schema
-    }
-
-    pub(crate) const fn context_fingerprint_bytes(self) -> usize {
-        self.context_fingerprint_bytes
-    }
-
-    pub(crate) const fn context_checksum(self) -> u64 {
-        self.context_checksum
-    }
-
-    pub(crate) const fn ambient_arity(self) -> usize {
-        self.ambient_arity
-    }
-
-    pub(crate) const fn free_count(self) -> usize {
-        self.free_count
-    }
-
-    pub(crate) const fn geometry_checksum(self) -> u64 {
-        self.geometry_checksum
-    }
-
-    pub(crate) const fn limits(self) -> ResidualAffineCompactCompositionPlanLimits {
-        self.limits
-    }
-
-    pub(crate) const fn stats(self) -> ResidualAffineCompactCompositionPlanStats {
-        self.stats
-    }
-}
-
 /// Bounds checked before entering either Symbolica affine-composition
 /// backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3608,45 +3551,6 @@ impl ResidualAffineCompositionCorePlan {
             .checked_add(free_ordinal)?;
         self.linear_support.get(offset).copied()
     }
-
-    fn owned_retained_byte_bound(&self) -> Option<usize> {
-        let mut bytes = arc_payload_control_and_padding_byte_bound::<Self>()?;
-        bytes = bytes.checked_add(
-            self.free_positions
-                .capacity()
-                .checked_mul(size_of::<usize>())?,
-        )?;
-        bytes = bytes.checked_add(
-            self.nonfree_positions
-                .capacity()
-                .checked_mul(size_of::<usize>())?,
-        )?;
-        let linear_support_bytes = self
-            .linear_support
-            .capacity()
-            .checked_add(u8::BITS as usize - 1)?
-            .checked_div(u8::BITS as usize)?;
-        bytes = bytes.checked_add(linear_support_bytes)?;
-        bytes = bytes.checked_add(
-            self.full_images
-                .capacity()
-                .checked_mul(size_of::<CoefficientPolynomial>())?,
-        )?;
-        for image in &self.full_images {
-            bytes = bytes.checked_add(polynomial_owned_retained_byte_bound(image)?)?;
-        }
-        bytes = bytes.checked_add(
-            self.image_term_counts
-                .capacity()
-                .checked_mul(size_of::<usize>())?,
-        )?;
-        bytes = bytes.checked_add(
-            self.image_coefficient_growth_bits
-                .capacity()
-                .checked_mul(size_of::<usize>())?,
-        )?;
-        Some(bytes)
-    }
 }
 
 /// Authority-neutral V2 composition plan for one exact compact affine map.
@@ -3659,18 +3563,18 @@ impl ResidualAffineCompositionCorePlan {
 pub(crate) struct ResidualAffineCompactCompositionPlan {
     schema: &'static str,
     context_fingerprint: Arc<str>,
-    geometry_checksum: u64,
     core: Arc<ResidualAffineCompositionCorePlan>,
     limits: ResidualAffineCompactCompositionPlanLimits,
     stats: ResidualAffineCompactCompositionPlanStats,
-    manifest: ResidualAffineCompactCompositionManifest,
 }
 
 impl fmt::Debug for ResidualAffineCompactCompositionPlan {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ResidualAffineCompactCompositionPlan")
-            .field("manifest", &self.manifest)
+            .field("schema", &self.schema)
+            .field("limits", &self.limits)
+            .field("stats", &self.stats)
             .finish_non_exhaustive()
     }
 }
@@ -3684,24 +3588,12 @@ impl ResidualAffineCompactCompositionPlan {
         self.stats
     }
 
-    pub(crate) const fn manifest(&self) -> ResidualAffineCompactCompositionManifest {
-        self.manifest
-    }
-
     pub(crate) fn free_positions(&self) -> &[usize] {
         &self.core.free_positions
     }
 
     pub(crate) fn ambient_arity(&self) -> usize {
         self.core.ambient_arity
-    }
-
-    /// Capacity-sensitive retained allocation bound for diagnostics.  The
-    /// allocation-independent exact logical census is stored in `stats` and
-    /// was checked before plan construction.
-    pub(crate) fn owned_retained_byte_bound(&self) -> Option<usize> {
-        arc_payload_control_and_padding_byte_bound::<Self>()?
-            .checked_add(self.core.owned_retained_byte_bound()?)
     }
 
     /// Reauthenticate the private context binding and every integer/support
@@ -3713,335 +3605,6 @@ impl ResidualAffineCompactCompositionPlan {
     ) -> Result<(), ResidualUnitAffineCompositionError> {
         context.replay_residual_affine_compact_composition_plan(self, geometry)
     }
-
-    pub(crate) fn write_stable_value_identity(
-        &self,
-        writer: &mut ExactIdentityWriter<'_>,
-        tag: &str,
-    ) -> Result<(), ExactIdentityError> {
-        writer.begin_record(tag, 8)?;
-        writer.string(
-            "identity_schema",
-            RESIDUAL_AFFINE_COMPACT_PLAN_STABLE_VALUE_IDENTITY_V1_SCHEMA,
-        )?;
-        writer.string("schema", self.schema)?;
-        writer.string("context_fingerprint", &self.context_fingerprint)?;
-        writer.unsigned_u64("geometry_checksum", self.geometry_checksum)?;
-        write_compact_core_identity(writer, "core", &self.core)?;
-        write_compact_plan_limits_identity(writer, "limits", self.limits)?;
-        write_compact_plan_stats_identity(writer, "stats", self.stats)?;
-        write_compact_manifest_identity(writer, "manifest", self.manifest)?;
-        writer.end_record()
-    }
-}
-
-fn write_compact_core_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    core: &ResidualAffineCompositionCorePlan,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 11)?;
-    writer.string("schema", core.schema)?;
-    writer.string("context_fingerprint", &core.context_fingerprint)?;
-    writer.usize("ambient_arity", core.ambient_arity)?;
-    writer.begin_sequence("free_positions", core.free_positions.len())?;
-    for &position in &core.free_positions {
-        writer.usize("position", position)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence("nonfree_positions", core.nonfree_positions.len())?;
-    for &position in &core.nonfree_positions {
-        writer.usize("position", position)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence("linear_support", core.linear_support.len())?;
-    for &nonzero in &core.linear_support {
-        writer.boolean("nonzero", nonzero)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence("full_images", core.full_images.len())?;
-    for image in &core.full_images {
-        writer.polynomial("image", image)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence("image_term_counts", core.image_term_counts.len())?;
-    for &count in &core.image_term_counts {
-        writer.usize("count", count)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence(
-        "image_coefficient_growth_bits",
-        core.image_coefficient_growth_bits.len(),
-    )?;
-    for &bits in &core.image_coefficient_growth_bits {
-        writer.usize("bits", bits)?;
-    }
-    writer.end_sequence()?;
-    write_composition_plan_limits_identity(writer, "limits", core.limits)?;
-    write_composition_plan_stats_identity(writer, "stats", core.stats)?;
-    writer.end_record()
-}
-
-fn write_exact_algebra_limits_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    limits: ExactAlgebraLimits,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 3)?;
-    writer.unsigned_u128("max_exponent", limits.max_exponent)?;
-    writer.usize("max_polynomial_terms", limits.max_polynomial_terms)?;
-    writer.usize("max_term_operations", limits.max_term_operations)?;
-    writer.end_record()
-}
-
-pub(crate) fn write_residual_unit_affine_polynomial_composition_limits_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    limits: ResidualUnitAffinePolynomialCompositionLimits,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 17)?;
-    write_exact_algebra_limits_identity(writer, "exact_algebra", limits.exact_algebra)?;
-    writer.usize("max_source_terms", limits.max_source_terms)?;
-    writer.usize(
-        "max_source_exponent_entries",
-        limits.max_source_exponent_entries,
-    )?;
-    writer.usize(
-        "max_expanded_contributions",
-        limits.max_expanded_contributions,
-    )?;
-    writer.usize("max_output_terms", limits.max_output_terms)?;
-    writer.usize(
-        "max_output_exponent_entries",
-        limits.max_output_exponent_entries,
-    )?;
-    writer.usize("max_power_calls", limits.max_power_calls)?;
-    writer.usize(
-        "max_native_power_heap_pairs",
-        limits.max_native_power_heap_pairs,
-    )?;
-    writer.usize(
-        "max_multiplication_term_pairs",
-        limits.max_multiplication_term_pairs,
-    )?;
-    writer.usize("max_addition_term_visits", limits.max_addition_term_visits)?;
-    writer.usize(
-        "max_kronecker_exponent_bits",
-        limits.max_kronecker_exponent_bits,
-    )?;
-    writer.usize(
-        "max_integer_coefficient_bits",
-        limits.max_integer_coefficient_bits,
-    )?;
-    writer.usize(
-        "max_native_integer_bit_work",
-        limits.max_native_integer_bit_work,
-    )?;
-    writer.usize("max_integer_bit_work", limits.max_integer_bit_work)?;
-    writer.usize(
-        "max_normalization_input_term_pairs",
-        limits.max_normalization_input_term_pairs,
-    )?;
-    writer.usize("max_guard_origins", limits.max_guard_origins)?;
-    writer.usize(
-        "max_guard_origin_retained_bytes",
-        limits.max_guard_origin_retained_bytes,
-    )?;
-    writer.end_record()
-}
-
-pub(crate) fn write_residual_unit_affine_polynomial_composition_stats_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    stats: ResidualUnitAffinePolynomialCompositionStats,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 14)?;
-    writer.usize("source_terms", stats.source_terms())?;
-    writer.usize("source_exponent_entries", stats.source_exponent_entries())?;
-    writer.usize(
-        "expanded_contribution_bound",
-        stats.expanded_contribution_bound(),
-    )?;
-    writer.usize("output_terms", stats.output_terms())?;
-    writer.usize(
-        "output_exponent_entry_bound",
-        stats.output_exponent_entry_bound(),
-    )?;
-    writer.usize("output_exponent_entries", stats.output_exponent_entries())?;
-    writer.usize("power_calls", stats.power_calls())?;
-    writer.usize(
-        "native_power_heap_pair_bound",
-        stats.native_power_heap_pair_bound(),
-    )?;
-    writer.usize(
-        "multiplication_term_pair_bound",
-        stats.multiplication_term_pair_bound(),
-    )?;
-    writer.usize(
-        "addition_term_visit_bound",
-        stats.addition_term_visit_bound(),
-    )?;
-    writer.usize(
-        "largest_kronecker_exponent_bits",
-        stats.largest_kronecker_exponent_bits(),
-    )?;
-    writer.usize(
-        "largest_integer_coefficient_bit_bound",
-        stats.largest_integer_coefficient_bit_bound(),
-    )?;
-    writer.usize(
-        "native_integer_bit_work_bound",
-        stats.native_integer_bit_work_bound(),
-    )?;
-    writer.usize("integer_bit_work_bound", stats.integer_bit_work_bound())?;
-    writer.end_record()
-}
-
-fn write_composition_plan_limits_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    limits: ResidualUnitAffineCompositionPlanLimits,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 9)?;
-    writer.usize("max_variables", limits.max_variables)?;
-    writer.usize("max_full_images", limits.max_full_images)?;
-    writer.usize(
-        "max_geometry_entries_inspected",
-        limits.max_geometry_entries_inspected,
-    )?;
-    writer.usize(
-        "max_geometry_entries_retained",
-        limits.max_geometry_entries_retained,
-    )?;
-    writer.usize(
-        "max_support_entries_retained",
-        limits.max_support_entries_retained,
-    )?;
-    writer.usize("max_total_image_terms", limits.max_total_image_terms)?;
-    writer.usize(
-        "max_total_image_exponent_entries",
-        limits.max_total_image_exponent_entries,
-    )?;
-    writer.usize("max_image_integer_bits", limits.max_image_integer_bits)?;
-    writer.usize(
-        "max_total_image_integer_bits",
-        limits.max_total_image_integer_bits,
-    )?;
-    writer.end_record()
-}
-
-fn write_composition_plan_stats_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    stats: ResidualAffineCompositionPlanStats,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 9)?;
-    writer.usize("variables", stats.variables())?;
-    writer.usize("full_images", stats.full_images())?;
-    writer.usize(
-        "geometry_entries_inspected",
-        stats.geometry_entries_inspected(),
-    )?;
-    writer.usize(
-        "geometry_entries_retained",
-        stats.geometry_entries_retained(),
-    )?;
-    writer.usize("support_entries_retained", stats.support_entries_retained())?;
-    writer.usize("total_image_terms", stats.total_image_terms())?;
-    writer.usize(
-        "total_image_exponent_entries",
-        stats.total_image_exponent_entries(),
-    )?;
-    writer.usize(
-        "largest_image_integer_bits",
-        stats.largest_image_integer_bits(),
-    )?;
-    writer.usize("total_image_integer_bits", stats.total_image_integer_bits())?;
-    writer.end_record()
-}
-
-pub(crate) fn write_compact_plan_limits_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    limits: ResidualAffineCompactCompositionPlanLimits,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 8)?;
-    write_composition_plan_limits_identity(writer, "composition", limits.composition)?;
-    writer.usize(
-        "max_context_fingerprint_bytes",
-        limits.max_context_fingerprint_bytes,
-    )?;
-    writer.usize(
-        "max_geometry_integer_bit_work",
-        limits.max_geometry_integer_bit_work,
-    )?;
-    writer.usize(
-        "max_geometry_replay_comparison_work",
-        limits.max_geometry_replay_comparison_work,
-    )?;
-    writer.usize(
-        "max_geometry_replay_integer_bit_work",
-        limits.max_geometry_replay_integer_bit_work,
-    )?;
-    writer.usize(
-        "max_geometry_replay_scratch_logical_bytes",
-        limits.max_geometry_replay_scratch_logical_bytes,
-    )?;
-    writer.usize(
-        "max_retained_owned_logical_bytes",
-        limits.max_retained_owned_logical_bytes,
-    )?;
-    writer.usize(
-        "max_compilation_owned_logical_peak_upper_bound",
-        limits.max_compilation_owned_logical_peak_upper_bound,
-    )?;
-    writer.end_record()
-}
-
-fn write_compact_plan_stats_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    stats: ResidualAffineCompactCompositionPlanStats,
-) -> Result<(), ExactIdentityError> {
-    // Scratch/retained/peak logical-byte fields are `size_of`/ABI dependent
-    // replay diagnostics and do not enter the stable mathematical value.
-    writer.begin_record(tag, 6)?;
-    write_composition_plan_stats_identity(writer, "composition", stats.composition)?;
-    writer.usize("context_fingerprint_bytes", stats.context_fingerprint_bytes)?;
-    writer.usize(
-        "geometry_integer_entries_inspected",
-        stats.geometry_integer_entries_inspected,
-    )?;
-    writer.usize("geometry_integer_bit_work", stats.geometry_integer_bit_work)?;
-    writer.usize(
-        "geometry_replay_comparison_work",
-        stats.geometry_replay_comparison_work,
-    )?;
-    writer.usize(
-        "geometry_replay_integer_bit_work",
-        stats.geometry_replay_integer_bit_work,
-    )?;
-    writer.end_record()
-}
-
-fn write_compact_manifest_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    manifest: ResidualAffineCompactCompositionManifest,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 8)?;
-    writer.string("schema", manifest.schema)?;
-    writer.usize(
-        "context_fingerprint_bytes",
-        manifest.context_fingerprint_bytes,
-    )?;
-    writer.unsigned_u64("context_checksum", manifest.context_checksum)?;
-    writer.usize("ambient_arity", manifest.ambient_arity)?;
-    writer.usize("free_count", manifest.free_count)?;
-    writer.unsigned_u64("geometry_checksum", manifest.geometry_checksum)?;
-    write_compact_plan_limits_identity(writer, "limits", manifest.limits)?;
-    write_compact_plan_stats_identity(writer, "stats", manifest.stats)?;
-    writer.end_record()
 }
 
 fn residual_affine_large_integer_dynamic_logical_bytes(
@@ -4274,7 +3837,6 @@ pub enum ParametricCoefficientError {
         expected: usize,
         actual: usize,
     },
-    InvalidIndexPermutation,
     IndexAssignmentOutOfRange {
         position: usize,
         arity: usize,
@@ -4322,9 +3884,6 @@ impl fmt::Display for ParametricCoefficientError {
             Self::WrongIndexArity { expected, actual } => write!(
                 formatter,
                 "index vector has arity {actual}, expected {expected}"
-            ),
-            Self::InvalidIndexPermutation => formatter.write_str(
-                "index-variable transport needs a bijection of the authenticated index space",
             ),
             Self::IndexAssignmentOutOfRange { position, arity } => write!(
                 formatter,
@@ -8016,75 +7575,6 @@ impl ParametricCoefficientContext {
         self.nonzero_condition_with_origins_and_limits(polynomial, origins, limits.exact_algebra)
     }
 
-    /// Simultaneously rename the private index variables by a bijection.
-    ///
-    /// `source_to_target[i] = j` means
-    /// `n_source[i] -> n_target[j]`.  This is the coefficient half of
-    /// transporting a complete parametric identity through a proved
-    /// denominator permutation.  It must not be used to canonicalize one
-    /// isolated `I(n+s)` term: for generic `n`, a nontrivial permutation sends
-    /// `n` to `P n`, not back to `n`.
-    pub fn permute_indices(
-        &self,
-        value: &ParametricCoefficient,
-        source_to_target: &[usize],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<ParametricCoefficient, ParametricCoefficientError> {
-        self.validate_with_limits(value, limits.exact_algebra)?;
-        self.validate_index_permutation(source_to_target)?;
-        let numerator =
-            self.permute_polynomial_raw(&value.raw.numerator, source_to_target, limits)?;
-        let denominator =
-            self.permute_polynomial_raw(&value.raw.denominator, source_to_target, limits)?;
-        if denominator.is_zero() {
-            return Err(ParametricCoefficientError::ZeroDenominator);
-        }
-        let raw = <Coefficient as FromNumeratorAndDenominator<
-            IntegerRing,
-            IntegerRing,
-            u16,
-        >>::from_num_den(numerator, denominator, &Z, true);
-        self.wrap_checked_with_limits(raw, limits.exact_algebra)
-    }
-
-    pub fn permute_polynomial_indices(
-        &self,
-        value: &ParametricPolynomial,
-        source_to_target: &[usize],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<ParametricPolynomial, ParametricCoefficientError> {
-        self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
-        self.validate_index_permutation(source_to_target)?;
-        Ok(ParametricPolynomial {
-            raw: self.permute_polynomial_raw(&value.raw, source_to_target, limits)?,
-            context: self.fingerprint.clone(),
-        })
-    }
-
-    pub fn permute_nonzero_condition_indices(
-        &self,
-        value: &ParametricNonZeroCondition,
-        source_to_target: &[usize],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<ParametricNonZeroCondition, ParametricCoefficientError> {
-        if !self.contains_nonzero_condition(value) {
-            return Err(ParametricCoefficientError::WrongContext);
-        }
-        self.validate_index_permutation(source_to_target)?;
-        let polynomial =
-            self.permute_polynomial_indices(value.polynomial(), source_to_target, limits)?;
-        let mut origins = value.origins.clone();
-        origins.insert(GuardOrigin::IndexPermutation {
-            source_to_target: source_to_target.to_vec().into_boxed_slice(),
-        });
-        check_limit(
-            "parametric guard origins",
-            origins.len(),
-            limits.max_guard_origins,
-        )?;
-        self.nonzero_condition_with_origins_and_limits(polynomial, origins, limits.exact_algebra)
-    }
-
     /// Allocation-free preflight for projecting one authenticated polynomial
     /// from `K(n)` to `K` at a complete integer assignment.
     pub(crate) fn preflight_specialize_polynomial(
@@ -8588,24 +8078,12 @@ impl ParametricCoefficientContext {
             compilation_owned_logical_peak_upper_bound: preflight
                 .compilation_owned_logical_peak_upper_bound,
         };
-        let manifest = ResidualAffineCompactCompositionManifest {
-            schema: RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA,
-            context_fingerprint_bytes: self.fingerprint().len(),
-            context_checksum: residual_affine_diagnostic_checksum(self.fingerprint().as_bytes()),
-            ambient_arity: geometry.ambient_arity,
-            free_count: geometry.free_positions.len(),
-            geometry_checksum: preflight.geometry_checksum,
-            limits,
-            stats,
-        };
         let plan = ResidualAffineCompactCompositionPlan {
             schema: RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA,
             context_fingerprint: self.fingerprint.clone(),
-            geometry_checksum: preflight.geometry_checksum,
             core,
             limits,
             stats,
-            manifest,
         };
         self.validate_residual_affine_compact_composition_plan(&plan)?;
         Ok(plan)
@@ -9275,7 +8753,6 @@ impl ParametricCoefficientContext {
         plan: &ResidualAffineCompactCompositionPlan,
     ) -> Result<(), ResidualUnitAffineCompositionError> {
         if plan.schema != RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA
-            || plan.manifest.schema != RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA
             || plan.core.schema != RESIDUAL_AFFINE_COMPOSITION_CORE_V1_SCHEMA
         {
             return Err(ResidualUnitAffineCompositionError::SchemaMismatch);
@@ -9283,16 +8760,7 @@ impl ParametricCoefficientContext {
         if plan.context_fingerprint.as_ref() != self.fingerprint() {
             return Err(ResidualUnitAffineCompositionError::WrongContext);
         }
-        if plan.limits.composition != plan.core.limits
-            || plan.stats.composition != plan.core.stats
-            || plan.manifest.limits != plan.limits
-            || plan.manifest.stats != plan.stats
-            || plan.manifest.context_fingerprint_bytes != plan.context_fingerprint.len()
-            || plan.manifest.context_checksum
-                != residual_affine_diagnostic_checksum(plan.context_fingerprint.as_bytes())
-            || plan.manifest.ambient_arity != plan.core.ambient_arity
-            || plan.manifest.free_count != plan.core.free_positions.len()
-            || plan.manifest.geometry_checksum != plan.geometry_checksum
+        if plan.limits.composition != plan.core.limits || plan.stats.composition != plan.core.stats
         {
             return Err(ResidualUnitAffineCompositionError::SchemaMismatch);
         }
@@ -9368,17 +8836,7 @@ impl ParametricCoefficientContext {
             compilation_owned_logical_peak_upper_bound: preflight
                 .compilation_owned_logical_peak_upper_bound,
         };
-        let manifest = ResidualAffineCompactCompositionManifest {
-            schema: RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA,
-            context_fingerprint_bytes: self.fingerprint().len(),
-            context_checksum: residual_affine_diagnostic_checksum(self.fingerprint().as_bytes()),
-            ambient_arity: geometry.ambient_arity,
-            free_count: geometry.free_positions.len(),
-            geometry_checksum: preflight.geometry_checksum,
-            limits: plan.limits,
-            stats,
-        };
-        if plan.stats != stats || plan.manifest != manifest {
+        if plan.stats != stats {
             return Err(ResidualUnitAffineCompositionError::CompactGeometryReplayMismatch);
         }
         replay_residual_affine_compact_geometry_against_core(self, &plan.core, geometry, preflight)
@@ -10416,27 +9874,6 @@ impl ParametricCoefficientContext {
         }
     }
 
-    fn validate_index_permutation(
-        &self,
-        source_to_target: &[usize],
-    ) -> Result<(), ParametricCoefficientError> {
-        if source_to_target.len() != self.index_count() {
-            return Err(ParametricCoefficientError::WrongIndexArity {
-                expected: self.index_count(),
-                actual: source_to_target.len(),
-            });
-        }
-        for (source, &target) in source_to_target.iter().enumerate() {
-            if target >= self.index_count() {
-                return Err(ParametricCoefficientError::InvalidIndexPermutation);
-            }
-            if source_to_target[..source].contains(&target) {
-                return Err(ParametricCoefficientError::InvalidIndexPermutation);
-            }
-        }
-        Ok(())
-    }
-
     fn validate_partial_assignment(
         &self,
         assignment: &PartialIndexAssignment,
@@ -10803,52 +10240,6 @@ impl ParametricCoefficientContext {
                 preflight.output_coefficient_capacity_bound,
                 preflight.output_exponent_capacity_bound,
             )));
-        }
-        validate_polynomial_on_map(
-            &result,
-            &self.variables,
-            crate::algebra::CoefficientPolynomialPart::Numerator,
-            limits.exact_algebra,
-        )?;
-        Ok(result)
-    }
-
-    fn permute_polynomial_raw(
-        &self,
-        source: &CoefficientPolynomial,
-        source_to_target: &[usize],
-        limits: ParametricArithmeticLimits,
-    ) -> Result<CoefficientPolynomial, ParametricCoefficientError> {
-        validate_polynomial_on_map(
-            source,
-            &self.variables,
-            crate::algebra::CoefficientPolynomialPart::Numerator,
-            limits.exact_algebra,
-        )?;
-        self.validate_index_permutation(source_to_target)?;
-        check_limit(
-            "parametric permutation source terms",
-            source.nterms(),
-            limits.max_source_terms,
-        )?;
-        check_limit(
-            "parametric permutation output terms",
-            source.nterms(),
-            limits.max_output_terms,
-        )?;
-        let base_count = self.base.variables().len();
-        let mut result = self.template.numerator.zero_with_capacity(source.nterms());
-        let mut target_exponents = vec![0_u16; self.variables.len()];
-        for (coefficient, source_exponents) in
-            source.coefficients.iter().zip(source.exponents_iter())
-        {
-            target_exponents.fill(0);
-            target_exponents[..base_count].copy_from_slice(&source_exponents[..base_count]);
-            for (source_index, &target_index) in source_to_target.iter().enumerate() {
-                target_exponents[base_count + target_index] =
-                    source_exponents[base_count + source_index];
-            }
-            result.append_monomial(coefficient.clone(), &target_exponents);
         }
         validate_polynomial_on_map(
             &result,
@@ -12172,65 +11563,6 @@ struct ResidualAffineCompactGeometryPreflight {
     geometry_replay_scratch_logical_bytes: usize,
     retained_owned_logical_bytes: usize,
     compilation_owned_logical_peak_upper_bound: usize,
-    geometry_checksum: u64,
-}
-
-const RESIDUAL_AFFINE_DIAGNOSTIC_FNV1A64_OFFSET: u64 = 0xcbf29ce484222325;
-const RESIDUAL_AFFINE_DIAGNOSTIC_FNV1A64_PRIME: u64 = 0x100000001b3;
-
-/// Deterministic diagnostic hasher.  Exact replay below, never this checksum,
-/// authenticates a compact geometry.
-struct ResidualAffineDiagnosticHasher(u64);
-
-impl ResidualAffineDiagnosticHasher {
-    const fn new() -> Self {
-        Self(RESIDUAL_AFFINE_DIAGNOSTIC_FNV1A64_OFFSET)
-    }
-
-    fn write_usize(&mut self, value: usize) {
-        self.write(&(value as u128).to_le_bytes());
-    }
-}
-
-impl Hasher for ResidualAffineDiagnosticHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.0 ^= u64::from(byte);
-            self.0 = self
-                .0
-                .wrapping_mul(RESIDUAL_AFFINE_DIAGNOSTIC_FNV1A64_PRIME);
-        }
-    }
-}
-
-fn residual_affine_diagnostic_checksum(bytes: &[u8]) -> u64 {
-    let mut hasher = ResidualAffineDiagnosticHasher::new();
-    hasher.write_usize(bytes.len());
-    hasher.write(bytes);
-    hasher.finish()
-}
-
-fn residual_affine_compact_geometry_checksum(geometry: ResidualAffineCompactMapView<'_>) -> u64 {
-    let mut hasher = ResidualAffineDiagnosticHasher::new();
-    hasher.write(RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA.as_bytes());
-    hasher.write_usize(geometry.ambient_arity);
-    hasher.write_usize(geometry.free_positions.len());
-    for &position in geometry.free_positions {
-        hasher.write_usize(position);
-    }
-    hasher.write_usize(geometry.constants.len());
-    for value in geometry.constants {
-        value.hash(&mut hasher);
-    }
-    hasher.write_usize(geometry.compact_linear_coefficients.len());
-    for value in geometry.compact_linear_coefficients {
-        value.hash(&mut hasher);
-    }
-    hasher.finish()
 }
 
 fn residual_affine_compact_geometry_error(
@@ -12667,7 +11999,6 @@ fn residual_affine_compact_geometry_preflight(
         geometry_replay_scratch_logical_bytes,
         retained_owned_logical_bytes,
         compilation_owned_logical_peak_upper_bound,
-        geometry_checksum: residual_affine_compact_geometry_checksum(geometry),
     })
 }
 
@@ -13996,7 +13327,7 @@ mod tests {
     use symbolica::domains::integer::MultiPrecisionInteger;
 
     use super::*;
-    use crate::GuardRowId;
+
     fn residual_affine_test_context(scope: &str) -> ParametricCoefficientContext {
         ParametricCoefficientContext::try_new(&CoefficientContext::new(["d", "m2"]), scope, 3)
             .unwrap()
@@ -15899,135 +15230,6 @@ mod tests {
             stats.compilation_owned_logical_peak_upper_bound()
         );
     }
-
-    #[test]
-    fn compact_affine_v2_plan_is_lifetime_safe_exactly_replayable_tamper_evident_and_redacted() {
-        let scope_sentinel = "compact-affine-v2-private-context-sentinel";
-        let context = residual_affine_test_context(scope_sentinel);
-        let huge = (Integer::one() << 300u32) + Integer::from(41);
-        let huge_rendered = huge.to_string();
-        let plan = {
-            let constants = [huge.clone(), Integer::zero(), Integer::zero()];
-            let free_positions = [1usize, 2];
-            let linear = [
-                Integer::one(),
-                Integer::from(-1),
-                Integer::one(),
-                Integer::zero(),
-                Integer::zero(),
-                Integer::one(),
-            ];
-            context
-                .compile_residual_affine_compact_composition_plan(
-                    ResidualAffineCompactMapView::new(
-                        context.fingerprint(),
-                        3,
-                        &constants,
-                        &free_positions,
-                        &linear,
-                    ),
-                    ResidualAffineCompactCompositionPlanLimits::default(),
-                )
-                .unwrap()
-        };
-
-        let constants = [huge.clone(), Integer::zero(), Integer::zero()];
-        let free_positions = [1usize, 2];
-        let linear = [
-            Integer::one(),
-            Integer::from(-1),
-            Integer::one(),
-            Integer::zero(),
-            Integer::zero(),
-            Integer::one(),
-        ];
-        let view = ResidualAffineCompactMapView::new(
-            context.fingerprint(),
-            3,
-            &constants,
-            &free_positions,
-            &linear,
-        );
-        plan.replay(&context, view).unwrap();
-        assert_eq!(plan.ambient_arity(), 3);
-        assert_eq!(plan.free_positions(), free_positions);
-        assert_eq!(
-            plan.manifest().schema(),
-            RESIDUAL_AFFINE_COMPACT_COMPOSITION_V2_SCHEMA
-        );
-        assert_eq!(plan.manifest().ambient_arity(), 3);
-        assert_eq!(plan.manifest().free_count(), 2);
-        assert_eq!(plan.manifest().limits(), plan.limits());
-        assert_eq!(plan.manifest().stats(), plan.stats());
-        assert_eq!(
-            plan.manifest().context_fingerprint_bytes(),
-            context.fingerprint().len()
-        );
-        assert_ne!(plan.manifest().context_checksum(), 0);
-        assert_ne!(plan.manifest().geometry_checksum(), 0);
-        assert!(
-            plan.owned_retained_byte_bound().unwrap()
-                >= plan.stats().retained_owned_logical_bytes()
-        );
-
-        let mut changed_constants = constants.clone();
-        changed_constants[0] += Integer::one();
-        let changed_view = ResidualAffineCompactMapView::new(
-            context.fingerprint(),
-            3,
-            &changed_constants,
-            &free_positions,
-            &linear,
-        );
-        assert!(matches!(
-            plan.replay(&context, changed_view),
-            Err(ResidualUnitAffineCompositionError::CompactGeometryReplayMismatch)
-        ));
-
-        let mut tampered_core = plan.clone();
-        let base_count = context.base.variables().len();
-        Arc::make_mut(&mut tampered_core.core).full_images[base_count].coefficients[0] =
-            Integer::from(17);
-        assert!(matches!(
-            tampered_core.replay(&context, view),
-            Err(ResidualUnitAffineCompositionError::CompactGeometryReplayMismatch)
-        ));
-        let mut duplicate_monomial = plan.clone();
-        let variable_count = context.variables.len();
-        let image = &mut Arc::make_mut(&mut duplicate_monomial.core).full_images[base_count];
-        assert!(image.nterms() >= 2);
-        let first = image.exponents[..variable_count].to_vec();
-        image.exponents[variable_count..2 * variable_count].copy_from_slice(&first);
-        assert!(matches!(
-            duplicate_monomial.replay(&context, view),
-            Err(ResidualUnitAffineCompositionError::CompactGeometryReplayMismatch)
-        ));
-        let mut tampered_manifest = plan.clone();
-        tampered_manifest.manifest.geometry_checksum ^= 1;
-        assert!(matches!(
-            tampered_manifest.replay(&context, view),
-            Err(ResidualUnitAffineCompositionError::SchemaMismatch)
-        ));
-        // Even a coherently forged diagnostic checksum cannot replace deep
-        // componentwise replay against the canonical Symbolica images.
-        let mut coherently_forged_checksum = plan.clone();
-        let changed_checksum = residual_affine_compact_geometry_checksum(changed_view);
-        coherently_forged_checksum.geometry_checksum = changed_checksum;
-        coherently_forged_checksum.manifest.geometry_checksum = changed_checksum;
-        assert!(matches!(
-            coherently_forged_checksum.replay(&context, changed_view),
-            Err(ResidualUnitAffineCompositionError::CompactGeometryReplayMismatch)
-        ));
-
-        let rendered = format!("{view:?} {plan:?} {:?}", plan.manifest());
-        assert!(!rendered.contains(scope_sentinel));
-        assert!(!rendered.contains(context.fingerprint()));
-        assert!(!rendered.contains(&huge_rendered));
-
-        let forbidden = ["un", "safe"].concat();
-        assert!(!include_str!("parametric_coefficient.rs").contains(&forbidden));
-    }
-
     #[test]
     fn compact_affine_v2_contains_boundary_panics_and_replays_composes_concurrently() {
         let context = residual_affine_test_context("compact-affine-v2-panic-concurrent");

@@ -46,7 +46,7 @@ pub enum CoefficientLocation {
 }
 
 impl CoefficientLocation {
-    /// Version-stable identity used inside persisted proof manifests.
+    /// Version-stable identity used in user-facing output and proof payloads.
     pub fn stable_string(&self) -> String {
         let mut output = String::new();
         self.write_stable(&mut output)
@@ -93,7 +93,7 @@ pub enum GuardRowId {
 }
 
 impl GuardRowId {
-    /// Version-stable identity used inside persisted proof manifests.
+    /// Version-stable identity used in user-facing output and proof payloads.
     pub fn stable_string(&self) -> String {
         let mut output = String::new();
         self.write_stable(&mut output)
@@ -175,28 +175,8 @@ pub enum GuardOrigin {
         offset: Box<[i64]>,
     },
 
-    /// A whole relation was transported through a verified denominator
-    /// permutation and reparameterized back onto the canonical `n` variables.
-    RelationIndexPermutation {
-        source_row: GuardRowId,
-        target_row: GuardRowId,
-        source_to_target: Box<[usize]>,
-    },
-
     /// Affine index translation `n -> n + offset` applied to a guard.
     IndexTranslation { offset: Box<[i64]> },
-    /// Simultaneous index substitution
-    /// `n_source[i] -> n_target[source_to_target[i]]`.
-    IndexPermutation { source_to_target: Box<[usize]> },
-    /// One exact base-field domain condition retained by the verified affine
-    /// family map underlying a denominator permutation.  The symmetry proof
-    /// itself remains in the higher-level transport certificate; this flat
-    /// atom identifies the replayed condition without introducing recursive
-    /// provenance types.
-    VerifiedSymmetryMapDomain {
-        source_to_target: Box<[usize]>,
-        condition_ordinal: usize,
-    },
     /// Exact integer specialization applied to a guard.
     IndexSpecialization { assignment: Box<[i64]> },
     /// Exact sparse integer specialization applied while the remaining index
@@ -273,7 +253,7 @@ impl GuardOrigin {
         Self::retained_byte_base_bound()?.checked_add(row.shared_payload_bytes())
     }
 
-    /// Version-stable identity used inside persisted proof manifests.
+    /// Version-stable identity used in user-facing output and proof payloads.
     pub fn stable_string(&self) -> String {
         let mut output = String::new();
         self.write_stable(&mut output)
@@ -326,23 +306,10 @@ impl GuardOrigin {
                 add(row_bytes(target_row))?;
                 add(slice_bytes(offset.len(), size_of::<i64>())?)?;
             }
-            Self::RelationIndexPermutation {
-                source_row,
-                target_row,
-                source_to_target,
-            } => {
-                add(row_bytes(source_row))?;
-                add(row_bytes(target_row))?;
-                add(slice_bytes(source_to_target.len(), size_of::<usize>())?)?;
-            }
             Self::IndexTranslation { offset }
             | Self::IndexSpecialization { assignment: offset } => {
                 add(slice_bytes(offset.len(), size_of::<i64>())?)?;
             }
-            Self::IndexPermutation { source_to_target }
-            | Self::VerifiedSymmetryMapDomain {
-                source_to_target, ..
-            } => add(slice_bytes(source_to_target.len(), size_of::<usize>())?)?,
             Self::PartialIndexSpecialization { assignments } => {
                 add(slice_bytes(assignments.len(), size_of::<(usize, i64)>())?)?;
             }
@@ -422,36 +389,10 @@ impl GuardOrigin {
                 write_joined(writer, offset, ",")?;
                 writer.write_str("]")
             }
-            Self::RelationIndexPermutation {
-                source_row,
-                target_row,
-                source_to_target,
-            } => {
-                writer.write_str("relation-index-permutation:")?;
-                source_row.write_stable(writer)?;
-                writer.write_str(":")?;
-                target_row.write_stable(writer)?;
-                writer.write_str(":[")?;
-                write_joined(writer, source_to_target, ",")?;
-                writer.write_str("]")
-            }
             Self::IndexTranslation { offset } => {
                 writer.write_str("index-translation:[")?;
                 write_joined(writer, offset, ",")?;
                 writer.write_str("]")
-            }
-            Self::IndexPermutation { source_to_target } => {
-                writer.write_str("index-permutation:[")?;
-                write_joined(writer, source_to_target, ",")?;
-                writer.write_str("]")
-            }
-            Self::VerifiedSymmetryMapDomain {
-                source_to_target,
-                condition_ordinal,
-            } => {
-                writer.write_str("verified-symmetry-map-domain:[")?;
-                write_joined(writer, source_to_target, ",")?;
-                write!(writer, "]:{condition_ordinal}")
             }
             Self::IndexSpecialization { assignment } => {
                 writer.write_str("index-specialization:[")?;

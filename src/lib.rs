@@ -11,13 +11,10 @@
 //! part of the generic production crate and are not sources of generic
 //! parametric identities or future discovered rules.
 
-mod exact_identity;
-
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
 pub mod feynman_polynomials;
-pub mod generated_symbolic_row_span;
 pub mod generic_family;
 pub mod generic_tensor_family;
 pub mod generic_tensor_projector;
@@ -28,7 +25,6 @@ pub mod parametric_relation;
 pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
-pub mod symbolic_symmetry_transport;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
 pub mod symbolica_tensor_numerator;
@@ -45,12 +41,6 @@ pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
-};
-pub use generated_symbolic_row_span::{
-    GENERATED_SYMBOLIC_ROW_SPAN_V1_SCHEMA, GeneratedSymbolicRowSpanCertificate,
-    GeneratedSymbolicRowSpanCompiler, GeneratedSymbolicRowSpanConfig,
-    GeneratedSymbolicRowSpanError, GeneratedSymbolicRowSpanLimits, GeneratedSymbolicRowSpanLineage,
-    GeneratedSymbolicRowSpanStats, GeneratedSymbolicRowSpanStrategy,
 };
 pub use generic_family::{
     AffineDenominator, BaseNonZeroCondition, ContractionMomentum, DenominatorExpansion,
@@ -96,7 +86,6 @@ pub use parametric_ibp::{
 };
 pub use parametric_relation::{
     ConcreteIntegralKey, ConcreteRelation, IndexShift, IndexSpace,
-    PARAMETRIC_RELATION_MANIFEST_V1_SCHEMA, PARAMETRIC_RELATION_MANIFEST_V2_SCHEMA,
     PARTIAL_PARAMETRIC_RELATION_SPECIALIZATION_V1_SCHEMA, ParametricRelation,
     ParametricRelationError, ParametricRowId, PartialParametricRelationSpecialization,
     PartialParametricRelationSpecializationLimits, PartialParametricRelationSpecializationStats,
@@ -112,11 +101,6 @@ pub use shift_operators::{
     IndexShiftOperator, IndexShiftOperatorError, IndexShiftOperatorExpression,
     IndexShiftOperatorKind, IndexShiftOperatorLimits, IndexShiftOperatorMonomial,
     IndexShiftOperatorWord,
-};
-pub use symbolic_symmetry_transport::{
-    SYMBOLIC_SYMMETRY_ROW_TRANSPORT_V1_SCHEMA, SymbolicSymmetryRowTransportCertificate,
-    SymbolicSymmetryRowTransportCompiler, SymbolicSymmetryRowTransportError,
-    SymbolicSymmetryRowTransportLimits, SymbolicSymmetryRowTransportStats,
 };
 pub use symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,
@@ -141,10 +125,10 @@ pub use symbolica_tensor_numerator::{
     SymbolicaWeightedCovariantTensorMonomial,
 };
 pub use symmetry::{
-    AFFINE_FAMILY_MAP_V1_SCHEMA, AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap,
-    AffineScalarProductMap, DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap,
-    SymmetryVerificationError, SymmetryVerificationLimits, SymmetryVerificationStats,
-    VerifiedAffineFamilyMap, verify_affine_family_map,
+    AFFINE_FAMILY_MAP_V2_SCHEMA, AffineDenominatorMap, AffineScalarProductMap,
+    DenominatorRowAction, ExactMatrix, JacobianWitness, MomentumMap, SymmetryVerificationError,
+    SymmetryVerificationLimits, SymmetryVerificationStats, VerifiedAffineFamilyMap,
+    verify_affine_family_map,
 };
 pub use symmetry_discovery::{
     INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA, InternalSymmetryCompatibilityError,

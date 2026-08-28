@@ -9,7 +9,6 @@
 
 use std::fmt;
 
-use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::{
     ConcreteIntegralKey, DenominatorRowAction, IntegralFamily, JacobianWitness, SectorRestrictions,
     SymmetryVerificationError, SymmetryVerificationLimits, VerifiedAffineFamilyMap,
@@ -17,8 +16,6 @@ use crate::{
 
 pub const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_V1_SCHEMA: &str =
     "rustred-internal-family-permutation-symmetry-v1";
-pub(crate) const INTERNAL_FAMILY_PERMUTATION_SYMMETRY_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
-    "rustred-internal-family-permutation-symmetry-stable-value-identity-v1";
 
 /// An affine proof compiled into a symmetry of arbitrary integer index
 /// vectors for one authenticated family/restriction pair.
@@ -60,14 +57,6 @@ impl VerifiedInternalFamilyPermutationSymmetry {
     /// stricter integral-symmetry certificate was compiled.
     pub const fn affine_map(&self) -> &VerifiedAffineFamilyMap {
         &self.affine_map
-    }
-
-    pub(crate) fn stable_value_eq(&self, other: &Self) -> bool {
-        self.family_fingerprint == other.family_fingerprint
-            && self.restrictions_fingerprint == other.restrictions_fingerprint
-            && self.restrictions == other.restrictions
-            && self.denominator_permutation == other.denominator_permutation
-            && self.affine_map.stable_value_eq(&other.affine_map)
     }
 
     /// Transport one exact source integral into target denominator order.
@@ -145,33 +134,6 @@ impl VerifiedInternalFamilyPermutationSymmetry {
         Ok(())
     }
 
-    pub(crate) fn write_stable_value_identity(
-        &self,
-        writer: &mut ExactIdentityWriter<'_>,
-        tag: &str,
-    ) -> Result<(), ExactIdentityError> {
-        writer.begin_record(tag, 7)?;
-        writer.string(
-            "identity_schema",
-            INTERNAL_FAMILY_PERMUTATION_SYMMETRY_STABLE_VALUE_IDENTITY_V1_SCHEMA,
-        )?;
-        writer.string("certificate_schema", Self::SCHEMA)?;
-        writer.string("family_fingerprint", &self.family_fingerprint)?;
-        writer.string("restrictions_fingerprint", &self.restrictions_fingerprint)?;
-        write_sector_restrictions_identity(writer, "restrictions", &self.restrictions)?;
-        writer.begin_sequence(
-            "denominator_permutation",
-            self.denominator_permutation.len(),
-        )?;
-        for &target in &self.denominator_permutation {
-            writer.usize("target", target)?;
-        }
-        writer.end_sequence()?;
-        self.affine_map
-            .write_stable_value_identity(writer, "affine_map")?;
-        writer.end_record()
-    }
-
     /// Prove that this already-verified family map preserves another exact
     /// cut/pattern policy. The affine proof remains owned by `self`; callers
     /// may later compile a restricted certificate lazily only when the map is
@@ -216,33 +178,6 @@ impl VerifiedInternalFamilyPermutationSymmetry {
         }
         Ok(())
     }
-}
-
-fn write_sector_restrictions_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    restrictions: &SectorRestrictions,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    let required = restrictions.cuts().required_active();
-    writer.begin_sequence("required_active", required.arity())?;
-    for &active in required.active_bits() {
-        writer.boolean("active", active)?;
-    }
-    writer.end_sequence()?;
-    writer.begin_sequence("pattern", restrictions.pattern().arity())?;
-    for slot in restrictions.pattern().slots() {
-        writer.variant(
-            "slot",
-            match slot {
-                crate::SectorPatternSlot::Any => "Any",
-                crate::SectorPatternSlot::Active => "Active",
-                crate::SectorPatternSlot::Inactive => "Inactive",
-            },
-        )?;
-    }
-    writer.end_sequence()?;
-    writer.end_record()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

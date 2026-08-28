@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `41a7adf`, updated for the native sparse-adapter decoupling.
+**Baseline parent:** `5b8a21f`, updated for the serialization/row-transport deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 60 tracked Rust source/build/test paths
+This ledger classifies every one of the 57 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 36 |
+| split | 33 |
 | delete | 1 |
 | replace | 1 |
 
@@ -64,9 +64,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
-| `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
 | `src/generic_family.rs` | move | family | live generic family construction and normalization |
 | `src/generic_tensor_family.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/generic_tensor_projector.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
@@ -82,7 +80,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
-| `src/symbolic_symmetry_transport.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/tensor.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |

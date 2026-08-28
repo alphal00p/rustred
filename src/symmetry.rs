@@ -23,7 +23,6 @@ use crate::algebra::matrix::{
     determinant_of_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices,
 };
-use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::generic_family::BasePolynomial;
 use crate::{
     FamilyDomain, GenericFamilyError, GuardOrigin, IntegralFamily, ScalarProductCoordinate,
@@ -31,10 +30,6 @@ use crate::{
     algebra::ExactAlgebraLimits,
 };
 
-pub(crate) const VERIFIED_AFFINE_FAMILY_MAP_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
-    "rustred-verified-affine-family-map-stable-value-identity-v1";
-
-pub const AFFINE_FAMILY_MAP_V1_SCHEMA: &str = "rustred-affine-family-map-v1";
 pub const AFFINE_FAMILY_MAP_V2_SCHEMA: &str = "rustred-affine-family-map-v2";
 pub const DEFAULT_MAX_EXACT_MATRIX_ENTRIES: usize = 16_000_000;
 
@@ -260,10 +255,6 @@ pub struct SymmetryVerificationLimits {
     /// native Symbolica schedules.  Actual native calls are retained
     /// separately in [`SymmetryVerificationStats::symbolica_exact_operations`].
     pub max_exact_operations: usize,
-    /// Legacy V1 subset-DP ceiling retained for source compatibility.  V2
-    /// delegates determinants to Symbolica and does not allocate or charge
-    /// subset states, so this field is intentionally ignored.
-    pub max_determinant_states: usize,
     /// Largest individual matrix admitted inside one authenticated Symbolica
     /// determinant or product session.
     pub max_symbolica_single_matrix_entries: usize,
@@ -286,7 +277,6 @@ impl Default for SymmetryVerificationLimits {
             exact_algebra: ExactAlgebraLimits::default(),
             max_matrix_entries: 16_000_000,
             max_exact_operations: 100_000_000,
-            max_determinant_states: 16_000_000,
             max_symbolica_single_matrix_entries: 16_000_000,
             max_symbolica_live_matrix_entries: 32_000_000,
             max_symbolica_input_retained_bytes: DEFAULT_MAX_INPUT_RETAINED_BYTES,
@@ -304,8 +294,6 @@ pub struct SymmetryVerificationStats {
     /// their public Symbolica preflight bound so this value is replayable as
     /// an exact limit even when a determinant's actual schedule is smaller.
     exact_operations: usize,
-    /// Legacy V1 subset-DP state census.  Always zero for V2 certificates.
-    determinant_states: usize,
     symbolica_exact_operations: usize,
     symbolica_admitted_exact_operations: usize,
     symbolica_largest_matrix_entries: usize,
@@ -326,10 +314,6 @@ impl SymmetryVerificationStats {
 
     pub const fn exact_operations(self) -> usize {
         self.exact_operations
-    }
-
-    pub const fn determinant_states(self) -> usize {
-        self.determinant_states
     }
 
     /// Exact arithmetic calls actually observed inside native Symbolica
@@ -471,25 +455,6 @@ impl VerifiedAffineFamilyMap {
         self.stats
     }
 
-    /// Allocation-independent equality used when a durable certificate binds
-    /// a nested transport back to a row-span-owned symmetry proof.
-    pub(crate) fn stable_value_eq(&self, other: &Self) -> bool {
-        self.source_family_fingerprint == other.source_family_fingerprint
-            && self.target_family_fingerprint == other.target_family_fingerprint
-            && self.momentum == other.momentum
-            && self.scalar_products == other.scalar_products
-            && self.denominators == other.denominators
-            && self.row_actions == other.row_actions
-            && self.loop_determinant == other.loop_determinant
-            && self.external_determinant == other.external_determinant
-            && self.jacobian == other.jacobian
-            && self.source_domain == other.source_domain
-            && self.target_domain == other.target_domain
-            && self.candidate_denominator_guards == other.candidate_denominator_guards
-            && self.replay_guards == other.replay_guards
-            && symmetry_stats_stable_value_eq(self.stats, other.stats)
-    }
-
     /// Replay a retained map from its momentum witness.  Derived data is
     /// compared structurally, including the complete pre-cancellation domain.
     pub fn replay(
@@ -516,315 +481,6 @@ impl VerifiedAffineFamilyMap {
         }
         Ok(())
     }
-
-    pub(crate) fn write_stable_value_identity(
-        &self,
-        writer: &mut ExactIdentityWriter<'_>,
-        tag: &str,
-    ) -> Result<(), ExactIdentityError> {
-        writer.begin_record(tag, 16)?;
-        writer.string(
-            "identity_schema",
-            VERIFIED_AFFINE_FAMILY_MAP_STABLE_VALUE_IDENTITY_V1_SCHEMA,
-        )?;
-        writer.string("certificate_schema", Self::SCHEMA)?;
-        writer.string("source_family_fingerprint", &self.source_family_fingerprint)?;
-        writer.string("target_family_fingerprint", &self.target_family_fingerprint)?;
-        write_momentum_map_identity(writer, "momentum", &self.momentum)?;
-        write_affine_scalar_product_map_identity(writer, "scalar_products", &self.scalar_products)?;
-        write_affine_denominator_map_identity(writer, "denominators", &self.denominators)?;
-        writer.begin_sequence("row_actions", self.row_actions.len())?;
-        for action in &self.row_actions {
-            write_denominator_row_action_identity(writer, "row_action", action)?;
-        }
-        writer.end_sequence()?;
-        writer.rational_coefficient("loop_determinant", &self.loop_determinant)?;
-        writer.rational_coefficient("external_determinant", &self.external_determinant)?;
-        write_jacobian_identity(writer, "jacobian", &self.jacobian)?;
-        write_family_domain_identity(writer, "source_domain", &self.source_domain)?;
-        write_family_domain_identity(writer, "target_domain", &self.target_domain)?;
-        writer.begin_sequence(
-            "candidate_denominator_guards",
-            self.candidate_denominator_guards.len(),
-        )?;
-        for polynomial in &self.candidate_denominator_guards {
-            writer.polynomial("polynomial", polynomial)?;
-        }
-        writer.end_sequence()?;
-        writer.begin_sequence("replay_guards", self.replay_guards.len())?;
-        for condition in &self.replay_guards {
-            write_symmetry_nonzero_condition_identity(writer, "condition", condition)?;
-        }
-        writer.end_sequence()?;
-        write_symmetry_stats_identity(writer, "stats", self.stats)?;
-        writer.end_record()
-    }
-}
-
-fn write_exact_matrix_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    matrix: &ExactMatrix<Coefficient>,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 3)?;
-    writer.usize("rows", matrix.rows())?;
-    writer.usize("columns", matrix.columns())?;
-    writer.begin_sequence("entries", matrix.entries().len())?;
-    for entry in matrix.entries() {
-        writer.rational_coefficient("coefficient", entry)?;
-    }
-    writer.end_sequence()?;
-    writer.end_record()
-}
-
-fn write_coefficient_sequence_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    values: &[Coefficient],
-) -> Result<(), ExactIdentityError> {
-    writer.begin_sequence(tag, values.len())?;
-    for value in values {
-        writer.rational_coefficient("coefficient", value)?;
-    }
-    writer.end_sequence()
-}
-
-fn write_momentum_map_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    map: &MomentumMap,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 3)?;
-    write_exact_matrix_identity(writer, "loop_linear", map.loop_linear())?;
-    write_exact_matrix_identity(writer, "loop_external", map.loop_external())?;
-    write_exact_matrix_identity(writer, "external_linear", map.external_linear())?;
-    writer.end_record()
-}
-
-fn write_affine_scalar_product_map_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    map: &AffineScalarProductMap,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    write_coefficient_sequence_identity(writer, "constant", map.constant())?;
-    write_exact_matrix_identity(writer, "linear", map.linear())?;
-    writer.end_record()
-}
-
-fn write_affine_denominator_map_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    map: &AffineDenominatorMap,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    write_coefficient_sequence_identity(writer, "constant", map.constant())?;
-    write_exact_matrix_identity(writer, "linear", map.linear())?;
-    writer.end_record()
-}
-
-fn write_denominator_row_action_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    action: &DenominatorRowAction,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match action {
-        DenominatorRowAction::Monomial { target, scale } => {
-            writer.variant("variant", "Monomial")?;
-            writer.begin_record("fields", 2)?;
-            writer.usize("target", *target)?;
-            writer.rational_coefficient("scale", scale)?;
-        }
-        DenominatorRowAction::Affine => {
-            writer.variant("variant", "Affine")?;
-            writer.begin_record("fields", 0)?;
-        }
-    }
-    writer.end_record()?;
-    writer.end_record()
-}
-
-fn write_jacobian_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    jacobian: &JacobianWitness,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match jacobian {
-        JacobianWitness::Unit { determinant_sign } => {
-            writer.variant("variant", "Unit")?;
-            writer.begin_record("fields", 1)?;
-            writer.signed_i64("determinant_sign", i64::from(*determinant_sign))?;
-        }
-        JacobianWitness::FormalDeterminantPower { determinant } => {
-            writer.variant("variant", "FormalDeterminantPower")?;
-            writer.begin_record("fields", 1)?;
-            writer.rational_coefficient("determinant", determinant)?;
-        }
-    }
-    writer.end_record()?;
-    writer.end_record()
-}
-
-fn write_family_domain_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    domain: &FamilyDomain,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 3)?;
-    writer.begin_sequence("input_denominators", domain.input_denominators().len())?;
-    for condition in domain.input_denominators() {
-        write_base_nonzero_condition_identity(writer, "condition", condition)?;
-    }
-    writer.end_sequence()?;
-    writer.rational_coefficient("basis_determinant", domain.basis_determinant())?;
-    write_base_nonzero_condition_identity(
-        writer,
-        "determinant_nonzero",
-        domain.determinant_nonzero(),
-    )?;
-    writer.end_record()
-}
-
-fn write_base_nonzero_condition_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    condition: &crate::BaseNonZeroCondition,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 3)?;
-    writer.coefficient_location("source", condition.source())?;
-    writer.polynomial("polynomial", condition.polynomial())?;
-    writer.begin_sequence("origins", condition.origins().len())?;
-    for origin in condition.origins() {
-        writer.guard_origin("origin", origin)?;
-    }
-    writer.end_sequence()?;
-    writer.end_record()
-}
-
-fn write_symmetry_nonzero_condition_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    condition: &SymmetryNonZeroCondition,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    writer.polynomial("polynomial", condition.polynomial())?;
-    writer.begin_sequence("origins", condition.origins().len())?;
-    for origin in condition.origins() {
-        write_symmetry_guard_origin_identity(writer, "origin", origin)?;
-    }
-    writer.end_sequence()?;
-    writer.end_record()
-}
-
-fn write_symmetry_guard_origin_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    origin: &SymmetryGuardOrigin,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match origin {
-        SymmetryGuardOrigin::SourceFamily(origin) => {
-            writer.variant("variant", "SourceFamily")?;
-            writer.begin_record("fields", 1)?;
-            writer.guard_origin("origin", origin)?;
-        }
-        SymmetryGuardOrigin::TargetFamily(origin) => {
-            writer.variant("variant", "TargetFamily")?;
-            writer.begin_record("fields", 1)?;
-            writer.guard_origin("origin", origin)?;
-        }
-        SymmetryGuardOrigin::MomentumMapDenominator {
-            matrix,
-            row,
-            column,
-        } => {
-            writer.variant("variant", "MomentumMapDenominator")?;
-            writer.begin_record("fields", 3)?;
-            writer.string("matrix", matrix)?;
-            writer.usize("row", *row)?;
-            writer.usize("column", *column)?;
-        }
-        SymmetryGuardOrigin::LoopMapDeterminantNumerator => {
-            writer.variant("variant", "LoopMapDeterminantNumerator")?;
-            writer.begin_record("fields", 0)?;
-        }
-        SymmetryGuardOrigin::ExternalMapDeterminantNumerator => {
-            writer.variant("variant", "ExternalMapDeterminantNumerator")?;
-            writer.begin_record("fields", 0)?;
-        }
-        SymmetryGuardOrigin::DenominatorScaleNumerator {
-            source_denominator,
-            target_denominator,
-        } => {
-            writer.variant("variant", "DenominatorScaleNumerator")?;
-            writer.begin_record("fields", 2)?;
-            writer.usize("source_denominator", *source_denominator)?;
-            writer.usize("target_denominator", *target_denominator)?;
-        }
-    }
-    writer.end_record()?;
-    writer.end_record()
-}
-
-fn write_symmetry_stats_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    stats: SymmetryVerificationStats,
-) -> Result<(), ExactIdentityError> {
-    // Native retained-byte counters are `size_of`/allocator diagnostics and
-    // deliberately do not enter an allocation-independent durable value.
-    writer.begin_record(tag, 12)?;
-    writer.usize("matrix_entries", stats.matrix_entries())?;
-    writer.usize("exact_operations", stats.exact_operations())?;
-    writer.usize("determinant_states", stats.determinant_states())?;
-    writer.usize(
-        "symbolica_exact_operations",
-        stats.symbolica_exact_operations(),
-    )?;
-    writer.usize(
-        "symbolica_admitted_exact_operations",
-        stats.symbolica_admitted_exact_operations(),
-    )?;
-    writer.usize(
-        "symbolica_largest_matrix_entries",
-        stats.symbolica_largest_matrix_entries(),
-    )?;
-    writer.usize(
-        "symbolica_peak_live_matrix_entries",
-        stats.symbolica_peak_live_matrix_entries(),
-    )?;
-    writer.usize(
-        "symbolica_determinant_calls",
-        stats.symbolica_determinant_calls(),
-    )?;
-    writer.usize("symbolica_product_calls", stats.symbolica_product_calls())?;
-    writer.usize(
-        "symbolica_transpose_calls",
-        stats.symbolica_transpose_calls(),
-    )?;
-    writer.usize("guard_polynomials", stats.guard_polynomials())?;
-    writer.usize("guard_origins", stats.guard_origins())?;
-    writer.end_record()
-}
-
-fn symmetry_stats_stable_value_eq(
-    left: SymmetryVerificationStats,
-    right: SymmetryVerificationStats,
-) -> bool {
-    left.matrix_entries() == right.matrix_entries()
-        && left.exact_operations() == right.exact_operations()
-        && left.determinant_states() == right.determinant_states()
-        && left.symbolica_exact_operations() == right.symbolica_exact_operations()
-        && left.symbolica_admitted_exact_operations() == right.symbolica_admitted_exact_operations()
-        && left.symbolica_largest_matrix_entries() == right.symbolica_largest_matrix_entries()
-        && left.symbolica_peak_live_matrix_entries() == right.symbolica_peak_live_matrix_entries()
-        && left.symbolica_determinant_calls() == right.symbolica_determinant_calls()
-        && left.symbolica_product_calls() == right.symbolica_product_calls()
-        && left.symbolica_transpose_calls() == right.symbolica_transpose_calls()
-        && left.guard_polynomials() == right.guard_polynomials()
-        && left.guard_origins() == right.guard_origins()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -15,20 +15,13 @@ use crate::parametric_coefficient::{
     insert_specialized_condition,
 };
 use crate::{
-    BasePolynomial, CoefficientLocation, GuardOrigin, GuardRowId, GuardedParametricCoefficient,
+    BasePolynomial, GuardOrigin, GuardRowId, GuardedParametricCoefficient,
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
     PartialIndexAssignment, SpecializedNonZeroCondition,
 };
 use crate::{algebra::Coefficient, algebra::CoefficientContext};
 
-/// Versioned canonical text identity for a complete parametric source row.
-///
-/// V1 is retained as a legacy persistence identifier. New manifests use V2's
-/// typed sparse encoding, which does not require a cap-sized canonical Atom
-/// `String` as an intermediate value.
-pub const PARAMETRIC_RELATION_MANIFEST_V1_SCHEMA: &str = "rustred-parametric-relation-manifest-v1";
-pub const PARAMETRIC_RELATION_MANIFEST_V2_SCHEMA: &str = "rustred-parametric-relation-manifest-v2";
 const PARAMETRIC_RELATION_COEFFICIENT_V2_SCHEMA: &str = "rustred-parametric-coefficient-sparse-v1";
 const PARAMETRIC_RELATION_POLYNOMIAL_V2_SCHEMA: &str = "rustred-parametric-polynomial-sparse-v1";
 pub const PARTIAL_PARAMETRIC_RELATION_SPECIALIZATION_V1_SCHEMA: &str =
@@ -522,7 +515,7 @@ impl ParametricRowId {
         }
     }
 
-    /// Version-stable identity used inside persisted proof manifests.
+    /// Version-stable identity used in user-facing output and proof payloads.
     pub fn stable_string(&self) -> String {
         self.guard_identity().stable_string()
     }
@@ -562,491 +555,6 @@ impl PartialEq for ParametricRelation {
 
 impl Eq for ParametricRelation {}
 
-struct RelationManifestBuilder {
-    output: String,
-    expected_bytes: usize,
-    error: Option<ParametricRelationError>,
-}
-
-struct ManifestByteCounter {
-    bytes: usize,
-    byte_offset: usize,
-    max_bytes: usize,
-    error: Option<ParametricRelationError>,
-}
-
-impl ManifestByteCounter {
-    fn new(max_bytes: usize) -> Self {
-        Self {
-            bytes: 0,
-            byte_offset: 0,
-            max_bytes,
-            error: None,
-        }
-    }
-}
-
-impl fmt::Write for ManifestByteCounter {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        let Some(local_requested) = self.bytes.checked_add(value.len()) else {
-            self.error = Some(ParametricRelationError::ResourceCountOverflow {
-                resource: "parametric relation manifest bytes",
-            });
-            return Err(fmt::Error);
-        };
-        let Some(requested) = self.byte_offset.checked_add(local_requested) else {
-            self.error = Some(ParametricRelationError::ResourceCountOverflow {
-                resource: "parametric relation manifest bytes",
-            });
-            return Err(fmt::Error);
-        };
-        if requested > self.max_bytes {
-            self.error = Some(ParametricRelationError::ResourceLimit {
-                resource: "parametric relation manifest bytes",
-                requested,
-                limit: self.max_bytes,
-            });
-            return Err(fmt::Error);
-        }
-        self.bytes = local_requested;
-        Ok(())
-    }
-}
-
-impl RelationManifestBuilder {
-    fn try_new(expected_bytes: usize) -> Result<Self, ParametricRelationError> {
-        let mut output = String::new();
-        output.try_reserve_exact(expected_bytes).map_err(|_| {
-            ParametricRelationError::AllocationFailure {
-                resource: "parametric relation manifest bytes",
-                requested: expected_bytes,
-            }
-        })?;
-        Ok(Self {
-            output,
-            expected_bytes,
-            error: None,
-        })
-    }
-
-    fn finish(self) -> String {
-        self.output
-    }
-}
-
-impl fmt::Write for RelationManifestBuilder {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        let Some(requested) = self.output.len().checked_add(value.len()) else {
-            self.error = Some(ParametricRelationError::ResourceCountOverflow {
-                resource: "parametric relation manifest bytes",
-            });
-            return Err(fmt::Error);
-        };
-        if requested > self.expected_bytes {
-            self.error = Some(ParametricRelationError::ResourceCountOverflow {
-                resource: "parametric relation manifest bytes",
-            });
-            return Err(fmt::Error);
-        }
-        // `try_new` reserved the complete exact output before rendering, so
-        // this append cannot trigger a second allocation.
-        self.output.push_str(value);
-        Ok(())
-    }
-}
-
-enum RelationManifestSink<'a> {
-    Counter(&'a mut ManifestByteCounter),
-    Output(&'a mut RelationManifestBuilder),
-}
-
-impl RelationManifestSink<'_> {
-    fn take_error(&mut self) -> ParametricRelationError {
-        match self {
-            Self::Counter(counter) => counter.error.take(),
-            Self::Output(output) => output.error.take(),
-        }
-        .unwrap_or(ParametricRelationError::ResourceCountOverflow {
-            resource: "parametric relation manifest bytes",
-        })
-    }
-
-    fn finish_write(&mut self, result: fmt::Result) -> Result<(), ParametricRelationError> {
-        result.map_err(|_| self.take_error())
-    }
-}
-
-impl fmt::Write for RelationManifestSink<'_> {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        match self {
-            Self::Counter(counter) => counter.write_str(value),
-            Self::Output(output) => output.write_str(value),
-        }
-    }
-}
-
-/// Typed semantic events emitted while the canonical V2 grammar is streamed.
-///
-/// Exact structural identities implement this observer to census every nested
-/// payload in one semantic-observer traversal. Canonical length-prefix sizing
-/// performs that semantic traversal during its allocation-free physical sizing
-/// subpass, then emits the payload with a no-op observer. The default methods
-/// make the standalone persistence writer a zero-cost no-op observer.
-pub(crate) trait ParametricRelationV2Observer {
-    /// Finite exact-identity observers override this to bound every physical
-    /// length-prefix sizing subpass. Standalone persistence keeps its outer
-    /// manifest counter as the byte-limit authority.
-    fn length_prefix_byte_limit(&self) -> usize {
-        usize::MAX
-    }
-
-    /// Preserve the embedding writer's resource vocabulary when a nested
-    /// length-only subpass reaches its finite ceiling.
-    fn observe_length_prefix_limit_exceeded(
-        &mut self,
-        _local_requested: usize,
-        _local_limit: usize,
-    ) -> fmt::Result {
-        Err(fmt::Error)
-    }
-
-    fn observe_text_payload(&mut self, _bytes: usize) -> fmt::Result {
-        Ok(())
-    }
-
-    fn observe_unsigned(&mut self, _value: u128) -> fmt::Result {
-        Ok(())
-    }
-
-    fn observe_signed_i64(&mut self, _value: i64) -> fmt::Result {
-        Ok(())
-    }
-
-    fn observe_integer(&mut self, _value: &Integer) -> fmt::Result {
-        Ok(())
-    }
-
-    fn observe_polynomial(&mut self, _polynomial: &CoefficientPolynomial) -> fmt::Result {
-        Ok(())
-    }
-}
-
-struct IgnoreParametricRelationV2Events;
-
-impl ParametricRelationV2Observer for IgnoreParametricRelationV2Events {}
-
-trait RelationManifestPayload {
-    /// Whether this payload is one stable textual value, rather than a typed
-    /// sparse structure whose internal resources are observed separately.
-    const TEXTUAL: bool;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result;
-}
-
-impl RelationManifestPayload for str {
-    const TEXTUAL: bool = true;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        _observer: &mut O,
-    ) -> fmt::Result {
-        writer.write_str(self)
-    }
-}
-
-impl RelationManifestPayload for ParametricRowId {
-    const TEXTUAL: bool = true;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result {
-        observe_parametric_row_id(observer, self)?;
-        self.write_stable(writer)
-    }
-}
-
-impl RelationManifestPayload for IndexShift {
-    const TEXTUAL: bool = false;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result {
-        observe_usize(observer, self.arity())?;
-        for (ordinal, value) in self.values().iter().enumerate() {
-            if ordinal != 0 {
-                writer.write_str(",")?;
-            }
-            observer.observe_signed_i64(*value)?;
-            write!(writer, "{value}")?;
-        }
-        Ok(())
-    }
-}
-
-impl RelationManifestPayload for Coefficient {
-    const TEXTUAL: bool = false;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result {
-        write_typed_coefficient_observed(writer, self, observer)
-    }
-}
-
-impl RelationManifestPayload for CoefficientPolynomial {
-    const TEXTUAL: bool = false;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result {
-        write_typed_polynomial_observed(writer, self, observer)
-    }
-}
-
-impl RelationManifestPayload for GuardOrigin {
-    const TEXTUAL: bool = true;
-
-    fn write_manifest_payload<W: fmt::Write, O: ParametricRelationV2Observer>(
-        &self,
-        writer: &mut W,
-        observer: &mut O,
-    ) -> fmt::Result {
-        observe_guard_origin(observer, self)?;
-        self.write_stable(writer)
-    }
-}
-
-fn write_length_prefixed_manifest_payload<
-    W: fmt::Write,
-    O: ParametricRelationV2Observer,
-    T: RelationManifestPayload + ?Sized,
->(
-    writer: &mut W,
-    value: &T,
-    observer: &mut O,
-) -> fmt::Result {
-    // This allocation-free physical serialization subpass computes the byte
-    // prefix without retaining a nested String. This sizing pass owns the one
-    // semantic-observer traversal, allowing semantic ceilings to reject before
-    // deep payload formatting. Exact-identity observers also propagate their
-    // finite remaining byte ceiling here.
-    let length_prefix_limit = observer.length_prefix_byte_limit();
-    let mut counter = ManifestByteCounter::new(length_prefix_limit);
-    if value
-        .write_manifest_payload(&mut counter, observer)
-        .is_err()
-    {
-        if let Some(ParametricRelationError::ResourceLimit {
-            requested, limit, ..
-        }) = counter.error
-        {
-            observer.observe_length_prefix_limit_exceeded(requested, limit)?;
-        }
-        return Err(fmt::Error);
-    }
-    observe_usize(observer, counter.bytes)?;
-    if T::TEXTUAL {
-        observer.observe_text_payload(counter.bytes)?;
-    }
-    write!(writer, "{}:", counter.bytes)?;
-    value.write_manifest_payload(writer, &mut IgnoreParametricRelationV2Events)
-}
-
-fn observe_usize<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    value: usize,
-) -> fmt::Result {
-    observer.observe_unsigned(value as u128)
-}
-
-fn observe_i64_slice<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    values: &[i64],
-) -> fmt::Result {
-    observe_usize(observer, values.len())?;
-    for value in values {
-        observer.observe_signed_i64(*value)?;
-    }
-    Ok(())
-}
-
-fn observe_usize_slice<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    values: &[usize],
-) -> fmt::Result {
-    observe_usize(observer, values.len())?;
-    for value in values {
-        observe_usize(observer, *value)?;
-    }
-    Ok(())
-}
-
-fn observe_parametric_row_id<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    row: &ParametricRowId,
-) -> fmt::Result {
-    match row {
-        ParametricRowId::OrdinaryIbp {
-            contraction_momentum,
-            differentiated_loop,
-        } => {
-            observe_usize(observer, *contraction_momentum)?;
-            observe_usize(observer, *differentiated_loop)
-        }
-        ParametricRowId::LorentzInvariance {
-            first_external,
-            second_external,
-        } => {
-            observe_usize(observer, *first_external)?;
-            observe_usize(observer, *second_external)
-        }
-        ParametricRowId::Derived { label } => observe_usize(observer, label.len()),
-    }
-}
-
-fn observe_guard_row_id<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    row: &GuardRowId,
-) -> fmt::Result {
-    match row {
-        GuardRowId::OrdinaryIbp {
-            contraction_momentum,
-            differentiated_loop,
-        } => {
-            observe_usize(observer, *contraction_momentum)?;
-            observe_usize(observer, *differentiated_loop)
-        }
-        GuardRowId::LorentzInvariance {
-            first_external,
-            second_external,
-        } => {
-            observe_usize(observer, *first_external)?;
-            observe_usize(observer, *second_external)
-        }
-        GuardRowId::Derived { label } => observe_usize(observer, label.len()),
-    }
-}
-
-fn observe_coefficient_location<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    location: &CoefficientLocation,
-) -> fmt::Result {
-    match location {
-        CoefficientLocation::Dimension | CoefficientLocation::BasisDeterminantNumerator => Ok(()),
-        CoefficientLocation::DenominatorConstant { denominator }
-        | CoefficientLocation::PowerShift { denominator } => observe_usize(observer, *denominator),
-        CoefficientLocation::DenominatorCoefficient {
-            denominator,
-            coordinate,
-        } => {
-            observe_usize(observer, *denominator)?;
-            observe_usize(observer, *coordinate)
-        }
-        CoefficientLocation::ExternalGram { row, column } => {
-            observe_usize(observer, *row)?;
-            observe_usize(observer, *column)
-        }
-    }
-}
-
-/// Exhaustive semantic mirror of `GuardOrigin::write_stable` payload fields.
-/// Patterns deliberately avoid `..`: adding a provenance field or variant
-/// must update this census before the crate can compile. The complete rendered
-/// origin is also charged as one exact textual payload by the shared length-
-/// prefix writer, so punctuation and future fixed variant names cannot evade
-/// the string-byte limit.
-fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
-    observer: &mut O,
-    origin: &GuardOrigin,
-) -> fmt::Result {
-    match origin {
-        GuardOrigin::FamilyInputCoefficientDenominator { location } => {
-            observe_coefficient_location(observer, location)
-        }
-        GuardOrigin::FamilyBasisDeterminantNumerator
-        | GuardOrigin::GuardedDivisionDividendDenominator
-        | GuardOrigin::GuardedDivisionDivisorDenominator
-        | GuardOrigin::GuardedDivisionDivisorNumerator
-        | GuardOrigin::ExplicitRelationCondition
-        | GuardOrigin::CoefficientSpecializationDenominator
-        | GuardOrigin::CoefficientPartialSpecializationDenominator
-        | GuardOrigin::ExplicitShiftOperatorCondition => Ok(()),
-        GuardOrigin::PowerShiftSupport { denominator } => observe_usize(observer, *denominator),
-        GuardOrigin::RelationConditionAttached { row }
-        | GuardOrigin::ShiftOperatorConditionAttached { row }
-        | GuardOrigin::ShiftOperatorInputTermDenominator { row }
-        | GuardOrigin::ShiftOperatorCollectedTermDenominator { row }
-        | GuardOrigin::ShiftOperatorFromRelationAdapter { row }
-        | GuardOrigin::ShiftOperatorToRelationAdapter { row } => {
-            observe_guard_row_id(observer, row)
-        }
-        GuardOrigin::RelationInputTermDenominator { row, shift }
-        | GuardOrigin::RelationCollectedTermDenominator { row, shift }
-        | GuardOrigin::RelationPartialSpecializationTermDenominator { row, shift } => {
-            observe_guard_row_id(observer, row)?;
-            observe_i64_slice(observer, shift)
-        }
-        GuardOrigin::RelationScaleFactorDenominator {
-            target_row,
-            source_row,
-        } => {
-            observe_guard_row_id(observer, target_row)?;
-            observe_guard_row_id(observer, source_row)
-        }
-        GuardOrigin::RelationTranslation {
-            source_row,
-            target_row,
-            offset,
-        } => {
-            observe_guard_row_id(observer, source_row)?;
-            observe_guard_row_id(observer, target_row)?;
-            observe_i64_slice(observer, offset)
-        }
-        GuardOrigin::RelationIndexPermutation {
-            source_row,
-            target_row,
-            source_to_target,
-        } => {
-            observe_guard_row_id(observer, source_row)?;
-            observe_guard_row_id(observer, target_row)?;
-            observe_usize_slice(observer, source_to_target)
-        }
-        GuardOrigin::IndexTranslation { offset } => observe_i64_slice(observer, offset),
-        GuardOrigin::IndexPermutation { source_to_target } => {
-            observe_usize_slice(observer, source_to_target)
-        }
-        GuardOrigin::VerifiedSymmetryMapDomain {
-            source_to_target,
-            condition_ordinal,
-        } => {
-            observe_usize_slice(observer, source_to_target)?;
-            observe_usize(observer, *condition_ordinal)
-        }
-        GuardOrigin::IndexSpecialization { assignment } => observe_i64_slice(observer, assignment),
-        GuardOrigin::PartialIndexSpecialization { assignments } => {
-            observe_usize(observer, assignments.len())?;
-            for (position, value) in assignments {
-                observe_usize(observer, *position)?;
-                observer.observe_signed_i64(*value)?;
-            }
-            Ok(())
-        }
-    }
-}
-
 fn write_typed_integer<W: fmt::Write + ?Sized>(writer: &mut W, value: &Integer) -> fmt::Result {
     match value {
         Integer::Single(value) => {
@@ -1078,24 +586,10 @@ fn write_typed_integer<W: fmt::Write + ?Sized>(writer: &mut W, value: &Integer) 
     }
 }
 
-pub(crate) fn write_typed_polynomial<W: fmt::Write + ?Sized>(
+fn write_typed_polynomial<W: fmt::Write + ?Sized>(
     writer: &mut W,
     polynomial: &CoefficientPolynomial,
 ) -> fmt::Result {
-    write_typed_polynomial_observed(writer, polynomial, &mut IgnoreParametricRelationV2Events)
-}
-
-fn write_typed_polynomial_observed<
-    W: fmt::Write + ?Sized,
-    O: ParametricRelationV2Observer + ?Sized,
->(
-    writer: &mut W,
-    polynomial: &CoefficientPolynomial,
-    observer: &mut O,
-) -> fmt::Result {
-    observer.observe_polynomial(polynomial)?;
-    observe_usize(observer, polynomial.variables.len())?;
-    observe_usize(observer, polynomial.nterms())?;
     write!(
         writer,
         "{PARAMETRIC_RELATION_POLYNOMIAL_V2_SCHEMA}|variables={}|terms={}",
@@ -1103,17 +597,13 @@ fn write_typed_polynomial_observed<
         polynomial.nterms()
     )?;
     for (term, coefficient) in polynomial.coefficients.iter().enumerate() {
-        observer.observe_integer(coefficient)?;
         writer.write_str("|coefficient=")?;
         write_typed_integer(writer, coefficient)?;
         writer.write_str("|exponents=")?;
-        let exponents = polynomial.exponents(term);
-        observe_usize(observer, exponents.len())?;
-        for (ordinal, exponent) in exponents.iter().enumerate() {
+        for (ordinal, exponent) in polynomial.exponents(term).iter().enumerate() {
             if ordinal != 0 {
                 writer.write_char(',')?;
             }
-            observe_usize(observer, usize::from(*exponent))?;
             write!(writer, "{exponent}")?;
         }
     }
@@ -1124,89 +614,11 @@ fn write_typed_coefficient<W: fmt::Write + ?Sized>(
     writer: &mut W,
     coefficient: &Coefficient,
 ) -> fmt::Result {
-    write_typed_coefficient_observed(writer, coefficient, &mut IgnoreParametricRelationV2Events)
-}
-
-fn write_typed_coefficient_observed<
-    W: fmt::Write + ?Sized,
-    O: ParametricRelationV2Observer + ?Sized,
->(
-    writer: &mut W,
-    coefficient: &Coefficient,
-    observer: &mut O,
-) -> fmt::Result {
     writer.write_str(PARAMETRIC_RELATION_COEFFICIENT_V2_SCHEMA)?;
     writer.write_str("|numerator=")?;
-    write_typed_polynomial_observed(writer, &coefficient.numerator, observer)?;
+    write_typed_polynomial(writer, &coefficient.numerator)?;
     writer.write_str("|denominator=")?;
-    write_typed_polynomial_observed(writer, &coefficient.denominator, observer)
-}
-
-/// Stream the complete canonical V2 relation manifest into an arbitrary
-/// checked writer without retaining any intermediate manifest `String`.
-///
-/// This is the single grammar authority shared by persisted relation
-/// manifests and larger exact structural identities.
-pub(crate) fn write_relation_manifest_v2<W: fmt::Write>(
-    writer: &mut W,
-    relation: &ParametricRelation,
-) -> fmt::Result {
-    write_relation_manifest_v2_observed(writer, relation, &mut IgnoreParametricRelationV2Events)
-}
-
-/// Stream V2 bytes with one complete semantic-observer traversal.
-///
-/// This is not one physical serialization traversal: allocation-free
-/// length-only subpasses own the semantic observation, then nested payloads are
-/// emitted with the no-op observer. Consequently every semantic event is
-/// observed exactly once even though byte prefixes are computed without
-/// temporary Strings.
-pub(crate) fn write_relation_manifest_v2_observed<
-    W: fmt::Write,
-    O: ParametricRelationV2Observer,
->(
-    writer: &mut W,
-    relation: &ParametricRelation,
-    observer: &mut O,
-) -> fmt::Result {
-    writer.write_str(PARAMETRIC_RELATION_MANIFEST_V2_SCHEMA)?;
-    writer.write_str("|family=")?;
-    write_length_prefixed_manifest_payload(writer, relation.family_fingerprint.as_ref(), observer)?;
-    writer.write_str("|context=")?;
-    write_length_prefixed_manifest_payload(
-        writer,
-        relation.context_fingerprint.as_ref(),
-        observer,
-    )?;
-    writer.write_str("|row=")?;
-    write_length_prefixed_manifest_payload(writer, &relation.row_id, observer)?;
-    writer.write_str("|arity=")?;
-    observe_usize(observer, relation.arity)?;
-    write!(writer, "{}", relation.arity)?;
-    writer.write_str("|terms=")?;
-    observe_usize(observer, relation.terms.len())?;
-    write!(writer, "{}", relation.terms.len())?;
-    for (shift, coefficient) in &relation.terms {
-        writer.write_str("|shift=")?;
-        write_length_prefixed_manifest_payload(writer, shift, observer)?;
-        writer.write_str("|coefficient=")?;
-        write_length_prefixed_manifest_payload(writer, coefficient.raw(), observer)?;
-    }
-    writer.write_str("|guards=")?;
-    observe_usize(observer, relation.guarded_nonzero.len())?;
-    write!(writer, "{}", relation.guarded_nonzero.len())?;
-    for condition in &relation.guarded_nonzero {
-        writer.write_str("|polynomial=")?;
-        write_length_prefixed_manifest_payload(writer, condition.polynomial().raw(), observer)?;
-        writer.write_str("|origins=")?;
-        observe_usize(observer, condition.origins().len())?;
-        write!(writer, "{}", condition.origins().len())?;
-        for origin in condition.origins() {
-            writer.write_str("|origin=")?;
-            write_length_prefixed_manifest_payload(writer, origin, observer)?;
-        }
-    }
-    Ok(())
+    write_typed_polynomial(writer, &coefficient.denominator)
 }
 
 impl ParametricRelation {
@@ -1298,76 +710,6 @@ impl ParametricRelation {
     /// equality semantics and does not compare adapter-history atoms.
     pub fn has_identical_guard_provenance(&self, other: &Self) -> bool {
         self == other && self.guarded_nonzero == other.guarded_nonzero
-    }
-
-    /// Lossless, deterministic identity of the mathematical row and every
-    /// retained exceptional-domain origin.
-    ///
-    /// This intentionally returns the complete length-prefixed manifest, not
-    /// a collision-prone process hash. Elimination and persistence layers may
-    /// hash this byte string for indexing, but authentication compares the
-    /// manifest itself.
-    pub fn stable_manifest(&self) -> String {
-        // `usize::MAX` cannot be reached by a live `String`; retain the
-        // infallible compatibility API while keeping one canonical encoder.
-        self.stable_manifest_with_limit(usize::MAX)
-            .expect("an allocated relation manifest fits in usize")
-    }
-
-    /// Encode the exact [`Self::stable_manifest`] payload without allowing
-    /// the retained output buffer to grow past `max_bytes`.
-    ///
-    /// The bounded and unbounded APIs share this encoder, so a successful
-    /// result is byte-for-byte identical.  This is the persistence-facing
-    /// entry point: callers can reject an oversized row before adding it to an
-    /// aggregate retained manifest.
-    pub fn stable_manifest_with_limit(
-        &self,
-        max_bytes: usize,
-    ) -> Result<String, ParametricRelationError> {
-        // Count the complete V2 byte stream before retaining any output.  The
-        // second pass writes directly into one fallibly reserved String; no
-        // coefficient, polynomial, row-id, or origin sub-String is retained.
-        let exact_bytes = self.stable_manifest_byte_len_with_limit(max_bytes)?;
-
-        let mut output = RelationManifestBuilder::try_new(exact_bytes)?;
-        {
-            let mut sink = RelationManifestSink::Output(&mut output);
-            let result = write_relation_manifest_v2(&mut sink, self);
-            sink.finish_write(result)?;
-        }
-        if output.output.len() != exact_bytes {
-            return Err(ParametricRelationError::ManifestEncodingMismatch {
-                expected_bytes: exact_bytes,
-                actual_bytes: output.output.len(),
-            });
-        }
-        Ok(output.finish())
-    }
-
-    /// Count the canonical manifest without allocating its retained `String`.
-    /// Aggregate certificate builders use this to include the exact manifest
-    /// payload in their own byte preflight before requesting the output
-    /// buffer.
-    pub(crate) fn stable_manifest_byte_len_with_limit(
-        &self,
-        max_bytes: usize,
-    ) -> Result<usize, ParametricRelationError> {
-        let mut counter = ManifestByteCounter::new(max_bytes);
-        let result = {
-            let mut sink = RelationManifestSink::Counter(&mut counter);
-            let result = write_relation_manifest_v2(&mut sink, self);
-            sink.finish_write(result)
-        };
-        if let Err(error) = result {
-            return Err(error);
-        }
-        relation_check_limit(
-            "parametric relation manifest bytes",
-            counter.bytes,
-            max_bytes,
-        )?;
-        Ok(counter.bytes)
     }
 
     pub fn is_zero(&self) -> bool {
@@ -1726,60 +1068,6 @@ impl ParametricRelation {
             // not deep-clone every previously retained guard and origin on
             // each insertion; any error still drops the complete local row.
             result.add_term_in_place(context, translated_shift, translated_coefficient, limits)?;
-        }
-        Ok(result)
-    }
-
-    /// Transport this complete global identity through a simultaneous
-    /// permutation of denominator powers and coefficient index variables.
-    ///
-    /// `source_to_target[i] = j` acts on both halves of every parametric term:
-    /// `s_source[i] -> s_target[j]` and `n_source[i] -> n_target[j]`.  Applying
-    /// only the shift half would be unsound because a verified integral
-    /// symmetry maps `I(n+s)` to `I(Pn+Ps)`, not to `I(n+Ps)` for generic
-    /// independent indices.
-    pub fn permuted_indices(
-        &self,
-        context: &ParametricCoefficientContext,
-        source_to_target: &[usize],
-        row_id: ParametricRowId,
-        limits: ParametricArithmeticLimits,
-    ) -> Result<Self, ParametricRelationError> {
-        self.validate_context(context)?;
-        if source_to_target.len() != self.arity {
-            return Err(ParametricRelationError::WrongArity {
-                expected: self.arity,
-                actual: source_to_target.len(),
-            });
-        }
-        // Authenticate the permutation through the same coefficient API used
-        // below before allocating a transported relation.
-        context.permute_indices(&context.one(), source_to_target, limits)?;
-        let target_row = row_id.guard_identity();
-        let source_row = self.row_id.guard_identity();
-        let mut result = Self::new(self.family_fingerprint.clone(), row_id, context);
-        for condition in &self.guarded_nonzero {
-            let mut permuted =
-                context.permute_nonzero_condition_indices(condition, source_to_target, limits)?;
-            permuted.add_origin_with_limit(
-                GuardOrigin::RelationIndexPermutation {
-                    source_row: source_row.clone(),
-                    target_row: target_row.clone(),
-                    source_to_target: source_to_target.to_vec().into_boxed_slice(),
-                },
-                limits.max_guard_origins,
-            )?;
-            result.add_guarded_nonzero_condition_with_limits(context, permuted, limits)?;
-        }
-        for (shift, coefficient) in &self.terms {
-            let mut target_shift = vec![0_i64; self.arity];
-            for (source_index, &target_index) in source_to_target.iter().enumerate() {
-                target_shift[target_index] = shift.values()[source_index];
-            }
-            let target_shift = IndexShift::try_new(target_shift, self.arity)?;
-            let target_coefficient =
-                context.permute_indices(coefficient, source_to_target, limits)?;
-            result.add_term_with_limits(context, target_shift, target_coefficient, limits)?;
         }
         Ok(result)
     }
@@ -3065,10 +2353,6 @@ pub enum ParametricRelationError {
         resource: &'static str,
         requested: usize,
     },
-    ManifestEncodingMismatch {
-        expected_bytes: usize,
-        actual_bytes: usize,
-    },
     SpecializationReplayMismatch,
     Coefficient(ParametricCoefficientError),
 }
@@ -3114,13 +2398,6 @@ impl fmt::Display for ParametricRelationError {
             } => write!(
                 formatter,
                 "could not reserve {requested} units for {resource}"
-            ),
-            Self::ManifestEncodingMismatch {
-                expected_bytes,
-                actual_bytes,
-            } => write!(
-                formatter,
-                "parametric relation manifest counted {expected_bytes} bytes but wrote {actual_bytes}"
             ),
             Self::SpecializationReplayMismatch => formatter
                 .write_str("partial parametric relation specialization did not replay identically"),
@@ -3827,120 +3104,6 @@ mod tests {
             Err(ParametricRelationError::UnsatisfiableDomain)
         ));
     }
-
-    #[test]
-    fn typed_v2_manifest_is_deterministic_injective_and_exactly_bounded() {
-        let base = CoefficientContext::new(["x"]);
-        let context = ParametricCoefficientContext::try_new(&base, "manifest-v2", 1).unwrap();
-        let space = IndexSpace::try_new(1).unwrap();
-
-        let build = || {
-            let n = context.index(0).unwrap();
-            let numerator = context
-                .add(&context.mul(&n, &n).unwrap(), &context.integer(-5))
-                .unwrap();
-            let denominator = context.add(&n, &context.integer(3)).unwrap();
-            let coefficient = context.checked_div(&numerator, &denominator).unwrap();
-            let mut relation = ParametricRelation::new(
-                "family",
-                ParametricRowId::Derived {
-                    label: Arc::from("manifest-row"),
-                },
-                &context,
-            );
-            relation
-                .add_term(&context, space.zero(), coefficient)
-                .unwrap();
-            let guard = context.add(&n, &context.integer(7)).unwrap();
-            relation
-                .add_nonzero_condition(&context, context.numerator_condition(&guard).unwrap())
-                .unwrap();
-            relation
-        };
-
-        let first = build();
-        let independently_allocated_equal = build();
-        let manifest = first.stable_manifest();
-        assert!(manifest.starts_with(PARAMETRIC_RELATION_MANIFEST_V2_SCHEMA));
-        assert_eq!(manifest, independently_allocated_equal.stable_manifest());
-        assert_eq!(
-            first.stable_manifest_with_limit(manifest.len()).unwrap(),
-            manifest
-        );
-        let one_below = manifest.len() - 1;
-        assert!(matches!(
-            first.stable_manifest_with_limit(one_below),
-            Err(ParametricRelationError::ResourceLimit {
-                resource: "parametric relation manifest bytes",
-                requested,
-                limit,
-            }) if requested > limit && limit == one_below
-        ));
-
-        // Adversarially exchange numerator/denominator, then change only the
-        // sparse exponent structure. Both changes must alter the transcript.
-        let n = context.index(0).unwrap();
-        let numerator = context
-            .add(&context.mul(&n, &n).unwrap(), &context.integer(-5))
-            .unwrap();
-        let denominator = context.add(&n, &context.integer(3)).unwrap();
-        let mut exchanged = ParametricRelation::new("family", first.row_id().clone(), &context);
-        exchanged
-            .add_term(
-                &context,
-                space.zero(),
-                context.checked_div(&denominator, &numerator).unwrap(),
-            )
-            .unwrap();
-        assert_ne!(manifest, exchanged.stable_manifest());
-
-        let mut exponent_changed =
-            ParametricRelation::new("family", first.row_id().clone(), &context);
-        exponent_changed
-            .add_term(
-                &context,
-                space.zero(),
-                context
-                    .checked_div(
-                        &context.add(&n, &context.integer(-5)).unwrap(),
-                        &denominator,
-                    )
-                    .unwrap(),
-            )
-            .unwrap();
-        assert_ne!(manifest, exponent_changed.stable_manifest());
-    }
-
-    #[test]
-    fn length_prefix_subpass_uses_the_observer_finite_ceiling() {
-        struct FinitePrefixObserver {
-            exceeded: Option<(usize, usize)>,
-        }
-
-        impl ParametricRelationV2Observer for FinitePrefixObserver {
-            fn length_prefix_byte_limit(&self) -> usize {
-                3
-            }
-
-            fn observe_length_prefix_limit_exceeded(
-                &mut self,
-                local_requested: usize,
-                local_limit: usize,
-            ) -> fmt::Result {
-                self.exceeded = Some((local_requested, local_limit));
-                Err(fmt::Error)
-            }
-        }
-
-        let mut output = String::new();
-        let mut observer = FinitePrefixObserver { exceeded: None };
-        assert!(
-            write_length_prefixed_manifest_payload(&mut output, "four", &mut observer).is_err()
-        );
-        assert_eq!(observer.exceeded, Some((4, 3)));
-        assert!(output.is_empty());
-    }
-
     #[test]
     fn partial_specialization_shares_source_and_assumption_storage() {
         let base = CoefficientContext::new(["theta"]);
