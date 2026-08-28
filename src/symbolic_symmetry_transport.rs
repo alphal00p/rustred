@@ -8,9 +8,9 @@
 //! another globally valid identity over the same authenticated `K(n)` map.
 //!
 //! This row transport is useful for augmenting a symbolic elimination system,
-//! but it is not LiteRed's numeric `SR` quotient.  The latter belongs behind
-//! the topology-neutral [`ConcreteRuleProvider`](crate::ConcreteRuleProvider)
-//! reduction seam, where providers return decisions for concrete integrals.
+//! but it is not LiteRed's numeric `SR` quotient.  That requires a separate,
+//! topology-neutral concrete-reduction layer; this symbolic row transport
+//! deliberately does not implement that layer.
 
 use std::fmt;
 use std::sync::Arc;

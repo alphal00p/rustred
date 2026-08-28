@@ -16,10 +16,7 @@ mod exact_identity;
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
-pub mod certified_rewrite;
 pub mod conditional_reelimination;
-pub mod conditional_rules;
-pub mod exact_sparse_elimination;
 pub mod feynman_polynomials;
 pub mod generated_symbolic_row_span;
 pub mod generic_family;
@@ -30,8 +27,6 @@ pub mod parametric_coefficient;
 pub mod parametric_elimination;
 pub mod parametric_ibp;
 pub mod parametric_relation;
-pub mod parametric_rules;
-pub mod reduction_engine;
 pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
@@ -49,13 +44,6 @@ pub use automatic_isps::{
     AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
 };
 pub use campaign::{ParallelExecution, ParallelExecutionError};
-pub use certified_rewrite::{
-    CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA, CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA,
-    CERTIFIED_ZERO_REDUCTION_V1_SCHEMA, CertifiedConcreteRewrite, CertifiedConcreteRewriteProof,
-    CertifiedRewriteDomainCondition, CertifiedRewriteDomainOrigin, CertifiedRewriteError,
-    CertifiedRewriteLimits, CertifiedZeroReduction, CertifiedZeroReductionProof,
-    ConcreteQuotientSourceRowProof, QuotientTermWitness,
-};
 pub use conditional_reelimination::{
     ConditionalCenteredPivotLocus, GENERATED_PARTIAL_REELIMINATION_V1_SCHEMA,
     GENERATED_PARTIAL_REELIMINATION_V2_SCHEMA, GeneratedPartialBaseAssumptionWitness,
@@ -64,16 +52,6 @@ pub use conditional_reelimination::{
     GeneratedPartialReeliminationError, GeneratedPartialReeliminationLimits,
     GeneratedPartialReeliminationStats, GeneratedPartialSourceAuthentication,
     GeneratedPartialSourceRowOutcome, GeneratedPartialSourceRowWitness,
-};
-pub use conditional_rules::{
-    CONDITIONAL_PARAMETRIC_RULE_V1_SCHEMA, ConditionalConcreteReduction, ConditionalParametricRule,
-    ConditionalParametricRuleApplication, ConditionalParametricRuleError,
-    ConditionalParametricRuleInapplicability, ConditionalParametricRuleLimits,
-};
-pub use exact_sparse_elimination::{
-    ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
-    ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
-    ExactSparseEliminationStats, ExactSparsePivotRule, ExactSparseRow,
 };
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
@@ -140,18 +118,6 @@ pub use parametric_relation::{
     ParametricRelationError, ParametricRowId, PartialParametricRelationSpecialization,
     PartialParametricRelationSpecializationLimits, PartialParametricRelationSpecializationStats,
     PartialSpecializationBaseAssumption,
-};
-pub use parametric_rules::{
-    ConcreteReduction, PARAMETRIC_REDUCTION_RULE_V1_SCHEMA, PARAMETRIC_RULE_DERIVATION_V1_SCHEMA,
-    ParametricReductionRule, ParametricReductionRuleCandidate, ParametricRuleApplication,
-    ParametricRuleDerivation, ParametricRuleError, ParametricRuleInapplicability,
-    ParametricRuleLimits, ParametricRuleUndecidability, RUNTIME_DESCENT_GUARD_V1_SCHEMA,
-};
-pub use reduction_engine::{
-    ConcreteRuleApplicationTrace, ConcreteRuleDecision, ConcreteRuleProvider,
-    ConcreteTerminalStatus, IncompleteReductionError, PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA,
-    ParametricReductionEngine, ParametricReductionResult, ReductionEngineError,
-    ReductionEngineLimits, ReductionEngineStats,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

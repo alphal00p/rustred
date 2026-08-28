@@ -212,13 +212,6 @@ pub enum GuardOrigin {
     /// Mapped pre-normalization denominator of one concrete term in a source
     /// row partially specialized on an equality locus.
     RelationPartialSpecializationTermDenominator { row: GuardRowId, shift: Box<[i64]> },
-    /// Numerator of the collected LHS coefficient inverted after quotienting
-    /// a concrete parametric equation by zero sectors and symmetries.
-    QuotientPivotNumerator,
-    /// Numerator of one exact concrete-elimination pivot after generated rows
-    /// were specialized and quotient-collected.
-    ConcreteQuotientEliminationPivotNumerator { pivot: usize },
-
     /// A condition inserted through the polynomial-only shift-operator API.
     ExplicitShiftOperatorCondition,
     /// The condition was attached to this operator expression.
@@ -362,8 +355,6 @@ impl GuardOrigin {
             | Self::ExplicitRelationCondition
             | Self::CoefficientSpecializationDenominator
             | Self::CoefficientPartialSpecializationDenominator
-            | Self::QuotientPivotNumerator
-            | Self::ConcreteQuotientEliminationPivotNumerator { .. }
             | Self::ExplicitShiftOperatorCondition => {}
         }
         Some(bytes)
@@ -489,13 +480,6 @@ impl GuardOrigin {
                 writer.write_str(":[")?;
                 write_joined(writer, shift, ",")?;
                 writer.write_str("]")
-            }
-            Self::QuotientPivotNumerator => writer.write_str("quotient-pivot-numerator"),
-            Self::ConcreteQuotientEliminationPivotNumerator { pivot } => {
-                write!(
-                    writer,
-                    "concrete-quotient-elimination-pivot-numerator:{pivot}"
-                )
             }
             Self::ExplicitShiftOperatorCondition => {
                 writer.write_str("explicit-shift-operator-condition")

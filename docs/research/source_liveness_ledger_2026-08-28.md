@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `1a0286f`, updated for the adaptive-rule leaf deletion.
+**Baseline parent:** `cf22262`, updated for the scalar-rewrite SCC deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 67 tracked Rust source/build/test paths
+This ledger classifies every one of the 62 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 43 |
+| split | 38 |
 | delete | 1 |
 | replace | 1 |
 
@@ -64,11 +64,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/certified_rewrite.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
-| `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
-| `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
 | `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
 | `src/generic_family.rs` | move | family | live generic family construction and normalization |
@@ -81,8 +78,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_elimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
-| `src/parametric_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |

@@ -750,7 +750,6 @@ impl<'a> ExactIdentityWriter<'a> {
             | GuardOrigin::ExplicitRelationCondition
             | GuardOrigin::CoefficientSpecializationDenominator
             | GuardOrigin::CoefficientPartialSpecializationDenominator
-            | GuardOrigin::QuotientPivotNumerator
             | GuardOrigin::ExplicitShiftOperatorCondition => {}
             GuardOrigin::PowerShiftSupport { denominator } => {
                 self.usize("denominator", *denominator)?;
@@ -819,9 +818,6 @@ impl<'a> ExactIdentityWriter<'a> {
                     self.end_record()?;
                 }
                 self.end_sequence()?;
-            }
-            GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot } => {
-                self.usize("pivot", *pivot)?;
             }
         }
         self.end_record()?;
@@ -1176,10 +1172,6 @@ fn guard_origin_shape(origin: &GuardOrigin) -> (&'static str, usize) {
         }
         GuardOrigin::RelationPartialSpecializationTermDenominator { row: _, shift: _ } => {
             ("RelationPartialSpecializationTermDenominator", 2)
-        }
-        GuardOrigin::QuotientPivotNumerator => ("QuotientPivotNumerator", 0),
-        GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot: _ } => {
-            ("ConcreteQuotientEliminationPivotNumerator", 1)
         }
         GuardOrigin::ExplicitShiftOperatorCondition => ("ExplicitShiftOperatorCondition", 0),
         GuardOrigin::ShiftOperatorConditionAttached { row: _ } => {
@@ -2782,14 +2774,6 @@ mod tests {
                 },
             ),
             (
-                "quotient-pivot-numerator",
-                GuardOrigin::QuotientPivotNumerator,
-            ),
-            (
-                "concrete-quotient-elimination-pivot-numerator",
-                GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot: 1 },
-            ),
-            (
                 "explicit-shift-operator-condition",
                 GuardOrigin::ExplicitShiftOperatorCondition,
             ),
@@ -2830,7 +2814,7 @@ mod tests {
     fn every_guard_origin_variant_is_bound_by_the_exact_relation_identity() {
         let context = guard_origin_context();
         let representatives = guard_origin_representatives();
-        assert_eq!(representatives.len(), 29);
+        assert_eq!(representatives.len(), 27);
         let mut names = BTreeSet::new();
         let mut identities = BTreeSet::new();
         for (name, origin) in representatives {

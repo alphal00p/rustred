@@ -983,7 +983,6 @@ fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
         | GuardOrigin::ExplicitRelationCondition
         | GuardOrigin::CoefficientSpecializationDenominator
         | GuardOrigin::CoefficientPartialSpecializationDenominator
-        | GuardOrigin::QuotientPivotNumerator
         | GuardOrigin::ExplicitShiftOperatorCondition => Ok(()),
         GuardOrigin::PowerShiftSupport { denominator } => observe_usize(observer, *denominator),
         GuardOrigin::RelationConditionAttached { row }
@@ -1044,9 +1043,6 @@ fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
                 observer.observe_signed_i64(*value)?;
             }
             Ok(())
-        }
-        GuardOrigin::ConcreteQuotientEliminationPivotNumerator { pivot } => {
-            observe_usize(observer, *pivot)
         }
     }
 }
