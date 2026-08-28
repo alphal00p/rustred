@@ -30,7 +30,6 @@ pub mod base_specialization;
 pub mod campaign;
 pub mod certified_rewrite;
 pub mod certified_rule_provider;
-pub mod certified_symmetry_provider;
 pub mod conditional_reelimination;
 pub mod conditional_rules;
 pub mod coordinate_equality_loci;
@@ -60,7 +59,6 @@ pub mod generated_cylindrical_sector_root_start;
 pub mod generated_cylindrical_when_bad;
 pub(crate) mod generated_residual_affine_condition_accumulator;
 pub mod generated_residual_affine_when_bad;
-pub mod generated_sector_conditional_provider;
 pub mod generated_sector_discovery;
 pub mod generated_sector_live_leaf_queue;
 pub mod generated_symbolic_row_span;
@@ -70,7 +68,6 @@ pub mod generic_tensor_family;
 pub mod generic_tensor_polynomial;
 pub mod generic_tensor_projector;
 pub mod guards;
-pub mod master_policy;
 pub mod master_product;
 pub mod parametric_coefficient;
 pub mod parametric_elimination;
@@ -78,7 +75,6 @@ pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod parametric_rules;
 pub mod parametric_sector_coverage;
-pub mod parametric_sector_provider;
 pub mod product_locus_boolean_cover;
 pub mod reduction_engine;
 pub mod residual_affine_atom_rows;
@@ -101,7 +97,6 @@ pub mod symmetry_discovery;
 pub mod tensor;
 pub mod tensor_reduction_engine;
 pub mod when_bad;
-pub mod zero_sector_provider;
 pub mod zero_sectors;
 
 pub use adaptive_rules::{
@@ -148,12 +143,6 @@ pub use certified_rule_provider::{
     CERTIFIED_FAMILY_RULE_PROVIDER_V1_SCHEMA, CERTIFIED_FAMILY_RULE_PROVIDER_V2_SCHEMA,
     CERTIFIED_FAMILY_RULE_PROVIDER_V3_SCHEMA, CertifiedFamilyRuleProvider,
     CertifiedFamilyRuleProviderError, CertifiedFamilyRuleProviderLimits,
-};
-pub use certified_symmetry_provider::{
-    CERTIFIED_SYMMETRY_CANONICALIZING_RULE_PROVIDER_V1_SCHEMA,
-    CertifiedSymmetryCanonicalizingRuleProvider, CertifiedSymmetryCanonicalizingRuleProviderError,
-    CertifiedSymmetryCanonicalizingRuleProviderLimits,
-    CertifiedSymmetryCanonicalizingRuleProviderStats,
 };
 pub use conditional_reelimination::{
     ConditionalCenteredPivotLocus, GENERATED_PARTIAL_REELIMINATION_V1_SCHEMA,
@@ -282,12 +271,6 @@ pub use generated_residual_affine_when_bad::{
     AffineWhenBadRelativePartitionCertificate, AffineWhenBadRelativePredicate,
     AffineWhenBadRelativeSplit, AffineWhenBadRelativeSplitTrigger,
 };
-pub use generated_sector_conditional_provider::{
-    GENERATED_SECTOR_CONDITIONAL_RULE_PROVIDER_V1_SCHEMA, GeneratedSectorConditionalRuleProvenance,
-    GeneratedSectorConditionalRuleProvider, GeneratedSectorConditionalRuleProviderBuildStats,
-    GeneratedSectorConditionalRuleProviderError, GeneratedSectorConditionalRuleProviderLimits,
-    GeneratedSectorConditionalRuleProviderStats, GeneratedSectorSkippedConditionalLocus,
-};
 pub use generated_sector_discovery::{
     GENERATED_SECTOR_DISCOVERY_V1_SCHEMA, GENERATED_SECTOR_DISCOVERY_V2_SCHEMA,
     GENERATED_SECTOR_DISCOVERY_V3_SCHEMA, GENERATED_SECTOR_DISCOVERY_V4_SCHEMA,
@@ -363,9 +346,6 @@ pub use generic_tensor_projector::{
     VacuumTensorProjectionWitness,
 };
 pub use guards::{CoefficientLocation, GuardOrigin, GuardRowId};
-pub use master_policy::{
-    MasterPolicyError, MasterPolicyLimits, MasterPolicyProvider, MasterPolicyTerminal,
-};
 pub use master_product::{
     MasterProduct, MasterProductError, ProductConvolutionError, ProductLinearCombination,
 };
@@ -411,11 +391,6 @@ pub use parametric_sector_coverage::{
     ParametricSectorEmptyLocusReason, ParametricSectorLeafClassification,
     ParametricSectorLeafDisposition, ParametricSectorProductZeroDecomposition,
     SectorCoverageCandidateAttempt,
-};
-pub use parametric_sector_provider::{
-    PARAMETRIC_SECTOR_RULE_PROVIDER_V1_SCHEMA, ParametricSectorRuleProvider,
-    ParametricSectorRuleProviderError, ParametricSectorRuleProviderLimits,
-    ParametricSectorRuleProviderStats,
 };
 pub use product_locus_boolean_cover::{
     RESIDUAL_PRODUCT_LOCUS_BOOLEAN_COVER_V1_SCHEMA, ResidualProductLocusBooleanCoverCertificate,
@@ -563,10 +538,6 @@ pub use when_bad::{
     WhenBadLeakEvent, WhenBadLeakNumeratorGate, WhenBadOrderingAuthority,
     WhenBadSourceAuthentication, WhenBadUniformDescentWitness, WhenBadUnsupported,
     WhenBadUnsupportedReason,
-};
-pub use zero_sector_provider::{
-    CERTIFIED_ZERO_SECTOR_RULE_PROVIDER_V1_SCHEMA, CertifiedZeroSectorRuleProvider,
-    CertifiedZeroSectorRuleProviderError,
 };
 pub use zero_sectors::{
     FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalysis,

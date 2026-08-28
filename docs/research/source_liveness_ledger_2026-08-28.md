@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `d2389f6`, updated after each R3 cluster milestone.
+**Baseline:** `6ea9e3e`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 154 tracked Rust source/build/test paths
+This ledger classifies every one of the 149 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 127 |
+| split | 122 |
 | delete | 3 |
 | replace | 1 |
 
@@ -72,7 +72,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/canonical_parametric_locus_table.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/certified_rewrite.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/certified_rule_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/certified_symmetry_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
@@ -106,7 +105,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_cylindrical_when_bad.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
-| `src/generated_sector_conditional_provider.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_sector_live_leaf_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | topology-neutral row span below high orchestration |
@@ -117,7 +115,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generic_tensor_projector.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/guards.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/lib.rs` | replace | crate facade | write from retained use cases; do not move exports |
-| `src/master_policy.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/master_product.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_coefficient.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
 | `src/parametric_coefficient/symbolica_sparse/persistent.rs` | split | algebra / foundry::solver::exact | retain checked Symbolica coefficient/sparse authority only |
@@ -129,7 +126,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_sector_coverage.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/parametric_sector_formula_ir.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
 | `src/parametric_sector_mtbdd.rs` | delete | — | eager/legacy sector formula and synthetic test stack |
-| `src/parametric_sector_provider.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/product_locus_boolean_cover.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/residual_affine_atom_rows.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
@@ -179,5 +175,4 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/tensor_reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/tensor.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/when_bad.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
-| `src/zero_sector_provider.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/zero_sectors.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
