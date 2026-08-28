@@ -3,6 +3,8 @@
 use crate::family::IntegralFamilyLimits;
 use crate::symbolica_affine_denominator::SymbolicaAffineDenominatorLimits;
 
+use super::error::Error;
+
 /// Resource policy for exact Symbolica-to-family lowering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LoweringLimits {
@@ -38,8 +40,6 @@ pub struct Limits {
     pub max_nesting_depth: usize,
     pub max_clauses: usize,
     pub max_clause_arguments: usize,
-    pub max_pattern_attempts: usize,
-    pub max_pattern_matches: usize,
     pub max_label_bytes: usize,
     pub max_parameters: usize,
     pub max_momenta: usize,
@@ -64,8 +64,6 @@ impl Default for Limits {
             max_nesting_depth: 128,
             max_clauses: 16_384,
             max_clause_arguments: 65_536,
-            max_pattern_attempts: 150_000,
-            max_pattern_matches: 16_384,
             max_label_bytes: 256,
             max_parameters: 4_096,
             max_momenta: 256,
@@ -85,8 +83,6 @@ pub struct Stats {
     pub(super) maximum_depth: usize,
     pub(super) clauses: usize,
     pub(super) clause_arguments: usize,
-    pub(super) pattern_attempts: usize,
-    pub(super) pattern_matches: usize,
     pub(super) symbol_inspections: usize,
     pub(super) inferred_parameters: usize,
     pub(super) canonical_nodes: usize,
@@ -114,14 +110,6 @@ impl Stats {
 
     pub const fn clause_arguments(self) -> usize {
         self.clause_arguments
-    }
-
-    pub const fn pattern_attempts(self) -> usize {
-        self.pattern_attempts
-    }
-
-    pub const fn pattern_matches(self) -> usize {
-        self.pattern_matches
     }
 
     pub const fn symbol_inspections(self) -> usize {
@@ -152,5 +140,39 @@ impl Stats {
     /// normalized project.
     pub const fn retained_atom_bytes(self) -> usize {
         self.retained_atom_bytes
+    }
+}
+
+pub(super) fn checked_add(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, Error> {
+    left.checked_add(right)
+        .ok_or(Error::ResourceCountOverflow { resource })
+}
+
+pub(super) fn checked_mul(
+    resource: &'static str,
+    left: usize,
+    right: usize,
+) -> Result<usize, Error> {
+    left.checked_mul(right)
+        .ok_or(Error::ResourceCountOverflow { resource })
+}
+
+pub(super) fn check_limit(
+    resource: &'static str,
+    requested: usize,
+    limit: usize,
+) -> Result<(), Error> {
+    if requested > limit {
+        Err(Error::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        })
+    } else {
+        Ok(())
     }
 }

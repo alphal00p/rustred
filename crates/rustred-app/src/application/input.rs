@@ -118,7 +118,7 @@ pub(crate) fn prepare_symbolica_root(
     validate_metadata(&metadata)?;
     let compiler = parser()?;
     let normalized = compiler
-        .compile_str_with_parameter_override(integral, parameters)
+        .compile_compact(integral, parameters)
         .map_err(|error| AppError::input(format!("invalid Symbolica integral input: {error}")))?;
     Ok(PreparedProject {
         input_form,
@@ -151,7 +151,7 @@ pub(crate) fn prepare_project_document(
             }
             let compiler = parser()?;
             let normalized = compiler
-                .compile_str_with_parameter_override(&integral, document.parameters)
+                .compile_compact(&integral, document.parameters)
                 .map_err(|error| {
                     AppError::input(format!("invalid hybrid Symbolica integral input: {error}"))
                 })?;
@@ -242,7 +242,7 @@ fn prepare_explicit_document(
         numerator,
     };
     let normalized = parser()?
-        .compile_text_parts(parts)
+        .compile_text(parts)
         .map_err(|error| AppError::input(format!("invalid explicit project family: {error}")))?;
     Ok(PreparedProject {
         input_form: "explicit_toml",

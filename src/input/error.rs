@@ -109,10 +109,6 @@ pub enum Error {
         name: &'static str,
     },
     WrongRoot,
-    RootPatternMismatch,
-    AmbiguousPattern {
-        clause: usize,
-    },
     UnknownClause {
         clause: usize,
         expression: Atom,
@@ -238,13 +234,6 @@ impl fmt::Display for Error {
                 "grammar head {name} must be an un-attributed plain Symbolica symbol"
             ),
             Self::WrongRoot => formatter.write_str("compact input must have the exact root I(...)"),
-            Self::RootPatternMismatch => formatter.write_str(
-                "compact I(...) root failed strict whole-expression pattern authentication",
-            ),
-            Self::AmbiguousPattern { clause } => write!(
-                formatter,
-                "I clause {clause} matched more than one grammar production"
-            ),
             Self::UnknownClause { clause, expression } => {
                 write!(formatter, "unknown I clause {clause}: {expression}")
             }

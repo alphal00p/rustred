@@ -39,7 +39,7 @@ pub struct AtomProject {
 /// Textual propagator accepted by an explicit frontend.
 ///
 /// Expression strings are parsed only by
-/// [`super::Compiler::compile_text_parts`], under the same namespace,
+/// [`super::Compiler::compile_text`], under the same namespace,
 /// resource limits, and panic boundary as compact `I(...)` input.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextPropagator {

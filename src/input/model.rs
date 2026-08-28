@@ -6,8 +6,10 @@ use crate::algebra::Coefficient;
 use crate::family::{AffineDenominator, IntegralFamily};
 use crate::symbolica_affine_denominator::CompiledSymbolicaAffineDenominator;
 
-use super::LOWERED_SCHEMA;
 use super::limits::{Limits, LoweringLimits, Stats};
+
+/// Stable schema identifier for the current exactly lowered project payload.
+pub const LOWERED_SCHEMA: &str = "rustred.lowered-symbolica-project.v1";
 
 /// Whether the exact base-field variable order was declared or inferred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,4 +185,71 @@ pub struct Project {
     pub(super) canonical: Atom,
     pub(super) stats: Stats,
     pub(super) limits: Limits,
+}
+
+impl Project {
+    pub const fn source(&self) -> &ProjectSource {
+        &self.source
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub const fn name_was_explicit(&self) -> bool {
+        self.name_explicit
+    }
+
+    pub fn parameter_names(&self) -> &[String] {
+        &self.parameter_names
+    }
+
+    /// Canonical family base-field order used by lowering and fingerprints.
+    pub fn operational_parameter_names(&self) -> &[String] {
+        &self.operational_parameter_names
+    }
+
+    pub const fn parameter_source(&self) -> ParameterSource {
+        self.parameter_source
+    }
+
+    pub fn loop_momenta(&self) -> &[String] {
+        &self.loop_momenta
+    }
+
+    pub fn external_momenta(&self) -> &[String] {
+        &self.external_momenta
+    }
+
+    pub const fn dimension(&self) -> &Atom {
+        &self.dimension
+    }
+
+    pub fn propagators(&self) -> &[Propagator] {
+        &self.propagators
+    }
+
+    pub fn external_gram(&self) -> &[Vec<Atom>] {
+        &self.external_gram
+    }
+
+    pub const fn target(&self) -> &Target {
+        &self.target
+    }
+
+    pub const fn canonical_atom(&self) -> &Atom {
+        &self.canonical
+    }
+
+    pub fn canonical_string(&self) -> String {
+        self.canonical.to_canonical_string()
+    }
+
+    pub const fn stats(&self) -> Stats {
+        self.stats
+    }
+
+    pub const fn limits(&self) -> Limits {
+        self.limits
+    }
 }

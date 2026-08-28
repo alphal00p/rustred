@@ -1,11 +1,11 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `ab14837`, immediately before moving the integral-input
-boundary under its canonical owner tree.
-**Status:** R3/input-A working authority, subordinate to `GOAL.md` and the
+**Baseline parent:** `02f24a7`, immediately before splitting the canonical
+input compiler into focused implementation owners.
+**Status:** R3/input-B working authority, subordinate to `GOAL.md` and the
 clean-repository architecture plan.
 
-This ledger classifies every one of the 134 Rust source/test paths remaining
+This ledger classifies every one of the 151 Rust source/test paths remaining
 after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -28,8 +28,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 49 |
-| split | 84 |
+| move | 51 |
+| split | 99 |
 | delete | 0 |
 | replace | 1 |
 
@@ -160,12 +160,29 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain; owner-local pattern tests prove refcount-only clones |
 | `src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest, extreme-`i64` aggregate width, refcount-only coordinate clones, and first-component descent witnesses |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
-| `src/input/mod.rs` | move | input | sole canonical input facade; no former flat-module or root aliases, while the still-live affine surface is temporary until its private subtree move |
-| `src/input/model.rs` | split | input | retain syntax-authenticated normalized and lowered mathematical values; prune transport provenance, duplicate lowered fields, and compatibility conveniences in the later input tranche |
+| `src/input/mod.rs` | move | input | sole canonical input facade over focused private owners; no former flat-module or root aliases, while the still-live affine value surface is temporary until its private subtree move |
+| `src/input/model.rs` | split | input | retain syntax-authenticated normalized and lowered mathematical values plus their ordinary views; prune transport provenance, duplicate lowered fields, and compatibility conveniences in the later input tranche |
 | `src/input/request.rs` | split | input | retain topology-neutral text/Atom request DTOs shared by Rust CLI and Python entrypoints; serde transport belongs to the app |
-| `src/input/limits.rs` | split | input | retain checked parsing and lowering resource policies/stats until the internal native-Symbolica and liveness tranches remove obsolete counters |
-| `src/input/error.rs` | split | input | retain typed parser and lowering failures; merge the temporary split taxonomy after the private affine move |
-| `src/input/compiler.rs` | split | input | behavior-preserving temporary owner of compact grammar, normalization, canonicalization, lowering, and tests; split into focused private modules before Phase 0 closes |
+| `src/input/limits.rs` | split | input | retain checked parsing/lowering policies, live stats, and neutral checked resource arithmetic; obsolete Pattern counters are deleted |
+| `src/input/error.rs` | split | input | retain typed parser and lowering failures; Pattern-only errors are deleted and the remaining temporary affine split taxonomy is merged after its private move |
+| `src/input/compiler.rs` | split | input | thin guarded public compiler facade exposing exactly compact, text, and authenticated-Atom entrypoints with no former names or bypass aliases |
+| `src/input/compact.rs` | split | input | compact `I(...)` orchestration with direct authenticated function-head/arity dispatch; no Symbolica wildcard Pattern machinery |
+| `src/input/canonical.rs` | split | input | deterministic canonical project census and construction in the fixed semantic clause order |
+| `src/input/gram.rs` | split | input | exact upper-triangular external-Gram validation and dense semantic completion |
+| `src/input/normalize.rs` | split | input | topology-neutral cross-field validation, parameter inference, and normalized-project assembly |
+| `src/input/lower.rs` | split | input | consuming and borrowed normalized-project lowering into one authenticated integral family pending copy pruning |
+| `src/input/symbols.rs` | split | input | reserved-name, label, identifier, and bounded family-scalar discovery semantics |
+| `src/input/parse/mod.rs` | move | input::parse | private authenticated expression ingress and one-way composition of lexical, numeric, grammar, conversion, and census stages |
+| `src/input/parse/lexical.rs` | split | input::parse | raw byte, depth, digit, ANSI, and lexical-run preflight before Symbolica parsing |
+| `src/input/parse/numeric.rs` | split | input::parse | checked numeric preconversion envelopes and exact signed-integer admission |
+| `src/input/parse/grammar.rs` | split | input::parse | direct positional Token and Atom grammar/head/arity policy with fixed bounded clause dispatch |
+| `src/input/parse/convert.rs` | split | input::parse | bounded authenticated Token-to-Atom conversion without owning symbolic algebra |
+| `src/input/parse/census.rs` | split | input::parse | post-conversion Atom and aggregate project-field resource censuses |
+| `src/input/tests/mod.rs` | move | input tests | private focused test composition and shared topology-neutral fixtures |
+| `src/input/tests/frontends.rs` | split | input tests | retain parameter inference, canonical identity, and convergence of compact/text/Atom frontends |
+| `src/input/tests/grammar.rs` | split | input tests | retain direct grammar/head/arity rejection and base-coefficient field semantics |
+| `src/input/tests/lowering.rs` | split | input tests | retain signed target, external-Gram, numerator, and exact family-lowering semantics |
+| `src/input/tests/resources.rs` | split | input tests | retain preconversion, caller-owned Atom, aggregate text, depth, integer, and unique-name resource boundaries |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps with symmetry-owned source/target condition evidence; move orchestration to foundry and prune ceremonies |
 | `src/zero_sectors.rs` | split | sector | retain zero-sector proofs with one owner-local condition-source representation; move orchestration to foundry and prune ceremonies |
