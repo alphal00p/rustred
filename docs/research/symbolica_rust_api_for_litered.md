@@ -271,9 +271,19 @@ Exact APIs:
 - `unify_variables(&mut self, other: &mut Self)`: inherits `self` order, appends variables found only in `other`, and rewrites exponents, `vendor/symbolica/src/poly/polynomial.rs:597-677`;
 - `unify_variables_list(&mut [Self])`: two-pass list unification, `vendor/symbolica/src/poly/polynomial.rs:679-691`;
 - `RationalPolynomial::unify_variables`: unifies numerator/denominator maps and renormalizes both operands, `vendor/symbolica/src/domains/rational_polynomial.rs:155-184`;
-- `reorder<ON>()`: changes monomial ordering only, **not variable order**, `vendor/symbolica/src/poly/polynomial.rs:1406-1429`.
+- `reorder<ON>()`: changes monomial ordering only, **not variable order**, `vendor/symbolica/src/poly/polynomial.rs:1406-1429`;
+- `rearrange_with_growth(&[PolyVariable])`: rewrites a polynomial into an explicitly supplied variable order, admits new zero-exponent variables, and returns an error if an omitted source variable occurs with nonzero exponent, `vendor/symbolica/src/poly/polynomial.rs:2361-2399`.
 
-There is no audited public “reorder variables to this arbitrary map” helper. For a deterministic remap, RustRed should validate a bijection, permute each dense exponent row, and reconstruct with:
+For a deterministic remap, RustRed should first validate that the target map is
+the intended ordered, duplicate-free context map, preflight the target exponent
+storage and sorting work, and then call `rearrange_with_growth`. The method
+checks that no used source variable was omitted, but does not itself reject a
+duplicate target variable, uses infallible internal allocations, and constructs
+a fresh variable-map `Arc`. After the call RustRed must authenticate exact map
+equality and may rebind the structurally equal map to the canonical context
+`Arc` to preserve sharing.
+
+Manual reconstruction with:
 
 ```rust
 MultivariatePolynomial::from_coefficient_list(
@@ -284,7 +294,12 @@ MultivariatePolynomial::from_coefficient_list(
 )
 ```
 
-defined at `vendor/symbolica/src/poly/polynomial.rs:1711-1738`. Apply the same permutation independently to a rational polynomial's public `numerator` and `denominator`, then reconstruct with `FromNumeratorAndDenominator::from_num_den` if normalization is desired (`vendor/symbolica/src/domains/rational_polynomial.rs:61-68`).
+defined at `vendor/symbolica/src/poly/polynomial.rs:1711-1738`, remains only a
+lower-level fallback when the native helper cannot express a separately proven
+mapping. For a rational polynomial, apply `rearrange_with_growth` independently
+to its public `numerator` and `denominator`, authenticate both returned maps,
+and reconstruct with `FromNumeratorAndDenominator::from_num_den` if
+normalization is desired (`vendor/symbolica/src/domains/rational_polynomial.rs:61-68`).
 
 Hazards:
 
