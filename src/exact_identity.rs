@@ -832,20 +832,6 @@ impl<'a> ExactIdentityWriter<'a> {
                 }
                 self.end_sequence()?;
             }
-            GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            }
-            | GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => {
-                self.unsigned_u64("source_case", *source_case)?;
-                self.usize("predicate_ordinal", *predicate_ordinal)?;
-                self.usize("bound_position", *bound_position)?;
-            }
             GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
                 source_case,
                 source_work_item_ordinal,
@@ -856,19 +842,6 @@ impl<'a> ExactIdentityWriter<'a> {
                 self.usize("source_work_item_ordinal", *source_work_item_ordinal)?;
                 self.usize("ready_terminal_ordinal", *ready_terminal_ordinal)?;
                 self.usize("structural_locus_ordinal", *structural_locus_ordinal)?;
-            }
-            GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                row,
-                shift,
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => {
-                self.write_guard_row_id("row", row)?;
-                self.write_i64_sequence("shift", shift)?;
-                self.unsigned_u64("source_case", *source_case)?;
-                self.usize("predicate_ordinal", *predicate_ordinal)?;
-                self.usize("bound_position", *bound_position)?;
             }
             GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
                 row,
@@ -882,19 +855,6 @@ impl<'a> ExactIdentityWriter<'a> {
                 self.unsigned_u64("source_case", *source_case)?;
                 self.usize("source_work_item_ordinal", *source_work_item_ordinal)?;
                 self.usize("ready_terminal_ordinal", *ready_terminal_ordinal)?;
-            }
-            GuardOrigin::RelationResidualUnitAffineSubstitution {
-                source_row,
-                target_row,
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => {
-                self.write_guard_row_id("source_row", source_row)?;
-                self.write_guard_row_id("target_row", target_row)?;
-                self.unsigned_u64("source_case", *source_case)?;
-                self.usize("predicate_ordinal", *predicate_ordinal)?;
-                self.usize("bound_position", *bound_position)?;
             }
             GuardOrigin::RelationResidualAffineBranchSubstitution {
                 source_row,
@@ -1288,11 +1248,6 @@ fn guard_origin_shape(origin: &GuardOrigin) -> (&'static str, usize) {
         GuardOrigin::PartialIndexSpecialization { assignments: _ } => {
             ("PartialIndexSpecialization", 1)
         }
-        GuardOrigin::ResidualUnitAffineIndexSubstitution {
-            source_case: _,
-            predicate_ordinal: _,
-            bound_position: _,
-        } => ("ResidualUnitAffineIndexSubstitution", 3),
         GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
             source_case: _,
             source_work_item_ordinal: _,
@@ -1308,18 +1263,6 @@ fn guard_origin_shape(origin: &GuardOrigin) -> (&'static str, usize) {
         GuardOrigin::RelationPartialSpecializationTermDenominator { row: _, shift: _ } => {
             ("RelationPartialSpecializationTermDenominator", 2)
         }
-        GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-            source_case: _,
-            predicate_ordinal: _,
-            bound_position: _,
-        } => ("CoefficientResidualUnitAffineSubstitutionDenominator", 3),
-        GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-            row: _,
-            shift: _,
-            source_case: _,
-            predicate_ordinal: _,
-            bound_position: _,
-        } => ("RelationResidualUnitAffineSubstitutionTermDenominator", 5),
         GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
             row: _,
             shift: _,
@@ -1327,13 +1270,6 @@ fn guard_origin_shape(origin: &GuardOrigin) -> (&'static str, usize) {
             source_work_item_ordinal: _,
             ready_terminal_ordinal: _,
         } => ("RelationResidualAffineBranchSubstitutionTermDenominator", 5),
-        GuardOrigin::RelationResidualUnitAffineSubstitution {
-            source_row: _,
-            target_row: _,
-            source_case: _,
-            predicate_ordinal: _,
-            bound_position: _,
-        } => ("RelationResidualUnitAffineSubstitution", 5),
         GuardOrigin::RelationResidualAffineBranchSubstitution {
             source_row: _,
             target_row: _,
@@ -2971,14 +2907,6 @@ mod tests {
                 },
             ),
             (
-                "residual-unit-affine-index-substitution",
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-            ),
-            (
                 "residual-affine-branch-nonzero-guard-substitution",
                 GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
                     source_case: 1,
@@ -3003,24 +2931,6 @@ mod tests {
                 },
             ),
             (
-                "coefficient-residual-unit-affine-substitution-denominator",
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-            ),
-            (
-                "relation-residual-unit-affine-substitution-term-denominator",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("source"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-            ),
-            (
                 "relation-residual-affine-branch-substitution-term-denominator",
                 GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
                     row: derived_guard_row("source"),
@@ -3028,16 +2938,6 @@ mod tests {
                     source_case: 1,
                     source_work_item_ordinal: 1,
                     ready_terminal_ordinal: 1,
-                },
-            ),
-            (
-                "relation-residual-unit-affine-substitution",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("source"),
-                    target_row: derived_guard_row("target"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
                 },
             ),
             (
@@ -3132,7 +3032,7 @@ mod tests {
     #[test]
     fn direct_guard_origin_writer_is_exhaustive_injective_and_exactly_bounded() {
         let representatives = guard_origin_representatives();
-        assert_eq!(representatives.len(), 40);
+        assert_eq!(representatives.len(), 36);
         let mut identities = BTreeSet::new();
         for (name, origin) in representatives {
             let identity = encode_exact_identity(
@@ -3190,7 +3090,7 @@ mod tests {
     fn every_guard_origin_variant_is_bound_by_the_exact_relation_identity() {
         let context = guard_origin_context();
         let representatives = guard_origin_representatives();
-        assert_eq!(representatives.len(), 40);
+        assert_eq!(representatives.len(), 36);
         let mut names = BTreeSet::new();
         let mut identities = BTreeSet::new();
         for (name, origin) in representatives {
@@ -3825,48 +3725,6 @@ mod tests {
                 IntegerCountIncrease,
             ),
             guard_origin_mutation(
-                "residual-unit-affine.source-case",
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 2,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "residual-unit-affine.predicate-ordinal",
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 2,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "residual-unit-affine.bound-position",
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 2,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
                 "residual-affine-branch.source-case",
                 GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
                     source_case: 1,
@@ -3965,156 +3823,6 @@ mod tests {
                     shift: vec![1, 1].into_boxed_slice(),
                 },
                 IntegerCountIncrease,
-            ),
-            guard_origin_mutation(
-                "coefficient-residual-unit.source-case",
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 2,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "coefficient-residual-unit.predicate-ordinal",
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 2,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "coefficient-residual-unit.bound-position",
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 2,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.row",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("b"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IdentityOnly,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.shift-value",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![2].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.shift-length",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1, 1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerCountIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.source-case",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 2,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.predicate-ordinal",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 2,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit-term.bound-position",
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-                    row: derived_guard_row("a"),
-                    shift: vec![1].into_boxed_slice(),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 2,
-                },
-                IntegerBitsIncrease,
             ),
             guard_origin_mutation(
                 "relation-residual-affine-term.row",
@@ -4221,96 +3929,6 @@ mod tests {
                     source_case: 1,
                     source_work_item_ordinal: 1,
                     ready_terminal_ordinal: 2,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit.source-row",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("a"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("b"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IdentityOnly,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit.target-row",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("a"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("b"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IdentityOnly,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit.source-case",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 2,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit.predicate-ordinal",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 2,
-                    bound_position: 1,
-                },
-                IntegerBitsIncrease,
-            ),
-            guard_origin_mutation(
-                "relation-residual-unit.bound-position",
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 1,
-                },
-                GuardOrigin::RelationResidualUnitAffineSubstitution {
-                    source_row: derived_guard_row("s"),
-                    target_row: derived_guard_row("t"),
-                    source_case: 1,
-                    predicate_ordinal: 1,
-                    bound_position: 2,
                 },
                 IntegerBitsIncrease,
             ),
@@ -4629,7 +4247,7 @@ mod tests {
     fn every_guard_origin_field_mutation_changes_identity_and_semantic_census() {
         let context = guard_origin_context();
         let mutations = guard_origin_field_mutations();
-        assert_eq!(mutations.len(), 99);
+        assert_eq!(mutations.len(), 82);
         let mut names = BTreeSet::new();
         for mutation in mutations {
             assert!(names.insert(mutation.name));

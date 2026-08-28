@@ -62,7 +62,6 @@ pub mod residual_affine_atom_rows;
 pub mod residual_affine_branch_guard_composition;
 pub mod residual_affine_branch_system;
 pub mod residual_affine_integer_system;
-pub mod residual_unit_affine_index_map;
 pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
@@ -92,13 +91,11 @@ pub use affine_parametric_ordering::{
     RUSTRED_AFFINE_START_UNSHIFTED_ORDER_V1_KEY_SCHEMA,
 };
 pub use affine_prepare_point_schedule::{
-    AFFINE_PREPARE_POINT_SCHEDULE_V1_SCHEMA, AffinePreparePointScheduleCertificate,
     AffinePreparePointScheduleError, AffinePreparePointScheduleLimits,
     AffinePreparePointScheduleStats,
 };
 pub use affine_prepare_points::{
-    AFFINE_PREPARE_POINT_LAYER_V1_SCHEMA, AffinePreparePointError, AffinePreparePointLayer,
-    AffinePreparePointLimits, AffinePreparePointStats,
+    AffinePreparePointError, AffinePreparePointLimits, AffinePreparePointStats,
 };
 pub use automatic_isps::{
     AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
@@ -233,10 +230,10 @@ pub use parametric_coefficient::{
     GuardedParametricCoefficient, GuardedPartialCoefficientSpecialization,
     ParametricArithmeticLimits, ParametricCoefficient, ParametricCoefficientContext,
     ParametricCoefficientError, ParametricNonZeroCondition, ParametricPolynomial,
-    PartialIndexAssignment, RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA,
-    ResidualUnitAffineCoefficientCompositionStats, ResidualUnitAffineCompositionError,
-    ResidualUnitAffineCompositionPlanLimits, ResidualUnitAffinePolynomialCompositionLimits,
-    ResidualUnitAffinePolynomialCompositionStats, SpecializedNonZeroCondition,
+    PartialIndexAssignment, ResidualUnitAffineCoefficientCompositionStats,
+    ResidualUnitAffineCompositionError, ResidualUnitAffineCompositionPlanLimits,
+    ResidualUnitAffinePolynomialCompositionLimits, ResidualUnitAffinePolynomialCompositionStats,
+    SpecializedNonZeroCondition,
 };
 pub use parametric_elimination::{
     PARAMETRIC_ELIMINATION_V1_SCHEMA, PARAMETRIC_SOURCE_MANIFEST_V1_SCHEMA, ParametricElimination,
@@ -310,11 +307,6 @@ pub use residual_affine_integer_system::{
     ResidualAffineIntegerSystemInputError, ResidualAffineIntegerSystemInputRow,
     ResidualAffineIntegerSystemLimits, ResidualAffineIntegerSystemOutcome,
     ResidualAffineIntegerSystemStats, ResidualAffineIntegerSystemUnsupported,
-};
-pub use residual_unit_affine_index_map::{
-    RESIDUAL_UNIT_AFFINE_INDEX_MAP_V1_SCHEMA, ResidualUnitAffineIndexMapCertificate,
-    ResidualUnitAffineIndexMapError, ResidualUnitAffineIndexMapLimits,
-    ResidualUnitAffineIndexMapStats, ResidualUnitAffineIndexMapUnsupported,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

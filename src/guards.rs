@@ -226,16 +226,6 @@ pub enum GuardOrigin {
     /// variables stay symbolic.  Entries are canonicalized by increasing
     /// index position before this provenance atom can be constructed.
     PartialIndexSpecialization { assignments: Box<[(usize, i64)]> },
-    /// A certified simultaneous unit-affine index substitution was applied.
-    ///
-    /// The enclosing certificate owns the complete replayable map.  These
-    /// three fields are a compact, typed locator into that certificate rather
-    /// than an unauthenticated copy of its serialized payload.
-    ResidualUnitAffineIndexSubstitution {
-        source_case: u64,
-        predicate_ordinal: usize,
-        bound_position: usize,
-    },
     /// One Coverage V4 branch guard was composed through the complete
     /// source-neutral residual affine integer-system map.
     ResidualAffineBranchNonzeroGuardSubstitution {
@@ -253,22 +243,6 @@ pub enum GuardOrigin {
     /// Mapped pre-normalization denominator of one concrete term in a source
     /// row partially specialized on an equality locus.
     RelationPartialSpecializationTermDenominator { row: GuardRowId, shift: Box<[i64]> },
-    /// Mapped pre-normalization denominator of one coefficient restricted to
-    /// a certified unit-affine residual locus.
-    CoefficientResidualUnitAffineSubstitutionDenominator {
-        source_case: u64,
-        predicate_ordinal: usize,
-        bound_position: usize,
-    },
-    /// Mapped pre-normalization denominator of one relation term restricted
-    /// to a certified unit-affine residual locus.
-    RelationResidualUnitAffineSubstitutionTermDenominator {
-        row: GuardRowId,
-        shift: Box<[i64]>,
-        source_case: u64,
-        predicate_ordinal: usize,
-        bound_position: usize,
-    },
     /// Mapped pre-normalization denominator of one relation term restricted
     /// to a certified residual affine branch.
     ///
@@ -280,15 +254,6 @@ pub enum GuardOrigin {
         source_case: u64,
         source_work_item_ordinal: usize,
         ready_terminal_ordinal: usize,
-    },
-    /// A complete relation was restricted to a certified unit-affine
-    /// residual locus.
-    RelationResidualUnitAffineSubstitution {
-        source_row: GuardRowId,
-        target_row: GuardRowId,
-        source_case: u64,
-        predicate_ordinal: usize,
-        bound_position: usize,
     },
     /// A complete relation was restricted to a certified residual affine
     /// branch.
@@ -360,19 +325,6 @@ impl GuardOrigin {
         size_of::<Self>()
             .checked_mul(16)?
             .checked_add(32usize.checked_mul(size_of::<usize>())?)
-    }
-
-    /// Preflight the provenance atom used when a mapped relation-term
-    /// denominator is attached by the affine-locus wrapper.  This variant
-    /// owns a boxed shift, so callers need its byte bound before allocating
-    /// that payload.
-    pub(crate) fn residual_unit_affine_term_denominator_retained_byte_bound(
-        row: &GuardRowId,
-        shift_len: usize,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(row.shared_payload_bytes())?
-            .checked_add(shift_len.checked_mul(size_of::<i64>())?)
     }
 
     /// Preflight the provenance atom used when a mapped relation-term
@@ -483,7 +435,6 @@ impl GuardOrigin {
             Self::RelationInputTermDenominator { row, shift }
             | Self::RelationCollectedTermDenominator { row, shift }
             | Self::RelationPartialSpecializationTermDenominator { row, shift }
-            | Self::RelationResidualUnitAffineSubstitutionTermDenominator { row, shift, .. }
             | Self::RelationResidualAffineBranchSubstitutionTermDenominator {
                 row, shift, ..
             } => {
@@ -537,12 +488,7 @@ impl GuardOrigin {
             Self::PartialIndexSpecialization { assignments } => {
                 add(slice_bytes(assignments.len(), size_of::<(usize, i64)>())?)?;
             }
-            Self::RelationResidualUnitAffineSubstitution {
-                source_row,
-                target_row,
-                ..
-            }
-            | Self::RelationResidualAffineBranchSubstitution {
+            Self::RelationResidualAffineBranchSubstitution {
                 source_row,
                 target_row,
                 ..
@@ -558,11 +504,9 @@ impl GuardOrigin {
             | Self::GuardedDivisionDivisorNumerator
             | Self::ExplicitRelationCondition
             | Self::GeneratedAffineSealedCondition
-            | Self::ResidualUnitAffineIndexSubstitution { .. }
             | Self::ResidualAffineBranchNonzeroGuardSubstitution { .. }
             | Self::CoefficientSpecializationDenominator
             | Self::CoefficientPartialSpecializationDenominator
-            | Self::CoefficientResidualUnitAffineSubstitutionDenominator { .. }
             | Self::QuotientPivotNumerator
             | Self::ConcreteQuotientEliminationPivotNumerator { .. }
             | Self::ExplicitShiftOperatorCondition
@@ -699,14 +643,6 @@ impl GuardOrigin {
                 }
                 writer.write_str("]")
             }
-            Self::ResidualUnitAffineIndexSubstitution {
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => write!(
-                writer,
-                "residual-unit-affine-index-substitution:{source_case}:{predicate_ordinal}:{bound_position}"
-            ),
             Self::ResidualAffineBranchNonzeroGuardSubstitution {
                 source_case,
                 source_work_item_ordinal,
@@ -728,46 +664,6 @@ impl GuardOrigin {
                 writer.write_str(":[")?;
                 write_joined(writer, shift, ",")?;
                 writer.write_str("]")
-            }
-            Self::CoefficientResidualUnitAffineSubstitutionDenominator {
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => write!(
-                writer,
-                "coefficient-residual-unit-affine-substitution-denominator:{source_case}:{predicate_ordinal}:{bound_position}"
-            ),
-            Self::RelationResidualUnitAffineSubstitutionTermDenominator {
-                row,
-                shift,
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => {
-                writer.write_str("relation-residual-unit-affine-substitution-term-denominator:")?;
-                row.write_stable(writer)?;
-                writer.write_str(":[")?;
-                write_joined(writer, shift, ",")?;
-                write!(
-                    writer,
-                    "]:{source_case}:{predicate_ordinal}:{bound_position}"
-                )
-            }
-            Self::RelationResidualUnitAffineSubstitution {
-                source_row,
-                target_row,
-                source_case,
-                predicate_ordinal,
-                bound_position,
-            } => {
-                writer.write_str("relation-residual-unit-affine-substitution:")?;
-                source_row.write_stable(writer)?;
-                writer.write_str(":")?;
-                target_row.write_stable(writer)?;
-                write!(
-                    writer,
-                    ":{source_case}:{predicate_ordinal}:{bound_position}"
-                )
             }
             Self::RelationResidualAffineBranchSubstitutionTermDenominator {
                 row,

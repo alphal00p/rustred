@@ -27,8 +27,7 @@ use symbolica::prelude::Integer;
 use crate::{
     IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext,
     ParametricPolynomial, ResidualAffineBranchSystemCertificate, ResidualAffineBranchSystemError,
-    ResidualAffineIntegerMap, ResidualProductLocusBooleanCoverCertificate,
-    ResidualUnitAffineIndexMapCertificate, ResidualUnitAffineIndexMapError, SectorMask,
+    ResidualAffineIntegerMap, ResidualProductLocusBooleanCoverCertificate, SectorMask,
 };
 
 pub const AFFINE_START_PARAMETRIC_ELIMINATION_ORDERING_V1_SCHEMA: &str =
@@ -43,39 +42,24 @@ const KEY_COMPONENT_VECTORS: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AffineStartSourceKind {
-    ResidualUnit,
     ResidualBooleanBranch,
 }
 
 /// Complete replay provenance for one affine start.
-///
-/// The Boolean-branch variant is intentionally not converted into a
-/// [`ResidualUnitAffineIndexMapCertificate`]: doing so would invent one
-/// predicate/bound-position locator for a simultaneous system of equalities.
 #[derive(Clone, Debug)]
 pub enum AffineStartSourceCertificate {
-    ResidualUnit(Arc<ResidualUnitAffineIndexMapCertificate>),
     ResidualBooleanBranch(Arc<ResidualAffineBranchSystemCertificate>),
 }
 
 impl AffineStartSourceCertificate {
     pub const fn kind(&self) -> AffineStartSourceKind {
         match self {
-            Self::ResidualUnit(_) => AffineStartSourceKind::ResidualUnit,
             Self::ResidualBooleanBranch(_) => AffineStartSourceKind::ResidualBooleanBranch,
-        }
-    }
-
-    pub const fn legacy_affine_map(&self) -> Option<&Arc<ResidualUnitAffineIndexMapCertificate>> {
-        match self {
-            Self::ResidualUnit(map) => Some(map),
-            Self::ResidualBooleanBranch(_) => None,
         }
     }
 
     pub const fn residual_branch(&self) -> Option<&Arc<ResidualAffineBranchSystemCertificate>> {
         match self {
-            Self::ResidualUnit(_) => None,
             Self::ResidualBooleanBranch(branch) => Some(branch),
         }
     }
@@ -84,34 +68,27 @@ impl AffineStartSourceCertificate {
     /// through the affine map and say nothing about translated points.
     pub fn uncomposed_nonzero_guard_locus_ordinals(&self) -> &[usize] {
         match self {
-            Self::ResidualUnit(_) => &[],
             Self::ResidualBooleanBranch(branch) => branch.nonzero_guard_locus_ordinals(),
         }
     }
 
     fn context_fingerprint(&self) -> &str {
         match self {
-            Self::ResidualUnit(map) => map.context_fingerprint(),
             Self::ResidualBooleanBranch(branch) => branch.context_fingerprint(),
         }
     }
 
     fn source_sector(&self) -> &SectorMask {
         match self {
-            Self::ResidualUnit(map) => map.source().source_partition().orthant().sector(),
             Self::ResidualBooleanBranch(branch) => branch.source_cover().sector(),
         }
     }
 
     fn payload_eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::ResidualUnit(left), Self::ResidualUnit(right)) => {
-                Arc::ptr_eq(left, right) || left.payload_eq(right)
-            }
             (Self::ResidualBooleanBranch(left), Self::ResidualBooleanBranch(right)) => {
                 Arc::ptr_eq(left, right) || left.payload_eq(right)
             }
-            _ => false,
         }
     }
 }
@@ -120,7 +97,6 @@ impl AffineStartSourceCertificate {
 /// require the complete family/context/cover boundary on every public replay.
 #[derive(Clone, Copy, Debug)]
 pub enum AffineStartReplayAuthority<'a> {
-    ContextOnly(&'a ParametricCoefficientContext),
     ResidualBooleanBranch {
         family: &'a IntegralFamily,
         context: &'a ParametricCoefficientContext,
@@ -131,7 +107,7 @@ pub enum AffineStartReplayAuthority<'a> {
 impl<'a> AffineStartReplayAuthority<'a> {
     pub const fn context(self) -> &'a ParametricCoefficientContext {
         match self {
-            Self::ContextOnly(context) | Self::ResidualBooleanBranch { context, .. } => context,
+            Self::ResidualBooleanBranch { context, .. } => context,
         }
     }
 }
@@ -149,7 +125,6 @@ pub struct AffineStartGeometryRef<'a> {
 impl<'a> AffineStartGeometryRef<'a> {
     pub fn ambient_arity(self) -> usize {
         match self.source {
-            AffineStartSourceCertificate::ResidualUnit(map) => map.ambient_arity(),
             AffineStartSourceCertificate::ResidualBooleanBranch(branch) => branch
                 .affine_map()
                 .map_or(0, ResidualAffineIntegerMap::ambient_arity),
@@ -158,7 +133,6 @@ impl<'a> AffineStartGeometryRef<'a> {
 
     pub fn free_positions(self) -> &'a [usize] {
         match self.source {
-            AffineStartSourceCertificate::ResidualUnit(map) => map.free_positions(),
             AffineStartSourceCertificate::ResidualBooleanBranch(branch) => branch
                 .affine_map()
                 .map_or(&[], ResidualAffineIntegerMap::free_positions),
@@ -167,7 +141,6 @@ impl<'a> AffineStartGeometryRef<'a> {
 
     pub fn constant(self, position: usize) -> Option<&'a Integer> {
         match self.source {
-            AffineStartSourceCertificate::ResidualUnit(map) => map.constant(position),
             AffineStartSourceCertificate::ResidualBooleanBranch(branch) => {
                 branch.affine_map()?.constant(position)
             }
@@ -176,9 +149,6 @@ impl<'a> AffineStartGeometryRef<'a> {
 
     pub fn linear_coefficient(self, position: usize, free_ordinal: usize) -> Option<&'a Integer> {
         match self.source {
-            AffineStartSourceCertificate::ResidualUnit(map) => {
-                map.linear_coefficient(position, free_ordinal)
-            }
             AffineStartSourceCertificate::ResidualBooleanBranch(branch) => {
                 let map = branch.affine_map()?;
                 let &ambient_column = map.free_positions().get(free_ordinal)?;
@@ -478,26 +448,10 @@ impl PartialEq for AffineStartParametricEliminationOrdering {
 impl Eq for AffineStartParametricEliminationOrdering {}
 
 impl AffineStartParametricEliminationOrdering {
-    pub fn try_new(
-        context: &ParametricCoefficientContext,
-        policy: IntegralOrderingPolicy,
-        sector: SectorMask,
-        affine_map: Arc<ResidualUnitAffineIndexMapCertificate>,
-        limits: AffineParametricOrderingLimits,
-    ) -> Result<Self, AffineParametricOrderingError> {
-        let source = AffineStartSourceCertificate::ResidualUnit(affine_map.clone());
-        let preflight = preflight_untrusted_source_metadata(context, &sector, &source, limits)?;
-        affine_map.replay(context)?;
-        let result =
-            Self::try_new_with_authenticated_preflight(context, policy, source, limits, preflight)?;
-        result.rebuild_and_compare_with_authenticated_source(context)?;
-        Ok(result)
-    }
-
     /// Construct an ordering from one fully authenticated Boolean terminal.
     /// The original nonzero guards remain attached to `branch`; this method
     /// does not compose or discharge them through the affine map.
-    pub fn try_new_from_residual_branch(
+    pub fn try_new(
         family: &IntegralFamily,
         context: &ParametricCoefficientContext,
         cover: Arc<ResidualProductLocusBooleanCoverCertificate>,
@@ -542,14 +496,6 @@ impl AffineStartParametricEliminationOrdering {
     }
     pub const fn source_kind(&self) -> AffineStartSourceKind {
         self.source.kind()
-    }
-    pub const fn legacy_affine_map(&self) -> Option<&Arc<ResidualUnitAffineIndexMapCertificate>> {
-        self.source.legacy_affine_map()
-    }
-    /// Compatibility spelling for callers which explicitly handle the
-    /// absence of a legacy single-predicate map.
-    pub const fn affine_map(&self) -> Option<&Arc<ResidualUnitAffineIndexMapCertificate>> {
-        self.legacy_affine_map()
     }
     pub const fn residual_branch(&self) -> Option<&Arc<ResidualAffineBranchSystemCertificate>> {
         self.source.residual_branch()
@@ -856,13 +802,6 @@ impl AffineStartParametricEliminationOrdering {
         Ok(self.key_for_shift(left)?.cmp(&self.key_for_shift(right)?))
     }
 
-    pub fn replay(
-        &self,
-        context: &ParametricCoefficientContext,
-    ) -> Result<(), AffineParametricOrderingError> {
-        self.replay_with_authority(AffineStartReplayAuthority::ContextOnly(context))
-    }
-
     pub fn replay_with_authority(
         &self,
         authority: AffineStartReplayAuthority<'_>,
@@ -873,44 +812,14 @@ impl AffineStartParametricEliminationOrdering {
             return Err(AffineParametricOrderingError::SchemaMismatch);
         }
         let context = authority.context();
-        match (&self.source, authority) {
-            (
-                AffineStartSourceCertificate::ResidualUnit(map),
-                AffineStartReplayAuthority::ContextOnly(_),
-            ) => {
-                preflight_untrusted_source_metadata(
-                    context,
-                    self.sector(),
-                    &self.source,
-                    self.limits,
-                )?;
-                map.replay(context)?;
-            }
-            (
-                AffineStartSourceCertificate::ResidualBooleanBranch(_),
-                AffineStartReplayAuthority::ContextOnly(_),
-            ) => return Err(AffineParametricOrderingError::BranchReplayAuthorityRequired),
-            (
-                AffineStartSourceCertificate::ResidualUnit(_),
-                AffineStartReplayAuthority::ResidualBooleanBranch { .. },
-            ) => return Err(AffineParametricOrderingError::ReplayAuthoritySourceMismatch),
-            (
-                AffineStartSourceCertificate::ResidualBooleanBranch(branch),
-                AffineStartReplayAuthority::ResidualBooleanBranch {
-                    family,
-                    context,
-                    cover,
-                },
-            ) => {
-                preflight_untrusted_source_metadata(
-                    context,
-                    self.sector(),
-                    &self.source,
-                    self.limits,
-                )?;
-                branch.replay_with_cover(family, context, (*cover).clone())?;
-            }
-        }
+        let AffineStartSourceCertificate::ResidualBooleanBranch(branch) = &self.source;
+        let AffineStartReplayAuthority::ResidualBooleanBranch {
+            family,
+            context,
+            cover,
+        } = authority;
+        preflight_untrusted_source_metadata(context, self.sector(), &self.source, self.limits)?;
+        branch.replay_with_cover(family, context, (*cover).clone())?;
         self.rebuild_and_compare_with_authenticated_source(context)
     }
 
@@ -1774,8 +1683,6 @@ impl PartialOrd for AffineStartIntegralComplexityKey {
 pub enum AffineParametricOrderingError {
     SchemaMismatch,
     ReplayMismatch,
-    BranchReplayAuthorityRequired,
-    ReplayAuthoritySourceMismatch,
     BranchSourceHasNoAffineMap,
     WrongContext,
     WrongSectorArity {
@@ -1809,7 +1716,6 @@ pub enum AffineParametricOrderingError {
         resource: &'static str,
         requested: usize,
     },
-    Map(ResidualUnitAffineIndexMapError),
     Branch(ResidualAffineBranchSystemError),
 }
 
@@ -1818,12 +1724,6 @@ impl fmt::Display for AffineParametricOrderingError {
         match self {
             Self::SchemaMismatch => formatter.write_str("affine-start ordering schema mismatch"),
             Self::ReplayMismatch => formatter.write_str("affine-start ordering replay mismatch"),
-            Self::BranchReplayAuthorityRequired => formatter.write_str(
-                "affine-start Boolean branch replay requires its family, context, and exact source cover",
-            ),
-            Self::ReplayAuthoritySourceMismatch => formatter.write_str(
-                "affine-start replay authority does not match the retained source kind",
-            ),
             Self::BranchSourceHasNoAffineMap => formatter.write_str(
                 "affine-start Boolean branch does not have a guarded affine-map outcome",
             ),
@@ -1872,7 +1772,6 @@ impl fmt::Display for AffineParametricOrderingError {
                 formatter,
                 "affine-start {resource} could not reserve {requested} entries"
             ),
-            Self::Map(error) => error.fmt(formatter),
             Self::Branch(error) => error.fmt(formatter),
         }
     }
@@ -1881,16 +1780,9 @@ impl fmt::Display for AffineParametricOrderingError {
 impl std::error::Error for AffineParametricOrderingError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Map(error) => Some(error),
             Self::Branch(error) => Some(error),
             _ => None,
         }
-    }
-}
-
-impl From<ResidualUnitAffineIndexMapError> for AffineParametricOrderingError {
-    fn from(value: ResidualUnitAffineIndexMapError) -> Self {
-        Self::Map(value)
     }
 }
 
@@ -1975,11 +1867,6 @@ fn preflight_untrusted_source_metadata(
         limits.max_matrix_entries_inspected,
     )?;
     let map_identity_lower_bound = match source {
-        AffineStartSourceCertificate::ResidualUnit(map) => checked_add(
-            "affine map identity bytes",
-            map.source_partition_identity().len(),
-            map.local_manifest().len(),
-        )?,
         AffineStartSourceCertificate::ResidualBooleanBranch(branch) => checked_add(
             "affine map identity bytes",
             branch.source_partition_identity().len(),
@@ -2109,17 +1996,6 @@ fn affine_source_identity(
 ) -> Result<String, AffineParametricOrderingError> {
     let mut output = BoundedManifestBuilder::new(limit);
     match source {
-        AffineStartSourceCertificate::ResidualUnit(map) => {
-            write!(
-                &mut output,
-                "affine-source-v1|integer-encoding=sign-magnitude-hex-v1|kind=residual-unit|source-bytes={}:{}|local-bytes={}:{}",
-                map.source_partition_identity().len(),
-                map.source_partition_identity(),
-                map.local_manifest().len(),
-                map.local_manifest(),
-            )
-            .map_err(|_| output.error("affine map identity bytes"))?;
-        }
         AffineStartSourceCertificate::ResidualBooleanBranch(branch) => {
             let cover = branch.source_cover();
             let terminal = branch

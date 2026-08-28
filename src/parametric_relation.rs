@@ -1163,20 +1163,6 @@ fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
             }
             Ok(())
         }
-        GuardOrigin::ResidualUnitAffineIndexSubstitution {
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        }
-        | GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => {
-            observe_u64(observer, *source_case)?;
-            observe_usize(observer, *predicate_ordinal)?;
-            observe_usize(observer, *bound_position)
-        }
         GuardOrigin::ResidualAffineBranchNonzeroGuardSubstitution {
             source_case,
             source_work_item_ordinal,
@@ -1187,19 +1173,6 @@ fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
             observe_usize(observer, *source_work_item_ordinal)?;
             observe_usize(observer, *ready_terminal_ordinal)?;
             observe_usize(observer, *structural_locus_ordinal)
-        }
-        GuardOrigin::RelationResidualUnitAffineSubstitutionTermDenominator {
-            row,
-            shift,
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => {
-            observe_guard_row_id(observer, row)?;
-            observe_i64_slice(observer, shift)?;
-            observe_u64(observer, *source_case)?;
-            observe_usize(observer, *predicate_ordinal)?;
-            observe_usize(observer, *bound_position)
         }
         GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
             row,
@@ -1213,19 +1186,6 @@ fn observe_guard_origin<O: ParametricRelationV2Observer + ?Sized>(
             observe_u64(observer, *source_case)?;
             observe_usize(observer, *source_work_item_ordinal)?;
             observe_usize(observer, *ready_terminal_ordinal)
-        }
-        GuardOrigin::RelationResidualUnitAffineSubstitution {
-            source_row,
-            target_row,
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => {
-            observe_guard_row_id(observer, source_row)?;
-            observe_guard_row_id(observer, target_row)?;
-            observe_u64(observer, *source_case)?;
-            observe_usize(observer, *predicate_ordinal)?;
-            observe_usize(observer, *bound_position)
         }
         GuardOrigin::RelationResidualAffineBranchSubstitution {
             source_row,

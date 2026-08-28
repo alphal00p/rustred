@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `8fbbea9`, updated after each R3 cluster milestone.
+**Baseline parent:** `04b4abb`, updated for the residual-unit adapter deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 129 tracked Rust source/build/test paths
+This ledger classifies every one of the 128 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 105 |
+| split | 104 |
 | delete | 1 |
 | replace | 1 |
 
@@ -113,7 +113,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/residual_affine_branch_guard_composition.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_branch_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/residual_affine_integer_system.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/residual_unit_affine_index_map.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |

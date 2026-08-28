@@ -28,8 +28,7 @@ use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
 use crate::residual_affine_integer_system::ResidualAffineIntegerSystemFreshPlanAuthorization;
 use crate::{
     IndexShift, ResidualAffineIntegerMap, ResidualAffineIntegerSystemCertificate,
-    ResidualAffineIntegerSystemError, ResidualUnitAffineIndexMapCertificate,
-    ResidualUnitAffineIndexMapError, algebra::Coefficient, algebra::CoefficientContext,
+    ResidualAffineIntegerSystemError, algebra::Coefficient, algebra::CoefficientContext,
     algebra::SYMBOLICA_COEFFICIENT_EXPONENT_LIMIT,
 };
 
@@ -2922,16 +2921,12 @@ impl ParametricCoefficientSpecializationPreflight {
     }
 }
 
-/// Stable schema for bounded simultaneous composition through a certified
-/// residual unit-affine index map.
-pub const RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA: &str =
-    "rustred-residual-unit-affine-composition-v1";
-
-/// Internal algebra-only core shared by provenance-bearing V1 adapters and
-/// authority-neutral compact V2 plans.  This schema authenticates no map
+/// Internal algebra-only core shared by proof-bearing integer-system and
+/// authority-neutral compact plans. This schema authenticates no map
 /// derivation or certificate provenance.
 const RESIDUAL_AFFINE_COMPOSITION_CORE_V1_SCHEMA: &str =
     "rustred-residual-affine-composition-core-v1";
+const RESIDUAL_AFFINE_COMPOSITION_V1_SCHEMA: &str = "rustred-residual-affine-composition-v1";
 
 /// Stable schema for authority-neutral composition through an authenticated
 /// compact affine geometry.
@@ -3532,7 +3527,6 @@ pub enum ResidualUnitAffineCompositionError {
     SymbolicaPanic {
         stage: &'static str,
     },
-    Map(ResidualUnitAffineIndexMapError),
     IntegerSystem(ResidualAffineIntegerSystemError),
     Coefficient(ParametricCoefficientError),
 }
@@ -3597,7 +3591,6 @@ impl fmt::Display for ResidualUnitAffineCompositionError {
             Self::SymbolicaPanic { stage } => {
                 write!(formatter, "Symbolica panicked during {stage}")
             }
-            Self::Map(error) => error.fmt(formatter),
             Self::IntegerSystem(error) => error.fmt(formatter),
             Self::Coefficient(error) => error.fmt(formatter),
         }
@@ -3607,17 +3600,10 @@ impl fmt::Display for ResidualUnitAffineCompositionError {
 impl std::error::Error for ResidualUnitAffineCompositionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Map(error) => Some(error),
             Self::IntegerSystem(error) => Some(error),
             Self::Coefficient(error) => Some(error),
             _ => None,
         }
-    }
-}
-
-impl From<ResidualUnitAffineIndexMapError> for ResidualUnitAffineCompositionError {
-    fn from(value: ResidualUnitAffineIndexMapError) -> Self {
-        Self::Map(value)
     }
 }
 
@@ -3693,30 +3679,6 @@ impl ResidualAffineCompositionCorePlan {
                 .checked_mul(size_of::<usize>())?,
         )?;
         Some(bytes)
-    }
-}
-
-/// Legacy authenticated wrapper for the compact unit-affine certificate.
-///
-/// All polynomial work is delegated to the source-neutral core.  Keeping the
-/// certificate here prevents the legacy coefficient/condition adapters from
-/// losing the provenance needed to construct their historical guard origins.
-#[derive(Clone, Debug)]
-pub(crate) struct ResidualUnitAffineCompositionPlan {
-    schema: &'static str,
-    context_fingerprint: Arc<str>,
-    map: Arc<ResidualUnitAffineIndexMapCertificate>,
-    core: Arc<ResidualAffineCompositionCorePlan>,
-    limits: ResidualUnitAffineCompositionPlanLimits,
-}
-
-impl ResidualUnitAffineCompositionPlan {
-    pub(crate) fn map(&self) -> &Arc<ResidualUnitAffineIndexMapCertificate> {
-        &self.map
-    }
-
-    pub(crate) const fn limits(&self) -> ResidualUnitAffineCompositionPlanLimits {
-        self.limits
     }
 }
 
@@ -4607,7 +4569,7 @@ fn residual_affine_composition_plan_logical_memory_census(
     plan: &ResidualAffineCompositionPlan,
 ) -> Result<ResidualAffineCompositionPlanLogicalMemoryCensus, ResidualUnitAffineCompositionError> {
     let resource = "affine composition plan logical memory";
-    if plan.schema != RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA
+    if plan.schema != RESIDUAL_AFFINE_COMPOSITION_V1_SCHEMA
         || plan.core.schema != RESIDUAL_AFFINE_COMPOSITION_CORE_V1_SCHEMA
         || plan.limits != plan.core.limits
         || plan.stats != plan.core.stats
@@ -5132,93 +5094,6 @@ impl ResidualAffineCoefficientComposition {
             Self::Available(value) => value.stats,
             Self::ZeroMappedDenominator { stats } => *stats,
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct GuardedResidualUnitAffineCoefficientComposition {
-    value: ParametricCoefficient,
-    mapped_denominator: Option<ParametricNonZeroCondition>,
-    stats: ResidualUnitAffineCoefficientCompositionStats,
-}
-
-impl GuardedResidualUnitAffineCoefficientComposition {
-    pub(crate) fn value(&self) -> &ParametricCoefficient {
-        &self.value
-    }
-
-    pub(crate) fn mapped_denominator(&self) -> Option<&ParametricNonZeroCondition> {
-        self.mapped_denominator.as_ref()
-    }
-
-    pub(crate) const fn stats(&self) -> ResidualUnitAffineCoefficientCompositionStats {
-        self.stats
-    }
-
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        ParametricCoefficient,
-        Option<ParametricNonZeroCondition>,
-        ResidualUnitAffineCoefficientCompositionStats,
-    ) {
-        (self.value, self.mapped_denominator, self.stats)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum ResidualUnitAffineCoefficientComposition {
-    Available(GuardedResidualUnitAffineCoefficientComposition),
-    ZeroMappedDenominator {
-        stats: ResidualUnitAffineCoefficientCompositionStats,
-    },
-}
-
-impl ResidualUnitAffineCoefficientComposition {
-    pub(crate) const fn stats(&self) -> ResidualUnitAffineCoefficientCompositionStats {
-        match self {
-            Self::Available(value) => value.stats,
-            Self::ZeroMappedDenominator { stats } => *stats,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum ResidualUnitAffineConditionClass {
-    Unsatisfiable,
-    NonzeroIntegerConstant,
-    BaseAssumption(ParametricNonZeroCondition),
-    IndexDependent(ParametricNonZeroCondition),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ResidualUnitAffineConditionComposition {
-    class: ResidualUnitAffineConditionClass,
-    stats: ResidualUnitAffinePolynomialCompositionStats,
-    guard_origin_retained_bytes: usize,
-}
-
-impl ResidualUnitAffineConditionComposition {
-    pub(crate) fn class(&self) -> &ResidualUnitAffineConditionClass {
-        &self.class
-    }
-
-    pub(crate) const fn stats(&self) -> ResidualUnitAffinePolynomialCompositionStats {
-        self.stats
-    }
-
-    pub(crate) const fn guard_origin_retained_bytes(&self) -> usize {
-        self.guard_origin_retained_bytes
-    }
-
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        ResidualUnitAffineConditionClass,
-        ResidualUnitAffinePolynomialCompositionStats,
-        usize,
-    ) {
-        (self.class, self.stats, self.guard_origin_retained_bytes)
     }
 }
 
@@ -9495,44 +9370,6 @@ impl ParametricCoefficientContext {
         })
     }
 
-    /// Compile the one immutable full-point image used by every polynomial
-    /// restricted to the same certified residual unit-affine locus.
-    ///
-    /// This remains crate-private deliberately: an affine map gives a sound
-    /// meaning to shifted integrals only while it is attached to the future
-    /// affine-locus relation wrapper.  Exposing the raw compositor would make
-    /// it too easy to relabel the resulting row as a global identity.
-    pub(crate) fn compile_residual_unit_affine_composition_plan(
-        &self,
-        map: Arc<ResidualUnitAffineIndexMapCertificate>,
-        limits: ResidualUnitAffineCompositionPlanLimits,
-    ) -> Result<ResidualUnitAffineCompositionPlan, ResidualUnitAffineCompositionError> {
-        if map.context_fingerprint() != self.fingerprint() {
-            return Err(ResidualUnitAffineCompositionError::WrongContext);
-        }
-        if map.ambient_arity() != self.index_count() {
-            return Err(ResidualUnitAffineCompositionError::WrongArity {
-                expected: self.index_count(),
-                actual: map.ambient_arity(),
-            });
-        }
-        map.replay(self)?;
-        let geometry = compact_legacy_unit_affine_geometry(
-            &map,
-            self.index_count(),
-            self.base.variables().len(),
-            limits,
-        )?;
-        let core = Arc::new(self.compile_residual_affine_composition_core(geometry, limits)?);
-        Ok(ResidualUnitAffineCompositionPlan {
-            schema: RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA,
-            context_fingerprint: self.fingerprint.clone(),
-            map,
-            core,
-            limits,
-        })
-    }
-
     /// Compile an authority-neutral V2 plan from exact compact affine
     /// geometry.
     ///
@@ -9688,7 +9525,7 @@ impl ParametricCoefficientContext {
         let core = Arc::new(self.compile_residual_affine_composition_core(geometry, limits)?);
         let stats = core.stats;
         Ok(ResidualAffineCompositionPlan {
-            schema: RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA,
+            schema: RESIDUAL_AFFINE_COMPOSITION_V1_SCHEMA,
             context_fingerprint: self.fingerprint.clone(),
             certificate,
             core,
@@ -9929,18 +9766,6 @@ impl ParametricCoefficientContext {
             limits,
             stats,
         })
-    }
-
-    pub(crate) fn compose_polynomial_on_residual_unit_affine_map(
-        &self,
-        source: &ParametricPolynomial,
-        plan: &ResidualUnitAffineCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffinePolynomialComposition, ResidualUnitAffineCompositionError> {
-        self.validate_residual_unit_affine_plan(plan)?;
-        let preflight =
-            self.preflight_residual_affine_polynomial_core(source, &plan.core, limits)?;
-        self.execute_residual_affine_polynomial_core(source, &plan.core, limits, preflight)
     }
 
     /// Allocation-free preflight for one authority-neutral guard polynomial.
@@ -10277,122 +10102,8 @@ impl ParametricCoefficientContext {
         ))
     }
 
-    pub(crate) fn compose_coefficient_on_residual_unit_affine_map(
-        &self,
-        source: &ParametricCoefficient,
-        plan: &ResidualUnitAffineCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffineCoefficientComposition, ResidualUnitAffineCompositionError> {
-        self.validate_residual_unit_affine_plan(plan)?;
-        let ResidualAffineCoefficientHalves {
-            numerator: mapped_numerator,
-            denominator: mapped_denominator,
-            mut stats,
-        } = self.compose_residual_affine_coefficient_halves(source, &plan.core, limits)?;
-        if mapped_denominator.value.is_zero() {
-            return Ok(ResidualUnitAffineCoefficientComposition::ZeroMappedDenominator { stats });
-        }
-
-        stats.normalization_input_term_pairs = self
-            .preflight_residual_affine_coefficient_normalization(
-                &mapped_numerator.value,
-                &mapped_denominator.value,
-                limits,
-            )?;
-
-        // Preserve the mapped pre-normalization denominator even when the
-        // numerator is zero or Symbolica cancels the entire denominator.
-        let mapped_denominator_guard = if mapped_denominator.value.is_nonzero_constant() {
-            None
-        } else {
-            check_residual_affine_limit(
-                "unit-affine coefficient denominator guard origins",
-                2,
-                limits.max_guard_origins,
-            )?;
-            let locator = residual_affine_guard_locator(&plan.map);
-            let denominator_origin =
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator {
-                    source_case: locator.0,
-                    predicate_ordinal: locator.1,
-                    bound_position: locator.2,
-                };
-            let affine_origin = GuardOrigin::ResidualUnitAffineIndexSubstitution {
-                source_case: locator.0,
-                predicate_ordinal: locator.1,
-                bound_position: locator.2,
-            };
-            stats.durable_guard_origin_retained_bytes = residual_affine_guard_origin_copy_bytes(
-                std::iter::empty(),
-                [&denominator_origin, &affine_origin],
-            )?;
-            check_residual_affine_limit(
-                "unit-affine coefficient denominator guard origin retained bytes",
-                stats.durable_guard_origin_retained_bytes,
-                limits.max_guard_origin_retained_bytes,
-            )?;
-            // The mapped denominator's term and exponent allocation was
-            // authenticated above.  Copy it through an explicitly reserved
-            // sparse payload so vector allocation failure remains typed.
-            let mut copy_limits = limits;
-            copy_limits.max_integer_bit_work = limits
-                .max_integer_bit_work
-                .checked_sub(stats.aggregate.integer_bit_work_bound)
-                .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                    resource: "durable denominator integer-bit payload",
-                })?;
-            let durable_denominator = self.copy_residual_unit_affine_guard_polynomial(
-                &mapped_denominator.value,
-                copy_limits,
-            )?;
-            stats.durable_guard_terms = durable_denominator.terms;
-            stats.durable_guard_exponent_entries = durable_denominator.exponent_entries;
-            stats.durable_guard_integer_bit_payload = durable_denominator.integer_bit_payload;
-            stats.total_integer_bit_work_bound = residual_affine_checked_add(
-                "coefficient total integer bit work",
-                stats.aggregate.integer_bit_work_bound,
-                durable_denominator.integer_bit_payload,
-            )?;
-            check_residual_affine_limit(
-                "coefficient total integer bit work",
-                stats.total_integer_bit_work_bound,
-                limits.max_integer_bit_work,
-            )?;
-            Some(self.nonzero_condition_with_origins_and_origin_limit(
-                durable_denominator.value,
-                [denominator_origin, affine_origin],
-                limits.exact_algebra,
-                limits.max_guard_origins,
-            )?)
-        };
-
-        let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            <Coefficient as FromNumeratorAndDenominator<
-                IntegerRing,
-                IntegerRing,
-                u16,
-            >>::from_num_den(
-                mapped_numerator.value.raw,
-                mapped_denominator.value.raw,
-                &Z,
-                true,
-            )
-        }))
-        .map_err(|_| ResidualUnitAffineCompositionError::SymbolicaPanic {
-            stage: "unit-affine coefficient normalization",
-        })?;
-        let value = self.wrap_checked_with_limits(raw, limits.exact_algebra)?;
-        Ok(ResidualUnitAffineCoefficientComposition::Available(
-            GuardedResidualUnitAffineCoefficientComposition {
-                value,
-                mapped_denominator: mapped_denominator_guard,
-                stats,
-            },
-        ))
-    }
-
     /// Shared provenance-free numerator/denominator composition core used by
-    /// both the legacy guarded adapter and the integer-system adapter.
+    /// compact and integer-system plans.
     ///
     /// Both raw halves are preflighted before either Symbolica backend is
     /// entered. The denominator receives the exact remaining aggregate
@@ -10477,86 +10188,6 @@ impl ParametricCoefficientContext {
         Ok(normalization_input_term_pairs)
     }
 
-    pub(crate) fn compose_nonzero_condition_on_residual_unit_affine_map(
-        &self,
-        source: &ParametricNonZeroCondition,
-        plan: &ResidualUnitAffineCompositionPlan,
-        limits: ResidualUnitAffinePolynomialCompositionLimits,
-    ) -> Result<ResidualUnitAffineConditionComposition, ResidualUnitAffineCompositionError> {
-        self.validate_residual_unit_affine_plan(plan)?;
-        if !self.contains_nonzero_condition(source) {
-            return Err(ResidualUnitAffineCompositionError::WrongContext);
-        }
-        let mapped =
-            self.compose_polynomial_on_residual_unit_affine_map(source.polynomial(), plan, limits)?;
-        let stats = mapped.stats;
-        if mapped.value.is_zero() {
-            return Ok(ResidualUnitAffineConditionComposition {
-                class: ResidualUnitAffineConditionClass::Unsatisfiable,
-                stats,
-                guard_origin_retained_bytes: 0,
-            });
-        }
-        if mapped.value.is_nonzero_constant() {
-            return Ok(ResidualUnitAffineConditionComposition {
-                class: ResidualUnitAffineConditionClass::NonzeroIntegerConstant,
-                stats,
-                guard_origin_retained_bytes: 0,
-            });
-        }
-
-        let locator = residual_affine_guard_locator(&plan.map);
-        let affine_origin = GuardOrigin::ResidualUnitAffineIndexSubstitution {
-            source_case: locator.0,
-            predicate_ordinal: locator.1,
-            bound_position: locator.2,
-        };
-        let needs_origin = !source.origins.contains(&affine_origin);
-        let requested = source
-            .origins
-            .len()
-            .checked_add(usize::from(needs_origin))
-            .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "unit-affine guard origins",
-            })?;
-        check_residual_affine_limit(
-            "unit-affine guard origins",
-            requested,
-            limits.max_guard_origins,
-        )?;
-        let provenance_bytes = residual_affine_guard_origin_copy_bytes(
-            source.origins.iter(),
-            std::iter::once(&affine_origin).filter(|_| needs_origin),
-        )?;
-        check_residual_affine_limit(
-            "unit-affine guard origin retained bytes",
-            provenance_bytes,
-            limits.max_guard_origin_retained_bytes,
-        )?;
-        // Clone only after the complete provenance-cardinality preflight.
-        let mut origins = source.origins.clone();
-        if needs_origin {
-            origins.insert(affine_origin);
-        }
-        let index_dependent =
-            self.polynomial_depends_on_indices_with_limits(&mapped.value, limits.exact_algebra)?;
-        let condition = self.nonzero_condition_with_origins_and_origin_limit(
-            mapped.value,
-            origins,
-            limits.exact_algebra,
-            limits.max_guard_origins,
-        )?;
-        Ok(ResidualUnitAffineConditionComposition {
-            class: if index_dependent {
-                ResidualUnitAffineConditionClass::IndexDependent(condition)
-            } else {
-                ResidualUnitAffineConditionClass::BaseAssumption(condition)
-            },
-            stats,
-            guard_origin_retained_bytes: provenance_bytes,
-        })
-    }
-
     /// Copy one already-composed polynomial into durable guard storage.
     ///
     /// The Symbolica polynomial's two backing vectors are reserved fallibly
@@ -10623,24 +10254,6 @@ impl ParametricCoefficientContext {
             exponent_entries,
             integer_bit_payload,
         })
-    }
-
-    fn validate_residual_unit_affine_plan(
-        &self,
-        plan: &ResidualUnitAffineCompositionPlan,
-    ) -> Result<(), ResidualUnitAffineCompositionError> {
-        if plan.schema != RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA {
-            return Err(ResidualUnitAffineCompositionError::SchemaMismatch);
-        }
-        if plan.context_fingerprint.as_ref() != self.fingerprint.as_ref()
-            || plan.map.context_fingerprint() != self.fingerprint()
-        {
-            return Err(ResidualUnitAffineCompositionError::WrongContext);
-        }
-        if plan.limits != plan.core.limits {
-            return Err(ResidualUnitAffineCompositionError::SchemaMismatch);
-        }
-        self.validate_residual_affine_composition_core(&plan.core)
     }
 
     fn validate_residual_affine_compact_composition_plan(
@@ -10761,7 +10374,7 @@ impl ParametricCoefficientContext {
         &self,
         plan: &ResidualAffineCompositionPlan,
     ) -> Result<(), ResidualUnitAffineCompositionError> {
-        if plan.schema != RESIDUAL_UNIT_AFFINE_COMPOSITION_V1_SCHEMA {
+        if plan.schema != RESIDUAL_AFFINE_COMPOSITION_V1_SCHEMA {
             return Err(ResidualUnitAffineCompositionError::SchemaMismatch);
         }
         if plan.context_fingerprint.as_ref() != self.fingerprint.as_ref() {
@@ -14354,10 +13967,6 @@ fn replay_residual_affine_compact_geometry_against_core(
     Ok(())
 }
 
-fn residual_affine_legacy_geometry_error(_: &'static str) -> ResidualUnitAffineCompositionError {
-    ResidualUnitAffineCompositionError::Map(ResidualUnitAffineIndexMapError::ReplayMismatch)
-}
-
 fn residual_affine_integer_geometry_error(
     message: &'static str,
 ) -> ResidualUnitAffineCompositionError {
@@ -14515,149 +14124,6 @@ fn preflight_residual_affine_base_identity_images(
         limits.max_total_image_integer_bits,
     )?;
     Ok((unit_bits, total_bits))
-}
-
-fn compact_legacy_unit_affine_geometry(
-    map: &ResidualUnitAffineIndexMapCertificate,
-    arity: usize,
-    base_identity_images: usize,
-    limits: ResidualUnitAffineCompositionPlanLimits,
-) -> Result<ResidualAffineCompactGeometry, ResidualUnitAffineCompositionError> {
-    if map.ambient_arity() != arity {
-        return Err(ResidualUnitAffineCompositionError::WrongArity {
-            expected: arity,
-            actual: map.ambient_arity(),
-        });
-    }
-    let nonfree_count = map.literal_positions().len().checked_add(1).ok_or(
-        ResidualUnitAffineCompositionError::ResourceCountOverflow {
-            resource: "pivot support positions",
-        },
-    )?;
-    let source_support_count = nonfree_count
-        .checked_add(map.free_positions().len())
-        .ok_or(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-            resource: "affine support entries retained",
-        })?;
-    check_residual_affine_limit(
-        "affine support entries retained",
-        source_support_count,
-        limits.max_support_entries_retained,
-    )?;
-    if source_support_count != arity {
-        return Err(residual_affine_legacy_geometry_error(
-            "pivot/free positions do not partition the ambient coordinates",
-        ));
-    }
-    let mut source_nonfree = Vec::new();
-    source_nonfree
-        .try_reserve_exact(nonfree_count)
-        .map_err(|_| ResidualUnitAffineCompositionError::AllocationFailure {
-            resource: "pivot support positions",
-            requested: nonfree_count,
-        })?;
-    source_nonfree.extend(map.literal_positions().iter().copied());
-    source_nonfree.push(map.bound_position());
-    let (nonfree_positions, free_positions) = normalize_residual_affine_partition(
-        arity,
-        source_nonfree,
-        map.free_positions(),
-        limits,
-        residual_affine_legacy_geometry_error,
-    )?;
-    let (geometry_entries_inspected, geometry_entries_retained) =
-        residual_affine_geometry_counts(arity, free_positions.len(), false, limits)?;
-
-    let (mut largest_image_integer_bits, mut total_image_integer_bits) =
-        preflight_residual_affine_base_identity_images(base_identity_images, limits)?;
-    for row in 0..arity {
-        let constant = map
-            .constant(row)
-            .ok_or_else(|| residual_affine_legacy_geometry_error("missing affine constant"))?;
-        preflight_residual_affine_image_integer(
-            constant,
-            &mut largest_image_integer_bits,
-            &mut total_image_integer_bits,
-            limits,
-        )?;
-        for free_ordinal in 0..free_positions.len() {
-            let coefficient = map.linear_coefficient(row, free_ordinal).ok_or_else(|| {
-                residual_affine_legacy_geometry_error("missing compact affine coefficient")
-            })?;
-            preflight_residual_affine_image_integer(
-                coefficient,
-                &mut largest_image_integer_bits,
-                &mut total_image_integer_bits,
-                limits,
-            )?;
-        }
-    }
-    for (free_ordinal, &free_position) in free_positions.iter().enumerate() {
-        if !map.constant(free_position).is_some_and(Integer::is_zero) {
-            return Err(residual_affine_legacy_geometry_error(
-                "free affine row has nonzero translation",
-            ));
-        }
-        for target_free_ordinal in 0..free_positions.len() {
-            let expected = if target_free_ordinal == free_ordinal {
-                Integer::one()
-            } else {
-                Integer::zero()
-            };
-            if map.linear_coefficient(free_position, target_free_ordinal) != Some(&expected) {
-                return Err(residual_affine_legacy_geometry_error(
-                    "free affine row is not an identity row",
-                ));
-            }
-        }
-    }
-
-    let mut constants = Vec::new();
-    constants.try_reserve_exact(arity).map_err(|_| {
-        ResidualUnitAffineCompositionError::AllocationFailure {
-            resource: "compact affine constants",
-            requested: arity,
-        }
-    })?;
-    let linear_count = geometry_entries_retained.checked_sub(arity).ok_or(
-        ResidualUnitAffineCompositionError::ResourceCountOverflow {
-            resource: "compact affine linear coefficients",
-        },
-    )?;
-    let mut linear_coefficients = Vec::new();
-    linear_coefficients
-        .try_reserve_exact(linear_count)
-        .map_err(|_| ResidualUnitAffineCompositionError::AllocationFailure {
-            resource: "compact affine linear coefficients",
-            requested: linear_count,
-        })?;
-    for row in 0..arity {
-        constants.push(
-            map.constant(row)
-                .ok_or_else(|| residual_affine_legacy_geometry_error("missing affine constant"))?
-                .clone(),
-        );
-        for free_ordinal in 0..free_positions.len() {
-            linear_coefficients.push(
-                map.linear_coefficient(row, free_ordinal)
-                    .ok_or_else(|| {
-                        residual_affine_legacy_geometry_error("missing compact affine coefficient")
-                    })?
-                    .clone(),
-            );
-        }
-    }
-    Ok(ResidualAffineCompactGeometry {
-        ambient_arity: arity,
-        free_positions,
-        nonfree_positions,
-        constants,
-        linear_coefficients,
-        geometry_entries_inspected,
-        geometry_entries_retained,
-        largest_image_integer_bits,
-        total_image_integer_bits,
-    })
 }
 
 fn compact_integer_system_affine_geometry(
@@ -14859,16 +14325,6 @@ fn reserve_residual_affine_polynomial(
             requested: exponent_entries,
         })?;
     Ok(result)
-}
-
-fn residual_affine_guard_locator(
-    map: &ResidualUnitAffineIndexMapCertificate,
-) -> (u64, usize, usize) {
-    (
-        map.source_case().value(),
-        map.source_equality_predicate_ordinal(),
-        map.bound_position(),
-    )
 }
 
 fn residual_affine_remaining_limits(
@@ -15803,11 +15259,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        CoordinateEqualityLocusExtractor, CoordinateEqualityLocusLimits, GuardRowId,
-        ResidualAffineIntegerSystemInputRow, ResidualAffineIntegerSystemLimits,
-        ResidualAffinePrimitiveRow, ResidualUnitAffineIndexMapLimits, SectorMask,
-        SymbolicPolynomialPredicateKind, SymbolicSectorCaseLimits,
-        SymbolicSectorCasePartitionBuilder,
+        GuardRowId, ResidualAffineIntegerSystemInputRow, ResidualAffineIntegerSystemLimits,
+        ResidualAffinePrimitiveRow,
     };
 
     fn residual_affine_integer_system_row(
@@ -15835,78 +15288,6 @@ mod tests {
                 arity,
                 &rows,
                 ResidualAffineIntegerSystemLimits::default(),
-            )
-            .unwrap(),
-        )
-    }
-
-    fn residual_affine_test_map(
-        context: &ParametricCoefficientContext,
-        include_literal_n2: bool,
-    ) -> Arc<ResidualUnitAffineIndexMapCertificate> {
-        let affine = context
-            .sub(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.integer(3),
-            )
-            .unwrap();
-        residual_affine_test_map_for_predicate(context, affine, include_literal_n2)
-    }
-
-    fn residual_affine_test_map_for_predicate(
-        context: &ParametricCoefficientContext,
-        affine: ParametricCoefficient,
-        include_literal_n2: bool,
-    ) -> Arc<ResidualUnitAffineIndexMapCertificate> {
-        let mut builder = SymbolicSectorCasePartitionBuilder::try_new(
-            context,
-            SectorMask::try_new([true, true, true]).unwrap(),
-            SymbolicSectorCaseLimits::default(),
-        )
-        .unwrap();
-        let mut leaf = builder.root_case();
-        if include_literal_n2 {
-            let literal = context
-                .sub(&context.index(2).unwrap(), &context.integer(2))
-                .unwrap();
-            leaf = builder
-                .split_on_bad_polynomial(
-                    context,
-                    leaf,
-                    context.numerator_condition(&literal).unwrap(),
-                )
-                .unwrap()
-                .equal_zero_case();
-        }
-        leaf = builder
-            .split_on_bad_polynomial(context, leaf, context.numerator_condition(&affine).unwrap())
-            .unwrap()
-            .equal_zero_case();
-        let partition = builder.finish(context).unwrap();
-        let source = Arc::new(
-            CoordinateEqualityLocusExtractor::extract(
-                context,
-                &partition,
-                leaf,
-                CoordinateEqualityLocusLimits::default(),
-            )
-            .unwrap(),
-        );
-        let predicate_ordinal = source
-            .unresolved_predicates()
-            .iter()
-            .find(|predicate| predicate.kind() == SymbolicPolynomialPredicateKind::EqualZero)
-            .unwrap()
-            .predicate_ordinal();
-        Arc::new(
-            ResidualUnitAffineIndexMapCertificate::compile(
-                context,
-                source,
-                predicate_ordinal,
-                0,
-                ResidualUnitAffineIndexMapLimits::default(),
             )
             .unwrap(),
         )
@@ -16420,86 +15801,23 @@ mod tests {
         assert!(copy.owned_retained_byte_bound().unwrap() <= source_owned);
     }
 
-    fn residual_affine_all_pivot_zero_legacy_map(
-        context: &ParametricCoefficientContext,
-    ) -> Arc<ResidualUnitAffineIndexMapCertificate> {
-        assert_eq!(context.index_count(), 3);
-        let mut builder = SymbolicSectorCasePartitionBuilder::try_new(
-            context,
-            SectorMask::try_new([false, false, false]).unwrap(),
-            SymbolicSectorCaseLimits::default(),
-        )
-        .unwrap();
-        let mut leaf = builder.root_case();
-        for position in [1, 2] {
-            leaf = builder
-                .split_on_bad_polynomial(
-                    context,
-                    leaf,
-                    context
-                        .numerator_condition(&context.index(position).unwrap())
-                        .unwrap(),
-                )
-                .unwrap()
-                .equal_zero_case();
-        }
-        let predicate = context
-            .add(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.index(2).unwrap(),
-            )
-            .unwrap();
-        leaf = builder
-            .split_on_bad_polynomial(
-                context,
-                leaf,
-                context.numerator_condition(&predicate).unwrap(),
-            )
-            .unwrap()
-            .equal_zero_case();
-        let partition = builder.finish(context).unwrap();
-        let source = Arc::new(
-            CoordinateEqualityLocusExtractor::extract(
-                context,
-                &partition,
-                leaf,
-                CoordinateEqualityLocusLimits::default(),
-            )
-            .unwrap(),
-        );
-        let predicate_ordinal = source
-            .unresolved_predicates()
-            .iter()
-            .find(|predicate| predicate.kind() == SymbolicPolynomialPredicateKind::EqualZero)
-            .unwrap()
-            .predicate_ordinal();
-        let map = Arc::new(
-            ResidualUnitAffineIndexMapCertificate::compile(
-                context,
-                source,
-                predicate_ordinal,
-                0,
-                ResidualUnitAffineIndexMapLimits::default(),
-            )
-            .unwrap(),
-        );
-        assert!(map.free_positions().is_empty());
-        assert!(
-            (0..context.index_count())
-                .all(|position| map.constant(position).is_some_and(Integer::is_zero))
-        );
-        map
-    }
-
     fn residual_affine_plan(
         context: &ParametricCoefficientContext,
         include_literal_n2: bool,
-    ) -> ResidualUnitAffineCompositionPlan {
+    ) -> ResidualAffineCompositionPlan {
+        let mut rows = vec![residual_affine_integer_system_row(
+            vec![3, -1, -1, 0].into_iter().map(Integer::from).collect(),
+            0,
+        )];
+        if include_literal_n2 {
+            rows.push(residual_affine_integer_system_row(
+                vec![2, 0, 0, -1].into_iter().map(Integer::from).collect(),
+                1,
+            ));
+        }
         context
-            .compile_residual_unit_affine_composition_plan(
-                residual_affine_test_map(context, include_literal_n2),
+            .compile_residual_affine_composition_plan_from_integer_system(
+                residual_affine_integer_system_certificate(3, rows),
                 ResidualUnitAffineCompositionPlanLimits::default(),
             )
             .unwrap()
@@ -16556,69 +15874,23 @@ mod tests {
 
     fn residual_affine_zero_n0_bound_n2_plan(
         context: &ParametricCoefficientContext,
-    ) -> ResidualUnitAffineCompositionPlan {
-        let mut builder = SymbolicSectorCasePartitionBuilder::try_new(
-            context,
-            SectorMask::try_new([false, true, true]).unwrap(),
-            SymbolicSectorCaseLimits::default(),
-        )
-        .unwrap();
-        let root = builder.root_case();
-        let literal_leaf = builder
-            .split_on_bad_polynomial(
-                context,
-                root,
-                context
-                    .numerator_condition(&context.index(0).unwrap())
-                    .unwrap(),
-            )
-            .unwrap()
-            .equal_zero_case();
-        let affine = context
-            .sub(
-                &context
-                    .add(&context.index(2).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.integer(3),
-            )
-            .unwrap();
-        let leaf = builder
-            .split_on_bad_polynomial(
-                context,
-                literal_leaf,
-                context.numerator_condition(&affine).unwrap(),
-            )
-            .unwrap()
-            .equal_zero_case();
-        let partition = builder.finish(context).unwrap();
-        let source = Arc::new(
-            CoordinateEqualityLocusExtractor::extract(
-                context,
-                &partition,
-                leaf,
-                CoordinateEqualityLocusLimits::default(),
-            )
-            .unwrap(),
-        );
-        let predicate_ordinal = source
-            .unresolved_predicates()
-            .iter()
-            .find(|predicate| predicate.kind() == SymbolicPolynomialPredicateKind::EqualZero)
-            .unwrap()
-            .predicate_ordinal();
-        let map = Arc::new(
-            ResidualUnitAffineIndexMapCertificate::compile(
-                context,
-                source,
-                predicate_ordinal,
-                2,
-                ResidualUnitAffineIndexMapLimits::default(),
-            )
-            .unwrap(),
+    ) -> ResidualAffineCompositionPlan {
+        let certificate = residual_affine_integer_system_certificate(
+            3,
+            vec![
+                residual_affine_integer_system_row(
+                    vec![0, 1, 0, 0].into_iter().map(Integer::from).collect(),
+                    0,
+                ),
+                residual_affine_integer_system_row(
+                    vec![3, 0, -1, -1].into_iter().map(Integer::from).collect(),
+                    1,
+                ),
+            ],
         );
         context
-            .compile_residual_unit_affine_composition_plan(
-                map,
+            .compile_residual_affine_composition_plan_from_integer_system(
+                certificate,
                 ResidualUnitAffineCompositionPlanLimits::default(),
             )
             .unwrap()
@@ -20148,28 +19420,11 @@ mod tests {
     }
 
     #[test]
-    fn affine_geometry_adapters_accept_exact_unit_coefficient_bit_limit() {
-        let context = ParametricCoefficientContext::try_new(
-            &CoefficientContext::new(["d"]),
-            "affine-base-identity-unit-bits-exact",
-            3,
-        )
-        .unwrap();
-        let legacy_map = residual_affine_all_pivot_zero_legacy_map(&context);
+    fn affine_integer_geometry_accepts_exact_unit_coefficient_bit_limit() {
         let limits = ResidualUnitAffineCompositionPlanLimits {
             max_image_integer_bits: 1,
             ..ResidualUnitAffineCompositionPlanLimits::default()
         };
-        let legacy = compact_legacy_unit_affine_geometry(
-            &legacy_map,
-            context.index_count(),
-            context.base.variables().len(),
-            limits,
-        )
-        .unwrap();
-        assert_eq!(legacy.largest_image_integer_bits, 1);
-        assert_eq!(legacy.total_image_integer_bits, 1);
-
         let certificate = residual_affine_integer_system_certificate(
             1,
             vec![residual_affine_integer_system_row(
@@ -20186,32 +19441,11 @@ mod tests {
     }
 
     #[test]
-    fn affine_geometry_adapters_reject_one_below_unit_coefficient_bit_limit() {
-        let context = ParametricCoefficientContext::try_new(
-            &CoefficientContext::new(["d"]),
-            "affine-base-identity-unit-bits-below",
-            3,
-        )
-        .unwrap();
-        let legacy_map = residual_affine_all_pivot_zero_legacy_map(&context);
+    fn affine_integer_geometry_rejects_one_below_unit_coefficient_bit_limit() {
         let limits = ResidualUnitAffineCompositionPlanLimits {
             max_image_integer_bits: 0,
             ..ResidualUnitAffineCompositionPlanLimits::default()
         };
-        assert!(matches!(
-            compact_legacy_unit_affine_geometry(
-                &legacy_map,
-                context.index_count(),
-                context.base.variables().len(),
-                limits,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "image integer coefficient bits",
-                requested: 1,
-                limit: 0,
-            })
-        ));
-
         let certificate = residual_affine_integer_system_certificate(
             1,
             vec![residual_affine_integer_system_row(
@@ -20246,7 +19480,7 @@ mod tests {
             .unwrap();
         let source = residual_affine_polynomial(&context, &source);
         let mapped = context
-            .compose_polynomial_on_residual_unit_affine_map(
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -20289,7 +19523,7 @@ mod tests {
             .unwrap();
         let source = residual_affine_polynomial(&context, &source);
         let mapped = context
-            .compose_polynomial_on_residual_unit_affine_map(
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -20304,322 +19538,6 @@ mod tests {
         sequential =
             sequential.replace_with_poly(base_count + 2, &plan.core.full_images[base_count + 2]);
         assert_eq!(mapped.value.raw, sequential);
-    }
-
-    #[test]
-    fn residual_affine_supports_overlapping_free_images_and_preflights_backend_radix() {
-        let context = residual_affine_test_context("affine-compose-overlapping-free-images");
-        let sum = context
-            .add(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.index(2).unwrap(),
-            )
-            .unwrap();
-        let affine = context.sub(&sum, &context.integer(3)).unwrap();
-        let plan = context
-            .compile_residual_unit_affine_composition_plan(
-                residual_affine_test_map_for_predicate(&context, affine, false),
-                ResidualUnitAffineCompositionPlanLimits::default(),
-            )
-            .unwrap();
-        assert_eq!(plan.map().free_positions(), &[1, 2]);
-
-        let n0_squared = context
-            .mul(&context.index(0).unwrap(), &context.index(0).unwrap())
-            .unwrap();
-        let mapped = context
-            .compose_polynomial_on_residual_unit_affine_map(
-                &residual_affine_polynomial(&context, &n0_squared),
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        let expected_image = context
-            .sub(
-                &context
-                    .sub(&context.integer(3), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.index(2).unwrap(),
-            )
-            .unwrap();
-        let expected = context.mul(&expected_image, &expected_image).unwrap();
-        assert_eq!(
-            mapped.value(),
-            &residual_affine_polynomial(&context, &expected)
-        );
-
-        let base_count = context.base.variables().len();
-        let source_power = |exponent: u16| {
-            let mut raw = context.template.numerator.zero_with_capacity(1);
-            let mut exponents = vec![0u16; context.variables.len()];
-            exponents[base_count] = exponent;
-            raw.append_monomial(Integer::one(), &exponents);
-            ParametricPolynomial {
-                raw,
-                context: context.fingerprint.clone(),
-            }
-        };
-        let maximal = source_power(u16::MAX);
-        let wide_limits = ResidualUnitAffinePolynomialCompositionLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_polynomial_terms: usize::MAX,
-                max_term_operations: usize::MAX,
-                ..ExactAlgebraLimits::default()
-            },
-            max_expanded_contributions: usize::MAX,
-            max_output_terms: usize::MAX,
-            max_output_exponent_entries: usize::MAX,
-            max_native_power_heap_pairs: usize::MAX,
-            max_multiplication_term_pairs: usize::MAX,
-            max_addition_term_visits: usize::MAX,
-            max_integer_coefficient_bits: usize::MAX,
-            max_native_integer_bit_work: usize::MAX,
-            max_integer_bit_work: usize::MAX,
-            ..ResidualUnitAffinePolynomialCompositionLimits::default()
-        };
-
-        // The exact vendored evaluator stride is (e+1)^2 here. At u16::MAX
-        // that is one larger than u32::MAX, so backend classification selects
-        // expression expansion. Its honest H*U*B integer-work census exceeds
-        // usize and must reject before Symbolica rather than wrap.
-        let maximal_radix = residual_affine_kronecker_preflight(
-            &plan.core,
-            base_count,
-            usize::from(u16::MAX),
-            base_count,
-        )
-        .unwrap();
-        assert!(!maximal_radix.polynomial_evaluator_safe);
-        assert_eq!(maximal_radix.exponent_bits, 32);
-        assert!(matches!(
-            context.preflight_residual_affine_polynomial_core(&maximal, &plan.core, wide_limits,),
-            Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
-                resource: "Symbolica expression integer bit work",
-            })
-        ));
-
-        // A still-large feasible power exercises the same 32-bit policy
-        // boundary while remaining below the evaluator's exact u32 stride.
-        let feasible = source_power(32_768);
-        let preflight = context
-            .preflight_residual_affine_polynomial_core(&feasible, &plan.core, wide_limits)
-            .unwrap();
-        assert_eq!(
-            preflight.backend,
-            ResidualAffinePolynomialCompositionBackend::PolynomialEvaluator
-        );
-        assert_eq!(preflight.stats.largest_kronecker_exponent_bits(), 32);
-
-        let strict = ResidualUnitAffinePolynomialCompositionLimits {
-            max_kronecker_exponent_bits: 31,
-            ..wide_limits
-        };
-        assert!(matches!(
-            context.preflight_residual_affine_polynomial_core(&maximal, &plan.core, strict),
-            Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "Kronecker exponent bits",
-                requested: 32,
-                limit: 31,
-            })
-        ));
-    }
-
-    #[test]
-    fn residual_affine_mapped_zero_guard_is_semantic_and_retains_stats() {
-        let context = residual_affine_test_context("affine-compose-zero-guard");
-        let plan = residual_affine_plan(&context, false);
-        let equality = context
-            .sub(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.integer(3),
-            )
-            .unwrap();
-        let source = context
-            .nonzero_condition(
-                residual_affine_polynomial(&context, &equality),
-                GuardOrigin::ExplicitRelationCondition,
-            )
-            .unwrap();
-        let mapped = context
-            .compose_nonzero_condition_on_residual_unit_affine_map(
-                &source,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        assert!(matches!(
-            mapped.class(),
-            ResidualUnitAffineConditionClass::Unsatisfiable
-        ));
-        assert!(mapped.stats().source_terms() > 0);
-        assert_eq!(mapped.stats().output_terms(), 0);
-        assert_eq!(mapped.guard_origin_retained_bytes(), 0);
-    }
-
-    #[test]
-    fn residual_affine_mapped_zero_denominator_is_semantic_and_retains_stats() {
-        let context = residual_affine_test_context("affine-compose-zero-denominator");
-        let plan = residual_affine_plan(&context, false);
-        let equality = context
-            .sub(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(1).unwrap())
-                    .unwrap(),
-                &context.integer(3),
-            )
-            .unwrap();
-        let source = ParametricCoefficient {
-            raw: RationalPolynomial {
-                numerator: context.template.numerator.one(),
-                denominator: equality.raw.numerator,
-            },
-            context: context.fingerprint.clone(),
-        };
-        let mapped = context
-            .compose_coefficient_on_residual_unit_affine_map(
-                &source,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        assert!(matches!(
-            mapped,
-            ResidualUnitAffineCoefficientComposition::ZeroMappedDenominator { .. }
-        ));
-        assert!(mapped.stats().aggregate().source_terms() > 0);
-    }
-
-    #[test]
-    fn residual_affine_retains_denominator_after_cancellation_and_zero_numerator() {
-        let context = residual_affine_test_context("affine-compose-denominator-retention");
-        let plan = residual_affine_plan(&context, false);
-        let denominator = context
-            .sub(
-                &context
-                    .add(&context.index(0).unwrap(), &context.index(2).unwrap())
-                    .unwrap(),
-                &context.integer(2),
-            )
-            .unwrap()
-            .raw
-            .numerator;
-
-        for numerator in [denominator.clone(), context.template.numerator.zero()] {
-            let source = ParametricCoefficient {
-                raw: RationalPolynomial {
-                    numerator,
-                    denominator: denominator.clone(),
-                },
-                context: context.fingerprint.clone(),
-            };
-            let mapped = context
-                .compose_coefficient_on_residual_unit_affine_map(
-                    &source,
-                    &plan,
-                    ResidualUnitAffinePolynomialCompositionLimits::default(),
-                )
-                .unwrap();
-            let ResidualUnitAffineCoefficientComposition::Available(mapped) = mapped else {
-                panic!("generic denominator must remain available on the locus")
-            };
-            assert!(mapped.mapped_denominator().is_some());
-            assert!(mapped.stats().normalization_input_term_pairs() > 0);
-            assert!(mapped.stats().durable_guard_origin_retained_bytes() > 0);
-            assert_eq!(
-                mapped.stats().total_integer_bit_work_bound(),
-                mapped.stats().aggregate().integer_bit_work_bound()
-                    + mapped.stats().durable_guard_integer_bit_payload()
-            );
-            assert!(
-                mapped.stats().numerator().source_terms()
-                    <= mapped.stats().aggregate().source_terms()
-            );
-            assert!(mapped.stats().denominator().source_terms() > 0);
-            let origins = mapped.mapped_denominator().unwrap().origins();
-            assert!(origins.iter().any(|origin| matches!(
-                origin,
-                GuardOrigin::CoefficientResidualUnitAffineSubstitutionDenominator { .. }
-            )));
-            assert!(origins.iter().any(|origin| matches!(
-                origin,
-                GuardOrigin::ResidualUnitAffineIndexSubstitution { .. }
-            )));
-        }
-    }
-
-    #[test]
-    fn residual_affine_classifies_base_and_index_dependent_guards() {
-        let context = residual_affine_test_context("affine-compose-guard-classes");
-        let plan = residual_affine_plan(&context, false);
-        let d = context
-            .lift(&context.base().parameter("d").unwrap())
-            .unwrap();
-        let base_guard = context
-            .nonzero_condition(
-                residual_affine_polynomial(&context, &context.add(&d, &context.one()).unwrap()),
-                GuardOrigin::ExplicitRelationCondition,
-            )
-            .unwrap();
-        let mapped_base = context
-            .compose_nonzero_condition_on_residual_unit_affine_map(
-                &base_guard,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        let ResidualUnitAffineConditionClass::BaseAssumption(condition) = mapped_base.class()
-        else {
-            panic!("base-only guard must become an affine-locus base assumption")
-        };
-        assert!(
-            !context
-                .polynomial_depends_on_indices(condition.polynomial())
-                .unwrap()
-        );
-        assert!(mapped_base.guard_origin_retained_bytes() > 0);
-
-        let index_guard = context
-            .nonzero_condition(
-                residual_affine_polynomial(&context, &context.index(1).unwrap()),
-                GuardOrigin::ExplicitRelationCondition,
-            )
-            .unwrap();
-        let mapped_index = context
-            .compose_nonzero_condition_on_residual_unit_affine_map(
-                &index_guard,
-                &plan,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        let ResidualUnitAffineConditionClass::IndexDependent(condition) = mapped_index.class()
-        else {
-            panic!("free-index guard must remain index dependent")
-        };
-        assert!(condition.origins().iter().any(|origin| matches!(
-            origin,
-            GuardOrigin::ResidualUnitAffineIndexSubstitution { .. }
-        )));
-        assert!(mapped_index.guard_origin_retained_bytes() > 0);
-
-        let mut strict = ResidualUnitAffinePolynomialCompositionLimits::default();
-        strict.max_guard_origin_retained_bytes = mapped_index.guard_origin_retained_bytes() - 1;
-        assert!(matches!(
-            context.compose_nonzero_condition_on_residual_unit_affine_map(
-                &index_guard,
-                &plan,
-                strict,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "unit-affine guard origin retained bytes",
-                requested,
-                limit,
-            }) if requested == mapped_index.guard_origin_retained_bytes()
-                && limit + 1 == mapped_index.guard_origin_retained_bytes()
-        ));
     }
 
     #[test]
@@ -20639,7 +19557,7 @@ mod tests {
         let mut limits = ResidualUnitAffinePolynomialCompositionLimits::default();
         limits.max_expanded_contributions = 4;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(&source, &plan, limits),
+            context.compose_polynomial_on_residual_affine_composition_plan(&source, &plan, limits),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
                 resource: "affine power terms",
                 requested: 5,
@@ -20658,7 +19576,7 @@ mod tests {
             context: context.fingerprint.clone(),
         };
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
+            context.compose_polynomial_on_residual_affine_composition_plan(
                 &overflowing,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -20672,7 +19590,7 @@ mod tests {
         let mut limits = ResidualUnitAffinePolynomialCompositionLimits::default();
         limits.max_integer_coefficient_bits = 3;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(&source, &plan, limits),
+            context.compose_polynomial_on_residual_affine_composition_plan(&source, &plan, limits),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
                 resource: "integer coefficient bits",
                 ..
@@ -20690,7 +19608,7 @@ mod tests {
         let source = residual_affine_polynomial(&context, &source);
 
         let generous = context
-            .compose_polynomial_on_residual_unit_affine_map(
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -20721,7 +19639,7 @@ mod tests {
         let mut strict_native = exact;
         strict_native.max_native_integer_bit_work = stats.native_integer_bit_work_bound() - 1;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
+            context.compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 strict_native,
@@ -20737,7 +19655,7 @@ mod tests {
         let mut strict = exact;
         strict.max_integer_bit_work = stats.integer_bit_work_bound() - 1;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(&source, &plan, strict),
+            context.compose_polynomial_on_residual_affine_composition_plan(&source, &plan, strict),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
                 resource: "integer bit work",
                 requested,
@@ -20770,7 +19688,7 @@ mod tests {
         };
 
         let mapped = context
-            .compose_polynomial_on_residual_unit_affine_map(
+            .compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
@@ -20790,7 +19708,7 @@ mod tests {
         let mut strict_bits = ResidualUnitAffinePolynomialCompositionLimits::default();
         strict_bits.max_integer_coefficient_bits = coefficient_bits - 1;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
+            context.compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 strict_bits,
@@ -20802,33 +19720,10 @@ mod tests {
             }) if requested == coefficient_bits && limit + 1 == coefficient_bits
         ));
 
-        let mut affine_power_only = context.template.numerator.zero_with_capacity(1);
-        exponents.fill(0);
-        exponents[base_count + 2] = 12;
-        affine_power_only.append_monomial(Integer::one(), &exponents);
-        let affine_power_only = ParametricPolynomial {
-            raw: affine_power_only,
-            context: context.fingerprint.clone(),
-        };
-        let mut strict_heap_temporary = ResidualUnitAffinePolynomialCompositionLimits::default();
-        strict_heap_temporary.max_integer_coefficient_bits = 40;
-        assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
-                &affine_power_only,
-                &plan,
-                strict_heap_temporary,
-            ),
-            Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "integer coefficient bits",
-                requested,
-                limit: 40,
-            }) if requested > 40
-        ));
-
         let mut strict_work = ResidualUnitAffinePolynomialCompositionLimits::default();
         strict_work.max_integer_bit_work = stats.integer_bit_work_bound() - 1;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
+            context.compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 strict_work,
@@ -20844,7 +19739,7 @@ mod tests {
         let mut strict_native_work = ResidualUnitAffinePolynomialCompositionLimits::default();
         strict_native_work.max_native_integer_bit_work = stats.native_integer_bit_work_bound() - 1;
         assert!(matches!(
-            context.compose_polynomial_on_residual_unit_affine_map(
+            context.compose_polynomial_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 strict_native_work,
@@ -20881,13 +19776,13 @@ mod tests {
         };
 
         let mapped = context
-            .compose_coefficient_on_residual_unit_affine_map(
+            .compose_coefficient_on_residual_affine_composition_plan(
                 &source,
                 &plan,
                 ResidualUnitAffinePolynomialCompositionLimits::default(),
             )
             .unwrap();
-        let ResidualUnitAffineCoefficientComposition::Available(mapped) = mapped else {
+        let ResidualAffineCoefficientComposition::Available(mapped) = mapped else {
             panic!("nonzero free-index denominator should remain available")
         };
         let stats = mapped.stats();
@@ -20901,7 +19796,7 @@ mod tests {
         let mut strict = ResidualUnitAffinePolynomialCompositionLimits::default();
         strict.max_output_exponent_entries = 24;
         assert!(matches!(
-            context.compose_coefficient_on_residual_unit_affine_map(&source, &plan, strict),
+            context.compose_coefficient_on_residual_affine_composition_plan(&source, &plan, strict),
             Err(ResidualUnitAffineCompositionError::ResourceLimit {
                 resource: "prospective output exponent entries",
                 requested: 10,
@@ -20917,117 +19812,6 @@ mod tests {
             Err(ResidualUnitAffineCompositionError::ResourceCountOverflow {
                 resource: "affine power terms"
             })
-        ));
-    }
-
-    #[test]
-    fn residual_affine_rejects_foreign_context_before_plan_allocation() {
-        let context = residual_affine_test_context("affine-compose-own-context");
-        let foreign = residual_affine_test_context("affine-compose-foreign-context");
-        let map = residual_affine_test_map(&foreign, false);
-        assert!(matches!(
-            context.compile_residual_unit_affine_composition_plan(
-                map,
-                ResidualUnitAffineCompositionPlanLimits::default(),
-            ),
-            Err(ResidualUnitAffineCompositionError::WrongContext)
-        ));
-    }
-
-    #[test]
-    fn residual_affine_zero_numerator_normalization_uses_dedicated_limit_and_separate_stats() {
-        let context = residual_affine_test_context("affine-compose-normalization-limit");
-        let plan = residual_affine_plan(&context, false);
-        let denominator = context
-            .add(&context.index(1).unwrap(), &context.index(2).unwrap())
-            .unwrap()
-            .raw
-            .numerator;
-        let source = ParametricCoefficient {
-            raw: RationalPolynomial {
-                numerator: context.template.numerator.zero(),
-                denominator,
-            },
-            context: context.fingerprint.clone(),
-        };
-
-        let preflight = context
-            .preflight_residual_affine_coefficient_core(
-                &source,
-                &plan.core,
-                ResidualUnitAffinePolynomialCompositionLimits::default(),
-            )
-            .unwrap();
-        let normalization_input_term_pair_bound = preflight.normalization_input_term_pair_bound();
-        assert!(normalization_input_term_pair_bound > 0);
-        let mut exact = ResidualUnitAffinePolynomialCompositionLimits::default();
-        exact.max_normalization_input_term_pairs = normalization_input_term_pair_bound;
-        exact.max_integer_bit_work = preflight.total_integer_bit_work_bound();
-
-        let mut strict = exact;
-        strict.max_normalization_input_term_pairs = normalization_input_term_pair_bound - 1;
-        assert_eq!(
-            context
-                .compose_coefficient_on_residual_unit_affine_map(&source, &plan, strict)
-                .unwrap_err(),
-            ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "coefficient normalization input term-pair bound",
-                requested: normalization_input_term_pair_bound,
-                limit: normalization_input_term_pair_bound - 1,
-            }
-        );
-
-        let mapped = context
-            .compose_coefficient_on_residual_unit_affine_map(&source, &plan, exact)
-            .unwrap();
-        let ResidualUnitAffineCoefficientComposition::Available(mapped) = mapped else {
-            panic!("generic denominator should remain available")
-        };
-        let stats = mapped.stats();
-        assert_eq!(stats.numerator().output_terms(), 0);
-        assert_eq!(stats.denominator().output_terms(), 2);
-        assert_eq!(stats.normalization_input_term_pairs(), 2);
-        assert_eq!(
-            preflight.normalization_input_term_pair_bound(),
-            stats.normalization_input_term_pairs()
-        );
-        assert!(stats.durable_guard_integer_bit_payload() > 0);
-        assert!(stats.durable_guard_origin_retained_bytes() > 0);
-        assert_eq!(
-            stats.total_integer_bit_work_bound(),
-            stats.aggregate().integer_bit_work_bound() + stats.durable_guard_integer_bit_payload()
-        );
-        assert_eq!(
-            stats.aggregate().source_terms(),
-            stats.numerator().source_terms() + stats.denominator().source_terms()
-        );
-
-        let integer_bit_work_bound = preflight.total_integer_bit_work_bound();
-        assert!(integer_bit_work_bound > 0);
-        let mut strict_copy = exact;
-        strict_copy.max_integer_bit_work = integer_bit_work_bound - 1;
-        assert_eq!(
-            context
-                .compose_coefficient_on_residual_unit_affine_map(&source, &plan, strict_copy)
-                .unwrap_err(),
-            ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "coefficient total integer-bit work bound",
-                requested: integer_bit_work_bound,
-                limit: integer_bit_work_bound - 1,
-            }
-        );
-
-        let mut strict_origins = exact;
-        strict_origins.max_guard_origin_retained_bytes =
-            stats.durable_guard_origin_retained_bytes() - 1;
-        assert!(matches!(
-            context.compose_coefficient_on_residual_unit_affine_map(&source, &plan, strict_origins),
-            Err(ResidualUnitAffineCompositionError::ResourceLimit {
-                resource: "unit-affine coefficient denominator guard origin retained bytes",
-                requested,
-                limit,
-            }) if requested == stats.durable_guard_origin_retained_bytes()
-                && limit + 1 == stats.durable_guard_origin_retained_bytes()
         ));
     }
 

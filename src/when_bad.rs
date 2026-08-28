@@ -3121,15 +3121,6 @@ fn try_copy_guard_origin(origin: &GuardOrigin) -> Result<GuardOrigin, WhenBadCom
                 "WhenBad guard-origin partial specialization",
             )?,
         },
-        ResidualUnitAffineIndexSubstitution {
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => ResidualUnitAffineIndexSubstitution {
-            source_case: *source_case,
-            predicate_ordinal: *predicate_ordinal,
-            bound_position: *bound_position,
-        },
         ResidualAffineBranchNonzeroGuardSubstitution {
             source_case,
             source_work_item_ordinal,
@@ -3149,31 +3140,6 @@ fn try_copy_guard_origin(origin: &GuardOrigin) -> Result<GuardOrigin, WhenBadCom
                 shift: try_copy_boxed_slice(shift, "WhenBad guard-origin partial relation shift")?,
             }
         }
-        CoefficientResidualUnitAffineSubstitutionDenominator {
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => CoefficientResidualUnitAffineSubstitutionDenominator {
-            source_case: *source_case,
-            predicate_ordinal: *predicate_ordinal,
-            bound_position: *bound_position,
-        },
-        RelationResidualUnitAffineSubstitutionTermDenominator {
-            row,
-            shift,
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => RelationResidualUnitAffineSubstitutionTermDenominator {
-            row: row.clone(),
-            shift: try_copy_boxed_slice(
-                shift,
-                "WhenBad guard-origin residual-unit-affine relation shift",
-            )?,
-            source_case: *source_case,
-            predicate_ordinal: *predicate_ordinal,
-            bound_position: *bound_position,
-        },
         RelationResidualAffineBranchSubstitutionTermDenominator {
             row,
             shift,
@@ -3189,19 +3155,6 @@ fn try_copy_guard_origin(origin: &GuardOrigin) -> Result<GuardOrigin, WhenBadCom
             source_case: *source_case,
             source_work_item_ordinal: *source_work_item_ordinal,
             ready_terminal_ordinal: *ready_terminal_ordinal,
-        },
-        RelationResidualUnitAffineSubstitution {
-            source_row,
-            target_row,
-            source_case,
-            predicate_ordinal,
-            bound_position,
-        } => RelationResidualUnitAffineSubstitution {
-            source_row: source_row.clone(),
-            target_row: target_row.clone(),
-            source_case: *source_case,
-            predicate_ordinal: *predicate_ordinal,
-            bound_position: *bound_position,
         },
         RelationResidualAffineBranchSubstitution {
             source_row,

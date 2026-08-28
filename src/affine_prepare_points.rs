@@ -8,16 +8,12 @@
 //! therefore not a certificate that `F(t)+q` remains in the branch.
 
 use std::fmt;
-use std::sync::Arc;
 
 use crate::affine_parametric_ordering::AffineParametricOrderingAlgebra;
 use crate::{
-    AffineParametricOrderingError, AffineStartIntegralComplexityKey,
-    AffineStartParametricEliminationOrdering, AffineStartReplayAuthority, IndexShift,
-    ParametricCoefficientContext, ParametricRelationError,
+    AffineParametricOrderingError, AffineStartIntegralComplexityKey, IndexShift,
+    ParametricRelationError,
 };
-
-pub const AFFINE_PREPARE_POINT_LAYER_V1_SCHEMA: &str = "rustred-affine-prepare-point-layer-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AffinePreparePointLimits {
@@ -131,39 +127,6 @@ pub(crate) trait AffinePreparePointOrdering {
     ) -> Result<AffineStartIntegralComplexityKey, AffineParametricOrderingError>;
 }
 
-impl AffinePreparePointOrdering for AffineStartParametricEliminationOrdering {
-    fn prepare_point_arity(&self) -> usize {
-        self.arity()
-    }
-
-    fn prepare_point_constant_positions(&self) -> &[usize] {
-        self.constant_positions()
-    }
-
-    fn prepare_point_max_key_total_integer_bits(&self) -> usize {
-        self.limits().max_key_total_integer_bits
-    }
-
-    fn prepare_point_constant_row_stays_in_sector(
-        &self,
-        position: usize,
-        displacement: i64,
-    ) -> Result<bool, AffineParametricOrderingError> {
-        self.constant_row_shift_stays_in_source_sector(position, displacement)
-    }
-
-    fn prepare_point_key_for_owned_shift(
-        &self,
-        shift: IndexShift,
-        max_retained_total_integer_bits: usize,
-    ) -> Result<AffineStartIntegralComplexityKey, AffineParametricOrderingError> {
-        self.key_for_owned_shift_with_total_integer_bit_limit(
-            shift,
-            max_retained_total_integer_bits,
-        )
-    }
-}
-
 impl AffinePreparePointOrdering for AffineParametricOrderingAlgebra<'_, '_> {
     fn prepare_point_arity(&self) -> usize {
         self.arity()
@@ -226,116 +189,6 @@ impl<P> AffinePreparePointLayerCore<P> {
         AffinePreparePointStats,
     ) {
         (self.depth, self.ordered_points, self.limits, self.stats)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AffinePreparePointLayer {
-    schema: &'static str,
-    ordering: Arc<AffineStartParametricEliminationOrdering>,
-    depth: usize,
-    ordered_translations: Arc<Vec<IndexShift>>,
-    limits: AffinePreparePointLimits,
-    stats: AffinePreparePointStats,
-}
-
-impl AffinePreparePointLayer {
-    pub fn compile(
-        context: &ParametricCoefficientContext,
-        ordering: AffineStartParametricEliminationOrdering,
-        depth: usize,
-        limits: AffinePreparePointLimits,
-    ) -> Result<Self, AffinePreparePointError> {
-        Self::compile_with_authority(
-            AffineStartReplayAuthority::ContextOnly(context),
-            ordering,
-            depth,
-            limits,
-        )
-    }
-
-    pub fn compile_with_authority(
-        authority: AffineStartReplayAuthority<'_>,
-        ordering: AffineStartParametricEliminationOrdering,
-        depth: usize,
-        limits: AffinePreparePointLimits,
-    ) -> Result<Self, AffinePreparePointError> {
-        ordering.replay_with_authority(authority)?;
-        let result = compile_unreplayed(Arc::new(ordering), depth, limits)?;
-        result.replay_with_replayed_ordering()?;
-        Ok(result)
-    }
-
-    pub(crate) fn compile_with_replayed_shared_ordering(
-        ordering: Arc<AffineStartParametricEliminationOrdering>,
-        depth: usize,
-        limits: AffinePreparePointLimits,
-    ) -> Result<Self, AffinePreparePointError> {
-        compile_unreplayed(ordering, depth, limits)
-    }
-
-    pub(crate) fn from_core(
-        ordering: Arc<AffineStartParametricEliminationOrdering>,
-        core: AffinePreparePointLayerCore,
-    ) -> Self {
-        let (depth, ordered_translations, limits, stats) = core.into_parts();
-        Self {
-            schema: AFFINE_PREPARE_POINT_LAYER_V1_SCHEMA,
-            ordering,
-            depth,
-            // The fixed-size Arc control block retains the already-fallibly-
-            // reserved vector without a proportional copy or shrink. Layer
-            // cloning therefore does not deep-copy every shift.
-            ordered_translations: Arc::new(ordered_translations),
-            limits,
-            stats,
-        }
-    }
-
-    pub const fn schema(&self) -> &'static str {
-        self.schema
-    }
-    pub fn ordering(&self) -> &AffineStartParametricEliminationOrdering {
-        self.ordering.as_ref()
-    }
-    pub const fn depth(&self) -> usize {
-        self.depth
-    }
-    pub fn ordered_translations(&self) -> &[IndexShift] {
-        self.ordered_translations.as_slice()
-    }
-    pub const fn limits(&self) -> AffinePreparePointLimits {
-        self.limits
-    }
-    pub const fn stats(&self) -> AffinePreparePointStats {
-        self.stats
-    }
-
-    pub fn replay(
-        &self,
-        context: &ParametricCoefficientContext,
-    ) -> Result<(), AffinePreparePointError> {
-        self.replay_with_authority(AffineStartReplayAuthority::ContextOnly(context))
-    }
-
-    pub fn replay_with_authority(
-        &self,
-        authority: AffineStartReplayAuthority<'_>,
-    ) -> Result<(), AffinePreparePointError> {
-        if self.schema != AFFINE_PREPARE_POINT_LAYER_V1_SCHEMA {
-            return Err(AffinePreparePointError::SchemaMismatch);
-        }
-        self.ordering.replay_with_authority(authority)?;
-        self.replay_with_replayed_ordering()
-    }
-
-    fn replay_with_replayed_ordering(&self) -> Result<(), AffinePreparePointError> {
-        let replayed = compile_unreplayed(self.ordering.clone(), self.depth, self.limits)?;
-        if replayed == *self {
-            Ok(())
-        } else {
-            Err(AffinePreparePointError::ReplayMismatch)
-        }
     }
 }
 
@@ -429,15 +282,6 @@ struct EnumerationFrame {
     remaining: i64,
     next_magnitude: i64,
     positive_pending: bool,
-}
-
-fn compile_unreplayed(
-    ordering: Arc<AffineStartParametricEliminationOrdering>,
-    depth: usize,
-    limits: AffinePreparePointLimits,
-) -> Result<AffinePreparePointLayer, AffinePreparePointError> {
-    let core = compile_affine_prepare_point_layer_core(ordering.as_ref(), depth, limits)?;
-    Ok(AffinePreparePointLayer::from_core(ordering, core))
 }
 
 pub(crate) fn compile_affine_prepare_point_layer_core<O>(

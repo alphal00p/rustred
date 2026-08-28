@@ -7,20 +7,15 @@
 //! membership does not certify that translated indices remain in the branch.
 
 use std::fmt;
-use std::sync::Arc;
 
 use crate::affine_prepare_points::{
     AffinePreparePointLayerCore, AffinePreparePointLayerKeyCore, AffinePreparePointOrdering,
     compile_affine_prepare_point_layer_core, compile_affine_prepare_point_layer_key_core,
 };
 use crate::{
-    AffineParametricOrderingError, AffinePreparePointError, AffinePreparePointLayer,
-    AffinePreparePointLimits, AffinePreparePointStats, AffineStartParametricEliminationOrdering,
-    AffineStartReplayAuthority, ParametricCoefficientContext,
+    AffineParametricOrderingError, AffinePreparePointError, AffinePreparePointLimits,
+    AffinePreparePointStats,
 };
-
-pub const AFFINE_PREPARE_POINT_SCHEDULE_V1_SCHEMA: &str =
-    "rustred-affine-prepare-point-schedule-v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AffinePreparePointScheduleLimits {
@@ -214,98 +209,6 @@ impl<L> AffinePreparePointScheduleCore<L> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AffinePreparePointScheduleCertificate {
-    schema: &'static str,
-    ordering: Arc<AffineStartParametricEliminationOrdering>,
-    through_depth: usize,
-    layers: Arc<Vec<AffinePreparePointLayer>>,
-    limits: AffinePreparePointScheduleLimits,
-    stats: AffinePreparePointScheduleStats,
-}
-
-impl AffinePreparePointScheduleCertificate {
-    pub fn compile(
-        context: &ParametricCoefficientContext,
-        ordering: AffineStartParametricEliminationOrdering,
-        through_depth: usize,
-        limits: AffinePreparePointScheduleLimits,
-    ) -> Result<Self, AffinePreparePointScheduleError> {
-        Self::compile_with_authority(
-            AffineStartReplayAuthority::ContextOnly(context),
-            ordering,
-            through_depth,
-            limits,
-        )
-    }
-
-    pub fn compile_with_authority(
-        authority: AffineStartReplayAuthority<'_>,
-        ordering: AffineStartParametricEliminationOrdering,
-        through_depth: usize,
-        limits: AffinePreparePointScheduleLimits,
-    ) -> Result<Self, AffinePreparePointScheduleError> {
-        ordering.replay_with_authority(authority)?;
-        let result = compile_unreplayed(Arc::new(ordering), through_depth, limits)?;
-        result.replay_with_replayed_ordering()?;
-        Ok(result)
-    }
-
-    pub(crate) fn compile_with_replayed_shared_ordering(
-        ordering: Arc<AffineStartParametricEliminationOrdering>,
-        through_depth: usize,
-        limits: AffinePreparePointScheduleLimits,
-    ) -> Result<Self, AffinePreparePointScheduleError> {
-        compile_unreplayed(ordering, through_depth, limits)
-    }
-
-    pub const fn schema(&self) -> &'static str {
-        self.schema
-    }
-    pub fn ordering(&self) -> &AffineStartParametricEliminationOrdering {
-        self.ordering.as_ref()
-    }
-    pub const fn through_depth(&self) -> usize {
-        self.through_depth
-    }
-    pub fn layers(&self) -> &[AffinePreparePointLayer] {
-        self.layers.as_slice()
-    }
-    pub const fn limits(&self) -> AffinePreparePointScheduleLimits {
-        self.limits
-    }
-    pub const fn stats(&self) -> AffinePreparePointScheduleStats {
-        self.stats
-    }
-
-    pub fn replay(
-        &self,
-        context: &ParametricCoefficientContext,
-    ) -> Result<(), AffinePreparePointScheduleError> {
-        self.replay_with_authority(AffineStartReplayAuthority::ContextOnly(context))
-    }
-
-    pub fn replay_with_authority(
-        &self,
-        authority: AffineStartReplayAuthority<'_>,
-    ) -> Result<(), AffinePreparePointScheduleError> {
-        if self.schema != AFFINE_PREPARE_POINT_SCHEDULE_V1_SCHEMA {
-            return Err(AffinePreparePointScheduleError::SchemaMismatch);
-        }
-        self.ordering.replay_with_authority(authority)?;
-        self.replay_with_replayed_ordering()
-    }
-
-    fn replay_with_replayed_ordering(&self) -> Result<(), AffinePreparePointScheduleError> {
-        let replayed = compile_unreplayed(self.ordering.clone(), self.through_depth, self.limits)?;
-        if replayed == *self {
-            Ok(())
-        } else {
-            Err(AffinePreparePointScheduleError::ReplayMismatch)
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AffinePreparePointScheduleError {
     DepthTooLarge {
         requested: usize,
@@ -393,41 +296,6 @@ impl From<AffineParametricOrderingError> for AffinePreparePointScheduleError {
     fn from(value: AffineParametricOrderingError) -> Self {
         Self::Ordering(value)
     }
-}
-
-fn compile_unreplayed(
-    ordering: Arc<AffineStartParametricEliminationOrdering>,
-    through_depth: usize,
-    limits: AffinePreparePointScheduleLimits,
-) -> Result<AffinePreparePointScheduleCertificate, AffinePreparePointScheduleError> {
-    let core = compile_affine_prepare_point_schedule_core(
-        ordering.as_ref(),
-        through_depth,
-        limits,
-        |layer| {
-            let expected_depth = layer.depth();
-            let expected_limits = layer.limits();
-            let layer = AffinePreparePointLayer::from_core(Arc::clone(&ordering), layer);
-            if layer.depth() != expected_depth
-                || layer.ordering() != ordering.as_ref()
-                || layer.limits() != expected_limits
-            {
-                return Err(AffinePreparePointScheduleError::ReplayMismatch);
-            }
-            Ok(layer)
-        },
-    )?;
-    let (layers, stats) = core.into_parts();
-    Ok(AffinePreparePointScheduleCertificate {
-        schema: AFFINE_PREPARE_POINT_SCHEDULE_V1_SCHEMA,
-        ordering,
-        through_depth,
-        // Fixed-size shared ownership preserves the allocation obtained
-        // through `try_reserve_exact` and keeps certificate clones shallow.
-        layers: Arc::new(layers),
-        limits,
-        stats,
-    })
 }
 
 pub(crate) fn compile_affine_prepare_point_schedule_core<O, L, F>(
