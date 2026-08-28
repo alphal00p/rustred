@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering as AtomicOrdering};
 use symbolica::prelude::Integer;
 
 use super::{ExactPublicationHandoffSlot, ExactPublicationHandoffWave, LEAF_ISSUED, LEAF_PENDING};
+use crate::campaign::{CampaignJobKey, CampaignWorkKey};
 use crate::exact_identity::{
     ExactIdentityError, ExactIdentityLimits, ExactIdentityPayload, ExactIdentityWriter,
     ExactStructuralIdentity, encode_exact_identity,
@@ -53,8 +54,8 @@ use crate::generated_affine_residual_group_solve_plan::{
     GeneratedAffineResidualGroupSolvePlanLimits,
 };
 use crate::{
-    CampaignJobKey, CampaignWorkKey, IntegralFamily, IntegralOrderingPolicy,
-    ParametricCoefficientContext, ParametricRelation, SectorMask, SymbolicPolynomialPredicateKind,
+    IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, ParametricRelation,
+    SectorMask, SymbolicPolynomialPredicateKind,
 };
 
 const SOURCE_PENDING: u8 = 0;
@@ -2213,6 +2214,13 @@ mod tests {
         ExactPublicationHandoffInput, ExactPublicationHandoffLimits, ExactPublicationHandoffWave,
     };
     use super::*;
+    use crate::campaign::{
+        CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
+        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResidentToken,
+        CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution,
+        CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
+        CampaignTaskResourceEstimate, CampaignWavePlanner,
+    };
     use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
     use crate::generated_affine_residual_group_exact_publication::{
         PreparedPublication, PublicationLimits,
@@ -2226,13 +2234,8 @@ mod tests {
     use crate::generated_affine_residual_group_physical_key::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
     use crate::generated_affine_residual_group_solve_plan::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
     use crate::{
-        CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
-        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResidentToken,
-        CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution,
-        CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
-        CampaignTaskResourceEstimate, CampaignWavePlanner, IntegralFamily, IntegralOrderingPolicy,
-        ParallelExecution, ParametricCoefficientContext, SectorMask,
-        SymbolicPolynomialPredicateKind,
+        IntegralFamily, IntegralOrderingPolicy, ParallelExecution, ParametricCoefficientContext,
+        SectorMask, SymbolicPolynomialPredicateKind,
     };
 
     fn job(family: &IntegralFamily, sector: &SectorMask) -> CampaignJobKey {
@@ -2391,10 +2394,10 @@ mod tests {
 
     fn reserve_one(
         controller: &mut CampaignAdmissionController,
-        work: &crate::CampaignWorkKey,
+        work: &crate::campaign::CampaignWorkKey,
         estimate: CampaignTaskResourceEstimate,
         predecessor: Option<CampaignResidentToken>,
-    ) -> crate::CampaignTaskReservation {
+    ) -> crate::campaign::CampaignTaskReservation {
         let requests = BTreeMap::from([(work.clone(), estimate)]);
         let snapshot = controller.try_snapshot().unwrap();
         let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();

@@ -1,10 +1,12 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use rustred::campaign::{
+    CampaignDependencyInsertion, CampaignPlan, CampaignPlanError, CampaignPlanLimits,
+    CampaignRootId, CampaignRootInsertion, CampaignRootSpec,
+};
 use rustred::{
-    AffineDenominator, CampaignDependencyInsertion, CampaignPlan, CampaignPlanError,
-    CampaignPlanLimits, CampaignRootId, CampaignRootInsertion, CampaignRootSpec,
-    CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
+    AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
 };
 
 fn family(name: &str) -> Arc<IntegralFamily> {
@@ -129,7 +131,9 @@ fn repeated_root_is_idempotent_and_conflict_is_transactional() {
     assert_eq!(campaign.stats(), before.stats());
 }
 
-fn shared_child_plan(reverse_edges: bool) -> (CampaignPlan, Vec<rustred::CampaignJobKey>) {
+fn shared_child_plan(
+    reverse_edges: bool,
+) -> (CampaignPlan, Vec<rustred::campaign::CampaignJobKey>) {
     let family = family("campaign-shared-child");
     let mut campaign = plan(vec![
         root("left", &family, "110"),

@@ -1,6 +1,6 @@
 //! Atomic runtime resource admission for bounded campaign waves.
 //!
-//! [`CampaignWavePlanner`](crate::CampaignWavePlanner) remains a stateless,
+//! [`CampaignWavePlanner`](crate::campaign::CampaignWavePlanner) remains a stateless,
 //! deterministic selector. This module is the distinct runtime authority: one
 //! non-cloneable coordinator reserves a complete selected wave in one locked
 //! transition, while move-only guards keep cores and estimated memory charged
@@ -18,12 +18,13 @@ use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use crate::{
+use super::{
     CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignExecutionWidthPlan,
     CampaignJobKey, CampaignMemoryEstimate, CampaignResourceError, CampaignResourcePolicy,
     CampaignResourceWavePlan, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-    CampaignWavePlanner, CampaignWorkKey, ParallelExecution, ParallelExecutionError,
+    CampaignWavePlanner, CampaignWorkKey,
 };
+use crate::{ParallelExecution, ParallelExecutionError};
 
 pub const CAMPAIGN_ADMISSION_V1_SCHEMA: &str = "rustred.campaign-admission.v1";
 

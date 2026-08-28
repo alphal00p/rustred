@@ -7,7 +7,8 @@ independent design audit, bounded application/CLI extraction,
 transport-neutral boundary refactor, and development Python adapter are
 complete. The physical legacy-oracle package extraction, including the old
 concrete vacuum-family/IBP/reduction engine, is also complete; the three
-orphan-source decisions are complete. Deeper topology-neutral core,
+orphan-source decisions are complete. The first nested topology-neutral core
+boundary is complete under `rustred::campaign`; deeper exact-session/closure,
 test-support, and documentation migrations remain pending.
 
 ## Decision
@@ -54,6 +55,14 @@ former `legacy-authored-oracles` feature, the old concrete-engine root modules,
 and their root re-exports no longer exist.
 Test support remains adjacent to the code it validates unless a later measured
 dependency boundary justifies another package.
+
+Within the default core, the six campaign planning/resource/admission modules
+now form one public `rustred::campaign` boundary with private implementation
+children and a single crate-private reservation seam for exact-publication
+ownership transfer. The former root modules and approximately sixty root
+aliases are gone; core exact-session consumers, `rustred-app`, and campaign
+integration tests use the nested API directly. This was a mechanical
+namespace/visibility move and makes no new execution or closure claim.
 
 The first migration was intentionally mechanical; the subsequent boundary
 milestone moved normalization, lowering, derivation/output, and campaign
@@ -206,8 +215,8 @@ separate provenance role and are not treated as RustRed-owned stale code.
    small commits, with parallel tests after each phase and milestone pushes.
    The `rustred-app` extraction and transport-boundary phases are complete;
    the physical legacy-oracle extraction, concrete vacuum-engine extraction,
-   and orphan-source deletion are complete; deeper core/test separation
-   remains.
+   orphan-source deletion, and first `rustred::campaign` core boundary are
+   complete; deeper exact-session/core/test separation remains.
 7. **Complete for development use:** add the PyO3 package only after the shared
    application boundary exists; prove CLI/application/Python parity, licensed
    parallel execution, safe Python-thread coordination, and wheel/sdist

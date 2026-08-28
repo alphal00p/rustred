@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::num::{NonZeroU64, NonZeroUsize};
 
-use crate::CampaignWorkKey;
+use super::CampaignWorkKey;
 
 pub const CAMPAIGN_RESOURCE_POLICY_V1_SCHEMA: &str = "rustred.campaign-resource-policy.v1";
 

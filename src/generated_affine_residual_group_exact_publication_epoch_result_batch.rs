@@ -14,10 +14,9 @@
 use std::fmt;
 use std::mem::size_of;
 
-use crate::campaign_admission::CampaignFixedComponentReservation;
-use crate::{
+use crate::campaign::{
     CampaignAdmissionController, CampaignAdmissionError, CampaignAdmittedTask, CampaignBytes,
-    CampaignResident, CampaignWorkKey,
+    CampaignFixedComponentReservation, CampaignResident, CampaignWorkKey,
 };
 
 use super::{
@@ -665,10 +664,11 @@ mod tests {
 
     use super::super::tests::fully_acknowledged_handoff;
     use super::*;
-    use crate::{
+    use crate::ParallelExecution;
+    use crate::campaign::{
         CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
         CampaignMemoryEstimate, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-        CampaignWavePlanner, ParallelExecution,
+        CampaignWavePlanner,
     };
 
     const RETAINED: u64 = 64;
@@ -719,7 +719,7 @@ mod tests {
     fn reserve(
         controller: &mut CampaignAdmissionController,
         works: &[CampaignWorkKey],
-    ) -> Vec<crate::CampaignTaskReservation> {
+    ) -> Vec<crate::campaign::CampaignTaskReservation> {
         let requests = works
             .iter()
             .cloned()

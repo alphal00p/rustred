@@ -10,10 +10,10 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use crate::{
+use super::{
     CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignTaskResourceEstimate,
-    ParallelExecution, ParallelExecutionError,
 };
+use crate::{ParallelExecution, ParallelExecutionError};
 
 pub const CAMPAIGN_EXECUTION_WIDTH_PLAN_V1_SCHEMA: &str =
     "rustred.campaign-execution-width-plan.v1";
@@ -567,8 +567,8 @@ fn bytes_mul_usize(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{CampaignMemoryEstimate, CampaignTaskMemoryEnvelope};
     use super::*;
-    use crate::{CampaignMemoryEstimate, CampaignTaskMemoryEnvelope};
     use std::cell::Cell;
 
     fn memory(revision: CampaignEstimatorRevision, bytes: u64) -> CampaignTaskResourceEstimate {

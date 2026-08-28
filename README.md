@@ -596,8 +596,9 @@ The repository currently includes tests for:
   unfinished. The root-owned licensed default-GMP gate passed all 28 handoff/
   epoch-owner/result-batch tests with eight Rust test threads, and
   `cargo check --tests -j8`, formatting, and diff checks passed; and
-- a static, topology-neutral multi-root campaign core in
-  [`src/campaign_plan.rs`](src/campaign_plan.rs): exact-representation family
+- a static, topology-neutral multi-root campaign core behind the selective
+  `rustred::campaign` API in
+  [`src/campaign/plan.rs`](src/campaign/plan.rs): exact-representation family
   and job interning, distinct ingress roots, replayable strict
   proper-subsector dependencies, and deterministic dependency-ready
   antichains. A distinct versioned pre-pool planner now records the requested

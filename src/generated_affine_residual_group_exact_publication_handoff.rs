@@ -21,7 +21,7 @@ use std::fmt;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering as AtomicOrdering};
 
-use crate::CampaignJobKey;
+use crate::campaign::CampaignJobKey;
 use crate::generated_affine_residual_group_exact_session::{
     CommittedPublicationEventHandle, CommittedPublicationEventView, CommittedPublicationLeafView,
     ExceptionalResidualKind, PublicationReceipt,
@@ -1103,14 +1103,12 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::campaign::{CampaignPlan, CampaignPlanLimits, CampaignRootSpec};
     use crate::generated_affine_residual_group_exact_publication::{
         PreparedPublication, PublicationLimits,
     };
     use crate::generated_affine_residual_group_exact_publication_tests::ready_for_publication;
-    use crate::{
-        CampaignPlan, CampaignPlanLimits, CampaignRootSpec, IntegralFamily, IntegralOrderingPolicy,
-        SectorMask,
-    };
+    use crate::{IntegralFamily, IntegralOrderingPolicy, SectorMask};
 
     fn job(family: &IntegralFamily, sector: &SectorMask) -> CampaignJobKey {
         let plan = CampaignPlan::compile(

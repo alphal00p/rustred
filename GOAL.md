@@ -385,10 +385,15 @@ reviewable from semantic changes.
    duplicated the live exact/Symbolica transcript path with a second
    handwritten algebra and replay layer. Git retains their historical text;
    no compatibility shim or archive crate was added.
-5. Refactor the 450k-line flat core into clear topology-neutral algebra,
-   family, identity, sector, solver/closure, artifact, campaign, tensor, and
-   application boundaries; move large test campaigns out of production
-   modules and reduce visibility.
+5. **In progress:** refactor the 450k-line flat core into clear
+   topology-neutral algebra, family, identity, sector, solver/closure,
+   artifact, campaign, tensor, and application boundaries; move large test
+   campaigns out of production modules and reduce visibility. The first
+   nested core boundary is complete: deterministic campaign planning,
+   resources, width selection, work identity, and admission live behind the
+   selective `rustred::campaign` API with private child modules and no root
+   compatibility aliases. Exact-session/closure, test-support, and the other
+   mathematical ownership clusters remain to be reorganized.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

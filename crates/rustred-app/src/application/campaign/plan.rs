@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use rustred::{
+use rustred::campaign::{
     CampaignFamilyId, CampaignJobKey, CampaignPlan, CampaignPlanLimits, CampaignRootId,
-    CampaignRootSpec, IntegralOrderingPolicy, SectorMask, symbolica_atom_packed_byte_size,
+    CampaignRootSpec,
 };
+use rustred::{IntegralOrderingPolicy, SectorMask, symbolica_atom_packed_byte_size};
 use serde::{Deserialize, Serialize};
 
 use super::super::error::AppError;

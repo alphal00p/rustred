@@ -4,15 +4,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, mpsc};
 use std::time::Duration;
 
-use rustred::{
-    AffineDenominator, CampaignAdmissionController, CampaignAdmissionError, CampaignBytes,
-    CampaignEstimatorRevision, CampaignExecutionFixedMemory, CampaignExecutionWidthPlanner,
+use rustred::campaign::{
+    CampaignAdmissionController, CampaignAdmissionError, CampaignBytes, CampaignEstimatorRevision,
+    CampaignExecutionFixedMemory, CampaignExecutionWidthPlanner,
     CampaignExecutionWidthPlanningOutcome, CampaignExecutionWidthRequest, CampaignMemoryEstimate,
     CampaignPlan, CampaignPlanLimits, CampaignResident, CampaignResidentToken,
     CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution, CampaignRootSpec,
     CampaignTaskExecution, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
-    CampaignWavePlanner, CampaignWorkKey, CoefficientContext, IntegralFamily,
-    IntegralOrderingPolicy, SectorMask,
+    CampaignWavePlanner, CampaignWorkKey,
+};
+use rustred::{
+    AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
 };
 
 const REVISION: u64 = 1;
@@ -148,7 +150,7 @@ fn reserve_one(
     retained: u64,
     transient: u64,
     predecessor: Option<CampaignResidentToken>,
-) -> rustred::CampaignTaskReservation {
+) -> rustred::campaign::CampaignTaskReservation {
     let snapshot = controller.try_snapshot().unwrap();
     let requests = one_request(work, retained, transient);
     let plan = CampaignWavePlanner::try_plan(snapshot.policy(), &requests).unwrap();
@@ -305,7 +307,7 @@ fn same_job_exceptional_leaf_units_keep_distinct_reservations_and_resident_token
     assert_eq!(
         wave.tasks()
             .iter()
-            .map(rustred::CampaignTaskReservation::work)
+            .map(rustred::campaign::CampaignTaskReservation::work)
             .collect::<Vec<_>>(),
         vec![&left, &right]
     );
@@ -619,8 +621,8 @@ fn construction_and_owner_drop_panics_release_the_complete_task_charge() {
         CampaignBytes::new(200)
     );
     let construction_panic = catch_unwind(AssertUnwindSafe(|| {
-        let _: Result<rustred::CampaignAdmittedTask<CountedOwner>, ()> = construction_task
-            .try_build(|_| -> Result<CountedOwner, ()> {
+        let _: Result<rustred::campaign::CampaignAdmittedTask<CountedOwner>, ()> =
+            construction_task.try_build(|_| -> Result<CountedOwner, ()> {
                 panic!("injected successor-construction panic")
             });
     }));
@@ -691,7 +693,7 @@ fn predecessor_drop_panic_unwinds_old_new_transient_and_core_charges() {
 #[test]
 fn empty_waves_are_noops_and_unselected_predecessors_are_rejected() {
     fn assert_send<T: Send>() {}
-    assert_send::<rustred::CampaignTaskReservation>();
+    assert_send::<rustred::campaign::CampaignTaskReservation>();
 
     let jobs = jobs(2);
     let mut controller = controller(1, 1_000, 100);

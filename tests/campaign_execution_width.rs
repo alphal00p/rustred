@@ -1,9 +1,10 @@
-use rustred::{
+use rustred::ParallelExecutionError;
+use rustred::campaign::{
     CAMPAIGN_EXECUTION_WIDTH_PLAN_V1_SCHEMA, CampaignAdmissionController, CampaignAdmissionError,
     CampaignBytes, CampaignEstimatorRevision, CampaignExecutionFixedMemory,
     CampaignExecutionWidthPlanner, CampaignExecutionWidthPlanningOutcome,
     CampaignExecutionWidthRequest, CampaignMemoryEstimate, CampaignTaskMemoryEnvelope,
-    CampaignTaskResourceEstimate, ParallelExecutionError,
+    CampaignTaskResourceEstimate,
 };
 
 fn task(

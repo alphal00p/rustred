@@ -1,6 +1,6 @@
 //! Owned identity for one independently schedulable campaign work unit.
 //!
-//! [`CampaignJobKey`](crate::CampaignJobKey) identifies a static planned
+//! [`CampaignJobKey`](crate::campaign::CampaignJobKey) identifies a static planned
 //! family/sector job. A live campaign may schedule more than one independent
 //! unit for that job, so runtime resource admission must use the finer
 //! [`CampaignWorkKey`]. This key is only deterministic scheduling and retry
@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use crate::CampaignJobKey;
+use super::CampaignJobKey;
 
 /// Phase-local discriminator for one campaign work unit.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -130,14 +130,14 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
+    use crate::campaign::{CampaignPlan, CampaignPlanLimits, CampaignRootSpec};
     use crate::{
-        AffineDenominator, CampaignPlan, CampaignPlanLimits, CampaignRootSpec, CoefficientContext,
-        IntegralFamily, IntegralOrderingPolicy, SectorMask,
+        AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
     };
 
     use super::{CampaignWorkKey, CampaignWorkUnitKey};
 
-    fn job() -> crate::CampaignJobKey {
+    fn job() -> super::CampaignJobKey {
         let coefficients = CoefficientContext::new(["d"]);
         let family = Arc::new(
             IntegralFamily::new(

@@ -5,11 +5,12 @@
 //! Its schema and estimator revision are physical run metadata and must not be
 //! included in mathematical family, work, rule, or bundle identities.  Given
 //! operator-selected core and memory limits, the profile only assembles the
-//! existing checked [`CampaignExecutionWidthRequest`](crate::CampaignExecutionWidthRequest).
+//! existing checked
+//! [`CampaignExecutionWidthRequest`](crate::campaign::CampaignExecutionWidthRequest).
 
 use std::fmt;
 
-use crate::{
+use super::{
     CampaignBytes, CampaignEstimatorRevision, CampaignExecutionFixedMemory,
     CampaignExecutionWidthError, CampaignExecutionWidthRequest, CampaignTaskResourceEstimate,
 };
@@ -145,8 +146,8 @@ impl std::error::Error for CampaignExecutionResourceProfileError {}
 
 #[cfg(test)]
 mod tests {
+    use super::super::{CampaignMemoryEstimate, CampaignTaskMemoryEnvelope};
     use super::*;
-    use crate::{CampaignMemoryEstimate, CampaignTaskMemoryEnvelope};
 
     fn fixed(hydrated: u64) -> CampaignExecutionFixedMemory {
         CampaignExecutionFixedMemory::try_new(

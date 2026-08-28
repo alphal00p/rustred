@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use rustred::campaign::{
+    CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision, CampaignMemoryEstimate,
+    CampaignPlan, CampaignPlanLimits, CampaignResourceError, CampaignResourcePolicy,
+    CampaignRootSpec, CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate,
+    CampaignWavePlanner, CampaignWorkKey,
+};
 use rustred::{
-    AffineDenominator, CampaignBaselineMemory, CampaignBytes, CampaignEstimatorRevision,
-    CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResourceError,
-    CampaignResourcePolicy, CampaignRootSpec, CampaignTaskMemoryEnvelope,
-    CampaignTaskResourceEstimate, CampaignWavePlanner, CampaignWorkKey, CoefficientContext,
-    IntegralFamily, IntegralOrderingPolicy, SectorMask,
+    AffineDenominator, CoefficientContext, IntegralFamily, IntegralOrderingPolicy, SectorMask,
 };
 
 fn family() -> Arc<IntegralFamily> {
@@ -71,7 +73,7 @@ fn jobs() -> Vec<CampaignWorkKey> {
     .collect()
 }
 
-fn one_job() -> rustred::CampaignJobKey {
+fn one_job() -> rustred::campaign::CampaignJobKey {
     jobs().remove(0).job().clone()
 }
 

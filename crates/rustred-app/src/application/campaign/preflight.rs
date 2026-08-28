@@ -1,4 +1,4 @@
-use rustred::{
+use rustred::campaign::{
     CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA, CampaignBytes, CampaignEstimatorRevision,
     CampaignExecutionFixedMemory, CampaignExecutionResourceProfile, CampaignExecutionWidthPlanner,
     CampaignExecutionWidthPlanningOutcome, CampaignMemoryEstimate, CampaignTaskMemoryEnvelope,
