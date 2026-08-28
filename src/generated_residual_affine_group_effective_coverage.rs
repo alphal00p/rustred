@@ -2892,3 +2892,6 @@ fn try_reserve_exact<T>(
         }
     })
 }
+
+#[cfg(test)]
+mod tests;

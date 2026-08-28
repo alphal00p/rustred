@@ -38,12 +38,12 @@ pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
 pub mod automatic_isps;
 pub mod base_specialization;
-pub mod campaign_admission;
-pub mod campaign_execution_width;
-pub mod campaign_plan;
-pub mod campaign_resource_profile;
-pub mod campaign_resources;
-pub mod campaign_work;
+mod campaign_admission;
+mod campaign_execution_width;
+mod campaign_plan;
+mod campaign_resource_profile;
+mod campaign_resources;
+mod campaign_work;
 pub mod certified_rewrite;
 pub mod certified_rule_provider;
 pub mod certified_symmetry_provider;
@@ -113,8 +113,6 @@ pub(crate) mod generated_residual_affine_condition_accumulator;
 #[cfg(test)]
 mod generated_residual_affine_condition_accumulator_tests;
 pub(crate) mod generated_residual_affine_group_effective_coverage;
-#[cfg(test)]
-mod generated_residual_affine_group_effective_coverage_tests;
 pub mod generated_residual_affine_pivot_target_matching;
 pub mod generated_residual_affine_when_bad;
 pub(crate) mod generated_residual_affine_when_bad_compilation;
