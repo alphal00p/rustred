@@ -48,7 +48,7 @@ pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
 };
 pub use parametric_relation::{
-    IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, RelationLimits,
+    IndexShift, ParametricRelation, ParametricRelationError, RelationLimits,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

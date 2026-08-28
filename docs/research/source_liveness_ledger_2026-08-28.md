@@ -1,7 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `a677d01`, immediately before removal of the self-only
-concrete-relation specialization seam.
+**Baseline parent:** `d7c6bbe`, immediately before pruning the relation and
+parametric-condition API to the live generation/application spine.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 86 tracked Rust source/test paths
@@ -110,10 +110,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
-| `src/identity/condition.rs` | split | identity | deterministic parametric identity-condition source sets, independent source-cardinality limits, checked affine translation, and merge semantics; specialized base-field condition/provenance ceremony is deleted until a real reduction consumer defines its owner |
-| `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition exports; do not move exports wholesale |
-| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, and one completed semantic-scope token shared by ordinary and LI-only layouts; compact coefficient checks call the standalone indexed specialization primitive rather than reviving a concrete relation facade |
-| `src/parametric_relation.rs` | split | identity | retain only topology-neutral sparse parametric relation arithmetic with one typed parametric-condition vector and an independent `RelationLimits` composition policy; the callerless concrete relation and specialization/error seam are deleted |
+| `src/identity/condition.rs` | split | identity | deterministic parametric identity-condition source sets, independent source-cardinality limits, checked affine translation, and merge semantics; construction is crate-owned, the explicit/test convenience source is deleted, and specialized base-field ceremony waits for a real reduction consumer |
+| `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition/`IndexSpace` exports; do not move exports wholesale |
+| `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, shared fallibly constructed zero/unit shift storage with refcount-only clones, and one completed semantic-scope token shared by ordinary and LI-only layouts; compact coefficient checks call the standalone indexed specialization primitive |
+| `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse parametric relation arithmetic with one typed parametric-condition vector and independent `RelationLimits`; public consumers receive only row/term/condition views, construction and limit-explicit mutation are crate-owned, shift vectors use checked Rust-owned allocation followed by shared no-copy storage, and default/explicit-condition conveniences are deleted |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |

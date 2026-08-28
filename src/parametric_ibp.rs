@@ -207,7 +207,7 @@ pub struct ParametricIbpGenerator<'family> {
     family: &'family IntegralFamily,
     source_scope: IbpSourceScope,
     context: IndexedCoefficientContext,
-    index_space: IndexSpace,
+    zero_shift: IndexShift,
     positive_units: Vec<IndexShift>,
     negative_units: Vec<IndexShift>,
     config: ParametricIbpConfig,
@@ -481,6 +481,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         let negative_units = (0..arity)
             .map(|position| index_space.unit(position, -1))
             .collect::<Result<Vec<_>, _>>()?;
+        let zero_shift = index_space.try_zero()?;
         let source_scope = IbpSourceScope {
             family_fingerprint,
             context_fingerprint: context.fingerprint().into(),
@@ -489,7 +490,7 @@ impl<'family> ParametricIbpGenerator<'family> {
             family,
             source_scope,
             context,
-            index_space,
+            zero_shift,
             positive_units,
             negative_units,
             config,
@@ -615,7 +616,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         if contraction == ContractionMomentum::Loop(differentiated_loop) {
             row.add_term_with_limits(
                 &self.context,
-                self.index_space.zero(),
+                self.zero_shift.clone(),
                 dimension.clone(),
                 self.config.relation_limits,
             )?;
@@ -883,7 +884,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         self.add_one_weighted_translation(
             target,
             source,
-            self.index_space.zero(),
+            self.zero_shift.clone(),
             constant,
             negate,
             row_id,
@@ -1107,10 +1108,7 @@ mod tests {
                     second_external: 1,
                 }
             );
-            assert!(generated.ibp_li().all(|row| {
-                row.arity() == family.denominator_count()
-                    && row.family_fingerprint() == family.fingerprint_ref()
-            }));
+            assert_eq!(generated.ibp_li().count(), ordinary_count + 1);
         }
 
         let family = coordinate_family("ordinary-source-sentinel-l6-k21", 6, 0);
@@ -1121,7 +1119,6 @@ mod tests {
             .unwrap();
         assert_eq!(rows.len(), 36);
         for (ordinal, row) in rows.iter().enumerate() {
-            assert_eq!(row.arity(), 21);
             assert_eq!(
                 row.row_id(),
                 &RowId::OrdinaryIbp {
@@ -1436,13 +1433,6 @@ mod tests {
             ]
         );
         assert_eq!(generated.ibp_li().count(), 13);
-        assert!(
-            generated
-                .ordinary_ibp()
-                .iter()
-                .chain(generated.lorentz_invariance())
-                .all(|row| row.arity() == 9 && row.family_fingerprint() == family.fingerprint())
-        );
     }
 
     #[test]

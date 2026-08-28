@@ -36,7 +36,6 @@ pub enum IdentityConditionSource {
         location: CoefficientLocation,
     },
     FamilyBasisDeterminantNumerator,
-    ExplicitRelationCondition,
     RelationConditionAttached {
         row: RowId,
     },
@@ -80,7 +79,6 @@ impl IdentityConditionSource {
             Self::FamilyBasisDeterminantNumerator => {
                 writer.write_str("family-basis-determinant-numerator")
             }
-            Self::ExplicitRelationCondition => writer.write_str("explicit-relation-condition"),
             Self::RelationConditionAttached { row } => {
                 writer.write_str("relation-condition-attached:")?;
                 row.write_stable(writer)
@@ -196,21 +194,7 @@ pub struct ParametricNonZeroCondition {
 }
 
 impl ParametricNonZeroCondition {
-    pub fn try_new(
-        context: &IndexedCoefficientContext,
-        polynomial: IndexedPolynomial,
-        sources: impl IntoIterator<Item = IdentityConditionSource>,
-    ) -> Result<Self, IdentityConditionError> {
-        Self::try_new_with_limits(
-            context,
-            polynomial,
-            sources,
-            ExactAlgebraLimits::default(),
-            IdentityConditionLimits::default(),
-        )
-    }
-
-    pub fn try_new_with_limits(
+    pub(crate) fn try_new_with_limits(
         context: &IndexedCoefficientContext,
         polynomial: IndexedPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,
@@ -233,16 +217,7 @@ impl ParametricNonZeroCondition {
         &self.sources
     }
 
-    pub fn try_with_source(
-        mut self,
-        source: IdentityConditionSource,
-        limits: IdentityConditionLimits,
-    ) -> Result<Self, IdentityConditionError> {
-        self.add_source(source, limits)?;
-        Ok(self)
-    }
-
-    pub fn translated(
+    pub(crate) fn translated(
         &self,
         context: &IndexedCoefficientContext,
         shift: &[i64],
@@ -377,7 +352,6 @@ fn check_source_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algebra::CoefficientContext;
 
     #[test]
     fn stable_string_pins_nested_row_sources() {
@@ -395,71 +369,5 @@ mod tests {
             source.stable_string(),
             "relation-translation:derived:3:a:b:ordinary-ibp:3:2:[-1,2]"
         );
-    }
-
-    #[test]
-    fn translation_source_limit_precedes_polynomial_translation() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context = IndexedCoefficientContext::try_new(&base, "translation-source", 1).unwrap();
-        let polynomial = context
-            .numerator_condition(&context.index(0).unwrap())
-            .unwrap();
-        let condition = ParametricNonZeroCondition::try_new(
-            &context,
-            polynomial,
-            [IdentityConditionSource::ExplicitRelationCondition],
-        )
-        .unwrap();
-        let arithmetic_limits = IndexedAlgebraLimits {
-            exact_algebra: ExactAlgebraLimits {
-                max_polynomial_terms: 0,
-                ..ExactAlgebraLimits::default()
-            },
-            ..IndexedAlgebraLimits::default()
-        };
-        assert!(matches!(
-            condition.translated(
-                &context,
-                &[1],
-                arithmetic_limits,
-                IdentityConditionLimits { max_sources: 1 },
-            ),
-            Err(IdentityConditionError::ResourceLimit {
-                resource: "identity condition sources",
-                requested: 2,
-                limit: 1,
-            })
-        ));
-    }
-
-    #[test]
-    fn translation_index_arity_precedes_condition_source_preflight() {
-        let base = CoefficientContext::new(Vec::<String>::new());
-        let context = IndexedCoefficientContext::try_new(&base, "condition-arity", 1).unwrap();
-        let polynomial = context
-            .numerator_condition(&context.index(0).unwrap())
-            .unwrap();
-        let condition = ParametricNonZeroCondition::try_new(
-            &context,
-            polynomial,
-            [IdentityConditionSource::ExplicitRelationCondition],
-        )
-        .unwrap();
-        let condition_limits = IdentityConditionLimits { max_sources: 1 };
-
-        assert!(matches!(
-            condition.translated(
-                &context,
-                &[],
-                IndexedAlgebraLimits::default(),
-                condition_limits,
-            ),
-            Err(IdentityConditionError::Coefficient(
-                IndexedAlgebraError::WrongIndexArity {
-                    expected: 1,
-                    actual: 0,
-                }
-            ))
-        ));
     }
 }

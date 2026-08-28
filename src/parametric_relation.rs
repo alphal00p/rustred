@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use crate::algebra::{
     IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
-    IndexedPolynomial,
 };
 use crate::identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
@@ -21,11 +20,15 @@ pub struct RelationLimits {
 }
 
 /// A checked displacement in one family's integral-index lattice.
+///
+/// Construction fallibly allocates the component buffer before moving that
+/// buffer into shared storage. Cloning a cached shift therefore only bumps an
+/// `Arc` count; it neither copies nor allocates another arity-sized buffer.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct IndexShift(Vec<i64>);
+pub struct IndexShift(Arc<Vec<i64>>);
 
 impl IndexShift {
-    pub fn try_new(
+    pub(crate) fn try_new(
         values: impl IntoIterator<Item = i64>,
         expected_arity: usize,
     ) -> Result<Self, ParametricRelationError> {
@@ -56,7 +59,6 @@ impl IndexShift {
     }
 
     /// Retain an allocation which its caller already acquired fallibly.
-    /// This is crate-private so public construction semantics remain intact.
     pub(crate) fn try_from_preallocated(
         values: Vec<i64>,
         expected_arity: usize,
@@ -67,18 +69,18 @@ impl IndexShift {
                 actual: values.len(),
             });
         }
-        Ok(Self(values))
+        Ok(Self(Arc::new(values)))
     }
 
     pub fn values(&self) -> &[i64] {
-        &self.0
+        self.0.as_slice()
     }
 
-    pub fn arity(&self) -> usize {
+    fn arity(&self) -> usize {
         self.0.len()
     }
 
-    pub fn checked_add(&self, other: &Self) -> Result<Self, ParametricRelationError> {
+    pub(crate) fn checked_add(&self, other: &Self) -> Result<Self, ParametricRelationError> {
         if self.arity() != other.arity() {
             return Err(ParametricRelationError::WrongArity {
                 expected: self.arity(),
@@ -87,25 +89,25 @@ impl IndexShift {
         }
         let mut values = Vec::new();
         try_reserve_relation_entries("summed index-shift components", &mut values, self.arity())?;
-        for (position, (&left, &right)) in self.0.iter().zip(&other.0).enumerate() {
+        for (position, (&left, &right)) in self.0.iter().zip(other.0.iter()).enumerate() {
             values.push(
                 left.checked_add(right)
                     .ok_or(ParametricRelationError::IndexOverflow { position })?,
             );
         }
-        Ok(Self(values))
+        Self::try_from_preallocated(values, self.arity())
     }
 }
 
 /// Constructs arity-authenticated shifts without repeating length checks at
 /// every generator call site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IndexSpace {
+pub(crate) struct IndexSpace {
     arity: usize,
 }
 
 impl IndexSpace {
-    pub fn try_new(arity: usize) -> Result<Self, ParametricRelationError> {
+    pub(crate) fn try_new(arity: usize) -> Result<Self, ParametricRelationError> {
         if arity == 0 {
             Err(ParametricRelationError::EmptyIndexSpace)
         } else {
@@ -113,25 +115,15 @@ impl IndexSpace {
         }
     }
 
-    pub fn arity(self) -> usize {
-        self.arity
-    }
-
     /// Fallible zero-shift construction for resource-hardened callers.
-    pub fn try_zero(self) -> Result<IndexShift, ParametricRelationError> {
+    pub(crate) fn try_zero(self) -> Result<IndexShift, ParametricRelationError> {
         let mut values = Vec::new();
         try_reserve_relation_entries("zero index-shift components", &mut values, self.arity)?;
         values.resize(self.arity, 0);
-        Ok(IndexShift(values))
+        IndexShift::try_from_preallocated(values, self.arity)
     }
 
-    /// Compatibility wrapper. New bounded code should use [`Self::try_zero`].
-    pub fn zero(self) -> IndexShift {
-        self.try_zero()
-            .expect("allocating an IndexSpace zero shift failed")
-    }
-
-    pub fn unit(
+    pub(crate) fn unit(
         self,
         position: usize,
         direction: i64,
@@ -142,18 +134,14 @@ impl IndexSpace {
                 arity: self.arity,
             });
         }
-        let mut values = Vec::new();
-        try_reserve_relation_entries("unit index-shift components", &mut values, self.arity)?;
-        values.resize(self.arity, 0);
-        values[position] = direction;
-        Ok(IndexShift(values))
-    }
-
-    pub fn shift(
-        self,
-        values: impl IntoIterator<Item = i64>,
-    ) -> Result<IndexShift, ParametricRelationError> {
-        IndexShift::try_new(values, self.arity)
+        IndexShift::try_new(
+            (0..self.arity).map(
+                |component| {
+                    if component == position { direction } else { 0 }
+                },
+            ),
+            self.arity,
+        )
     }
 }
 
@@ -170,7 +158,7 @@ pub struct ParametricRelation {
 }
 
 impl ParametricRelation {
-    pub fn new(
+    pub(crate) fn new(
         family_fingerprint: impl Into<Arc<str>>,
         row_id: RowId,
         context: &IndexedCoefficientContext,
@@ -185,25 +173,8 @@ impl ParametricRelation {
         }
     }
 
-    pub fn family_fingerprint(&self) -> &str {
-        &self.family_fingerprint
-    }
-
-    /// Exact authenticated `K(n)` identity used by this relation.
-    ///
-    /// Operator adapters use this to reject even empty relations from a
-    /// foreign index scope; inspecting term coefficients alone would not be
-    /// sufficient for a zero row.
-    pub fn context_fingerprint(&self) -> &str {
-        &self.context_fingerprint
-    }
-
     pub fn row_id(&self) -> &RowId {
         &self.row_id
-    }
-
-    pub fn arity(&self) -> usize {
-        self.arity
     }
 
     pub fn terms(&self) -> &BTreeMap<IndexShift, IndexedCoefficient> {
@@ -214,47 +185,7 @@ impl ParametricRelation {
         &self.nonzero_conditions
     }
 
-    pub fn is_zero(&self) -> bool {
-        self.terms.is_empty()
-    }
-
-    pub fn add_explicit_nonzero_condition(
-        &mut self,
-        context: &IndexedCoefficientContext,
-        condition: IndexedPolynomial,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_explicit_nonzero_condition_with_limits(
-            context,
-            condition,
-            RelationLimits::default(),
-        )
-    }
-
-    pub fn add_explicit_nonzero_condition_with_limits(
-        &mut self,
-        context: &IndexedCoefficientContext,
-        condition: IndexedPolynomial,
-        limits: RelationLimits,
-    ) -> Result<(), ParametricRelationError> {
-        let condition = ParametricNonZeroCondition::try_new_with_limits(
-            context,
-            condition,
-            [IdentityConditionSource::ExplicitRelationCondition],
-            limits.arithmetic.exact_algebra,
-            limits.identity_conditions,
-        )?;
-        self.add_nonzero_condition_with_limits(context, condition, limits)
-    }
-
-    pub fn add_nonzero_condition(
-        &mut self,
-        context: &IndexedCoefficientContext,
-        condition: ParametricNonZeroCondition,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_nonzero_condition_with_limits(context, condition, RelationLimits::default())
-    }
-
-    pub fn add_nonzero_condition_with_limits(
+    pub(crate) fn add_nonzero_condition_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         mut condition: ParametricNonZeroCondition,
@@ -285,16 +216,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub fn add_term(
-        &mut self,
-        context: &IndexedCoefficientContext,
-        shift: IndexShift,
-        coefficient: IndexedCoefficient,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_term_with_limits(context, shift, coefficient, RelationLimits::default())
-    }
-
-    pub fn add_term_with_limits(
+    pub(crate) fn add_term_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         shift: IndexShift,
@@ -309,7 +231,7 @@ impl ParametricRelation {
 
     /// Apply one term insertion to an isolated relation snapshot.
     ///
-    /// The public entry point clones before calling this helper because the
+    /// The transactional entry point clones before calling this helper because the
     /// input-denominator condition is discovered before coefficient collection.
     /// A later exact-arithmetic failure must not leave that condition committed to
     /// an otherwise unchanged relation.
@@ -370,16 +292,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub fn add_scaled(
-        &mut self,
-        context: &IndexedCoefficientContext,
-        other: &Self,
-        factor: &IndexedCoefficient,
-    ) -> Result<(), ParametricRelationError> {
-        self.add_scaled_with_limits(context, other, factor, RelationLimits::default())
-    }
-
-    pub fn add_scaled_with_limits(
+    pub(crate) fn add_scaled_with_limits(
         &mut self,
         context: &IndexedCoefficientContext,
         other: &Self,
@@ -426,7 +339,7 @@ impl ParametricRelation {
         Ok(())
     }
 
-    pub fn translated(
+    pub(crate) fn translated(
         &self,
         context: &IndexedCoefficientContext,
         translation: &IndexShift,
@@ -611,7 +524,31 @@ impl From<IdentityConditionError> for ParametricRelationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algebra::CoefficientContext;
+    use crate::algebra::{CoefficientContext, ExactAlgebraLimits};
+
+    fn actual_input_denominator_condition(
+        scope: &str,
+    ) -> (IndexedCoefficientContext, ParametricNonZeroCondition) {
+        let base = CoefficientContext::new(["x"]);
+        let context = IndexedCoefficientContext::try_new(&base, scope, 1).unwrap();
+        let mut relation = ParametricRelation::new(
+            "family",
+            RowId::Derived {
+                label: scope.into(),
+            },
+            &context,
+        );
+        relation
+            .add_term_with_limits(
+                &context,
+                IndexSpace::try_new(1).unwrap().try_zero().unwrap(),
+                context.lift(&base.coefficient_fixture("1/x")).unwrap(),
+                RelationLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(relation.nonzero_conditions().len(), 1);
+        (context, relation.nonzero_conditions()[0].clone())
+    }
 
     #[test]
     fn translation_moves_keys_and_coefficient_indices_together() {
@@ -626,9 +563,14 @@ mod tests {
             &context,
         );
         relation
-            .add_term(&context, space.zero(), context.index(0).unwrap())
+            .add_term_with_limits(
+                &context,
+                space.try_zero().unwrap(),
+                context.index(0).unwrap(),
+                RelationLimits::default(),
+            )
             .unwrap();
-        let translation = space.shift([2, -1]).unwrap();
+        let translation = IndexShift::try_new([2, -1], 2).unwrap();
         let translated = relation
             .translated(
                 &context,
@@ -661,14 +603,15 @@ mod tests {
             &context,
         );
         source
-            .add_term(
+            .add_term_with_limits(
                 &context,
                 space.unit(1, 1).unwrap(),
                 context.index(0).unwrap(),
+                RelationLimits::default(),
             )
             .unwrap();
-        let s = space.shift([1, -2]).unwrap();
-        let t = space.shift([-4, 3]).unwrap();
+        let s = IndexShift::try_new([1, -2], 2).unwrap();
+        let t = IndexShift::try_new([-4, 3], 2).unwrap();
         let st = s.checked_add(&t).unwrap();
         let sequential = source
             .translated(
@@ -698,74 +641,116 @@ mod tests {
     }
 
     #[test]
-    fn equal_condition_polynomials_merge_deterministic_source_sets() {
-        let base = CoefficientContext::new(Vec::<String>::new());
+    fn repeated_rational_term_merges_real_denominator_sources() {
+        let base = CoefficientContext::new(["x"]);
         let context = IndexedCoefficientContext::try_new(&base, "condition-merge", 1).unwrap();
         let row_id = RowId::Derived {
             label: Arc::from("condition-source"),
         };
         let mut relation = ParametricRelation::new("family", row_id.clone(), &context);
-        let n = context.index(0).unwrap();
-        let polynomial = context.numerator_condition(&n).unwrap();
-        let first = ParametricNonZeroCondition::try_new(
-            &context,
-            polynomial.clone(),
-            [IdentityConditionSource::ExplicitRelationCondition],
-        )
-        .unwrap();
-        let second = ParametricNonZeroCondition::try_new(
-            &context,
-            polynomial,
-            [IdentityConditionSource::IndexTranslation {
-                offset: vec![1].into_boxed_slice(),
-            }],
-        )
-        .unwrap();
-        relation.add_nonzero_condition(&context, first).unwrap();
-        relation.add_nonzero_condition(&context, second).unwrap();
+        let shift = IndexSpace::try_new(1).unwrap().try_zero().unwrap();
+        let reciprocal = context.lift(&base.coefficient_fixture("1/x")).unwrap();
+        let input_source = IdentityConditionSource::RelationInputTermDenominator {
+            row: row_id.clone(),
+            shift: vec![0].into_boxed_slice(),
+        };
+        let collected_source = IdentityConditionSource::RelationCollectedTermDenominator {
+            row: row_id.clone(),
+            shift: vec![0].into_boxed_slice(),
+        };
+        relation
+            .add_term_with_limits(
+                &context,
+                shift.clone(),
+                reciprocal.clone(),
+                RelationLimits::default(),
+            )
+            .unwrap();
+        relation
+            .add_term_with_limits(&context, shift, reciprocal, RelationLimits::default())
+            .unwrap();
 
         assert_eq!(relation.nonzero_conditions().len(), 1);
         assert_eq!(
             relation.nonzero_conditions()[0].sources(),
             &std::collections::BTreeSet::from([
-                IdentityConditionSource::ExplicitRelationCondition,
+                input_source,
+                collected_source,
                 IdentityConditionSource::RelationConditionAttached { row: row_id },
-                IdentityConditionSource::IndexTranslation {
-                    offset: vec![1].into_boxed_slice(),
-                },
             ])
         );
     }
 
     #[test]
-    fn custom_condition_source_limit_is_enforced_at_relation_boundary() {
-        let base = CoefficientContext::new(Vec::<String>::new());
+    fn input_denominator_source_limit_is_enforced_by_real_term_insertion() {
+        let base = CoefficientContext::new(["x"]);
         let context = IndexedCoefficientContext::try_new(&base, "condition-limit", 1).unwrap();
-        let n = context.index(0).unwrap();
-        let condition = ParametricNonZeroCondition::try_new(
-            &context,
-            context.numerator_condition(&n).unwrap(),
-            [IdentityConditionSource::ExplicitRelationCondition],
-        )
-        .unwrap();
-        let mut relation = ParametricRelation::new(
-            "family",
-            RowId::Derived {
-                label: Arc::from("limited"),
-            },
-            &context,
-        );
+        let row_id = RowId::Derived {
+            label: Arc::from("limited"),
+        };
+        let mut relation = ParametricRelation::new("family", row_id, &context);
         let limits = RelationLimits {
             identity_conditions: IdentityConditionLimits { max_sources: 1 },
             ..RelationLimits::default()
         };
         assert!(matches!(
-            relation.add_nonzero_condition_with_limits(&context, condition, limits),
+            relation.add_term_with_limits(
+                &context,
+                IndexSpace::try_new(1).unwrap().try_zero().unwrap(),
+                context.lift(&base.coefficient_fixture("1/x")).unwrap(),
+                limits,
+            ),
             Err(ParametricRelationError::IdentityCondition(
                 IdentityConditionError::ResourceLimit {
                     resource: "identity condition sources",
                     requested: 2,
                     limit: 1,
+                }
+            ))
+        ));
+        assert!(relation.terms().is_empty());
+        assert!(relation.nonzero_conditions().is_empty());
+    }
+
+    #[test]
+    fn real_relation_condition_source_limit_precedes_polynomial_translation() {
+        let (context, condition) = actual_input_denominator_condition("translation-source-order");
+        let arithmetic_limits = IndexedAlgebraLimits {
+            exact_algebra: ExactAlgebraLimits {
+                max_polynomial_terms: 0,
+                ..ExactAlgebraLimits::default()
+            },
+            ..IndexedAlgebraLimits::default()
+        };
+        assert!(matches!(
+            condition.translated(
+                &context,
+                &[1],
+                arithmetic_limits,
+                IdentityConditionLimits { max_sources: 2 },
+            ),
+            Err(IdentityConditionError::ResourceLimit {
+                resource: "identity condition sources",
+                requested: 3,
+                limit: 2,
+            })
+        ));
+    }
+
+    #[test]
+    fn real_relation_condition_index_arity_precedes_source_preflight() {
+        let (context, condition) = actual_input_denominator_condition("translation-arity-order");
+        assert!(matches!(
+            condition.translated(
+                &context,
+                &[],
+                IndexedAlgebraLimits::default(),
+                IdentityConditionLimits { max_sources: 2 },
+            ),
+            Err(IdentityConditionError::Coefficient(
+                IndexedAlgebraError::WrongIndexArity {
+                    expected: 1,
+                    actual: 0,
                 }
             ))
         ));
@@ -791,7 +776,7 @@ mod tests {
             Err(ParametricRelationError::IndexOverflow { position: 0 })
         ));
         // This is rejected by Vec's capacity arithmetic without attempting a
-        // material allocation, exercising the public allocation error path.
+        // material allocation, exercising the checked internal allocation path.
         assert!(matches!(
             IndexSpace::try_new(usize::MAX).unwrap().try_zero(),
             Err(ParametricRelationError::AllocationFailure {
@@ -799,6 +784,20 @@ mod tests {
                 requested: usize::MAX,
             })
         ));
+    }
+
+    #[test]
+    fn cached_shift_clones_share_fallibly_built_storage() {
+        let space = IndexSpace::try_new(3).unwrap();
+        for shift in [
+            space.try_zero().unwrap(),
+            space.unit(1, 1).unwrap(),
+            space.unit(2, -1).unwrap(),
+        ] {
+            let cloned = shift.clone();
+            assert!(Arc::ptr_eq(&shift.0, &cloned.0));
+            assert_eq!(shift.values(), cloned.values());
+        }
     }
 
     #[test]
