@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `c775c7a`, immediately before the family-tree split.
+**Baseline parent:** `d53321a`, immediately before nesting family algorithms.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 62 tracked Rust source/test paths
-remaining after the current family-tree milestone. It is intentionally hostile to
+This ledger classifies every one of the 74 tracked Rust source/test paths
+remaining after the current family-algorithm milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -20,8 +20,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 21 |
-| split | 40 |
+| move | 24 |
+| split | 49 |
 | delete | 0 |
 | replace | 1 |
 
@@ -60,7 +60,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/algebra/matrix/operations.rs` | split | algebra::matrix | retain the narrow native rank, determinant, inverse, product, and congruence entry points with authenticated outputs |
 | `src/algebra/matrix/tests.rs` | split | algebra::matrix tests | retain focused Symbolica authority, admission-boundary, and typed-failure sentinels; reduce breadth only with equivalent black-box evidence |
 | `src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
-| `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
 | `src/campaign/execution.rs` | move | campaign | bounded ordered execution authority; the dead move-owned reservation mapper was deleted with admission |
 | `src/campaign/execution_width.rs` | move | campaign | live deterministic resource-preflight and width-planning infrastructure; it no longer constructs execution through admission |
 | `src/campaign/mod.rs` | move | campaign | narrow facade over resource preflight, width planning, and bounded execution; roots-only planning is application-owned |
@@ -75,7 +74,20 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/family/fingerprint.rs` | split | family | typed V2 family-identity preflight, census, encoding, and writer |
 | `src/family/replay.rs` | split | family | exact determinant, inverse, scalar-coordinate, and derivative-contraction replay |
 | `src/family/tests.rs` | split | family tests | retain the focused family construction, kinematics, fingerprint, matrix-boundary, and replay sentinels; subdivide only when it materially aids the next algorithm change |
-| `src/feynman_polynomials.rs` | split | family | retain generic Symanzik construction and delete the uncalled face-restriction API; the remaining handwritten polynomial operations must be audited against Symbolica before Phase 0 closes |
+| `src/family/isp/mod.rs` | move | family::isp | narrow ISP-completion facade; no former flat-module alias |
+| `src/family/isp/model.rs` | split | family::isp | V2 schema, independent rank/family resource policy, and native-work census; V1 semantics are deleted |
+| `src/family/isp/error.rs` | move | family::isp | typed independent-basis completion failures |
+| `src/family/isp/rank.rs` | split | family::isp | checked Symbolica rank boundary, input authentication, work accounting, and error adaptation |
+| `src/family/isp/completion.rs` | split | family::isp | topology-neutral deterministic unit-row completion and its concise retained witness; caller-free self-replay ceremony is deleted |
+| `src/family/isp/tests.rs` | split | family::isp tests | retain authored-prefix, coordinate-order, native-rank, GMP, and exact resource-bound sentinels |
+| `src/family/symanzik/mod.rs` | move | family::symanzik | narrow generic Symanzik facade over model, context, construction, operations, and work owners |
+| `src/family/symanzik/model.rs` | split | family::symanzik | authenticated Feynman-polynomial values and representation policy |
+| `src/family/symanzik/error.rs` | move | family::symanzik | typed checked polynomial/construction failures |
+| `src/family/symanzik/context.rs` | split | family::symanzik | authenticated family coefficient/parameter context and checked public polynomial operations |
+| `src/family/symanzik/construction.rs` | split | family::symanzik | topology-neutral `U`, `F`, and `G` assembly |
+| `src/family/symanzik/operations.rs` | split | family::symanzik | determinant, adjugate, homogeneity, and currently handwritten polynomial kernels pending the separate Symbolica-native commit |
+| `src/family/symanzik/work.rs` | split | family::symanzik | shared checked resource arithmetic and aggregate operation budgets; prevents context/operations ownership cycles |
+| `src/family/symanzik/tests.rs` | split | family::symanzik tests | retain determinant/adjugate orientation, symbolic-term, variable-map rebinding, and exact resource-bound sentinels |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
 | `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, independent source-cardinality limits, and provenance attachment around algebra-only specialization |

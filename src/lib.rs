@@ -9,10 +9,8 @@
 //! parametric identities or future discovered rules.
 
 pub mod algebra;
-pub mod automatic_isps;
 pub mod campaign;
 pub mod family;
-pub mod feynman_polynomials;
 pub mod identity;
 pub mod parametric_coefficient;
 pub mod parametric_ibp;
@@ -24,19 +22,19 @@ pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod zero_sectors;
 
-pub use automatic_isps::{
-    AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
-    AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
-};
 pub use campaign::{ParallelExecution, ParallelExecutionError};
+pub use family::isp::{
+    ISP_COMPLETION_V2_SCHEMA, IspCompletion, IspCompletionError, IspCompletionLimits,
+    IspCompletionStats,
+};
+pub use family::symanzik::{
+    FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
+    RawFeynmanPolynomial, SymanzikPolynomials,
+};
 pub use family::{
     AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
-};
-pub use feynman_polynomials::{
-    FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
-    RawFeynmanPolynomial, SymanzikPolynomials,
 };
 pub use identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,

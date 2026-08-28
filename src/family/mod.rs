@@ -7,9 +7,11 @@ mod build;
 mod error;
 mod exact;
 mod fingerprint;
+pub mod isp;
 mod kinematics;
 mod model;
 mod replay;
+pub mod symanzik;
 
 #[cfg(test)]
 mod tests;
