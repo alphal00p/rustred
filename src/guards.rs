@@ -154,14 +154,6 @@ pub enum GuardOrigin {
 
     /// A condition inserted through the polynomial-only relation API.
     ExplicitRelationCondition,
-    /// Public-safe provenance for one concrete nonzero condition emitted by
-    /// the sealed generated-affine rule path.
-    ///
-    /// The retained owner certificate carries the complete replayable
-    /// provenance.  Concrete reductions expose only this flat marker so
-    /// private affine translations, recentering vectors, row identities, and
-    /// certificate locators cannot escape through the public guard API.
-    GeneratedAffineSealedCondition,
     /// The condition was attached to this relation.  Source-row atoms remain
     /// in the set when the condition later flows into a derived row.
     RelationConditionAttached { row: GuardRowId },
@@ -181,21 +173,6 @@ pub enum GuardOrigin {
         source_row: GuardRowId,
         target_row: GuardRowId,
         offset: Box<[i64]>,
-    },
-
-    /// A residual-affine pivot equation was recentered using two distinct
-    /// lattice operations. `coefficient_offset` is the free-coordinate
-    /// substitution applied to coefficients and guards, while `key_center`
-    /// is subtracted from every ambient integral key.  Keeping both vectors
-    /// in one flat provenance atom prevents this operation from being
-    /// mistaken for an ordinary whole-relation translation.
-    RelationAffineFreeRecentering {
-        source_row: GuardRowId,
-        target_row: GuardRowId,
-        // Retain the fallibly reserved vectors. Converting a user-sized Vec
-        // into Box<[T]> can request a second proportional shrink allocation.
-        coefficient_offset: Vec<i64>,
-        key_center: Vec<i64>,
     },
 
     /// A whole relation was transported through a verified denominator
@@ -226,14 +203,6 @@ pub enum GuardOrigin {
     /// variables stay symbolic.  Entries are canonicalized by increasing
     /// index position before this provenance atom can be constructed.
     PartialIndexSpecialization { assignments: Box<[(usize, i64)]> },
-    /// One Coverage V4 branch guard was composed through the complete
-    /// source-neutral residual affine integer-system map.
-    ResidualAffineBranchNonzeroGuardSubstitution {
-        source_case: u64,
-        source_work_item_ordinal: usize,
-        ready_terminal_ordinal: usize,
-        structural_locus_ordinal: usize,
-    },
     /// Original denominator of a coefficient specialized separately from a
     /// relation.
     CoefficientSpecializationDenominator,
@@ -243,30 +212,6 @@ pub enum GuardOrigin {
     /// Mapped pre-normalization denominator of one concrete term in a source
     /// row partially specialized on an equality locus.
     RelationPartialSpecializationTermDenominator { row: GuardRowId, shift: Box<[i64]> },
-    /// Mapped pre-normalization denominator of one relation term restricted
-    /// to a certified residual affine branch.
-    ///
-    /// The enclosing certificate owns the complete replayable map.  The
-    /// three branch fields form a compact locator into that certificate.
-    RelationResidualAffineBranchSubstitutionTermDenominator {
-        row: GuardRowId,
-        shift: Box<[i64]>,
-        source_case: u64,
-        source_work_item_ordinal: usize,
-        ready_terminal_ordinal: usize,
-    },
-    /// A complete relation was restricted to a certified residual affine
-    /// branch.
-    ///
-    /// The enclosing certificate owns the complete replayable map.  The
-    /// three branch fields form a compact locator into that certificate.
-    RelationResidualAffineBranchSubstitution {
-        source_row: GuardRowId,
-        target_row: GuardRowId,
-        source_case: u64,
-        source_work_item_ordinal: usize,
-        ready_terminal_ordinal: usize,
-    },
     /// Numerator of the collected LHS coefficient inverted after quotienting
     /// a concrete parametric equation by zero sectors and symmetries.
     QuotientPivotNumerator,
@@ -286,34 +231,6 @@ pub enum GuardOrigin {
     ShiftOperatorFromRelationAdapter { row: GuardRowId },
     /// The operator-to-relation adapter carried this condition.
     ShiftOperatorToRelationAdapter { row: GuardRowId },
-
-    /// Compact locator for one exact generated-affine group recentering event.
-    ///
-    /// The future database owner retains the replayable coefficient offset,
-    /// physical key center, and row provenance.  This public flat atom names
-    /// only that owner-local event: it deliberately retains no vectors,
-    /// hashes, row labels, coefficients, or physical geometry.
-    GeneratedAffineGroupRecentering {
-        solve_group_ordinal: usize,
-        database_epoch: usize,
-        event_ordinal: usize,
-    },
-    /// Compact locator for the denominator guard of one coefficient emitted
-    /// by an exact generated-affine group top-reduction event.
-    ///
-    /// The database owner retains the physical key, affine translation,
-    /// coefficient payload, and replay certificate. This flat public atom
-    /// deliberately identifies only the owner-local coefficient operation;
-    /// `pivot_normalization` distinguishes the normalized pivot coefficient
-    /// from ordinary emitted terms without retaining either coefficient.
-    GeneratedAffineGroupTopReductionCoefficientDenominator {
-        solve_group_ordinal: usize,
-        database_epoch: usize,
-        event_ordinal: usize,
-        operation_ordinal: usize,
-        term_ordinal: usize,
-        pivot_normalization: bool,
-    },
 }
 
 impl GuardOrigin {
@@ -327,19 +244,6 @@ impl GuardOrigin {
             .checked_add(32usize.checked_mul(size_of::<usize>())?)
     }
 
-    /// Preflight the provenance atom used when a mapped relation-term
-    /// denominator is attached by the residual-affine branch wrapper.  The
-    /// atom owns a boxed shift, so this must run before that payload is
-    /// allocated.
-    pub(crate) fn residual_affine_branch_term_denominator_retained_byte_bound(
-        row: &GuardRowId,
-        shift_len: usize,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(row.shared_payload_bytes())?
-            .checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
     /// Preflight the input-denominator atom constructed by ordinary
     /// `ParametricRelation` term insertion. This has the same owned shape as
     /// the affine wrapper's term-denominator atom, but naming the actual
@@ -351,18 +255,6 @@ impl GuardOrigin {
         Self::retained_byte_base_bound()?
             .checked_add(row.shared_payload_bytes())?
             .checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
-    /// Preflight the provenance atom used when a complete relation is mapped
-    /// through a residual-affine branch.  Callers can budget both shared row
-    /// labels before cloning either row identity.
-    pub(crate) fn residual_affine_branch_relation_retained_byte_bound(
-        source_row: &GuardRowId,
-        target_row: &GuardRowId,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(source_row.shared_payload_bytes())?
-            .checked_add(target_row.shared_payload_bytes())
     }
 
     pub(crate) fn index_translation_retained_byte_bound(shift_len: usize) -> Option<usize> {
@@ -382,19 +274,6 @@ impl GuardOrigin {
             .checked_add(source_row.shared_payload_bytes())?
             .checked_add(target_row.shared_payload_bytes())?
             .checked_add(shift_len.checked_mul(size_of::<i64>())?)
-    }
-
-    pub(crate) fn relation_affine_free_recentering_retained_byte_bound(
-        source_row: &GuardRowId,
-        target_row: &GuardRowId,
-        coefficient_offset_len: usize,
-        key_center_len: usize,
-    ) -> Option<usize> {
-        Self::retained_byte_base_bound()?
-            .checked_add(source_row.shared_payload_bytes())?
-            .checked_add(target_row.shared_payload_bytes())?
-            .checked_add(coefficient_offset_len.checked_mul(size_of::<i64>())?)?
-            .checked_add(key_center_len.checked_mul(size_of::<i64>())?)
     }
 
     pub(crate) fn relation_attached_retained_byte_bound(row: &GuardRowId) -> Option<usize> {
@@ -434,10 +313,7 @@ impl GuardOrigin {
             | Self::ShiftOperatorToRelationAdapter { row } => add(row_bytes(row))?,
             Self::RelationInputTermDenominator { row, shift }
             | Self::RelationCollectedTermDenominator { row, shift }
-            | Self::RelationPartialSpecializationTermDenominator { row, shift }
-            | Self::RelationResidualAffineBranchSubstitutionTermDenominator {
-                row, shift, ..
-            } => {
+            | Self::RelationPartialSpecializationTermDenominator { row, shift } => {
                 add(row_bytes(row))?;
                 add(slice_bytes(shift.len(), size_of::<i64>())?)?;
             }
@@ -456,17 +332,6 @@ impl GuardOrigin {
                 add(row_bytes(source_row))?;
                 add(row_bytes(target_row))?;
                 add(slice_bytes(offset.len(), size_of::<i64>())?)?;
-            }
-            Self::RelationAffineFreeRecentering {
-                source_row,
-                target_row,
-                coefficient_offset,
-                key_center,
-            } => {
-                add(row_bytes(source_row))?;
-                add(row_bytes(target_row))?;
-                add(slice_bytes(coefficient_offset.len(), size_of::<i64>())?)?;
-                add(slice_bytes(key_center.len(), size_of::<i64>())?)?;
             }
             Self::RelationIndexPermutation {
                 source_row,
@@ -488,14 +353,6 @@ impl GuardOrigin {
             Self::PartialIndexSpecialization { assignments } => {
                 add(slice_bytes(assignments.len(), size_of::<(usize, i64)>())?)?;
             }
-            Self::RelationResidualAffineBranchSubstitution {
-                source_row,
-                target_row,
-                ..
-            } => {
-                add(row_bytes(source_row))?;
-                add(row_bytes(target_row))?;
-            }
             Self::FamilyInputCoefficientDenominator { .. }
             | Self::FamilyBasisDeterminantNumerator
             | Self::PowerShiftSupport { .. }
@@ -503,15 +360,11 @@ impl GuardOrigin {
             | Self::GuardedDivisionDivisorDenominator
             | Self::GuardedDivisionDivisorNumerator
             | Self::ExplicitRelationCondition
-            | Self::GeneratedAffineSealedCondition
-            | Self::ResidualAffineBranchNonzeroGuardSubstitution { .. }
             | Self::CoefficientSpecializationDenominator
             | Self::CoefficientPartialSpecializationDenominator
             | Self::QuotientPivotNumerator
             | Self::ConcreteQuotientEliminationPivotNumerator { .. }
-            | Self::ExplicitShiftOperatorCondition
-            | Self::GeneratedAffineGroupRecentering { .. }
-            | Self::GeneratedAffineGroupTopReductionCoefficientDenominator { .. } => {}
+            | Self::ExplicitShiftOperatorCondition => {}
         }
         Some(bytes)
     }
@@ -538,9 +391,6 @@ impl GuardOrigin {
                 writer.write_str("guarded-division-divisor-numerator")
             }
             Self::ExplicitRelationCondition => writer.write_str("explicit-relation-condition"),
-            Self::GeneratedAffineSealedCondition => {
-                writer.write_str("generated-affine-sealed-condition")
-            }
             Self::RelationConditionAttached { row } => {
                 writer.write_str("relation-condition-attached:")?;
                 row.write_stable(writer)
@@ -579,22 +429,6 @@ impl GuardOrigin {
                 target_row.write_stable(writer)?;
                 writer.write_str(":[")?;
                 write_joined(writer, offset, ",")?;
-                writer.write_str("]")
-            }
-            Self::RelationAffineFreeRecentering {
-                source_row,
-                target_row,
-                coefficient_offset,
-                key_center,
-            } => {
-                writer.write_str("relation-affine-free-recentering:")?;
-                source_row.write_stable(writer)?;
-                writer.write_str(":")?;
-                target_row.write_stable(writer)?;
-                writer.write_str(":coefficient-offset:[")?;
-                write_joined(writer, coefficient_offset, ",")?;
-                writer.write_str("]:key-center:[")?;
-                write_joined(writer, key_center, ",")?;
                 writer.write_str("]")
             }
             Self::RelationIndexPermutation {
@@ -643,15 +477,6 @@ impl GuardOrigin {
                 }
                 writer.write_str("]")
             }
-            Self::ResidualAffineBranchNonzeroGuardSubstitution {
-                source_case,
-                source_work_item_ordinal,
-                ready_terminal_ordinal,
-                structural_locus_ordinal,
-            } => write!(
-                writer,
-                "residual-affine-branch-nonzero-guard-substitution:{source_case}:{source_work_item_ordinal}:{ready_terminal_ordinal}:{structural_locus_ordinal}"
-            ),
             Self::CoefficientSpecializationDenominator => {
                 writer.write_str("coefficient-specialization-denominator")
             }
@@ -664,39 +489,6 @@ impl GuardOrigin {
                 writer.write_str(":[")?;
                 write_joined(writer, shift, ",")?;
                 writer.write_str("]")
-            }
-            Self::RelationResidualAffineBranchSubstitutionTermDenominator {
-                row,
-                shift,
-                source_case,
-                source_work_item_ordinal,
-                ready_terminal_ordinal,
-            } => {
-                writer
-                    .write_str("relation-residual-affine-branch-substitution-term-denominator:")?;
-                row.write_stable(writer)?;
-                writer.write_str(":[")?;
-                write_joined(writer, shift, ",")?;
-                write!(
-                    writer,
-                    "]:{source_case}:{source_work_item_ordinal}:{ready_terminal_ordinal}"
-                )
-            }
-            Self::RelationResidualAffineBranchSubstitution {
-                source_row,
-                target_row,
-                source_case,
-                source_work_item_ordinal,
-                ready_terminal_ordinal,
-            } => {
-                writer.write_str("relation-residual-affine-branch-substitution:")?;
-                source_row.write_stable(writer)?;
-                writer.write_str(":")?;
-                target_row.write_stable(writer)?;
-                write!(
-                    writer,
-                    ":{source_case}:{source_work_item_ordinal}:{ready_terminal_ordinal}"
-                )
             }
             Self::QuotientPivotNumerator => writer.write_str("quotient-pivot-numerator"),
             Self::ConcreteQuotientEliminationPivotNumerator { pivot } => {
@@ -728,173 +520,6 @@ impl GuardOrigin {
                 writer.write_str("shift-operator-to-relation-adapter:")?;
                 row.write_stable(writer)
             }
-            Self::GeneratedAffineGroupRecentering {
-                solve_group_ordinal,
-                database_epoch,
-                event_ordinal,
-            } => write!(
-                writer,
-                "generated-affine-group-recentering:solve-group-ordinal={solve_group_ordinal}:database-epoch={database_epoch}:event-ordinal={event_ordinal}"
-            ),
-            Self::GeneratedAffineGroupTopReductionCoefficientDenominator {
-                solve_group_ordinal,
-                database_epoch,
-                event_ordinal,
-                operation_ordinal,
-                term_ordinal,
-                pivot_normalization,
-            } => write!(
-                writer,
-                "generated-affine-group-top-reduction-coefficient-denominator:solve-group-ordinal={solve_group_ordinal}:database-epoch={database_epoch}:event-ordinal={event_ordinal}:operation-ordinal={operation_ordinal}:term-ordinal={term_ordinal}:pivot-normalization={pivot_normalization}"
-            ),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{GuardOrigin, GuardRowId};
-    use std::sync::Arc;
-
-    #[test]
-    fn generated_affine_sealed_origin_has_no_private_retained_payload() {
-        let origin = GuardOrigin::GeneratedAffineSealedCondition;
-
-        assert_eq!(origin.stable_string(), "generated-affine-sealed-condition");
-        assert_eq!(
-            origin.retained_byte_bound(),
-            GuardOrigin::retained_byte_base_bound()
-        );
-    }
-
-    #[test]
-    fn generated_affine_group_recentering_is_a_locator_only_stable_atom() {
-        let origin = GuardOrigin::GeneratedAffineGroupRecentering {
-            solve_group_ordinal: 17,
-            database_epoch: 23,
-            event_ordinal: 31,
-        };
-
-        assert_eq!(
-            origin.stable_string(),
-            "generated-affine-group-recentering:solve-group-ordinal=17:database-epoch=23:event-ordinal=31"
-        );
-        assert_eq!(
-            origin.retained_byte_bound(),
-            GuardOrigin::retained_byte_base_bound()
-        );
-        let debug = format!("{origin:?}");
-        for forbidden in [
-            "coefficient_offset",
-            "key_center",
-            "hash",
-            "row_label",
-            "coefficient:",
-            "geometry",
-        ] {
-            assert!(!debug.contains(forbidden), "leaked {forbidden}: {debug}");
-        }
-    }
-
-    #[test]
-    fn generated_affine_top_reduction_denominator_is_a_locator_only_stable_atom() {
-        let origin = GuardOrigin::GeneratedAffineGroupTopReductionCoefficientDenominator {
-            solve_group_ordinal: 17,
-            database_epoch: 23,
-            event_ordinal: 31,
-            operation_ordinal: 37,
-            term_ordinal: 41,
-            pivot_normalization: true,
-        };
-
-        assert_eq!(
-            origin.stable_string(),
-            "generated-affine-group-top-reduction-coefficient-denominator:solve-group-ordinal=17:database-epoch=23:event-ordinal=31:operation-ordinal=37:term-ordinal=41:pivot-normalization=true"
-        );
-        assert_eq!(
-            origin.retained_byte_bound(),
-            GuardOrigin::retained_byte_base_bound()
-        );
-        let debug = format!("{origin:?}");
-        for forbidden in [
-            "physical_key",
-            "coefficient_offset",
-            "key_center",
-            "shift",
-            "row_label",
-            "coefficient:",
-            "geometry",
-        ] {
-            assert!(!debug.contains(forbidden), "leaked {forbidden}: {debug}");
-        }
-    }
-
-    #[test]
-    fn residual_affine_branch_relation_origin_is_stable_and_preflight_exact() {
-        let source_row = GuardRowId::Derived {
-            label: Arc::from("source-row"),
-        };
-        let target_row = GuardRowId::Derived {
-            label: Arc::from("target-row"),
-        };
-        let expected_bound = GuardOrigin::residual_affine_branch_relation_retained_byte_bound(
-            &source_row,
-            &target_row,
-        );
-        let origin = GuardOrigin::RelationResidualAffineBranchSubstitution {
-            source_row,
-            target_row,
-            source_case: 17,
-            source_work_item_ordinal: 3,
-            ready_terminal_ordinal: 11,
-        };
-
-        assert_eq!(
-            origin.stable_string(),
-            "relation-residual-affine-branch-substitution:derived:10:source-row:derived:10:target-row:17:3:11"
-        );
-        assert_eq!(origin.retained_byte_bound(), expected_bound);
-    }
-
-    #[test]
-    fn residual_affine_branch_term_denominator_origin_is_stable_and_preflight_exact() {
-        let row = GuardRowId::Derived {
-            label: Arc::from("branch-row"),
-        };
-        let shift = vec![-2, 0, 5].into_boxed_slice();
-        let expected_bound =
-            GuardOrigin::residual_affine_branch_term_denominator_retained_byte_bound(
-                &row,
-                shift.len(),
-            );
-        let origin = GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
-            row,
-            shift,
-            source_case: 23,
-            source_work_item_ordinal: 7,
-            ready_terminal_ordinal: 19,
-        };
-
-        assert_eq!(
-            origin.stable_string(),
-            "relation-residual-affine-branch-substitution-term-denominator:derived:10:branch-row:[-2,0,5]:23:7:19"
-        );
-        assert_eq!(origin.retained_byte_bound(), expected_bound);
-    }
-
-    #[test]
-    fn residual_affine_branch_term_denominator_preflight_rejects_shift_overflow() {
-        let row = GuardRowId::OrdinaryIbp {
-            contraction_momentum: 1,
-            differentiated_loop: 2,
-        };
-
-        assert_eq!(
-            GuardOrigin::residual_affine_branch_term_denominator_retained_byte_bound(
-                &row,
-                usize::MAX,
-            ),
-            None
-        );
     }
 }

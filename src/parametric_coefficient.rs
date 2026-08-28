@@ -1656,27 +1656,6 @@ impl SpecializedNonZeroCondition {
         Some(bytes)
     }
 
-    /// Replace replay-private generated-affine provenance with its public
-    /// marker while leaving the exact nonzero polynomial untouched.
-    ///
-    /// This is intentionally crate-private: only a proof-bearing owner that
-    /// retains the complete affine certificate may authorize the seal.  The
-    /// marker is deterministic, so replay produces the same public concrete
-    /// payload without publishing recentering vectors, shifts, row labels, or
-    /// certificate-local coordinates.
-    pub(crate) fn seal_generated_affine_provenance(&mut self) {
-        if self.origins.len() == 1
-            && self
-                .origins
-                .contains(&GuardOrigin::GeneratedAffineSealedCondition)
-        {
-            return;
-        }
-        self.origins.clear();
-        self.origins
-            .insert(GuardOrigin::GeneratedAffineSealedCondition);
-    }
-
     pub(crate) fn add_origin_with_limit(
         &mut self,
         origin: GuardOrigin,
@@ -18602,67 +18581,6 @@ mod tests {
             ),
             Err(ParametricCoefficientError::MissingGuardOrigin)
         ));
-    }
-
-    #[test]
-    fn generated_affine_guard_seal_preserves_polynomial_and_erases_private_vectors() {
-        let base = CoefficientContext::new(["x"]);
-        let polynomial = BasePolynomial::try_from_raw(
-            base.parse("x+1").unwrap().numerator,
-            &base,
-            ExactAlgebraLimits::default(),
-        )
-        .unwrap();
-        let expected_polynomial = polynomial.clone();
-        let mut condition = SpecializedNonZeroCondition::from_base_polynomial(
-            polynomial,
-            [
-                GuardOrigin::RelationAffineFreeRecentering {
-                    source_row: GuardRowId::Derived {
-                        label: Arc::from("private-source"),
-                    },
-                    target_row: GuardRowId::Derived {
-                        label: Arc::from("private-target"),
-                    },
-                    coefficient_offset: vec![7, -11],
-                    key_center: vec![13, -17],
-                },
-                GuardOrigin::IndexSpecialization {
-                    assignment: vec![19, -23].into_boxed_slice(),
-                },
-                GuardOrigin::RelationResidualAffineBranchSubstitutionTermDenominator {
-                    row: GuardRowId::Derived {
-                        label: Arc::from("private-row"),
-                    },
-                    shift: vec![29, -31].into_boxed_slice(),
-                    source_case: 37,
-                    source_work_item_ordinal: 41,
-                    ready_terminal_ordinal: 43,
-                },
-            ],
-            3,
-        )
-        .unwrap();
-
-        condition.seal_generated_affine_provenance();
-
-        assert_eq!(condition.polynomial(), &expected_polynomial);
-        assert_eq!(
-            condition.origins(),
-            &BTreeSet::from([GuardOrigin::GeneratedAffineSealedCondition])
-        );
-        assert_eq!(
-            condition.origins().iter().next().unwrap().stable_string(),
-            "generated-affine-sealed-condition"
-        );
-
-        // Re-sealing is deterministic and does not perturb either field.
-        condition.seal_generated_affine_provenance();
-        assert_eq!(condition.polynomial(), &expected_polynomial);
-        assert_eq!(
-            condition.origins(),
-            &BTreeSet::from([GuardOrigin::GeneratedAffineSealedCondition])
-        );
     }
 
     #[test]

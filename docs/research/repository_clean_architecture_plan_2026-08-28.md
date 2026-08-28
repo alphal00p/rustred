@@ -204,8 +204,12 @@ More precisely:
 - `campaign` is low-level deterministic work identity, resource admission,
   width, checkpoint, and merge infrastructure. It never imports foundry;
   a future freshly built foundry may compose it.
-- `tensor` owns tensor semantics and scalar lowering but delegates CAS work to
-  algebra.
+- `tensor` owns a lean typed tensor IR, Symbolica-Atom decoding/rendering,
+  pairing/orbit combinatorics, vacuum projection, and scalar lowering, while
+  delegating polynomial and matrix CAS work to Symbolica through algebra. Its
+  stable children are `model`, `atom`, `lowering`, and
+  `projector/{pairing,contraction,orbit,vacuum}`; opaque user weights remain
+  separate from exact family coefficients.
 - `reduction` retains generic guarded-rule application, tensor/scalar
   reduction, and typed master-substitution primitives with real callers.
   Callers lower input before invoking it. It does not own a foundry, solver,
@@ -266,7 +270,7 @@ dumping-ground module.
 | `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; future lazy closure formula types are designed afresh |
 | existing `src/solver/**` | delete wholesale as the audited dead prototype island; do not preserve the exact-session transaction, rollback, exceptional publication, or committed-re-entry machinery |
 | existing `src/campaign/**` and `src/campaign/execution.rs` | retain under `campaign/`; keep deterministic resource/width/execution semantics and remove facade duplication |
-| `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | move live generic tensor/scalar-lowering semantics to `tensor/`; Symbolica owns CAS operations |
+| `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | delete `symbolica_target_numerator` and the legacy polynomial composer; extract only the proven value/pairing/contraction/orbit/lowering/Atom-boundary kernels from the other prototypes into the semantic `tensor/` children above; delete authentication/schema/census wrappers and use Symbolica-native CAS rather than moving any file wholesale |
 | `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
 | `src/symbolica_runtime.rs` | move the single checked initialization/version boundary to `runtime/` |
 

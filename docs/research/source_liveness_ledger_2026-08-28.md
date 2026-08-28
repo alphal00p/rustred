@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `14d9ba6`, updated for the affine-substrate deletion.
+**Baseline parent:** `fde3955`, updated for the fixed-point/case-stack deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 82 tracked Rust source/build/test paths
+This ledger classifies every one of the 72 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 58 |
+| split | 48 |
 | delete | 1 |
 | replace | 1 |
 
@@ -65,20 +65,13 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/resource_profile.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/resources.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/work.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
-| `src/canonical_parametric_locus_table.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/certified_rewrite.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/conditional_reelimination.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/conditional_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/coordinate_equality_loci.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
-| `src/direct_bad_formula_arbitrary.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
-| `src/direct_bad_formula.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/exact_identity.rs` | split | algebra / identity | separate coefficient context from stable identity values |
 | `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
-| `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
-| `src/generated_sector_live_leaf_queue.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |
 | `src/generated_symbolic_row_span.rs` | split | identity / foundry::solver | retain topology-neutral row transport from externally proposed, verified symmetries; delete embedded search backends |
-| `src/generated_when_bad.rs` | split | foundry / artifact | replace public fixed-point/provider stack with narrow emission boundary |
 | `src/generic_family.rs` | move | family | live generic family construction and normalization |
 | `src/generic_tensor_family.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/generic_tensor_polynomial.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
@@ -92,7 +85,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_relation.rs` | split | identity | retain topology-neutral IBP/LI rows and stable provenance |
 | `src/parametric_rules.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
-| `src/parametric_sector_coverage.rs` | split | artifact / reduction | retain only closed proof-bearing artifact and application semantics |
 | `src/reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
@@ -101,11 +93,9 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symbolica_target_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
 | `src/symbolica_tensor_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
-| `src/symbolic_sector_cases.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/symbolic_symmetry_transport.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/symmetry_discovery.rs` | split | sector | retain verified internal-permutation compilation/replay; delete bounded integer-matrix search and move future candidate generation to admitted foundry lanes |
 | `src/symmetry.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |
 | `src/tensor_reduction_engine.rs` | split | reduction | extract generic application services; delete compatibility engines |
 | `src/tensor.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
-| `src/when_bad.rs` | split | foundry::solver | retain live exact/condition semantics; delete old whole-schedule variants |
 | `src/zero_sectors.rs` | split | sector | retain stable proofs/maps; move orchestration to foundry and prune ceremonies |

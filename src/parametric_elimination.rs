@@ -5647,59 +5647,6 @@ mod tests {
     }
 
     #[test]
-    fn coefficient_work_ledger_merges_locator_denominator_origins_transactionally() {
-        let base = CoefficientContext::new(["d"]);
-        let context =
-            ParametricCoefficientContext::try_new(&base, "coefficient-work-denominator-origin", 1)
-                .unwrap();
-        let denominator = context
-            .add(&context.index(0).unwrap(), &context.one())
-            .unwrap();
-        let coefficient = context.checked_div(&context.one(), &denominator).unwrap();
-        let origin =
-            |term_ordinal| GuardOrigin::GeneratedAffineGroupTopReductionCoefficientDenominator {
-                solve_group_ordinal: 5,
-                database_epoch: 7,
-                event_ordinal: 11,
-                operation_ordinal: 13,
-                term_ordinal,
-                pivot_normalization: false,
-            };
-
-        let mut ledger = ParametricCoefficientWorkLedger::new(
-            ParametricCoefficientWorkPhase::Construction,
-            ParametricCoefficientWorkLedgerLimits {
-                max_guard_history: 2,
-                ..ParametricCoefficientWorkLedgerLimits::default()
-            },
-        );
-        let mut guards = Vec::new();
-        ledger
-            .try_insert_denominator_guard(&context, &mut guards, &coefficient, origin(17))
-            .unwrap();
-        ledger
-            .try_insert_denominator_guard(&context, &mut guards, &coefficient, origin(19))
-            .unwrap();
-        assert_eq!(guards.len(), 1);
-        assert_eq!(guards[0].origins().len(), 2);
-
-        let committed = ledger.stats();
-        assert!(matches!(
-            ledger.try_insert_denominator_guard(&context, &mut guards, &coefficient, origin(23)),
-            Err(ParametricCoefficientWorkError::Elimination(
-                ParametricEliminationError::ResourceLimit {
-                    resource: "coefficient guard attachment history",
-                    requested: 3,
-                    limit: 2,
-                }
-            ))
-        ));
-        assert_eq!(ledger.stats(), committed);
-        assert_eq!(guards.len(), 1);
-        assert_eq!(guards[0].origins().len(), 2);
-    }
-
-    #[test]
     fn per_variable_degree_upper_bounds_remain_tight_under_sums_products_and_branch_unions() {
         let limits = ParametricEliminationLimits::default();
         let mut work = WorkBudget::construction(limits, 0);

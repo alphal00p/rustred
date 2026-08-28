@@ -11,9 +11,6 @@
 //! part of the generic production crate and are not sources of generic
 //! parametric identities or future discovered rules.
 
-mod canonical_parametric_locus_table;
-mod direct_bad_formula;
-mod direct_bad_formula_arbitrary;
 mod exact_identity;
 
 pub mod adaptive_rules;
@@ -23,13 +20,9 @@ pub mod campaign;
 pub mod certified_rewrite;
 pub mod conditional_reelimination;
 pub mod conditional_rules;
-pub mod coordinate_equality_loci;
 pub mod exact_sparse_elimination;
 pub mod feynman_polynomials;
-pub mod generated_sector_discovery;
-pub mod generated_sector_live_leaf_queue;
 pub mod generated_symbolic_row_span;
-pub mod generated_when_bad;
 pub mod generic_family;
 pub mod generic_tensor_family;
 pub mod generic_tensor_polynomial;
@@ -41,12 +34,10 @@ pub mod parametric_elimination;
 pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod parametric_rules;
-pub mod parametric_sector_coverage;
 pub mod reduction_engine;
 pub mod runtime;
 pub mod sectors;
 pub mod shift_operators;
-pub mod symbolic_sector_cases;
 pub mod symbolic_symmetry_transport;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
@@ -56,7 +47,6 @@ pub mod symmetry;
 pub mod symmetry_discovery;
 pub mod tensor;
 pub mod tensor_reduction_engine;
-pub mod when_bad;
 pub mod zero_sectors;
 
 pub use adaptive_rules::{
@@ -89,13 +79,6 @@ pub use conditional_rules::{
     ConditionalParametricRuleApplication, ConditionalParametricRuleError,
     ConditionalParametricRuleInapplicability, ConditionalParametricRuleLimits,
 };
-pub use coordinate_equality_loci::{
-    COORDINATE_EQUALITY_LOCUS_V1_SCHEMA, CoordinateAssignmentWitness,
-    CoordinateEqualityEmptyReason, CoordinateEqualityLeafStatus,
-    CoordinateEqualityLocusCertificate, CoordinateEqualityLocusError,
-    CoordinateEqualityLocusExtractor, CoordinateEqualityLocusLimits, CoordinateEqualityLocusStats,
-    CoordinateLocusPredicateWitness, UnresolvedCoordinatePredicate,
-};
 pub use exact_sparse_elimination::{
     ExactSparseCoefficientLocation, ExactSparseDerivationReduction, ExactSparseDerivationTrace,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
@@ -105,35 +88,11 @@ pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
 };
-pub use generated_sector_discovery::{
-    GENERATED_SECTOR_DISCOVERY_V1_SCHEMA, GENERATED_SECTOR_DISCOVERY_V2_SCHEMA,
-    GENERATED_SECTOR_DISCOVERY_V3_SCHEMA, GENERATED_SECTOR_DISCOVERY_V4_SCHEMA,
-    GeneratedSectorDiscoveryCertificate, GeneratedSectorDiscoveryCompiler,
-    GeneratedSectorDiscoveryError, GeneratedSectorDiscoveryLimits, GeneratedSectorDiscoveryStats,
-    GeneratedSectorSearchAnchorRequest, GeneratedSectorSearchAnchorTranscript,
-};
-pub use generated_sector_live_leaf_queue::{
-    GENERATED_SECTOR_LIVE_LEAF_QUEUE_V1_SCHEMA, GENERATED_SECTOR_LIVE_LEAF_QUEUE_V2_SCHEMA,
-    GeneratedSectorIndexBoundaryInterruption, GeneratedSectorIndexBoundaryWitness,
-    GeneratedSectorLiveLeafOutcome, GeneratedSectorLiveLeafQueueCertificate,
-    GeneratedSectorLiveLeafQueueCompiler, GeneratedSectorLiveLeafQueueError,
-    GeneratedSectorLiveLeafQueueLimits, GeneratedSectorLiveLeafQueueStats,
-    GeneratedSectorLiveLeafWorkItem, GeneratedSectorQueuedSourceDisposition,
-};
 pub use generated_symbolic_row_span::{
     GENERATED_SYMBOLIC_ROW_SPAN_V1_SCHEMA, GeneratedSymbolicRowSpanCertificate,
     GeneratedSymbolicRowSpanCompiler, GeneratedSymbolicRowSpanConfig,
     GeneratedSymbolicRowSpanError, GeneratedSymbolicRowSpanLimits, GeneratedSymbolicRowSpanLineage,
     GeneratedSymbolicRowSpanStats, GeneratedSymbolicRowSpanStrategy,
-};
-pub use generated_when_bad::{
-    GENERATED_SOURCE_AUTHENTICATION_V1_SCHEMA, GENERATED_SOURCE_AUTHENTICATION_V2_SCHEMA,
-    GENERATED_WHEN_BAD_V1_SCHEMA, GENERATED_WHEN_BAD_V2_SCHEMA,
-    GeneratedSourceAuthenticationCertificate, GeneratedSourceAuthenticationStats,
-    GeneratedSourceAuthenticator, GeneratedSourceRowMode, GeneratedSourceRowWitness,
-    GeneratedWhenBadCertificate, GeneratedWhenBadCompilation, GeneratedWhenBadCompiler,
-    GeneratedWhenBadError, GeneratedWhenBadLimits, GeneratedWhenBadSourceAuthentication,
-    GeneratedWhenBadUnsupported,
 };
 pub use generic_family::{
     AffineDenominator, BaseNonZeroCondition, ContractionMomentum, DenominatorExpansion,
@@ -216,15 +175,6 @@ pub use parametric_rules::{
     ParametricRuleDerivation, ParametricRuleError, ParametricRuleInapplicability,
     ParametricRuleLimits, ParametricRuleUndecidability, RUNTIME_DESCENT_GUARD_V1_SCHEMA,
 };
-pub use parametric_sector_coverage::{
-    PARAMETRIC_SECTOR_COVERAGE_V1_SCHEMA, PARAMETRIC_SECTOR_COVERAGE_V2_SCHEMA,
-    PARAMETRIC_SECTOR_COVERAGE_V3_SCHEMA, PARAMETRIC_SECTOR_COVERAGE_V4_SCHEMA,
-    ParametricSectorCoverageCertificate, ParametricSectorCoverageCompiler,
-    ParametricSectorCoverageError, ParametricSectorCoverageLimits, ParametricSectorCoverageStats,
-    ParametricSectorEmptyLocusReason, ParametricSectorLeafClassification,
-    ParametricSectorLeafDisposition, ParametricSectorProductZeroDecomposition,
-    SectorCoverageCandidateAttempt,
-};
 pub use reduction_engine::{
     ConcreteRuleApplicationTrace, ConcreteRuleDecision, ConcreteRuleProvider,
     ConcreteTerminalStatus, IncompleteReductionError, PARAMETRIC_REDUCTION_ENGINE_V1_SCHEMA,
@@ -241,14 +191,6 @@ pub use shift_operators::{
     IndexShiftOperator, IndexShiftOperatorError, IndexShiftOperatorExpression,
     IndexShiftOperatorKind, IndexShiftOperatorLimits, IndexShiftOperatorMonomial,
     IndexShiftOperatorWord,
-};
-pub use symbolic_sector_cases::{
-    SYMBOLIC_SECTOR_CASE_PARTITION_V1_SCHEMA, SectorOrthantConstraint, SectorOrthantSide,
-    SymbolicPolynomialPredicate, SymbolicPolynomialPredicateKind, SymbolicSectorCase,
-    SymbolicSectorCaseError, SymbolicSectorCaseId, SymbolicSectorCaseLimits,
-    SymbolicSectorCasePartitionBuilder, SymbolicSectorCasePartitionCertificate,
-    SymbolicSectorCaseSplit, SymbolicSectorCaseSplitChildren, SymbolicSectorCaseStats,
-    SymbolicSectorOrthant,
 };
 pub use symbolic_symmetry_transport::{
     SYMBOLIC_SYMMETRY_ROW_TRANSPORT_V1_SCHEMA, SymbolicSymmetryRowTransportCertificate,
@@ -316,14 +258,6 @@ pub use tensor_reduction_engine::{
     TensorReductionCertificateError, TensorReductionEngineError, TensorReductionEngineLimits,
     TensorReductionEngineStats, TensorReductionGuard, TensorReductionTermOrigin,
     TensorScalarSource,
-};
-pub use when_bad::{
-    WHEN_BAD_COMPILER_V1_SCHEMA, WHEN_BAD_COMPILER_V2_SCHEMA, WhenBadBoundaryHazardKind,
-    WhenBadCandidateBinding, WhenBadCertificate, WhenBadCompilation, WhenBadCompiler,
-    WhenBadCompilerError, WhenBadCompilerLimits, WhenBadCompilerStats, WhenBadDescentComponent,
-    WhenBadDomainCondition, WhenBadDomainConditionSource, WhenBadLeafClassification,
-    WhenBadLeafDisposition, WhenBadLeakEvent, WhenBadLeakNumeratorGate,
-    WhenBadUniformDescentWitness, WhenBadUnsupported, WhenBadUnsupportedReason,
 };
 pub use zero_sectors::{
     FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalyzer,

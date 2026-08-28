@@ -633,7 +633,16 @@ prototype event is not a closed branch.
    tensor reduction, scalar lowering/cancellation, guarded IBP application,
    stable master keys, and supplied master substitution. The new path itself
    remains pure Rust + Symbolica and uses independently generated RustRed
-   artifacts.
+   artifacts. Vakint's existing matcher supplies the canonical topology,
+   routing, and loop bindings; RustRed does not rematch it. Rebuild the current
+   oversized tensor prototypes as `tensor::{model,atom,lowering}` and
+   `tensor::projector::{pairing,contraction,orbit,vacuum}`. Preserve the small
+   mathematical kernels, use Symbolica-native polynomial/matrix operations,
+   keep arbitrary numerator weights as opaque `Atom`s separate from exact IBP
+   coefficients, and use orbit-quotient projector solves rather than dense
+   pairing-space inversion. The first vertical sentinel reuses Vakint's
+   checked one-loop `(k_mu k_nu + k.p)` analytic test and independently checks
+   projected tensor form, raw master coefficient, and final Laurent series.
 6. When a real FORM >= 4.2.1 executable becomes available, run Vakint's
    existing one- through four-loop end-to-end tests through the pinned
    alphaLoop, MATAD, and/or FMFT backends only in the segregated oracle job.
