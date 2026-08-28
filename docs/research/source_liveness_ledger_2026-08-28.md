@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `8a06a65`, updated after each R3 cluster milestone.
+**Baseline:** `1be1cc3`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 147 tracked Rust source/build/test paths
+This ledger classifies every one of the 143 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 23 |
-| split | 120 |
+| split | 116 |
 | delete | 3 |
 | replace | 1 |
 
@@ -93,14 +93,10 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/generated_affine_residual_case_premises.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_case_reelimination.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_cylindrical_candidate_authority.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_persistent_elimination.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_residual_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_row_system.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_sector_coverage.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_sector_provider.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_cylindrical_sector_root_start.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
-| `src/generated_cylindrical_when_bad.rs` | split | foundry::solver::closure | retain live exceptional-start semantics; delete duplicate facades |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_sector_discovery.rs` | split | foundry::solver::closure | retain live discovery/queue semantics; delete provider duplication |

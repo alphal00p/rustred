@@ -22,16 +22,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::{
-    ConcreteIntegralKey, ConcreteRelation, GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA,
-    GeneratedCylindricalCandidateAuthorityError, GeneratedCylindricalWhenBadCertificate,
-    IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricArithmeticLimits,
-    ParametricCoefficientContext, ParametricCoefficientError, ParametricElimination,
-    ParametricEliminationError, ParametricEliminationOrdering, ParametricEliminationTrace,
-    ParametricRelation, ParametricRelationError, SectorFoundationError, SectorMask,
-    SpecializedNonZeroCondition, StrictDescentWitness, WhenBadCandidateSourceAuthority,
-    WhenBadCompilerError, WhenBadLeafDisposition, WhenBadOrderingAuthority,
-    WhenBadSourceAuthentication, algebra::Coefficient, algebra::ExactAlgebraError,
-    algebra::ExactAlgebraLimits,
+    ConcreteIntegralKey, ConcreteRelation, IndexShift, IntegralFamily, IntegralOrderingPolicy,
+    ParametricArithmeticLimits, ParametricCoefficientContext, ParametricCoefficientError,
+    ParametricElimination, ParametricEliminationError, ParametricEliminationOrdering,
+    ParametricEliminationTrace, ParametricRelation, ParametricRelationError, SectorFoundationError,
+    SectorMask, SpecializedNonZeroCondition, StrictDescentWitness, algebra::Coefficient,
+    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const PARAMETRIC_REDUCTION_RULE_V1_SCHEMA: &str = "rustred-parametric-reduction-rule-v1";
@@ -366,9 +362,9 @@ impl ParametricReductionRuleCandidate {
                 }
                 Err(error) => return Err(error.into()),
             };
-        let provenance = ConcreteReductionProvenance::Anchored(Arc::new(self.clone()));
+        let candidate = Arc::new(self.clone());
         match build_concrete_reduction(
-            provenance,
+            candidate,
             context,
             indices,
             concrete,
@@ -431,79 +427,8 @@ impl ParametricReductionRuleCandidate {
 }
 
 #[derive(Clone, Debug)]
-enum ConcreteReductionProvenance {
-    Anchored(Arc<ParametricReductionRuleCandidate>),
-    GeneratedCylindrical(Arc<GeneratedCylindricalWhenBadCertificate>),
-}
-
-impl ConcreteReductionProvenance {
-    fn family_fingerprint(&self) -> &str {
-        match self {
-            Self::Anchored(candidate) => candidate.family_fingerprint(),
-            Self::GeneratedCylindrical(certificate) => certificate.binding().family_fingerprint(),
-        }
-    }
-
-    fn family_fingerprint_arc(&self) -> Arc<str> {
-        match self {
-            Self::Anchored(candidate) => candidate.family_fingerprint.clone(),
-            Self::GeneratedCylindrical(certificate) => {
-                Arc::from(certificate.binding().family_fingerprint())
-            }
-        }
-    }
-
-    fn sector(&self) -> &SectorMask {
-        match self {
-            Self::Anchored(candidate) => candidate.sector(),
-            Self::GeneratedCylindrical(certificate) => certificate.binding().sector(),
-        }
-    }
-
-    fn ordering_policy(&self) -> IntegralOrderingPolicy {
-        match self {
-            Self::Anchored(candidate) => candidate.ordering().policy(),
-            Self::GeneratedCylindrical(certificate) => {
-                certificate.binding().ordering_authority().policy()
-            }
-        }
-    }
-
-    fn pivot_ordinal(&self) -> usize {
-        match self {
-            Self::Anchored(candidate) => candidate.pivot_ordinal(),
-            Self::GeneratedCylindrical(certificate) => certificate.binding().pivot_ordinal(),
-        }
-    }
-
-    fn payload_eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Anchored(left), Self::Anchored(right)) => {
-                left.family_fingerprint == right.family_fingerprint
-                    && left.context_fingerprint == right.context_fingerprint
-                    && left.sector == right.sector
-                    && left.ordering == right.ordering
-                    && left.source_row_count == right.source_row_count
-                    && left.source_manifest == right.source_manifest
-                    && left.pivot_ordinal == right.pivot_ordinal
-                    && left.original_pivot == right.original_pivot
-                    && left.trace == right.trace
-                    && left.discovery_anchor == right.discovery_anchor
-                    && left
-                        .centered_relation
-                        .has_identical_guard_provenance(&right.centered_relation)
-            }
-            (Self::GeneratedCylindrical(left), Self::GeneratedCylindrical(right)) => {
-                left.payload_eq(right)
-            }
-            _ => false,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct ConcreteReduction {
-    provenance: ConcreteReductionProvenance,
+    candidate: Arc<ParametricReductionRuleCandidate>,
     parametric_context: ParametricCoefficientContext,
     family_fingerprint: Arc<str>,
     pivot_ordinal: usize,
@@ -514,34 +439,19 @@ pub struct ConcreteReduction {
 }
 
 impl ConcreteReduction {
-    /// The legacy anchored candidate, when this application came from the
-    /// anchored adaptive-elimination path.
-    pub fn anchored_candidate(&self) -> Option<&ParametricReductionRuleCandidate> {
-        match &self.provenance {
-            ConcreteReductionProvenance::Anchored(candidate) => Some(candidate),
-            ConcreteReductionProvenance::GeneratedCylindrical(_) => None,
-        }
+    /// The exact parametric candidate specialized by this reduction.
+    pub fn candidate(&self) -> &ParametricReductionRuleCandidate {
+        &self.candidate
     }
 
-    /// The generated cylindrical `WhenBad` certificate, when this application
-    /// came from the anchor-free persistent cylindrical path.
-    pub fn generated_cylindrical_certificate(
-        &self,
-    ) -> Option<&GeneratedCylindricalWhenBadCertificate> {
-        match &self.provenance {
-            ConcreteReductionProvenance::Anchored(_) => None,
-            ConcreteReductionProvenance::GeneratedCylindrical(certificate) => Some(certificate),
-        }
-    }
-
-    /// The authenticated sector for either concrete-rule provenance arm.
+    /// The candidate sector authenticated by this concrete reduction.
     pub fn sector(&self) -> &SectorMask {
-        self.provenance.sector()
+        self.candidate.sector()
     }
 
-    /// The authenticated strict-descent policy for either provenance arm.
+    /// The candidate's authenticated strict-descent policy.
     pub fn ordering_policy(&self) -> IntegralOrderingPolicy {
-        self.provenance.ordering_policy()
+        self.candidate.ordering().policy()
     }
 
     /// Exact `K(n)` identity used to specialize this persisted application.
@@ -591,13 +501,10 @@ impl ConcreteReduction {
             })
     }
 
-    /// Rebuild the complete retained provenance, re-specialize it at the
+    /// Rebuild the retained candidate, re-specialize it at the
     /// authenticated integer assignment, and compare the entire application
     /// payload.
-    ///
-    /// This total persistence boundary accepts the family because generated
-    /// cylindrical provenance must regenerate and authenticate its complete
-    /// source. The cheaper
+    /// The cheaper
     /// [`Self::verify_application`] checks only the already-specialized
     /// equation and is used by the demand engine, which has a base-field
     /// context but not the extended `K(n)` context.
@@ -608,168 +515,22 @@ impl ConcreteReduction {
     ) -> Result<bool, ParametricRuleError> {
         if family.fingerprint_ref() != self.family_fingerprint.as_ref()
             || self.parametric_context.fingerprint() != context.fingerprint()
-            || self.provenance.family_fingerprint() != self.family_fingerprint.as_ref()
-            || self.provenance.pivot_ordinal() != self.pivot_ordinal
+            || self.candidate.family_fingerprint() != self.family_fingerprint.as_ref()
+            || self.candidate.pivot_ordinal() != self.pivot_ordinal
             || !self.sector().contains_indices(self.source.powers())?
         {
             return Ok(false);
         }
-        let replayed = match &self.provenance {
-            ConcreteReductionProvenance::Anchored(candidate) => {
-                if candidate.context_fingerprint() != context.fingerprint() {
-                    return Ok(false);
-                }
-                candidate.replay_retained(context)?;
-                let ParametricRuleApplication::Applicable(replayed) =
-                    candidate.apply(context, self.source.powers())?
-                else {
-                    return Ok(false);
-                };
-                replayed
-            }
-            ConcreteReductionProvenance::GeneratedCylindrical(certificate) => {
-                certificate.replay(family, context)?;
-                Self::apply_generated_cylindrical(
-                    Arc::clone(certificate),
-                    context,
-                    self.source.powers(),
-                )?
-            }
+        if self.candidate.context_fingerprint() != context.fingerprint() {
+            return Ok(false);
+        }
+        self.candidate.replay_retained(context)?;
+        let ParametricRuleApplication::Applicable(replayed) =
+            self.candidate.apply(context, self.source.powers())?
+        else {
+            return Ok(false);
         };
         Ok(self.has_identical_application(&replayed))
-    }
-
-    /// Apply one fully certified, anchor-free generated cylindrical recurrence
-    /// at exact integer indices.
-    ///
-    /// The local `WhenBad` leaf must be `CoveredByCandidate`. The centered
-    /// identity is then specialized exactly once, including every inherited
-    /// base-field assumption. Any disagreement between that local result and
-    /// the certified leaf is a typed error; this path never converts such a
-    /// disagreement into an uncovered or inapplicable decision.
-    pub fn apply_generated_cylindrical(
-        certificate: Arc<GeneratedCylindricalWhenBadCertificate>,
-        context: &ParametricCoefficientContext,
-        indices: &[i64],
-    ) -> Result<Self, ParametricRuleError> {
-        if certificate.schema() != GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA {
-            return Err(WhenBadCompilerError::SchemaMismatch.into());
-        }
-        let binding = certificate.binding();
-        let candidate = certificate.candidate();
-        if context.fingerprint() != binding.context_fingerprint()
-            || context.fingerprint() != candidate.context_fingerprint()
-        {
-            return Err(ParametricRuleError::WrongContext);
-        }
-        if binding.family_fingerprint() != candidate.family_fingerprint() {
-            return Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::CertificateBinding {
-                    detail: "candidate family fingerprint differs from WhenBad binding",
-                },
-            ));
-        }
-        if binding.source_authentication()
-            != WhenBadSourceAuthentication::GeneratedCylindricalPersistentEliminationV2
-            || !matches!(
-                binding.ordering_authority(),
-                WhenBadOrderingAuthority::CylindricalV1 { .. }
-            )
-            || !matches!(
-                binding.source_authority(),
-                WhenBadCandidateSourceAuthority::GeneratedCylindricalPersistentV2 { .. }
-            )
-        {
-            return Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::CertificateBinding {
-                    detail: "WhenBad binding is not generated cylindrical persistent V2 authority",
-                },
-            ));
-        }
-        if binding.sector() != candidate.sector()
-            || binding.pivot_ordinal() != candidate.pivot_ordinal()
-            || binding.ordering_authority().policy() != candidate.ordering_policy()
-        {
-            return Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::CertificateBinding {
-                    detail: "candidate sector, pivot, or ordering differs from WhenBad binding",
-                },
-            ));
-        }
-        if indices.len() != binding.sector().arity() {
-            return Err(ParametricRuleError::WrongArity {
-                expected: binding.sector().arity(),
-                actual: indices.len(),
-            });
-        }
-        if !binding.sector().contains_indices(indices)? {
-            return Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::OutsideCertifiedSector,
-            ));
-        }
-        let classification = certificate
-            .classification_for_indices(context, indices)?
-            .ok_or_else(|| {
-                generated_cylindrical_mismatch(
-                    GeneratedCylindricalApplicationMismatch::UnclassifiedPoint,
-                )
-            })?;
-        if classification.disposition() != &WhenBadLeafDisposition::CoveredByCandidate {
-            return Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::LeafNotCovered {
-                    disposition: classification.disposition().clone(),
-                },
-            ));
-        }
-
-        // This is the sole centered-identity specialization in the concrete
-        // application path. It also attaches every authenticated cylindrical
-        // base assumption to the resulting concrete relation.
-        let limits = certificate.limits();
-        let concrete =
-            match candidate.specialize_identity_for_proof(context, indices, limits.arithmetic) {
-                Ok(concrete) => concrete,
-                Err(GeneratedCylindricalCandidateAuthorityError::Relation(
-                    ParametricRelationError::UnsatisfiableDomain,
-                )) => {
-                    return Err(generated_cylindrical_mismatch(
-                        GeneratedCylindricalApplicationMismatch::UnsatisfiableSpecialization,
-                    ));
-                }
-                Err(error) => return Err(error.into()),
-            };
-        let provenance = ConcreteReductionProvenance::GeneratedCylindrical(certificate);
-        match build_concrete_reduction(
-            provenance,
-            context,
-            indices,
-            concrete,
-            limits.arithmetic.exact_algebra,
-            limits.max_rhs_terms,
-        ) {
-            Ok(ConcreteReductionBuildOutcome::Applicable(reduction)) => Ok(reduction),
-            Ok(ConcreteReductionBuildOutcome::RhsSectorLeak {
-                target,
-                target_sector,
-            }) => Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::RhsSectorLeak {
-                    target,
-                    target_sector,
-                },
-            )),
-            Ok(ConcreteReductionBuildOutcome::NonDescendingRhs { target }) => {
-                Err(generated_cylindrical_mismatch(
-                    GeneratedCylindricalApplicationMismatch::NonDescendingRhs { target },
-                ))
-            }
-            Err(ParametricRuleError::MissingConcreteLhs) => Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::MissingConcreteLhs,
-            )),
-            Err(ParametricRuleError::NonUnitConcreteLhs) => Err(generated_cylindrical_mismatch(
-                GeneratedCylindricalApplicationMismatch::NonUnitConcreteLhs,
-            )),
-            Err(error) => Err(error),
-        }
     }
 
     fn has_identical_application(&self, other: &Self) -> bool {
@@ -782,7 +543,7 @@ impl ConcreteReduction {
             && self
                 .specialized_relation
                 .has_identical_guard_provenance(&other.specialized_relation)
-            && self.provenance.payload_eq(&other.provenance)
+            && candidates_have_identical_payload(&self.candidate, &other.candidate)
     }
 
     /// Replay the solved equation and its complete specialized guard payload.
@@ -793,8 +554,8 @@ impl ConcreteReduction {
         limits: ExactAlgebraLimits,
     ) -> Result<bool, ExactAlgebraError> {
         if self.specialized_relation.family_fingerprint() != self.family_fingerprint.as_ref()
-            || self.provenance.family_fingerprint() != self.family_fingerprint.as_ref()
-            || self.provenance.pivot_ordinal() != self.pivot_ordinal
+            || self.candidate.family_fingerprint() != self.family_fingerprint.as_ref()
+            || self.candidate.pivot_ordinal() != self.pivot_ordinal
             || self.ordering_policy() != policy
             || !self
                 .sector()
@@ -852,20 +613,36 @@ enum ConcreteReductionBuildOutcome {
     },
 }
 
-/// Build the common concrete solved equation after one caller has performed
-/// its provenance-specific admissibility check and exactly one specialization.
-/// Anchored callers preserve their historical inapplicability mapping, while
-/// generated cylindrical callers promote the two local disagreements below to
-/// [`GeneratedCylindricalApplicationMismatch`].
+fn candidates_have_identical_payload(
+    left: &ParametricReductionRuleCandidate,
+    right: &ParametricReductionRuleCandidate,
+) -> bool {
+    left.family_fingerprint == right.family_fingerprint
+        && left.context_fingerprint == right.context_fingerprint
+        && left.sector == right.sector
+        && left.ordering == right.ordering
+        && left.source_row_count == right.source_row_count
+        && left.source_manifest == right.source_manifest
+        && left.pivot_ordinal == right.pivot_ordinal
+        && left.original_pivot == right.original_pivot
+        && left.trace == right.trace
+        && left.discovery_anchor == right.discovery_anchor
+        && left
+            .centered_relation
+            .has_identical_guard_provenance(&right.centered_relation)
+}
+
+/// Build a concrete solved equation after the candidate has performed its
+/// admissibility check and exact specialization.
 fn build_concrete_reduction(
-    provenance: ConcreteReductionProvenance,
+    candidate: Arc<ParametricReductionRuleCandidate>,
     context: &ParametricCoefficientContext,
     indices: &[i64],
     concrete: ConcreteRelation,
     exact_algebra: ExactAlgebraLimits,
     max_rhs_terms: usize,
 ) -> Result<ConcreteReductionBuildOutcome, ParametricRuleError> {
-    if concrete.family_fingerprint() != provenance.family_fingerprint() {
+    if concrete.family_fingerprint() != candidate.family_fingerprint() {
         return Err(ParametricRuleError::WrongFamily);
     }
     let source = concrete
@@ -888,7 +665,7 @@ fn build_concrete_reduction(
 
     let rhs_count = concrete.terms().len().saturating_sub(1);
     check_rule_limit("specialized RHS terms", rhs_count, max_rhs_terms)?;
-    let policy = provenance.ordering_policy();
+    let policy = candidate.ordering().policy();
     let mut rhs = BTreeMap::new();
     let mut descent = BTreeMap::new();
     for (target, coefficient) in concrete.terms() {
@@ -896,7 +673,7 @@ fn build_concrete_reduction(
             continue;
         }
         let target_sector = SectorMask::try_from_indices(target.powers())?;
-        if !target_sector.is_subsector_of(provenance.sector())? {
+        if !target_sector.is_subsector_of(candidate.sector())? {
             return Ok(ConcreteReductionBuildOutcome::RhsSectorLeak {
                 target: target.clone(),
                 target_sector,
@@ -916,11 +693,11 @@ fn build_concrete_reduction(
         descent.insert(target.clone(), witness);
     }
 
-    let family_fingerprint = provenance.family_fingerprint_arc();
-    let pivot_ordinal = provenance.pivot_ordinal();
+    let family_fingerprint = Arc::clone(&candidate.family_fingerprint);
+    let pivot_ordinal = candidate.pivot_ordinal();
     Ok(ConcreteReductionBuildOutcome::Applicable(
         ConcreteReduction {
-            provenance,
+            candidate,
             parametric_context: context.clone(),
             family_fingerprint,
             pivot_ordinal,
@@ -959,38 +736,6 @@ pub enum ParametricRuleUndecidability {
     ConcreteIndicesRequired,
 }
 
-/// A fully certified generated cylindrical leaf disagreed with the one local
-/// concrete specialization it was meant to authorize. These failures are
-/// proof errors, never an uncovered/master decision and never legacy
-/// `ParametricRuleApplication::Inapplicable`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GeneratedCylindricalApplicationMismatch {
-    CertificateBinding {
-        detail: &'static str,
-    },
-    OutsideCertifiedSector,
-    UnclassifiedPoint,
-    LeafNotCovered {
-        disposition: WhenBadLeafDisposition,
-    },
-    UnsatisfiableSpecialization,
-    MissingConcreteLhs,
-    NonUnitConcreteLhs,
-    RhsSectorLeak {
-        target: ConcreteIntegralKey,
-        target_sector: SectorMask,
-    },
-    NonDescendingRhs {
-        target: ConcreteIntegralKey,
-    },
-}
-
-fn generated_cylindrical_mismatch(
-    mismatch: GeneratedCylindricalApplicationMismatch,
-) -> ParametricRuleError {
-    ParametricRuleError::GeneratedCylindricalApplicationMismatch(mismatch)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricRuleError {
     WrongContext,
@@ -1025,9 +770,6 @@ pub enum ParametricRuleError {
     Relation(ParametricRelationError),
     Elimination(ParametricEliminationError),
     Sector(SectorFoundationError),
-    GeneratedCylindricalCandidate(Box<GeneratedCylindricalCandidateAuthorityError>),
-    GeneratedCylindricalWhenBad(Box<WhenBadCompilerError>),
-    GeneratedCylindricalApplicationMismatch(GeneratedCylindricalApplicationMismatch),
 }
 
 impl fmt::Display for ParametricRuleError {
@@ -1088,14 +830,6 @@ impl fmt::Display for ParametricRuleError {
             Self::Relation(error) => error.fmt(formatter),
             Self::Elimination(error) => error.fmt(formatter),
             Self::Sector(error) => error.fmt(formatter),
-            Self::GeneratedCylindricalCandidate(error) => error.fmt(formatter),
-            Self::GeneratedCylindricalWhenBad(error) => error.fmt(formatter),
-            Self::GeneratedCylindricalApplicationMismatch(mismatch) => {
-                write!(
-                    formatter,
-                    "generated cylindrical application mismatch: {mismatch:?}"
-                )
-            }
         }
     }
 }
@@ -1129,18 +863,6 @@ impl From<ParametricEliminationError> for ParametricRuleError {
 impl From<SectorFoundationError> for ParametricRuleError {
     fn from(value: SectorFoundationError) -> Self {
         Self::Sector(value)
-    }
-}
-
-impl From<GeneratedCylindricalCandidateAuthorityError> for ParametricRuleError {
-    fn from(value: GeneratedCylindricalCandidateAuthorityError) -> Self {
-        Self::GeneratedCylindricalCandidate(Box::new(value))
-    }
-}
-
-impl From<WhenBadCompilerError> for ParametricRuleError {
-    fn from(value: WhenBadCompilerError) -> Self {
-        Self::GeneratedCylindricalWhenBad(Box::new(value))
     }
 }
 

@@ -1,11 +1,20 @@
 # Persistent cylindrical numeric quotient checkpoint
 
-Status: implemented, independently audited, and replay-tested on 2026-08-20.
-This is a generic `SolvejSector` derivation and application milestone. It is
-not a claim of complete LiteRed parity or a complete parametric rule database
-for every integer point of an arbitrary two-loop family.
+Status: **retired on 2026-08-28**. This document records an implementation that
+was independently audited and replay-tested on 2026-08-20, but whose provider,
+cylindrical coverage, and numeric-quotient proof stack has since been deleted.
+The affine solver lane strictly subsumes the useful cylindrical geometry, and
+the old stack was disconnected from the current app and private foundry path.
 
-## What is now implemented
+All present-tense language, file/test references, schema versions, and measured
+results below describe that historical checkpoint only; they are not claims
+about the live source tree. The document is retained as algorithmic evidence
+for the former generic `SolvejSector` experiment, not as an implementation
+guide or compatibility requirement. It was never a claim of complete LiteRed
+parity or a complete parametric rule database for every integer point of an
+arbitrary two-loop family.
+
+## What the retired checkpoint implemented
 
 RustRed can take the exact translated rows retained by an authenticated
 cylindrical persistent-elimination certificate and perform LiteRed's numeric
@@ -29,7 +38,7 @@ rows, column order, exact sparse-elimination transcript, selected pivot, final
 guards, and descent witnesses. Standalone replay reconstructs and compares
 that payload after the provider and reduction engine have been dropped.
 
-The production implementation is in:
+The retired implementation was in:
 
 - `src/certified_rewrite.rs`, proof arm
   `GeneratedCylindricalNumericQuotientElimination`;

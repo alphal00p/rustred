@@ -47,14 +47,10 @@ mod generated_affine_residual_case_completed_bound_row;
 mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;
 pub(crate) mod generated_affine_residual_source_authority;
-pub mod generated_cylindrical_candidate_authority;
 pub mod generated_cylindrical_persistent_elimination;
 pub mod generated_cylindrical_residual_start;
 pub mod generated_cylindrical_row_system;
-pub mod generated_cylindrical_sector_coverage;
-pub mod generated_cylindrical_sector_provider;
 pub mod generated_cylindrical_sector_root_start;
-pub mod generated_cylindrical_when_bad;
 pub(crate) mod generated_residual_affine_condition_accumulator;
 pub mod generated_residual_affine_when_bad;
 pub mod generated_sector_discovery;
@@ -188,13 +184,6 @@ pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
 };
-pub use generated_cylindrical_candidate_authority::{
-    GENERATED_CYLINDRICAL_CANDIDATE_AUTHORITY_V1_SCHEMA, GeneratedCylindricalCandidateAuthority,
-    GeneratedCylindricalCandidateAuthorityError, GeneratedCylindricalCandidateAuthorityLimits,
-    GeneratedCylindricalCandidateAuthorityStats, GeneratedCylindricalCandidateOrderingAuthority,
-    GeneratedCylindricalCenteredAssignment, GeneratedCylindricalGlobalCandidateAuthority,
-    GeneratedCylindricalLocusBoundCandidateAuthority,
-};
 /// Persistent generated-row elimination authority.
 ///
 /// The exported V1 schema string is identification-only: this crate does not
@@ -226,28 +215,10 @@ pub use generated_cylindrical_row_system::{
     GeneratedCylindricalRowSystemStats, GeneratedCylindricalSourceRowOutcome,
     GeneratedCylindricalSourceRowWitness,
 };
-pub use generated_cylindrical_sector_coverage::{
-    GENERATED_CYLINDRICAL_SECTOR_COVERAGE_V1_SCHEMA,
-    GENERATED_CYLINDRICAL_SECTOR_COVERAGE_V2_SCHEMA, GeneratedCylindricalSectorCoverageAttempt,
-    GeneratedCylindricalSectorCoverageBatchProvenance,
-    GeneratedCylindricalSectorCoverageCertificate, GeneratedCylindricalSectorCoverageCompiler,
-    GeneratedCylindricalSectorCoverageError, GeneratedCylindricalSectorCoverageLimits,
-    GeneratedCylindricalSectorCoverageStats, GeneratedCylindricalSectorLeafDisposition,
-};
-pub use generated_cylindrical_sector_provider::{
-    GENERATED_CYLINDRICAL_SECTOR_RULE_PROVIDER_V1_SCHEMA, GeneratedCylindricalSectorRuleProvider,
-    GeneratedCylindricalSectorRuleProviderBuildStats, GeneratedCylindricalSectorRuleProviderError,
-    GeneratedCylindricalSectorRuleProviderLimits, GeneratedCylindricalSectorRuleProviderStats,
-};
 pub use generated_cylindrical_sector_root_start::{
     GENERATED_CYLINDRICAL_SECTOR_ROOT_START_V1_SCHEMA,
     GeneratedCylindricalSectorRootStartCertificate, GeneratedCylindricalSectorRootStartError,
     GeneratedCylindricalSectorRootStartLimits, GeneratedCylindricalSectorRootStartStats,
-};
-pub use generated_cylindrical_when_bad::{
-    GENERATED_CYLINDRICAL_WHEN_BAD_V1_SCHEMA, GeneratedCylindricalWhenBadCertificate,
-    GeneratedCylindricalWhenBadCompilation, GeneratedCylindricalWhenBadCompiler,
-    GeneratedCylindricalWhenBadUnsupported,
 };
 pub use generated_residual_affine_when_bad::{
     AFFINE_WHEN_BAD_RELATIVE_PARTITION_V1_SCHEMA, AffineWhenBadAtom, AffineWhenBadClauseProvenance,
@@ -363,8 +334,7 @@ pub use parametric_relation::{
     PartialSpecializationBaseAssumption,
 };
 pub use parametric_rules::{
-    ConcreteReduction, GeneratedCylindricalApplicationMismatch,
-    PARAMETRIC_REDUCTION_RULE_V1_SCHEMA, PARAMETRIC_RULE_DERIVATION_V1_SCHEMA,
+    ConcreteReduction, PARAMETRIC_REDUCTION_RULE_V1_SCHEMA, PARAMETRIC_RULE_DERIVATION_V1_SCHEMA,
     ParametricReductionRule, ParametricReductionRuleCandidate, ParametricRuleApplication,
     ParametricRuleDerivation, ParametricRuleError, ParametricRuleInapplicability,
     ParametricRuleLimits, ParametricRuleUndecidability, RUNTIME_DESCENT_GUARD_V1_SCHEMA,
@@ -517,13 +487,11 @@ pub use tensor_reduction_engine::{
 };
 pub use when_bad::{
     WHEN_BAD_COMPILER_V1_SCHEMA, WHEN_BAD_COMPILER_V2_SCHEMA, WhenBadBoundaryHazardKind,
-    WhenBadCandidateBinding, WhenBadCandidateSourceAuthority, WhenBadCertificate,
-    WhenBadCompilation, WhenBadCompiler, WhenBadCompilerError, WhenBadCompilerLimits,
-    WhenBadCompilerStats, WhenBadDescentComponent, WhenBadDomainCondition,
-    WhenBadDomainConditionSource, WhenBadLeafClassification, WhenBadLeafDisposition,
-    WhenBadLeakEvent, WhenBadLeakNumeratorGate, WhenBadOrderingAuthority,
-    WhenBadSourceAuthentication, WhenBadUniformDescentWitness, WhenBadUnsupported,
-    WhenBadUnsupportedReason,
+    WhenBadCandidateBinding, WhenBadCertificate, WhenBadCompilation, WhenBadCompiler,
+    WhenBadCompilerError, WhenBadCompilerLimits, WhenBadCompilerStats, WhenBadDescentComponent,
+    WhenBadDomainCondition, WhenBadDomainConditionSource, WhenBadLeafClassification,
+    WhenBadLeafDisposition, WhenBadLeakEvent, WhenBadLeakNumeratorGate,
+    WhenBadUniformDescentWitness, WhenBadUnsupported, WhenBadUnsupportedReason,
 };
 pub use zero_sectors::{
     FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalysis,

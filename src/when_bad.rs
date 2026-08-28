@@ -5,9 +5,8 @@
 //! canonical IBP/LI generator. This low-level module compiles such an
 //! algebraically authenticated candidate's coefficient domain and
 //! coefficient-aware inactive-boundary leaks into a finite symbolic case
-//! partition. Its certificate carries an explicit
-//! [`WhenBadSourceAuthentication::AlgebraicOnly`] marker so a future
-//! generated-source wrapper cannot confuse it with canonical IBP provenance.
+//! partition. Canonical IBP provenance remains the responsibility of the
+//! generated-source wrapper that owns this algebraic proof.
 //! The implementation is topology and loop-count independent and invokes
 //! neither Mathematica nor FORM.
 //!
@@ -19,8 +18,6 @@
 //! are processed first, matching LiteRed's ordering of domain failures before
 //! sector leaks.
 
-#[cfg(test)]
-use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write as _;
@@ -28,16 +25,12 @@ use std::mem::size_of;
 use std::sync::Arc;
 
 use crate::exact_identity::{ExactIdentityError, ExactIdentityWriter};
-use crate::generated_cylindrical_candidate_authority::{
-    GeneratedCylindricalReplaySession, ReplayedGeneratedCylindricalGlobalCandidate,
-};
 use crate::{
-    GeneratedCylindricalCandidateAuthorityError, GeneratedCylindricalGlobalCandidateAuthority,
-    GuardOrigin, IndexShift, IntegralFamily, IntegralOrderingPolicy, ParametricArithmeticLimits,
+    GuardOrigin, IndexShift, IntegralOrderingPolicy, ParametricArithmeticLimits,
     ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
-    ParametricReductionRuleCandidate, ParametricRelation, ParametricRuleError,
-    ParametricRuleLimits, SectorMask, SymbolicPolynomialPredicateKind, SymbolicSectorCaseError,
-    SymbolicSectorCaseId, SymbolicSectorCaseLimits, SymbolicSectorCasePartitionBuilder,
+    ParametricReductionRuleCandidate, ParametricRuleError, ParametricRuleLimits, SectorMask,
+    SymbolicPolynomialPredicateKind, SymbolicSectorCaseError, SymbolicSectorCaseId,
+    SymbolicSectorCaseLimits, SymbolicSectorCasePartitionBuilder,
     SymbolicSectorCasePartitionCertificate,
 };
 
@@ -47,41 +40,6 @@ pub(crate) const WHEN_BAD_CERTIFIED_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-when-bad-certified-stable-value-identity-v1";
 pub(crate) const WHEN_BAD_UNSUPPORTED_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-when-bad-unsupported-stable-value-identity-v1";
-
-#[cfg(test)]
-thread_local! {
-    static REPLAYED_CYLINDRICAL_CORE_CONSTRUCTIONS: Cell<usize> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(crate) fn reset_replayed_cylindrical_core_construction_count_for_test() {
-    REPLAYED_CYLINDRICAL_CORE_CONSTRUCTIONS.with(|count| count.set(0));
-}
-
-#[cfg(test)]
-pub(crate) fn replayed_cylindrical_core_construction_count_for_test() -> usize {
-    REPLAYED_CYLINDRICAL_CORE_CONSTRUCTIONS.with(Cell::get)
-}
-
-#[cfg(test)]
-fn record_replayed_cylindrical_core_construction_for_test() {
-    REPLAYED_CYLINDRICAL_CORE_CONSTRUCTIONS.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WhenBadSourceAuthentication {
-    /// Candidate and retained elimination replay exactly, but their root rows
-    /// have not been regenerated from an `IntegralFamily` by this layer.
-    AlgebraicOnly,
-    /// The complete generated cylindrical persistent-elimination source and
-    /// the selected global candidate were replayed before this core proof was
-    /// compiled. This says nothing about a concrete application: the
-    /// candidate remains pre-rule until an enclosing generated certificate
-    /// retains this `WhenBad` proof.
-    GeneratedCylindricalPersistentEliminationV2,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WhenBadCompilerLimits {
@@ -147,98 +105,19 @@ impl Default for WhenBadCompilerLimits {
     }
 }
 
-/// Persisted ordering authority used by one `WhenBad` proof.
-///
-/// A concrete discovery point exists only for the legacy anchored
-/// elimination arm. Cylindrical ordering is authenticated by its exact stable
-/// manifest and never fabricates an anchor.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WhenBadOrderingAuthority {
-    AnchoredV1 {
-        policy: IntegralOrderingPolicy,
-        // Retain fallibly reserved buffers. `Arc<str>`/boxed-slice conversion
-        // would perform a second infallible proportional allocation.
-        manifest: String,
-        discovery_anchor: Vec<i64>,
-    },
-    CylindricalV1 {
-        policy: IntegralOrderingPolicy,
-        manifest: String,
-    },
-}
-
-impl WhenBadOrderingAuthority {
-    pub const fn policy(&self) -> IntegralOrderingPolicy {
-        match self {
-            Self::AnchoredV1 { policy, .. } | Self::CylindricalV1 { policy, .. } => *policy,
-        }
-    }
-
-    pub fn manifest(&self) -> &str {
-        match self {
-            Self::AnchoredV1 { manifest, .. } | Self::CylindricalV1 { manifest, .. } => manifest,
-        }
-    }
-
-    pub fn discovery_anchor(&self) -> Option<&[i64]> {
-        match self {
-            Self::AnchoredV1 {
-                discovery_anchor, ..
-            } => Some(discovery_anchor),
-            Self::CylindricalV1 { .. } => None,
-        }
-    }
-}
-
-/// Exact source identity retained by one `WhenBad` binding.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WhenBadCandidateSourceAuthority {
-    AnchoredEliminationV1 {
-        source_manifest: String,
-        source_row_count: usize,
-        trace_manifest: String,
-        rule_limits: ParametricRuleLimits,
-    },
-    GeneratedCylindricalPersistentV2 {
-        local_candidate_identity: String,
-        source_row_count: usize,
-    },
-}
-
-impl WhenBadCandidateSourceAuthority {
-    fn source_identity(&self) -> &str {
-        match self {
-            Self::AnchoredEliminationV1 {
-                source_manifest, ..
-            } => source_manifest,
-            Self::GeneratedCylindricalPersistentV2 {
-                local_candidate_identity,
-                ..
-            } => local_candidate_identity,
-        }
-    }
-
-    const fn source_row_count(&self) -> usize {
-        match self {
-            Self::AnchoredEliminationV1 {
-                source_row_count, ..
-            }
-            | Self::GeneratedCylindricalPersistentV2 {
-                source_row_count, ..
-            } => *source_row_count,
-        }
-    }
-}
-
 /// Exact fields that bind a compiled domain to one replayed candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WhenBadCandidateBinding {
-    source_authentication: WhenBadSourceAuthentication,
     family_fingerprint: String,
     context_fingerprint: String,
     sector: SectorMask,
-    ordering_authority: WhenBadOrderingAuthority,
-    source_authority: WhenBadCandidateSourceAuthority,
+    ordering_policy: IntegralOrderingPolicy,
+    ordering_manifest: String,
+    discovery_anchor: Vec<i64>,
+    source_manifest: String,
+    source_row_count: usize,
+    trace_manifest: String,
+    rule_limits: ParametricRuleLimits,
     pivot_ordinal: usize,
     original_pivot: IndexShift,
     centered_relation_manifest: String,
@@ -246,10 +125,6 @@ pub struct WhenBadCandidateBinding {
 }
 
 impl WhenBadCandidateBinding {
-    pub fn source_authentication(&self) -> WhenBadSourceAuthentication {
-        self.source_authentication
-    }
-
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint
     }
@@ -263,23 +138,23 @@ impl WhenBadCandidateBinding {
     }
 
     pub fn ordering(&self) -> &str {
-        self.ordering_authority.manifest()
+        &self.ordering_manifest
     }
 
-    pub const fn ordering_authority(&self) -> &WhenBadOrderingAuthority {
-        &self.ordering_authority
+    pub const fn ordering_policy(&self) -> IntegralOrderingPolicy {
+        self.ordering_policy
     }
 
-    pub const fn source_authority(&self) -> &WhenBadCandidateSourceAuthority {
-        &self.source_authority
+    pub fn discovery_anchor(&self) -> &[i64] {
+        &self.discovery_anchor
     }
 
     pub fn source_manifest(&self) -> &str {
-        self.source_authority.source_identity()
+        &self.source_manifest
     }
 
     pub fn source_row_count(&self) -> usize {
-        self.source_authority.source_row_count()
+        self.source_row_count
     }
 
     pub fn pivot_ordinal(&self) -> usize {
@@ -297,10 +172,6 @@ pub enum WhenBadDomainConditionSource {
         ordinal: usize,
         origins: Vec<GuardOrigin>,
     },
-    GeneratedCylindricalBaseAssumption {
-        witness_ordinal: usize,
-        origins: Vec<GuardOrigin>,
-    },
     CoefficientDenominator {
         shift: IndexShift,
     },
@@ -314,10 +185,6 @@ enum BorrowedWhenBadDomainConditionSource<'a> {
         ordinal: usize,
         origins: &'a BTreeSet<GuardOrigin>,
     },
-    GeneratedCylindricalBaseAssumption {
-        witness_ordinal: usize,
-        origins: &'a BTreeSet<GuardOrigin>,
-    },
     CoefficientDenominator {
         shift: &'a IndexShift,
     },
@@ -326,16 +193,14 @@ enum BorrowedWhenBadDomainConditionSource<'a> {
 impl BorrowedWhenBadDomainConditionSource<'_> {
     fn origin_count(self) -> usize {
         match self {
-            Self::PersistedGuard { origins, .. }
-            | Self::GeneratedCylindricalBaseAssumption { origins, .. } => origins.len(),
+            Self::PersistedGuard { origins, .. } => origins.len(),
             Self::CoefficientDenominator { .. } => 0,
         }
     }
 
     fn origin_retained_bytes(self) -> Result<usize, WhenBadCompilerError> {
         let origins = match self {
-            Self::PersistedGuard { origins, .. }
-            | Self::GeneratedCylindricalBaseAssumption { origins, .. } => origins,
+            Self::PersistedGuard { origins, .. } => origins,
             Self::CoefficientDenominator { .. } => return Ok(0),
         };
         origins.iter().try_fold(0usize, |total, origin| {
@@ -361,16 +226,6 @@ impl BorrowedWhenBadDomainConditionSource<'_> {
                 },
             ) => ordinal == *retained_ordinal && origins.iter().eq(retained_origins.iter()),
             (
-                Self::GeneratedCylindricalBaseAssumption {
-                    witness_ordinal,
-                    origins,
-                },
-                WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
-                    witness_ordinal: retained_ordinal,
-                    origins: retained_origins,
-                },
-            ) => witness_ordinal == *retained_ordinal && origins.iter().eq(retained_origins.iter()),
-            (
                 Self::CoefficientDenominator { shift },
                 WhenBadDomainConditionSource::CoefficientDenominator {
                     shift: retained_shift,
@@ -388,13 +243,6 @@ impl BorrowedWhenBadDomainConditionSource<'_> {
                     origins: try_copy_guard_origins(origins)?,
                 }
             }
-            Self::GeneratedCylindricalBaseAssumption {
-                witness_ordinal,
-                origins,
-            } => WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
-                witness_ordinal,
-                origins: try_copy_guard_origins(origins)?,
-            },
             Self::CoefficientDenominator { shift } => {
                 WhenBadDomainConditionSource::CoefficientDenominator {
                     shift: IndexShift::try_new(shift.values().iter().copied(), shift.arity())?,
@@ -724,8 +572,7 @@ pub struct WhenBadUnsupported {
     core: WhenBadUnsupportedCore,
 }
 
-/// Candidate-independent unsupported payload shared by the anchored and
-/// generated cylindrical wrappers. Construction is sealed in this module.
+/// Candidate-independent unsupported payload retained next to its candidate.
 #[derive(Clone, Debug)]
 pub(crate) struct WhenBadUnsupportedCore {
     binding: WhenBadCandidateBinding,
@@ -861,9 +708,7 @@ pub struct WhenBadCertificate {
     core: WhenBadCertifiedCore,
 }
 
-/// Candidate-independent certified `WhenBad` proof. The type is crate-visible
-/// for the generated cylindrical wrapper, but all construction remains sealed
-/// behind [`WhenBadCompiler`].
+/// Candidate-independent certified `WhenBad` proof.
 #[derive(Clone, Debug)]
 pub(crate) struct WhenBadCertifiedCore {
     schema: &'static str,
@@ -1063,25 +908,17 @@ fn write_candidate_binding_identity(
     tag: &str,
     binding: &WhenBadCandidateBinding,
 ) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 9)?;
-    writer.variant(
-        "source_authentication",
-        match binding.source_authentication {
-            WhenBadSourceAuthentication::AlgebraicOnly => "AlgebraicOnly",
-            WhenBadSourceAuthentication::GeneratedCylindricalPersistentEliminationV2 => {
-                "GeneratedCylindricalPersistentEliminationV2"
-            }
-        },
-    )?;
+    writer.begin_record(tag, 13)?;
     writer.string("family_fingerprint", &binding.family_fingerprint)?;
     writer.string("context_fingerprint", &binding.context_fingerprint)?;
     write_sector_identity(writer, "sector", &binding.sector)?;
-    write_ordering_authority_identity(writer, "ordering_authority", &binding.ordering_authority)?;
-    write_candidate_source_authority_identity(
-        writer,
-        "source_authority",
-        &binding.source_authority,
-    )?;
+    writer.variant("ordering_policy", binding.ordering_policy.stable_id())?;
+    writer.string("ordering_manifest", &binding.ordering_manifest)?;
+    write_i64_sequence_identity(writer, "discovery_anchor", &binding.discovery_anchor)?;
+    writer.string("source_manifest", &binding.source_manifest)?;
+    writer.usize("source_row_count", binding.source_row_count)?;
+    writer.string("trace_manifest", &binding.trace_manifest)?;
+    write_parametric_rule_limits_identity(writer, "rule_limits", binding.rule_limits)?;
     writer.usize("pivot_ordinal", binding.pivot_ordinal)?;
     write_i64_sequence_identity(writer, "original_pivot", binding.original_pivot.values())?;
     writer.string(
@@ -1090,69 +927,6 @@ fn write_candidate_binding_identity(
     )?;
     // `retained_bytes` is allocator/ABI dependent and is a replay admission
     // diagnostic, not part of the allocation-independent mathematical value.
-    writer.end_record()
-}
-
-fn write_ordering_authority_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    authority: &WhenBadOrderingAuthority,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match authority {
-        WhenBadOrderingAuthority::AnchoredV1 {
-            policy,
-            manifest,
-            discovery_anchor,
-        } => {
-            writer.variant("variant", "AnchoredV1")?;
-            writer.begin_record("fields", 3)?;
-            writer.variant("policy", policy.stable_id())?;
-            writer.string("manifest", manifest)?;
-            write_i64_sequence_identity(writer, "discovery_anchor", discovery_anchor)?;
-        }
-        WhenBadOrderingAuthority::CylindricalV1 { policy, manifest } => {
-            writer.variant("variant", "CylindricalV1")?;
-            writer.begin_record("fields", 2)?;
-            writer.variant("policy", policy.stable_id())?;
-            writer.string("manifest", manifest)?;
-        }
-    }
-    writer.end_record()?;
-    writer.end_record()
-}
-
-fn write_candidate_source_authority_identity(
-    writer: &mut ExactIdentityWriter<'_>,
-    tag: &str,
-    authority: &WhenBadCandidateSourceAuthority,
-) -> Result<(), ExactIdentityError> {
-    writer.begin_record(tag, 2)?;
-    match authority {
-        WhenBadCandidateSourceAuthority::AnchoredEliminationV1 {
-            source_manifest,
-            source_row_count,
-            trace_manifest,
-            rule_limits,
-        } => {
-            writer.variant("variant", "AnchoredEliminationV1")?;
-            writer.begin_record("fields", 4)?;
-            writer.string("source_manifest", source_manifest)?;
-            writer.usize("source_row_count", *source_row_count)?;
-            writer.string("trace_manifest", trace_manifest)?;
-            write_parametric_rule_limits_identity(writer, "rule_limits", *rule_limits)?;
-        }
-        WhenBadCandidateSourceAuthority::GeneratedCylindricalPersistentV2 {
-            local_candidate_identity,
-            source_row_count,
-        } => {
-            writer.variant("variant", "GeneratedCylindricalPersistentV2")?;
-            writer.begin_record("fields", 2)?;
-            writer.string("local_candidate_identity", local_candidate_identity)?;
-            writer.usize("source_row_count", *source_row_count)?;
-        }
-    }
-    writer.end_record()?;
     writer.end_record()
 }
 
@@ -1183,19 +957,6 @@ fn write_domain_condition_source_identity(
             writer.variant("variant", "PersistedGuard")?;
             writer.begin_record("fields", 2)?;
             writer.usize("ordinal", *ordinal)?;
-            writer.begin_sequence("origins", origins.len())?;
-            for origin in origins {
-                writer.guard_origin("origin", origin)?;
-            }
-            writer.end_sequence()?;
-        }
-        WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
-            witness_ordinal,
-            origins,
-        } => {
-            writer.variant("variant", "GeneratedCylindricalBaseAssumption")?;
-            writer.begin_record("fields", 2)?;
-            writer.usize("witness_ordinal", *witness_ordinal)?;
             writer.begin_sequence("origins", origins.len())?;
             for origin in origins {
                 writer.guard_origin("origin", origin)?;
@@ -1761,73 +1522,8 @@ impl WhenBadCertifiedCore {
     }
 }
 
-/// Sealed pre-rule candidate view consumed by the single `WhenBad` algorithm.
-/// In particular there is no locus-bound arm and no caller-implementable
-/// trait which could manufacture global authority.
-#[derive(Clone, Copy)]
-enum WhenBadGlobalCandidateView<'a> {
-    AnchoredV1(&'a ParametricReductionRuleCandidate),
-    CylindricalGlobalV1(&'a GeneratedCylindricalGlobalCandidateAuthority),
-}
-
-impl<'a> WhenBadGlobalCandidateView<'a> {
-    fn family_fingerprint(self) -> &'a str {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.family_fingerprint(),
-            Self::CylindricalGlobalV1(candidate) => candidate.family_fingerprint(),
-        }
-    }
-
-    fn context_fingerprint(self) -> &'a str {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.context_fingerprint(),
-            Self::CylindricalGlobalV1(candidate) => candidate.context_fingerprint(),
-        }
-    }
-
-    fn sector(self) -> &'a SectorMask {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.sector(),
-            Self::CylindricalGlobalV1(candidate) => candidate.sector(),
-        }
-    }
-
-    fn ordering_policy(self) -> IntegralOrderingPolicy {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.ordering().policy(),
-            Self::CylindricalGlobalV1(candidate) => candidate.ordering_policy(),
-        }
-    }
-
-    fn pivot_ordinal(self) -> usize {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.pivot_ordinal(),
-            Self::CylindricalGlobalV1(candidate) => candidate.pivot_ordinal(),
-        }
-    }
-
-    fn original_pivot(self) -> &'a IndexShift {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.original_pivot(),
-            Self::CylindricalGlobalV1(candidate) => candidate.original_pivot(),
-        }
-    }
-
-    fn centered_relation(self) -> &'a ParametricRelation {
-        match self {
-            Self::AnchoredV1(candidate) => candidate.centered_relation(),
-            Self::CylindricalGlobalV1(candidate) => {
-                candidate.centered_relation_for_generated_when_bad()
-            }
-        }
-    }
-}
-
-/// Candidate-independent result returned by the sealed shared compiler. A
-/// generated wrapper must retain the exact cylindrical Global authority next
-/// to this payload before it can become an application certificate.
 #[derive(Clone, Debug)]
-pub(crate) enum WhenBadCoreCompilation {
+enum CoreCompilation {
     Certified(WhenBadCertifiedCore),
     Unsupported(WhenBadUnsupportedCore),
 }
@@ -1850,27 +1546,6 @@ impl WhenBadCompilation {
 pub struct WhenBadCompiler;
 
 impl WhenBadCompiler {
-    /// Allocation-free fixed lower bounds for an exhaustive cylindrical
-    /// batch. Only the index arity is consumed on every low-level path;
-    /// partition-builder limits cannot be preflighted here because a pivot
-    /// may return `Unsupported` before any symbolic sector case is built.
-    /// Candidate-dependent RHS, guard, case, and retained-payload checks
-    /// remain in the authenticated per-pivot compiler.
-    pub(crate) fn preflight_replayed_cylindrical_batch_fixed_limits(
-        context: &ParametricCoefficientContext,
-        pivot_count: usize,
-        limits: WhenBadCompilerLimits,
-    ) -> Result<(), WhenBadCompilerError> {
-        if pivot_count == 0 {
-            return Ok(());
-        }
-        check_limit(
-            "WhenBad indices",
-            context.index_count(),
-            limits.sector_cases.max_indices,
-        )
-    }
-
     /// Compile a self-replaying algebraic candidate. The output is explicitly
     /// *not* authenticated as freshly generated IBP/LI source; provider wiring
     /// must use a future canonical-source wrapper.
@@ -1924,86 +1599,23 @@ impl WhenBadCompiler {
         candidate: Arc<ParametricReductionRuleCandidate>,
         limits: WhenBadCompilerLimits,
     ) -> Result<WhenBadCompilation, WhenBadCompilerError> {
-        let core = compile_replayed_global_view(
-            context,
-            WhenBadGlobalCandidateView::AnchoredV1(candidate.as_ref()),
-            limits,
-        )?;
+        let core = compile_replayed_candidate_core(context, candidate.as_ref(), limits)?;
         Ok(match core {
-            WhenBadCoreCompilation::Certified(core) => {
+            CoreCompilation::Certified(core) => {
                 WhenBadCompilation::Certified(WhenBadCertificate { candidate, core })
             }
-            WhenBadCoreCompilation::Unsupported(core) => {
+            CoreCompilation::Unsupported(core) => {
                 WhenBadCompilation::Unsupported(WhenBadUnsupported { candidate, core })
             }
         })
     }
-
-    /// Compile the shared symbolic-domain core for an authenticated global
-    /// cylindrical candidate. The exact parameter type deliberately excludes
-    /// the umbrella and locus-bound candidate arms.
-    ///
-    /// This remains crate-private and returns no applicable rule. A future
-    /// generated wrapper must retain the candidate next to this core proof.
-    pub(crate) fn compile_cylindrical_global_candidate(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        candidate: &GeneratedCylindricalGlobalCandidateAuthority,
-        limits: WhenBadCompilerLimits,
-    ) -> Result<WhenBadCoreCompilation, WhenBadCompilerError> {
-        // Preserve the public compiler's typed scope errors before entering
-        // the lower-level authenticated replay operation. The replay layer
-        // intentionally reports a generic shallow-binding mismatch for the
-        // same condition, but callers of this wrapper can distinguish the two
-        // independent scope coordinates without weakening authentication.
-        if candidate.family_fingerprint() != family.fingerprint_ref() {
-            return Err(WhenBadCompilerError::FamilyMismatch);
-        }
-        if candidate.context_fingerprint() != context.fingerprint() {
-            return Err(WhenBadCompilerError::ContextMismatch);
-        }
-        let mut session = GeneratedCylindricalReplaySession::new(family, context);
-        let replayed_candidate = candidate.replay_with_replay_session(&mut session)?;
-        Self::compile_replayed_cylindrical_global_candidate(replayed_candidate, limits)
-    }
-
-    /// Compile from a sealed candidate-local replay capability. The context is
-    /// derived from the operation scope, so callers cannot pair the candidate
-    /// with a foreign algebra context while bypassing nested source replay.
-    pub(crate) fn compile_replayed_cylindrical_global_candidate(
-        replayed_candidate: ReplayedGeneratedCylindricalGlobalCandidate<'_, '_, '_>,
-        limits: WhenBadCompilerLimits,
-    ) -> Result<WhenBadCoreCompilation, WhenBadCompilerError> {
-        let family = replayed_candidate.family();
-        let context = replayed_candidate.context();
-        let candidate = replayed_candidate.candidate();
-        if candidate.family_fingerprint() != family.fingerprint_ref() {
-            return Err(WhenBadCompilerError::FamilyMismatch);
-        }
-        if candidate.context_fingerprint() != context.fingerprint() {
-            return Err(WhenBadCompilerError::ContextMismatch);
-        }
-        check_limit(
-            "WhenBad indices",
-            context.index_count(),
-            limits.sector_cases.max_indices,
-        )?;
-        let core = compile_replayed_global_view(
-            context,
-            WhenBadGlobalCandidateView::CylindricalGlobalV1(candidate),
-            limits,
-        )?;
-        #[cfg(test)]
-        record_replayed_cylindrical_core_construction_for_test();
-        Ok(core)
-    }
 }
 
-fn compile_replayed_global_view(
+fn compile_replayed_candidate_core(
     context: &ParametricCoefficientContext,
-    candidate: WhenBadGlobalCandidateView<'_>,
+    candidate: &ParametricReductionRuleCandidate,
     limits: WhenBadCompilerLimits,
-) -> Result<WhenBadCoreCompilation, WhenBadCompilerError> {
+) -> Result<CoreCompilation, WhenBadCompilerError> {
     let binding = candidate_binding(candidate, limits.max_candidate_binding_bytes)?;
 
     let zero = crate::IndexSpace::try_new(context.index_count())?.try_zero()?;
@@ -2048,14 +1660,14 @@ fn compile_replayed_global_view(
     )?;
     for (rhs_ordinal, (shift, _)) in rhs.iter().enumerate() {
         match prove_uniform_same_sector_descent_with_policy(
-            candidate.ordering_policy(),
+            candidate.ordering().policy(),
             candidate.sector(),
             rhs_ordinal,
             shift,
         )? {
             Ok(witness) => descent_witnesses.push(witness),
             Err(reason) => {
-                return Ok(WhenBadCoreCompilation::Unsupported(
+                return Ok(CoreCompilation::Unsupported(
                     WhenBadUnsupportedCore::try_new(binding, reason, limits)?,
                 ));
             }
@@ -2081,33 +1693,6 @@ fn compile_replayed_global_view(
             limits,
             &mut retained_census,
         )?;
-    }
-    if let WhenBadGlobalCandidateView::CylindricalGlobalV1(candidate) = candidate {
-        for resolved in candidate.base_assumptions() {
-            let witness_ordinal = resolved.witness().ordinal();
-            let condition = resolved.condition();
-            if context.polynomial_depends_on_indices_with_limits(
-                condition.polynomial(),
-                limits.arithmetic.exact_algebra,
-            )? {
-                return Err(
-                    WhenBadCompilerError::IndexDependentCylindricalBaseAssumption {
-                        witness_ordinal,
-                    },
-                );
-            }
-            insert_borrowed_domain_condition(
-                context,
-                &mut domain_conditions,
-                condition.polynomial(),
-                BorrowedWhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
-                    witness_ordinal,
-                    origins: condition.origins(),
-                },
-                limits,
-                &mut retained_census,
-            )?;
-        }
     }
     for (shift, coefficient) in candidate.centered_relation().terms() {
         let denominator = context
@@ -2487,7 +2072,7 @@ fn compile_replayed_global_view(
     };
     core.stats.retained_core_bytes = core.observed_retained_core_bytes()?;
     core.replay_payload_without_recompile(context, candidate)?;
-    Ok(WhenBadCoreCompilation::Certified(core))
+    Ok(CoreCompilation::Certified(core))
 }
 
 impl WhenBadCertificate {
@@ -2496,10 +2081,8 @@ impl WhenBadCertificate {
         context: &ParametricCoefficientContext,
     ) -> Result<(), WhenBadCompilerError> {
         self.candidate.replay_retained(context)?;
-        self.core.replay_payload_without_recompile(
-            context,
-            WhenBadGlobalCandidateView::AnchoredV1(&self.candidate),
-        )
+        self.core
+            .replay_payload_without_recompile(context, &self.candidate)
     }
 }
 
@@ -2507,7 +2090,7 @@ impl WhenBadCertifiedCore {
     fn replay_payload_without_recompile(
         &self,
         context: &ParametricCoefficientContext,
-        candidate: WhenBadGlobalCandidateView<'_>,
+        candidate: &ParametricReductionRuleCandidate,
     ) -> Result<(), WhenBadCompilerError> {
         if self.schema != WHEN_BAD_COMPILER_V2_SCHEMA {
             return Err(WhenBadCompilerError::SchemaMismatch);
@@ -2567,7 +2150,7 @@ impl WhenBadCertifiedCore {
             || self.stats.descent_witnesses != self.descent_witnesses.len()
             || self.stats.descent_witness_components != descent_witness_components
             || self.descent_witnesses.iter().any(|witness| {
-                witness.policy != self.binding.ordering_authority.policy()
+                witness.policy != self.binding.ordering_policy
                     || witness.rhs_shift.arity() != self.binding.sector().arity()
                     || witness.index_excess_deltas.len() != self.binding.sector().arity()
             })
@@ -2748,8 +2331,7 @@ fn domain_condition_source_heap_bytes(
     source: &WhenBadDomainConditionSource,
 ) -> Result<usize, WhenBadCompilerError> {
     match source {
-        WhenBadDomainConditionSource::PersistedGuard { origins, .. }
-        | WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption { origins, .. } => {
+        WhenBadDomainConditionSource::PersistedGuard { origins, .. } => {
             let mut bytes = retained_vec_buffer_bytes(origins)?;
             for origin in origins {
                 bytes = add_retained_core_bytes(bytes, guard_origin_exclusive_heap_bytes(origin)?)?;
@@ -2902,11 +2484,7 @@ fn retained_domain_source_census(
                 limits.max_domain_condition_sources,
             )?;
             let origins = match source {
-                WhenBadDomainConditionSource::PersistedGuard { origins, .. }
-                | WhenBadDomainConditionSource::GeneratedCylindricalBaseAssumption {
-                    origins,
-                    ..
-                } => origins.as_slice(),
+                WhenBadDomainConditionSource::PersistedGuard { origins, .. } => origins.as_slice(),
                 WhenBadDomainConditionSource::CoefficientDenominator { .. } => &[],
             };
             census.origins = checked_add("WhenBad guard origins", census.origins, origins.len())?;
@@ -2992,22 +2570,9 @@ fn retained_leak_event_census(
 }
 
 fn candidate_binding(
-    candidate: WhenBadGlobalCandidateView<'_>,
+    candidate: &ParametricReductionRuleCandidate,
     byte_limit: usize,
 ) -> Result<WhenBadCandidateBinding, WhenBadCompilerError> {
-    enum BranchPreflight<'a> {
-        Anchored {
-            candidate: &'a ParametricReductionRuleCandidate,
-            ordering_bytes: usize,
-            trace_manifest_bytes: usize,
-        },
-        Cylindrical {
-            candidate: &'a GeneratedCylindricalGlobalCandidateAuthority,
-            ordering: &'a str,
-            local_identity: &'a str,
-        },
-    }
-
     // Count the complete retained payload without copying any candidate-owned
     // string, vector, manifest, or provenance geometry.
     let sector_bytes = checked_mul(
@@ -3033,47 +2598,22 @@ fn candidate_binding(
     ] {
         retained_bytes = add_candidate_binding_bytes(retained_bytes, component_bytes, byte_limit)?;
     }
-    let branch = match candidate {
-        WhenBadGlobalCandidateView::AnchoredV1(candidate) => {
-            let ordering_bytes = anchored_ordering_manifest_byte_len(candidate, byte_limit)?;
-            retained_bytes =
-                add_candidate_binding_bytes(retained_bytes, ordering_bytes, byte_limit)?;
-            let discovery_anchor_bytes = checked_mul(
-                "WhenBad candidate binding bytes",
-                candidate.discovery_anchor().len(),
-                size_of::<i64>(),
-            )?;
-            retained_bytes =
-                add_candidate_binding_bytes(retained_bytes, discovery_anchor_bytes, byte_limit)?;
-            retained_bytes = add_candidate_binding_bytes(
-                retained_bytes,
-                candidate.source_manifest().len(),
-                byte_limit,
-            )?;
-            let trace_manifest_bytes = trace_manifest_byte_len(candidate, byte_limit)?;
-            retained_bytes =
-                add_candidate_binding_bytes(retained_bytes, trace_manifest_bytes, byte_limit)?;
-            BranchPreflight::Anchored {
-                candidate,
-                ordering_bytes,
-                trace_manifest_bytes,
-            }
-        }
-        WhenBadGlobalCandidateView::CylindricalGlobalV1(candidate) => {
-            let ordering = candidate.ordering_authority().identity();
-            let local_identity =
-                candidate.local_candidate_binding_identity_for_source_composition();
-            for component_bytes in [ordering.len(), local_identity.len()] {
-                retained_bytes =
-                    add_candidate_binding_bytes(retained_bytes, component_bytes, byte_limit)?;
-            }
-            BranchPreflight::Cylindrical {
-                candidate,
-                ordering,
-                local_identity,
-            }
-        }
-    };
+    let ordering_bytes = ordering_manifest_byte_len(candidate, byte_limit)?;
+    retained_bytes = add_candidate_binding_bytes(retained_bytes, ordering_bytes, byte_limit)?;
+    let discovery_anchor_bytes = checked_mul(
+        "WhenBad candidate binding bytes",
+        candidate.discovery_anchor().len(),
+        size_of::<i64>(),
+    )?;
+    retained_bytes =
+        add_candidate_binding_bytes(retained_bytes, discovery_anchor_bytes, byte_limit)?;
+    retained_bytes = add_candidate_binding_bytes(
+        retained_bytes,
+        candidate.source_manifest().len(),
+        byte_limit,
+    )?;
+    let trace_manifest_bytes = trace_manifest_byte_len(candidate, byte_limit)?;
+    retained_bytes = add_candidate_binding_bytes(retained_bytes, trace_manifest_bytes, byte_limit)?;
     // Only now, after the complete aggregate has been admitted, request the
     // fallible retained allocations. Every string writer uses the same
     // streaming encoder as its allocation-free count pass.
@@ -3093,57 +2633,23 @@ fn candidate_binding(
         candidate.original_pivot().values().iter().copied(),
         candidate.original_pivot().arity(),
     )?;
-    let (source_authentication, ordering_authority, source_authority) = match branch {
-        BranchPreflight::Anchored {
-            candidate,
-            ordering_bytes,
-            trace_manifest_bytes,
-        } => (
-            WhenBadSourceAuthentication::AlgebraicOnly,
-            WhenBadOrderingAuthority::AnchoredV1 {
-                policy: candidate.ordering().policy(),
-                manifest: anchored_ordering_manifest(candidate, ordering_bytes)?,
-                discovery_anchor: try_copy_vec(
-                    candidate.discovery_anchor(),
-                    "WhenBad candidate discovery anchor",
-                )?,
-            },
-            WhenBadCandidateSourceAuthority::AnchoredEliminationV1 {
-                source_manifest: try_copy_string(
-                    candidate.source_manifest(),
-                    "WhenBad candidate source manifest",
-                )?,
-                source_row_count: candidate.source_row_count(),
-                trace_manifest: trace_manifest(candidate, trace_manifest_bytes)?,
-                rule_limits: candidate.limits(),
-            },
-        ),
-        BranchPreflight::Cylindrical {
-            candidate,
-            ordering,
-            local_identity,
-        } => (
-            WhenBadSourceAuthentication::GeneratedCylindricalPersistentEliminationV2,
-            WhenBadOrderingAuthority::CylindricalV1 {
-                policy: candidate.ordering_policy(),
-                manifest: try_copy_string(ordering, "WhenBad cylindrical ordering identity")?,
-            },
-            WhenBadCandidateSourceAuthority::GeneratedCylindricalPersistentV2 {
-                local_candidate_identity: try_copy_string(
-                    local_identity,
-                    "WhenBad cylindrical local candidate identity",
-                )?,
-                source_row_count: candidate.source().stats().retained_source_rows(),
-            },
-        ),
-    };
     let mut binding = WhenBadCandidateBinding {
-        source_authentication,
         family_fingerprint,
         context_fingerprint,
         sector,
-        ordering_authority,
-        source_authority,
+        ordering_policy: candidate.ordering().policy(),
+        ordering_manifest: ordering_manifest(candidate, ordering_bytes)?,
+        discovery_anchor: try_copy_vec(
+            candidate.discovery_anchor(),
+            "WhenBad candidate discovery anchor",
+        )?,
+        source_manifest: try_copy_string(
+            candidate.source_manifest(),
+            "WhenBad candidate source manifest",
+        )?,
+        source_row_count: candidate.source_row_count(),
+        trace_manifest: trace_manifest(candidate, trace_manifest_bytes)?,
+        rule_limits: candidate.limits(),
         pivot_ordinal: candidate.pivot_ordinal(),
         original_pivot,
         centered_relation_manifest,
@@ -3193,55 +2699,21 @@ fn candidate_binding_retained_bytes(
             },
         )?,
         binding.centered_relation_manifest.capacity(),
-        match &binding.ordering_authority {
-            WhenBadOrderingAuthority::AnchoredV1 { manifest, .. }
-            | WhenBadOrderingAuthority::CylindricalV1 { manifest, .. } => manifest.capacity(),
-        },
+        binding.ordering_manifest.capacity(),
+        binding.source_manifest.capacity(),
+        binding.trace_manifest.capacity(),
     ] {
         bytes = checked_add("WhenBad candidate binding bytes", bytes, component)?;
     }
-    if let WhenBadOrderingAuthority::AnchoredV1 {
-        discovery_anchor, ..
-    } = &binding.ordering_authority
-    {
-        bytes = checked_add(
+    bytes = checked_add(
+        "WhenBad candidate binding bytes",
+        bytes,
+        checked_mul(
             "WhenBad candidate binding bytes",
-            bytes,
-            checked_mul(
-                "WhenBad candidate binding bytes",
-                discovery_anchor.capacity(),
-                size_of::<i64>(),
-            )?,
-        )?;
-    }
-    match &binding.source_authority {
-        WhenBadCandidateSourceAuthority::AnchoredEliminationV1 {
-            source_manifest,
-            trace_manifest,
-            ..
-        } => {
-            bytes = checked_add(
-                "WhenBad candidate binding bytes",
-                bytes,
-                source_manifest.capacity(),
-            )?;
-            bytes = checked_add(
-                "WhenBad candidate binding bytes",
-                bytes,
-                trace_manifest.capacity(),
-            )?;
-        }
-        WhenBadCandidateSourceAuthority::GeneratedCylindricalPersistentV2 {
-            local_candidate_identity,
-            ..
-        } => {
-            bytes = checked_add(
-                "WhenBad candidate binding bytes",
-                bytes,
-                local_candidate_identity.capacity(),
-            )?;
-        }
-    }
+            binding.discovery_anchor.capacity(),
+            size_of::<i64>(),
+        )?,
+    )?;
     Ok(bytes)
 }
 
@@ -3258,27 +2730,27 @@ fn replay_candidate_binding_capacity(
     Ok(())
 }
 
-fn anchored_ordering_manifest_byte_len(
+fn ordering_manifest_byte_len(
     candidate: &ParametricReductionRuleCandidate,
     limit: usize,
 ) -> Result<usize, WhenBadCompilerError> {
     count_formatted_bytes("WhenBad candidate ordering manifest", limit, |writer| {
-        write_anchored_ordering_manifest(writer, candidate)
+        write_ordering_manifest(writer, candidate)
     })
 }
 
-fn anchored_ordering_manifest(
+fn ordering_manifest(
     candidate: &ParametricReductionRuleCandidate,
     exact_bytes: usize,
 ) -> Result<String, WhenBadCompilerError> {
     build_precounted_string(
         "WhenBad candidate ordering manifest",
         exact_bytes,
-        |writer| write_anchored_ordering_manifest(writer, candidate),
+        |writer| write_ordering_manifest(writer, candidate),
     )
 }
 
-fn write_anchored_ordering_manifest(
+fn write_ordering_manifest(
     writer: &mut impl fmt::Write,
     candidate: &ParametricReductionRuleCandidate,
 ) -> fmt::Result {
@@ -4332,13 +3804,9 @@ fn check_limit(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WhenBadCompilerError {
-    FamilyMismatch,
     ContextMismatch,
     SchemaMismatch,
     ReplayMismatch,
-    IndexDependentCylindricalBaseAssumption {
-        witness_ordinal: usize,
-    },
     WrongArity {
         expected: usize,
         actual: usize,
@@ -4360,7 +3828,6 @@ pub enum WhenBadCompilerError {
     },
     ParametricRule(ParametricRuleError),
     ParametricCoefficient(ParametricCoefficientError),
-    GeneratedCylindricalCandidate(Box<GeneratedCylindricalCandidateAuthorityError>),
     SectorCase(SymbolicSectorCaseError),
     Relation(crate::ParametricRelationError),
     Sector(crate::SectorFoundationError),
@@ -4369,14 +3836,9 @@ pub enum WhenBadCompilerError {
 impl fmt::Display for WhenBadCompilerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::FamilyMismatch => formatter.write_str("WhenBad candidate family mismatch"),
             Self::ContextMismatch => formatter.write_str("WhenBad candidate context mismatch"),
             Self::SchemaMismatch => formatter.write_str("WhenBad certificate schema mismatch"),
             Self::ReplayMismatch => formatter.write_str("WhenBad certificate replay mismatch"),
-            Self::IndexDependentCylindricalBaseAssumption { witness_ordinal } => write!(
-                formatter,
-                "generated cylindrical base assumption witness {witness_ordinal} depends on integral indices"
-            ),
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "WhenBad arity is {actual}, expected {expected}")
             }
@@ -4409,7 +3871,6 @@ impl fmt::Display for WhenBadCompilerError {
             ),
             Self::ParametricRule(error) => error.fmt(formatter),
             Self::ParametricCoefficient(error) => error.fmt(formatter),
-            Self::GeneratedCylindricalCandidate(error) => error.fmt(formatter),
             Self::SectorCase(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
             Self::Sector(error) => error.fmt(formatter),
@@ -4462,12 +3923,6 @@ impl From<ParametricRuleError> for WhenBadCompilerError {
 impl From<ParametricCoefficientError> for WhenBadCompilerError {
     fn from(value: ParametricCoefficientError) -> Self {
         Self::ParametricCoefficient(value)
-    }
-}
-
-impl From<GeneratedCylindricalCandidateAuthorityError> for WhenBadCompilerError {
-    fn from(value: GeneratedCylindricalCandidateAuthorityError) -> Self {
-        Self::GeneratedCylindricalCandidate(Box::new(value))
     }
 }
 
@@ -4716,17 +4171,11 @@ mod adversarial_replay_tests {
             certificate.descent_witnesses()[0].policy(),
             IntegralOrderingPolicy::RustRedUnshiftedV1,
         );
-        assert!(matches!(
-            certificate.binding().ordering_authority(),
-            WhenBadOrderingAuthority::AnchoredV1 { .. }
-        ));
-        assert!(
-            certificate
-                .binding()
-                .ordering_authority()
-                .discovery_anchor()
-                .is_some()
+        assert_eq!(
+            certificate.binding().ordering_policy(),
+            IntegralOrderingPolicy::RustRedUnshiftedV1,
         );
+        assert!(!certificate.binding().discovery_anchor().is_empty());
 
         let mut tampered_kind = certificate.clone();
         tampered_kind.core.leak_events[0].kind =
@@ -5227,7 +4676,7 @@ mod adversarial_replay_tests {
     }
 
     #[test]
-    fn candidate_binding_charges_every_anchored_payload_exactly() {
+    fn candidate_binding_charges_every_payload_exactly() {
         let (context, certificate) = overflow_certificate();
         let binding = certificate.binding();
         let geometry_bytes = binding
@@ -5237,44 +4686,33 @@ mod adversarial_replay_tests {
             .checked_add(binding.original_pivot.owned_retained_byte_bound().unwrap())
             .unwrap();
         assert!(binding.retained_bytes() >= geometry_bytes);
-        let discovery_anchor_bytes = match &binding.ordering_authority {
-            WhenBadOrderingAuthority::AnchoredV1 {
-                discovery_anchor, ..
-            } => discovery_anchor.capacity(),
-            WhenBadOrderingAuthority::CylindricalV1 { .. } => unreachable!(),
-        }
-        .checked_mul(size_of::<i64>())
-        .unwrap();
+        let discovery_anchor_bytes = binding
+            .discovery_anchor
+            .capacity()
+            .checked_mul(size_of::<i64>())
+            .unwrap();
         assert!(discovery_anchor_bytes > 0);
-        let WhenBadCandidateSourceAuthority::AnchoredEliminationV1 {
-            source_manifest,
-            trace_manifest,
-            ..
-        } = &binding.source_authority
-        else {
-            panic!("anchored fixture must retain anchored source authority")
-        };
         assert_eq!(
-            binding.ordering_authority.manifest(),
+            binding.ordering(),
             certificate.candidate.ordering().stable_string(),
             "the fallible streaming encoder must preserve the V2 ordering identity",
         );
         let trace = certificate.candidate.trace();
-        let mut legacy_trace = format!(
+        let mut expected_trace = format!(
             "base={}|reductions={}|divisor={}",
             trace.base_source_row_index(),
             trace.reductions().len(),
             trace.divisor().to_expression().to_canonical_string(),
         );
         for reduction in trace.reductions() {
-            legacy_trace.push_str(&format!(
+            expected_trace.push_str(&format!(
                 "|{}:{}",
                 reduction.prior_pivot_ordinal(),
                 reduction.factor().to_expression().to_canonical_string(),
             ));
         }
         assert_eq!(
-            trace_manifest, &legacy_trace,
+            &binding.trace_manifest, &expected_trace,
             "the fallible streaming encoder must preserve the V2 trace identity",
         );
         let expected = [
@@ -5283,13 +4721,10 @@ mod adversarial_replay_tests {
             binding.sector.owned_retained_byte_bound().unwrap(),
             binding.original_pivot.owned_retained_byte_bound().unwrap(),
             binding.centered_relation_manifest.capacity(),
-            match &binding.ordering_authority {
-                WhenBadOrderingAuthority::AnchoredV1 { manifest, .. }
-                | WhenBadOrderingAuthority::CylindricalV1 { manifest, .. } => manifest.capacity(),
-            },
+            binding.ordering_manifest.capacity(),
             discovery_anchor_bytes,
-            source_manifest.capacity(),
-            trace_manifest.capacity(),
+            binding.source_manifest.capacity(),
+            binding.trace_manifest.capacity(),
         ]
         .into_iter()
         .sum::<usize>();
@@ -5412,7 +4847,7 @@ mod adversarial_replay_tests {
         certificate.core.replay_capacity_census().unwrap();
 
         let binding = candidate_binding(
-            WhenBadGlobalCandidateView::AnchoredV1(&certificate.candidate),
+            &certificate.candidate,
             certificate.core.limits.max_candidate_binding_bytes,
         )
         .unwrap();

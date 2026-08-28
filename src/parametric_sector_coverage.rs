@@ -2486,13 +2486,10 @@ struct RawNormalizedClause {
 
 /// Owner-neutral view of the exact `WhenBad` bad-domain formula.
 ///
-/// Both the legacy anchored certificate and the generated cylindrical
-/// certificate are sealed, replayable owners of the same shared `WhenBad`
-/// core.  Formula normalization must consume only that common mathematical
-/// payload: index-dependent nonzero guards and boundary leak events.  Keeping
-/// this view private to the crate prevents the MTBDD/coverage layer from
-/// depending on an anchored discovery point or from manufacturing a
-/// candidate authority.
+/// Formula normalization consumes only the shared mathematical payload:
+/// index-dependent nonzero guards and boundary leak events. Keeping this view
+/// private to the crate prevents the coverage layer from depending on an
+/// anchored discovery point or from manufacturing candidate authority.
 pub(crate) trait AuthenticatedWhenBadFormula {
     fn formula_index_domain_guards_with_ordinals(
         &self,
@@ -2502,18 +2499,6 @@ pub(crate) trait AuthenticatedWhenBadFormula {
 }
 
 impl AuthenticatedWhenBadFormula for crate::WhenBadCertificate {
-    fn formula_index_domain_guards_with_ordinals(
-        &self,
-    ) -> impl Iterator<Item = (usize, &WhenBadDomainCondition)> {
-        self.index_domain_guards_with_ordinals()
-    }
-
-    fn formula_leak_events(&self) -> &[WhenBadLeakEvent] {
-        self.leak_events()
-    }
-}
-
-impl AuthenticatedWhenBadFormula for crate::GeneratedCylindricalWhenBadCertificate {
     fn formula_index_domain_guards_with_ordinals(
         &self,
     ) -> impl Iterator<Item = (usize, &WhenBadDomainCondition)> {

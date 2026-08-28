@@ -1347,11 +1347,13 @@ impl GeneratedWhenBadCompiler {
         candidate_count: usize,
         limits: GeneratedWhenBadLimits,
     ) -> Result<(), GeneratedWhenBadError> {
-        WhenBadCompiler::preflight_replayed_cylindrical_batch_fixed_limits(
-            context,
-            candidate_count,
-            limits.when_bad,
-        )?;
+        if candidate_count != 0 {
+            check_limit(
+                "WhenBad indices",
+                context.index_count(),
+                limits.when_bad.sector_cases.max_indices,
+            )?;
+        }
         Ok(())
     }
 

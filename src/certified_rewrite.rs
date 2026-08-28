@@ -15,23 +15,19 @@ use crate::symmetry::SymmetryGuardOrigin;
 use crate::{
     BasePolynomial, CoefficientPolynomial, ConcreteIntegralKey, ConcreteRelation,
     ExactSparseElimination, ExactSparseEliminationConfig, ExactSparseEliminationError,
-    ExactSparseRow, GeneratedCylindricalPersistentEliminationCertificate,
-    GeneratedCylindricalPersistentEliminationError, GeneratedCylindricalSourceRowOutcome,
-    GuardOrigin, IntegralFamily, IntegralOrderingPolicy, InternalSymmetryKeyTransportError,
-    InternalSymmetryReplayError, ParametricArithmeticLimits, ParametricCoefficientContext,
-    ParametricCoefficientError, ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator,
-    ParametricReductionRuleCandidate, ParametricRelationError, ParametricRuleError,
-    SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions,
-    SpecializedNonZeroCondition, StrictDescentWitness, SymmetryVerificationLimits,
-    VerifiedInternalFamilyPermutationSymmetry, ZeroSectorCertificate, ZeroSectorConditionSource,
-    ZeroSectorError, ZeroSectorLimits, algebra::Coefficient, algebra::CoefficientContext,
-    algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
+    ExactSparseRow, GuardOrigin, IntegralFamily, IntegralOrderingPolicy,
+    InternalSymmetryKeyTransportError, InternalSymmetryReplayError, ParametricArithmeticLimits,
+    ParametricCoefficientContext, ParametricCoefficientError, ParametricIbpConfig,
+    ParametricIbpError, ParametricIbpGenerator, ParametricReductionRuleCandidate,
+    ParametricRelationError, ParametricRuleError, SectorExclusion, SectorFoundationError,
+    SectorMask, SectorRestrictions, SpecializedNonZeroCondition, StrictDescentWitness,
+    SymmetryVerificationLimits, VerifiedInternalFamilyPermutationSymmetry, ZeroSectorCertificate,
+    ZeroSectorConditionSource, ZeroSectorError, ZeroSectorLimits, algebra::Coefficient,
+    algebra::CoefficientContext, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
 };
 
 pub const CERTIFIED_CONCRETE_REWRITE_V1_SCHEMA: &str = "rustred-certified-concrete-rewrite-v1";
-/// V2 adds the persistent-cylindrical numeric quotient proof arm and its
-/// exact owning-source replay contract. V1 remains exported only as a legacy
-/// identity for already retained callers; newly built rewrites are V2.
+/// Current concrete-rewrite schema.
 pub const CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA: &str = "rustred-certified-concrete-rewrite-v2";
 pub const CERTIFIED_ZERO_REDUCTION_V1_SCHEMA: &str = "rustred-certified-zero-reduction-v1";
 
@@ -194,21 +190,6 @@ pub enum CertifiedConcreteRewriteProof {
         elimination: Arc<ExactSparseElimination>,
         selected_pivot_ordinal: usize,
     },
-    /// Exact concrete re-elimination of the translated, equality-locus-bound
-    /// rows retained by one authenticated persistent cylindrical source.
-    ///
-    /// `source_rows[*].source_row_index` is a retained-row ordinal in the
-    /// exact `persistent_source` allocation, not a canonical generated IBPLI
-    /// ordinal.  Replay resolves every ordinal through that allocation and
-    /// re-specializes while conjoining its separately retained base-field
-    /// assumptions.
-    GeneratedCylindricalNumericQuotientElimination {
-        persistent_source: Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-        source_rows: Box<[ConcreteQuotientSourceRowProof]>,
-        columns_easiest_first: Box<[ConcreteIntegralKey]>,
-        elimination: Arc<ExactSparseElimination>,
-        selected_pivot_ordinal: usize,
-    },
 }
 
 /// One generated IBP specialized at one LiteRed-style scout point, followed
@@ -257,34 +238,6 @@ pub struct CertifiedConcreteRewrite {
     limits: CertifiedRewriteLimits,
     retained_coefficient_bytes: usize,
     proof: CertifiedConcreteRewriteProof,
-}
-
-/// Operation-scoped evidence that the exact persistent source allocation has
-/// replayed against one family/context pair.
-///
-/// The fields are private, so another crate module cannot fabricate or retarget
-/// this capability. Its borrow pins the caller's strong `Arc` for the complete
-/// operation; the no-replay constructor clones that exact allocation into the
-/// resulting proof.
-pub(crate) struct ReplayedGeneratedCylindricalPersistentSource<'source> {
-    source: &'source Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-}
-
-impl<'source> ReplayedGeneratedCylindricalPersistentSource<'source> {
-    pub(crate) fn authenticate(
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        source: &'source Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-    ) -> Result<Self, CertifiedRewriteError> {
-        source.replay(family, context)?;
-        Ok(Self { source })
-    }
-
-    pub(crate) const fn source(
-        &self,
-    ) -> &'source Arc<GeneratedCylindricalPersistentEliminationCertificate> {
-        self.source
-    }
 }
 
 impl CertifiedConcreteRewrite {
@@ -832,343 +785,6 @@ impl CertifiedConcreteRewrite {
         })
     }
 
-    /// Specialize the exact translated rows retained by an authenticated
-    /// persistent cylindrical source at one concrete integral, quotient every
-    /// term by certified zero/symmetry witnesses, and re-eliminate over `K`.
-    ///
-    /// This is deliberately a distinct proof arm from canonical generated-row
-    /// scouting.  A retained-row ordinal is resolved only through the exact
-    /// persistent `Arc`, and each partial specialization's separately stored
-    /// base-field assumptions is conjoined before any term is specialized.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_generated_cylindrical_numeric_quotient_elimination(
-        family: &IntegralFamily,
-        parametric_context: &ParametricCoefficientContext,
-        persistent_source: Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-        source: ConcreteIntegralKey,
-        row_requests: &[(usize, Vec<QuotientTermWitness>)],
-        restrictions: SectorRestrictions,
-        ordering: IntegralOrderingPolicy,
-        limits: CertifiedRewriteLimits,
-    ) -> Result<Self, CertifiedRewriteError> {
-        preflight_generated_cylindrical_numeric_quotient(
-            family,
-            parametric_context,
-            &persistent_source,
-            &source,
-            row_requests,
-            ordering,
-            limits,
-        )?;
-        let replayed_source = ReplayedGeneratedCylindricalPersistentSource::authenticate(
-            family,
-            parametric_context,
-            &persistent_source,
-        )?;
-        Self::from_generated_cylindrical_numeric_quotient_elimination_with_replayed_source(
-            family,
-            parametric_context,
-            replayed_source,
-            source,
-            row_requests,
-            restrictions,
-            ordering,
-            limits,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_generated_cylindrical_numeric_quotient_elimination_with_replayed_source(
-        family: &IntegralFamily,
-        parametric_context: &ParametricCoefficientContext,
-        replayed_source: ReplayedGeneratedCylindricalPersistentSource<'_>,
-        source: ConcreteIntegralKey,
-        row_requests: &[(usize, Vec<QuotientTermWitness>)],
-        restrictions: SectorRestrictions,
-        ordering: IntegralOrderingPolicy,
-        limits: CertifiedRewriteLimits,
-    ) -> Result<Self, CertifiedRewriteError> {
-        let persistent_source = replayed_source.source();
-        let available = preflight_generated_cylindrical_numeric_quotient(
-            family,
-            parametric_context,
-            persistent_source,
-            &source,
-            row_requests,
-            ordering,
-            limits,
-        )?;
-        let row_system = persistent_source.row_system();
-        let start = row_system.start();
-
-        let mut request_by_row = BTreeMap::new();
-        for (retained_row_ordinal, quotient_terms) in row_requests {
-            if *retained_row_ordinal >= available {
-                return Err(CertifiedRewriteError::PersistentRetainedRowOutOfRange {
-                    row: *retained_row_ordinal,
-                    available,
-                });
-            }
-            if request_by_row
-                .insert(*retained_row_ordinal, quotient_terms)
-                .is_some()
-            {
-                return Err(CertifiedRewriteError::DuplicatePersistentRetainedRow {
-                    row: *retained_row_ordinal,
-                });
-            }
-        }
-        let mut required_nonzero = Vec::new();
-        let mut domain = Vec::new();
-        let mut retained_rows = Vec::new();
-        let mut flattened_term = 0usize;
-        let mut total_collected_terms = 0usize;
-        let mut total_raw_terms = 0usize;
-        for retained_row_ordinal in 0..available {
-            let (_, specialization) = row_system
-                .prevalidated_specialization(retained_row_ordinal)
-                .ok_or(CertifiedRewriteError::PersistentRetainedRowOutOfRange {
-                    row: retained_row_ordinal,
-                    available,
-                })?;
-            if specialization.assignment() != start.assignment()
-                || !partial_assignment_satisfied(specialization.assignment(), source.powers())
-            {
-                return Err(CertifiedRewriteError::ForeignPersistentCylindricalSource);
-            }
-            let raw_specialization = match specialization
-                .relation_for_bound_reelimination()
-                .specialize_with_additional_nonzero_conditions(
-                    parametric_context,
-                    source.powers(),
-                    specialization
-                        .base_assumptions()
-                        .iter()
-                        .map(|assumption| assumption.condition()),
-                    limits.concrete_specialization,
-                ) {
-                Ok(raw) => raw,
-                Err(ParametricRelationError::UnsatisfiableDomain) => {
-                    if request_by_row.contains_key(&retained_row_ordinal) {
-                        return Err(
-                            CertifiedRewriteError::UnsatisfiablePersistentRetainedRowRequested {
-                                row: retained_row_ordinal,
-                            },
-                        );
-                    }
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            };
-            let quotient_terms = *request_by_row.get(&retained_row_ordinal).ok_or(
-                CertifiedRewriteError::MissingPersistentRetainedRowRequest {
-                    row: retained_row_ordinal,
-                },
-            )?;
-            total_raw_terms = checked_add(
-                total_raw_terms,
-                raw_specialization.terms().len(),
-                "persistent concrete quotient raw terms",
-            )?;
-            check_limit(
-                "persistent concrete quotient raw terms",
-                total_raw_terms,
-                limits.max_quotient_terms,
-            )?;
-            if raw_specialization.terms().len() != quotient_terms.len() {
-                return Err(CertifiedRewriteError::QuotientTermCoverageMismatch);
-            }
-            for condition in raw_specialization.guarded_nonzero_conditions() {
-                insert_specialized_guard(&mut required_nonzero, condition.clone(), limits)?;
-                for origin in condition.origins() {
-                    insert_domain_condition(
-                        &mut domain,
-                        condition.polynomial().raw().clone(),
-                        CertifiedRewriteDomainOrigin::Parametric(origin.clone()),
-                        limits,
-                    )?;
-                }
-            }
-            let collected_equation = quotient_concrete_relation(
-                family,
-                &raw_specialization,
-                quotient_terms,
-                &restrictions,
-                &mut domain,
-                flattened_term,
-                limits,
-            )?;
-            flattened_term = checked_add(
-                flattened_term,
-                quotient_terms.len(),
-                "flattened concrete quotient terms",
-            )?;
-            total_collected_terms = checked_add(
-                total_collected_terms,
-                collected_equation.len(),
-                "concrete quotient collected terms",
-            )?;
-            check_limit(
-                "concrete quotient collected terms",
-                total_collected_terms,
-                limits.concrete_elimination.max_input_entries,
-            )?;
-            retained_rows.push(ConcreteQuotientSourceRowProof {
-                source_row_index: retained_row_ordinal,
-                assignment: source.powers().to_vec().into_boxed_slice(),
-                raw_specialization,
-                quotient_terms: quotient_terms.clone().into_boxed_slice(),
-                collected_equation,
-            });
-        }
-
-        let mut unique_columns = BTreeSet::new();
-        for row in &retained_rows {
-            for key in row.collected_equation.keys() {
-                if unique_columns.contains(key) {
-                    continue;
-                }
-                check_limit(
-                    "concrete quotient columns",
-                    checked_add(unique_columns.len(), 1, "concrete quotient columns")?,
-                    limits.concrete_elimination.max_columns,
-                )?;
-                unique_columns.insert(key.clone());
-            }
-        }
-        let mut ranked_columns = unique_columns
-            .into_iter()
-            .map(|key| Ok((ordering.complexity_key(key.powers())?, key)))
-            .collect::<Result<Vec<_>, SectorFoundationError>>()?;
-        ranked_columns.sort();
-        let columns_easiest_first = ranked_columns
-            .into_iter()
-            .map(|(_, key)| key)
-            .collect::<Vec<_>>();
-        let column_index = columns_easiest_first
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(column, key)| (key, column))
-            .collect::<BTreeMap<_, _>>();
-        let sparse_rows = retained_rows
-            .iter()
-            .map(|row| {
-                row.collected_equation
-                    .iter()
-                    .map(|(key, coefficient)| {
-                        Ok((
-                            *column_index
-                                .get(key)
-                                .ok_or(CertifiedRewriteError::CertificateReplayMismatch)?,
-                            coefficient.clone(),
-                        ))
-                    })
-                    .collect::<Result<ExactSparseRow, CertifiedRewriteError>>()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let skeleton = discover_exact_skeleton(
-            family.coefficient_context(),
-            &sparse_rows,
-            limits.concrete_elimination,
-            limits.exact_algebra,
-        )?;
-        let elimination = Arc::new(ExactSparseElimination::build(
-            family.coefficient_context(),
-            &sparse_rows,
-            columns_easiest_first.len(),
-            &skeleton,
-            limits.concrete_elimination,
-        )?);
-        let source_column = column_index
-            .get(&source)
-            .copied()
-            .ok_or(CertifiedRewriteError::MissingCollectedLhs)?;
-        let selected = elimination
-            .pivot_rules()
-            .iter()
-            .find(|pivot| pivot.pivot_column() == source_column)
-            .ok_or(CertifiedRewriteError::MissingCollectedLhs)?;
-        let selected_pivot_ordinal = selected.ordinal();
-        let selected_row = selected.row().clone();
-
-        for pivot in elimination.pivot_rules() {
-            let numerator = BasePolynomial::try_from_raw(
-                pivot.trace().divisor().numerator.clone(),
-                family.coefficient_context(),
-                limits.exact_algebra,
-            )?;
-            if numerator.is_nonzero_constant() {
-                continue;
-            }
-            let guard = SpecializedNonZeroCondition::from_base_polynomial(
-                numerator.clone(),
-                [GuardOrigin::ConcreteQuotientEliminationPivotNumerator {
-                    pivot: pivot.ordinal(),
-                }],
-                limits.max_guard_origins,
-            )?;
-            insert_specialized_guard(&mut required_nonzero, guard, limits)?;
-            insert_domain_condition(
-                &mut domain,
-                numerator.raw().clone(),
-                CertifiedRewriteDomainOrigin::ConcreteEliminationPivotNumerator {
-                    pivot: pivot.ordinal(),
-                },
-                limits,
-            )?;
-        }
-
-        let mut rhs = BTreeMap::new();
-        let mut descent = BTreeMap::new();
-        for (&column, coefficient) in &selected_row {
-            if column == source_column {
-                continue;
-            }
-            let target = columns_easiest_first
-                .get(column)
-                .ok_or(CertifiedRewriteError::CertificateReplayMismatch)?
-                .clone();
-            let solved = family
-                .coefficient_context()
-                .try_neg(coefficient, limits.exact_algebra)?;
-            if solved.is_zero() {
-                continue;
-            }
-            let witness = ordering.prove_strict_descent(source.powers(), target.powers())?;
-            rhs.insert(target.clone(), solved);
-            descent.insert(target, witness);
-        }
-        let proof = CertifiedConcreteRewriteProof::GeneratedCylindricalNumericQuotientElimination {
-            persistent_source: Arc::clone(persistent_source),
-            source_rows: retained_rows.into_boxed_slice(),
-            columns_easiest_first: columns_easiest_first.into_boxed_slice(),
-            elimination,
-            selected_pivot_ordinal,
-        };
-        let retained_coefficient_bytes = retained_rewrite_coefficient_bytes(
-            &rhs,
-            &required_nonzero,
-            &domain,
-            &proof,
-            limits.max_retained_coefficient_bytes,
-        )?;
-
-        Ok(Self {
-            family_fingerprint: Arc::from(family.fingerprint()),
-            parametric_context: Some(parametric_context.clone()),
-            source,
-            rhs,
-            required_nonzero,
-            domain,
-            descent,
-            restrictions,
-            limits,
-            retained_coefficient_bytes,
-            proof,
-        })
-    }
-
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint
     }
@@ -1393,66 +1009,6 @@ impl CertifiedConcreteRewrite {
                 }
                 replayed
             }
-            CertifiedConcreteRewriteProof::GeneratedCylindricalNumericQuotientElimination {
-                persistent_source,
-                source_rows,
-                columns_easiest_first,
-                elimination,
-                selected_pivot_ordinal,
-            } => {
-                let requests: Vec<(usize, Vec<QuotientTermWitness>)> = source_rows
-                    .iter()
-                    .map(|row| (row.source_row_index, row.quotient_terms.to_vec()))
-                    .collect();
-                // The standalone constructor performs cheap structural
-                // preflight first, then authenticates this exact allocation
-                // once and passes a sealed replay capability to its inner
-                // builder. No retained-row ordinal is resolved before that
-                // single replay succeeds.
-                let replayed = Self::from_generated_cylindrical_numeric_quotient_elimination(
-                    family,
-                    parametric_context,
-                    persistent_source.clone(),
-                    self.source.clone(),
-                    &requests,
-                    self.restrictions.clone(),
-                    ordering,
-                    self.limits,
-                )?;
-                let CertifiedConcreteRewriteProof::GeneratedCylindricalNumericQuotientElimination {
-                    persistent_source: replayed_source,
-                    source_rows: replayed_rows,
-                    columns_easiest_first: replayed_columns,
-                    elimination: replayed_elimination,
-                    selected_pivot_ordinal: replayed_selected,
-                } = &replayed.proof
-                else {
-                    unreachable!()
-                };
-                let rows_match = source_rows.len() == replayed_rows.len()
-                    && source_rows.iter().zip(replayed_rows.iter()).all(|(a, b)| {
-                        a.source_row_index == b.source_row_index
-                            && a.assignment == b.assignment
-                            && a.raw_specialization
-                                .has_identical_guard_provenance(&b.raw_specialization)
-                            && a.collected_equation == b.collected_equation
-                    });
-                if !Arc::ptr_eq(persistent_source, replayed_source)
-                    || !rows_match
-                    || columns_easiest_first != replayed_columns
-                {
-                    return Err(CertifiedRewriteError::CertificateReplayMismatch);
-                }
-                let retained_sparse_rows =
-                    sparse_rows_from_source_proofs(source_rows, columns_easiest_first)?;
-                elimination.replay(family.coefficient_context(), &retained_sparse_rows)?;
-                if !elimination.has_identical_semantic_payload(replayed_elimination)
-                    || selected_pivot_ordinal != replayed_selected
-                {
-                    return Err(CertifiedRewriteError::CertificateReplayMismatch);
-                }
-                replayed
-            }
         };
         if replayed.family_fingerprint != self.family_fingerprint
             || replayed
@@ -1610,145 +1166,6 @@ fn validate_source_arity(
             actual: source.powers().len(),
         })
     }
-}
-
-/// Structural/resource gate which deliberately performs no source replay and
-/// touches no retained Symbolica row algebra. Every failing outcome is
-/// therefore available before the expensive persistent reconstruction. A
-/// successful outcome is never treated as authentication: callers must still
-/// acquire [`ReplayedGeneratedCylindricalPersistentSource`] before resolving a
-/// retained row.
-pub(crate) fn preflight_persistent_numeric_specialization_terms(
-    persistent_source: &Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-    limit: usize,
-) -> Result<usize, CertifiedRewriteError> {
-    let row_system = persistent_source.row_system();
-    let mut retained_rows = 0usize;
-    let mut output_terms = 0usize;
-    for witness in row_system.witnesses() {
-        let GeneratedCylindricalSourceRowOutcome::Retained { specialization, .. } =
-            witness.outcome()
-        else {
-            continue;
-        };
-        retained_rows = checked_add(
-            retained_rows,
-            1,
-            "persistent retained specialization rows scanned",
-        )?;
-        output_terms = checked_add(
-            output_terms,
-            specialization.output_terms(),
-            "persistent specialization terms scanned",
-        )?;
-        check_limit(
-            "persistent specialization terms scanned",
-            output_terms,
-            limit,
-        )?;
-    }
-    if retained_rows != row_system.stats().retained_rows() {
-        return Err(CertifiedRewriteError::CertificateReplayMismatch);
-    }
-    Ok(output_terms)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn preflight_generated_cylindrical_numeric_quotient(
-    family: &IntegralFamily,
-    parametric_context: &ParametricCoefficientContext,
-    persistent_source: &Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-    source: &ConcreteIntegralKey,
-    row_requests: &[(usize, Vec<QuotientTermWitness>)],
-    ordering: IntegralOrderingPolicy,
-    limits: CertifiedRewriteLimits,
-) -> Result<usize, CertifiedRewriteError> {
-    validate_source_arity(family, source)?;
-    if parametric_context.index_count() != family.denominator_count() {
-        return Err(CertifiedRewriteError::WrongArity {
-            expected: family.denominator_count(),
-            actual: parametric_context.index_count(),
-        });
-    }
-    if persistent_source.family_fingerprint() != family.fingerprint()
-        || persistent_source.context_fingerprint() != parametric_context.fingerprint()
-    {
-        return Err(CertifiedRewriteError::ForeignPersistentCylindricalSource);
-    }
-    let row_system = persistent_source.row_system();
-    let start = row_system.start();
-    if start.schedule().ordering().policy() != ordering
-        || persistent_source.ordering_identity() != start.schedule().ordering().stable_manifest()
-        || start.assignment().arity() != source.powers().len()
-        || start.sector() != &SectorMask::try_from_indices(source.powers())?
-        || !partial_assignment_satisfied(start.assignment(), source.powers())
-    {
-        return Err(CertifiedRewriteError::ForeignPersistentCylindricalSource);
-    }
-    let available = row_system.stats().retained_rows();
-    check_limit(
-        "persistent retained rows scanned",
-        available,
-        limits.concrete_elimination.max_rows,
-    )?;
-    preflight_persistent_numeric_specialization_terms(
-        persistent_source,
-        limits.concrete_elimination.max_input_entries,
-    )?;
-    check_limit(
-        "concrete quotient source rows",
-        row_requests.len(),
-        limits.concrete_elimination.max_rows,
-    )?;
-
-    let mut total_quotient_terms = 0usize;
-    let mut seen_rows = BTreeSet::new();
-    for (retained_row_ordinal, quotient_terms) in row_requests {
-        if *retained_row_ordinal >= available {
-            return Err(CertifiedRewriteError::PersistentRetainedRowOutOfRange {
-                row: *retained_row_ordinal,
-                available,
-            });
-        }
-        if !seen_rows.insert(*retained_row_ordinal) {
-            return Err(CertifiedRewriteError::DuplicatePersistentRetainedRow {
-                row: *retained_row_ordinal,
-            });
-        }
-        total_quotient_terms = checked_add(
-            total_quotient_terms,
-            quotient_terms.len(),
-            "flattened concrete quotient terms",
-        )?;
-        check_limit(
-            "quotient terms",
-            total_quotient_terms,
-            limits.max_quotient_terms,
-        )?;
-        for term in quotient_terms {
-            check_limit(
-                "symmetry path length",
-                term.symmetry_path.len(),
-                limits.max_symmetry_path_length,
-            )?;
-            validate_source_arity(family, &term.original)?;
-            if let Some(canonical) = &term.canonical {
-                validate_source_arity(family, canonical)?;
-            }
-        }
-    }
-    Ok(available)
-}
-
-fn partial_assignment_satisfied(
-    assignment: &crate::PartialIndexAssignment,
-    indices: &[i64],
-) -> bool {
-    indices.len() == assignment.arity()
-        && assignment
-            .entries()
-            .iter()
-            .all(|&(position, expected)| indices[position] == expected)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2187,11 +1604,6 @@ fn retained_rewrite_coefficient_bytes(
             source_rows,
             elimination,
             ..
-        }
-        | CertifiedConcreteRewriteProof::GeneratedCylindricalNumericQuotientElimination {
-            source_rows,
-            elimination,
-            ..
         } => {
             for row in source_rows {
                 charge_concrete_relation_bytes(&mut retained, &row.raw_specialization, limit)?;
@@ -2285,7 +1697,6 @@ fn check_limit(
 #[derive(Debug)]
 pub enum CertifiedRewriteError {
     ForeignCandidateFamily,
-    ForeignPersistentCylindricalSource,
     WrongArity {
         expected: usize,
         actual: usize,
@@ -2303,19 +1714,6 @@ pub enum CertifiedRewriteError {
         row: usize,
         available: usize,
     },
-    PersistentRetainedRowOutOfRange {
-        row: usize,
-        available: usize,
-    },
-    DuplicatePersistentRetainedRow {
-        row: usize,
-    },
-    MissingPersistentRetainedRowRequest {
-        row: usize,
-    },
-    UnsatisfiablePersistentRetainedRowRequested {
-        row: usize,
-    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -2326,7 +1724,6 @@ pub enum CertifiedRewriteError {
     },
     ExactAlgebra(ExactAlgebraError),
     ExactSparse(ExactSparseEliminationError),
-    Persistent(GeneratedCylindricalPersistentEliminationError),
     Ibp(ParametricIbpError),
     ParametricCoefficient(ParametricCoefficientError),
     Relation(ParametricRelationError),
@@ -2343,9 +1740,6 @@ impl fmt::Display for CertifiedRewriteError {
             Self::ForeignCandidateFamily => {
                 formatter.write_str("parametric candidate belongs to a foreign family")
             }
-            Self::ForeignPersistentCylindricalSource => formatter.write_str(
-                "persistent cylindrical source belongs to a foreign family, context, sector, locus, or ordering",
-            ),
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "rewrite arity is {actual}, expected {expected}")
             }
@@ -2378,21 +1772,6 @@ impl fmt::Display for CertifiedRewriteError {
                 formatter,
                 "generated source row {row} is outside {available} available IBP/LI rows"
             ),
-            Self::PersistentRetainedRowOutOfRange { row, available } => write!(
-                formatter,
-                "persistent retained row {row} is outside {available} available rows"
-            ),
-            Self::DuplicatePersistentRetainedRow { row } => {
-                write!(formatter, "persistent retained row {row} was requested more than once")
-            }
-            Self::MissingPersistentRetainedRowRequest { row } => write!(
-                formatter,
-                "satisfiable persistent retained row {row} has no quotient request"
-            ),
-            Self::UnsatisfiablePersistentRetainedRowRequested { row } => write!(
-                formatter,
-                "unsatisfiable persistent retained row {row} has a quotient request"
-            ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
@@ -2406,7 +1785,6 @@ impl fmt::Display for CertifiedRewriteError {
             ),
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::ExactSparse(error) => error.fmt(formatter),
-            Self::Persistent(error) => error.fmt(formatter),
             Self::Ibp(error) => error.fmt(formatter),
             Self::ParametricCoefficient(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
@@ -2429,11 +1807,6 @@ impl From<ExactAlgebraError> for CertifiedRewriteError {
 impl From<ExactSparseEliminationError> for CertifiedRewriteError {
     fn from(value: ExactSparseEliminationError) -> Self {
         Self::ExactSparse(value)
-    }
-}
-impl From<GeneratedCylindricalPersistentEliminationError> for CertifiedRewriteError {
-    fn from(value: GeneratedCylindricalPersistentEliminationError) -> Self {
-        Self::Persistent(value)
     }
 }
 impl From<ParametricIbpError> for CertifiedRewriteError {
@@ -2480,208 +1853,7 @@ impl From<ZeroSectorError> for CertifiedRewriteError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        AffineDenominator, FamilySectorInventoryCompiler, FamilySectorInventoryLimits,
-        GeneratedCylindricalPersistentEliminationLimits, GeneratedCylindricalRowSystemCertificate,
-        GeneratedCylindricalRowSystemLimits, GeneratedCylindricalSectorRootStartCertificate,
-        GeneratedCylindricalSectorRootStartLimits, GeneratedSymbolicRowSpanConfig,
-        InternalSymmetrySearchLimits, PowerShiftPolicy,
-        discover_bounded_vacuum_internal_symmetries,
-    };
-
-    fn persistent_tadpole_source() -> (
-        IntegralFamily,
-        ParametricCoefficientContext,
-        Arc<GeneratedCylindricalPersistentEliminationCertificate>,
-    ) {
-        let coefficients = CoefficientContext::new(["d", "m2"]);
-        let family = IntegralFamily::new(
-            "certified-rewrite-persistent-preflight-tadpole",
-            vec!["k".into()],
-            Vec::new(),
-            coefficients.clone(),
-            coefficients.parameter("d").unwrap(),
-            vec![AffineDenominator::new(
-                coefficients.parse("-m2").unwrap(),
-                vec![coefficients.one()],
-            )],
-            Vec::new(),
-            vec![coefficients.zero()],
-        )
-        .unwrap();
-        let context = ParametricIbpGenerator::try_new(&family)
-            .unwrap()
-            .context()
-            .clone();
-        let inventory = Arc::new(
-            FamilySectorInventoryCompiler::compile(
-                &family,
-                SectorRestrictions::unrestricted(1).unwrap(),
-                PowerShiftPolicy::FormalGeneric,
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                FamilySectorInventoryLimits::default(),
-            )
-            .unwrap(),
-        );
-        let root = Arc::new(
-            GeneratedCylindricalSectorRootStartCertificate::compile(
-                &family,
-                &context,
-                inventory,
-                SectorMask::try_new([true]).unwrap(),
-                ParametricIbpConfig::default(),
-                GeneratedSymbolicRowSpanConfig::default(),
-                1,
-                GeneratedCylindricalSectorRootStartLimits::default(),
-            )
-            .unwrap(),
-        );
-        let rows = Arc::new(
-            GeneratedCylindricalRowSystemCertificate::compile_from_sector_root(
-                &family,
-                &context,
-                root,
-                GeneratedCylindricalRowSystemLimits::default(),
-            )
-            .unwrap(),
-        );
-        let persistent = Arc::new(
-            GeneratedCylindricalPersistentEliminationCertificate::compile(
-                &family,
-                &context,
-                rows,
-                GeneratedCylindricalPersistentEliminationLimits::default(),
-            )
-            .unwrap(),
-        );
-        (family, context, persistent)
-    }
-
-    #[test]
-    fn persistent_numeric_preflight_accepts_exact_row_and_term_caps_and_rejects_one_below() {
-        let (family, context, persistent) = persistent_tadpole_source();
-        let source = ConcreteIntegralKey::try_new([2]).unwrap();
-        let available = persistent.row_system().stats().retained_rows();
-        assert!(available > 0);
-
-        let mut limits = CertifiedRewriteLimits::default();
-        limits.concrete_elimination.max_rows = available - 1;
-        assert!(matches!(
-            preflight_generated_cylindrical_numeric_quotient(
-                &family,
-                &context,
-                &persistent,
-                &source,
-                &[],
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                limits,
-            ),
-            Err(CertifiedRewriteError::ResourceLimit {
-                resource: "persistent retained rows scanned",
-                requested,
-                limit,
-            }) if requested == available && limit == available - 1
-        ));
-
-        limits.concrete_elimination.max_rows = available;
-        assert_eq!(
-            preflight_generated_cylindrical_numeric_quotient(
-                &family,
-                &context,
-                &persistent,
-                &source,
-                &[],
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                limits,
-            )
-            .unwrap(),
-            available,
-        );
-
-        let terms =
-            preflight_persistent_numeric_specialization_terms(&persistent, usize::MAX).unwrap();
-        assert!(terms > 0);
-        assert_eq!(
-            preflight_persistent_numeric_specialization_terms(&persistent, terms).unwrap(),
-            terms,
-        );
-        assert!(matches!(
-            preflight_persistent_numeric_specialization_terms(&persistent, terms - 1),
-            Err(CertifiedRewriteError::ResourceLimit {
-                resource: "persistent specialization terms scanned",
-                requested,
-                limit,
-            }) if requested == terms && limit == terms - 1
-        ));
-    }
-
-    #[test]
-    fn persistent_numeric_preflight_rejects_overlong_symmetry_path() {
-        let (family, context, persistent) = persistent_tadpole_source();
-        let restrictions = SectorRestrictions::unrestricted(1).unwrap();
-        let report = discover_bounded_vacuum_internal_symmetries(
-            &family,
-            &restrictions,
-            InternalSymmetrySearchLimits::default(),
-        )
-        .unwrap();
-        let symmetry = Arc::new(
-            report
-                .symmetries()
-                .first()
-                .expect("the tadpole has its identity permutation")
-                .clone(),
-        );
-        let key = ConcreteIntegralKey::try_new([2]).unwrap();
-        let witness = QuotientTermWitness::canonical(key.clone(), key.clone(), vec![symmetry]);
-        let mut limits = CertifiedRewriteLimits::default();
-        limits.max_symmetry_path_length = 0;
-        assert!(matches!(
-            preflight_generated_cylindrical_numeric_quotient(
-                &family,
-                &context,
-                &persistent,
-                &key,
-                &[(0, vec![witness])],
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                limits,
-            ),
-            Err(CertifiedRewriteError::ResourceLimit {
-                resource: "symmetry path length",
-                requested: 1,
-                limit: 0,
-            })
-        ));
-    }
-
-    #[test]
-    fn persistent_numeric_quotient_rejects_missing_satisfiable_row() {
-        let (family, context, persistent) = persistent_tadpole_source();
-        let error =
-            CertifiedConcreteRewrite::from_generated_cylindrical_numeric_quotient_elimination(
-                &family,
-                &context,
-                persistent,
-                ConcreteIntegralKey::try_new([2]).unwrap(),
-                &[],
-                SectorRestrictions::unrestricted(1).unwrap(),
-                IntegralOrderingPolicy::RustRedUnshiftedV1,
-                CertifiedRewriteLimits::default(),
-            )
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            CertifiedRewriteError::MissingPersistentRetainedRowRequest { .. }
-        ));
-    }
-
-    #[test]
-    fn persistent_numeric_rewrite_schema_is_current() {
-        assert_eq!(
-            CertifiedConcreteRewrite::SCHEMA,
-            CERTIFIED_CONCRETE_REWRITE_V2_SCHEMA
-        );
-    }
+    use crate::AffineDenominator;
 
     fn one_loop_concrete_rewrite(
         scope: &str,
