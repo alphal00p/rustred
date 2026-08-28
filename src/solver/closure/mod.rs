@@ -6,6 +6,7 @@
 //! source owner and never depends on epoch, handoff, or exact-session types.
 
 pub(crate) mod case_inventory;
+mod committed_exceptional_reentry;
 mod committed_exceptional_source;
 pub(in crate::solver) mod post_ready;
 mod publication_handoff;

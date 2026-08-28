@@ -20,8 +20,7 @@
 mod result_batch;
 
 use std::fmt;
-use std::mem::{align_of, size_of};
-use std::sync::Arc;
+use std::mem::size_of;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering as AtomicOrdering};
 
 use symbolica::prelude::Integer;
@@ -33,24 +32,15 @@ use crate::exact_identity::{
     ExactStructuralIdentity, encode_exact_identity,
 };
 use crate::solver::closure::case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
-    GeneratedAffineResidualCaseAuthorityLimits, GeneratedAffineResidualCaseAuthoritySourceKind,
+    GeneratedAffineResidualCaseAuthorityError, GeneratedAffineResidualCaseAuthoritySourceKind,
     GeneratedAffineResidualCaseSourceRowLimits, GeneratedAffineResidualCaseSourceRowView,
 };
+use crate::solver::closure::committed_exceptional_reentry::CommittedExceptionalAuthorityCopyPermit;
 use crate::solver::exact_session::GeneratedAffineResidualGroupSolveTargetLocator;
 use crate::solver::exact_session::{
     ApplicableRuleHandle, CommittedPublicationDomainView, CommittedPublicationEventHandle,
     CommittedPublicationEventView, CommittedPublicationLeafView, ExceptionalResidualHandle,
-    ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
-    GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
-    GeneratedAffineResidualGroupPhysicalKeyLimits,
-};
-use crate::solver::exact_session::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanError,
-    GeneratedAffineResidualGroupSolvePlanLimits,
+    ExceptionalResidualKind,
 };
 use crate::{
     IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext, ParametricRelation,
@@ -360,104 +350,15 @@ pub(in crate::solver::closure) struct CommittedExceptionalSingletonSource {
 const COMMITTED_EXCEPTIONAL_SINGLETON_STABLE_VALUE_IDENTITY_V1_SCHEMA: &str =
     "rustred-committed-exceptional-singleton-stable-value-identity-v1";
 
-/// Explicit topology-neutral constructor ceilings for one narrowed child
-/// session.  The campaign estimator remains responsible for the surrounding
-/// retained/transient memory envelope and opaque Symbolica reserve.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionLimits {
-    pub(crate) authority: GeneratedAffineResidualCaseAuthorityLimits,
-    pub(crate) physical_frame: GeneratedAffineResidualGroupPhysicalKeyLimits,
-    pub(crate) solve_plan: GeneratedAffineResidualGroupSolvePlanLimits,
-    pub(crate) session: GeneratedAffineResidualGroupExactSessionLimits,
-}
-
-impl Default for CommittedExceptionalFreshSessionLimits {
-    fn default() -> Self {
-        Self {
-            authority: GeneratedAffineResidualCaseAuthorityLimits::default(),
-            physical_frame: GeneratedAffineResidualGroupPhysicalKeyLimits::default(),
-            solve_plan: GeneratedAffineResidualGroupSolvePlanLimits::default(),
-            session: GeneratedAffineResidualGroupExactSessionLimits::default(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(in crate::solver::closure) enum CommittedExceptionalFreshSessionBuildError {
-    Authority(GeneratedAffineResidualCaseAuthorityError),
-    InheritedSourceRowCountMismatch { expected: usize, actual: usize },
-    PhysicalFrame(GeneratedAffineResidualGroupPhysicalKeyError),
-    SolvePlan(GeneratedAffineResidualGroupSolvePlanError),
-    Session(GeneratedAffineResidualGroupExactSessionError),
-    ResourceCountOverflow { resource: &'static str },
-}
-
-/// Successfully built fresh child plus its conservative enumerated
-/// owner-visible census.  This is not an RSS estimate: allocator metadata,
-/// native Symbolica state, TLS, and headroom remain in the campaign's nonzero
-/// opaque reserve.
-pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionBuild {
-    predecessor_source: CommittedExceptionalSingletonSource,
-    candidate: CommittedExceptionalFreshSessionCandidate,
-}
-
-struct CommittedExceptionalFreshSessionCandidate {
-    session: GeneratedAffineResidualGroupExactSession,
-    inherited_source_rows: usize,
-    conservative_visible_bytes_excluding_shared_ancestry: usize,
-}
-
-impl CommittedExceptionalFreshSessionBuild {
-    pub(crate) const fn session(&self) -> &GeneratedAffineResidualGroupExactSession {
-        &self.candidate.session
-    }
-
-    pub(crate) const fn conservative_visible_bytes_excluding_shared_ancestry(&self) -> usize {
-        self.candidate
-            .conservative_visible_bytes_excluding_shared_ancestry
-    }
-
-    pub(crate) const fn inherited_source_rows(&self) -> usize {
-        self.candidate.inherited_source_rows
-    }
-
-    pub(crate) fn into_session(self) -> GeneratedAffineResidualGroupExactSession {
-        self.candidate.session
-    }
-
-    pub(in crate::solver::closure) fn recover_predecessor_source(
-        self,
-    ) -> CommittedExceptionalSingletonSource {
-        self.predecessor_source
-    }
-}
-
-/// Transactional failure from consuming one committed exceptional source.
-///
-/// The exact source owner is returned intact so a failed admitted transform
-/// can retry or restore its predecessor without minting a second authority.
-pub(in crate::solver::closure) struct CommittedExceptionalFreshSessionBuildFailure {
-    source: CommittedExceptionalSingletonSource,
-    error: CommittedExceptionalFreshSessionBuildError,
-}
-
-impl CommittedExceptionalFreshSessionBuildFailure {
-    pub(in crate::solver::closure) fn into_parts(
-        self,
-    ) -> (
-        CommittedExceptionalSingletonSource,
-        CommittedExceptionalFreshSessionBuildError,
-    ) {
-        (self.source, self.error)
-    }
-}
-
 impl CommittedExceptionalSingletonSource {
     /// Private copy used only while one coordinator-owned, memory-admitted
     /// resident transform replaces its input owner with the derived owner.
     /// It shares the immutable event allocation and fixed leaf, but provides
     /// no capability to mint or retry epoch work.
-    fn clone_for_admitted_transform(&self) -> Self {
+    pub(in crate::solver::closure) fn clone_for_fresh_session_authority(
+        &self,
+        _permit: CommittedExceptionalAuthorityCopyPermit,
+    ) -> Self {
         Self {
             event: self.event.clone(),
             leaf_ordinal: self.leaf_ordinal,
@@ -615,155 +516,6 @@ impl CommittedExceptionalSingletonSource {
             limits,
         )
     }
-
-    /// Consume this source to build one replacement fresh exact session.
-    ///
-    /// A private shallow proof copy is transferred into the successor
-    /// authority. The original owner is returned intact on every error and is
-    /// dropped only after the successor has been fully constructed and its
-    /// visible census checked, making the one-shot capability structural.
-    ///
-    /// The census deliberately charges the committed event allocation and
-    /// event-local payload in full for each child.  It does not enumerate the
-    /// separately shared event-authority/parent-plan ancestry: production must
-    /// keep that graph in an admitted shared-lineage owner (or add a
-    /// conservative per-child ancestry estimate) before dropping the origin.
-    pub(in crate::solver::closure) fn try_build_fresh_exact_session_for_admitted_transform(
-        self,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        database_epoch: usize,
-        limits: CommittedExceptionalFreshSessionLimits,
-    ) -> Result<CommittedExceptionalFreshSessionBuild, CommittedExceptionalFreshSessionBuildFailure>
-    {
-        match self.try_build_fresh_exact_session_inner(family, context, database_epoch, limits) {
-            Ok(candidate) => Ok(CommittedExceptionalFreshSessionBuild {
-                predecessor_source: self,
-                candidate,
-            }),
-            Err(error) => Err(CommittedExceptionalFreshSessionBuildFailure {
-                source: self,
-                error,
-            }),
-        }
-    }
-
-    fn try_build_fresh_exact_session_inner(
-        &self,
-        family: &IntegralFamily,
-        context: &ParametricCoefficientContext,
-        database_epoch: usize,
-        limits: CommittedExceptionalFreshSessionLimits,
-    ) -> Result<CommittedExceptionalFreshSessionCandidate, CommittedExceptionalFreshSessionBuildError>
-    {
-        let authority = Arc::new(
-            crate::solver::closure::committed_exceptional_source::epoch_adapter::try_new_authority(
-                family,
-                context,
-                self.clone_for_admitted_transform(),
-                limits.authority,
-            )
-            .map_err(CommittedExceptionalFreshSessionBuildError::Authority)?,
-        );
-        let inherited_source_rows = self.source_row_count();
-        if authority.source_row_count() != inherited_source_rows {
-            return Err(
-                CommittedExceptionalFreshSessionBuildError::InheritedSourceRowCountMismatch {
-                    expected: inherited_source_rows,
-                    actual: authority.source_row_count(),
-                },
-            );
-        }
-        let physical_frame = Arc::new(
-            GeneratedAffineResidualGroupPhysicalFrame::try_new(
-                family,
-                context,
-                Arc::clone(&authority),
-                limits.physical_frame,
-            )
-            .map_err(CommittedExceptionalFreshSessionBuildError::PhysicalFrame)?,
-        );
-        let solve_plan = Arc::new(
-            GeneratedAffineResidualGroupSolvePlan::try_new_committed_exceptional_singleton(
-                family,
-                context,
-                Arc::clone(&authority),
-                Arc::clone(&physical_frame),
-                limits.solve_plan,
-            )
-            .map_err(CommittedExceptionalFreshSessionBuildError::SolvePlan)?,
-        );
-        let session = GeneratedAffineResidualGroupExactSession::try_new(
-            family,
-            context,
-            Arc::clone(&solve_plan),
-            database_epoch,
-            limits.session,
-        )
-        .map_err(CommittedExceptionalFreshSessionBuildError::Session)?;
-        let snapshot = session.resident_resource_snapshot();
-        // Each owner statistic below includes its pointee and deep local
-        // buffers but excludes its newly allocated outer Arc. The authority
-        // statistic already includes its nested Arc<Source> control, inline
-        // Source payload, stable identity, and anchor offsets; adding a second
-        // size_of::<Source>() here would double count that payload.
-        let conservative_visible_bytes_excluding_shared_ancestry = [
-            self.retained_event_bytes(),
-            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
-                GeneratedAffineResidualCaseAuthority,
-            >()?,
-            authority.owner_retained_bytes_excluding_source(),
-            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
-                GeneratedAffineResidualGroupPhysicalFrame,
-            >()?,
-            physical_frame.stats().frame_retained_bytes(),
-            committed_exceptional_outer_arc_control_and_padding_byte_bound::<
-                GeneratedAffineResidualGroupSolvePlan,
-            >()?,
-            solve_plan.stats().owner_retained_bytes(),
-            size_of::<GeneratedAffineResidualGroupExactSession>(),
-            snapshot.database_retained_bytes(),
-            snapshot.target_state_combined_retained_byte_envelope(),
-            snapshot.event_ledger_retained_bytes(),
-        ]
-        .into_iter()
-        .try_fold(0usize, |total, bytes| total.checked_add(bytes))
-        .ok_or(
-            CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
-                resource: "committed exceptional fresh-session visible census",
-            },
-        )?;
-        Ok(CommittedExceptionalFreshSessionCandidate {
-            session,
-            inherited_source_rows,
-            conservative_visible_bytes_excluding_shared_ancestry,
-        })
-    }
-}
-
-/// Conservative overhead for one distinct outer `Arc<T>` allocation when the
-/// pointee's owner census already includes `size_of::<T>()` and deep buffers.
-/// The two alignment slacks follow the established exact-target envelope; Rust
-/// does not expose the allocator's actual Arc header layout.
-fn committed_exceptional_outer_arc_control_and_padding_byte_bound<T>()
--> Result<usize, CommittedExceptionalFreshSessionBuildError> {
-    let controls = 2usize.checked_mul(size_of::<AtomicUsize>()).ok_or(
-        CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
-            resource: "committed exceptional fresh-session outer Arc controls",
-        },
-    )?;
-    let padding = 2usize
-        .checked_mul(align_of::<T>().saturating_sub(1))
-        .ok_or(
-            CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
-                resource: "committed exceptional fresh-session outer Arc padding",
-            },
-        )?;
-    controls.checked_add(padding).ok_or(
-        CommittedExceptionalFreshSessionBuildError::ResourceCountOverflow {
-            resource: "committed exceptional fresh-session outer Arc control and padding",
-        },
-    )
 }
 
 struct CommittedExceptionalSingletonIdentity<'source> {
@@ -2270,12 +2022,16 @@ mod tests {
     use super::*;
     use crate::campaign::{
         CampaignAdmissionController, CampaignBytes, CampaignEstimatorRevision,
-        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResidentToken,
-        CampaignResidentTransformBuildFailure, CampaignResidentTransformExecution,
-        CampaignRootSpec, CampaignTaskContext, CampaignTaskMemoryEnvelope,
-        CampaignTaskResourceEstimate, CampaignWavePlanner,
+        CampaignMemoryEstimate, CampaignPlan, CampaignPlanLimits, CampaignResident,
+        CampaignResidentToken, CampaignResidentTransformBuildFailure,
+        CampaignResidentTransformExecution, CampaignRootSpec, CampaignTaskContext,
+        CampaignTaskMemoryEnvelope, CampaignTaskResourceEstimate, CampaignWavePlanner,
     };
     use crate::solver::closure::case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
+    use crate::solver::closure::committed_exceptional_reentry::{
+        CommittedExceptionalFreshSessionBuildError, CommittedExceptionalFreshSessionLimits,
+        try_build_fresh_exact_session_for_admitted_transform,
+    };
     use crate::solver::closure::post_ready::{
         PreparedPublication, PublicationLimits, ready_for_publication,
     };
@@ -2493,7 +2249,8 @@ mod tests {
             ));
         }
         let expected_source_rows = source.source_row_count();
-        let build = match source.try_build_fresh_exact_session_for_admitted_transform(
+        let build = match try_build_fresh_exact_session_for_admitted_transform(
+            source,
             family,
             context,
             database_epoch,
@@ -2616,12 +2373,13 @@ mod tests {
         assert_eq!(owner.source_state_stats().issued(), 0);
         assert_eq!(owner.source_state_stats().staged(), 1);
         let mut staged = batch.into_staged_results().unwrap();
-        let allocation_probe = staged
+        let source_before_move = staged
             .get(0)
             .expect("one staged domain result")
             .1
-            .retained_output()
-            .clone_for_admitted_transform();
+            .retained_output();
+        let source_allocation_identity = source_before_move.event_allocation_identity_for_closure();
+        let source_leaf_ordinal = source_before_move.leaf_ordinal();
         let source_resident = staged.take_resident(0).unwrap();
         assert!(staged.take_resident(0).is_none());
         assert_eq!(
@@ -2629,16 +2387,6 @@ mod tests {
             source_visible_u64
         );
         assert!(source_resident.estimate().opaque_native_reserve().get() > 0);
-
-        // A same-event but different-leaf proof is never allocation-equal.
-        // This synthetic comparison does not authenticate that other leaf as
-        // a Domain source; it tests only the sealed allocation predicate.
-        let different_leaf_probe = CommittedExceptionalSingletonSource {
-            event: allocation_probe.event.clone(),
-            leaf_ordinal: allocation_probe.leaf_ordinal() + 1,
-        };
-        assert!(!allocation_probe.same_event_leaf_allocation(&different_leaf_probe));
-        drop(different_leaf_probe);
 
         // A precommit policy rejection returns the exact predecessor resident,
         // including its source/event allocation and original charge.
@@ -2686,11 +2434,17 @@ mod tests {
             rejected.error(),
             FreshDomainSessionTransformError::MissingOpaqueNativeReserve
         ));
-        assert!(
-            allocation_probe
-                .same_event_leaf_allocation(rejected.task().predecessor().retained_output())
-        );
         let source_resident = rejected.recover_callback_owner();
+        assert_eq!(
+            source_resident
+                .retained_output()
+                .event_allocation_identity_for_closure(),
+            source_allocation_identity,
+        );
+        assert_eq!(
+            source_resident.retained_output().leaf_ordinal(),
+            source_leaf_ordinal,
+        );
         assert_eq!(
             source_resident.estimate().visible_logical().get(),
             source_visible_u64
@@ -2705,8 +2459,6 @@ mod tests {
                 .unwrap_err(),
             ExactPublicationEpochError::AlreadyStaged,
         );
-        drop(allocation_probe);
-
         // First discover the deterministic local visible census under a task
         // whose transient envelope covers construction but whose retained
         // output is deliberately undercharged. Typed failure returns the exact
@@ -3447,28 +3199,57 @@ mod tests {
     fn committed_stable_identity_binds_geometry_not_event_leaf_coordinates() {
         fn domain_source(
             owner: &ExactPublicationEpochOwner,
-        ) -> CommittedExceptionalSingletonSource {
+        ) -> CampaignResident<CommittedExceptionalSingletonSource> {
             let (source_ordinal, _) = exceptional_source_ordinals(owner);
-            let flat_leaf_index = owner.exceptional_flat_leaf_indexes[source_ordinal];
-            let (slot, leaf_ordinal) = owner
-                .resolve_flat_leaf(flat_leaf_index)
-                .expect("exceptional source must retain its event leaf");
-            assert!(matches!(
-                slot.event.view().leaf(leaf_ordinal),
-                Some(CommittedPublicationLeafView::Exceptional(residual))
-                    if residual.kind() == ExceptionalResidualKind::Domain
-            ));
-            CommittedExceptionalSingletonSource {
-                event: slot.event.clone(),
-                leaf_ordinal,
-            }
+            let mut admission = admission_controller();
+            let mut batch = result_batch::ExactPublicationEpochResultBatch::<
+                CommittedExceptionalSingletonSource,
+            >::try_new(
+                owner,
+                &mut admission,
+                vec![source_ordinal],
+                result_batch::ExactPublicationEpochResultBatchLimits::default(),
+            )
+            .unwrap();
+            let work = batch.schedule().work(0).unwrap().clone();
+            let source_visible_bytes = {
+                let locator = owner.exceptional_source_locator(source_ordinal).unwrap();
+                let mut census_lease = owner.issue_exceptional_source(locator).unwrap();
+                let event_bytes = owner
+                    .resolve_exceptional_source(&mut census_lease)
+                    .unwrap()
+                    .retained_event_bytes();
+                drop(census_lease);
+                event_bytes
+                    .checked_add(size_of::<CommittedExceptionalSingletonSource>())
+                    .unwrap()
+            };
+            let reservation = reserve_one(
+                &mut admission,
+                &work,
+                task_estimate(
+                    u64::try_from(source_visible_bytes).unwrap(),
+                    256 * 1024,
+                    128 * 1024,
+                    256 * 1024,
+                ),
+                None,
+            );
+            let lease = batch.schedule().issue(0).unwrap();
+            let worker = owner.mint_domain_reentry_worker_result(lease).unwrap();
+            batch.try_stage(reservation.bind(worker)).unwrap();
+            let mut staged = batch.into_staged_results().unwrap();
+            let source = staged
+                .take_resident(0)
+                .expect("real mint path must stage one domain source");
+            drop(staged);
+            source
         }
 
         const NAME: &str = "publication-epoch-identity-geometry";
         let (family, context, owner) = owner_with_scope(NAME, 47);
-        let source = domain_source(&owner);
-        let admitted_copy = source.clone_for_admitted_transform();
-        assert!(source.same_event_leaf_allocation(&admitted_copy));
+        let source_resident = domain_source(&owner);
+        let source = source_resident.retained_output();
         let event_leaf_coordinates = (source.event_ordinal(), source.leaf_ordinal());
         let source_row_limits = GeneratedAffineResidualCaseSourceRowLimits::default();
         let baseline = source
@@ -3484,8 +3265,9 @@ mod tests {
         // independently compiled event at the same coordinates encodes the
         // exact same source, including every inherited generic relation.
         let (equivalent_family, equivalent_context, equivalent_owner) = owner_with_scope(NAME, 47);
-        let equivalent_source = domain_source(&equivalent_owner);
-        assert!(!source.same_event_leaf_allocation(&equivalent_source));
+        let equivalent_source_resident = domain_source(&equivalent_owner);
+        let equivalent_source = equivalent_source_resident.retained_output();
+        assert!(!source.same_event_leaf_allocation(equivalent_source));
         assert_eq!(
             (
                 equivalent_source.event_ordinal(),
@@ -3521,7 +3303,7 @@ mod tests {
         assert_ne!(changed_matrix.as_slice(), source.compact_affine_matrix());
         let changed = encode_exact_identity(
             &CommittedExceptionalSingletonIdentityGeometryOverride {
-                source: &source,
+                source,
                 family: &family,
                 context: &context,
                 source_row_limits,
@@ -3570,7 +3352,7 @@ mod tests {
         assert_ne!(changed_legacy_rows[0], legacy_rows[0]);
         let legacy_identity = encode_exact_identity(
             &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
-                source: &source,
+                source,
                 family: &family,
                 context: &context,
                 source_row_limits,
@@ -3582,7 +3364,7 @@ mod tests {
         .unwrap();
         let changed_legacy_identity = encode_exact_identity(
             &CommittedExceptionalSingletonIdentityLegacyRowsOverride {
-                source: &source,
+                source,
                 family: &family,
                 context: &context,
                 source_row_limits,

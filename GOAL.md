@@ -419,8 +419,19 @@ reviewable from semantic changes.
    with the cluster's inline tests and dedicated analysis/publication test
    modules, with no old-path compatibility aliases. This was a mechanical
    ownership move only; the session/post-Ready semantic SCC remains and is the
-   next tranche to untangle. Other mathematical clusters still need
-   reorganization.
+   next tranche to untangle. The first construction-edge extraction above the
+   committed exceptional source is complete too: fresh exact-session assembly
+   now lives in `solver::closure::committed_exceptional_reentry`, above both
+   the publication-epoch source and its source-neutral adapter. It consumes
+   the predecessor once, preserves typed predecessor recovery, and uses a
+   sealed move-only permit for the sole shallow authority copy retained by the
+   child. Consequently `publication_epoch_owner` no longer calls or imports
+   `epoch_adapter` to construct a session. This is a scoped edge removal, not
+   a claim that the closure dependency graph is already acyclic: inventory-
+   typed replay, authenticated-row, and stable-identity responsibilities still
+   couple the epoch owner to the inventory layer, while the session/post-Ready
+   semantic SCC also remains. Those are the next boundary tranches. Other
+   mathematical clusters still need reorganization.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

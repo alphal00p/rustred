@@ -35,10 +35,15 @@ component gates rather than an RSS budget. The following result-batch slice
 now precharges a complete `CampaignWorkKey` table and transfers admitted
 worker output into resident ownership. One committed same-sector Domain leaf
 can then mint an event-owned singleton and enter the existing consuming
-resident-transform executor; the state-isolation adapter retains and authenticates
-the parent's generic-source authority in a fresh V3 plan/catalog, constructs an
-empty database/session, and stops at typed affine-equality refinement. The
-source rows are not yet submitted to that database. This path is a
+resident-transform executor. Fresh-session assembly now lives in
+`solver::closure::committed_exceptional_reentry`, above both the committed
+epoch source and its source-neutral adapter. It consumes the predecessor once,
+preserves typed predecessor recovery, and uses a sealed move-only permit for
+the sole shallow source copy retained by the fresh V3 authority; the epoch
+owner no longer depends directly on `epoch_adapter` for construction. The
+orchestrator constructs an empty database/session and stops at typed affine-
+equality refinement. The source rows are not yet submitted to that database.
+This path is a
 pre-refinement state-isolation fixture. Production will instead consume the
 committed resident before creating a session, map its surviving `NonZero`
 domain into a refined-source successor, and only then build the fresh child.
@@ -879,6 +884,11 @@ first, compile the unit proof from its source authority, map every surviving
 exists. The full continuation witness, general integer-normal-
 form equality support, shared-ancestry
 admission, multi-child re-entry coordinator, and closure are not implemented.
+The fresh-session construction extraction is only one dependency-edge
+milestone: inventory-typed replay, authenticated-row, and stable-identity work
+still couples the epoch source to the inventory layer, and the exact-session/
+post-Ready semantic SCC also remains. The complete closure module graph is
+therefore not yet acyclic.
 
 `IdenticallyBad` is deliberately separate. It publishes no good or exceptional
 leaf, leaves the selected target unresolved, commits the candidate pivot once,

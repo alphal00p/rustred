@@ -278,8 +278,14 @@ The current-lineage components below are implemented and tested:
   lease bytes only. Its later result batch adds complete-`CampaignWorkKey`
   staging and atomic resident-charge transfer, and one committed same-sector
   Domain source can now enter a fresh V3 plan/catalog/database/session through
-  an admitted consuming transform. This first ingress stops at affine-equality
-  refinement and excludes shared parent ancestry from its child-local census.
+  an admitted consuming transform. Fresh-session assembly now lives above the
+  epoch source and its source-neutral adapter in
+  `solver::closure::committed_exceptional_reentry`: it consumes the
+  predecessor once, preserves typed predecessor recovery, and grants the child
+  its sole shallow authority copy through a sealed move-only permit. The epoch
+  owner therefore has no direct construction dependency on `epoch_adapter`.
+  This first ingress stops at affine-equality refinement and excludes shared
+  parent ancestry from its child-local census.
   It is not yet applicable-provider admission, equality quotient/re-
   elimination, an origin-droppable shared-lineage owner, a general result
   database, or closure. Same-database rejected-candidate continuation is a
@@ -291,7 +297,10 @@ The current-lineage components below are implemented and tested:
   the inventory an opaque owner and preserving one-way dependency direction.
   The sealed protocol is a generic leaf over the unchanged exact error and
   row-limit types; its borrowed row/predicate projections contain no inventory
-  or epoch implementation dependency.
+  or epoch implementation dependency. This does not yet make the complete
+  closure graph acyclic: inventory-typed replay, authenticated-row, and
+  stable-identity work still resides on the epoch source, and the exact-
+  session/post-Ready semantic SCC remains to be separated.
 - `src/parametric_coefficient.rs` supplies a source-neutral Symbolica-backed
   physical-parameter identity projector. It projects through
   `RationalPolynomial::to_polynomial`, transports exact index-polynomial loci
@@ -1756,8 +1765,11 @@ follow-up.
 The staged-result owner now supports allocation-free consuming extraction.
 The extracted `CampaignResident<CommittedExceptionalSingletonSource>` can be
 passed to the existing resident-transform executor and the crate-owned fresh
-session adapter, which constructs source authority, physical frame, solve
-plan, catalog/database, and an empty exact session under explicit limits.
+session re-entry orchestrator, which sits above the source-neutral adapter and
+constructs source authority, physical frame, solve plan, catalog/database, and
+an empty exact session under explicit limits. A sealed move-only permit
+authorizes exactly the shallow source copy retained by that authority; the
+consumed predecessor remains recoverable until the caller accepts the child.
 Recoverable callback failure returns the untouched predecessor source under
 its original resident charge; a successful commit transfers the admitted
 successor charge. The acceptance fixture deliberately requires a nonzero
@@ -1796,6 +1808,13 @@ The root-owned milestone gate used the licensed default-GMP build. The complete
 handoff/epoch-owner/result-batch superset passed 28/28 tests with eight Rust
 test threads; `cargo check --tests -j8`, `cargo fmt --check`, and
 `git diff --check` also passed.
+
+The subsequent re-entry boundary extraction moved fresh-session construction
+to `solver::closure::committed_exceptional_reentry` and removed the direct
+`publication_epoch_owner -> epoch_adapter` construction edge without changing
+the one-shot recovery contract. It deliberately does not claim a finished
+closure DAG: inventory-typed replay/stable-identity ownership and the
+session/post-Ready SCC remain the next refactor tranches.
 
 The row/equality prerequisite gate also used licensed default-GMP Symbolica.
 Focused completed-row, physical-row, database-ingress, schedule-differential,
