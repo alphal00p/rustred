@@ -27,15 +27,24 @@ one- through four-loop end-to-end results should become the lower-loop north
 star.
 
 No current root module earns retention merely because it compiles or has a
-test. The reset retains a module only when it is used by the new generic
-foundry/application path, implements a still-required RustRed domain
-responsibility, and—after a public-API audit—does not duplicate a usable
-Symbolica facility. Everything else is deleted without a compatibility shim.
-The new public facade is written from the actual use cases; the 750-line root
-re-export facade is not moved.
+test. The reset retains a module only when it has a real caller in the generic
+family/IBP/campaign/reduction application spine, implements a still-required
+RustRed domain responsibility, and—after a public-API audit—does not duplicate
+a usable Symbolica facility. Everything else is deleted without a
+compatibility shim. The new public facade is written from the actual use
+cases; the 750-line root re-export facade is not moved.
 
-This cleanup is a stop-the-line prerequisite. Exact-closure feature growth,
-six-loop optimization, and Vakint implementation resume only after the new
+A completed production-liveness/SCC audit found that `src/solver/**`, the
+exact-session/closure/publication/re-entry machinery, and its dependent
+generated-affine/cylindrical/residual provider stack form one private dead
+prototype island: there is no app, CLI, Python, or Vakint production caller.
+The entire island is deleted during this reset, not relocated. Phase 0 ends
+without a production foundry or closed-artifact publisher. Those services are
+built cleanly after the reset around retained generic algebra, family,
+topology-neutral IBP/LI, sector, campaign, tensor, and reduction primitives.
+
+This cleanup is a stop-the-line prerequisite. Fresh exact-closure foundry
+work, six-loop optimization, and Vakint implementation begin only after the new
 workspace, ownership DAG, minimal tests, documentation, warning gate, and
 rustdoc gate are green.
 
@@ -49,7 +58,7 @@ The inventory below is from tracked files at commit `dda284a`.
 | root `src/` | 166 Rust files, 402,790 lines | oversized root package |
 | files directly in root `src/` | 127 | flat namespace rather than owned domains |
 | flat `generated_*` / `residual_*` / `parametric_*` files | 50 / 6 / 15 = 71 | chronological or state adjectives obscure ownership |
-| `src/solver/` | 29 files, 73,216 lines | useful newer boundary, but still contains very large owners and tests |
+| `src/solver/` | 29 files, 73,216 lines | audited private prototype island with no production caller; delete wholesale |
 | root `tests/` | 103 files, 42,777 lines | mostly old public-surface and self-oracle maintenance burden |
 | `rustred-legacy-oracles` | 84 tracked files, including 82 Rust files and about 61,400 lines | wholly deletable authored/finite historical lane |
 | `rustred-app` | 22 tracked files, about 5,750 lines | live frontend boundary |
@@ -85,9 +94,9 @@ for their role. Old root paths and re-exports disappear. We will not create a
 `generated/`, `residual/`, `parametric/`, `legacy/`, or `misc/` dumping-ground
 directory.
 
-## Final tracked tree
+## Phase-0 tracked tree
 
-The intended repository skeleton is:
+The intended repository skeleton at the reset gate is:
 
 ```text
 /
@@ -112,11 +121,6 @@ The intended repository skeleton is:
 │   │   │   ├── identity/
 │   │   │   ├── sector/
 │   │   │   ├── campaign/
-│   │   │   ├── foundry/
-│   │   │   │   └── solver/    # private exact/closure implementation
-│   │   │   │       ├── exact/
-│   │   │   │       └── closure/
-│   │   │   ├── artifact/
 │   │   │   ├── tensor/
 │   │   │   ├── reduction/
 │   │   │   └── runtime/
@@ -148,6 +152,10 @@ The intended repository skeleton is:
 is never part of this tree. In particular, the local LiteRed2, GammaLoop,
 Vakint, and FORM material is not copied into RustRed history.
 
+Post-reset work adds fresh `foundry/` and `artifact/` owners only when their
+new contracts and first production callers exist. No empty shell or relocated
+prototype is created merely to prefigure that future tree.
+
 ## Domain dependency DAG
 
 Arrows mean “depends on”. There may be narrower leaf modules inside a box, but
@@ -155,21 +163,14 @@ there may be no reverse edge and no public compatibility route around this
 direction.
 
 ```text
-rustred-python ──> rustred-app ──> input, campaign, foundry, artifact,
+rustred-python ──> rustred-app ──> input, identity, sector, campaign,
                                      tensor, reduction
 Vakint RustRed mode ───────────────────────────────────────> input, tensor,
                                                              reduction
 
-foundry ──> private solver/{exact,closure}
-   │                    │
-   ├──────> artifact    ├────> identity, sector, campaign
-   │                    └────> family, algebra, runtime
-   └──────> identity, sector, family, algebra, runtime
-
-reduction ──> artifact, tensor, family, algebra, runtime
+reduction ──> identity, sector, tensor, family, algebra, runtime
 input ──────> tensor, family, algebra
 tensor ─────> family, algebra
-artifact ───> identity, sector, family, algebra
 identity ───> family, algebra
 sector ─────> family, algebra
 campaign ───> runtime
@@ -188,37 +189,36 @@ More precisely:
   through tensor/family-owned types. It contains no solving or frontend
   transport policy; tensor never imports a parser.
 - `identity` generates topology-neutral IBP/LI rows from a family.
-- `sector` owns sectors, graph/routing symmetries, zero/factorization
-  proofs, affine loci, and transport witnesses.
-- `foundry::solver::exact` owns physical rows, ordering, retained Symbolica sparse
-  reduction, plans, sessions, and transactions.
-- `foundry::solver::closure` owns guarded rules, exceptional children, recursive
-  discharge, subsector feedback, and closure state. It consumes interfaces
-  from exact/identity/sector; those layers never import closure. The solver is
-  private implementation of the foundry, not another core product surface.
-- `foundry` owns the high-level closure runner and emits values described by
-  `artifact`; it does not place foundry orchestration in `campaign`.
-  Performance lanes beneath it are named for proved semantic classes (for
-  example `lanes::single_scale_vacuum`), accept arbitrary qualifying families
-  and loop counts, and are selected from authenticated family properties.
-  Concrete topology names, authored recurrence tables, or named-family
-  branches are forbidden in core production code.
-- `artifact` owns immutable closed shards, verification at durable ingress,
-  manifests, and compiled rule lookup. Its models never depend on foundry or
-  solver internals; they may use stable identity, sector-evidence, family, and
-  algebra types.
+- `sector` owns sectors, graph/routing symmetries, zero/factorization proofs,
+  affine loci, and transport witnesses. It calls Symbolica's public
+  `symbolica::graph` APIs directly: `Graph::canonize()` and the resulting
+  `CanonicalForm` supply canonical labels and vertex-automorphism generators
+  for an existing topology; `GenerationSettings` with `Graph::generate` is
+  reserved for optional finite topology-domain enumeration. A physics-colored
+  subdivision/flag graph represents lines, line ports, and topology vertices
+  explicitly, so parallel-line exchange and orientation reversal become
+  vertex automorphisms. RustRed interprets those permutations as routing
+  candidates and certifies them with exact affine/momentum-map replay.
+  GammaLoop/feyngen is reference-only usage evidence for coloring, bucketing,
+  and orchestration, never a dependency or graph implementation authority.
 - `campaign` is low-level deterministic work identity, resource admission,
   width, checkpoint, and merge infrastructure. It never imports foundry;
-  foundry composes it.
+  a future freshly built foundry may compose it.
 - `tensor` owns tensor semantics and scalar lowering but delegates CAS work to
   algebra.
-- `reduction` owns compiled guarded-rule application, tensor/scalar reduction,
-  and typed master substitution. Callers lower input before invoking it. It
-  consumes artifacts and does not own a
-  second foundry, solver, or algebra engine. `rustred-app` is the composition
-  layer; the core deliberately has no confusing `application/` directory.
+- `reduction` retains generic guarded-rule application, tensor/scalar
+  reduction, and typed master-substitution primitives with real callers.
+  Callers lower input before invoking it. It does not own a foundry, solver,
+  or algebra engine. `rustred-app` is the composition layer; the core
+  deliberately has no confusing `application/` directory.
 - `runtime` owns the single process-wide Symbolica initialization and bounded
   execution facilities. It contains no physics policy.
+
+After Phase 0, a fresh `foundry` may depend on identity, sector, campaign,
+family, algebra, and runtime, and emit values owned by a new stable `artifact`
+domain. Reduction may then consume those artifacts. Artifact models never
+depend on foundry internals. This future direction is a contract to design,
+not a reason to preserve the audited prototype's solver/session hierarchy.
 
 ## Current-to-final cluster classification
 
@@ -236,11 +236,11 @@ gate, every surviving symbol must have a live caller, a fresh sentinel, and a
 role-named final owner. Long state/chronology paths such as
 `generated_residual_affine_group_effective_coverage` receive no presumption of
 value from their size or recent history; if their unique stable semantics
-cannot be isolated, the whole cluster is deleted. If several pieces are live,
-their common semantic prefix becomes a cohesive module path—for example,
-`foundry::solver::closure::residual_affine::coverage`—and child files/types use
-short role names within that context. A flat set of repeated long prefixes is
-not accepted, but neither is a prefix-named dumping-ground module.
+cannot be isolated, the whole cluster is deleted. The completed solver-island
+audit resolves the generated-affine/cylindrical/residual and publication/
+re-entry clusters to deletion, so they receive no destination module. A flat
+set of repeated long prefixes is not accepted, but neither is a prefix-named
+dumping-ground module.
 
 | Current files | Final owner/action |
 |---|---|
@@ -252,19 +252,19 @@ not accepted, but neither is a prefix-named dumping-ground module.
 | `src/generic_family.rs`, `automatic_isps.rs`, `feynman_polynomials.rs`, `sectors.rs`, `shift_operators.rs`, `guards.rs` | move live model/normalization code to `family/` and sector/guard responsibilities to `sector/` as indicated by the DAG; the dead handwritten `base_specialization.rs` prototype has been deleted and any future specialization must use Symbolica-native substitution |
 | `src/symbolica_integral_input.rs` | move core parsing/normalization to `input/`; transport and CLI decoding remain in `rustred-app` |
 | `src/parametric_ibp.rs`, `parametric_relation.rs`, and the topology-neutral part of `generated_symbolic_row_span.rs` | move live raw IBP/LI row construction and stable row provenance to `identity/`; remove “generated” naming |
-| `src/parametric_sector_normalized_source.rs`, `generated_cylindrical_family_source_set.rs`, `generated_cylindrical_row_system.rs`, `generated_affine_residual_source_authority.rs`, and high-level portions of `generated_symbolic_row_span.rs` | split stable raw identity values downward into `identity/`; keep sector inventory, exceptional scheduling, coverage, and provider orchestration private under `foundry/solver/`; do not let `identity` import those layers |
+| `src/parametric_sector_normalized_source.rs`, `generated_cylindrical_family_source_set.rs`, `generated_cylindrical_row_system.rs`, `generated_affine_residual_source_authority.rs`, and high-level portions of `generated_symbolic_row_span.rs` | retain only raw topology-neutral identity values already used outside the prototype under `identity/`; delete exceptional scheduling, coverage, source-authority, and provider orchestration with the solver island |
 | `src/coordinate_equality_loci.rs`, `symbolic_sector_cases.rs`, `symmetry.rs`, `symmetry_discovery.rs`, `symbolic_symmetry_transport.rs`, `zero_sectors.rs`, `zero_sector_provider.rs`, `product_locus_boolean_cover.rs`, `residual_affine_{atom_rows,integer_system,integer_lattice_kernel}.rs` | retain only independently live locus/transport/zero/factorization responsibilities under `sector/`; the legacy V1 residual-unit map and its public adapters have been deleted, and unsupported integer-normal-form cases remain typed boundaries rather than private CAS |
-| `src/family_sector_inventory.rs` | split stable sector decisions/evidence into `sector/`; move bounded family-wide analysis and unresolved-work orchestration into private `foundry/solver/` |
-| `src/residual_affine_branch_system.rs`, `residual_affine_branch_guard_composition.rs` | move live affine-locus evidence and composition primitives to `sector/`; keep branch scheduling/state transitions private under `foundry/solver/closure/` |
-| `src/affine_parametric_ordering.rs`, `affine_prepare_point_schedule.rs`, `affine_prepare_points.rs`, `cylindrical_ordering.rs`, `cylindrical_prepare_point_schedule.rs`, `cylindrical_prepare_points.rs`, `canonical_parametric_locus_table.rs`, `affine_locus_bound_relation.rs` | move the one retained generic ordering/locus pipeline under private `foundry/solver/exact/` or `sector/`; merge duplicate affine/cylindrical shells instead of preserving parallel API generations |
-| `src/parametric_elimination.rs`, `persistent_parametric_elimination.rs`, `conditional_reelimination.rs`, `direct_bad_formula.rs`, `direct_bad_formula_arbitrary.rs`, `when_bad.rs`, `exact_sparse_elimination.rs` | move only live exact/condition semantics beneath private `foundry/solver/`; replace or delete handwritten algebra and obsolete whole-schedule engines |
-| all `src/generated_affine_*.rs` not assigned above | split live row/locus/refinement responsibilities between private `foundry/solver/exact/` and `foundry/solver/closure/`, rename by responsibility, and delete superseded generations |
-| all `src/generated_cylindrical_*.rs` not assigned above | fold live exceptional-start/reduction responsibilities into private `foundry/solver/closure/`; delete duplicate pipeline facades and chronology names |
-| all `src/generated_residual_*.rs` and same-name child test directories such as `src/generated_residual_affine_group_effective_coverage/**` | fold live exceptional-condition, coverage, descent, queue, and re-entry responsibilities into cohesive private `foundry/solver/closure/` children; retain only fresh sentinel tests beside surviving owners |
-| `src/generated_family_*.rs`, `generated_sector_*.rs`, `generated_provider_stack.rs`, `generated_when_bad.rs` | replace the public fixed-point/provider stack with a narrow private closure-to-`artifact/` emission boundary owned by `foundry/`; delete eager/global and compatibility variants |
-| `src/coverage_decision_dag.rs`, `adaptive_rules.rs`, `certified_rewrite.rs`, `certified_rule_provider.rs`, `certified_symmetry_provider.rs`, `conditional_rules.rs`, `parametric_rules.rs`, `parametric_sector_coverage.rs`, `parametric_sector_provider.rs`, `master_policy.rs`, `master_product.rs` | retain only proof-bearing closed-artifact and selected-master semantics under `artifact/`; delete provider layers that merely wrap old schemas |
-| `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; recover any unique formula semantics as small private closure types, and rebuild six-loop stress acceptance from the lazy DAG |
-| existing `src/solver/**` | move beneath `crates/rustred-core/src/foundry/solver/` as private implementation, then continue splitting giant owners and removing reverse edges; preserve the exact-session transaction kernel and committed-exceptional ownership only insofar as they serve the simplified live closure path |
+| `src/family_sector_inventory.rs` | retain only independently used stable sector decisions/evidence under `sector/`; delete family-wide unresolved-work orchestration with the prototype island |
+| `src/residual_affine_branch_system.rs`, `residual_affine_branch_guard_composition.rs` | retain only independently used affine-locus evidence primitives under `sector/`; delete solver branch scheduling/state transitions |
+| `src/affine_parametric_ordering.rs`, `affine_prepare_point_schedule.rs`, `affine_prepare_points.rs`, `cylindrical_ordering.rs`, `cylindrical_prepare_point_schedule.rs`, `cylindrical_prepare_points.rs`, `canonical_parametric_locus_table.rs`, `affine_locus_bound_relation.rs` | delete the solver-only ordering/prepare/locus prototype stack; any future ordering contract is designed afresh under the new foundry |
+| `src/parametric_elimination.rs`, `persistent_parametric_elimination.rs`, `conditional_reelimination.rs`, `direct_bad_formula.rs`, `direct_bad_formula_arbitrary.rs`, `when_bad.rs`, `exact_sparse_elimination.rs` | delete solver-only engines and handwritten algebra; retain only a generic Symbolica-backed row primitive if an outside-island caller proves it belongs in `algebra/` |
+| all `src/generated_affine_*.rs` not assigned above | delete with the audited solver island; do not split or rename into a new foundry |
+| all `src/generated_cylindrical_*.rs` not assigned above | delete with the audited solver island |
+| all `src/generated_residual_*.rs` and same-name child test directories such as `src/generated_residual_affine_group_effective_coverage/**` | delete with the audited solver island, including coverage, queue, publication, and re-entry wrappers |
+| `src/generated_family_*.rs`, `generated_sector_*.rs`, `generated_provider_stack.rs`, `generated_when_bad.rs` | delete the prototype fixed-point/provider stack; no Phase-0 artifact-emission replacement |
+| `src/coverage_decision_dag.rs`, `adaptive_rules.rs`, `certified_rewrite.rs`, `certified_rule_provider.rs`, `certified_symmetry_provider.rs`, `conditional_rules.rs`, `parametric_rules.rs`, `parametric_sector_coverage.rs`, `parametric_sector_provider.rs`, `master_policy.rs`, `master_product.rs` | retain only independently used reduction-side rule/master values with real callers; delete closure/provider and speculative artifact layers |
+| `src/parametric_sector_formula_{ir,residual,affine_terminal}.rs`, `parametric_sector_mtbdd.rs`, `parametric_sector_mtbdd_certificate.rs`, `parametric_sector_one_pass_tests.rs`, `parametric_sector_k21_test_support.rs` | delete the eager/legacy sector and synthetic-test stack; future lazy closure formula types are designed afresh |
+| existing `src/solver/**` | delete wholesale as the audited dead prototype island; do not preserve the exact-session transaction, rollback, exceptional publication, or committed-re-entry machinery |
 | existing `src/campaign/**` and `src/campaign/execution.rs` | retain under `campaign/`; keep deterministic resource/width/execution semantics and remove facade duplication |
 | `src/generic_tensor_family.rs`, `generic_tensor_polynomial.rs`, `generic_tensor_projector.rs`, `tensor.rs`, `symbolica_target_numerator.rs`, `symbolica_tensor_numerator.rs` | move live generic tensor/scalar-lowering semantics to `tensor/`; Symbolica owns CAS operations |
 | `src/reduction_engine.rs`, `tensor_reduction_engine.rs` | do not preserve as compatibility engines; extract only generic compiled-rule application/tensor/master services into `reduction/`, with Vakint end-to-end tests defining results |
@@ -292,9 +292,10 @@ not accepted, but neither is a prefix-named dumping-ground module.
 
 The documentation distillation is allowlist-by-subject, not file preservation.
 The only source notes that must be consulted before deletion are the current
-LiteRed algorithm/scope reports, parametric-IBP design, exact exceptional
-session plan, parallel-foundry plan, Symbolica API/compliance inventories, and
-Vakint/GammaLoop integration audits. Their still-valid content moves into
+LiteRed algorithm/scope reports, parametric-IBP design, parallel-foundry plan,
+Symbolica API/compliance inventories, and Vakint/GammaLoop integration audits.
+Former exact-session/exceptional notes may contribute failure cases but do not
+define the fresh foundry architecture. Still-valid content moves into
 `references/litered2.md`, `foundry.md`, `algebra.md`, `validation.md`, and
 `interfaces.md`; their original dated files then disappear. Loop-authored
 reduction notes, old V1/V2/generated pipeline plans, the prior repository
@@ -309,12 +310,16 @@ It creates a small matrix from the essential cases:
 1. family normalization and automatic ISP completion;
 2. topology-neutral ordinary IBP and LI source generation at `L=1,2` plus the
    synthetic structural `L=6, K=21, 36-source` count (not a closure claim);
-3. exact Symbolica coefficient/row operations and transaction rollback;
-4. one natural exceptional equality/nonzero child with exact replay;
-5. exact zero/symmetry/routing witnesses;
-6. deterministic campaign planning/admission for `n_cores = 1,2,4`;
+3. exact Symbolica coefficient/row operations;
+4. exact zero/symmetry/routing witnesses, including native graph candidates;
+5. deterministic campaign planning/admission for `n_cores = 1,2,4`;
+6. generic reduction-rule/master primitives with real callers;
 7. app/CLI/Python byte- and error-parity for the supported operations; and
-8. black-box artifact load/application tests once the artifact API exists.
+8. black-box artifact load/application tests only after the fresh artifact API
+   exists.
+
+Phase 0 has no transaction/rollback or exceptional-child sentinel promise;
+those belonged to the deleted prototype island.
 
 Tests live beside private units unless they exercise a true public/package
 boundary. Giant inline historical campaigns, captured schema fingerprints,
@@ -469,9 +474,10 @@ Gate: default core/app/Python check only; no legacy-suite repair.
 - Before deleting an old test surface for a retained cluster, write a compact
   fresh sentinel beside the live owner for that cluster. The initial sentinels
   cover family normalization, generic IBP/LI generation, the structural
-  six-loop source count, exact row/transaction rollback, one exceptional-child
-  replay, and deterministic campaign admission. They are new contract tests,
-  not mechanically repaired legacy binaries.
+  six-loop source count, exact Symbolica row operations, zero/symmetry, generic
+  reduction primitives, and deterministic campaign admission. They are new
+  contract tests, not mechanically repaired legacy binaries. Do not preserve
+  transaction/rollback or exceptional-child sentinels from the solver island.
 - Remove the LiteRed2 and GammaLoop gitlinks and their `.gitmodules` entries;
   retain Symbolica and the one-entry `.gitmodules` file.
 - Delete the entire root `tests/`, `examples/`, `tools/`, and `scripts/` trees.
@@ -485,14 +491,17 @@ public Python import smoke test pass.
 
 ### R3 — form and prune the retained domain spine in place
 
+- Delete `src/solver/**` plus the dependent exact-session, closure,
+  publication, re-entry, generated-affine/cylindrical/residual, and provider
+  SCCs. Do not relocate or preserve them.
 - Under the current root package, create the acyclic owners `algebra`,
-  `family`, `input`, `identity`, `sector`, `campaign`, `foundry`, `artifact`,
-  `tensor`, `reduction`, and `runtime`; `foundry` privately owns
-  `solver/{exact,closure}`.
+  `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, `reduction`,
+  and `runtime`. There is no Phase-0 `foundry` or `artifact` owner.
 - Work cluster by cluster. Move/split only symbols justified by a live app,
-  foundry, upcoming Vakint use case, or fresh sentinel; delete the rest in the
-  same rollback-sized tranche. An unclassified liveness-ledger path blocks the
-  tranche.
+  retained-core caller, upcoming Vakint use case, or fresh retained-primitive
+  sentinel; delete the rest in the same rollback-sized tranche. A hypothetical
+  future foundry is not sufficient liveness evidence. An unclassified
+  liveness-ledger path blocks the tranche.
 - At the start and end of every cluster milestone, exhaustively enumerate all
   tracked `*.rs` files, publish the changed counts in the commit audit, and
   revisit every remaining flat or long state/chronology name. No earlier
@@ -503,9 +512,9 @@ public Python import smoke test pass.
   specialize only on proved semantic family classes.
 - Put a narrow domain facade in place as each cluster moves, update internal
   imports to domain paths, and add no old-path aliases.
-- Keep mechanical movement, dependency inversion, and semantic solver changes
-  in separate commits. Every cluster's sentinel exists before its old tests or
-  implementation variants disappear.
+- Keep mechanical movement and dependency inversion separate from the later
+  fresh-foundry work. Every retained cluster's sentinel exists before its old
+  tests or implementation variants disappear.
 
 Gate: focused licensed sentinels stay green after every cluster; static imports
 move toward the declared DAG; no new prefix dumping ground or compatibility
@@ -514,7 +523,7 @@ facade appears.
 ### R4 — replace the root facade and finish liveness pruning
 
 - Replace the 750-line facade with the smallest intentional `rustred` API
-  required by the retained foundry, app/CLI/Python, and Vakint boundary.
+  required by the retained spine, app/CLI/Python, and Vakint boundary.
 - Delete every unreferenced source, old schema generation, compatibility
   constructor/re-export, duplicate provider stack, and eager MTBDD path. Do
   not silence dead code with broad `allow` attributes.
@@ -556,7 +565,7 @@ explicit manifest/version-source changes, this commit is a mechanical move.
   goldens.
 
 Gate: licensed default-GMP workspace tests, deterministic concurrency cases,
-exact replay/rollback, and no FORM in the default graph.
+exact retained-primitive evidence, and no FORM in the default graph.
 
 ### R7 — replace the documentation corpus
 
@@ -573,8 +582,8 @@ Gate: strict rustdoc and link/path scan are green.
   audits.
 - Commit and push each prior gate separately; do not squash the reset into one
   opaque change.
-- Only after all gates pass may solver feature work and the parallel Vakint
-  RustRed mode resume.
+- Only after all gates pass may the fresh foundry work and the parallel Vakint
+  RustRed mode begin.
 
 ## Phase-0 acceptance commands and invariants
 

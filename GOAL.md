@@ -42,7 +42,10 @@ remains pure Rust + Symbolica.
   independently. The primary agent owns reconciliation, dependency decisions,
   integration, and capability claims.
 - **Pre-reset baseline:** repository commit `dda284a` (`Extract committed
-  exceptional reentry construction`). Earlier milestones remain Git evidence,
+  exceptional reentry construction`). A completed production-liveness audit
+  subsequently classified the private solver/exact-session/closure/
+  publication/re-entry stack and its dependent generated-affine provider
+  layers as one dead prototype island. Earlier milestones remain Git evidence,
   not architecture that the reset must preserve.
 - **Cross-repository boundary:** after Phase 0 and the first genuinely closed
   lower-loop RustRed artifacts, initial Vakint/GammaLoop integration proceeds
@@ -65,10 +68,12 @@ remains pure Rust + Symbolica.
   one opaque commit.
 - **Immediate posture:** the first substantive step is to restructure the
   current RustRed code cleanly around the stated end goal. Complete the
-  mandatory heavy structural refactor before resuming the exact solver
-  critical path. Structural work is an enabler, not evidence of mathematical
-  closure, but a clear production architecture is a prerequisite for a
-  maintainable and scalable six-loop implementation.
+  mandatory heavy structural refactor by deleting the audited dead solver
+  island and retaining only a small, demonstrably live generic capability
+  spine. The production foundry is then rebuilt cleanly rather than resumed.
+  Structural work is an enabler, not evidence of mathematical closure, but a
+  clear production architecture is a prerequisite for a maintainable and
+  scalable six-loop implementation.
 
 ## Assigned objective
 
@@ -205,9 +210,11 @@ corroboration only; symbolic regenerated-source replay is mandatory.
   outside the required verbatim preamble above, is not duplicated in project
   documentation or logs.
 - RustRed owns physics/domain semantics, typed integral keys, ordering,
-  guards, provenance, replay, resource admission, scheduling, transactions,
-  artifacts, and structural tensor semantics. Those responsibilities do not
-  authorize a second algebra engine.
+  guards, provenance, replay, resource admission, scheduling, durable
+  artifacts, and structural tensor semantics. A future foundry may introduce
+  narrowly justified state-transition primitives, but the deleted prototype's
+  transaction/session design is not an inherited authority. None of these
+  responsibilities authorize a second algebra engine.
 
 ### Mandatory three-stage CAS check
 
@@ -258,9 +265,18 @@ general no-unit or simultaneous cases currently stop at the typed
 - No eager `2^K` sector/orthant enumeration at high loop order, no brute-force
   `GL(L,Z)`/bounded `3^(L^2)` symmetry discovery, no eager global exact
   rational-function elimination, and no authored recurrence dispatch.
-- Graph automorphisms, routing equivalences, and polynomial signatures may
-  propose symmetries. Only the generic exact affine/momentum-map verifier may
-  certify them.
+- Symbolica's intrinsic public `symbolica::graph` implementation is the graph
+  authority. Existing-topology symmetry discovery calls `Graph::canonize()`
+  and consumes the resulting `CanonicalForm` automorphism generators;
+  optional finite topology-domain enumeration uses `GenerationSettings` and
+  `Graph::generate`. RustRed supplies physics-aware colors and interprets the
+  recovered permutations as routing candidates. Parallel propagator swaps
+  and momentum-orientation flips are represented as colored subdivision/flag
+  vertices so they are explicit vertex automorphisms rather than hidden edge
+  cases. Only the generic exact affine/momentum-map verifier may certify a
+  candidate. GammaLoop/feyngen remains reference-only evidence for how a
+  caller can encode and orchestrate graph work; it is neither a dependency nor
+  an implementation authority.
 - Algebraically equivalent numerator spellings, especially explicit
   propagator cancellation versus an uncancelled numerator factor, must reduce
   to identical masters and coefficients.
@@ -279,8 +295,8 @@ four-package baseline, gradual legacy preservation, and legacy-test repair
 policy. Its tracked execution specification is
 [`docs/research/repository_clean_architecture_plan_2026-08-28.md`](docs/research/repository_clean_architecture_plan_2026-08-28.md).
 Phase 0 is now a stop-the-line repository reset: delete obsolete surfaces
-first, retain only demonstrably live generic core, and only then resume solver
-feature growth or the parallel Vakint implementation.
+first, retain only demonstrably live generic core, and only then begin a fresh
+foundry implementation and the parallel Vakint implementation.
 
 The repository root is a **virtual Cargo workspace** with no root `src/`,
 `tests/`, or package. The deliberately bounded live packages are:
@@ -321,21 +337,24 @@ acyclic ownership or dependency boundary, materially improve independent
 testing/compilation, and avoid a new dumping ground. Do not create transport-
 only or one-file microcrates merely to make the tree look modular.
 
-Within the core, dependency direction must be explicit and acyclic across
-these owned domains. In this diagram `A -> B` means that A may depend on B:
+The Phase-0 core is deliberately smaller than the eventual product. The
+completed liveness audit found no application/CLI/Python/Vakint production
+caller for the existing private `src/solver/**` tree or for its exact-session,
+closure, publication, re-entry, and generated-affine/provider dependants.
+Those files are deleted as a prototype island; they are not moved, renamed, or
+used as the skeleton of a production foundry. Consequently Phase 0 ends with
+no production `foundry`, private solver, or closed-artifact publisher.
+
+Within the retained Phase-0 core, dependency direction must be explicit and
+acyclic. In this diagram `A -> B` means that A may depend on B:
 
 ```text
-rustred-app -> input, campaign, foundry, artifact, tensor, reduction
+rustred-app -> input, identity, sector, campaign, tensor, reduction
 Vakint RustRed mode -> input, tensor, reduction
 
-foundry -> private solver/{exact,closure}
-foundry -> artifact, identity, sector, campaign, family, algebra, runtime
-private solver -> identity, sector, campaign, family, algebra, runtime
-
-reduction -> artifact, tensor, family, algebra, runtime
+reduction -> identity, sector, tensor, family, algebra, runtime
 input -> tensor, family, algebra
 tensor -> family, algebra
-artifact -> identity, sector, family, algebra   # never solver/foundry
 identity -> family, algebra
 sector -> family, algebra
 campaign -> runtime                     # never foundry
@@ -344,13 +363,22 @@ algebra -> runtime, Symbolica public Rust API
 runtime -> Symbolica public Rust API
 ```
 
-The core directories are `algebra`, `family`, `input`, `identity`, `sector`,
-`campaign`, `foundry`, `artifact`, `tensor`, `reduction`, and `runtime`.
-`foundry` privately owns `solver/{exact,closure}` and the high-level closure
-runner. `campaign` remains low-level work/resource infrastructure. Artifact
-models may embed stable sector evidence but never import the solver; the
-foundry emits them and reduction consumes them. The core has no `application/`
-directory because `rustred-app` is the composition layer.
+The Phase-0 core directories are `algebra`, `family`, `input`, `identity`,
+`sector`, `campaign`, `tensor`, `reduction`, and `runtime`. `campaign` remains
+low-level work/resource infrastructure. `reduction` retains only generic
+rule-application and master-substitution primitives with real callers; it
+does not imply that a closed rule library already exists. The core has no
+`application/` directory because `rustred-app` is the composition layer.
+
+After the reset gates pass, a fresh `foundry` and a stable `artifact` domain
+are introduced from their required contracts. The new foundry composes the
+retained identity, sector, campaign, family, algebra, and runtime services and
+emits immutable artifact values that reduction can consume. Its internal
+algorithm modules are designed from the mathematical closure requirements and
+Symbolica APIs, not from the deleted exact-session/closure directory shape.
+Artifact models never depend on foundry internals. This is the future
+dependency direction, not a promise that any audited prototype implementation
+survives Phase 0.
 
 Private implementation names and files should describe mathematical roles,
 not historical implementation chronology. Code is factored to the highest
@@ -358,9 +386,9 @@ professional standard practical for this project: cohesive modules, narrow
 interfaces, explicit owners, acyclic dependencies, minimal visibility, and no
 duplicated authority. Only essential generic tests are co-located or rebuilt
 at true integration boundaries; historical campaigns are deleted. Public
-re-exports are narrowed. Semantic solver changes are not
-mixed into mechanical file moves. Git is the archive; stale code and
-documentation are deleted after their unique evidence is retained.
+re-exports are narrowed. The fresh solver is not developed inside mechanical
+file moves. Git is the archive; stale code and documentation are deleted after
+their unique evidence is retained.
 
 Legacy paths are not permanent architecture. Remove obsolete compatibility
 layers, V1/V2 bridges, handwritten production algebra, loop-authored reducers,
@@ -373,7 +401,7 @@ dependency.
 
 Authentication is proportional to the boundary. RustRed validates untrusted
 user input, deserialized durable artifacts, cross-process or cross-repository
-handoffs, live mutation/transaction commits, and final artifact installation.
+handoffs, and final artifact installation.
 Once data has crossed such a boundary, sealed constructors, move ownership,
 borrowed views, and typestate carry the invariant. Internally generated values
 must not accumulate repeated fingerprint comparisons, schema round trips,
@@ -399,12 +427,13 @@ API decision and downstream audit.
 
 ### Phase 0 — mandatory heavy refactor and authority cleanup
 
-This phase is the immediate stop-the-line implementation step. The historical
-refactor milestones remain useful Git evidence, especially the campaign and
-exact-session/closure ownership work, but they do not oblige the new tree to
-preserve surrounding modules, APIs, schemas, tests, or the temporary legacy
-package. Do not continue untangling individual closure edges inside a
-402k-line root package before the reset below is complete.
+This phase is the immediate stop-the-line implementation step. Historical
+exact-session/closure/publication/re-entry milestones remain Git evidence
+only. The completed liveness audit found that stack and its dependent
+generated-affine/provider layers to be a private prototype island with no
+user-facing production caller. Delete it wholesale instead of untangling,
+moving, or preserving its sessions, transactions, rollback machinery,
+exceptional-child sentinels, schemas, tests, or directory shape.
 
 Execute the rollback-sized tranches in the order specified by the clean
 architecture plan:
@@ -423,11 +452,13 @@ architecture plan:
    trees, plus stale tracked LiteRed2/GammaLoop gitlinks. Do not port or repair
    the old binaries. Retain only the pinned Symbolica gitlink; reference trees
    remain ignored and untracked.
-4. Form and prune the live code under acyclic `algebra`, `family`, `input`,
-   `identity`, `sector`, `campaign`, `foundry`, `artifact`, `tensor`,
-   `reduction`, and `runtime` owners while the package is still at the root.
-   `foundry` privately owns `solver::{exact,closure}`. Move a cluster only when
-   a live caller or fresh sentinel justifies it; delete the rest. Prefixes such
+4. Delete `src/solver/**` and the dependent exact-session, closure,
+   publication, re-entry, generated-affine/cylindrical/residual, and provider
+   orchestration island. Retain only independently live generic
+   algebra/family/IBP/sector/campaign/reduction primitives with callers outside
+   that island. Then form and prune those values under acyclic `algebra`,
+   `family`, `input`, `identity`, `sector`, `campaign`, `tensor`, `reduction`,
+   and `runtime` owners while the package is still at the root. Prefixes such
    as `generated_`, `residual_`, and `parametric_` do not define directories.
    Every remaining long chronology/state-named file is challenged explicitly
    on each enumeration and must resolve to a small role-named owner or deletion
@@ -436,7 +467,8 @@ architecture plan:
    and use short role names below it; do not keep a flat family of repeated
    prefixes or create a miscellaneous prefix bucket.
 5. Replace the 750-line public facade with the smallest intentional generic
-   API required by the foundry, app/CLI/Python, and upcoming Vakint boundary.
+   API required by the retained spine, app/CLI/Python, and upcoming Vakint
+   boundary.
    Delete unreferenced generations/provider layers, eager sector machinery,
    and compatibility APIs rather than suppressing dead-code warnings. Delete
    a CAS duplicate only after it is dead or a Symbolica API/differential audit
@@ -449,10 +481,12 @@ architecture plan:
    each workspace root so RustRed and GammaLoop can resolve one exact package.
 7. Complete the small fresh generic contract suite instead of porting all 103
    root integration binaries. Preserve exact generic family/IBP/LI,
-   Symbolica, transaction/rollback, exceptional-child, zero/symmetry,
-   deterministic campaign, and app/CLI/Python evidence. Use only actually
-   embedded Vakint expectations immediately; live backend differentials wait
-   for their real external tools and are not mislabeled as frozen goldens.
+   Symbolica coefficient/row, zero/symmetry, deterministic campaign,
+   reduction-primitive, and app/CLI/Python evidence. Phase 0 deliberately has
+   no transaction/rollback or exceptional-child sentinel requirement. Use
+   only actually embedded Vakint expectations immediately; live backend
+   differentials wait for their real external tools and are not mislabeled as
+   frozen goldens.
 8. Replace the dated research corpus with concise stable architecture,
    algebra, foundry, interface, validation, and LiteRed-reference documents;
    rewrite the README for actual capabilities and delete milestone logs and
@@ -474,43 +508,43 @@ and dependency direction are explicit, no legacy package or authored
 recurrence remains, root historical tests/docs are gone, production/test code
 cannot cross boundaries accidentally, outstanding Symbolica migrations have
 named boundaries, compiler and rustdoc warnings are zero, and the stable
-README/design set describes the actual tree. This phase does not claim solver
-closure or changed mathematics merely from structural deletion.
+README/design set describes the actual tree. The deleted prototype island has
+no production replacement at this gate: Phase 0 ends without a foundry,
+closed-artifact publisher, or solver-closure claim.
 
-### Phase 1 — Symbolica-native foundry authority and one exact exceptional child
+### Phase 1 — fresh Symbolica-native foundry
 
-First clean the algebra authority on the production foundry call path, then
-resume the current exact solver at its narrowest missing production seam:
+Build the production foundry anew on the retained generic spine. Git history
+and research notes may supply hypotheses and failure cases, but no deleted
+session, transaction, publication, or re-entry type is resumed by default:
 
 1. Remove every production-reachable handwritten determinant, matrix product,
    polynomial kernel, exact/parametric Gaussian engine, and finite-field
-   implementation for which Symbolica has a public operation. Prioritize the
-   family/zero/symmetry foundations and all eliminators reachable from the
-   direct foundry. Preserve RustRed ordering, guards, provenance, and resource
-   control, and keep old algebra only as a temporary differential test with a
-   deletion point.
+   implementation for which Symbolica has a public operation. Preserve only
+   RustRed's domain ordering, guards, provenance, resource policy, and exact
+   verification responsibilities.
 2. Migrate the tensor/application algebra needed by the Phase 4 lower-loop
    Vakint validation track when that track starts. Defer only the remaining
    six-loop/high-throughput application algebra until its measured production
-   gate; it does not block the first derivation-only exceptional child.
-3. Consume the committed exceptional `CampaignResident` before constructing
-   any child exact session.
-4. Bind its ordered `EqualZero` premises through a private source view to the
-   literal-unit affine-refinement compiler.
-5. Invoke the currently private mapped-`NonZero` worker for every surviving
-   inherited condition and commit a typed refined-source successor while
-   preserving recoverable rollback.
-6. Only then construct fresh child authority, frame, solve plan, catalog,
-   retained Symbolica reducer, and exact session.
-7. Regenerate all inherited generic IBP/LI rows under the child affine map,
-   attach mapped guards/base assumptions, submit them chronologically to the
-   empty child database, and re-enter exact recentering and `WhenBad`.
-8. Prove parent/child substitution and exact residual replay, resource exact/
-   one-below behavior, stale/foreign identity rejection, and unwind rollback
-   on natural one- and two-loop constrained branches.
+   gate; it does not block the first derivation-only foundry slice.
+3. Define a small private exact-solving boundary over freshly generated
+   topology-neutral rows and Symbolica's retained sparse/matrix operations.
+   Its input/output types are derived from the required guarded-rule contract,
+   not copied from the deleted exact-session API.
+4. Derive one strictly descending guarded lower-loop rule, with source-row
+   provenance and exact regenerated-source residual replay, through the real
+   app/core path.
+5. Introduce exceptional equality/nonzero refinement only after the generic
+   rule path is real. Regenerate source rows under the refined affine map and
+   discharge one natural constrained lower-loop branch without importing
+   parent reducer state or reviving deleted publication/re-entry wrappers.
+6. Add deterministic resource-boundary, stale/foreign-input, and exact replay
+   tests around the new contracts. State management is added only when a
+   demonstrated multi-step need defines its semantics; no transaction or
+   rollback abstraction is presumed from history.
 
-No parent pivot/database state may leak into the child. An empty diagnostic,
-unsupported quotient, or successful map alone is not a closed branch.
+An empty diagnostic, unsupported quotient, successful map, or reconstructed
+prototype event is not a closed branch.
 
 ### Phase 2 — generic sector and family fixed-point closure
 
@@ -518,19 +552,27 @@ unsupported quotient, or successful map alone is not a closed branch.
    dependency DAG so no high-loop path materializes `2^K` sectors or orthants.
 2. Add graph-automorphism/routing-equivalence candidate ingress to the generic
    exact symmetry verifier by calling Symbolica's intrinsic public graph engine
-   directly. Symbolica owns graph construction, canonical forms and
-   isomorphism comparison, recovered maps, automorphism generators/orbits, and
-   automorphism-group sizes; RustRed owns the physics-aware coloring, routing
-   interpretation, resource policy, and exact affine/momentum-map replay.
-   GammaLoop's local `feyngen` implementation is only a useful reference for
-   encoding and parallel orchestration—not a dependency, graph authority, or
-   substitute for Symbolica's native capabilities. Bounded `GL(L,Z)` matrix
-   enumeration is deleted, not retained as an oracle.
-3. Connect applicable-rule and exceptional-residual publication to the exact
-   native-session lineage with atomic chronological replay.
-4. Add recursive exceptional scheduling, same-database `IdenticallyBad`
-   continuation, authenticated ancestry, and immutable solved-subsector
-   feedback.
+   directly. Construct a physics-colored `symbolica::graph::Graph`; call
+   `Graph::canonize()` for an existing topology and consume the returned
+   `CanonicalForm` generators/canonical labeling for automorphisms and
+   isomorphism maps. Encode lines, line ports, and topology vertices as
+   differently colored vertices in a subdivision/flag graph so parallel-line
+   exchange and orientation reversal are explicit vertex permutations. Use
+   `GenerationSettings` with `Graph::generate` only for optional finite
+   topology-domain enumeration, never as the symmetry search for an already
+   supplied graph. RustRed interprets the permutations as routing candidates,
+   solves their exact momentum maps through Symbolica matrix APIs, and retains
+   the generic affine/momentum-map replay verifier as the certification gate.
+   GammaLoop's local `feyngen` implementation is reference-only usage evidence
+   for coloring, bucketing, and orchestration—not a dependency, graph
+   authority, or substitute for Symbolica's native capabilities. Bounded
+   `GL(L,Z)` matrix enumeration is deleted, not retained as an oracle.
+3. Define a narrow immutable boundary from the newly built exact solver to
+   applicable rules and exceptional residual domains, with exact chronological
+   replay against regenerated source rows.
+4. Add recursive exceptional scheduling, authenticated ancestry, explicit
+   identically-bad continuation semantics, and immutable solved-subsector
+   feedback without assuming the deleted database/session design.
 5. Add proof-bearing zero, symmetry, factorization, proper-subsector, and
    cross-family providers to the lazy dependency DAG.
 6. Iterate until every reachable domain is discharged under the strict
@@ -708,23 +750,23 @@ oracle job described above may execute a real pinned FORM >= 4.2.1.
 
 ## Current evidence baseline
 
-As of the assigned baseline, the following are real but partial:
+As of the assigned baseline, the following retained capabilities are real but
+partial:
 
 - topology-neutral family lowering and raw parametric IBP/LI generation;
 - the synthetic `L=6`, `K=21`, 36-source generation/stress fixture;
 - automatic ISP completion and several zero/symmetry/tensor foundations;
-- a retained Symbolica `SparseRowReducer` exact database with authenticated
-  recentering, condition planning/materialization/partition, compact events,
-  handoff/epoch ownership, and same-database rejection machinery;
+- exact Symbolica coefficient/row primitives available to a future clean
+  solving boundary;
 - static multi-root planning and preliminary memory-width admission; and
 - the transport-neutral `rustred-app`/CLI boundary.
 
-The strongest end-to-end reductions are narrow one-loop cases; one
-generic-source-derived but narrowly wired two-loop sunset target; and an
-equal-mass three-loop tetrahedron fixture with generated rows, discovered
-`S4` symmetry, demand-time concrete quotient reduction, and five explicitly
-selected masters. They are validation evidence, not closed reusable family
-artifacts.
+The deleted private prototype island had local tests for recentering,
+condition partition, exact sessions, exceptional publication/re-entry, and
+narrow one- through three-loop reductions. The completed liveness audit found
+no production application/CLI/Python/Vakint caller for that stack. Those
+results remain historical design and regression evidence in Git, not retained
+capabilities, a production foundry, or closed reusable family artifacts.
 
 The following claims are explicitly false at this baseline:
 
@@ -733,13 +775,12 @@ The following claims are explicitly false at this baseline:
   reduction result;
 - no physical six-loop source has reached `Ready`, published a guarded rule,
   or closed a sector;
+- after the reset there is no production foundry until Phase 1 builds one
+  cleanly;
 - the current family inventory is unsuitable for `K=21` because it eagerly
   enumerates sectors and its default cap is below `2^21`;
-- the private mapped-`NonZero` worker has no production caller;
-- fresh exceptional child sessions do not yet contain regenerated refined
-  rows;
 - public family/fixed-point routes still reach handwritten eliminators;
-- production symmetry discovery is not scalable to six loops;
+- direct `symbolica::graph` symmetry ingress is not yet implemented;
 - campaign application is currently roots-only/preflight-oriented; and
 - there is no complete independently derived Vakint one- through four-loop
   rule corpus, physical five-/six-loop closure result, persistent closed
@@ -795,8 +836,9 @@ principal supporting sources are:
   authoritative repository reset, domain DAG, deletion order, and Vakint
   dependency/oracle boundary; older reorganization and Python directives are
   superseded historical inputs to be deleted during Phase 0;
-- `docs/research/exact_session_when_bad_port_plan_2026-08-24.md` and the
-  exceptional/refinement notes for the live solver continuation;
+- the former exact-session and exceptional/refinement notes only as historical
+  failure-case input to the fresh foundry design, never as a continuation
+  contract;
 - `docs/research/six_loop_single_scale_vacuum_priority_2026-08-24.md` and
   `docs/research/parallel_campaign_foundry_design_2026-08-26.md` for the first
   deployment and scaling contract;

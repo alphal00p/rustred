@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `04b4abb`, updated for the residual-unit adapter deletion.
+**Baseline parent:** `b742c79`, updated for the solver-island deletion.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 128 tracked Rust source/build/test paths
+This ledger classifies every one of the 96 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -21,7 +21,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 22 |
-| split | 104 |
+| split | 72 |
 | delete | 1 |
 | replace | 1 |
 
@@ -79,12 +79,7 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/exact_sparse_elimination.rs` | split | algebra / foundry::solver::exact | retain only if certified-rewrite caller survives Symbolica authority audit |
 | `src/feynman_polynomials.rs` | move | family | live generic family construction and normalization |
 | `src/generated_affine_initial_global_affine_terminal.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_parametric_ordering.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_prepare_point_schedule.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_boolean_cover.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_bound_relation.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_completed_bound_row.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
-| `src/generated_affine_residual_case_premises.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_affine_residual_source_authority.rs` | split | foundry::solver::{exact,closure} | retain live row/refinement semantics; delete superseded generations |
 | `src/generated_residual_affine_condition_accumulator.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
 | `src/generated_residual_affine_when_bad.rs` | split | foundry::solver::closure | retain live exceptional closure semantics; delete chronology/provider shells |
@@ -116,33 +111,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/runtime/mod.rs` | move | runtime | single Symbolica initialization/version authority |
 | `src/sectors.rs` | split | family / sector | separate stable family constraints from sector evidence |
 | `src/shift_operators.rs` | move | family | live generic family construction and normalization |
-| `src/solver/closure/case_inventory.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_reentry/capability.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_reentry/fresh_session.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_reentry/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_source/epoch_adapter.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_source/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/committed_exceptional_source/protocol.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/analysis.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/condition_plan.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/materialization.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/partition.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/post_ready/publication.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/publication_handoff/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/publication_handoff/publication_epoch_owner/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/closure/publication_handoff/publication_epoch_owner/result_batch.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/database.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/physical_key.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/physical_row.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/plan.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/recenter.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/session.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/targets.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/exact_session/telemetry.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
-| `src/solver/mod.rs` | split | foundry::solver | retain live exact-session/closure spine; co-locate or delete historical tests |
 | `src/symbolica_affine_denominator.rs` | split | algebra | retain checked Symbolica primitives; prune duplicate or context-free surfaces |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |
 | `src/symbolica_target_numerator.rs` | split | tensor / reduction | retain low tensor semantics; high composition belongs in reduction |
