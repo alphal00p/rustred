@@ -23,7 +23,6 @@ pub mod affine_prepare_point_schedule;
 pub mod affine_prepare_points;
 pub mod algebra;
 pub mod automatic_isps;
-pub mod base_specialization;
 pub mod campaign;
 pub mod certified_rewrite;
 pub mod conditional_reelimination;
@@ -104,13 +103,6 @@ pub use affine_prepare_points::{
 pub use automatic_isps::{
     AUTOMATIC_ISP_COMPLETION_V1_SCHEMA, AUTOMATIC_ISP_COMPLETION_V2_SCHEMA, AutomaticIspCompletion,
     AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
-};
-pub use base_specialization::{
-    BaseCoefficientProvenance, BaseKinematicSpecialization, BaseParameterImage,
-    BaseSpecializationError, BaseSpecializationGuard, BaseSpecializationGuardProvenance,
-    BaseSpecializationLimits, FamilyDomainConditionSource, FamilyDomainEvaluation,
-    FamilyDomainEvaluationStatus, GuardedBaseCoefficient, InapplicableFamilyDomainCondition,
-    SpecializedBasePolynomial,
 };
 pub use campaign::{ParallelExecution, ParallelExecutionError};
 pub use certified_rewrite::{

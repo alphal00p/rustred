@@ -1,9 +1,9 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline:** `d46796c`, updated after each R3 cluster milestone.
+**Baseline:** `8fbbea9`, updated after each R3 cluster milestone.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 130 tracked Rust source/build/test paths
+This ledger classifies every one of the 129 tracked Rust source/build/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -20,7 +20,7 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 23 |
+| move | 22 |
 | split | 105 |
 | delete | 1 |
 | replace | 1 |
@@ -60,7 +60,6 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/affine_prepare_point_schedule.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/affine_prepare_points.rs` | split | sector / foundry::solver::exact | merge duplicate ordering/locus pipelines |
 | `src/automatic_isps.rs` | move | family | live generic family construction and normalization |
-| `src/base_specialization.rs` | move | family | live generic family construction and normalization |
 | `src/campaign/admission.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
 | `src/campaign/execution.rs` | move | campaign | bounded execution authority co-located with admission and width planning |
 | `src/campaign/execution_width.rs` | move | campaign | live deterministic work/resource/admission infrastructure |
