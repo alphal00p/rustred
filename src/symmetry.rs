@@ -23,11 +23,10 @@ use crate::algebra::matrix::{
     determinant_of_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices,
 };
-use crate::generic_family::BasePolynomial;
-use crate::{
-    CoefficientLocation, FamilyDomain, GenericFamilyError, IntegralFamily, ScalarProductCoordinate,
-    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
-    algebra::ExactAlgebraLimits,
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+use crate::family::{
+    BasePolynomial, CoefficientLocation, FamilyDomain, IntegralFamily, IntegralFamilyError,
+    ScalarProductCoordinate,
 };
 
 pub const AFFINE_FAMILY_MAP_V2_SCHEMA: &str = "rustred-affine-family-map-v2";
@@ -544,7 +543,7 @@ pub enum SymmetryVerificationError {
         detail: String,
     },
     ExactAlgebra(ExactAlgebraError),
-    Family(GenericFamilyError),
+    Family(IntegralFamilyError),
 }
 
 impl fmt::Display for SymmetryVerificationError {
@@ -660,8 +659,8 @@ impl From<ExactAlgebraError> for SymmetryVerificationError {
     }
 }
 
-impl From<GenericFamilyError> for SymmetryVerificationError {
-    fn from(value: GenericFamilyError) -> Self {
+impl From<IntegralFamilyError> for SymmetryVerificationError {
+    fn from(value: IntegralFamilyError) -> Self {
         Self::Family(value)
     }
 }

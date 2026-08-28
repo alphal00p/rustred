@@ -25,9 +25,10 @@ use crate::algebra::matrix::{
     DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits, rank_of_coefficient_matrix,
 };
-use crate::{
-    AffineDenominator, IntegralFamily, IntegralFamilyLimits, ScalarProductCoordinate,
-    algebra::Coefficient, algebra::CoefficientContext, algebra::ExactAlgebraError,
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError};
+use crate::family::{
+    AffineDenominator, IntegralFamily, IntegralFamilyError, IntegralFamilyLimits,
+    ScalarProductCoordinate,
 };
 
 /// Legacy schema whose work census used RustRed's former row elimination.
@@ -488,7 +489,7 @@ pub enum AutomaticIspCompletionError {
         requested: usize,
     },
     ExactAlgebra(ExactAlgebraError),
-    Family(crate::GenericFamilyError),
+    Family(IntegralFamilyError),
     InternalVerificationFailure {
         detail: String,
     },
@@ -579,8 +580,8 @@ impl From<ExactAlgebraError> for AutomaticIspCompletionError {
     }
 }
 
-impl From<crate::GenericFamilyError> for AutomaticIspCompletionError {
-    fn from(value: crate::GenericFamilyError) -> Self {
+impl From<IntegralFamilyError> for AutomaticIspCompletionError {
+    fn from(value: IntegralFamilyError) -> Self {
         Self::Family(value)
     }
 }

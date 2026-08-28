@@ -9,8 +9,9 @@
 
 use std::fmt;
 
+use crate::family::IntegralFamily;
 use crate::{
-    ConcreteIntegralKey, DenominatorRowAction, IntegralFamily, JacobianWitness, SectorRestrictions,
+    ConcreteIntegralKey, DenominatorRowAction, JacobianWitness, SectorRestrictions,
     SymmetryVerificationError, SymmetryVerificationLimits, VerifiedAffineFamilyMap,
 };
 

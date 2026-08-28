@@ -11,8 +11,8 @@
 pub mod algebra;
 pub mod automatic_isps;
 pub mod campaign;
+pub mod family;
 pub mod feynman_polynomials;
-pub mod generic_family;
 pub mod identity;
 pub mod parametric_coefficient;
 pub mod parametric_ibp;
@@ -29,14 +29,14 @@ pub use automatic_isps::{
     AutomaticIspCompletionError, AutomaticIspCompletionLimits, AutomaticIspCompletionStats,
 };
 pub use campaign::{ParallelExecution, ParallelExecutionError};
+pub use family::{
+    AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
+    FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
+    IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
+};
 pub use feynman_polynomials::{
     FeynmanPolynomial, FeynmanPolynomialContext, FeynmanPolynomialError, FeynmanPolynomialLimits,
     RawFeynmanPolynomial, SymanzikPolynomials,
-};
-pub use generic_family::{
-    AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
-    FamilyDomain, FamilyNonZeroCondition, GenericFamily, GenericFamilyError, IntegralFamily,
-    IntegralFamilyFingerprintStats, IntegralFamilyLimits, ScalarProductCoordinate,
 };
 pub use identity::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,

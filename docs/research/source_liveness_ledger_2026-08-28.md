@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `a0e6ca4`, immediately before the identity-provenance split.
+**Baseline parent:** `c775c7a`, immediately before the family-tree split.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 54 tracked Rust source/test paths
-remaining after the current identity-provenance milestone. It is intentionally hostile to
+This ledger classifies every one of the 62 tracked Rust source/test paths
+remaining after the current family-tree milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
@@ -20,8 +20,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 19 |
-| split | 34 |
+| move | 21 |
+| split | 40 |
 | delete | 0 |
 | replace | 1 |
 
@@ -66,8 +66,16 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/campaign/mod.rs` | move | campaign | narrow facade over resource preflight, width planning, and bounded execution; roots-only planning is application-owned |
 | `src/campaign/resource_profile.rs` | move | campaign | calibrated execution resource profile feeding live width preflight |
 | `src/campaign/resources.rs` | move | campaign | retain checked bytes, estimates, task envelopes, estimator revisions, baselines, and their minimal construction errors; work-key wave policy/planning was deleted |
+| `src/family/mod.rs` | move | family | narrow family facade over authenticated model, construction, kinematics, exact adaptation, fingerprint, and replay owners |
+| `src/family/model.rs` | split | family | retain family value types and sealed authenticated state; the caller-free `GenericFamily` alias is deleted |
+| `src/family/error.rs` | move | family | one family-owned error taxonomy, renamed `IntegralFamilyError`, plus shared resource-limit admission |
+| `src/family/exact.rs` | split | family | thin family-semantic adaptation of checked Symbolica matrix operations and exact coefficient comparison; prevents build/replay ownership cycles |
+| `src/family/build.rs` | split | family | authenticated construction, labels, condition merging, and composition of the exact/fingerprint/kinematics services |
+| `src/family/kinematics.rs` | split | family | scalar-product coordinates, affine expansions, derivative contractions, and their bounded construction |
+| `src/family/fingerprint.rs` | split | family | typed V2 family-identity preflight, census, encoding, and writer |
+| `src/family/replay.rs` | split | family | exact determinant, inverse, scalar-coordinate, and derivative-contraction replay |
+| `src/family/tests.rs` | split | family tests | retain the focused family construction, kinematics, fingerprint, matrix-boundary, and replay sentinels; subdivide only when it materially aids the next algorithm change |
 | `src/feynman_polynomials.rs` | split | family | retain generic Symanzik construction and delete the uncalled face-restriction API; the remaining handwritten polynomial operations must be audited against Symbolica before Phase 0 closes |
-| `src/generic_family.rs` | split | family | retain the live generic family model while removing aliases and constructor self-replay; family nonzero conditions now merge deterministic `CoefficientLocation` source sets without global provenance wrappers |
 | `src/identity/mod.rs` | move | identity | narrow identity facade over row identity and exceptional-domain conditions |
 | `src/identity/row.rs` | move | identity | one real stable row identifier shared by generated, translated, and specialized identities; no adapter row mirror |
 | `src/identity/condition.rs` | split | identity | deterministic identity-owned source sets, independent source-cardinality limits, and provenance attachment around algebra-only specialization |

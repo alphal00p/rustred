@@ -7,8 +7,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::generic_family::{
-    CoefficientLocation, ContractionMomentum, GenericFamilyError, IntegralFamily,
+use crate::family::{
+    CoefficientLocation, ContractionMomentum, IntegralFamily, IntegralFamilyError,
     ScalarProductCoordinate,
 };
 use crate::identity::{
@@ -68,7 +68,7 @@ pub enum ParametricIbpError {
     IdentityCondition(IdentityConditionError),
     Coefficient(ParametricCoefficientError),
     Relation(ParametricRelationError),
-    Family(GenericFamilyError),
+    Family(IntegralFamilyError),
 }
 
 impl fmt::Display for ParametricIbpError {
@@ -151,8 +151,8 @@ impl From<ParametricRelationError> for ParametricIbpError {
     }
 }
 
-impl From<GenericFamilyError> for ParametricIbpError {
-    fn from(value: GenericFamilyError) -> Self {
+impl From<IntegralFamilyError> for ParametricIbpError {
+    fn from(value: IntegralFamilyError) -> Self {
         Self::Family(value)
     }
 }

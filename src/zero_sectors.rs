@@ -13,11 +13,11 @@ use std::sync::Arc;
 use symbolica::domains::rational::RationalField;
 use symbolica::prelude::*;
 
-use crate::generic_family::BasePolynomial as FamilyBasePolynomial;
+use crate::family::{BasePolynomial as FamilyBasePolynomial, CoefficientLocation, IntegralFamily};
 use crate::{
-    CoefficientLocation, FeynmanPolynomialError, FeynmanPolynomialLimits, IntegralFamily,
-    SectorExclusion, SectorFoundationError, SectorMask, SectorRestrictions, SymanzikPolynomials,
-    algebra::Coefficient, algebra::ExactAlgebraError,
+    FeynmanPolynomialError, FeynmanPolynomialLimits, SectorExclusion, SectorFoundationError,
+    SectorMask, SectorRestrictions, SymanzikPolynomials, algebra::Coefficient,
+    algebra::ExactAlgebraError,
 };
 
 pub const ZERO_SECTOR_CERTIFICATE_SCHEMA: &str = "rustred.zero-sector-certificate.v1";

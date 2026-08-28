@@ -14,10 +14,8 @@ use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::domains::rational_polynomial::RationalPolynomialField;
 use symbolica::prelude::*;
 
-use crate::{
-    FamilyDomain, IntegralFamily, ScalarProductCoordinate, algebra::Coefficient,
-    algebra::CoefficientContext, algebra::ExactAlgebraError, algebra::ExactAlgebraLimits,
-};
+use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
+use crate::family::{FamilyDomain, IntegralFamily, ScalarProductCoordinate};
 
 /// Sparse polynomials in Feynman parameters with coefficients in the
 /// authenticated family field `K`.
@@ -1205,7 +1203,7 @@ fn checked_mul(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AffineDenominator;
+    use crate::family::AffineDenominator;
 
     fn matrix_family(name: &str) -> IntegralFamily {
         let coefficients = CoefficientContext::new(["d", "s"]);

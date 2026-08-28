@@ -35,7 +35,7 @@ use symbolica::state::Workspace;
 use crate::algebra::{
     Coefficient, CoefficientContext, CoefficientContextError, ExactAlgebraError, ExactAlgebraLimits,
 };
-use crate::generic_family::{AffineDenominator, ScalarProductCoordinate};
+use crate::family::{AffineDenominator, ScalarProductCoordinate};
 
 const RUSTRED_NAMESPACE: &str = "rustred";
 const SCALAR_PRODUCT_NAME: &str = "rustred::sp";

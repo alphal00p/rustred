@@ -20,9 +20,7 @@ use symbolica::prelude::*;
 use symbolica::state::Workspace;
 
 use crate::algebra::{Coefficient, CoefficientContext, CoefficientContextError};
-use crate::generic_family::{
-    AffineDenominator, GenericFamilyError, IntegralFamily, IntegralFamilyLimits,
-};
+use crate::family::{AffineDenominator, IntegralFamily, IntegralFamilyError, IntegralFamilyLimits};
 use crate::symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorCompiler,
     SymbolicaAffineDenominatorError, SymbolicaAffineDenominatorLimits,
@@ -312,7 +310,7 @@ impl LoweredSymbolicaProjectV1 {
 pub enum SymbolicaProjectLoweringError {
     CoefficientContext(CoefficientContextError),
     AffineDenominator(SymbolicaAffineDenominatorError),
-    IntegralFamily(GenericFamilyError),
+    IntegralFamily(IntegralFamilyError),
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -368,8 +366,8 @@ impl From<SymbolicaAffineDenominatorError> for SymbolicaProjectLoweringError {
     }
 }
 
-impl From<GenericFamilyError> for SymbolicaProjectLoweringError {
-    fn from(error: GenericFamilyError) -> Self {
+impl From<IntegralFamilyError> for SymbolicaProjectLoweringError {
+    fn from(error: IntegralFamilyError) -> Self {
         Self::IntegralFamily(error)
     }
 }

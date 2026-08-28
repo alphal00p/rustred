@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use crate::algebra::{Coefficient, ExactAlgebraLimits};
-use crate::generic_family::CoefficientLocation;
+use crate::family::CoefficientLocation;
 use crate::parametric_coefficient::{
     BasePolynomial, ParametricArithmeticLimits, ParametricCoefficient,
     ParametricCoefficientContext, ParametricCoefficientError, ParametricPolynomial,
