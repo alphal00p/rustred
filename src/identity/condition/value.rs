@@ -39,7 +39,7 @@ impl ParametricNonZeroCondition {
         &self.sources
     }
 
-    pub(crate) fn translated(
+    pub(in crate::identity) fn translated(
         &self,
         context: &IndexedCoefficientContext,
         shift: &[i64],
@@ -78,7 +78,7 @@ impl ParametricNonZeroCondition {
         })
     }
 
-    pub(crate) fn add_source(
+    pub(in crate::identity) fn add_source(
         &mut self,
         source: IdentityConditionSource,
         limits: IdentityConditionLimits,
@@ -117,7 +117,7 @@ impl ParametricNonZeroCondition {
     }
 }
 
-pub(crate) fn insert_parametric_condition(
+pub(in crate::identity) fn insert_parametric_condition(
     conditions: &mut Vec<ParametricNonZeroCondition>,
     condition: ParametricNonZeroCondition,
     limits: IdentityConditionLimits,

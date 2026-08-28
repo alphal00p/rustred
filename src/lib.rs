@@ -13,7 +13,6 @@ pub mod campaign;
 pub mod family;
 pub mod identity;
 pub mod parametric_ibp;
-pub mod parametric_relation;
 pub mod sectors;
 pub mod symbolica_affine_denominator;
 pub mod symbolica_integral_input;
@@ -40,15 +39,8 @@ pub use family::{
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
 };
-pub use identity::{
-    IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
-    ParametricNonZeroCondition, RowId,
-};
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
-};
-pub use parametric_relation::{
-    IndexShift, ParametricRelation, ParametricRelationError, RelationLimits,
 };
 pub use sectors::{
     CutConstraint, IntegralComplexityComponent, IntegralComplexityKey, IntegralOrderingPolicy,

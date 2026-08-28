@@ -1,4 +1,5 @@
-use rustred::{CoefficientPolynomial, IntegralFamily, ParametricRelation};
+use rustred::identity::ParametricRelation;
+use rustred::{CoefficientPolynomial, IntegralFamily};
 use symbolica::prelude::Integer;
 
 use crate::application::MAX_OUTPUT_BYTES;

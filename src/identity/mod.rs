@@ -1,12 +1,15 @@
-//! Typed identity rows and their exceptional-domain conditions.
+//! Typed parametric identity rows, sparse relations, and exceptional domains.
 
 mod condition;
+mod relation;
 mod row;
 
 pub use condition::{
     IdentityConditionError, IdentityConditionLimits, IdentityConditionSource,
     ParametricNonZeroCondition,
 };
+pub use relation::{IndexShift, ParametricRelation, ParametricRelationError, RelationLimits};
 pub use row::RowId;
 
-pub(crate) use condition::insert_parametric_condition;
+// Temporary while the serial parametric IBP generator remains at crate root.
+pub(crate) use relation::IndexSpace;

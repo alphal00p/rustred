@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use rustred::{
-    CoefficientLocation, IdentityConditionSource, IntegralFamily, ParametricNonZeroCondition,
-    ParametricRelation, RowId, ScalarProductCoordinate,
+use rustred::identity::{
+    IdentityConditionSource, ParametricNonZeroCondition, ParametricRelation, RowId,
 };
+use rustred::{CoefficientLocation, IntegralFamily, ScalarProductCoordinate};
 use serde::Serialize;
 use symbolica::prelude::AtomCore;
 

@@ -1,10 +1,10 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `bb6a162`, immediately before the mechanical semantic
-split of the retained parametric-condition implementation.
+**Baseline parent:** `e024d2d`, immediately before moving the retained sparse
+relation implementation under its canonical identity owner.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 91 tracked Rust source/test paths
+This ledger classifies every one of the 101 tracked Rust source/test paths
 remaining after the current ownership milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -27,8 +27,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 32 |
-| split | 58 |
+| move | 37 |
+| split | 63 |
 | delete | 0 |
 | replace | 1 |
 
@@ -118,7 +118,17 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/condition/tests.rs` | move | identity::condition tests | focused version-stable provenance encoding sentinel; operational event provenance is exercised through real relation events |
 | `src/lib.rs` | replace | crate facade | write from retained use cases and remove self-only concrete-relation/condition/`IndexSpace` exports; do not move exports wholesale |
 | `src/parametric_ibp.rs` | split | identity | retain topology-neutral IBP/LI rows, stable provenance, one prepared source-batch type, shared fallibly constructed zero/unit shift storage with refcount-only clones, and one completed semantic-scope token shared by ordinary and LI-only layouts; current compact-coefficient specialization is test-only and must not justify a production relation wrapper |
-| `src/parametric_relation.rs` | split | identity | retain topology-neutral sparse parametric relation arithmetic with one typed parametric-condition vector and independent `RelationLimits`; public consumers receive only row/term/condition views, construction and limit-explicit mutation are crate-owned, shift vectors use checked Rust-owned allocation followed by shared no-copy storage, and default/explicit-condition conveniences are deleted |
+| `src/identity/relation/mod.rs` | move | identity::relation | canonical narrow relation facade; the temporary crate-visible index-space seam disappears when the generator joins `identity` |
+| `src/identity/relation/index.rs` | split | identity::relation | checked index-space/shift construction, shared no-copy shift storage and its owner-local clone sentinel, value ordering, and checked translation arithmetic; only `IndexShift` inspection is public |
+| `src/identity/relation/limits.rs` | move | identity::relation | independent exact-arithmetic and condition-source policy for relation operations |
+| `src/identity/relation/error.rs` | move | identity::relation | typed lattice, scope, family, domain, resource, condition, and coefficient failures |
+| `src/identity/relation/model.rs` | split | identity::relation | sparse authenticated relation storage, public read views, and owner-local compatibility validation |
+| `src/identity/relation/operations.rs` | split | identity::relation | transactional condition attachment, term collection, scaled addition, and affine translation; mutation stays engine-owned |
+| `src/identity/relation/tests/mod.rs` | move | identity::relation tests | private focused test composition only |
+| `src/identity/relation/tests/support.rs` | move | identity::relation tests | real rational-term fixture shared by condition-event sentinels; no fabricated provenance |
+| `src/identity/relation/tests/index.rs` | split | identity::relation tests | checked allocation, overflow, arity, and bounded-iterator sentinels |
+| `src/identity/relation/tests/translation.rs` | split | identity::relation tests | exact simultaneous key/coefficient translation and composition sentinels |
+| `src/identity/relation/tests/conditions.rs` | split | identity::relation tests | real-event provenance merging, transactional source limits, and error-ordering sentinels |
 | `src/sectors.rs` | split | sector | separate masks, restrictions, ordering, and sector errors without importing higher layers |
 | `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
 | `src/symbolica_integral_input.rs` | split | input / rustred-app | retain typed normalization; move transport policy to app |

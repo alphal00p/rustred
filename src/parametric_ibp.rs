@@ -13,10 +13,8 @@ use crate::family::{
     ScalarProductCoordinate,
 };
 use crate::identity::{
-    IdentityConditionError, IdentityConditionSource, ParametricNonZeroCondition, RowId,
-};
-use crate::parametric_relation::{
-    IndexShift, IndexSpace, ParametricRelation, ParametricRelationError, RelationLimits,
+    IdentityConditionError, IdentityConditionSource, IndexShift, IndexSpace,
+    ParametricNonZeroCondition, ParametricRelation, ParametricRelationError, RelationLimits, RowId,
 };
 
 /// Resource policy for coefficient translations used while constructing LI

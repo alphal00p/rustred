@@ -1,10 +1,10 @@
 mod census;
 mod model;
 
+use rustred::identity::ParametricRelation;
 use rustred::parametric_ibp::{CompletedIbpSourceRows, PreparedIbpSourceBatch};
 use rustred::{
     ParallelExecution, ParallelExecutionError, ParametricIbpError, ParametricIbpGenerator,
-    ParametricRelation,
 };
 use symbolica::prelude::AtomCore;
 
