@@ -4,7 +4,7 @@ use crate::family::ScalarProductCoordinate;
 use super::super::relation::{IndexShift, ParametricRelation};
 use super::super::row::RowId;
 use super::counts::checked_row_counts;
-use super::error::ParametricIbpError;
+use super::error::{ParametricIbpError, try_preallocate_vec};
 use super::model::{
     CompletedIbpSourceRows, ParametricIbpGenerator, PreparedLorentzInvarianceBatch,
 };
@@ -53,7 +53,7 @@ impl<'family> ParametricIbpGenerator<'family> {
             .source_offset(loops)
             .ok_or(ParametricIbpError::RowCountOverflow { loops, externals })?;
         let (_, li_count) = checked_row_counts(loops, externals)?;
-        let mut pairs = Vec::with_capacity(li_count);
+        let mut pairs = try_preallocate_vec("Lorentz-invariance external pairs", li_count)?;
         for first_external in 0..externals {
             for second_external in first_external + 1..externals {
                 pairs.push((first_external, second_external));

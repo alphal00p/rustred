@@ -1,7 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `eb80f33`, immediately before pruning the sector
-foundation to its live mathematical responsibilities.
+**Baseline parent:** `e2e59fc`, immediately before hardening the prepared
+generator's remaining caller-sized collections.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 119 Rust source/test paths remaining
@@ -120,13 +120,13 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/identity/generator/mod.rs` | move | identity::generator | private-owner composition and canonical identity-facade exports for the prepared batch spine; no former flat-module alias |
 | `src/identity/generator/config.rs` | move | identity::generator | minimal relation-resource policy for exact ordinary-IBP and LI construction |
 | `src/identity/generator/counts.rs` | move | identity::generator | private checked topology-neutral ordinary/LI row census shared by construction and batch preparation |
-| `src/identity/generator/error.rs` | move | identity::generator | typed row-layout, semantic-scope, resource, algebra, relation, condition, and family failures |
+| `src/identity/generator/error.rs` | move | identity::generator | typed allocation, row-layout, semantic-scope, resource, algebra, relation, condition, and family failures plus the owner-local exact-reservation helper |
 | `src/identity/generator/scope.rs` | move | identity::generator | private ordinary/external layout and shared semantic family/context scope token |
 | `src/identity/generator/model.rs` | split | identity::generator | retain only the non-cloneable family-bound generator, sealed source row/barrier, and immutable ordinary/external/LI prepared work; no serial aggregate wrapper |
-| `src/identity/generator/construction.rs` | split | identity::generator | authenticated indexed context and reusable zero/unit-shift and power preparation; remaining caller-sized infallible collections are explicitly queued for the resource-hardening tranche |
-| `src/identity/generator/source.rs` | split | identity::generator | prepared ordinary/external source batches, stable ordinal generation, ordered completion, and the sole consuming relation extraction |
+| `src/identity/generator/construction.rs` | split | identity::generator | authenticated indexed context and reusable zero/unit-shift and power preparation with exact fallible reservation before every caller-sized collection is populated |
+| `src/identity/generator/source.rs` | split | identity::generator | prepared ordinary/external source batches, stable ordinal generation, fallibly allocated ordered completion, and the sole consuming relation extraction |
 | `src/identity/generator/ordinary.rs` | split | identity::generator | topology- and loop-count-neutral ordinary and external-contraction IBP row construction |
-| `src/identity/generator/lorentz.rs` | split | identity::generator | LI pair preparation and exact weighted translation over one authenticated completed source barrier |
+| `src/identity/generator/lorentz.rs` | split | identity::generator | fallibly allocated LI pair preparation and exact weighted translation over one authenticated completed source barrier |
 | `src/identity/generator/domain.rs` | split | identity::generator | family-domain lifting into source-attributed nonzero conditions on each new relation |
 | `src/identity/generator/tests/mod.rs` | move | identity::generator tests | private focused test composition only |
 | `src/identity/generator/tests/support.rs` | move | identity::generator tests | compact topology-neutral family/relation fixtures shared by generator sentinels |

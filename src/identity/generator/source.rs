@@ -1,5 +1,5 @@
 use super::counts::checked_row_counts;
-use super::error::ParametricIbpError;
+use super::error::{ParametricIbpError, try_preallocate_vec};
 use super::model::{
     CompletedIbpSourceRows, IbpSourceRow, ParametricIbpGenerator, PreparedIbpSource,
     PreparedIbpSourceBatch,
@@ -57,7 +57,7 @@ impl PreparedIbpSourceBatch<'_, '_> {
                 actual: rows.len(),
             });
         }
-        let mut relations = Vec::with_capacity(self.rows);
+        let mut relations = try_preallocate_vec("completed IBP source relations", self.rows)?;
         for (position, row) in rows.into_iter().enumerate() {
             let row = row?;
             if row.layout != layout {

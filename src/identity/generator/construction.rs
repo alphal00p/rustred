@@ -6,7 +6,7 @@ use crate::family::IntegralFamily;
 use super::super::relation::IndexSpace;
 use super::config::ParametricIbpConfig;
 use super::counts::checked_row_counts;
-use super::error::ParametricIbpError;
+use super::error::{ParametricIbpError, try_preallocate_vec};
 use super::model::ParametricIbpGenerator;
 use super::scope::IbpSourceScope;
 
@@ -32,12 +32,14 @@ impl<'family> ParametricIbpGenerator<'family> {
         let arity = family.denominator_count();
         checked_row_counts(family.loop_count(), family.external_count())?;
         let index_space = IndexSpace::try_new(arity)?;
-        let positive_units = (0..arity)
-            .map(|position| index_space.unit(position, 1))
-            .collect::<Result<Vec<_>, _>>()?;
-        let negative_units = (0..arity)
-            .map(|position| index_space.unit(position, -1))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut positive_units = try_preallocate_vec("positive unit index shifts", arity)?;
+        for position in 0..arity {
+            positive_units.push(index_space.unit(position, 1)?);
+        }
+        let mut negative_units = try_preallocate_vec("negative unit index shifts", arity)?;
+        for position in 0..arity {
+            negative_units.push(index_space.unit(position, -1)?);
+        }
         let zero_shift = index_space.try_zero()?;
         let source_scope = IbpSourceScope {
             family_fingerprint,
@@ -69,21 +71,19 @@ impl<'family> ParametricIbpGenerator<'family> {
     pub(super) fn prepare_ordinary_powers(
         &self,
     ) -> Result<Vec<IndexedCoefficient>, ParametricIbpError> {
-        let powers = (0..self.family.denominator_count())
-            .map(|denominator| {
-                let index = self.context.index(denominator)?;
-                let power_shift = self
-                    .context
-                    .lift(&self.family.power_shifts()[denominator])?;
-                self.context
-                    .add_with_limits(
-                        &index,
-                        &power_shift,
-                        self.config.relation_limits.arithmetic.exact_algebra,
-                    )
-                    .map_err(ParametricIbpError::from)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let arity = self.family.denominator_count();
+        let mut powers = try_preallocate_vec("ordinary power coefficients", arity)?;
+        for denominator in 0..arity {
+            let index = self.context.index(denominator)?;
+            let power_shift = self
+                .context
+                .lift(&self.family.power_shifts()[denominator])?;
+            powers.push(self.context.add_with_limits(
+                &index,
+                &power_shift,
+                self.config.relation_limits.arithmetic.exact_algebra,
+            )?);
+        }
         Ok(powers)
     }
 }

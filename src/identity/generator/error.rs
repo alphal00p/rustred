@@ -9,6 +9,10 @@ use super::super::relation::ParametricRelationError;
 /// Typed failures from generic parametric IBP/LI generation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricIbpError {
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     RowCountOverflow {
         loops: usize,
         externals: usize,
@@ -47,6 +51,13 @@ pub enum ParametricIbpError {
 impl fmt::Display for ParametricIbpError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} entries for {resource}"
+            ),
             Self::RowCountOverflow { loops, externals } => write!(
                 formatter,
                 "the IBP/LI row count for {loops} loops and {externals} external momenta overflowed usize"
@@ -120,5 +131,35 @@ impl From<ParametricRelationError> for ParametricIbpError {
 impl From<IntegralFamilyError> for ParametricIbpError {
     fn from(value: IntegralFamilyError) -> Self {
         Self::Family(value)
+    }
+}
+
+pub(super) fn try_preallocate_vec<T>(
+    resource: &'static str,
+    requested: usize,
+) -> Result<Vec<T>, ParametricIbpError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(requested)
+        .map_err(|_| ParametricIbpError::AllocationFailure {
+            resource,
+            requested,
+        })?;
+    Ok(values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generator_allocation_failure_reports_the_exact_requested_entry_count() {
+        assert_eq!(
+            try_preallocate_vec::<u8>("generator allocation sentinel", usize::MAX),
+            Err(ParametricIbpError::AllocationFailure {
+                resource: "generator allocation sentinel",
+                requested: usize::MAX,
+            })
+        );
     }
 }
