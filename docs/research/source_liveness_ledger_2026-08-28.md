@@ -4,7 +4,7 @@
 and redundant-replay cleanup.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
-This ledger classifies every one of the 45 tracked Rust source/test paths
+This ledger classifies every one of the 47 tracked Rust source/test paths
 remaining after the current R3 deletion milestone. It is intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -22,7 +22,7 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 15 |
-| split | 29 |
+| split | 31 |
 | delete | 0 |
 | replace | 1 |
 
@@ -30,7 +30,9 @@ core lanes may dispatch solely on proved generic family properties.
 |---|---|---|---|
 | `crates/rustred-app/src/application/campaign/plan.rs` | split | rustred-app::campaign | app-owned roots-only family/sector/job interning with deterministic ordinals and bounded truthful output; no core replay/dependency plan or fictional future phases |
 | `crates/rustred-app/src/application/campaign/preflight.rs` | split | rustred-app::campaign | retain topology-free resource preflight needed by the live app |
-| `crates/rustred-app/src/application/derive.rs` | split | rustred-app | retain evidenced generic derivation; narrow the output/API during facade reset |
+| `crates/rustred-app/src/application/derive/mod.rs` | split | rustred-app::derive | compose input lowering, admitted parallel IBP/LI batches, DTO conversion, and serialization without owning their representations |
+| `crates/rustred-app/src/application/derive/model.rs` | split | rustred-app::derive | retain only the deterministic application output DTO and semantic-to-transport conversion |
+| `crates/rustred-app/src/application/derive/census.rs` | split | rustred-app::derive | retain structural, payload, and render-bound preflights separately from execution and output representation |
 | `crates/rustred-app/src/application/error.rs` | split | rustred-app | retain typed cross-frontend errors only |
 | `crates/rustred-app/src/application/input.rs` | split | rustred-app / core input | keep transport decoding in app and move generic normalization downward |
 | `crates/rustred-app/src/application/lowering.rs` | split | rustred-app / core input | keep composition only; core owns reusable lowering semantics |
