@@ -29,6 +29,7 @@ mod parametric_sector_mtbdd_certificate;
 mod parametric_sector_normalized_source;
 #[cfg(test)]
 mod parametric_sector_one_pass_tests;
+mod solver;
 pub(crate) mod symbolica_coefficient_matrix;
 
 pub mod adaptive_rules;
@@ -67,22 +68,18 @@ mod generated_affine_residual_case_premises;
 mod generated_affine_residual_case_reelimination;
 pub(crate) mod generated_affine_residual_case_unit_equality_refinement;
 mod generated_affine_residual_group_exact_database;
-mod generated_affine_residual_group_exact_physical_row;
 mod generated_affine_residual_group_exact_publication;
 mod generated_affine_residual_group_exact_publication_handoff;
 #[cfg(test)]
 mod generated_affine_residual_group_exact_publication_tests;
-mod generated_affine_residual_group_exact_recenter_kernel;
 mod generated_affine_residual_group_exact_session;
 mod generated_affine_residual_group_exact_targets;
 mod generated_affine_residual_group_exact_when_bad_conditions;
 mod generated_affine_residual_group_exact_when_bad_materialization;
 mod generated_affine_residual_group_exact_when_bad_partition;
-mod generated_affine_residual_group_physical_key;
 mod generated_affine_residual_group_ready_publication;
 #[cfg(test)]
 mod generated_affine_residual_group_ready_publication_tests;
-mod generated_affine_residual_group_solve_plan;
 pub(crate) mod generated_affine_residual_source_authority;
 pub mod generated_cylindrical_candidate_authority;
 pub mod generated_cylindrical_family_source_set;

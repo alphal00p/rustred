@@ -51,7 +51,7 @@ The topology-neutral authority and staging layers described below now exist:
   non-`Clone` capability retained privately by that session.  Direct database
   staging/commit and raw plan access exist only as `cfg(test)` adapters, so a
   sibling production module cannot bypass the session's typed outcome policy.
-- `generated_affine_residual_group_exact_recenter_kernel.rs` now contains the
+- `src/solver/exact_session/recenter.rs` now contains the
   authority-free GMP/Symbolica arithmetic extracted from the retired raw-row
   adapter.  It consumes exact-size borrowed exact-shift/coefficient/guard
   streams once into admitted stable reference buffers, computes
@@ -266,12 +266,13 @@ but then-unjoined seams.  The first two have since been replaced/joined by the
 checkpoint above; the descriptions remain here to explain why the new
 authority boundary was necessary:
 
-1. An exact physical row retains its authenticated re-elimination source,
-   frame, row/witness locators, physical terms, and guards
-   (`src/generated_affine_residual_group_exact_physical_row.rs:275-320`). Its
-   `replay_for_database` method supplies a sealed borrowed ingress
-   (`src/generated_affine_residual_group_exact_physical_row.rs:471-485`). The
-   retained `Arc` is therefore the row's replay recipe.
+1. At the historical audit revision, the pre-boundary exact-physical-row
+   module retained its authenticated re-elimination source, frame,
+   row/witness locators, physical terms, and guards. Its
+   `replay_for_database` method supplied a sealed borrowed ingress. That Git
+   revision is the evidence for why the retained `Arc` is the row's replay
+   recipe; the live owner now resides at
+   `src/solver/exact_session/physical_row.rs`.
 2. The pre-transaction exact database authenticated that row and immediately
    ingested it mutably
    (`src/generated_affine_residual_group_exact_database.rs` at the historical
@@ -336,10 +337,8 @@ the owner and every staged token; it is not the movable Rust address of the
 owner struct. Authentication uses `Arc::ptr_eq`, while fingerprints/manifests
 remain replay evidence rather than substitutes for allocation authority.
 
-The solve plan's locator is currently only a scalar triple
-(`src/generated_affine_residual_group_solve_plan.rs:308-324`) and targets are
-exposed as an ordered slice
-(`src/generated_affine_residual_group_solve_plan.rs:740-742`). The owner must
+The solve plan's locator is currently only a scalar triple and targets are
+exposed as an ordered slice (`src/solver/exact_session/plan.rs`). The owner must
 add a sealed target-authentication seam that resolves a locator against the
 same plan/inventory allocation and exposes the target affine source and target
 guards. A forgeable external `&[bool]` is not an acceptable target-state input.

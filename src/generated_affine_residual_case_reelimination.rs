@@ -8,8 +8,8 @@
 //! dispatch and no authored recurrence.
 //!
 //! A zero-available-row exhaustion is deliberately reported as
-//! [`NoAvailableRows`].  It
-//! is unresolved reduction work, not evidence for a master integral or an
+//! [`NoAvailableRows`](GeneratedAffineResidualCaseReeliminationCompilation::NoAvailableRows).
+//! It is unresolved reduction work, not evidence for a master integral or an
 //! empty sector.  Equality-bearing cases cannot enter this boundary: the
 //! compiler requires the typed `Ready` premises certificate.
 //! Same-group case ownership, adaptive depth growth, target matching, and

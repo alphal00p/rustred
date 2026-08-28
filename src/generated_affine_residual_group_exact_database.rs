@@ -30,17 +30,7 @@ use std::sync::{
 use std::cell::Cell;
 
 use crate::generated_affine_residual_case_inventory::GeneratedAffineResidualCaseAuthoritySourceKind;
-use crate::generated_affine_residual_group_exact_physical_row::{
-    GeneratedAffineResidualGroupExactPhysicalRow,
-    GeneratedAffineResidualGroupReplayedExactPhysicalRow,
-};
 use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
-use crate::generated_affine_residual_group_physical_key::{
-    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
-};
-use crate::generated_affine_residual_group_solve_plan::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
-};
 use crate::parametric_coefficient::insert_parametric_condition;
 use crate::parametric_coefficient::symbolica_sparse::{
     SymbolicaParametricSparseError, SymbolicaParametricSparseInputEntry,
@@ -55,6 +45,16 @@ use crate::parametric_coefficient::symbolica_sparse::{
 use crate::parametric_elimination::{
     ParametricCoefficientWorkLedger, ParametricCoefficientWorkLedgerLimits,
     ParametricCoefficientWorkPhase,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupExactPhysicalRow,
+    GeneratedAffineResidualGroupReplayedExactPhysicalRow,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
 };
 use crate::{
     GuardOrigin, IntegralFamily, ParametricCoefficient, ParametricCoefficientContext,
@@ -4764,12 +4764,6 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
     };
-    use crate::generated_affine_residual_group_exact_physical_row::{
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    };
-    use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
-    use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::parametric_sector_formula_affine_terminal::{
         ParametricSectorFormulaAffineTerminalCompiler, ParametricSectorFormulaAffineTerminalLimits,
@@ -4781,6 +4775,12 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::exact_session::GeneratedAffineResidualGroupPhysicalKeyLimits;
+    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
+    use crate::solver::exact_session::{
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedSectorDiscoveryCompiler,

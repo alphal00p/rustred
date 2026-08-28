@@ -44,12 +44,12 @@ use crate::generated_affine_residual_group_exact_session::{
     ExceptionalResidualKind, GeneratedAffineResidualGroupExactSession,
     GeneratedAffineResidualGroupExactSessionError, GeneratedAffineResidualGroupExactSessionLimits,
 };
-use crate::generated_affine_residual_group_physical_key::{
+use crate::solver::exact_session::GeneratedAffineResidualGroupSolveTargetLocator;
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyError,
     GeneratedAffineResidualGroupPhysicalKeyLimits,
 };
-use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolveTargetLocator;
-use crate::generated_affine_residual_group_solve_plan::{
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanError,
     GeneratedAffineResidualGroupSolvePlanLimits,
 };
@@ -2231,8 +2231,8 @@ mod tests {
         GeneratedAffineResidualGroupExactSession,
     };
     use crate::generated_affine_residual_group_exact_targets::GENERATED_AFFINE_RESIDUAL_GROUP_EXACT_TARGET_CATALOG_V3_SCHEMA;
-    use crate::generated_affine_residual_group_physical_key::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
-    use crate::generated_affine_residual_group_solve_plan::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
+    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA;
+    use crate::solver::exact_session::GENERATED_AFFINE_RESIDUAL_GROUP_SOLVE_PLAN_V3_SCHEMA;
     use crate::{
         IntegralFamily, IntegralOrderingPolicy, ParallelExecution, ParametricCoefficientContext,
         SectorMask, SymbolicPolynomialPredicateKind,

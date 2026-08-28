@@ -104,11 +104,9 @@ integral/coefficient separation used by this selection
 
 RustRed's current exact physical key stores its ordering policy and complete
 formal complexity tuple; its `Ord` implementation compares those fields before
-the physical shift
-(`src/generated_affine_residual_group_physical_key.rs:390-499`).  A production
+the physical shift (`src/solver/exact_session/physical_key.rs`).  A production
 database must accept keys only through its retained frame/solve plan, as the
-source comments require
-(`src/generated_affine_residual_group_physical_key.rs:390-396`).  The current
+source comments require.  The current
 public policy is `RustRedUnshiftedV1`
 (`src/sectors.rs:716-743`).  Custom LiteRed-compatible `jsOrder` remains a
 future compatibility requirement; a database must never silently change its
@@ -139,12 +137,10 @@ offset is calculated exactly as its constant vector minus the anchor constant
 vector
 (`src/generated_affine_residual_case_inventory.rs:4417-4458`).
 
-The immutable solve plan already materializes easier-to-harder order
-(`src/generated_affine_residual_group_solve_plan.rs:1-8`).  It constructs a
+The immutable solve plan at `src/solver/exact_session/plan.rs` already
+materializes easier-to-harder order.  It constructs a
 physical key for every group case and stable-sorts by that key, with inventory
-position as the tie breaker
-(`src/generated_affine_residual_group_solve_plan.rs:498-635` and
-`src/generated_affine_residual_group_solve_plan.rs:1069-1073`).
+position as the tie breaker.
 
 ### 3.2 Database lifetime
 
@@ -221,8 +217,7 @@ common form:  J(A n_F + b_0 + r)
 
 These are exact arbitrary-precision integer coordinates.  RustRed's physical
 frame implements `local -> physical` as `o_u + q` without `i64` arithmetic and
-the inverse as `r - o_u`
-(`src/generated_affine_residual_group_physical_key.rs:1004-1063`).
+the inverse as `r - o_u` (`src/solver/exact_session/physical_key.rs`).
 
 If top reduction produces a unit pivot at physical shift `r`, let `r_F` denote
 the components of `r` at the group's free positions.  Recenter by

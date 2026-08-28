@@ -396,8 +396,14 @@ reviewable from semantic changes.
    been deleted after its unique GMP work, sealed-census, and exact buffer
    boundary tests were transplanted to the live recenter kernel; Git retains
    the obsolete i64 differential rather than a `cfg(test)` compatibility
-   authority. Exact-session/closure, test-support, and the other mathematical
-   ownership clusters remain to be reorganized.
+   authority. The first exact-session foundation tranche is also complete:
+   physical keys, immutable solve plans, sealed physical rows, and the exact
+   recenter kernel now live as private children of
+   `solver::exact_session`, reached by the still-flat transactional owners only
+   through a selective crate-private facade and with no old-path aliases. The
+   transactional database/session/target SCC, closure/publication scheduling,
+   test-support, and the other mathematical ownership clusters remain to be
+   reorganized.
 6. Consolidate the research corpus into a small authoritative index for scope,
    architecture, solver, campaigns, interfaces, references, status, and
    acceptance. Delete reconciled stale documents rather than growing an

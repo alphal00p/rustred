@@ -38,20 +38,12 @@ use crate::generated_affine_residual_case_reelimination::{
     GeneratedAffineResidualCaseReeliminationCompiler,
     GeneratedAffineResidualCaseReeliminationLimits,
 };
-use crate::generated_affine_residual_group_exact_physical_row::{
-    GeneratedAffineResidualGroupExactPhysicalRow,
-    GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-    GeneratedAffineResidualGroupExactPhysicalRowLimits,
-};
 use crate::generated_affine_residual_group_exact_session::{
     GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
     GeneratedAffineResidualGroupExactSessionEventStats,
     GeneratedAffineResidualGroupExactSessionLimits,
     GeneratedAffineResidualGroupExactSessionRecenterOutcome,
     GeneratedAffineResidualGroupExactSessionRecenterReady,
-};
-use crate::generated_affine_residual_group_physical_key::{
-    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
 };
 use crate::generated_affine_residual_group_ready_publication::{
     GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
@@ -60,10 +52,18 @@ use crate::generated_affine_residual_group_ready_publication::{
     GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
     GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
 };
-use crate::generated_affine_residual_group_solve_plan::{
+use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupExactPhysicalRow,
+    GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+    GeneratedAffineResidualGroupExactPhysicalRowLimits,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+};
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanLimits,
 };
-use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
 use crate::{
     AffineDenominator, CoefficientContext, ConcreteIntegralKey, GeneratedFamilyRuleSystemCompiler,
     GeneratedFamilyRuleSystemConfig, GeneratedFamilyRuleSystemLimits,

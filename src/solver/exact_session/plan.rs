@@ -14,18 +14,18 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use crate::generated_affine_residual_case_inventory::{
-    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
-    GeneratedAffineResidualCaseAuthoritySourceKind,
-    GeneratedAffineResidualCaseInventoryCertificate, GeneratedAffineResidualCaseInventoryError,
-    GeneratedAffineResidualInventoryGroupSourceView,
-};
-use crate::generated_affine_residual_group_physical_key::{
+use super::physical_key::{
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V1_SCHEMA,
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
     GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V3_SCHEMA,
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError, GeneratedAffineResidualGroupPhysicalKeyPreflight,
+};
+use crate::generated_affine_residual_case_inventory::{
+    GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityError,
+    GeneratedAffineResidualCaseAuthoritySourceKind,
+    GeneratedAffineResidualCaseInventoryCertificate, GeneratedAffineResidualCaseInventoryError,
+    GeneratedAffineResidualInventoryGroupSourceView,
 };
 use crate::{IntegralFamily, ParametricCoefficientContext};
 
@@ -1950,6 +1950,7 @@ mod tests {
     use symbolica::domains::integer::MultiPrecisionInteger;
     use symbolica::prelude::Integer;
 
+    use super::super::physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
     use super::*;
     use crate::affine_parametric_ordering::integer_magnitude_bits;
     use crate::generated_affine_residual_boolean_cover::{
@@ -1963,7 +1964,6 @@ mod tests {
         GeneratedAffineResidualGroupExactTargetCatalog,
         GeneratedAffineResidualGroupExactTargetCatalogLimits,
     };
-    use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupPhysicalKeyLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::parametric_sector_formula_affine_terminal::{
         ParametricSectorFormulaAffineTerminalCertificate,

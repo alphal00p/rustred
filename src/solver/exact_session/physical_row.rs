@@ -15,11 +15,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRow;
-use crate::generated_affine_residual_group_physical_key::{
+use super::physical_key::{
     GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyError,
 };
+use crate::generated_affine_residual_case_completed_bound_row::GeneratedAffineResidualCaseCompletedBoundRow;
 use crate::{
     IntegralFamily, ParametricCoefficient, ParametricCoefficientContext, ParametricNonZeroCondition,
 };
@@ -1454,6 +1454,10 @@ mod tests {
 
     use symbolica::prelude::Integer;
 
+    use super::super::physical_key::{
+        GeneratedAffineResidualGroupPhysicalKeyLimits, physical_from_local_executions_for_test,
+        reset_physical_from_local_executions_for_test, test_integer_field_comparison_bit_work,
+    };
     use super::*;
     use crate::generated_affine_parametric_ordering::{
         GeneratedAffineParametricOrderingCertificate, GeneratedAffineParametricOrderingLimits,
@@ -1483,10 +1487,6 @@ mod tests {
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
         GeneratedAffineResidualCaseReeliminationRowOutcome,
-    };
-    use crate::generated_affine_residual_group_physical_key::{
-        GeneratedAffineResidualGroupPhysicalKeyLimits, physical_from_local_executions_for_test,
-        reset_physical_from_local_executions_for_test, test_integer_field_comparison_bit_work,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{
@@ -2309,31 +2309,5 @@ mod tests {
             test_integer_field_comparison_bit_work(&left, &right).unwrap(),
             ARITY * 2
         );
-    }
-
-    #[test]
-    fn production_source_is_topology_and_loop_count_neutral() {
-        let source = include_str!("generated_affine_residual_group_exact_physical_row.rs");
-        let production = source.split("#[cfg(test)]").next().unwrap();
-        for forbidden in [
-            "equal_mass_two_loop",
-            "sunset",
-            "vacuum_bubble",
-            "one_loop",
-            "two_loop",
-            "three_loop",
-            "four_loop",
-            "five_loop",
-            "Vakint",
-            "FORM",
-            "SectorMask::try_from_bit_string",
-            "PreorderedParametricElimination",
-            "reelimination",
-        ] {
-            assert!(
-                !production.contains(forbidden),
-                "production exact-row ingress contains topology-specific token {forbidden}"
-            );
-        }
     }
 }

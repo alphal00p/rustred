@@ -168,7 +168,7 @@ The current-lineage components below are implemented and tested:
   transaction, exposes an authenticated joint view, and returns the owning
   `GeneratedAffineResidualGroupExactSessionRecenterOutcome::{NoTarget,
   RequiresAffineEqualityRefinement, Ready}`.
-- `src/generated_affine_residual_group_exact_recenter_kernel.rs` supplies the
+- `src/solver/exact_session/recenter.rs` supplies the
   authority-free, arbitrary-precision recentering arithmetic through
   `ExactCenteredShift`, `ExactRecenteredTerm`, and `ExactRecenteredRow`.
 - Current Ready outcomes retain the exact recentered row, the retained Ready
@@ -938,8 +938,7 @@ physical-frame helper that combines the target anchor offset with an
 `ExactCenteredShift` and yields a
 `GeneratedAffineResidualGroupPhysicalKey`/exact target-local key. Never call
 `ExactCenteredShift::try_to_index_shift`. The exact lattice shift and ordering
-foundation already exist in
-`src/generated_affine_residual_group_physical_key.rs:384-605`; the new helper
+foundation already exist in `src/solver/exact_session/physical_key.rs`; the new helper
 must preserve that ordering rather than duplicate it.
 
 Boundary endpoints, boundary values, interval counts, activation coordinates,

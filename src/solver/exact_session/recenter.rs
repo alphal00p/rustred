@@ -16,8 +16,8 @@ use std::cell::Cell;
 
 use symbolica::prelude::Integer;
 
+use super::physical_key::GeneratedAffineResidualGroupLatticeShift;
 use crate::affine_parametric_ordering::integer_magnitude_bits;
-use crate::generated_affine_residual_group_physical_key::GeneratedAffineResidualGroupLatticeShift;
 use crate::parametric_coefficient::{
     ParametricCoefficientTranslationPreflight, ParametricPolynomialTranslationPreflight,
 };
@@ -2094,6 +2094,9 @@ pub(crate) fn check_limit(
 mod tests {
     use std::sync::Arc;
 
+    use super::super::physical_key::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+    };
     use super::*;
     use crate::generated_affine_residual_boolean_cover::{
         GeneratedAffineResidualBooleanCoverCompiler, GeneratedAffineResidualBooleanCoverLimits,
@@ -2101,9 +2104,6 @@ mod tests {
     use crate::generated_affine_residual_case_inventory::{
         GeneratedAffineResidualCaseAuthority, GeneratedAffineResidualCaseAuthorityLimits,
         GeneratedAffineResidualCaseInventoryCompiler, GeneratedAffineResidualCaseInventoryLimits,
-    };
-    use crate::generated_affine_residual_group_physical_key::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::{

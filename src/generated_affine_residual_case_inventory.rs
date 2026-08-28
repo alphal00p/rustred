@@ -9583,10 +9583,6 @@ mod tests {
         GeneratedAffineResidualCasePremisesOutcome,
         compile_generated_affine_residual_case_premises,
     };
-    use crate::generated_affine_residual_group_physical_key::{
-        GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
-    };
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_affine_residual_source_authority::{
         GeneratedAffineInitialGlobalBooleanPointLimits,
@@ -9620,6 +9616,10 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::exact_session::{
+        GENERATED_AFFINE_RESIDUAL_GROUP_PHYSICAL_FRAME_V2_SCHEMA,
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

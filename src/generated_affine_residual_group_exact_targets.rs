@@ -34,7 +34,7 @@ use crate::generated_affine_residual_case_premises::{
 };
 use crate::generated_affine_residual_group_exact_database::GeneratedAffineResidualGroupExactTargetStateBinding;
 use crate::generated_affine_residual_group_exact_session::GeneratedAffineResidualGroupExactSessionDatabaseCapability;
-use crate::generated_affine_residual_group_solve_plan::{
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolvePlanReplayLimits,
     GeneratedAffineResidualGroupSolveTargetLocator,
 };
@@ -2758,15 +2758,6 @@ mod tests {
     use crate::generated_affine_residual_group_exact_database::{
         GeneratedAffineResidualGroupExactDatabase, GeneratedAffineResidualGroupExactDatabaseLimits,
     };
-    use crate::generated_affine_residual_group_exact_physical_row::{
-        GeneratedAffineResidualGroupExactPhysicalRow,
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    };
-    use crate::generated_affine_residual_group_physical_key::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
-    };
-    use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
         GeneratedSectorAffineEffectiveCoverageCompiler,
@@ -2786,6 +2777,15 @@ mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
+    use crate::solver::exact_session::{
+        GeneratedAffineResidualGroupExactPhysicalRow,
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    };
+    use crate::solver::exact_session::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

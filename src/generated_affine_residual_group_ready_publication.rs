@@ -22,19 +22,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::prelude::Integer;
 
-use crate::generated_affine_residual_group_exact_recenter_kernel::{
-    integer_bits, prospective_integer_heap_bytes,
-};
 use crate::generated_affine_residual_group_exact_session::{
     GeneratedAffineResidualGroupExactSession, GeneratedAffineResidualGroupExactSessionError,
     GeneratedAffineResidualGroupExactSessionRecenterReady,
 };
-use crate::generated_affine_residual_group_physical_key::{
+use crate::solver::exact_session::{
     GeneratedAffineResidualGroupPhysicalKey,
     GeneratedAffineResidualGroupPhysicalKeyComparisonComponent,
     GeneratedAffineResidualGroupPhysicalKeyComparisonWitness,
     GeneratedAffineResidualGroupPhysicalKeyError,
 };
+use crate::solver::exact_session::{integer_bits, prospective_integer_heap_bytes};
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
 pub(crate) const GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA: &str =

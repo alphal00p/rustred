@@ -3,7 +3,6 @@
 use std::mem::size_of;
 use std::sync::Arc;
 
-use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::generated_affine_residual_group_exact_publication::{
     PreparedPublication, PublicationError, PublicationLeafDisposition, PublicationLimits,
     publication_route_tag_bytes_for_test,
@@ -34,6 +33,7 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
     GeneratedAffineResidualGroupExactWhenBadReadyForPublication,
 };
 use crate::native_sparse_scaling::NATIVE_SYMBOLICA_SPARSE_SCALING_V1_SCHEMA;
+use crate::solver::exact_session::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::{IntegralFamily, IntegralOrderingPolicy, ParametricCoefficientContext};
 
 pub(crate) fn ready_for_publication(

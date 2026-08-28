@@ -794,7 +794,7 @@ impl GeneratedAffineResidualGroupExactWhenBadRejectedCandidate {
 
     pub(crate) fn target_locator(
         &self,
-    ) -> &crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolveTargetLocator{
+    ) -> &crate::solver::exact_session::GeneratedAffineResidualGroupSolveTargetLocator {
         self.ready.target_locator()
     }
 

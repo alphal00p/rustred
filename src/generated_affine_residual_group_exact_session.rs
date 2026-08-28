@@ -44,17 +44,9 @@ use crate::generated_affine_residual_group_exact_database::{
     GeneratedAffineResidualGroupRetainedExactSourceRecipe,
     GeneratedAffineResidualGroupRetainedExactUnitPivot, GeneratedAffineResidualGroupStagedExactRow,
 };
-use crate::generated_affine_residual_group_exact_physical_row::GeneratedAffineResidualGroupExactPhysicalRow;
 use crate::generated_affine_residual_group_exact_publication::{
     PreparedPublication, PublicationLeaf, PublicationLeafDisposition, PublicationPayload,
     PublicationStats,
-};
-use crate::generated_affine_residual_group_exact_recenter_kernel::{
-    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
-    ExactRecenteredApplicationRow, ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset,
-    admit_inert_owner, bounded_add, checked_add, exact_offsets_equal, execute_target_offset,
-    observe_inert_owner, preflight_exact_geometry, translate_centered_row,
-    verify_target_offset_census,
 };
 use crate::generated_affine_residual_group_exact_targets::{
     GeneratedAffineResidualGroupExactTargetCatalog,
@@ -76,22 +68,30 @@ use crate::generated_affine_residual_group_exact_when_bad_partition::{
     GeneratedAffineResidualGroupExactWhenBadRejectedCandidate,
     GeneratedAffineResidualGroupExactWhenBadRejectedCandidateReplayRecipe,
 };
-use crate::generated_affine_residual_group_physical_key::{
-    GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
-    GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
-};
 use crate::generated_affine_residual_group_ready_publication::{
     GeneratedAffineResidualGroupReadyPublicationAnalysisCompiler,
     GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
-};
-use crate::generated_affine_residual_group_solve_plan::{
-    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
 };
 use crate::generated_residual_affine_when_bad::{
     AffineWhenBadArbitraryRelativeCase, AffineWhenBadArbitraryRelativePredicate,
 };
 use crate::native_sparse_scaling::NativeSparseScalingSnapshot;
 use crate::parametric_coefficient::symbolica_sparse::SymbolicaPersistentSparseShallowCapacitySnapshot;
+use crate::solver::exact_session::GeneratedAffineResidualGroupExactPhysicalRow;
+use crate::solver::exact_session::{
+    ExactRecenterKernelError, ExactRecenterKernelLimits, ExactRecenterKernelStats,
+    ExactRecenteredApplicationRow, ExactRecenteredRow, ExactRecenteredTerm, ExactTargetOffset,
+    admit_inert_owner, bounded_add, checked_add, exact_offsets_equal, execute_target_offset,
+    observe_inert_owner, preflight_exact_geometry, translate_centered_row,
+    verify_target_offset_census,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupLatticeShift, GeneratedAffineResidualGroupPhysicalFrame,
+    GeneratedAffineResidualGroupPhysicalKey, GeneratedAffineResidualGroupPhysicalKeyError,
+};
+use crate::solver::exact_session::{
+    GeneratedAffineResidualGroupSolvePlan, GeneratedAffineResidualGroupSolveTargetLocator,
+};
 use crate::{
     GuardOrigin, IntegralFamily, IntegralOrderingPolicy, ParametricCoefficient,
     ParametricCoefficientContext, ParametricNonZeroCondition, ParametricPolynomial, SectorMask,
@@ -6493,14 +6493,6 @@ pub(crate) mod tests {
         GeneratedAffineResidualCaseReeliminationCompiler,
         GeneratedAffineResidualCaseReeliminationLimits,
     };
-    use crate::generated_affine_residual_group_exact_physical_row::{
-        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
-        GeneratedAffineResidualGroupExactPhysicalRowLimits,
-    };
-    use crate::generated_affine_residual_group_exact_recenter_kernel::{
-        centered_shift_arithmetic_operations_for_test,
-        reset_centered_shift_arithmetic_operations_for_test,
-    };
     use crate::generated_affine_residual_group_exact_targets::{
         GeneratedAffineResidualGroupAuthenticatedExactTargetView,
         GeneratedAffineResidualGroupExactTargetStateStats,
@@ -6521,9 +6513,6 @@ pub(crate) mod tests {
         GeneratedAffineResidualGroupExactWhenBadPartitionIdenticallyBadReason,
         GeneratedAffineResidualGroupExactWhenBadPartitionLimits,
     };
-    use crate::generated_affine_residual_group_physical_key::{
-        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
-    };
     use crate::generated_affine_residual_group_ready_publication::{
         GENERATED_AFFINE_RESIDUAL_GROUP_READY_PUBLICATION_ANALYSIS_V2_SCHEMA,
         GeneratedAffineResidualGroupReadyForConditions,
@@ -6531,7 +6520,6 @@ pub(crate) mod tests {
         GeneratedAffineResidualGroupReadyPublicationAnalysisLimits,
         GeneratedAffineResidualGroupReadyPublicationAnalysisOutcome,
     };
-    use crate::generated_affine_residual_group_solve_plan::GeneratedAffineResidualGroupSolvePlanLimits;
     use crate::generated_affine_residual_source_authority::GeneratedAffineResidualSourceAuthority;
     use crate::generated_sector_affine_effective_coverage::{
         GeneratedSectorAffineEffectiveCoverageCompiler,
@@ -6552,6 +6540,18 @@ pub(crate) mod tests {
     use crate::parametric_sector_normalized_source::{
         ParametricSectorNormalizedCoverageSource, ParametricSectorNormalizedCoverageSourceCompiler,
         ParametricSectorNormalizedCoverageSourceLimits,
+    };
+    use crate::solver::exact_session::GeneratedAffineResidualGroupSolvePlanLimits;
+    use crate::solver::exact_session::{
+        GeneratedAffineResidualGroupExactPhysicalRowCompiler,
+        GeneratedAffineResidualGroupExactPhysicalRowLimits,
+    };
+    use crate::solver::exact_session::{
+        GeneratedAffineResidualGroupPhysicalFrame, GeneratedAffineResidualGroupPhysicalKeyLimits,
+    };
+    use crate::solver::exact_session::{
+        centered_shift_arithmetic_operations_for_test,
+        reset_centered_shift_arithmetic_operations_for_test,
     };
     use crate::{
         AffineDenominator, CoefficientContext, GeneratedResidualAffineCaseInventoryCompiler,

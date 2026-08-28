@@ -552,7 +552,7 @@ be removed merely because they contain loops or `BTreeMap`s:
 - affine-map construction, exact recentering, stable sorting, hashing,
   retained-byte census and guard-origin storage are certificate/representation
   work. For example,
-  [`generated_affine_residual_group_exact_recenter_kernel.rs`](../../src/generated_affine_residual_group_exact_recenter_kernel.rs)
+  [`solver/exact_session/recenter.rs`](../../src/solver/exact_session/recenter.rs)
   applies a specific affine geometry and delegates coefficient translations
   to the parametric context.
 - the bounded-count helper
