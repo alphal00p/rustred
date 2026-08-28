@@ -11,7 +11,8 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rand::RngCore;
 use symbolica::domains::{InternalOrdering, SelfRing};
@@ -19,16 +20,16 @@ use symbolica::prelude::*;
 use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
 
 use super::{ParametricCoefficient, ParametricCoefficientContext, ParametricCoefficientError};
-use crate::parametric_elimination::{
-    ParametricCoefficientWorkError, ParametricCoefficientWorkLedger,
-    ParametricCoefficientWorkLedgerLimits, ParametricCoefficientWorkPhase,
-    ParametricCoefficientWorkStats,
-};
+use crate::algebra::ExactAlgebraLimits;
 
 /// Resource envelope for one temporary native forward-reduction transcript.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SymbolicaParametricSparseLimits {
-    pub(crate) coefficient_work: ParametricCoefficientWorkLedgerLimits,
+    pub(crate) exact_algebra: ExactAlgebraLimits,
+    /// Maximum number of fallible exact-arithmetic callbacks made by the
+    /// native reducer. Structural copies and zero/one probes are bounded by
+    /// the row, column, and entry limits below.
+    pub(crate) max_field_operations: usize,
     pub(crate) max_rows: usize,
     pub(crate) max_physical_columns: usize,
     pub(crate) max_input_entries: usize,
@@ -41,7 +42,8 @@ pub(crate) struct SymbolicaParametricSparseLimits {
 impl Default for SymbolicaParametricSparseLimits {
     fn default() -> Self {
         Self {
-            coefficient_work: ParametricCoefficientWorkLedgerLimits::default(),
+            exact_algebra: ExactAlgebraLimits::default(),
+            max_field_operations: 1_000_000_000,
             max_rows: 16_000_000,
             max_physical_columns: 16_000_000,
             max_input_entries: 1_000_000_000,
@@ -177,9 +179,9 @@ impl SymbolicaParametricSparseReduction {
     }
 }
 
-/// Exact census of a temporary native reducer reconstruction. Coefficient work
-/// includes checked input/output copies and native field callbacks; it excludes
-/// pre-native structural validation and any caller-side differential replay.
+/// Exact census of a temporary native reducer reconstruction. Field operations
+/// count the checked arithmetic callbacks issued by Symbolica; input/output
+/// copies and pre-native structural validation are covered by structural limits.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SymbolicaParametricSparseStats {
     prior_rows: usize,
@@ -191,7 +193,7 @@ pub(crate) struct SymbolicaParametricSparseStats {
     native_u_entries: usize,
     native_l_entries: usize,
     returned_trace_entries: usize,
-    coefficient_work: ParametricCoefficientWorkStats,
+    field_operations: usize,
 }
 
 impl SymbolicaParametricSparseStats {
@@ -231,8 +233,8 @@ impl SymbolicaParametricSparseStats {
         self.returned_trace_entries
     }
 
-    pub(crate) const fn coefficient_work(self) -> ParametricCoefficientWorkStats {
-        self.coefficient_work
+    pub(crate) const fn field_operations(self) -> usize {
+        self.field_operations
     }
 }
 
@@ -312,7 +314,6 @@ pub(crate) enum SymbolicaParametricSparseError {
         column: usize,
     },
     Coefficient(ParametricCoefficientError),
-    CoefficientWork(ParametricCoefficientWorkError),
     DependentPriorRow {
         row: usize,
     },
@@ -394,7 +395,6 @@ impl fmt::Display for SymbolicaParametricSparseError {
                 )
             }
             Self::Coefficient(error) => error.fmt(formatter),
-            Self::CoefficientWork(error) => error.fmt(formatter),
             Self::DependentPriorRow { row } => {
                 write!(formatter, "prior sparse row {row} is linearly dependent")
             }
@@ -460,59 +460,60 @@ impl InternalOrdering for NativeParametricElement {
     }
 }
 
-enum CheckedFieldFailure {
-    Work(ParametricCoefficientWorkError),
-    UnexpectedOperation(&'static str),
-}
-
-struct CheckedFieldAbort(CheckedFieldFailure);
+struct CheckedFieldAbort(SymbolicaParametricSparseError);
 
 #[cold]
-fn abort_checked_field(error: CheckedFieldFailure) -> ! {
+fn abort_checked_field(error: SymbolicaParametricSparseError) -> ! {
     resume_unwind(Box::new(CheckedFieldAbort(error)))
 }
 
-/// Shared, panic-recoverable work controller for every clone of one native
-/// field. A retained reducer and any clone-on-stage trial therefore see one
-/// serialized active ledger without borrowing the caller's context.
+/// Monotonic resource counter shared by every clone of one temporary native
+/// field. One top-level reduction owns one controller and discards it together
+/// with any partially mutated reducer after an error.
 struct CheckedFieldController {
-    stage_gate: Mutex<()>,
-    active_ledger: Mutex<Option<ParametricCoefficientWorkLedger>>,
+    max_field_operations: usize,
+    field_operations: AtomicUsize,
+}
+
+impl CheckedFieldController {
+    fn try_charge_field_operation(&self) -> Result<(), SymbolicaParametricSparseError> {
+        let mut current = self.field_operations.load(Ordering::Relaxed);
+        loop {
+            let requested = current.checked_add(1).ok_or(
+                SymbolicaParametricSparseError::ResourceCountOverflow {
+                    resource: "Symbolica parametric sparse field operations",
+                },
+            )?;
+            check_limit(
+                "Symbolica parametric sparse field operations",
+                requested,
+                self.max_field_operations,
+            )?;
+            match self.field_operations.compare_exchange_weak(
+                current,
+                requested,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn field_operations(&self) -> usize {
+        self.field_operations.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Clone)]
 struct CheckedParametricField {
     context: Arc<ParametricCoefficientContext>,
     inner: RationalPolynomialField<IntegerRing, u16>,
+    exact_algebra: ExactAlgebraLimits,
     zero: NativeParametricElement,
     one: NativeParametricElement,
     controller: Arc<CheckedFieldController>,
-}
-
-/// Exclusive lifetime of one native reducer operation sequence. Dropping the
-/// guard clears the active work ledger on success, typed field abort, or an
-/// unrelated Symbolica panic. Poisoned standard-library mutexes are recovered
-/// deliberately: poisoning records that a panic crossed a stage, while this
-/// guard supplies the stronger invariant that no partial ledger survives it.
-struct CheckedParametricFieldStage<'controller> {
-    controller: &'controller CheckedFieldController,
-    _gate: MutexGuard<'controller, ()>,
-}
-
-impl Drop for CheckedParametricFieldStage<'_> {
-    fn drop(&mut self) {
-        *lock_recovering_poison(&self.controller.active_ledger) = None;
-    }
-}
-
-fn lock_recovering_poison<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    match mutex.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            mutex.clear_poison();
-            poisoned.into_inner()
-        }
-    }
 }
 
 impl fmt::Debug for CheckedParametricField {
@@ -545,80 +546,54 @@ impl Hash for CheckedParametricField {
 }
 
 impl CheckedParametricField {
-    fn new(context: Arc<ParametricCoefficientContext>) -> Self {
+    fn new(
+        context: Arc<ParametricCoefficientContext>,
+        exact_algebra: ExactAlgebraLimits,
+        max_field_operations: usize,
+    ) -> Self {
         let zero = NativeParametricElement(Arc::new(context.zero()));
         let one = NativeParametricElement(Arc::new(context.one()));
         Self {
             context,
             inner: RationalPolynomialField::new(Z),
+            exact_algebra,
             zero,
             one,
             controller: Arc::new(CheckedFieldController {
-                stage_gate: Mutex::new(()),
-                active_ledger: Mutex::new(None),
+                max_field_operations,
+                field_operations: AtomicUsize::new(0),
             }),
         }
     }
 
-    fn begin_stage(
-        &self,
-        limits: ParametricCoefficientWorkLedgerLimits,
-    ) -> CheckedParametricFieldStage<'_> {
-        let controller = self.controller.as_ref();
-        let gate = lock_recovering_poison(&controller.stage_gate);
-        let mut active = lock_recovering_poison(&controller.active_ledger);
-        debug_assert!(active.is_none(), "the stage gate permits one active ledger");
-        *active = Some(ParametricCoefficientWorkLedger::new(
-            ParametricCoefficientWorkPhase::Construction,
-            limits,
-        ));
-        drop(active);
-        CheckedParametricFieldStage {
-            controller,
-            _gate: gate,
+    fn field_operations(&self) -> usize {
+        self.controller.field_operations()
+    }
+
+    fn charge_field_operation(&self) {
+        if let Err(error) = self.controller.try_charge_field_operation() {
+            abort_checked_field(error);
         }
     }
 
-    fn stats(&self) -> ParametricCoefficientWorkStats {
-        let active = lock_recovering_poison(&self.controller.active_ledger);
-        let Some(ledger) = active.as_ref() else {
-            drop(active);
-            self.unexpected("work-ledger access outside an active stage")
-        };
-        ledger.stats()
-    }
-
-    fn with_active_ledger<T>(
+    fn finish_arithmetic(
         &self,
-        operation: impl FnOnce(
-            &mut ParametricCoefficientWorkLedger,
-        ) -> Result<T, ParametricCoefficientWorkError>,
-    ) -> Result<T, ParametricCoefficientWorkError> {
-        let mut active = lock_recovering_poison(&self.controller.active_ledger);
-        if active.is_none() {
-            drop(active);
-            self.unexpected("coefficient operation outside an active stage")
-        }
-        operation(
-            active
-                .as_mut()
-                .expect("the active ledger was checked immediately above"),
-        )
-    }
-
-    fn finish_work(
-        &self,
-        result: Result<ParametricCoefficient, ParametricCoefficientWorkError>,
+        result: Result<ParametricCoefficient, ParametricCoefficientError>,
     ) -> NativeParametricElement {
         match result {
             Ok(value) => NativeParametricElement(Arc::new(value)),
-            Err(error) => abort_checked_field(CheckedFieldFailure::Work(error)),
+            Err(error) => abort_checked_field(SymbolicaParametricSparseError::Coefficient(error)),
         }
     }
 
-    fn copy_authenticated(&self, value: &ParametricCoefficient) -> NativeParametricElement {
-        let result = self.with_active_ledger(|ledger| ledger.try_copy_authenticated(value));
-        self.finish_work(result)
+    fn copy_authenticated(
+        &self,
+        value: &ParametricCoefficient,
+    ) -> Result<NativeParametricElement, SymbolicaParametricSparseError> {
+        value
+            .try_copy_authenticated_sparse_payload()
+            .map(|value| NativeParametricElement(Arc::new(value)))
+            .map_err(|resource| SymbolicaParametricSparseError::AllocationFailure { resource })
     }
 
     fn add_checked(
@@ -626,9 +601,11 @@ impl CheckedParametricField {
         left: &NativeParametricElement,
         right: &NativeParametricElement,
     ) -> NativeParametricElement {
-        let result = self
-            .with_active_ledger(|ledger| ledger.try_add(self.context.as_ref(), &left.0, &right.0));
-        self.finish_work(result)
+        self.charge_field_operation();
+        self.finish_arithmetic(
+            self.context
+                .add_with_limits(&left.0, &right.0, self.exact_algebra),
+        )
     }
 
     fn sub_checked(
@@ -636,9 +613,11 @@ impl CheckedParametricField {
         left: &NativeParametricElement,
         right: &NativeParametricElement,
     ) -> NativeParametricElement {
-        let result = self
-            .with_active_ledger(|ledger| ledger.try_sub(self.context.as_ref(), &left.0, &right.0));
-        self.finish_work(result)
+        self.charge_field_operation();
+        self.finish_arithmetic(
+            self.context
+                .sub_with_limits(&left.0, &right.0, self.exact_algebra),
+        )
     }
 
     fn mul_checked(
@@ -646,15 +625,16 @@ impl CheckedParametricField {
         left: &NativeParametricElement,
         right: &NativeParametricElement,
     ) -> NativeParametricElement {
-        let result = self
-            .with_active_ledger(|ledger| ledger.try_mul(self.context.as_ref(), &left.0, &right.0));
-        self.finish_work(result)
+        self.charge_field_operation();
+        self.finish_arithmetic(
+            self.context
+                .mul_with_limits(&left.0, &right.0, self.exact_algebra),
+        )
     }
 
     fn neg_checked(&self, value: &NativeParametricElement) -> NativeParametricElement {
-        let result =
-            self.with_active_ledger(|ledger| ledger.try_neg(self.context.as_ref(), &value.0));
-        self.finish_work(result)
+        self.charge_field_operation();
+        self.finish_arithmetic(self.context.neg_with_limits(&value.0, self.exact_algebra))
     }
 
     fn div_checked(
@@ -662,14 +642,16 @@ impl CheckedParametricField {
         numerator: &NativeParametricElement,
         denominator: &NativeParametricElement,
     ) -> NativeParametricElement {
-        let result = self.with_active_ledger(|ledger| {
-            ledger.try_native_field_division(self.context.as_ref(), &numerator.0, &denominator.0)
-        });
-        self.finish_work(result)
+        self.charge_field_operation();
+        self.finish_arithmetic(self.context.checked_div_with_limits(
+            &numerator.0,
+            &denominator.0,
+            self.exact_algebra,
+        ))
     }
 
     fn unexpected(&self, operation: &'static str) -> ! {
-        abort_checked_field(CheckedFieldFailure::UnexpectedOperation(operation))
+        abort_checked_field(SymbolicaParametricSparseError::UnexpectedFieldOperation { operation })
     }
 }
 
@@ -1000,7 +982,7 @@ pub(crate) fn forward_reduce_last_row(
             physical_columns,
             row_ordinal,
             row,
-            limits.coefficient_work.arithmetic.exact_algebra,
+            limits.exact_algebra,
         )?;
     }
     validate_row(
@@ -1008,11 +990,14 @@ pub(crate) fn forward_reduce_last_row(
         physical_columns,
         prior_rows.len(),
         candidate,
-        limits.coefficient_work.arithmetic.exact_algebra,
+        limits.exact_algebra,
     )?;
 
-    let field = CheckedParametricField::new(Arc::new(context.clone()));
-    let _field_stage = field.begin_stage(limits.coefficient_work);
+    let field = CheckedParametricField::new(
+        Arc::new(context.clone()),
+        limits.exact_algebra,
+        limits.max_field_operations,
+    );
     let mut reducer = call_native("reducer construction", || {
         SparseRowReducer::new(native_columns_u32, field.clone(), LuLMode::Full)
     })?;
@@ -1290,7 +1275,7 @@ fn copy_input_row(
         }
     })?;
     for entry in &row.entries {
-        values.push(field.copy_authenticated(entry.coefficient));
+        values.push(field.copy_authenticated(entry.coefficient)?);
         columns.push(
             u32::try_from(entry.column)
                 .map_err(|_| SymbolicaParametricSparseError::DimensionOverflow)?,
@@ -1370,7 +1355,7 @@ fn copy_native_row(
         .iter()
         .zip(&matrix.values()[start..end])
     {
-        let copy = field.copy_authenticated(&value.0);
+        let copy = field.copy_authenticated(&value.0)?;
         let coefficient = Arc::try_unwrap(copy.0).map_err(|_| {
             SymbolicaParametricSparseError::NativeTranscriptMismatch {
                 operation: "returned coefficient ownership",
@@ -1434,7 +1419,7 @@ fn sparse_stats(
         native_u_entries: reducer.u().nvalues(),
         native_l_entries: reducer.l().nvalues(),
         returned_trace_entries,
-        coefficient_work: field.stats(),
+        field_operations: field.field_operations(),
     }
 }
 
@@ -1445,14 +1430,7 @@ fn call_native<T>(
     match catch_unwind(AssertUnwindSafe(call)) {
         Ok(value) => Ok(value),
         Err(payload) => match payload.downcast::<CheckedFieldAbort>() {
-            Ok(abort) => match abort.0 {
-                CheckedFieldFailure::Work(error) => {
-                    Err(SymbolicaParametricSparseError::CoefficientWork(error))
-                }
-                CheckedFieldFailure::UnexpectedOperation(operation) => {
-                    Err(SymbolicaParametricSparseError::UnexpectedFieldOperation { operation })
-                }
-            },
+            Ok(abort) => Err(abort.0),
             Err(_) => Err(SymbolicaParametricSparseError::NativePanic { operation }),
         },
     }
@@ -1520,222 +1498,55 @@ mod tests {
         assert_send_sync::<SparseRowReducer<CheckedParametricField>>();
 
         let context = Arc::new(context("symbolica-sparse-owned-field-context"));
-        let field = CheckedParametricField::new(context.clone());
+        let retained_coefficient = context.index(0).unwrap();
+        let field =
+            CheckedParametricField::new(context.clone(), ExactAlgebraLimits::default(), usize::MAX);
         let clone = field.clone();
-        let mut reducer = SparseRowReducer::new(2, field.clone(), LuLMode::Full);
-        let mut reducer_clone = reducer.clone();
         assert!(Arc::ptr_eq(&field.context, &context));
         assert!(Arc::ptr_eq(&field.context, &clone.context));
         assert!(Arc::ptr_eq(&field.controller, &clone.controller));
-        assert!(Arc::ptr_eq(
-            &reducer.u().field().controller,
-            &reducer_clone.u().field().controller,
-        ));
-        let retained_coefficient = context.index(0).unwrap();
         drop(context);
 
-        let stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-        assert_eq!(field.stats(), ParametricCoefficientWorkStats::default());
-        let input = clone.copy_authenticated(&retained_coefficient);
-        assert_eq!(reducer_clone.add_row(&[input], &[0]), Some(0));
-        assert_eq!(field.stats(), clone.stats());
-        assert!(field.stats().algebra_work() > 0);
-        let cloned_reducer_stats = field.stats();
-        assert_eq!(reducer.u().nrows(), 0);
-        assert_eq!(reducer_clone.u().nrows(), 1);
-        drop(stage);
-        assert!(
-            lock_recovering_poison(&field.controller.active_ledger).is_none(),
-            "dropping a successful stage must clear its shared ledger"
+        let input = clone.copy_authenticated(&retained_coefficient).unwrap();
+        drop(clone.neg_checked(&input));
+        assert_eq!(field.field_operations(), 1);
+        assert_eq!(clone.field_operations(), 1);
+    }
+
+    #[test]
+    fn checked_parametric_field_reports_unexpected_symbolica_operations() {
+        let field = CheckedParametricField::new(
+            Arc::new(context("symbolica-sparse-field-api-drift")),
+            ExactAlgebraLimits::default(),
+            usize::MAX,
         );
-
-        let retry_stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-        assert_eq!(field.stats(), ParametricCoefficientWorkStats::default());
-        let input = reducer
-            .u()
-            .field()
-            .copy_authenticated(&retained_coefficient);
-        assert_eq!(reducer.add_row(&[input], &[0]), Some(0));
-        assert_eq!(field.stats(), cloned_reducer_stats);
-        drop(retry_stage);
-        assert_eq!(reducer.u(), reducer_clone.u());
-    }
-
-    #[test]
-    fn checked_parametric_field_rejects_callbacks_without_an_active_stage() {
-        let context = Arc::new(context("symbolica-sparse-field-inactive-callback"));
-        let one = context.one();
-        let field = CheckedParametricField::new(context);
-
         assert!(matches!(
-            call_native("inactive field callback test", || {
-                drop(field.copy_authenticated(&one));
-            }),
-            Err(SymbolicaParametricSparseError::UnexpectedFieldOperation {
-                operation: "coefficient operation outside an active stage",
-            })
+            call_native("unexpected field callback test", || field.nth(2.into())),
+            Err(SymbolicaParametricSparseError::UnexpectedFieldOperation { operation: "nth" })
         ));
-        assert!(lock_recovering_poison(&field.controller.active_ledger).is_none());
-
-        let stats = call_native("field callback after inactive rejection", || {
-            let _stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-            drop(field.copy_authenticated(&one));
-            field.stats()
-        })
-        .unwrap();
-        assert!(stats.algebra_work() > 0);
-        assert!(lock_recovering_poison(&field.controller.active_ledger).is_none());
     }
 
     #[test]
-    fn checked_parametric_field_unknown_panic_cleans_and_recovers_its_stage() {
-        let context = Arc::new(context("symbolica-sparse-field-native-panic"));
-        let one = context.one();
-        let field = CheckedParametricField::new(context);
-
+    fn unknown_native_panic_does_not_affect_a_fresh_reduction() {
         assert!(matches!(
-            call_native("unknown panic cleanup test", || {
-                let _stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-                drop(field.copy_authenticated(&one));
-                let _: Result<(), ParametricCoefficientWorkError> =
-                    field.with_active_ledger(|_| panic!("synthetic unknown native panic"));
-            }),
+            call_native("unknown panic test", || panic!(
+                "synthetic unknown native panic"
+            )),
             Err(SymbolicaParametricSparseError::NativePanic {
-                operation: "unknown panic cleanup test",
+                operation: "unknown panic test",
             })
         ));
-        assert!(lock_recovering_poison(&field.controller.active_ledger).is_none());
-
-        let recovered = call_native("field retry after unknown panic", || {
-            let _stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-            assert_eq!(field.stats(), ParametricCoefficientWorkStats::default());
-            drop(field.copy_authenticated(&one));
-            field.stats()
-        })
-        .unwrap();
-        assert!(recovered.algebra_work() > 0);
-        assert!(lock_recovering_poison(&field.controller.active_ledger).is_none());
-    }
-
-    #[test]
-    fn checked_parametric_field_sibling_clones_serialize_fresh_stage_ledgers() {
-        use std::sync::TryLockError;
-        use std::sync::mpsc::sync_channel;
-        use std::thread;
-        use std::time::Duration;
-
-        let context = Arc::new(context("symbolica-sparse-field-sibling-stages"));
-        let one = context.one();
-        let field = CheckedParametricField::new(context);
-        let first_field = field.clone();
-        let first_one = one.clone();
-        let (first_entered_sender, first_entered_receiver) = sync_channel(0);
-        let (release_first_sender, release_first_receiver) = sync_channel(0);
-        let first = thread::spawn(move || {
-            let stage = first_field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-            drop(first_field.copy_authenticated(&first_one));
-            first_entered_sender.send(first_field.stats()).unwrap();
-            release_first_receiver.recv().unwrap();
-            drop(stage);
-        });
-        let first_stats = first_entered_receiver.recv().unwrap();
-
-        let second_field = field.clone();
-        let (second_attempt_sender, second_attempt_receiver) = sync_channel(0);
-        let (second_entered_sender, second_entered_receiver) = sync_channel(0);
-        let second = thread::spawn(move || {
-            second_attempt_sender.send(()).unwrap();
-            let stage = second_field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-            assert_eq!(
-                second_field.stats(),
-                ParametricCoefficientWorkStats::default(),
-                "a sibling stage must not inherit the prior clone's work"
-            );
-            drop(second_field.copy_authenticated(&one));
-            second_entered_sender.send(second_field.stats()).unwrap();
-            drop(stage);
-        });
-        second_attempt_receiver.recv().unwrap();
-        assert!(matches!(
-            field.controller.stage_gate.try_lock(),
-            Err(TryLockError::WouldBlock)
-        ));
-
-        release_first_sender.send(()).unwrap();
-        let second_stats = second_entered_receiver
-            .recv_timeout(Duration::from_secs(10))
-            .unwrap();
-        first.join().unwrap();
-        second.join().unwrap();
-        assert_eq!(second_stats, first_stats);
-        assert!(lock_recovering_poison(&field.controller.active_ledger).is_none());
-    }
-
-    #[test]
-    fn checked_parametric_field_controlled_abort_cleans_and_resets_for_retry() {
-        let context = Arc::new(context("symbolica-sparse-field-stage-retry"));
-        let one = context.one();
-
-        let pilot = CheckedParametricField::new(context.clone());
-        let pilot_stage = pilot.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-        drop(pilot.copy_authenticated(&one));
-        let one_copy_stats = pilot.stats();
-        drop(pilot_stage);
-        assert!(one_copy_stats.algebra_work() > 0);
-
-        let mut limits = ParametricCoefficientWorkLedgerLimits::default();
-        limits.max_algebra_work = one_copy_stats.algebra_work();
-        limits.max_exponent_entry_work = one_copy_stats.exponent_entry_work();
-        limits.max_integer_bit_work = one_copy_stats.integer_bit_work();
-        let field = CheckedParametricField::new(context);
-
-        let fail_after_one_copy = || {
-            call_native("controlled field-limit test", || {
-                let _stage = field.begin_stage(limits);
-                drop(field.copy_authenticated(&one));
-                drop(field.copy_authenticated(&one));
-            })
-        };
-        let first_failure = fail_after_one_copy();
-        assert!(matches!(
-            &first_failure,
-            Err(SymbolicaParametricSparseError::CoefficientWork(_))
-        ));
+        let context = context("symbolica-sparse-field-native-panic-retry");
+        let candidate = row(vec![entry(0, context.one())]);
         assert!(
-            lock_recovering_poison(&field.controller.active_ledger).is_none(),
-            "a typed field abort must not retain partial work"
-        );
-
-        let retry_stats = call_native("field retry after controlled abort", || {
-            let _stage = field.begin_stage(limits);
-            assert_eq!(field.stats(), ParametricCoefficientWorkStats::default());
-            drop(field.copy_authenticated(&one));
-            field.stats()
-        })
-        .unwrap();
-        assert_eq!(retry_stats, one_copy_stats);
-        assert!(
-            lock_recovering_poison(&field.controller.active_ledger).is_none(),
-            "a successful retry must also clear its ledger"
-        );
-
-        assert_eq!(fail_after_one_copy(), first_failure);
-        assert!(
-            lock_recovering_poison(&field.controller.active_ledger).is_none(),
-            "repeated aborts must leave the controller reusable"
-        );
-
-        let relaxed_stats = call_native("relaxed field retry", || {
-            let _stage = field.begin_stage(ParametricCoefficientWorkLedgerLimits::default());
-            drop(field.copy_authenticated(&one));
-            drop(field.copy_authenticated(&one));
-            field.stats()
-        })
-        .unwrap();
-        assert!(relaxed_stats.algebra_work() > one_copy_stats.algebra_work());
-        assert!(
-            lock_recovering_poison(&field.controller.active_ledger).is_none(),
-            "per-stage relaxed limits must not change cleanup semantics"
+            forward_owned(
+                &context,
+                1,
+                &[],
+                &candidate,
+                SymbolicaParametricSparseLimits::default(),
+            )
+            .is_ok()
         );
     }
 
@@ -1808,7 +1619,7 @@ mod tests {
             stats.returned_trace_entries(),
             reductions.len() + normalized_row.entries().len() + 1
         );
-        assert!(stats.coefficient_work().algebra_work() > 0);
+        assert!(stats.field_operations() > 0);
     }
 
     #[test]
@@ -2200,7 +2011,7 @@ mod tests {
     }
 
     #[test]
-    fn symbolica_sparse_exact_bridge_exact_work_limit_and_retry_are_deterministic() {
+    fn symbolica_sparse_exact_bridge_field_operation_limit_and_retry_are_deterministic() {
         let context = context("symbolica-sparse-work-limit");
         let n = context.index(0).unwrap();
         let prior = vec![row(vec![entry(0, context.one()), entry(2, context.one())])];
@@ -2217,65 +2028,33 @@ mod tests {
             SymbolicaParametricSparseLimits::default(),
         )
         .unwrap();
-        let exact_work = pilot.stats().coefficient_work();
-        assert!(exact_work.algebra_work() > 0);
-        assert!(exact_work.exponent_entry_work() > 0);
-        assert!(exact_work.integer_bit_work() > 0);
+        let exact_operations = pilot.stats().field_operations();
+        assert!(exact_operations > 0);
 
         let mut exact = SymbolicaParametricSparseLimits::default();
-        exact.coefficient_work.max_algebra_work = exact_work.algebra_work();
-        exact.coefficient_work.max_exponent_entry_work = exact_work.exponent_entry_work();
-        exact.coefficient_work.max_integer_bit_work = exact_work.integer_bit_work();
+        exact.max_field_operations = exact_operations;
         let exact_outcome = forward_owned(&context, 3, &prior, &candidate, exact).unwrap();
         assert_eq!(exact_outcome, pilot);
 
         let mut one_below = exact;
-        one_below.coefficient_work.max_algebra_work = exact_work.algebra_work() - 1;
-        assert!(matches!(
+        one_below.max_field_operations = exact_operations - 1;
+        let expected_failure = SymbolicaParametricSparseError::ResourceLimit {
+            resource: "Symbolica parametric sparse field operations",
+            requested: exact_operations,
+            limit: exact_operations - 1,
+        };
+        assert_eq!(
             forward_owned(&context, 3, &prior, &candidate, one_below),
-            Err(SymbolicaParametricSparseError::CoefficientWork(
-                ParametricCoefficientWorkError::Elimination(
-                    crate::parametric_elimination::ParametricEliminationError::ResourceLimit {
-                        resource: "construction coefficient algebra work",
-                        requested,
-                        limit,
-                    }
-                )
-            )) if requested == exact_work.algebra_work() && limit == exact_work.algebra_work() - 1
-        ));
-
-        let mut exponent_one_below = exact;
-        exponent_one_below.coefficient_work.max_exponent_entry_work =
-            exact_work.exponent_entry_work() - 1;
-        assert!(matches!(
-            forward_owned(&context, 3, &prior, &candidate, exponent_one_below),
-            Err(SymbolicaParametricSparseError::CoefficientWork(
-                ParametricCoefficientWorkError::Elimination(
-                    crate::parametric_elimination::ParametricEliminationError::ResourceLimit {
-                        resource: "construction coefficient exponent-entry work",
-                        requested,
-                        limit,
-                    }
-                )
-            )) if requested == exact_work.exponent_entry_work()
-                && limit == exact_work.exponent_entry_work() - 1
-        ));
-
-        let mut integer_one_below = exact;
-        integer_one_below.coefficient_work.max_integer_bit_work = exact_work.integer_bit_work() - 1;
-        assert!(matches!(
-            forward_owned(&context, 3, &prior, &candidate, integer_one_below),
-            Err(SymbolicaParametricSparseError::CoefficientWork(
-                ParametricCoefficientWorkError::Elimination(
-                    crate::parametric_elimination::ParametricEliminationError::ResourceLimit {
-                        resource: "construction coefficient integer-bit work",
-                        requested,
-                        limit,
-                    }
-                )
-            )) if requested == exact_work.integer_bit_work()
-                && limit == exact_work.integer_bit_work() - 1
-        ));
+            Err(expected_failure)
+        );
+        assert_eq!(
+            forward_owned(&context, 3, &prior, &candidate, one_below),
+            Err(SymbolicaParametricSparseError::ResourceLimit {
+                resource: "Symbolica parametric sparse field operations",
+                requested: exact_operations,
+                limit: exact_operations - 1,
+            })
+        );
 
         assert_eq!(
             forward_owned(&context, 3, &prior, &candidate, exact).unwrap(),

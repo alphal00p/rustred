@@ -23,7 +23,6 @@ pub mod generic_tensor_family;
 pub mod generic_tensor_projector;
 pub mod guards;
 pub mod parametric_coefficient;
-pub mod parametric_elimination;
 pub mod parametric_ibp;
 pub mod parametric_relation;
 pub mod runtime;
@@ -91,12 +90,6 @@ pub use parametric_coefficient::{
     ResidualUnitAffineCompositionError, ResidualUnitAffineCompositionPlanLimits,
     ResidualUnitAffinePolynomialCompositionLimits, ResidualUnitAffinePolynomialCompositionStats,
     SpecializedNonZeroCondition,
-};
-pub use parametric_elimination::{
-    PARAMETRIC_ELIMINATION_V1_SCHEMA, PARAMETRIC_SOURCE_MANIFEST_V1_SCHEMA, ParametricElimination,
-    ParametricEliminationError, ParametricEliminationLimits, ParametricEliminationOrdering,
-    ParametricEliminationReduction, ParametricEliminationStats, ParametricEliminationTrace,
-    ParametricPivotEquation,
 };
 pub use parametric_ibp::{
     ParametricIbpConfig, ParametricIbpError, ParametricIbpGenerator, ParametricIbpRelations,
