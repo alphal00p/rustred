@@ -1,7 +1,7 @@
 use rustred::{
     CoefficientContext, Denominator, ExactRational, FamilyError, IndexedVector, Integral,
     LoopVector, LorentzIndex, Metric, MetricPairing, ScalarProduct, ScalarProductMonomial,
-    TensorFamilyReducer, TensorMonomial, VacuumFamily, VacuumTensorProjector,
+    SparseReducer, TensorFamilyReducer, TensorMonomial, VacuumFamily, VacuumTensorProjector,
 };
 
 fn equal_mass_two_loop_vacuum() -> Result<VacuumFamily, FamilyError> {
@@ -56,6 +56,21 @@ fn tensor_numerators_lower_to_family_integrals() {
         Some(&coefficients.parse("-m2/d").unwrap())
     );
 
+    // The generic composition seam applies the table's family
+    // canonicalization independently to every free-index structure.
+    let empty_table = SparseReducer::new(family.clone()).reduce(&[]).unwrap();
+    let table_reduced = lowered.reduce_with_table(&empty_table).unwrap();
+    let scalar = table_reduced.coefficient(&metric).unwrap();
+    assert_eq!(
+        scalar.coefficient(&Integral::from([1, 1, 0])),
+        Some(&coefficients.parse("1/d").unwrap())
+    );
+    assert_eq!(scalar.coefficient(&Integral::from([0, 1, 1])), None);
+    assert_eq!(
+        scalar.coefficient(&base),
+        Some(&coefficients.parse("-m2/d").unwrap())
+    );
+
     // k1.k2 = (D3-D1-D2+m2)/2, checked before any symmetry is applied.
     let projected = projector
         .reduce(&TensorMonomial::new([vector(0, 20), vector(1, 21)]))
@@ -77,8 +92,8 @@ fn tensor_numerators_lower_to_family_integrals() {
 
     // Generic generated-provider composition, total replay, and the two-loop
     // master-basis assertions live in `vakint_two_loop_tensor_ibp_oracle.rs`.
-    // The old authored boundary helper is intentionally unavailable on the
-    // default production surface.
+    // Topology-specific authored boundary composition is intentionally absent
+    // from the core tensor-family surface.
 
     // Existing scalar-product numerator powers are expanded as a polynomial,
     // not dropped by the rank-zero projector.

@@ -310,8 +310,9 @@ fn certified_three_loop_dot_and_numerator_box() {
 
     // Native tensor projection and denominator lowering are checked here. The
     // generic generated-provider composition and total replay path is covered
-    // in `certified_three_loop_vakint_oracle.rs`; the authored pipeline bridge
-    // is intentionally absent from the default production surface.
+    // in `certified_three_loop_vakint_oracle.rs`; topology-specific authored
+    // pipeline composition is intentionally absent from the core tensor-family
+    // surface.
     let family = pipeline.family();
     let coefficients = family.coefficients();
     let mut projector =

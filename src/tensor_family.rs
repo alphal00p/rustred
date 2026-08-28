@@ -13,11 +13,6 @@ use crate::{
     Coefficient, FamilyError, Integral, LinearCombination, MetricPairing, ReductionError,
     ReductionTable, TensorReduction, VacuumFamily,
 };
-#[cfg(feature = "legacy-authored-oracles")]
-use crate::{
-    ThreeLoopPipelineError, ThreeLoopReductionPipeline, TwoLoopBoundaryError,
-    TwoLoopBoundaryReducer, TwoLoopPipelineError, TwoLoopReductionPipeline,
-};
 
 /// Default cap on distinct denominator monomials produced while expanding one
 /// projected tensor term.
@@ -54,59 +49,6 @@ impl TensorIntegralReduction {
         let mut structures = BTreeMap::new();
         for (metrics, combination) in &self.structures {
             let reduced = table.reduce_combination(combination)?;
-            if !reduced.is_zero() {
-                structures.insert(metrics.clone(), reduced);
-            }
-        }
-        Ok(Self { structures })
-    }
-
-    /// Close all two-loop factorized boundary sectors in every structure.
-    #[cfg(feature = "legacy-authored-oracles")]
-    pub fn reduce_two_loop_boundaries(
-        &self,
-        reducer: &TwoLoopBoundaryReducer<'_>,
-    ) -> Result<Self, TensorFamilyError> {
-        let mut structures = BTreeMap::new();
-        for (metrics, combination) in &self.structures {
-            let reduced = reducer.reduce_combination(combination)?;
-            if !reduced.is_zero() {
-                structures.insert(metrics.clone(), reduced);
-            }
-        }
-        Ok(Self { structures })
-    }
-
-    /// Reduce every scalar structure through the checked integrated two-loop
-    /// pipeline, yielding only its fixed sunset and product masters.
-    #[cfg(feature = "legacy-authored-oracles")]
-    pub fn reduce_with_two_loop_pipeline(
-        &self,
-        pipeline: &TwoLoopReductionPipeline,
-    ) -> Result<Self, TensorFamilyError> {
-        let mut structures = BTreeMap::new();
-        for (metrics, combination) in &self.structures {
-            let reduced = pipeline.reduce_combination(combination)?;
-            if !reduced.is_zero() {
-                structures.insert(metrics.clone(), reduced);
-            }
-        }
-        Ok(Self { structures })
-    }
-
-    /// Reduce every scalar structure through the checked integrated
-    /// three-loop pipeline.  This is the FORM-free composition point for
-    /// projected three-loop tensors: projection and denominator lowering stay
-    /// in Rust, and only the resulting signed-power scalar integrals enter the
-    /// certified finite-box reducer.
-    #[cfg(feature = "legacy-authored-oracles")]
-    pub fn reduce_with_three_loop_pipeline(
-        &self,
-        pipeline: &ThreeLoopReductionPipeline,
-    ) -> Result<Self, TensorFamilyError> {
-        let mut structures = BTreeMap::new();
-        for (metrics, combination) in &self.structures {
-            let reduced = pipeline.reduce_combination(combination)?;
             if !reduced.is_zero() {
                 structures.insert(metrics.clone(), reduced);
             }
@@ -303,24 +245,9 @@ fn check_term_limit(
 pub enum TensorFamilyError {
     Family(FamilyError),
     Reduction(ReductionError),
-    #[cfg(feature = "legacy-authored-oracles")]
-    TwoLoopBoundary(TwoLoopBoundaryError),
-    #[cfg(feature = "legacy-authored-oracles")]
-    TwoLoopPipeline(TwoLoopPipelineError),
-    #[cfg(feature = "legacy-authored-oracles")]
-    ThreeLoopPipeline(ThreeLoopPipelineError),
-    WrongIntegralArity {
-        expected: usize,
-        actual: usize,
-    },
-    ExpansionLimit {
-        limit: usize,
-        attempted: usize,
-    },
-    OperationLimit {
-        limit: u64,
-        attempted: u64,
-    },
+    WrongIntegralArity { expected: usize, actual: usize },
+    ExpansionLimit { limit: usize, attempted: usize },
+    OperationLimit { limit: u64, attempted: u64 },
     ExponentOverflow,
 }
 
@@ -329,12 +256,6 @@ impl fmt::Display for TensorFamilyError {
         match self {
             Self::Family(error) => error.fmt(formatter),
             Self::Reduction(error) => error.fmt(formatter),
-            #[cfg(feature = "legacy-authored-oracles")]
-            Self::TwoLoopBoundary(error) => error.fmt(formatter),
-            #[cfg(feature = "legacy-authored-oracles")]
-            Self::TwoLoopPipeline(error) => error.fmt(formatter),
-            #[cfg(feature = "legacy-authored-oracles")]
-            Self::ThreeLoopPipeline(error) => error.fmt(formatter),
             Self::WrongIntegralArity { expected, actual } => write!(
                 formatter,
                 "tensor base integral has {actual} powers; expected {expected}"
@@ -365,26 +286,5 @@ impl From<FamilyError> for TensorFamilyError {
 impl From<ReductionError> for TensorFamilyError {
     fn from(value: ReductionError) -> Self {
         Self::Reduction(value)
-    }
-}
-
-#[cfg(feature = "legacy-authored-oracles")]
-impl From<TwoLoopBoundaryError> for TensorFamilyError {
-    fn from(value: TwoLoopBoundaryError) -> Self {
-        Self::TwoLoopBoundary(value)
-    }
-}
-
-#[cfg(feature = "legacy-authored-oracles")]
-impl From<TwoLoopPipelineError> for TensorFamilyError {
-    fn from(value: TwoLoopPipelineError) -> Self {
-        Self::TwoLoopPipeline(value)
-    }
-}
-
-#[cfg(feature = "legacy-authored-oracles")]
-impl From<ThreeLoopPipelineError> for TensorFamilyError {
-    fn from(value: ThreeLoopPipelineError) -> Self {
-        Self::ThreeLoopPipeline(value)
     }
 }
