@@ -15,7 +15,7 @@ use crate::algebra::{Coefficient, CoefficientPolynomial};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedCoefficient {
     pub(super) raw: Coefficient,
-    pub(super) context: Arc<str>,
+    pub(super) context: Arc<String>,
 }
 
 impl IndexedCoefficient {
@@ -36,7 +36,7 @@ impl IndexedCoefficient {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedPolynomial {
     pub(super) raw: CoefficientPolynomial,
-    pub(super) context: Arc<str>,
+    pub(super) context: Arc<String>,
 }
 
 impl IndexedPolynomial {
@@ -52,18 +52,7 @@ impl IndexedPolynomial {
         self.raw.is_zero()
     }
 
-    pub fn is_one(&self) -> bool {
-        self.raw.is_one()
-    }
-
     pub fn is_nonzero_constant(&self) -> bool {
         self.raw.is_constant() && !self.raw.is_zero()
-    }
-
-    /// Number of sparse monomials retained by the authenticated Symbolica
-    /// polynomial.  Proof-bearing layers use this to preflight the memory
-    /// cost of duplicating a predicate across complementary case branches.
-    pub fn term_count(&self) -> usize {
-        self.raw.nterms()
     }
 }

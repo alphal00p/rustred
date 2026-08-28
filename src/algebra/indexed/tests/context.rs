@@ -12,6 +12,36 @@ fn base_field_may_be_q_and_indices_remain_distinct() {
 }
 
 #[test]
+fn context_construction_is_fallible_and_preserves_semantic_error_ordering() {
+    let base = CoefficientContext::new(["x"]);
+    assert!(matches!(
+        IndexedCoefficientContext::try_new(&base, "", 0),
+        Err(IndexedAlgebraError::EmptyIndexSpace)
+    ));
+    assert!(matches!(
+        IndexedCoefficientContext::try_new(&base, "", 1),
+        Err(IndexedAlgebraError::InvalidScope)
+    ));
+    IndexedCoefficientContext::try_new(&base, "exact-minimum", 1).unwrap();
+
+    assert!(matches!(
+        IndexedCoefficientContext::try_new(&base, "count-overflow", usize::MAX),
+        Err(IndexedAlgebraError::ResourceCountOverflow {
+            resource: "indexed coefficient variables",
+        })
+    ));
+
+    let rational = CoefficientContext::new(Vec::<String>::new());
+    assert!(matches!(
+        IndexedCoefficientContext::try_new(&rational, "allocation-failure", usize::MAX),
+        Err(IndexedAlgebraError::AllocationFailure {
+            resource: "indexed coefficient index variables",
+            requested: usize::MAX,
+        })
+    ));
+}
+
+#[test]
 fn rejects_foreign_maps_before_symbolica_can_unify_them() {
     let base = CoefficientContext::new(["d"]);
     let foreign = CoefficientContext::new(["x"]);

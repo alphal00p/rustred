@@ -13,14 +13,20 @@ use crate::algebra::{
 };
 
 use super::error::IndexedAlgebraError;
-use super::scope::{base_context_fingerprint, encode_symbol_component};
+use super::scope::{
+    base_context_fingerprint, encode_symbol_component, indexed_context_fingerprint,
+    preflight_qualified_index_symbols, qualified_index_symbol,
+};
 use super::value::{IndexedCoefficient, IndexedPolynomial};
 
 /// One exact pair of authenticated fields `K` and `K(n)`.
 #[derive(Clone, Debug)]
 pub struct IndexedCoefficientContext {
     pub(super) base: CoefficientContext,
-    pub(super) fingerprint: Arc<str>,
+    // Moving the fallibly constructed String into Arc only allocates the
+    // fixed-size control block; unlike String -> Arc<str>, it does not make
+    // another caller-sized allocation and copy.
+    pub(super) fingerprint: Arc<String>,
     pub(super) variables: Arc<Vec<PolyVariable>>,
     pub(super) index_variables: Arc<Vec<PolyVariable>>,
     pub(super) template: Coefficient,
@@ -41,18 +47,50 @@ impl IndexedCoefficientContext {
             return Err(IndexedAlgebraError::EmptyIndexSpace);
         }
         if scope.is_empty() {
-            return Err(IndexedAlgebraError::InvalidScope(scope.to_owned()));
+            return Err(IndexedAlgebraError::InvalidScope);
         }
 
-        let encoded_scope = encode_symbol_component(scope.as_bytes());
-        let mut index_variables = Vec::with_capacity(index_count);
+        let variable_count = base.variables().len().checked_add(index_count).ok_or(
+            IndexedAlgebraError::ResourceCountOverflow {
+                resource: "indexed coefficient variables",
+            },
+        )?;
+        let encoded_scope = encode_symbol_component(scope.as_bytes())?;
+        let mut index_variables = Vec::new();
+        index_variables
+            .try_reserve_exact(index_count)
+            .map_err(|_| IndexedAlgebraError::AllocationFailure {
+                resource: "indexed coefficient index variables",
+                requested: index_count,
+            })?;
+        let mut variables = Vec::new();
+        variables.try_reserve_exact(variable_count).map_err(|_| {
+            IndexedAlgebraError::AllocationFailure {
+                resource: "indexed coefficient variables",
+                requested: variable_count,
+            }
+        })?;
+        preflight_qualified_index_symbols(encoded_scope.len(), index_count)?;
+        let base_fingerprint = base_context_fingerprint(base)?;
+        let fingerprint = Arc::new(indexed_context_fingerprint(
+            &base_fingerprint,
+            scope,
+            index_count,
+        )?);
+
+        // RustRed has overflow-checked the complete caller-derived name
+        // workload and fallibly reserved every Rust-owned vector/string used
+        // here. Symbolica's public API does not expose a capacity preflight
+        // for NamespacedSymbol parsing or its global symbol interner; retain
+        // its Option/Result errors, but do not claim that an unrelated probe
+        // or catch_unwind can make those internal allocations fallible.
         for position in 0..index_count {
-            let qualified = format!("rustred::indexed_coefficient_s{encoded_scope}::n{position}");
+            let qualified = qualified_index_symbol(&encoded_scope, position)?;
             let namespaced = NamespacedSymbol::try_parse(&qualified)
-                .ok_or_else(|| IndexedAlgebraError::InvalidScope(scope.to_owned()))?;
+                .ok_or(IndexedAlgebraError::IndexSymbolRegistrationFailure { position })?;
             let symbol = SymbolBuilder::new(namespaced)
                 .build()
-                .map_err(|error| IndexedAlgebraError::Symbolica(error.to_string()))?;
+                .map_err(|_| IndexedAlgebraError::IndexSymbolRegistrationFailure { position })?;
             let variable = PolyVariable::Symbol(symbol);
             if base.variables().contains(&variable) {
                 return Err(IndexedAlgebraError::IndexSymbolCollision { position });
@@ -60,19 +98,14 @@ impl IndexedCoefficientContext {
             index_variables.push(variable);
         }
 
-        let mut variables = Vec::with_capacity(base.variables().len() + index_count);
         variables.extend(base.variables().iter().cloned());
         variables.extend(index_variables.iter().cloned());
         let variables = Arc::new(variables);
+        // RationalPolynomial::new is likewise infallible in Symbolica's
+        // public API and may initialize internal template state. All sizes
+        // RustRed can truthfully preflight (the variable count and retained
+        // Rust-owned containers) have already been checked and reserved.
         let template = RationalPolynomial::new(&Z, variables.clone());
-        let base_fingerprint = base_context_fingerprint(base);
-        let fingerprint: Arc<str> = format!(
-            "rustred-indexed-coefficient-context-v1|base={}|scope={}:{}|indices={index_count}",
-            base_fingerprint,
-            scope.len(),
-            scope
-        )
-        .into();
 
         Ok(Self {
             base: base.clone(),
@@ -88,7 +121,7 @@ impl IndexedCoefficientContext {
     }
 
     pub fn fingerprint(&self) -> &str {
-        &self.fingerprint
+        self.fingerprint.as_str()
     }
 
     pub fn index_count(&self) -> usize {
@@ -96,7 +129,7 @@ impl IndexedCoefficientContext {
     }
 
     pub fn contains(&self, value: &IndexedCoefficient) -> bool {
-        value.context.as_ref() == self.fingerprint.as_ref()
+        value.context.as_str() == self.fingerprint.as_str()
             && validate_coefficient_on_map(
                 &value.raw,
                 &self.variables,
@@ -124,7 +157,7 @@ impl IndexedCoefficientContext {
         &self,
         value: &IndexedPolynomial,
     ) -> Result<(), IndexedAlgebraError> {
-        if value.context.as_ref() == self.fingerprint.as_ref() {
+        if value.context.as_str() == self.fingerprint.as_str() {
             Ok(())
         } else {
             Err(IndexedAlgebraError::WrongContext)
@@ -211,13 +244,6 @@ impl IndexedCoefficientContext {
         })
     }
 
-    pub fn denominator_condition(
-        &self,
-        value: &IndexedCoefficient,
-    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
-        self.denominator_condition_with_limits(value, ExactAlgebraLimits::default())
-    }
-
     pub fn denominator_condition_with_limits(
         &self,
         value: &IndexedCoefficient,
@@ -290,13 +316,6 @@ impl IndexedCoefficientContext {
         self.wrap_checked_with_limits(raw, limits)
     }
 
-    pub fn neg(
-        &self,
-        value: &IndexedCoefficient,
-    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
-        self.neg_with_limits(value, ExactAlgebraLimits::default())
-    }
-
     pub fn neg_with_limits(
         &self,
         value: &IndexedCoefficient,
@@ -312,7 +331,7 @@ impl IndexedCoefficientContext {
         value: &IndexedCoefficient,
         limits: ExactAlgebraLimits,
     ) -> Result<(), IndexedAlgebraError> {
-        if value.context.as_ref() != self.fingerprint.as_ref() {
+        if value.context.as_str() != self.fingerprint.as_str() {
             return Err(IndexedAlgebraError::WrongContext);
         }
         validate_coefficient_on_map(&value.raw, &self.variables, limits)?;

@@ -1,6 +1,6 @@
-use crate::algebra::CoefficientContext;
+use crate::algebra::{CoefficientContext, ExactAlgebraLimits};
 
-use super::super::{IndexedAlgebraLimits, IndexedCoefficientContext};
+use super::super::{IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficientContext};
 
 #[test]
 fn lift_translate_and_specialize_preserve_authenticated_maps() {
@@ -21,4 +21,87 @@ fn lift_translate_and_specialize_preserve_authenticated_maps() {
     let expected = &base.integer(7) * &family_value;
     assert_eq!(specialized, expected);
     assert_eq!(denominator_nonzero.unwrap(), m2.numerator);
+}
+
+#[test]
+fn translation_limits_accept_exact_boundaries_and_reject_one_below() {
+    let base = CoefficientContext::new(Vec::<String>::new());
+    let context = IndexedCoefficientContext::try_new(&base, "translation-limits", 1).unwrap();
+    let n = context.index(0).unwrap();
+    let n_squared = context.mul(&n, &n).unwrap();
+    let exact = IndexedAlgebraLimits {
+        exact_algebra: ExactAlgebraLimits {
+            max_polynomial_terms: 3,
+            ..ExactAlgebraLimits::default()
+        },
+        max_specialization_power_operations: 1,
+        max_specialization_integer_bits: 9,
+    };
+
+    context.translate(&n_squared, &[2], exact).unwrap();
+
+    let mut one_below = exact;
+    one_below.exact_algebra.max_polynomial_terms = 2;
+    assert!(matches!(
+        context.translate(&n_squared, &[2], one_below),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "parametric translation output terms",
+            requested: 3,
+            limit: 2,
+        })
+    ));
+
+    let mut one_below = exact;
+    one_below.max_specialization_power_operations = 0;
+    assert!(matches!(
+        context.translate(&n_squared, &[2], one_below),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "parametric translation power operations",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+
+    let mut one_below = exact;
+    one_below.max_specialization_integer_bits = 8;
+    assert!(matches!(
+        context.translate(&n_squared, &[2], one_below),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "parametric translation integer bits",
+            requested: 9,
+            limit: 8,
+        })
+    ));
+}
+
+#[test]
+fn translation_bounds_i64_min_without_signed_overflow() {
+    let base = CoefficientContext::new(Vec::<String>::new());
+    let context = IndexedCoefficientContext::try_new(&base, "i64-min-translation", 1).unwrap();
+    let index = context.index(0).unwrap();
+    let exact = IndexedAlgebraLimits {
+        exact_algebra: ExactAlgebraLimits {
+            max_polynomial_terms: 2,
+            ..ExactAlgebraLimits::default()
+        },
+        max_specialization_power_operations: 1,
+        max_specialization_integer_bits: 67,
+    };
+    let mut one_below = exact;
+    one_below.max_specialization_integer_bits -= 1;
+    assert!(matches!(
+        context.translate(&index, &[i64::MIN], one_below),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "parametric translation integer bits",
+            requested: 67,
+            limit: 66,
+        })
+    ));
+
+    let translated = context.translate(&index, &[i64::MIN], exact).unwrap();
+    let (value, denominator_nonzero) = context
+        .specialize(&translated, &[0], IndexedAlgebraLimits::default())
+        .unwrap();
+    assert!(denominator_nonzero.is_none());
+    assert_eq!(value, base.integer(i64::MIN));
 }

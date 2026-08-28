@@ -1,7 +1,7 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `fb355e4`, immediately before redundant indexed-algebra
-wrapper removal.
+**Baseline parent:** `f8b22e0`, immediately before indexed-algebra resource
+hardening.
 **Status:** R3 working authority, subordinate to `GOAL.md` and the clean-repository architecture plan.
 
 This ledger classifies every one of the 86 tracked Rust source/test paths
@@ -61,17 +61,17 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-python/src/lib.rs` | move | rustred-python | thin private `_rustred` adapter behind public `import rustred` |
 | `src/algebra/base.rs` | split | algebra | retain the checked Symbolica base-field/context boundary and the sole raw `CoefficientPolynomial` alias; the indexed and affine-input domains now reuse this owner |
 | `src/algebra/indexed/mod.rs` | move | algebra::indexed | narrow authenticated `K(n)` facade; the former flat parametric-coefficient module and compatibility names are deleted |
-| `src/algebra/indexed/context.rs` | split | algebra::indexed | retain authenticated base/index map construction and checked exact field arithmetic; redundant caller-free surfaces and the separately stored base fingerprint are deleted |
-| `src/algebra/indexed/error.rs` | move | algebra::indexed | one topology- and provenance-neutral indexed-algebra error taxonomy |
-| `src/algebra/indexed/limits.rs` | split | algebra::indexed | retain prospective native-operation envelopes and checked resource arithmetic while narrowing unnecessarily wide local counters |
-| `src/algebra/indexed/scope.rs` | split | algebra::indexed | private lossless Symbolica namespace and base-context identity construction, separated to keep value/context dependencies acyclic |
-| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`, returning the normalized value plus its mapped pre-normalization denominator directly; the one-field result ceremony and base-polynomial wrapper are deleted |
-| `src/algebra/indexed/translation.rs` | split | algebra::indexed | retain checked affine index translation until it is delegated to the public Symbolica polynomial substitution API |
-| `src/algebra/indexed/value.rs` | split | algebra::indexed | retain only authenticated indexed coefficient/polynomial values; the redundant authenticated base-polynomial wrapper is deleted because the consuming identity layer owns the validated condition |
+| `src/algebra/indexed/context.rs` | split | algebra::indexed | retain authenticated base/index map construction and checked exact field arithmetic; caller-sized Rust-owned names, fingerprints, counts, and vector allocations are preflighted before Symbolica registration, whose public parser/interner/template allocation boundary remains explicit; redundant default conveniences and separately stored base fingerprint are deleted |
+| `src/algebra/indexed/error.rs` | move | algebra::indexed | one topology- and provenance-neutral indexed-algebra error taxonomy, including distinct count-overflow, allocation-failure, and generated-symbol registration boundaries without caller-sized diagnostic copies |
+| `src/algebra/indexed/limits.rs` | split | algebra::indexed | retain prospective native-operation envelopes and checked resource arithmetic; integer-magnitude arithmetic uses sufficient `u64` rather than a fictitious `u128` exponent domain |
+| `src/algebra/indexed/scope.rs` | split | algebra::indexed | private lossless Symbolica namespace and context-identity construction, with exact checked byte censuses, fallible reservations, aggregate generated-name preflight, and allocation-free decimal emission separated to keep value/context dependencies acyclic |
+| `src/algebra/indexed/specialization.rs` | split | algebra::indexed | retain checked simultaneous projection from `K(n)` to `K`, returning the normalized value plus its mapped pre-normalization denominator directly; bit-growth arithmetic is checked `u64`, and the one-field result ceremony/base-polynomial wrapper are deleted |
+| `src/algebra/indexed/translation.rs` | split | algebra::indexed | retain checked affine index translation with `u64` bit-growth bounds until execution is delegated to the public Symbolica polynomial substitution API |
+| `src/algebra/indexed/value.rs` | split | algebra::indexed | retain only authenticated indexed coefficient/polynomial values with shared no-copy context identity and live queries; the redundant authenticated base-polynomial wrapper and caller-free convenience queries are deleted |
 | `src/algebra/indexed/tests/mod.rs` | split | algebra::indexed tests | private test composition only |
-| `src/algebra/indexed/tests/context.rs` | split | algebra::indexed tests | retain map identity, construction, and checked field-operation sentinels |
-| `src/algebra/indexed/tests/specialization.rs` | split | algebra::indexed tests | retain specialization, normalization, GMP, and resource-order sentinels through native substitution migration |
-| `src/algebra/indexed/tests/translation.rs` | split | algebra::indexed tests | retain translation composition, overflow, GMP, and resource-order sentinels through native substitution migration |
+| `src/algebra/indexed/tests/context.rs` | split | algebra::indexed tests | retain map identity, fallible construction/error-ordering, checked name/fingerprint lengths, and field-operation sentinels |
+| `src/algebra/indexed/tests/specialization.rs` | split | algebra::indexed tests | retain specialization, normalization, exact/one-below integer/operation bounds through `u16::MAX`, GMP, and resource-order sentinels through native substitution migration |
+| `src/algebra/indexed/tests/translation.rs` | split | algebra::indexed tests | retain translation composition, exact/one-below term/operation/integer bounds including `i64::MIN`, overflow, GMP, and resource-order sentinels through native substitution migration |
 | `src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations and their admitted metadata to core callers |
 | `src/algebra/matrix/admission.rs` | split | algebra::matrix | retain shapes, operation envelopes, payload census, and authenticated conversion; keep native scratch limitations explicit |
 | `src/algebra/matrix/error.rs` | move | algebra::matrix | private typed matrix/native failure vocabulary |

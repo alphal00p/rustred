@@ -34,12 +34,13 @@ pub(super) fn verify_polynomial_execution_envelope(
     integer_bit_bound: usize,
     operation: &'static str,
 ) -> Result<(), IndexedAlgebraError> {
+    let integer_bit_bound = u64::try_from(integer_bit_bound).unwrap_or(u64::MAX);
     if polynomial.nterms() > term_bound
         || polynomial.exponents.len() > exponent_entry_bound
         || polynomial
             .coefficients
             .iter()
-            .any(|coefficient| integer_magnitude_bits(coefficient) > integer_bit_bound as u128)
+            .any(|coefficient| integer_magnitude_bits(coefficient) > integer_bit_bound)
     {
         return Err(IndexedAlgebraError::Symbolica(format!(
             "{operation} escaped its allocation-free preflight envelope"
@@ -74,17 +75,17 @@ pub(super) fn ceil_log2(value: usize) -> usize {
     }
 }
 
-pub(super) fn integer_magnitude_bits(value: &Integer) -> u128 {
+pub(super) fn integer_magnitude_bits(value: &Integer) -> u64 {
     match value {
         Integer::Single(value) => {
             let magnitude = value.unsigned_abs();
-            u128::from(i64::BITS - magnitude.leading_zeros())
+            u64::from(i64::BITS - magnitude.leading_zeros())
         }
         Integer::Double(value) => {
             let magnitude = value.unsigned_abs();
-            u128::from(i128::BITS - magnitude.leading_zeros())
+            u64::from(i128::BITS - magnitude.leading_zeros())
         }
-        Integer::Large(value) => u128::from(value.significant_bits()),
+        Integer::Large(value) => u64::from(value.significant_bits()),
     }
 }
 
@@ -101,5 +102,20 @@ pub(super) fn check_limit(
         })
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::integer_magnitude_bits;
+    use symbolica::prelude::Integer;
+
+    #[test]
+    fn integer_magnitude_bits_handles_double_and_large_boundaries() {
+        assert_eq!(integer_magnitude_bits(&Integer::Double(i128::MIN)), 128);
+
+        let large = Integer::from(1) << 200_u32;
+        assert!(matches!(large, Integer::Large(_)));
+        assert_eq!(integer_magnitude_bits(&large), 201);
     }
 }

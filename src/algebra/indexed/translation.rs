@@ -149,7 +149,7 @@ impl IndexedCoefficientContext {
                 if *offset == 0 {
                     continue;
                 }
-                let exponent = u128::from(exponents[base_count + position]);
+                let exponent = u64::from(exponents[base_count + position]);
                 if exponent == 0 {
                     continue;
                 }
@@ -158,7 +158,7 @@ impl IndexedCoefficientContext {
                         resource: "parametric translation integer bits",
                     },
                 )?;
-                let offset_bits = u128::from(i64::BITS - offset.unsigned_abs().leading_zeros());
+                let offset_bits = u64::from(i64::BITS - offset.unsigned_abs().leading_zeros());
                 if offset_bits > 1 {
                     requested = requested
                         .checked_add(offset_bits.checked_mul(exponent).ok_or(

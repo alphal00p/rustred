@@ -350,8 +350,8 @@ fn specialization_integer_bit_bound(
         // other bases, e*bit_length(base) is a conservative bit bound for the
         // power and hence for its contribution to the product.
         if magnitude != 1 {
-            let value_bits = u128::from(u64::BITS - magnitude.leading_zeros());
-            let power_bits = value_bits.checked_mul(u128::from(exponent)).ok_or(
+            let value_bits = u64::from(u64::BITS - magnitude.leading_zeros());
+            let power_bits = value_bits.checked_mul(u64::from(exponent)).ok_or(
                 IndexedAlgebraError::ResourceCountOverflow {
                     resource: "coefficient specialization integer bits",
                 },

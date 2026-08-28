@@ -7,7 +7,10 @@ use crate::algebra::ExactAlgebraError;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IndexedAlgebraError {
     EmptyIndexSpace,
-    InvalidScope(String),
+    InvalidScope,
+    IndexSymbolRegistrationFailure {
+        position: usize,
+    },
     IndexSymbolCollision {
         position: usize,
     },
@@ -25,6 +28,10 @@ pub enum IndexedAlgebraError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
     ExactAlgebra(ExactAlgebraError),
     Symbolica(String),
 }
@@ -35,12 +42,11 @@ impl fmt::Display for IndexedAlgebraError {
             Self::EmptyIndexSpace => {
                 formatter.write_str("an indexed coefficient context needs at least one index")
             }
-            Self::InvalidScope(scope) => {
-                write!(
-                    formatter,
-                    "invalid indexed coefficient context scope {scope:?}"
-                )
-            }
+            Self::InvalidScope => formatter.write_str("invalid indexed coefficient context scope"),
+            Self::IndexSymbolRegistrationFailure { position } => write!(
+                formatter,
+                "Symbolica rejected generated indexed coefficient symbol {position}"
+            ),
             Self::IndexSymbolCollision { position } => write!(
                 formatter,
                 "generated indexed coefficient symbol {position} collides with a base variable"
@@ -66,6 +72,13 @@ impl fmt::Display for IndexedAlgebraError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} units for {resource}"
+            ),
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Symbolica(message) => formatter.write_str(message),
         }
