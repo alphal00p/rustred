@@ -21,6 +21,24 @@ pub enum Error {
     ComplexityOverflow {
         measure: &'static str,
     },
+    InvalidInteriorBounds {
+        position: usize,
+        lower: i64,
+        upper: i64,
+    },
+    InteriorOutsideSector {
+        position: usize,
+        active: bool,
+        lower: i64,
+        upper: i64,
+    },
+    EmptyShiftInterior {
+        position: usize,
+    },
+    ShiftNotCovered {
+        position: usize,
+        shift: i64,
+    },
     UnknownOrderingPolicy {
         id: String,
     },
@@ -49,8 +67,37 @@ impl fmt::Display for Error {
                 "could not reserve {requested} bounded entries for {resource}"
             ),
             Self::ComplexityOverflow { measure } => {
-                write!(formatter, "integral {measure} complexity overflowed u128")
+                write!(
+                    formatter,
+                    "integral {measure} complexity overflowed its exact accumulator"
+                )
             }
+            Self::InvalidInteriorBounds {
+                position,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "sector-interior coordinate {position} has empty bounds [{lower}, {upper}]"
+            ),
+            Self::InteriorOutsideSector {
+                position,
+                active,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "sector-interior coordinate {position} has bounds [{lower}, {upper}], which are not wholly {}",
+                if *active { "active" } else { "inactive" }
+            ),
+            Self::EmptyShiftInterior { position } => write!(
+                formatter,
+                "the requested shifts leave no representable sector interior at coordinate {position}"
+            ),
+            Self::ShiftNotCovered { position, shift } => write!(
+                formatter,
+                "sector-interior coordinate {position} does not cover shift {shift}"
+            ),
             Self::UnknownOrderingPolicy { id } => {
                 write!(formatter, "unknown integral-ordering policy {id:?}")
             }

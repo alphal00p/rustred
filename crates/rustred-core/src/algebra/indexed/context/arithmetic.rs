@@ -1,6 +1,6 @@
 use crate::algebra::coefficient::{
-    trusted_coefficient_add_on_map, trusted_coefficient_mul_on_map, trusted_coefficient_neg_on_map,
-    trusted_coefficient_sub_on_map,
+    trusted_coefficient_add_on_map, trusted_coefficient_div_on_map, trusted_coefficient_mul_on_map,
+    trusted_coefficient_neg_on_map, trusted_coefficient_sub_on_map,
 };
 use crate::algebra::{ExactAlgebraLimits, IndexedCoefficientContext};
 
@@ -113,6 +113,43 @@ impl IndexedCoefficientContext {
         let raw = trusted_coefficient_mul_on_map(
             &left.value.raw,
             &right.value.raw,
+            &self.variables,
+            limits,
+        )?;
+        self.record_authenticated_native_result();
+        Ok(self.wrap_sealed(raw))
+    }
+
+    pub fn div(
+        &self,
+        numerator: &IndexedCoefficient,
+        denominator: &IndexedCoefficient,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.div_with_limits(numerator, denominator, ExactAlgebraLimits::default())
+    }
+
+    pub fn div_with_limits(
+        &self,
+        numerator: &IndexedCoefficient,
+        denominator: &IndexedCoefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        let numerator = self.authenticate_coefficient_with_limits(numerator, limits)?;
+        let denominator = self.authenticate_coefficient_with_limits(denominator, limits)?;
+        self.div_bound_with_limits(numerator, denominator, limits)
+    }
+
+    pub(crate) fn div_bound_with_limits(
+        &self,
+        numerator: BoundIndexedCoefficient<'_, '_>,
+        denominator: BoundIndexedCoefficient<'_, '_>,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.validate_bound(numerator)?;
+        self.validate_bound(denominator)?;
+        let raw = trusted_coefficient_div_on_map(
+            &numerator.value.raw,
+            &denominator.value.raw,
             &self.variables,
             limits,
         )?;

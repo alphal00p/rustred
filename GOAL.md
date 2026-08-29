@@ -53,11 +53,12 @@ The mandatory clean reset is complete:
   parametric IBP and LI rows, verifies affine symmetry candidates, performs
   on-demand zero-sector analysis, authenticates physical/auxiliary family
   presentations, performs bounded scalar/odd/rank-two vacuum tensor projection
-  and affine scalar-product lowering, derives one guarded strictly descending
-  rule at a concrete anchor with Symbolica's sparse reducer and exact source
-  replay, and provides deterministic core-owned campaign primitives with
-  application-owned roots-only composition. It does **not** yet generalize
-  anchored rules, solve or close families, publish rule artifacts, apply IBPs,
+  and affine scalar-product lowering, derives both concrete-anchor rules and a
+  genuine guarded fixed-sector recurrence directly over Symbolica `K(n)` with
+  exact replay, uniform descent, and anchored agreement, and provides
+  deterministic core-owned campaign primitives with application-owned
+  roots-only composition. It does **not** yet refine exceptional guard loci,
+  prove complete-source or family closure, publish rule artifacts, apply IBPs,
   substitute masters, or support generic/higher-even-rank tensor reduction.
 
 In the independent GammaLoop repository, branch `vakint_rustred` now has the
@@ -291,11 +292,12 @@ features must resolve to the same exact CAS identity.
 
 ### Track C — fresh closing-rule foundry
 
-1. Extend the now-live concrete-anchor exact-solving boundary around freshly
-   generated rows and Symbolica's native sparse reducer toward parametric
-   discovery.
-2. Generalize the now-live guarded, strictly descending, exactly source-replayed
-   lower-loop sentinel without weakening its concrete-anchor evidence.
+1. Maintain the now-live concrete-anchor boundary and direct fixed-sector
+   `K(n)` elimination around generated rows and Symbolica's native sparse
+   reducer.
+2. Widen the now-live guarded, uniformly descending, exactly source-replayed
+   tadpole/sunset interior sentinels with target-directed multi-row discovery,
+   without weakening their independent concrete-anchor evidence.
 3. Add exceptional-domain refinement only after that generic path is real;
    retain LiteRed2's translate-before-substitute and residual recentering
    semantics without reviving its mutable architecture.

@@ -29,18 +29,22 @@
 //! rules.
 
 mod error;
+mod interior;
 mod mask;
 mod ordering;
 mod restriction;
+mod shift_ordering;
 pub mod symmetry;
 pub mod zero;
 
 pub use error::Error;
+pub use interior::{InteriorBounds, SectorInteriorDomain};
 pub use mask::Mask;
 pub use ordering::{ComplexityComponent, ComplexityKey, OrderingPolicy, StrictDescentWitness};
 pub use restriction::{
     CutConstraint, Exclusion, Pattern, PatternMismatch, PatternSlot, Restrictions,
 };
+pub use shift_ordering::{ShiftComplexityKey, ShiftStrictDescentWitness};
 
 #[cfg(test)]
 mod tests;

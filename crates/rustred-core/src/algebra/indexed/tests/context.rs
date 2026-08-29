@@ -365,6 +365,55 @@ fn public_arithmetic_admits_each_operand_and_authenticates_the_native_result() {
 }
 
 #[test]
+fn checked_division_and_polynomial_extraction_stay_on_the_indexed_map() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "division-seam", 1).unwrap();
+    let index = context.index(0).unwrap();
+    let x = context.lift(&base.parameter("x").unwrap()).unwrap();
+    let numerator = context.add(&index, &context.one()).unwrap();
+    let denominator = context.mul(&x, &index).unwrap();
+    let quotient = context.div(&numerator, &denominator).unwrap();
+
+    assert!(context.contains(&quotient));
+    assert_eq!(
+        context
+            .numerator_condition_with_limits(&quotient, ExactAlgebraLimits::default())
+            .unwrap()
+            .raw(),
+        &quotient.raw().numerator
+    );
+    assert_eq!(
+        context
+            .denominator_condition_with_limits(&quotient, ExactAlgebraLimits::default())
+            .unwrap()
+            .raw(),
+        &quotient.raw().denominator
+    );
+    assert!(matches!(
+        context.div(&context.one(), &context.zero()),
+        Err(IndexedAlgebraError::ExactAlgebra(
+            ExactAlgebraError::DivisionByZero
+        ))
+    ));
+}
+
+#[test]
+fn native_result_ingress_authenticates_once_before_sealing() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "native-result-seam", 1).unwrap();
+    let raw = context.index(0).unwrap().raw().clone();
+    let before = context.authentication_scan_counts();
+    let admitted = context
+        .admit_native_result_with_limits(raw, ExactAlgebraLimits::default())
+        .unwrap();
+    let after = context.authentication_scan_counts();
+
+    assert!(context.contains(&admitted));
+    assert_eq!(after.0 - before.0, 0);
+    assert_eq!(after.1 - before.1, 1);
+}
+
+#[test]
 fn native_symbol_name_size_is_independent_of_long_semantic_scope() {
     let base = CoefficientContext::new(Vec::<String>::new());
     let short = IndexedCoefficientContext::try_new(&base, "short-scope", 1).unwrap();

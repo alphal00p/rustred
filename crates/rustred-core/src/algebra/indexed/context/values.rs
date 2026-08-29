@@ -81,6 +81,26 @@ impl IndexedCoefficientContext {
         self.denominator_condition_from_bound(value)
     }
 
+    pub fn numerator_condition_with_limits(
+        &self,
+        value: &IndexedCoefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        let value = self.authenticate_coefficient_with_limits(value, limits)?;
+        self.numerator_condition_from_bound(value)
+    }
+
+    pub(crate) fn numerator_condition_from_bound(
+        &self,
+        value: BoundIndexedCoefficient<'_, '_>,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        self.validate_bound(value)?;
+        Ok(IndexedPolynomial {
+            raw: value.value.raw.numerator.clone(),
+            context: self.fingerprint.clone(),
+        })
+    }
+
     /// Extract a denominator from a coefficient already authenticated or
     /// sealed to this exact context.
     pub(crate) fn denominator_condition_from_bound(
@@ -128,6 +148,21 @@ impl IndexedCoefficientContext {
         validate_coefficient_on_map(&raw, &self.variables, limits)?;
         self.record_authenticated_native_result();
         Ok(self.wrap_sealed(raw))
+    }
+
+    /// Admit one raw rational function returned by a native Symbolica
+    /// algorithm which consumed values from this exact indexed context.
+    ///
+    /// Native coefficient fields do not carry RustRed's variable-map
+    /// identity. This crate-private seam performs the complete map, layout,
+    /// exponent, and resource authentication exactly once before sealing the
+    /// result for trusted downstream arithmetic.
+    pub(crate) fn admit_native_result_with_limits(
+        &self,
+        raw: Coefficient,
+        limits: ExactAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.wrap_checked_with_limits(raw, limits)
     }
 
     fn extend_base_polynomial(

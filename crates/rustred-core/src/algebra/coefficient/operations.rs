@@ -101,6 +101,23 @@ pub(crate) fn checked_coefficient_div_on_map(
     limits: ExactAlgebraLimits,
 ) -> Result<Coefficient, ExactAlgebraError> {
     validate_binary_inputs(numerator, denominator, variables, limits)?;
+    trusted_coefficient_div_on_map(numerator, denominator, variables, limits)
+}
+
+/// Divide coefficients that have already crossed this exact variable-map
+/// boundary.
+///
+/// Like the other trusted arithmetic seams, this retains prospective
+/// operation limits and authenticates the native Symbolica result without
+/// rescanning either sealed operand's map and sparse layout.
+pub(in crate::algebra) fn trusted_coefficient_div_on_map(
+    numerator: &Coefficient,
+    denominator: &Coefficient,
+    variables: &Arc<Vec<PolyVariable>>,
+    limits: ExactAlgebraLimits,
+) -> Result<Coefficient, ExactAlgebraError> {
+    preflight_trusted_input_limits(numerator, limits)?;
+    preflight_trusted_input_limits(denominator, limits)?;
     if denominator.numerator.coefficients.is_empty() {
         return Err(ExactAlgebraError::DivisionByZero);
     }

@@ -42,10 +42,13 @@ that a terminal is a master. The current synthetic six-loop source test is
 therefore a generation and resource sentinel, not a physical six-loop
 reduction.
 
-The current implementation frontier stops below level 4: it has generic
-family/input, exact raw IBP/LI generation, selected sector/symmetry/zero
-foundations, and resource preflight, but no production foundry, closed
-artifact, rule applier, native tensor service, or master substitution.
+The current implementation has its first level-4 ingredients but does not pass
+the level-4 closure gate. Generated tadpole and selected sunset source spans
+now yield guarded fixed-sector parametric rules with exact `K(n)` replay,
+uniform descent, and anchored agreement. Exceptional guard-zero loci,
+authentication of a fresh complete source set, proper-subsector feedback,
+terminal selection, total coverage, durable artifacts, a rule applier,
+generic tensor service, and master substitution remain absent.
 
 ## Exact closure gate
 
@@ -86,6 +89,17 @@ boundary numerators require residual recentering; RustRed must rediscover
 `J(2,1,1) = (d-3)/(3 m^2) J(1,1,1)` from generic rows. The `HQET5`
 `NewDsSet` case is kept separate until the overcomplete-denominator and
 partial-fraction lane exists.
+
+Before that closure regression, the live parametric reducer has three generated
+interior fixtures. The tadpole proves its full one-row recurrence and a held-out
+specialization. A one-loop family with three external momenta combines one
+ordinary IBP and one LI source into a genuine two-source rule, exercising the
+recursive pivot chain through the public generator and foundry APIs. The sunset
+sentinel deliberately selects one of four freshly generated ordinary rows and
+proves a seven-column recurrence in the all-active sector. It establishes
+two-loop coefficient/domain/replay plumbing only: the current minimum-pivot
+selector returns a one-source rule, not the corner golden above, a complete
+source proof, or lower-sector closure.
 
 Agreement means mathematical equivalence after explicit convention and
 canonical-master maps. RustRed need not reproduce Mathematica APIs, mutable

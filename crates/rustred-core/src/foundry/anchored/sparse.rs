@@ -25,6 +25,7 @@ struct ReducerRowMeta {
     pivot_column: usize,
     pivot_coefficient: Coefficient,
     pivot_dependencies: Vec<usize>,
+    has_trailing_physical_entry: bool,
 }
 
 pub(super) fn reduce_rows(
@@ -92,6 +93,17 @@ pub(super) fn reduce_rows(
                 .ok_or(AnchoredRuleError::ReducerInvariant {
                     detail: "U has no row after an accepted chronological input",
                 })?;
+        let (_, upper_columns, _) =
+            reducer
+                .u()
+                .last_row()
+                .ok_or(AnchoredRuleError::ReducerInvariant {
+                    detail: "U has no last row after an accepted chronological input",
+                })?;
+        let has_trailing_physical_entry = upper_columns.iter().any(|&column| {
+            let column = column as usize;
+            column > pivot as usize && column < integral_columns
+        });
         let native_source_ordinal =
             u32::try_from(source_ordinal).map_err(|_| AnchoredRuleError::ReducerInvariant {
                 detail: "an admitted source ordinal does not fit u32",
@@ -168,6 +180,7 @@ pub(super) fn reduce_rows(
             pivot_column: pivot as usize,
             pivot_coefficient,
             pivot_dependencies,
+            has_trailing_physical_entry,
         });
 
         let decomposition_nonzeros = checked_add(
@@ -184,19 +197,7 @@ pub(super) fn reduce_rows(
 
     let candidate = metadata
         .iter()
-        .filter(|meta| {
-            meta.pivot_column < integral_columns
-                && reducer
-                    .u()
-                    .row_iter()
-                    .nth(meta.reducer_row as usize)
-                    .is_some_and(|(_, columns, _)| {
-                        columns.iter().any(|&column| {
-                            let column = column as usize;
-                            column > meta.pivot_column && column < integral_columns
-                        })
-                    })
-        })
+        .filter(|meta| meta.pivot_column < integral_columns && meta.has_trailing_physical_entry)
         .min_by_key(|meta| (meta.pivot_column, meta.source_ordinal))
         .ok_or(AnchoredRuleError::NoStrictlyDescendingRule)?;
     if candidate.pivot_dependencies.last().copied() != Some(candidate.reducer_row as usize) {

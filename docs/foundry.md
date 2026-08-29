@@ -2,14 +2,21 @@
 
 ## Status
 
-The first narrow foundry capability is now live. In addition to constructing
-authenticated affine families and generic parametric IBP/LI rows, the core can
-specialize a chronological `ParametricRelation` slice at one concrete integer
-anchor, order its integral columns hardest-first, and use Symbolica's public
-`SparseRowReducer` to derive one guarded strictly descending rule. The rule is
-returned only after exact source-row replay. This concrete-anchor capability
-does not generalize a rule, refine exceptional domains, prove coverage closure,
-publish a closed artifact, or reduce an integral. The
+The first two narrow foundry capabilities are now live. The anchored boundary
+specializes a chronological `ParametricRelation` slice at one concrete integer
+point. The sector-interior boundary instead eliminates that slice directly
+over the authenticated Symbolica field `K(n)`, orders shifts hardest-first,
+and returns one parametric recurrence only after exact symbolic source replay,
+uniform strict-descent proofs, all required retained pivot/denominator guards,
+and agreement with an independently derived anchored rule. Its domain is the
+largest representable box on which every source shift stays in the anchor's
+fixed sector. Generated tadpole and caller-selected two-loop sunset spans, plus
+a genuine two-source ordinary-IBP/LI elimination, exercise this path.
+
+This is not yet a closing foundry. The API does not authenticate that its
+caller-supplied relation slice is a fresh complete source set, split guard-zero
+exceptional loci, feed back proper subsectors, select terminals, publish a
+closed artifact, or reduce an integral. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 
@@ -158,16 +165,19 @@ deterministic, bad samples are rejected, and every reconstructed rule is
 verified over the exact authenticated coefficient domain. Finite-field
 agreement alone cannot publish a rule.
 
-The live anchored boundary augments the physical matrix with chronological
-identity columns. Forward reduction therefore exposes both a normalized row
-and its exact source combination in `U`, while `L` identifies the complete
-chronological chain of pre-normalization pivot coefficients. It uses neither
-sparse `solve` nor sparse `inv` as an oracle. Visible input/output structure
-and exact replay work are limited with typed errors. Aggregate structural
-budgets separately census live integral-key power cells, every index cell
-deep-cloned into guard provenance, and both coordinate buffers owned by each
-prepared or strict-descent ordering key. Symbolica 2.2.0 still exposes no hard
-scratch-memory census or cancellation hook for the reducer.
+The live anchored and sector-interior boundaries augment their integral/shift
+matrices with chronological identity columns. Forward reduction therefore
+exposes both a normalized row and its exact source combination in `U`, while
+`L` identifies the complete chronological chain of pre-normalization pivot
+coefficients. The parametric path passes Symbolica's native rational-polynomial
+coefficients directly to the same reducer; it does not sample and fit an
+ansatz or round-trip through `Atom`. Neither path uses sparse `solve` or sparse
+`inv` as an oracle. Visible input/output structure and exact replay work
+are limited with typed errors. Aggregate structural budgets separately census
+live integral/shift coordinate cells, guard provenance, fixed-sector bounds,
+and the coordinate buffers owned by prepared and strict-descent ordering keys.
+Symbolica 2.2.0 still exposes no hard scratch-memory census or cancellation
+hook for the reducer.
 
 A missing public Symbolica primitive is a typed unsupported boundary. In
 particular, the pinned Symbolica revision has no complete public integer

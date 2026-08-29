@@ -21,9 +21,10 @@ RustRed currently provides a topology-neutral mathematical spine for:
   admission for a common-scale vacuum lane;
 - bounded scalar, odd-rank, and global rank-two vacuum tensor projection, with
   separately callable affine scalar-product lowering onto integral keys;
-- one concrete-anchor foundry boundary that derives a guarded strictly
-  descending row through Symbolica's sparse reducer and accepts it only after
-  exact chronological source replay;
+- concrete-anchor and fixed-sector parametric foundry boundaries that derive
+  guarded strictly descending rows through Symbolica's sparse reducer; the
+  latter eliminates directly over `K(n)` and requires exact symbolic replay,
+  uniform descent, and independent anchored agreement;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -31,14 +32,15 @@ RustRed currently provides a topology-neutral mathematical spine for:
   width preflight, roots-only campaign planning, and canonical TOML output
   through Rust, CLI, and Python application surfaces.
 
-The application `derive` path still emits raw parametric identities. The
-anchored foundry slice does **not** generalize its concrete rule, refine
-exceptional domains, prove closure, or publish an artifact. The tensor slice
-does **not** support generic kinematics or even rank above two, and no current
-service applies IBP artifacts, selects/substitutes masters, or evaluates an
-integral. The six-loop source-count test exercises the generic row census
-(`L = 6`, 21 coordinates, 36 ordinary sources); it is not a physical six-loop
-closure result.
+The application `derive` path still emits raw parametric identities. The new
+core parametric slice covers only a representable fixed-sector interior of a
+caller-supplied source span; it does **not** refine exceptional guard-zero
+domains, prove source-set completeness or closure, or publish an artifact. The
+tensor slice does **not** support generic kinematics or even rank above two,
+and no current service applies IBP artifacts, selects/substitutes masters, or
+evaluates an integral. The six-loop source-count test exercises the generic row
+census (`L = 6`, 21 coordinates, 36 ordinary sources); it is not a physical
+six-loop closure result.
 
 The exact public Rust surface is the module facade in
 [`crates/rustred-core/src/lib.rs`](../crates/rustred-core/src/lib.rs). Public
@@ -147,12 +149,15 @@ rule publication.
 ### `foundry`
 
 [`foundry`](../crates/rustred-core/src/foundry/mod.rs) owns rule discovery and
-its proof-bearing result values. Its first deliberately narrow boundary
-specializes freshly generated relations at one integer anchor, orders physical
-integral columns by the sector ordering owner, invokes Symbolica's public
-sparse row reducer, retains all required guards and source provenance, proves
-strict descent, and exactly replays the chosen row. It is not yet a parametric
-solver, exceptional-domain engine, closure search, or artifact publisher.
+its proof-bearing result values. The anchored boundary specializes supplied
+relations at one integer anchor. The parametric boundary eliminates them
+directly over `K(n)` on a representable fixed-sector interior. Both order
+integral columns through the sector owner and invoke Symbolica's public sparse
+row reducer; the latter retains every required guard and source provenance,
+proves uniform strict descent, exactly replays the symbolic row, and requires
+agreement with the independently derived anchor. It is not yet an
+exceptional-domain engine, complete-source/closure search, or artifact
+publisher.
 
 ### `sector`
 

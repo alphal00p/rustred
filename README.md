@@ -18,17 +18,21 @@ The currently evidenced core can:
   roles, and structurally validate caller-attested presentation metadata;
 - project scalar, odd-rank, and rank-two vacuum tensors and separately lower
   explicit scalar products onto family integral keys;
-- derive one guarded strictly descending rule at a concrete integer anchor and
-  accept it only after exact replay from freshly specialized source rows;
+- derive both a guarded rule at one concrete anchor and a genuine fixed-sector
+  parametric recurrence over `K(n)`, accepting the latter only after exact
+  symbolic replay, uniform descent proofs, retained nonzero guards, and
+  independent anchored agreement;
 - verify explicit affine symmetry maps;
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer.
 
-It does **not** yet generalize the anchored rule, solve or close families,
-publish reusable rule artifacts, apply IBP reductions, substitute masters, or
-support generic/higher-even-rank tensor reduction. Structural source counts—even
-the six-loop count—are not closure evidence.
+It does **not** yet split the parametric rule's exceptional guard loci, close
+proper subsectors or whole families, publish reusable rule artifacts, apply IBP
+reductions, substitute masters, or support generic/higher-even-rank tensor
+reduction. The current API also accepts a caller-supplied source span rather
+than certifying a fresh complete source set. Structural source counts—even the
+six-loop count—are not closure evidence.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

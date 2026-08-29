@@ -38,8 +38,9 @@ The public `rustred` facade is organized by mathematical owner:
 - `tensor` owns validated caller Symbolica heads, sealed-evidence lane
   selection, bounded key-aware Lorentz projection, and affine scalar-product
   lowering onto typed integral keys;
-- `foundry::anchored` owns concrete-index rule derivation, exact source replay,
-  strict-descent evidence, and anchored guard/provenance values; and
+- `foundry::anchored` owns concrete-index rule derivation, while
+  `foundry::parametric` owns fixed-sector `K(n)` elimination, uniform descent,
+  exact symbolic replay, guards/provenance, and anchored agreement; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 
