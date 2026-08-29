@@ -25,7 +25,9 @@ RustRed currently provides a topology-neutral mathematical spine for:
   guarded strictly descending rows through Symbolica's sparse reducer; the
   latter eliminates directly over `K(n)` and requires exact symbolic replay,
   uniform descent, and independent anchored agreement, while both boundaries
-  can target a requested pivot through guarded deterministic RREF;
+  can target a requested pivot through guarded deterministic RREF; the
+  targeted path can additionally classify a maximal parent-sector box into
+  disjoint same-sector and proper-subsector pinch dependencies;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -34,8 +36,10 @@ RustRed currently provides a topology-neutral mathematical spine for:
   through Rust, CLI, and Python application surfaces.
 
 The application `derive` path still emits raw parametric identities. The new
-core parametric slice covers only a representable fixed-sector interior of a
-caller-supplied source span; it does **not** refine exceptional guard-zero
+core parametric slice requires a representable fixed-sector interior of a
+caller-supplied source span. Its sector-monotone extension records boundary
+pinches as unresolved lower-sector dependencies but does **not** feed them
+back, refine exceptional guard-zero
 domains, prove source-set completeness or closure, or publish an artifact. The
 tensor slice does **not** support generic kinematics or even rank above two,
 and no current service applies IBP artifacts, selects/substitutes masters, or
@@ -158,7 +162,10 @@ row reducer; the latter retains every required guard and source provenance,
 proves uniform strict descent, exactly replays the symbolic row, and requires
 agreement with the independently derived anchor. It is not yet an
 exceptional-domain engine, complete-source/closure search, or artifact
-publisher.
+publisher. The targeted parametric API can additionally retain a maximal
+parent-sector domain with compact first-pinched cylinders and exact
+proper-subsector descent witnesses; these are dependency evidence, not closure
+evidence.
 
 ### `sector`
 

@@ -57,7 +57,9 @@ The mandatory clean reset is complete:
   genuine guarded fixed-sector recurrence directly over Symbolica `K(n)` with
   exact replay, uniform descent, and anchored agreement, can select a requested
   pivot through deterministic Symbolica RREF while retaining the complete
-  reachable pivot-guard envelope, and provides
+  reachable pivot-guard envelope, can extend that targeted rule over a maximal
+  parent-sector box with explicit same-sector and proper-subsector pinch
+  dependencies, and provides
   deterministic core-owned campaign primitives with application-owned
   roots-only composition. It does **not** yet refine exceptional guard loci,
   prove complete-source or family closure, publish rule artifacts, apply IBPs,
@@ -65,13 +67,22 @@ The mandatory clean reset is complete:
 
 In the independent GammaLoop repository, branch `vakint_rustred` now has the
 first real backward-compatible `TensorReductionMode::RustRed` adapter. It
-reuses Vakint's topology matcher and simultaneous canonical routing, then
-calls RustRed's key-aware projector for the bounded one-loop,
-one-propagator, single-scale-vacuum slice through rank two. Existing Vakint
+reuses Vakint's topology matcher and simultaneous canonical routing, supports
+registered common-mass vacuum families across loop counts (including ISP
+completion for pinches), and calls RustRed's bounded key-aware projector
+through rank two. Explicit multi-loop routings are admitted only after exact
+replay of the matcher's complete simultaneous basis witness. Existing Vakint
 behavior remains unchanged and defaults to its FORM backend. Unsupported
 families and ranks return typed errors; the RustRed mode never invokes or
 falls back to FORM. This is tensor-projection capability, not yet generic
 tensor reduction, scalar IBP application, or master substitution.
+
+Work is paused after the sector-monotone and explicit-routing milestones at
+the user's request while a collaborator develops a separate fast tensor
+reduction tool. RustRed's abandoned in-progress all-rank projector edits were
+removed before this pause. Any future integration of that tool must first be
+reviewed against this document's pure-Rust/Symbolica, genericity, ownership,
+and validation invariants.
 
 Commit and push coherent passing milestones frequently. Every Git operation
 uses:
@@ -300,8 +311,11 @@ features must resolve to the same exact CAS identity.
 2. Widen the now-live guarded, uniformly descending, exactly source-replayed
    tadpole/sunset interior sentinels. The now-live target-directed multi-row
    path uses deterministic Symbolica RREF, exact source replay, complete
-   reachable pivot guards, and independent concrete-anchor evidence; next make
-   its domain sector-monotone and pinch-aware without weakening those proofs.
+   reachable pivot guards, and independent concrete-anchor evidence. Its new
+   sector-monotone boundary proves term-local same-sector descent and exposes
+   every pinch as an explicit proper-subsector dependency without claiming
+   that dependency closed; next feed those dependencies into the closure fixed
+   point without weakening those proofs.
 3. Add exceptional-domain refinement only after that generic path is real;
    retain LiteRed2's translate-before-substitute and residual recentering
    semantics without reviving its mutable architecture.

@@ -31,6 +31,7 @@
 mod error;
 mod interior;
 mod mask;
+mod monotone;
 mod ordering;
 mod restriction;
 mod shift_ordering;
@@ -40,6 +41,10 @@ pub mod zero;
 pub use error::Error;
 pub use interior::{InteriorBounds, SectorInteriorDomain};
 pub use mask::Mask;
+pub use monotone::{
+    ActivePinchThreshold, SectorMonotoneDomain, SectorMonotonePointClass,
+    SectorMonotoneShiftDescentWitness,
+};
 pub use ordering::{ComplexityComponent, ComplexityKey, OrderingPolicy, StrictDescentWitness};
 pub use restriction::{
     CutConstraint, Exclusion, Pattern, PatternMismatch, PatternSlot, Restrictions,

@@ -27,8 +27,13 @@ pub struct ParametricRuleLimits {
     pub max_index_coordinate_cells: usize,
     /// Maximum retained `i128` coordinates in structural ordering keys.
     pub max_ordering_key_coordinate_cells: usize,
-    /// Maximum retained lower/upper `i64` endpoint cells in the domain.
+    /// Maximum retained lower/upper `i64` endpoint cells across the prepared
+    /// fixed-sector interior, a sector-monotone parent box, and every
+    /// term-local same-sector cell.
     pub max_domain_bound_endpoint_cells: usize,
+    /// Maximum active-coordinate thresholds retained across the compact
+    /// term-local pinch partitions of one sector-monotone rule.
+    pub max_sector_monotone_thresholds: usize,
     /// Maximum retained boolean cells in the sector mask.
     pub max_sector_mask_cells: usize,
     /// Maximum foundry-owned provenance coordinate cells deep-cloned from
@@ -70,6 +75,7 @@ impl Default for ParametricRuleLimits {
             max_index_coordinate_cells: 64_000_000,
             max_ordering_key_coordinate_cells: 128_000_000,
             max_domain_bound_endpoint_cells: 8_192,
+            max_sector_monotone_thresholds: 4_000_000,
             max_sector_mask_cells: 4_096,
             max_guard_provenance_index_cells: 64_000_000,
             max_native_decomposition_nonzero_entries: 64_000_000,

@@ -91,12 +91,15 @@ python -c 'import rustred'
 
 Vakint development occurs in the independent GammaLoop repository on branch
 `vakint_rustred`. Its additive `RustRed` tensor mode now reuses Vakint's
-matcher/canonical routing and calls RustRed's key-aware projector for the
-bounded one-loop, one-propagator single-scale-vacuum slice through rank two.
-Scalar numerators pass through, odd ranks vanish, exact symbolic or numeric
-masses and integer powers are retained, and both Vakint output notations are
-covered. Existing behavior still defaults to FORM; unsupported RustRed inputs
-fail with typed errors and never invoke or fall back to FORM.
+matcher/canonical routing and calls RustRed's key-aware projector for
+registered common-mass vacuum families across loop counts through rank two.
+Pinched families receive auxiliary-ISP completion, and explicit multi-loop
+routings must replay exactly through the matcher's complete simultaneous
+basis witness. Scalar numerators pass through, odd ranks vanish, exact
+symbolic or numeric masses and integer powers are retained, and both Vakint
+output notations are covered. Existing behavior still defaults to FORM;
+unsupported RustRed inputs fail with typed errors and never invoke or fall
+back to FORM.
 
 The RustRed crate now owns the first scalar/odd/rank-two single-scale-vacuum
 service; Vakint already reuses its projection boundary, while CLI and Python

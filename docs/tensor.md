@@ -44,19 +44,24 @@ first bounded vertical adapter:
 - `TensorReductionMode::RustRed(RustRedOptions)` reuses Vakint topology
   matching and simultaneous numerator routing, then calls the key-aware
   RustRed projector;
-- the admitted slice is a one-loop, one-physical-propagator full basis with a
-  nonzero exact symbolic or numeric mass, integer propagator power, and
-  scalar/odd/rank-two numerator support;
-- even ranks above two, multi-loop families, zero scale, non-bare explicit input
-  routing, malformed graph identifiers, and nonsymbolic epsilon settings fail
+- the admitted slice covers registered common-mass vacuum families across
+  loop counts, completes auxiliary ISPs for pinches, and retains exact masses,
+  powers, physical/auxiliary roles, and scalar/odd/rank-two numerators;
+- explicit multi-loop routings are accepted only when the matcher supplies a
+  complete simultaneous loop-basis substitution whose image replays every
+  mapped propagator momentum to the canonical routing up to sign;
+- even ranks above two, zero scale, non-equivalent or incomplete explicit
+  routings, malformed graph identifiers, and nonsymbolic epsilon settings fail
   through typed boundaries; and
 - selection of the RustRed mode never calls or falls back to FORM.
 
 The FORM-free mode tests use deliberately invalid FORM paths and frozen exact
-dot/indexed results. Separate compatibility tests execute the existing FORM
-backend and confirm that the default builder remains equivalent. This proves
-only the bounded one-loop vertical slice, not general tensor reduction or
-scalar IBP reduction.
+one- and two-loop dot/indexed results. They also cover valid alternate 2L
+routing, malicious non-equivalent routing, and transactional rollback.
+Separate compatibility tests execute the existing FORM backend and confirm
+that the default builder remains equivalent. This proves the bounded
+rank-two multi-loop bridge, not general tensor reduction or scalar IBP
+reduction.
 
 The first service described below now lives in the `rustred` core package.
 Vakint now adapts its projection operation; `rustred-app`, the CLI, and Python

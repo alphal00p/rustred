@@ -6,7 +6,7 @@ use crate::foundry::anchored::AnchoredRuleError;
 use crate::sector;
 
 /// Typed failure while preparing, eliminating, replaying, or anchoring one
-/// sector-interior parametric rule.
+/// parametric recurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParametricRuleError {
     EmptySourceRows,
@@ -37,6 +37,15 @@ pub enum ParametricRuleError {
     },
     AnchorOutsideInterior,
     DegenerateSinglePointInterior,
+    ActivationLeakRequiresRefinement {
+        right_hand_side_ordinal: usize,
+        position: usize,
+        shift: i64,
+    },
+    SectorMonotoneTermNotDescending {
+        right_hand_side_ordinal: usize,
+    },
+    PointOutsideSectorMonotoneDomain,
     AnchorIndexOverflow {
         position: usize,
     },
@@ -126,6 +135,23 @@ impl fmt::Display for ParametricRuleError {
             ),
             Self::DegenerateSinglePointInterior => formatter.write_str(
                 "parametric derivation requires a sector interior containing more than one lattice point",
+            ),
+            Self::ActivationLeakRequiresRefinement {
+                right_hand_side_ordinal,
+                position,
+                shift,
+            } => write!(
+                formatter,
+                "sector-monotone RHS term {right_hand_side_ordinal} has positive inactive-line shift {shift} at position {position}; activation requires a refined piecewise domain"
+            ),
+            Self::SectorMonotoneTermNotDescending {
+                right_hand_side_ordinal,
+            } => write!(
+                formatter,
+                "sector-monotone RHS term {right_hand_side_ordinal} is not strictly lower on its nonempty same-sector cell"
+            ),
+            Self::PointOutsideSectorMonotoneDomain => formatter.write_str(
+                "the concrete point is outside the recurrence's sector-monotone domain",
             ),
             Self::AnchorIndexOverflow { position } => write!(
                 formatter,

@@ -45,12 +45,53 @@ struct UnmappedSourceRow {
     guards: Vec<PreparedGuard>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnchorRequirement {
+    Interior,
+    SectorMonotoneAgreement,
+}
+
 pub(super) fn prepare_problem(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],
     anchor: &[i64],
     ordering: OrderingPolicy,
     limits: ParametricRuleLimits,
+) -> Result<PreparedProblem, ParametricRuleError> {
+    prepare_problem_with_anchor_requirement(
+        context,
+        relations,
+        anchor,
+        ordering,
+        limits,
+        AnchorRequirement::Interior,
+    )
+}
+
+pub(super) fn prepare_sector_monotone_problem(
+    context: &IndexedCoefficientContext,
+    relations: &[ParametricRelation],
+    anchor: &[i64],
+    ordering: OrderingPolicy,
+    limits: ParametricRuleLimits,
+) -> Result<PreparedProblem, ParametricRuleError> {
+    prepare_problem_with_anchor_requirement(
+        context,
+        relations,
+        anchor,
+        ordering,
+        limits,
+        AnchorRequirement::SectorMonotoneAgreement,
+    )
+}
+
+fn prepare_problem_with_anchor_requirement(
+    context: &IndexedCoefficientContext,
+    relations: &[ParametricRelation],
+    anchor: &[i64],
+    ordering: OrderingPolicy,
+    limits: ParametricRuleLimits,
+    anchor_requirement: AnchorRequirement,
 ) -> Result<PreparedProblem, ParametricRuleError> {
     if relations.is_empty() {
         return Err(ParametricRuleError::EmptySourceRows);
@@ -284,13 +325,14 @@ pub(super) fn prepare_problem(
         limits.max_domain_bound_endpoint_cells,
     )?;
     let domain = SectorInteriorDomain::try_maximal_for_shifts(sector.clone(), &shift_values)?;
-    if !domain.contains(anchor)? {
+    if anchor_requirement == AnchorRequirement::Interior && !domain.contains(anchor)? {
         return Err(ParametricRuleError::AnchorOutsideInterior);
     }
-    if domain
-        .bounds()
-        .iter()
-        .all(|bounds| bounds.lower() == bounds.upper())
+    if anchor_requirement == AnchorRequirement::Interior
+        && domain
+            .bounds()
+            .iter()
+            .all(|bounds| bounds.lower() == bounds.upper())
     {
         return Err(ParametricRuleError::DegenerateSinglePointInterior);
     }

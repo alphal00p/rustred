@@ -140,12 +140,15 @@ behavior remain unchanged. The builder's default path is tested to produce
 exactly the same result as the existing method.
 
 The `RustRed` selection now reaches the [bounded RustRed tensor
-service](tensor.md) for one-loop, one-propagator single-scale vacuum inputs
-through rank two. Vakint performs its existing topology match and simultaneous
-numerator routing, passes the exact matched integral power into RustRed, and
-maps exact `d = 4 - 2 epsilon` coefficients and tensor heads back to either
-Vakint output notation. Other families or unsupported ranks return precise
-typed errors. It does not invoke or fall back to FORM.
+service](tensor.md) for registered common-mass vacuum families across loop
+counts through rank two, including auxiliary-ISP completion for pinches.
+Vakint performs its existing topology match and simultaneous numerator
+routing, passes exact matched integral powers into RustRed, and maps exact
+`d = 4 - 2 epsilon` coefficients and tensor heads back to either Vakint output
+notation. Explicit multi-loop routings are admitted only after exact replay of
+the matcher's complete simultaneous basis witness. Unsupported families,
+routings, or ranks return precise typed errors. It does not invoke or fall back
+to FORM.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve
 RustRed and Vakint against one exact Symbolica-family revision. A relative

@@ -75,34 +75,48 @@ impl ShiftComplexityKey {
         })
     }
 
-    fn verifies_for(&self, policy: OrderingPolicy, domain: &SectorInteriorDomain) -> bool {
+    pub(super) fn verifies_for_sector(&self, policy: OrderingPolicy, sector: &Mask) -> bool {
         if self.policy != policy
-            || self.sector != *domain.sector()
-            || self.arity != domain.arity()
+            || self.sector != *sector
+            || self.arity != sector.arity()
             || self.index_excess_offsets.len() != self.arity
         {
             return false;
         }
         let mut dots = 0_i128;
         let mut numerators = 0_i128;
-        for (position, (&active, &offset)) in self
+        for (&active, &offset) in self
             .sector
             .active_bits()
             .iter()
             .zip(self.index_excess_offsets.iter())
-            .enumerate()
         {
             let target = if active { &mut dots } else { &mut numerators };
             let Some(sum) = target.checked_add(offset) else {
                 return false;
             };
             *target = sum;
+        }
+        let Some(corner_distance) = dots.checked_add(numerators) else {
+            return false;
+        };
+        dots == self.dot_offset
+            && numerators == self.numerator_offset
+            && corner_distance == self.corner_distance_offset
+    }
+
+    fn verifies_for(&self, policy: OrderingPolicy, domain: &SectorInteriorDomain) -> bool {
+        if !self.verifies_for_sector(policy, domain.sector()) {
+            return false;
+        }
+        for position in 0..self.arity {
             let Ok(shift) = self.shift_at(position) else {
                 return false;
             };
             let bounds = domain.bounds()[position];
             let translated_lower = i128::from(bounds.lower()) + i128::from(shift);
             let translated_upper = i128::from(bounds.upper()) + i128::from(shift);
+            let active = self.sector.active_bits()[position];
             let sector_lower = if active { 1_i64 } else { i64::MIN };
             let sector_upper = if active { i64::MAX } else { 0_i64 };
             if translated_lower < i128::from(sector_lower)
@@ -111,12 +125,7 @@ impl ShiftComplexityKey {
                 return false;
             }
         }
-        let Some(corner_distance) = dots.checked_add(numerators) else {
-            return false;
-        };
-        dots == self.dot_offset
-            && numerators == self.numerator_offset
-            && corner_distance == self.corner_distance_offset
+        true
     }
 }
 

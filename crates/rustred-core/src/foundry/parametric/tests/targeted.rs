@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
 use crate::identity::RowId;
-use crate::sector::OrderingPolicy;
+use crate::sector::{ComplexityComponent, OrderingPolicy, SectorMonotonePointClass};
 
 use super::super::prepare::{PreparedSourceRow, prepare_problem};
 use super::super::sparse::reduce_rows_for_target;
 use super::super::{
-    ParametricRuleError, ParametricRuleLimits, derive_sector_interior_rule_for_target,
+    ParametricRuleError, ParametricRuleLimits, SectorMonotoneDependencyKind,
+    derive_sector_interior_rule_for_target, derive_sector_monotone_rule_for_target,
 };
 use super::support::{sunset_sources, tadpole_sources};
 
@@ -24,6 +25,7 @@ fn complete_sunset_span_yields_the_targeted_e1_rref_recurrence() {
     )
     .unwrap();
 
+    assert!(rule.sector_monotone_admission().is_none());
     assert_eq!(rule.pivot().values(), &[1, 0, 0]);
     assert_eq!(
         rule.right_hand_side()
@@ -127,6 +129,243 @@ fn complete_sunset_span_yields_the_targeted_e1_rref_recurrence() {
     )
     .unwrap();
     assert_eq!(rule, repeated);
+}
+
+#[test]
+fn complete_sunset_span_exposes_corner_pinch_dependencies() {
+    let (_, context, relations) = sunset_sources();
+    assert_eq!(
+        derive_sector_interior_rule_for_target(
+            &context,
+            &relations,
+            &[1, 1, 1],
+            &[1, 0, 0],
+            OrderingPolicy::default(),
+            ParametricRuleLimits::default(),
+        ),
+        Err(ParametricRuleError::AnchorOutsideInterior)
+    );
+
+    let rule = derive_sector_monotone_rule_for_target(
+        &context,
+        &relations,
+        &[1, 1, 1],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    assert!(!rule.domain().contains(rule.anchor().powers()).unwrap());
+    assert_eq!(rule.sector().active_bits(), &[true, true, true]);
+    assert_eq!(
+        rule.anchor_agreement().anchored_rule().pivot().powers(),
+        &[2, 1, 1]
+    );
+
+    let admission = rule.sector_monotone_admission().unwrap();
+    assert!(admission.verify());
+    assert_eq!(admission.parent_sector(), rule.sector());
+    assert_eq!(
+        admission
+            .domain()
+            .bounds()
+            .iter()
+            .map(|bounds| (bounds.lower(), bounds.upper()))
+            .collect::<Vec<_>>(),
+        vec![(1, i64::MAX - 1), (1, i64::MAX - 1), (1, i64::MAX - 1),]
+    );
+    assert_eq!(admission.dependencies().len(), 5);
+    assert_eq!(
+        admission
+            .proper_subsector_dependency_count_at(rule.anchor().powers())
+            .unwrap(),
+        4
+    );
+    assert_eq!(
+        admission
+            .dependencies()
+            .iter()
+            .map(|dependency| dependency.shift().values())
+            .collect::<Vec<_>>(),
+        rule.right_hand_side()
+            .iter()
+            .map(|term| term.shift().values())
+            .collect::<Vec<_>>()
+    );
+    let corner = admission.classify(rule.anchor().powers()).unwrap();
+    assert_eq!(
+        corner
+            .iter()
+            .map(|dependency| dependency.kind())
+            .collect::<Vec<_>>(),
+        vec![
+            SectorMonotoneDependencyKind::ProperSubsector,
+            SectorMonotoneDependencyKind::SameSector,
+            SectorMonotoneDependencyKind::ProperSubsector,
+            SectorMonotoneDependencyKind::ProperSubsector,
+            SectorMonotoneDependencyKind::ProperSubsector,
+        ]
+    );
+    assert_eq!(
+        corner
+            .iter()
+            .map(|dependency| dependency.target_sector().active_bits())
+            .collect::<Vec<_>>(),
+        vec![
+            &[true, true, false][..],
+            &[true, true, true][..],
+            &[true, false, true][..],
+            &[false, true, true][..],
+            &[false, true, true][..],
+        ]
+    );
+    for dependency in &corner {
+        assert!(dependency.verify());
+        match dependency.kind() {
+            SectorMonotoneDependencyKind::SameSector => {
+                assert_ne!(
+                    dependency.descent().decisive_component(),
+                    ComplexityComponent::PropagatorCount
+                );
+                assert_eq!(dependency.pinched_positions().count(), 0);
+            }
+            SectorMonotoneDependencyKind::ProperSubsector => {
+                assert_eq!(
+                    dependency.descent().decisive_component(),
+                    ComplexityComponent::PropagatorCount
+                );
+                assert!(dependency.pinched_positions().count() >= 1);
+            }
+        }
+    }
+
+    let thresholds = admission
+        .dependencies()
+        .iter()
+        .map(|dependency| {
+            dependency
+                .descent()
+                .thresholds()
+                .iter()
+                .map(|threshold| {
+                    (
+                        threshold.position(),
+                        threshold.pinched_upper(),
+                        threshold.same_sector_lower(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        thresholds,
+        vec![
+            vec![(2, 1, Some(2))],
+            vec![],
+            vec![(1, 1, Some(2))],
+            vec![(0, 1, Some(2))],
+            vec![(0, 1, Some(2))],
+        ]
+    );
+
+    // Every point of this representative face/edge/corner cube belongs to
+    // exactly one term-local cell and carries a concrete strict witness.
+    for n0 in 1..=3 {
+        for n1 in 1..=3 {
+            for n2 in 1..=3 {
+                let point = [n0, n1, n2];
+                for dependency in admission.classify(&point).unwrap() {
+                    assert!(dependency.verify());
+                    match dependency.partition_class() {
+                        SectorMonotonePointClass::SameSector => assert_eq!(
+                            dependency.descent().source().sector(),
+                            dependency.descent().target().sector()
+                        ),
+                        SectorMonotonePointClass::ProperSubsector {
+                            cylinder_ordinal,
+                            pinched_position,
+                        } => {
+                            assert_eq!(cylinder_ordinal, 0);
+                            assert!(!dependency.target_sector().active_bits()[pinched_position]);
+                            assert_eq!(
+                                dependency.descent().decisive_component(),
+                                ComplexityComponent::PropagatorCount
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn sector_monotone_sunset_resource_boundaries_are_preflighted() {
+    let (_, context, relations) = sunset_sources();
+    let derive = |limits| {
+        derive_sector_monotone_rule_for_target(
+            &context,
+            &relations,
+            &[1, 1, 1],
+            &[1, 0, 0],
+            OrderingPolicy::default(),
+            limits,
+        )
+    };
+    let exact = ParametricRuleLimits {
+        // Prepared interior + monotone box + five same-sector cells, each
+        // retaining two endpoints for three coordinates.
+        max_domain_bound_endpoint_cells: 42,
+        max_sector_monotone_thresholds: 4,
+        ..ParametricRuleLimits::default()
+    };
+    derive(exact).unwrap();
+
+    assert_eq!(
+        derive(ParametricRuleLimits {
+            max_domain_bound_endpoint_cells: 41,
+            ..exact
+        }),
+        Err(ParametricRuleError::ResourceLimit {
+            resource: "live sector-monotone domain bound endpoint cells",
+            requested: 42,
+            limit: 41,
+        })
+    );
+    assert_eq!(
+        derive(ParametricRuleLimits {
+            max_sector_monotone_thresholds: 3,
+            ..exact
+        }),
+        Err(ParametricRuleError::ResourceLimit {
+            resource: "sector-monotone active pinch thresholds",
+            requested: 4,
+            limit: 3,
+        })
+    );
+}
+
+#[test]
+fn sector_monotone_target_rejects_inactive_line_activation_typed() {
+    let (_, context, relations, _) = tadpole_sources();
+    // The +1 term is present in K(n), so admitting it on the inactive-sector
+    // boundary would require a coefficient-aware piecewise proof even though
+    // its concrete coefficient happens to vanish at n=0.
+    assert_eq!(
+        derive_sector_monotone_rule_for_target(
+            &context,
+            &relations,
+            &[0],
+            &[0],
+            OrderingPolicy::default(),
+            ParametricRuleLimits::default(),
+        ),
+        Err(ParametricRuleError::ActivationLeakRequiresRefinement {
+            right_hand_side_ordinal: 0,
+            position: 0,
+            shift: 1,
+        })
+    );
 }
 
 #[test]

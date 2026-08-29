@@ -39,6 +39,14 @@ pub enum Error {
         position: usize,
         shift: i64,
     },
+    PivotLeavesParentSector {
+        position: usize,
+        shift: i64,
+    },
+    InactiveLineActivation {
+        position: usize,
+        shift: i64,
+    },
     UnknownOrderingPolicy {
         id: String,
     },
@@ -97,6 +105,14 @@ impl fmt::Display for Error {
             Self::ShiftNotCovered { position, shift } => write!(
                 formatter,
                 "sector-interior coordinate {position} does not cover shift {shift}"
+            ),
+            Self::PivotLeavesParentSector { position, shift } => write!(
+                formatter,
+                "pivot shift {shift} at position {position} leaves the parent sector on the proposed sector-monotone domain"
+            ),
+            Self::InactiveLineActivation { position, shift } => write!(
+                formatter,
+                "positive shift {shift} at inactive position {position} activates a line on the proposed sector-monotone domain"
             ),
             Self::UnknownOrderingPolicy { id } => {
                 write!(formatter, "unknown integral-ordering policy {id:?}")

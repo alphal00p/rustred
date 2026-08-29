@@ -53,6 +53,14 @@ authentication of a fresh complete source set, proper-subsector feedback,
 terminal selection, total coverage, durable artifacts, a rule applier,
 generic tensor service, and master substitution remain absent.
 
+The target-directed sunset rule now also passes a boundary sentinel at
+`[1,1,1]`. Its maximal parent-sector box is partitioned term by term into
+same-sector cells and four concrete proper-subsector dependencies; exhaustive
+points in `{1,2,3}^3`, negative-two shifts, simultaneous pinches, and i64
+extremes verify the generic sector proof. This proves pinch classification and
+strict descent only. It does not prove that any referenced lower sector is
+closed.
+
 ## Exact closure gate
 
 A rule or artifact can claim closure only when tests establish all of the
@@ -139,9 +147,9 @@ establish exact frozen dot/indexed outputs, valid topology relabeling, scalar
 and odd-rank behavior, the rank-four typed frontier, exact numeric mass and
 nonunit-power retention, malformed-routing rejection, and nonsymbolic-
 dimension rejection. Separate compatibility tests establish that the default
-builder equals the existing FORM path. These gates establish the bounded
-one-loop slice only; they do not establish generic tensor or scalar-IBP
-correctness.
+builder equals the existing FORM path. These gates establish a bounded
+rank-two multi-loop bridge only; they do not establish generic tensor or
+scalar-IBP correctness.
 
 The detailed tensor, routing, convention, and vertical-oracle contract lives in
 [`tensor.md`](tensor.md).

@@ -6,6 +6,8 @@ use crate::foundry::anchored::AnchoredRule;
 use crate::identity::{IdentityConditionSource, IndexShift, RowId};
 use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain, ShiftStrictDescentWitness};
 
+use super::boundary::SectorMonotoneTargetAdmission;
+
 /// One uniformly lower shift on the right-hand side of a parametric rule.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParametricRuleTerm {
@@ -197,8 +199,12 @@ impl AnchorAgreement {
 /// One guarded, uniformly descending, exactly replayed parametric rule.
 ///
 /// This object certifies only its fixed-sector interior, supplied source-row
-/// span, and concrete anchor agreement. It does not certify exceptional
-/// branches, dependency closure, or a published reduction artifact.
+/// span, and concrete anchor agreement. For a sector-monotone target
+/// derivation, the agreement anchor may lie outside that same-sector interior;
+/// [`Self::sector_monotone_admission`] then supplies a larger universal parent
+/// box and exhaustive term-local pinch proofs. It does not certify exceptional
+/// guards, lower-sector rule availability, dependency closure, or a published
+/// reduction artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParametricRule {
     pub(super) family_fingerprint: Arc<String>,
@@ -212,6 +218,7 @@ pub struct ParametricRule {
     pub(super) source_combination: Vec<ParametricSourceRowContribution>,
     pub(super) replay: ParametricExactReplayWitness,
     pub(super) anchor_agreement: AnchorAgreement,
+    pub(super) sector_monotone_admission: Option<SectorMonotoneTargetAdmission>,
 }
 
 impl ParametricRule {
@@ -267,6 +274,12 @@ impl ParametricRule {
 
     pub fn anchor_agreement(&self) -> &AnchorAgreement {
         &self.anchor_agreement
+    }
+
+    /// Universal parent-box and term-local pinch evidence produced only by the
+    /// sector-monotone target API. Interior-only derivations return `None`.
+    pub fn sector_monotone_admission(&self) -> Option<&SectorMonotoneTargetAdmission> {
+        self.sector_monotone_admission.as_ref()
     }
 
     pub fn anchor(&self) -> &IntegralKey {
