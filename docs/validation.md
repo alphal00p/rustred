@@ -114,10 +114,14 @@ The reusable lower-loop ladder is:
   `PR`-master combinations before master expansion.
 
 Existing Vakint input-matching and inline expected-expression tests can be
-used without FORM. The current additive mode tests establish only that the
-default builder equals the existing FORM path and that selecting `RustRed`
-returns a typed unavailable error before FORM can be invoked. They do not
-establish tensor correctness.
+used without FORM. The current RustRed-mode tests use invalid FORM paths and
+establish exact frozen dot/indexed outputs, valid topology relabeling, scalar
+and odd-rank behavior, the rank-four typed frontier, exact numeric mass and
+nonunit-power retention, malformed-routing rejection, and nonsymbolic-
+dimension rejection. Separate compatibility tests establish that the default
+builder equals the existing FORM path. These gates establish the bounded
+one-loop slice only; they do not establish generic tensor or scalar-IBP
+correctness.
 
 The detailed tensor, routing, convention, and vertical-oracle contract lives in
 [`tensor.md`](tensor.md).
@@ -129,7 +133,8 @@ mode. Existing Vakint tests of the default compatibility backend currently may
 run FORM; they are oracle coverage and should move to a separately declared
 job. Such an oracle-regeneration job may run Vakint's existing
 alphaLoop, MATAD, or FMFT backends with a real pinned FORM version at least
-4.2.1. That job must record the executable identity, input, Vakint revision,
+4.2.1; this milestone was compared locally with FORM 5.0.0. That job must
+record the executable identity, input, Vakint revision,
 convention map, and raw output. Its reviewed outputs become versioned fixtures;
 the production implementation never copies the oracle's authored recurrence
 tables.

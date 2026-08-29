@@ -60,11 +60,15 @@ The mandatory clean reset is complete:
   anchored rules, solve or close families, publish rule artifacts, apply IBPs,
   substitute masters, or support generic/higher-even-rank tensor reduction.
 
-In the independent GammaLoop repository, branch `vakint_rustred` already has a
-backward-compatible `TensorReductionMode::RustRed` boundary. Existing Vakint
-behavior remains unchanged and defaults to its FORM backend. Selecting RustRed
-currently reaches a typed `RustRedUnavailable` result and never falls back to
-FORM; this is an integration seam, not tensor-reduction capability.
+In the independent GammaLoop repository, branch `vakint_rustred` now has the
+first real backward-compatible `TensorReductionMode::RustRed` adapter. It
+reuses Vakint's topology matcher and simultaneous canonical routing, then
+calls RustRed's key-aware projector for the bounded one-loop,
+one-propagator, single-scale-vacuum slice through rank two. Existing Vakint
+behavior remains unchanged and defaults to its FORM backend. Unsupported
+families and ranks return typed errors; the RustRed mode never invokes or
+falls back to FORM. This is tensor-projection capability, not yet generic
+tensor reduction, scalar IBP application, or master substitution.
 
 Commit and push coherent passing milestones frequently. Every Git operation
 uses:
@@ -273,11 +277,12 @@ closure evidence.
 2. Extend the now-live scalar/odd/rank-two vacuum tensor slice to the full
    projector/orbit kernel, while retaining family-aware scalar lowering and
    the typed generic stub.
-3. Replace Vakint's typed-unavailable adapter with the real RustRed service on
-   `vakint_rustred`, preserving every existing input/backend/default result.
-4. Compare identical lower-loop inputs through RustRed and existing Vakint
-   oracle expectations; later add guarded rule application and master
-   substitution as real artifacts become available.
+3. Maintain and widen the now-live Vakint adapter on `vakint_rustred`, while
+   preserving every existing input/backend/default result and keeping all
+   tensor mathematics in RustRed.
+4. Extend the now-passing one-loop frozen-result and FORM-oracle comparison to
+   identical higher-rank and higher-loop inputs; later add guarded rule
+   application and master substitution as real artifacts become available.
 
 For local co-development, GammaLoop's workspace may temporarily depend on
 `../../crates/rustred-core`. Every pushed GammaLoop milestone pins the

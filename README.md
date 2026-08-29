@@ -84,13 +84,17 @@ python -c 'import rustred'
 ## Vakint integration
 
 Vakint development occurs in the independent GammaLoop repository on branch
-`vakint_rustred`. The current additive `RustRed` tensor-mode boundary preserves
-Vakint's existing default FORM behavior, but deliberately returns a typed
-unavailable result because its adapter is not wired to RustRed's new bounded
-tensor service yet. The new mode never falls back to FORM.
+`vakint_rustred`. Its additive `RustRed` tensor mode now reuses Vakint's
+matcher/canonical routing and calls RustRed's key-aware projector for the
+bounded one-loop, one-propagator single-scale-vacuum slice through rank two.
+Scalar numerators pass through, odd ranks vanish, exact symbolic or numeric
+masses and integer powers are retained, and both Vakint output notations are
+covered. Existing behavior still defaults to FORM; unsupported RustRed inputs
+fail with typed errors and never invoke or fall back to FORM.
 
 The RustRed crate now owns the first scalar/odd/rank-two single-scale-vacuum
-service; Vakint, the CLI, and Python will reuse it as their adapters land.
+service; Vakint already reuses its projection boundary, while CLI and Python
+tensor adapters remain to be added.
 Vakint remains responsible for topology matching, canonical routing, steering,
 and presentation. Existing FORM-backed Vakint paths and their compatibility
 tests remain reference oracles; the RustRed mode does not invoke or fall back

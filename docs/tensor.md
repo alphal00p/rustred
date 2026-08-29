@@ -3,7 +3,7 @@
 [`GOAL.md`](../GOAL.md) is the sequencing and capability authority. This
 document preserves the stable implementation contract for Track B: a generic
 RustRed tensor service, its optimized single-scale vacuum lane, and the thin
-Vakint adapter that will call it. It records the live frontier and the
+Vakint adapter that calls it. It records the live frontier and the
 remaining implementation contract.
 
 ## Current frontier
@@ -36,24 +36,32 @@ auxiliary/ISP base-key power and auxiliary family power shift to be zero;
 otherwise numerator content would be invisible to the bounded tensor grammar,
 so both positive and negative auxiliary powers are typed unsupported results.
 
-In the independent GammaLoop repository, branch `vakint_rustred` still has
-only an additive dispatch seam:
+In the independent GammaLoop repository, branch `vakint_rustred` now has the
+first bounded vertical adapter:
 
 - `TensorReductionMode::Form` remains the default and preserves existing
   Vakint behavior;
-- `TensorReductionMode::RustRed(RustRedOptions)` reaches a distinct adapter;
-- that adapter currently returns
-  `TensorReductionError::RustRedUnavailable`; and
+- `TensorReductionMode::RustRed(RustRedOptions)` reuses Vakint topology
+  matching and simultaneous numerator routing, then calls the key-aware
+  RustRed projector;
+- the admitted slice is a one-loop, one-physical-propagator full basis with a
+  nonzero exact symbolic or numeric mass, integer propagator power, and
+  scalar/odd/rank-two numerator support;
+- even ranks above two, multi-loop families, zero scale, non-bare explicit input
+  routing, malformed graph identifiers, and nonsymbolic epsilon settings fail
+  through typed boundaries; and
 - selection of the RustRed mode never calls or falls back to FORM.
 
-Those current Vakint tests prove dispatch and backward-compatibility boundaries
-only; RustRed's native core sentinel is tested independently. A test that
-intentionally executes Vakint's existing FORM backend belongs to a separately
-declared compatibility or oracle job; it is not a RustRed-mode test.
+The FORM-free mode tests use deliberately invalid FORM paths and frozen exact
+dot/indexed results. Separate compatibility tests execute the existing FORM
+backend and confirm that the default builder remains equivalent. This proves
+only the bounded one-loop vertical slice, not general tensor reduction or
+scalar IBP reduction.
 
 The first service described below now lives in the `rustred` core package.
-Vakint, `rustred-app`, the CLI, and Python will adapt to that one service rather
-than carry independent projectors or scalar-lowering algorithms.
+Vakint now adapts its projection operation; `rustred-app`, the CLI, and Python
+will expose the same owner later rather than carry independent projectors or
+scalar-lowering algorithms.
 
 ## Ownership and vertical seam
 
@@ -71,8 +79,9 @@ GammaLoop local counterterm Atom
 ```
 
 The non-BPHZ analytical-evaluation caller uses the same middle sequence. The
-new mode replaces the tensor and scalar-reduction mathematics without
+completed mode will replace tensor and scalar-reduction mathematics without
 duplicating GammaLoop's forest construction or Vakint's topology registry.
+The live slice replaces only the admitted Lorentz projection.
 
 Vakint owns:
 

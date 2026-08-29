@@ -137,12 +137,13 @@ vakint
 behavior remain unchanged. The builder's default path is tested to produce
 exactly the same result as the existing method.
 
-The `RustRed` selection currently reaches a real adapter boundary and returns
-the typed `TensorReductionError::RustRedUnavailable`, because that adapter is
-not yet wired to the [new bounded RustRed tensor service](tensor.md). It does
-not invoke FORM, fall back to FORM, or manufacture a result. This seam proves
-compatibility and dispatch isolation only; RustRed's native core sentinel is
-validated separately.
+The `RustRed` selection now reaches the [bounded RustRed tensor
+service](tensor.md) for one-loop, one-propagator single-scale vacuum inputs
+through rank two. Vakint performs its existing topology match and simultaneous
+numerator routing, passes the exact matched integral power into RustRed, and
+maps exact `d = 4 - 2 epsilon` coefficients and tensor heads back to either
+Vakint output notation. Other families or unsupported ranks return precise
+typed errors. It does not invoke or fall back to FORM.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve
 RustRed and Vakint against one exact Symbolica-family revision. A relative
@@ -176,12 +177,12 @@ Vakint does not duplicate tensor projectors or the rule engine. Defects in
 Vakint matching are fixed and tested in that matcher rather than bypassed by a
 second topology table.
 
-The first tensor API will expose separate projection, scalar lowering, and
-composed operations. `Auto` will select an optimized vacuum lane only from a
+The first tensor API exposes separate projection, scalar lowering, and
+composed operations. `Auto` selects an optimized vacuum lane only from a
 sealed RustRed proof of single-scale, no-external-denominator-shift semantics.
 External spectator vectors in the numerator do not invalidate that proof. A
-fully generic external-kinematics lane will be present as an explicit typed
-unsupported boundary until implemented.
+fully generic external-kinematics lane is present as an explicit typed
+unsupported boundary until its algorithm is implemented.
 
 ## Planned fine-grained surfaces
 
