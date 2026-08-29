@@ -9,11 +9,12 @@
 //! inactive i: n_i <= 0
 //! ```
 //!
-//! Family `PowerShifts` therefore do not appear in any API in this module.
-//! Cuts and patterns classify sectors as excluded metadata; they are not zero
-//! proofs. [`symmetry`] consumes authenticated families and exact Symbolica
-//! coefficients to verify caller-supplied momentum maps; it does not generate
-//! topology-authored candidates.
+//! Family `PowerShifts` therefore do not affect the mask, restriction, or
+//! ordering foundation. Cuts and patterns classify sectors as excluded
+//! metadata; they are not zero proofs. [`zero`] owns the separate
+//! family-aware analytic zero test, while [`symmetry`] consumes authenticated
+//! families and exact Symbolica coefficients to verify caller-supplied
+//! momentum maps. Neither analysis generates topology-authored candidates.
 //!
 //! Source correspondence:
 //!
@@ -31,6 +32,7 @@ mod mask;
 mod ordering;
 mod restriction;
 pub mod symmetry;
+pub mod zero;
 
 pub use error::Error;
 pub use mask::Mask;

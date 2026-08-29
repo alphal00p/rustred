@@ -1,12 +1,12 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `f050ef4`, immediately before the affine-input ownership
+**Baseline parent:** `fb2dd7a`, immediately before the zero-sector ownership
 decomposition.
-**Status:** R3/affine-owner working authority, subordinate to `GOAL.md` and the
+**Status:** R3/zero-owner working authority, subordinate to `GOAL.md` and the
 clean-repository architecture plan.
 
-This ledger classifies every one of the 179 Rust source/test paths remaining
-after decomposing the Atom-based affine compiler under `input::affine`. It is
+This ledger classifies every one of the 187 Rust source/test paths remaining
+after decomposing the zero-sector proof service under `sector::zero`. It is
 intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -29,8 +29,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 55 |
-| split | 123 |
+| move | 56 |
+| split | 130 |
 | delete | 0 |
 | replace | 1 |
 
@@ -214,4 +214,12 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-core/src/sector/symmetry/verify/denominator.rs` | split | sector::symmetry::verify | affine denominator-map derivation, candidate guards, and exact row classification |
 | `crates/rustred-core/src/sector/symmetry/verify/matrix.rs` | split | sector::symmetry::verify | narrow shape and checked matrix-adapter composition without a second CAS |
 | `crates/rustred-core/src/sector/symmetry/verify/replay.rs` | split | sector::symmetry::verify | independent exact denominator-map replay retained until the later ceremony/liveness prune |
-| `crates/rustred-core/src/zero_sectors.rs` | split | sector | retain zero-sector proofs with one owner-local condition-source representation; move orchestration to foundry and prune ceremonies |
+| `crates/rustred-core/src/sector/zero/mod.rs` | move | sector::zero | sole canonical zero-sector facade; retain the topology-neutral proof service without a root alias |
+| `crates/rustred-core/src/sector/zero/analysis.rs` | split | sector::zero | retain family-bound construction, formal power-support semantics, effective-face decisions, and certificate composition; future traversal, caching, and retry orchestration belong to foundry |
+| `crates/rustred-core/src/sector/zero/domain.rs` | split | sector::zero | retain one owner-local generic-domain condition and provenance representation shared by family and power-support guards |
+| `crates/rustred-core/src/sector/zero/error.rs` | split | sector::zero | retain typed topology-neutral construction, resource, matrix, and proof failures pending the semantic prune |
+| `crates/rustred-core/src/sector/zero/exponent.rs` | split | sector::zero | retain extraction of the effective `G = U + F` face into the exact exponent-row geometry consumed by the rank test |
+| `crates/rustred-core/src/sector/zero/limits.rs` | split | sector::zero | retain checked Feynman, face-matrix, rank, witness, bit, and power-shift admission policy |
+| `crates/rustred-core/src/sector/zero/model.rs` | split | sector::zero | retain sealed zero certificates, full-rank diagnostics, decisions, and accessors while Step 2 removes redundant schema/replay ceremony |
+| `crates/rustred-core/src/sector/zero/rank.rs` | split | sector::zero / algebra::matrix | isolate the exact rational rank and one-witness seam; Step 2 keeps only free-column interpretation while moving primitive normalization and replay to public Symbolica matrix operations |
+| `crates/rustred-core/src/sector/zero/tests.rs` | split | sector::zero tests | retain focused on-demand zero/full-rank and owner-local guard-provenance sentinels without reviving eager historical sector inventories |

@@ -13,7 +13,6 @@ pub mod family;
 pub mod identity;
 pub mod input;
 pub mod sector;
-pub mod zero_sectors;
 
 pub use algebra::{
     CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
@@ -33,9 +32,4 @@ pub use family::{
     FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyError,
     IntegralFamilyFingerprintStats, IntegralFamilyLimits, IntegralKey, IntegralKeyError,
     ScalarProductCoordinate,
-};
-pub use zero_sectors::{
-    FullColumnRankWitness, PowerShiftPolicy, ZERO_SECTOR_CERTIFICATE_SCHEMA, ZeroSectorAnalyzer,
-    ZeroSectorCertificate, ZeroSectorConditionSource, ZeroSectorDecision, ZeroSectorDomain,
-    ZeroSectorDomainCondition, ZeroSectorError, ZeroSectorLimits, ZeroSectorResource,
 };
