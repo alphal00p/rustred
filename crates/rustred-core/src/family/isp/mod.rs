@@ -10,4 +10,4 @@ mod tests;
 
 pub use completion::IspCompletion;
 pub use error::IspCompletionError;
-pub use model::{ISP_COMPLETION_V2_SCHEMA, IspCompletionLimits, IspCompletionStats};
+pub use model::{IspCompletionLimits, IspCompletionStats};

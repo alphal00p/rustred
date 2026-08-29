@@ -1,8 +1,10 @@
 //! Family-owned adaptation of checked exact-algebra operations.
 
+#[cfg(test)]
+use crate::algebra::matrix::verify_coefficient_matrix_inverse;
 use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
-    invert_and_verify_coefficient_matrix, verify_coefficient_matrix_inverse,
+    invert_and_verify_coefficient_matrix,
 };
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
@@ -21,11 +23,14 @@ pub(super) fn coefficients_are_equal(
     Ok(context.try_sub(left, right, limits)?.is_zero())
 }
 
-pub(super) fn invert_symbolic_matrix(
+pub(super) fn invert_symbolic_matrix<Row>(
     context: &CoefficientContext,
-    matrix: &[Vec<Coefficient>],
+    matrix: &[Row],
     limits: IntegralFamilyLimits,
-) -> Result<(Vec<Vec<Coefficient>>, Coefficient), IntegralFamilyError> {
+) -> Result<(Vec<Vec<Coefficient>>, Coefficient), IntegralFamilyError>
+where
+    Row: AsRef<[Coefficient]>,
+{
     let size = matrix.len();
     let verified =
         invert_and_verify_coefficient_matrix(context, matrix, symbolica_matrix_limits(limits))
@@ -34,12 +39,17 @@ pub(super) fn invert_symbolic_matrix(
     Ok((inverse, determinant))
 }
 
-pub(super) fn verify_inverse(
+#[cfg(test)]
+pub(super) fn verify_inverse<Row, InverseRow>(
     context: &CoefficientContext,
-    matrix: &[Vec<Coefficient>],
-    inverse: &[Vec<Coefficient>],
+    matrix: &[Row],
+    inverse: &[InverseRow],
     limits: IntegralFamilyLimits,
-) -> Result<(), IntegralFamilyError> {
+) -> Result<(), IntegralFamilyError>
+where
+    Row: AsRef<[Coefficient]>,
+    InverseRow: AsRef<[Coefficient]>,
+{
     verify_coefficient_matrix_inverse(context, matrix, inverse, symbolica_matrix_limits(limits))
         .map_err(|error| map_symbolica_matrix_error(error, matrix.len()))?;
     Ok(())

@@ -3,10 +3,12 @@
 use crate::algebra::CoefficientContext;
 
 use super::error::IndexedAlgebraError;
+use super::limits::check_limit;
 
 const BASE_CONTEXT_PREFIX: &str = "rustred-base-context-v1|parameters=";
-const INDEX_SYMBOL_PREFIX: &str = "rustred::indexed_coefficient_s";
-const INDEX_SYMBOL_POSITION_SEPARATOR: &str = "::n";
+// Keep this versioned top-level namespace disjoint from base variables, which
+// CoefficientContext always registers below `rustred::`.
+const INDEX_SYMBOL_PREFIX: &str = "rustred_indexed_coefficient_v1::n";
 const INDEXED_CONTEXT_PREFIX: &str = "rustred-indexed-coefficient-context-v1|base=";
 const INDEXED_CONTEXT_SCOPE_SEPARATOR: &str = "|scope=";
 const INDEXED_CONTEXT_INDEX_SEPARATOR: &str = "|indices=";
@@ -75,39 +77,21 @@ fn push_decimal(target: &mut String, value: usize) {
     }
 }
 
-pub(super) fn encode_symbol_component(bytes: &[u8]) -> Result<String, IndexedAlgebraError> {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let requested = checked_string_mul("encoded indexed coefficient scope bytes", bytes.len(), 2)?;
-    let mut encoded =
-        try_string_with_capacity("encoded indexed coefficient scope bytes", requested)?;
-    for byte in bytes {
-        encoded.push(HEX[(byte >> 4) as usize] as char);
-        encoded.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    Ok(encoded)
-}
-
-fn qualified_index_symbol_len(
-    encoded_scope_len: usize,
-    position: usize,
-) -> Result<usize, IndexedAlgebraError> {
+fn qualified_index_symbol_len(position: usize) -> Result<usize, IndexedAlgebraError> {
     let resource = "indexed coefficient Symbolica name bytes";
-    let requested = checked_string_add(resource, INDEX_SYMBOL_PREFIX.len(), encoded_scope_len)?;
-    let requested = checked_string_add(resource, requested, INDEX_SYMBOL_POSITION_SEPARATOR.len())?;
-    checked_string_add(resource, requested, decimal_digits(position))
+    checked_string_add(
+        resource,
+        INDEX_SYMBOL_PREFIX.len(),
+        decimal_digits(position),
+    )
 }
 
-/// Keep the total generated-name workload representable before registration;
-/// Symbolica retains the identities even though Rust builds one name at a time.
-pub(super) fn preflight_qualified_index_symbols(
-    encoded_scope_len: usize,
+pub(super) fn aggregate_qualified_index_symbol_bytes(
     index_count: usize,
-) -> Result<(), IndexedAlgebraError> {
+) -> Result<usize, IndexedAlgebraError> {
     debug_assert_ne!(index_count, 0);
     let resource = "indexed coefficient aggregate Symbolica name bytes";
-    let fixed_len = checked_string_add(resource, INDEX_SYMBOL_PREFIX.len(), encoded_scope_len)?;
-    let fixed_len = checked_string_add(resource, fixed_len, INDEX_SYMBOL_POSITION_SEPARATOR.len())?;
-    let mut total = checked_string_mul(resource, fixed_len, index_count)?;
+    let mut total = checked_string_mul(resource, INDEX_SYMBOL_PREFIX.len(), index_count)?;
 
     // Exact decimal digit sum for positions 0..index_count, in O(log n).
     let mut range_start = 0usize;
@@ -135,27 +119,45 @@ pub(super) fn preflight_qualified_index_symbols(
     }
 
     // Also validate the exact largest individual allocation explicitly.
-    let _ = qualified_index_symbol_len(encoded_scope_len, index_count - 1)?;
-    Ok(())
+    let _ = qualified_index_symbol_len(index_count - 1)?;
+    Ok(total)
 }
 
-pub(super) fn qualified_index_symbol(
-    encoded_scope: &str,
-    position: usize,
-) -> Result<String, IndexedAlgebraError> {
+/// Keep the total generated-name workload representable and within policy
+/// before registration; Symbolica retains each positional identity even
+/// though Rust builds one name at a time.
+pub(super) fn preflight_qualified_index_symbols(
+    index_count: usize,
+    max_native_symbol_name_bytes: usize,
+) -> Result<(), IndexedAlgebraError> {
+    let requested = aggregate_qualified_index_symbol_bytes(index_count)?;
+    check_limit(
+        "indexed coefficient aggregate Symbolica name bytes",
+        requested,
+        max_native_symbol_name_bytes,
+    )
+}
+
+pub(super) fn qualified_index_symbol(position: usize) -> Result<String, IndexedAlgebraError> {
     let resource = "indexed coefficient Symbolica name bytes";
-    let requested = qualified_index_symbol_len(encoded_scope.len(), position)?;
+    let requested = qualified_index_symbol_len(position)?;
     let mut result = try_string_with_capacity(resource, requested)?;
     result.push_str(INDEX_SYMBOL_PREFIX);
-    result.push_str(encoded_scope);
-    result.push_str(INDEX_SYMBOL_POSITION_SEPARATOR);
     push_decimal(&mut result, position);
     debug_assert_eq!(result.len(), requested);
     Ok(result)
 }
 
+#[cfg(test)]
 pub(super) fn base_context_fingerprint(
     base: &CoefficientContext,
+) -> Result<String, IndexedAlgebraError> {
+    base_context_fingerprint_with_limit(base, usize::MAX)
+}
+
+pub(super) fn base_context_fingerprint_with_limit(
+    base: &CoefficientContext,
+    max_fingerprint_bytes: usize,
 ) -> Result<String, IndexedAlgebraError> {
     let resource = "indexed coefficient base-context fingerprint bytes";
     let mut requested = checked_string_add(
@@ -169,6 +171,7 @@ pub(super) fn base_context_fingerprint(
         requested = checked_string_add(resource, requested, 1)?;
         requested = checked_string_add(resource, requested, name.len())?;
     }
+    check_limit(resource, requested, max_fingerprint_bytes)?;
 
     let mut result = try_string_with_capacity(resource, requested)?;
     result.push_str(BASE_CONTEXT_PREFIX);
@@ -183,31 +186,62 @@ pub(super) fn base_context_fingerprint(
     Ok(result)
 }
 
+#[cfg(test)]
 pub(super) fn indexed_context_fingerprint(
     base_fingerprint: &str,
     scope: &str,
     index_count: usize,
 ) -> Result<String, IndexedAlgebraError> {
+    indexed_context_fingerprint_segments(base_fingerprint, &[scope], index_count)
+}
+
+#[cfg(test)]
+pub(super) fn indexed_context_fingerprint_segments(
+    base_fingerprint: &str,
+    scope: &[&str],
+    index_count: usize,
+) -> Result<String, IndexedAlgebraError> {
+    indexed_context_fingerprint_segments_with_limit(
+        base_fingerprint,
+        scope,
+        index_count,
+        usize::MAX,
+    )
+}
+
+pub(super) fn indexed_context_fingerprint_segments_with_limit(
+    base_fingerprint: &str,
+    scope: &[&str],
+    index_count: usize,
+    max_fingerprint_bytes: usize,
+) -> Result<String, IndexedAlgebraError> {
     let resource = "indexed coefficient context fingerprint bytes";
+    let mut scope_len = 0usize;
+    for segment in scope {
+        scope_len = checked_string_add(resource, scope_len, segment.len())?;
+    }
     let mut requested = checked_string_add(
         resource,
         INDEXED_CONTEXT_PREFIX.len(),
         base_fingerprint.len(),
     )?;
     requested = checked_string_add(resource, requested, INDEXED_CONTEXT_SCOPE_SEPARATOR.len())?;
-    requested = checked_string_add(resource, requested, decimal_digits(scope.len()))?;
+    requested = checked_string_add(resource, requested, decimal_digits(scope_len))?;
     requested = checked_string_add(resource, requested, 1)?;
-    requested = checked_string_add(resource, requested, scope.len())?;
+    requested = checked_string_add(resource, requested, scope_len)?;
     requested = checked_string_add(resource, requested, INDEXED_CONTEXT_INDEX_SEPARATOR.len())?;
     requested = checked_string_add(resource, requested, decimal_digits(index_count))?;
+    check_limit(resource, requested, max_fingerprint_bytes)?;
 
     let mut result = try_string_with_capacity(resource, requested)?;
     result.push_str(INDEXED_CONTEXT_PREFIX);
     result.push_str(base_fingerprint);
     result.push_str(INDEXED_CONTEXT_SCOPE_SEPARATOR);
-    push_decimal(&mut result, scope.len());
+    push_decimal(&mut result, scope_len);
     result.push(':');
-    result.push_str(scope);
+    for segment in scope {
+        result.push_str(segment);
+    }
     result.push_str(INDEXED_CONTEXT_INDEX_SEPARATOR);
     push_decimal(&mut result, index_count);
     debug_assert_eq!(result.len(), requested);
@@ -219,20 +253,17 @@ mod tests {
     use crate::algebra::CoefficientContext;
 
     use super::{
-        INDEX_SYMBOL_POSITION_SEPARATOR, INDEX_SYMBOL_PREFIX, base_context_fingerprint,
-        encode_symbol_component, indexed_context_fingerprint, preflight_qualified_index_symbols,
-        qualified_index_symbol, qualified_index_symbol_len,
+        INDEX_SYMBOL_PREFIX, aggregate_qualified_index_symbol_bytes, base_context_fingerprint,
+        indexed_context_fingerprint, indexed_context_fingerprint_segments,
+        preflight_qualified_index_symbols, qualified_index_symbol, qualified_index_symbol_len,
     };
     use crate::algebra::indexed::IndexedAlgebraError;
 
     #[test]
     fn checked_builders_preserve_the_indexed_identity_encoding() {
-        let encoded = encode_symbol_component(b"a/\0").unwrap();
-        assert_eq!(encoded, "612f00");
-        assert_eq!(
-            qualified_index_symbol(&encoded, 10).unwrap(),
-            "rustred::indexed_coefficient_s612f00::n10"
-        );
+        let qualified = qualified_index_symbol(10).unwrap();
+        assert_eq!(qualified, "rustred_indexed_coefficient_v1::n10");
+        assert_eq!(qualified.len(), INDEX_SYMBOL_PREFIX.len() + 2);
 
         let base = CoefficientContext::new(["d", "m2"]);
         let base_fingerprint = base_context_fingerprint(&base).unwrap();
@@ -244,27 +275,28 @@ mod tests {
             indexed_context_fingerprint(&base_fingerprint, "s|x", 10).unwrap(),
             "rustred-indexed-coefficient-context-v1|base=rustred-base-context-v1|parameters=2|1:d|2:m2|scope=3:s|x|indices=10"
         );
+        assert_eq!(
+            indexed_context_fingerprint_segments(&base_fingerprint, &["s", "|", "x"], 10).unwrap(),
+            indexed_context_fingerprint(&base_fingerprint, "s|x", 10).unwrap()
+        );
     }
 
     #[test]
     fn generated_name_lengths_are_checked_before_allocation_or_registration() {
-        let overhead = INDEX_SYMBOL_PREFIX.len() + INDEX_SYMBOL_POSITION_SEPARATOR.len() + 1;
-        let exact_scope_len = usize::MAX - overhead;
+        let overhead = INDEX_SYMBOL_PREFIX.len();
         assert_eq!(
-            qualified_index_symbol_len(exact_scope_len, 0).unwrap(),
-            usize::MAX
+            qualified_index_symbol_len(usize::MAX).unwrap(),
+            overhead + super::decimal_digits(usize::MAX)
         );
         assert!(matches!(
-            qualified_index_symbol_len(exact_scope_len + 1, 0),
-            Err(IndexedAlgebraError::ResourceCountOverflow {
-                resource: "indexed coefficient Symbolica name bytes",
-            })
-        ));
-        assert!(matches!(
-            preflight_qualified_index_symbols(usize::MAX, 1),
+            preflight_qualified_index_symbols(usize::MAX, usize::MAX),
             Err(IndexedAlgebraError::ResourceCountOverflow {
                 resource: "indexed coefficient aggregate Symbolica name bytes",
             })
         ));
+        assert_eq!(
+            aggregate_qualified_index_symbol_bytes(1).unwrap(),
+            INDEX_SYMBOL_PREFIX.len() + 1
+        );
     }
 }

@@ -5,7 +5,7 @@ use symbolica::atom::{Atom, AtomView};
 use super::compiler::{Compiler, guarded_symbolica};
 use super::error::Error;
 use super::limits::{Stats, check_limit, checked_add, checked_mul};
-use super::model::{Project, ProjectSource};
+use super::model::Project;
 use super::normalize::normalize_parts;
 use super::parse::{
     ClauseKind, RawSourceKind, authenticate_atom_tree, census_atom_resources,
@@ -275,9 +275,6 @@ impl Compiler {
                 propagators: props,
                 external_gram: grams,
                 numerator,
-            },
-            ProjectSource::Symbolica {
-                source: source.to_owned(),
             },
             &self.syntax,
             stats,

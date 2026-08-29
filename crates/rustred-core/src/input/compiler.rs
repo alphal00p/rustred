@@ -4,7 +4,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::error::Error;
 use super::limits::{Limits, Stats, check_limit};
-use super::model::{Project, ProjectSource};
+use super::model::Project;
 use super::normalize::normalize_parts;
 use super::parse::{IntegralSyntax, RawSourceKind, parse_expression_accumulating};
 use super::request::{AtomGramEntry, AtomProject, AtomPropagator, TextProject};
@@ -131,7 +131,6 @@ impl Compiler {
                     external_gram: parsed_gram,
                     numerator,
                 },
-                ProjectSource::Explicit,
                 &self.syntax,
                 stats,
                 self.limits,
@@ -142,13 +141,7 @@ impl Compiler {
     /// Compile caller-owned Symbolica atoms into the common normalized model.
     pub fn compile_atoms(&self, parts: AtomProject) -> Result<Project, Error> {
         guarded_symbolica("explicit input normalization", || {
-            normalize_parts(
-                parts,
-                ProjectSource::Explicit,
-                &self.syntax,
-                Stats::default(),
-                self.limits,
-            )
+            normalize_parts(parts, &self.syntax, Stats::default(), self.limits)
         })
     }
 }

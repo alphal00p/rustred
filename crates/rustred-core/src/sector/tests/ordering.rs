@@ -1,15 +1,14 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashSet};
 
-use super::super::ordering::{RUSTRED_UNSHIFTED_ORDER_V1_ID, RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA};
+use super::super::ordering::RUSTRED_UNSHIFTED_ORDER_V1_ID;
 use super::super::{ComplexityComponent, Error, OrderingPolicy};
 use super::support::all_indices;
 
 #[test]
-fn complexity_key_is_injective_strict_and_has_stable_manifest() {
+fn complexity_key_is_injective_strict_and_has_stable_id_and_display() {
     let policy = OrderingPolicy::RustRedUnshiftedV1;
     assert_eq!(policy.stable_id(), RUSTRED_UNSHIFTED_ORDER_V1_ID);
-    assert_eq!(policy.key_schema(), RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA);
     assert_eq!(
         OrderingPolicy::try_from_stable_id(policy.stable_id()).unwrap(),
         policy

@@ -1,7 +1,7 @@
 use crate::algebra::{Coefficient, IndexedCoefficient};
 use crate::family::ContractionMomentum;
 
-use super::super::relation::{IndexShift, ParametricRelation};
+use super::super::relation::{Builder, IndexShift, ParametricRelation};
 use super::super::row::RowId;
 use super::error::ParametricIbpError;
 use super::model::ParametricIbpGenerator;
@@ -24,7 +24,7 @@ impl ParametricIbpGenerator<'_> {
         };
         let mut row = self.empty_relation(row_id)?;
         if contraction == ContractionMomentum::Loop(differentiated_loop) {
-            row.add_term_with_limits(
+            row.add_term(
                 &self.context,
                 self.zero_shift.clone(),
                 dimension.clone(),
@@ -33,7 +33,7 @@ impl ParametricIbpGenerator<'_> {
         }
 
         self.add_ordinary_derivative_terms(&mut row, differentiated_loop, contraction, powers)?;
-        Ok(row)
+        Ok(row.finish())
     }
 
     pub(super) fn generate_external_source_row(
@@ -62,12 +62,12 @@ impl ParametricIbpGenerator<'_> {
             ContractionMomentum::External(external),
             powers,
         )?;
-        Ok(row)
+        Ok(row.finish())
     }
 
     fn add_ordinary_derivative_terms(
         &self,
-        row: &mut ParametricRelation,
+        row: &mut Builder,
         differentiated_loop: usize,
         contraction: ContractionMomentum,
         powers: &[IndexedCoefficient],
@@ -95,7 +95,7 @@ impl ParametricIbpGenerator<'_> {
 
     fn add_negative_derivative_term(
         &self,
-        row: &mut ParametricRelation,
+        row: &mut Builder,
         shift: IndexShift,
         power: &IndexedCoefficient,
         derivative_coefficient: &Coefficient,
@@ -113,7 +113,7 @@ impl ParametricIbpGenerator<'_> {
             &product,
             self.config.relation_limits.arithmetic.exact_algebra,
         )?;
-        row.add_term_with_limits(
+        row.add_term(
             &self.context,
             shift,
             coefficient,

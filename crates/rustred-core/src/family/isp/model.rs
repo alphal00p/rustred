@@ -3,9 +3,6 @@
 use crate::algebra::matrix::{DEFAULT_MAX_INPUT_RETAINED_BYTES, DEFAULT_MAX_OUTPUT_RETAINED_BYTES};
 use crate::family::IntegralFamilyLimits;
 
-/// Stable schema whose work census counts Symbolica's native rank operations.
-pub const ISP_COMPLETION_V2_SCHEMA: &str = "rustred-isp-completion-v2";
-
 /// Resource policy for the generic-rank completion pass and final family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IspCompletionLimits {

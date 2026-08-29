@@ -12,7 +12,7 @@ use self::denominator::{classify_rows, derive_denominator_map};
 use self::kinematics::{derive_scalar_product_map, verify_external_gram};
 use self::matrix::checked_determinant;
 use self::replay::replay_denominator_map;
-use super::condition::{Collector, collect_candidate_denominators};
+use super::condition::{Collector, add_candidate_denominators};
 use super::{
     CoefficientMatrix, ConditionSource, Error, Jacobian, Limits, MomentumMap, VerifiedMap,
 };
@@ -58,7 +58,7 @@ pub fn verify(
     let mut conditions = Collector::new(limits);
     conditions.add_family_domain(source.domain(), true)?;
     conditions.add_family_domain(target.domain(), false)?;
-    let candidate_denominator_conditions = collect_candidate_denominators(
+    add_candidate_denominators(
         [
             ("A", &momentum.loop_linear),
             ("B", &momentum.loop_external),
@@ -96,8 +96,8 @@ pub fn verify(
     let nonzero_conditions = conditions.finish();
 
     Ok(VerifiedMap {
-        source_family_fingerprint: source.fingerprint(),
-        target_family_fingerprint: target.fingerprint(),
+        source_family_fingerprint: source.fingerprint_owner(),
+        target_family_fingerprint: target.fingerprint_owner(),
         momentum,
         scalar_products,
         denominators,
@@ -105,9 +105,6 @@ pub fn verify(
         loop_determinant,
         external_determinant,
         jacobian,
-        source_domain: source.domain().clone(),
-        target_domain: target.domain().clone(),
-        candidate_denominator_conditions: candidate_denominator_conditions.into_boxed_slice(),
         nonzero_conditions,
         stats: algebra.stats,
     })

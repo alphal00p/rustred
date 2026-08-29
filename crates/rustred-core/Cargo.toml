@@ -13,6 +13,4 @@ path = "src/lib.rs"
 [dependencies]
 rand = "0.9"
 rayon = "1"
-serde = { version = "1", features = ["derive"] }
 symbolica.workspace = true
-toml = "1"

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use crate::algebra::{
@@ -7,6 +9,16 @@ use crate::algebra::{
 use super::{
     error::IdentityConditionError, limits::IdentityConditionLimits, source::IdentityConditionSource,
 };
+
+#[cfg(test)]
+std::thread_local! {
+    static BORROWED_CONDITION_DEEP_CLONES: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+pub(in crate::identity) fn borrowed_condition_deep_clone_counts() -> (usize, usize) {
+    BORROWED_CONDITION_DEEP_CLONES.with(Cell::get)
+}
 
 /// One authenticated polynomial condition over the index-extended field.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +36,26 @@ impl ParametricNonZeroCondition {
         condition_limits: IdentityConditionLimits,
     ) -> Result<Self, IdentityConditionError> {
         context.validate_polynomial_with_limits(&polynomial, algebra_limits)?;
+        let sources = collect_sources(sources, condition_limits)?;
+        Ok(Self {
+            polynomial,
+            sources,
+        })
+    }
+
+    /// Attach bounded provenance to a polynomial already produced by an
+    /// authenticated indexed-coefficient operation.
+    ///
+    /// The relation builder still checks the polynomial's exact context
+    /// fingerprint before accepting this value. Keeping that cheap check at
+    /// insertion prevents a condition authenticated by a different indexed
+    /// context from crossing the identity boundary without rescanning every
+    /// polynomial term.
+    pub(in crate::identity) fn from_authenticated_with_limits(
+        polynomial: IndexedPolynomial,
+        sources: impl IntoIterator<Item = IdentityConditionSource>,
+        condition_limits: IdentityConditionLimits,
+    ) -> Result<Self, IdentityConditionError> {
         let sources = collect_sources(sources, condition_limits)?;
         Ok(Self {
             polynomial,
@@ -115,6 +147,85 @@ impl ParametricNonZeroCondition {
         self.sources.extend(other.sources.iter().cloned());
         Ok(())
     }
+
+    fn clone_polynomial_after_admission(&self) -> IndexedPolynomial {
+        #[cfg(test)]
+        BORROWED_CONDITION_DEEP_CLONES.with(|counts| {
+            let (polynomials, sources) = counts.get();
+            counts.set((polynomials.saturating_add(1), sources));
+        });
+        self.polynomial.clone()
+    }
+
+    fn clone_sources_after_admission(&self) -> BTreeSet<IdentityConditionSource> {
+        #[cfg(test)]
+        BORROWED_CONDITION_DEEP_CLONES.with(|counts| {
+            let (polynomials, sources) = counts.get();
+            counts.set((polynomials, sources.saturating_add(1)));
+        });
+        self.sources.clone()
+    }
+}
+
+/// Copy a borrowed, already algebraically re-admitted condition into a target
+/// relation. The complete prospective provenance union is checked before any
+/// polynomial, set, or individual source is cloned.
+pub(in crate::identity) fn insert_borrowed_parametric_condition(
+    conditions: &mut Vec<ParametricNonZeroCondition>,
+    condition: &ParametricNonZeroCondition,
+    additional_source: IdentityConditionSource,
+    limits: IdentityConditionLimits,
+) -> Result<(), IdentityConditionError> {
+    // Preserve owned insertion's error precedence: first admit the borrowed
+    // condition plus its attachment source on their own, then admit the full
+    // union with an existing target condition if one is present.
+    let attached_condition_sources = condition
+        .sources
+        .len()
+        .checked_add(usize::from(!condition.sources.contains(&additional_source)))
+        .ok_or(IdentityConditionError::ResourceCountOverflow {
+            resource: "identity condition sources",
+        })?;
+    check_source_limit(attached_condition_sources, limits)?;
+
+    if let Some(existing) = conditions
+        .iter_mut()
+        .find(|existing| existing.polynomial == condition.polynomial)
+    {
+        let borrowed_additions = condition
+            .sources
+            .iter()
+            .filter(|source| !existing.sources.contains(*source))
+            .count();
+        let source_is_new = !existing.sources.contains(&additional_source)
+            && !condition.sources.contains(&additional_source);
+        let requested = existing
+            .sources
+            .len()
+            .checked_add(borrowed_additions)
+            .and_then(|count| count.checked_add(usize::from(source_is_new)))
+            .ok_or(IdentityConditionError::ResourceCountOverflow {
+                resource: "identity condition sources",
+            })?;
+        check_source_limit(requested, limits)?;
+
+        for source in &condition.sources {
+            if !existing.sources.contains(source) {
+                existing.sources.insert(source.clone());
+            }
+        }
+        existing.sources.insert(additional_source);
+        return Ok(());
+    }
+
+    let polynomial = condition.clone_polynomial_after_admission();
+    let mut sources = condition.clone_sources_after_admission();
+    sources.insert(additional_source);
+    conditions.push(ParametricNonZeroCondition {
+        polynomial,
+        sources,
+    });
+    Ok(())
 }
 
 pub(in crate::identity) fn insert_parametric_condition(

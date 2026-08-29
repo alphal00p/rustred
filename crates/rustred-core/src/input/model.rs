@@ -2,14 +2,7 @@
 
 use symbolica::prelude::*;
 
-use super::affine::CompiledSymbolicaAffineDenominator;
-use crate::algebra::Coefficient;
-use crate::family::{AffineDenominator, IntegralFamily};
-
-use super::limits::{Limits, LoweringLimits, Stats};
-
-/// Stable schema identifier for the current exactly lowered project payload.
-pub const LOWERED_SCHEMA: &str = "rustred.lowered-symbolica-project.v1";
+use crate::family::IntegralFamily;
 
 /// Whether the exact base-field variable order was declared or inferred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,7 +27,6 @@ pub struct Propagator {
     pub(super) expression: Atom,
     pub(super) target_power: i64,
     pub(super) power_shift: Atom,
-    pub(super) power_shift_explicit: bool,
 }
 
 impl Propagator {
@@ -53,10 +45,6 @@ impl Propagator {
     pub const fn power_shift(&self) -> &Atom {
         &self.power_shift
     }
-
-    pub const fn power_shift_was_explicit(&self) -> bool {
-        self.power_shift_explicit
-    }
 }
 
 /// Normalized concrete target retained by `derive` without being processed.
@@ -64,7 +52,6 @@ impl Propagator {
 pub struct Target {
     pub(super) powers: Vec<i64>,
     pub(super) numerator: Atom,
-    pub(super) numerator_explicit: bool,
 }
 
 impl Target {
@@ -75,22 +62,6 @@ impl Target {
     pub const fn numerator(&self) -> &Atom {
         &self.numerator
     }
-
-    pub const fn numerator_was_explicit(&self) -> bool {
-        self.numerator_explicit
-    }
-
-    pub const fn derive_disposition(&self) -> &'static str {
-        "not_processed_by_derive"
-    }
-}
-
-/// Origin of the normalized syntax payload. Metadata is intentionally absent:
-/// it belongs to the application document and never affects family identity.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProjectSource {
-    Symbolica { source: Atom },
-    Explicit,
 }
 
 /// One named denominator after checked Symbolica evaluation and affine
@@ -98,7 +69,8 @@ pub enum ProjectSource {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoweredDenominator {
     pub(super) id: String,
-    pub(super) compiled: CompiledSymbolicaAffineDenominator,
+    pub(super) source: Atom,
+    pub(super) normalized_expression: Atom,
 }
 
 impl LoweredDenominator {
@@ -107,43 +79,25 @@ impl LoweredDenominator {
     }
 
     pub const fn source(&self) -> &Atom {
-        self.compiled.source()
+        &self.source
     }
 
     pub const fn normalized_expression(&self) -> &Atom {
-        self.compiled.normalized_expression()
-    }
-
-    pub const fn compiled(&self) -> &CompiledSymbolicaAffineDenominator {
-        &self.compiled
-    }
-
-    pub const fn affine_denominator(&self) -> &AffineDenominator {
-        self.compiled.affine_denominator()
+        &self.normalized_expression
     }
 }
 
 /// Exact topology-neutral family ready for parametric IBP derivation.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct LoweredProject {
     pub(super) normalized: Project,
-    pub(super) dimension: Coefficient,
     pub(super) denominators: Vec<LoweredDenominator>,
     pub(super) family: IntegralFamily,
-    pub(super) limits: LoweringLimits,
 }
 
 impl LoweredProject {
-    pub const fn schema(&self) -> &'static str {
-        LOWERED_SCHEMA
-    }
-
     pub const fn normalized(&self) -> &Project {
         &self.normalized
-    }
-
-    pub const fn dimension(&self) -> &Coefficient {
-        &self.dimension
     }
 
     pub fn denominators(&self) -> &[LoweredDenominator] {
@@ -152,10 +106,6 @@ impl LoweredProject {
 
     pub const fn family(&self) -> &IntegralFamily {
         &self.family
-    }
-
-    pub const fn limits(&self) -> LoweringLimits {
-        self.limits
     }
 
     pub fn into_parts(self) -> (Project, Vec<LoweredDenominator>, IntegralFamily) {
@@ -168,11 +118,9 @@ impl LoweredProject {
 }
 
 /// One syntax-authenticated project, common to every input frontend.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Project {
-    pub(super) source: ProjectSource,
     pub(super) name: String,
-    pub(super) name_explicit: bool,
     pub(super) parameter_names: Vec<String>,
     pub(super) operational_parameter_names: Vec<String>,
     pub(super) parameter_source: ParameterSource,
@@ -183,21 +131,11 @@ pub struct Project {
     pub(super) external_gram: Vec<Vec<Atom>>,
     pub(super) target: Target,
     pub(super) canonical: Atom,
-    pub(super) stats: Stats,
-    pub(super) limits: Limits,
 }
 
 impl Project {
-    pub const fn source(&self) -> &ProjectSource {
-        &self.source
-    }
-
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    pub const fn name_was_explicit(&self) -> bool {
-        self.name_explicit
     }
 
     pub fn parameter_names(&self) -> &[String] {
@@ -243,13 +181,5 @@ impl Project {
 
     pub fn canonical_string(&self) -> String {
         self.canonical.to_canonical_string()
-    }
-
-    pub const fn stats(&self) -> Stats {
-        self.stats
-    }
-
-    pub const fn limits(&self) -> Limits {
-        self.limits
     }
 }

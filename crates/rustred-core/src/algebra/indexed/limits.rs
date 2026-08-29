@@ -6,6 +6,29 @@ use crate::algebra::{CoefficientPolynomial, ExactAlgebraLimits};
 
 use super::error::IndexedAlgebraError;
 
+/// Resource policy for constructing one authenticated indexed context.
+///
+/// The family-backed generator path uses the same default index bound as
+/// `IntegralFamilyLimits::max_scalar_products`. Standalone callers that raise
+/// the arity bound must also choose explicit fingerprint and native-name work
+/// budgets appropriate for their input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IndexedContextLimits {
+    pub max_index_variables: usize,
+    pub max_fingerprint_bytes: usize,
+    pub max_native_symbol_name_bytes: usize,
+}
+
+impl Default for IndexedContextLimits {
+    fn default() -> Self {
+        Self {
+            max_index_variables: 4_096,
+            max_fingerprint_bytes: 1024 * 1024 * 1024,
+            max_native_symbol_name_bytes: 1_000_000,
+        }
+    }
+}
+
 /// Explicit upper bounds around Symbolica operations whose output can expand
 /// under an affine index translation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

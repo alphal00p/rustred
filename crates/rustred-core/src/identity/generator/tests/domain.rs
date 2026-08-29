@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, CoefficientLocation, IntegralFamily};
 use crate::identity::condition::IdentityConditionSource;
@@ -28,23 +30,43 @@ fn every_row_inherits_input_and_determinant_domain_conditions() {
     )
     .unwrap();
     let generator = ParametricIbpGenerator::try_new(&family).unwrap();
+    let family_fingerprint = family.fingerprint_owner();
+    assert!(Arc::ptr_eq(
+        &family_fingerprint,
+        &generator.source_scope.family_fingerprint,
+    ));
     let batch = generator.prepare_ordinary_ibp().unwrap();
     let row_results = (0..batch.len())
         .map(|ordinal| batch.generate(ordinal))
         .collect();
     let ordinary = batch.complete(row_results).unwrap().into_relations();
+    let determinant_condition = family
+        .domain()
+        .conditions()
+        .find(|condition| {
+            condition
+                .sources()
+                .contains(&CoefficientLocation::BasisDeterminantNumerator)
+        })
+        .unwrap();
     let determinant = generator
         .context()
-        .lift_base_polynomial(family.domain().determinant_nonzero().polynomial())
+        .lift_base_polynomial(determinant_condition.polynomial())
         .unwrap();
     let input_denominator = generator
         .context()
         .lift_base_polynomial(
             family
                 .domain()
-                .input_denominators()
-                .iter()
-                .find(|condition| !condition.polynomial().is_constant())
+                .conditions()
+                .find(|condition| {
+                    condition
+                        .sources()
+                        .contains(&CoefficientLocation::DenominatorCoefficient {
+                            denominator: 0,
+                            coordinate: 0,
+                        })
+                })
                 .unwrap()
                 .polynomial(),
         )

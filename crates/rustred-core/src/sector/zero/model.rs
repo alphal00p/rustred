@@ -12,7 +12,7 @@ use super::domain::Domain;
 /// integer matrix product before a certificate can be constructed.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Certificate {
-    pub(super) family_fingerprint: Arc<str>,
+    pub(super) family_fingerprint: Arc<String>,
     pub(super) raw_sector: Mask,
     pub(super) effective_sector: Mask,
     pub(super) active_parameter_order: Box<[usize]>,

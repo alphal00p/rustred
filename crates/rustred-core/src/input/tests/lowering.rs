@@ -10,20 +10,13 @@ fn target_and_tensor_numerator_do_not_specialize_the_derived_family() {
         .expect("second target should normalize");
     assert_eq!(first.target().powers(), &[3]);
     assert_eq!(second.target().powers(), &[-1]);
-    assert_eq!(
-        first.target().derive_disposition(),
-        "not_processed_by_derive"
-    );
     let first = first
         .into_lowered(LoweringLimits::default())
         .expect("first target family should lower");
     let second = second
         .into_lowered(LoweringLimits::default())
         .expect("second target family should lower");
-    assert_eq!(
-        first.family().fingerprint_ref(),
-        second.family().fingerprint_ref()
-    );
+    assert_eq!(first.family().fingerprint(), second.family().fingerprint());
 }
 
 #[test]

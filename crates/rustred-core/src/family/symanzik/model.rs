@@ -8,7 +8,7 @@ use crate::algebra::{Coefficient, ExactAlgebraLimits};
 
 /// Sparse polynomials in Feynman parameters with coefficients in the
 /// authenticated family field `K`.
-pub type RawFeynmanPolynomial =
+pub(super) type RawFeynmanPolynomial =
     MultivariatePolynomial<RationalPolynomialField<IntegerRing, u16>, u16>;
 
 /// Symbolica's native polynomial-ring adapter for the natural `K[x]` domain.
@@ -21,16 +21,19 @@ pub struct FeynmanPolynomialLimits {
     pub exact_algebra: ExactAlgebraLimits,
     pub max_parameters: usize,
     pub max_parameter_exponent: u16,
+    /// Maximum terms in an authenticated polynomial and in the prospective
+    /// outer-ring result buffer admitted before native Symbolica arithmetic.
     pub max_polynomial_terms: usize,
     /// Maximum dense Feynman-exponent entries retained or constructed by one
     /// polynomial operation.  Symbolica stores one exponent for every
     /// `(term, parameter)` pair even when most exponents are zero.
     pub max_exponent_entries: usize,
     /// Aggregate RustRed-observable polynomial-term work for one public
-    /// construction or differentiation call.  Symbolica's
-    /// native determinant does not expose its intermediate term census; its
-    /// structural ring calls are bounded separately below and its retained
-    /// result is authenticated against the polynomial representation limits.
+    /// construction or differentiation call. Symbolica's native outer-ring
+    /// arithmetic and determinant do not expose the census of coefficient-ring
+    /// or dense/heap intermediates. RustRed therefore admits their prospective
+    /// structural work before entry and authenticates every retained result;
+    /// this is not an RSS or opaque-native-temporary bound.
     pub max_term_operations: usize,
     /// Maximum structural entries in one square matrix handed to Symbolica's
     /// native determinant implementation.  This is not an RSS bound: campaign
@@ -67,11 +70,11 @@ impl Default for FeynmanPolynomialLimits {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeynmanPolynomial {
     pub(super) raw: RawFeynmanPolynomial,
-    pub(super) context: Arc<str>,
+    pub(super) context: Arc<String>,
 }
 
 impl FeynmanPolynomial {
-    pub fn raw(&self) -> &RawFeynmanPolynomial {
+    pub(crate) fn raw(&self) -> &RawFeynmanPolynomial {
         &self.raw
     }
 
@@ -92,25 +95,5 @@ impl FeynmanPolynomial {
             .exponents_iter()
             .position(|candidate| candidate == exponents)
             .map(|term| &self.raw.coefficients[term])
-    }
-
-    pub fn stable_string(&self) -> String {
-        let mut output = format!("rustred-feynman-polynomial-v1|N={}", self.raw.nvars());
-        for (coefficient, exponents) in self.terms() {
-            let coefficient = coefficient.to_expression().to_canonical_string();
-            output.push('|');
-            output.push_str(
-                &exponents
-                    .iter()
-                    .map(u16::to_string)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            );
-            output.push('=');
-            output.push_str(&coefficient.len().to_string());
-            output.push(':');
-            output.push_str(&coefficient);
-        }
-        output
     }
 }

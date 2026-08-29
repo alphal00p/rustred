@@ -10,6 +10,15 @@ Python 3.11 or newer is required. The extension uses Python's stable ABI with
 a Python 3.11 floor. RustRed still uses Symbolica's Rust API with GMP; it does
 not enable Symbolica's Python feature.
 
+The public module is imported directly:
+
+```python
+import rustred
+```
+
+`rustred._rustred` is a private native extension detail. Top-level
+`import _rustred` is intentionally unsupported.
+
 The initial operations are:
 
 - `rustred.derive(...)`

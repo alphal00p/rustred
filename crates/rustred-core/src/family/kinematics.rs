@@ -7,6 +7,12 @@ use super::model::{
     ContractionMomentum, DenominatorExpansion, IntegralFamily, ScalarProductCoordinate,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DerivativeCacheCensus {
+    pub(super) contractions: usize,
+    pub(super) coefficient_cells: usize,
+}
+
 impl IntegralFamily {
     /// Return the deterministic position of a typed scalar product.
     pub fn coordinate_index(
@@ -51,12 +57,20 @@ impl IntegralFamily {
         &self,
         coordinate: usize,
     ) -> Result<DenominatorExpansion, IntegralFamilyError> {
-        let Some(denominator_coefficients) = self.inverse_basis.get(coordinate).cloned() else {
+        let Some(inverse_row) = self.inverse_basis.get(coordinate) else {
             return Err(IntegralFamilyError::ScalarProductOutOfRange {
                 index: coordinate,
                 scalar_products: self.coordinates.len(),
             });
         };
+        let mut denominator_coefficients = try_family_vec(
+            "scalar-product expansion denominator coefficients",
+            inverse_row.len(),
+        )?;
+        // The caller-sized Rust vector is reserved fallibly before cloning.
+        // Symbolica's public coefficient representation does not expose a
+        // fallible deep-clone operation for each polynomial payload.
+        denominator_coefficients.extend(inverse_row.iter().cloned());
         let mut constant = self.coefficients.zero();
         for (coefficient, denominator) in denominator_coefficients.iter().zip(&self.denominators) {
             let contribution = self.coefficients.try_mul(
@@ -119,25 +133,31 @@ impl IntegralFamily {
     pub(super) fn build_derivative_contractions(
         &self,
     ) -> Result<Vec<Vec<Vec<DenominatorExpansion>>>, IntegralFamilyError> {
-        (0..self.denominator_count())
-            .map(|denominator| {
-                (0..self.loop_count())
-                    .map(|differentiated_loop| {
-                        self.contractions
-                            .iter()
-                            .map(|&contraction| {
-                                let (constant, scalar_coefficients) = self.direct_derivative(
-                                    denominator,
-                                    differentiated_loop,
-                                    contraction,
-                                )?;
-                                self.rewrite_scalar_affine(constant, &scalar_coefficients)
-                            })
-                            .collect::<Result<Vec<_>, IntegralFamilyError>>()
-                    })
-                    .collect::<Result<Vec<_>, IntegralFamilyError>>()
-            })
-            .collect::<Result<Vec<_>, IntegralFamilyError>>()
+        let mut by_denominator = try_family_vec(
+            "derivative-contraction denominator rows",
+            self.denominator_count(),
+        )?;
+        for denominator in 0..self.denominator_count() {
+            let mut by_loop = try_family_vec(
+                "derivative-contraction differentiated-loop rows",
+                self.loop_count(),
+            )?;
+            for differentiated_loop in 0..self.loop_count() {
+                let mut by_contraction = try_family_vec(
+                    "derivative-contraction affine expansions",
+                    self.contractions.len(),
+                )?;
+                for &contraction in &self.contractions {
+                    let (constant, scalar_coefficients) =
+                        self.direct_derivative(denominator, differentiated_loop, contraction)?;
+                    by_contraction
+                        .push(self.rewrite_scalar_affine(constant, &scalar_coefficients)?);
+                }
+                by_loop.push(by_contraction);
+            }
+            by_denominator.push(by_loop);
+        }
+        Ok(by_denominator)
     }
 
     pub(super) fn direct_derivative(
@@ -147,7 +167,11 @@ impl IntegralFamily {
         contraction: ContractionMomentum,
     ) -> Result<(Coefficient, Vec<Coefficient>), IntegralFamilyError> {
         let mut constant = self.coefficients.zero();
-        let mut scalar_coefficients = vec![self.coefficients.zero(); self.coordinates.len()];
+        let mut scalar_coefficients = try_zero_coefficients(
+            &self.coefficients,
+            "direct-derivative scalar coefficients",
+            self.coordinates.len(),
+        )?;
         for (coordinate_index, coordinate) in self.coordinates.iter().copied().enumerate() {
             let coefficient = &self.denominators[denominator].coefficients[coordinate_index];
             if coefficient.is_zero() {
@@ -250,7 +274,11 @@ impl IntegralFamily {
         direct_constant: Coefficient,
         scalar_coefficients: &[Coefficient],
     ) -> Result<DenominatorExpansion, IntegralFamilyError> {
-        let mut denominator_coefficients = vec![self.coefficients.zero(); self.denominator_count()];
+        let mut denominator_coefficients = try_zero_coefficients(
+            &self.coefficients,
+            "derivative-contraction denominator coefficients",
+            self.denominator_count(),
+        )?;
         for (scalar_product, scalar_coefficient) in scalar_coefficients.iter().enumerate() {
             if scalar_coefficient.is_zero() {
                 continue;
@@ -307,6 +335,68 @@ impl IntegralFamily {
     }
 }
 
+pub(super) fn checked_derivative_cache_census(
+    scalar_products: usize,
+    loops: usize,
+    externals: usize,
+) -> Result<DerivativeCacheCensus, IntegralFamilyError> {
+    let contraction_momenta =
+        loops
+            .checked_add(externals)
+            .ok_or(IntegralFamilyError::ResourceCountOverflow {
+                resource: "family derivative contraction momenta",
+            })?;
+    let contractions = scalar_products
+        .checked_mul(loops)
+        .and_then(|count| count.checked_mul(contraction_momenta))
+        .ok_or(IntegralFamilyError::ResourceCountOverflow {
+            resource: "family derivative contractions",
+        })?;
+    let coefficients_per_contraction =
+        scalar_products
+            .checked_add(1)
+            .ok_or(IntegralFamilyError::ResourceCountOverflow {
+                resource: "family derivative contraction coefficient cells",
+            })?;
+    let coefficient_cells = contractions
+        .checked_mul(coefficients_per_contraction)
+        .ok_or(IntegralFamilyError::ResourceCountOverflow {
+            resource: "family derivative contraction coefficient cells",
+        })?;
+    Ok(DerivativeCacheCensus {
+        contractions,
+        coefficient_cells,
+    })
+}
+
+fn try_family_vec<T>(
+    resource: &'static str,
+    requested: usize,
+) -> Result<Vec<T>, IntegralFamilyError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(requested)
+        .map_err(|_| IntegralFamilyError::AllocationFailure {
+            resource,
+            requested,
+        })?;
+    Ok(values)
+}
+
+fn try_zero_coefficients(
+    context: &crate::algebra::CoefficientContext,
+    resource: &'static str,
+    requested: usize,
+) -> Result<Vec<Coefficient>, IntegralFamilyError> {
+    let mut values = try_family_vec(resource, requested)?;
+    // The Rust-owned cell buffer is now fully reserved. Symbolica's public
+    // coefficient API has no fallible constructor for each exact zero's
+    // internal polynomial storage; the family-level cell census is therefore
+    // the truthful prospective boundary available here.
+    values.resize_with(requested, || context.zero());
+    Ok(values)
+}
+
 fn triangular(value: usize) -> Option<usize> {
     let successor = value.checked_add(1)?;
     let (left, right) = if value % 2 == 0 {
@@ -338,8 +428,8 @@ pub(super) fn build_coordinates(
     loops: usize,
     externals: usize,
     capacity: usize,
-) -> Vec<ScalarProductCoordinate> {
-    let mut coordinates = Vec::with_capacity(capacity);
+) -> Result<Vec<ScalarProductCoordinate>, IntegralFamilyError> {
+    let mut coordinates = try_family_vec("family scalar-product coordinates", capacity)?;
     for left in 0..loops {
         for right in left..loops {
             coordinates.push(ScalarProductCoordinate::LoopLoop { left, right });
@@ -353,5 +443,21 @@ pub(super) fn build_coordinates(
             });
         }
     }
-    coordinates
+    Ok(coordinates)
+}
+
+pub(super) fn build_contractions(
+    loops: usize,
+    externals: usize,
+) -> Result<Vec<ContractionMomentum>, IntegralFamilyError> {
+    let requested =
+        loops
+            .checked_add(externals)
+            .ok_or(IntegralFamilyError::ResourceCountOverflow {
+                resource: "family contraction momenta",
+            })?;
+    let mut contractions = try_family_vec("family contraction momenta", requested)?;
+    contractions.extend((0..loops).map(ContractionMomentum::Loop));
+    contractions.extend((0..externals).map(ContractionMomentum::External));
+    Ok(contractions)
 }

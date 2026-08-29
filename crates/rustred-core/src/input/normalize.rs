@@ -6,11 +6,8 @@ use super::canonical::{canonical_scaffold_base, render_canonical};
 use super::error::Error;
 use super::gram::build_external_gram;
 use super::limits::{Limits, Stats, check_limit, checked_add, checked_mul};
-use super::model::{ParameterSource, Project, ProjectSource, Propagator, Target};
-use super::parse::{
-    IntegralSyntax, authenticate_project_parts, census_atom, census_atom_resources,
-    census_project_parts,
-};
+use super::model::{ParameterSource, Project, Propagator, Target};
+use super::parse::{IntegralSyntax, authenticate_project_parts, census_atom, census_project_parts};
 use super::request::AtomProject;
 use super::symbols::{
     discover_scalar_symbols, family_scalar_atoms, validate_label_text, validate_ordered_labels,
@@ -22,7 +19,6 @@ const PACKED_ATOM_SCAFFOLD_BYTES_PER_NODE: usize = 64;
 
 pub(super) fn normalize_parts(
     parts: AtomProject,
-    source: ProjectSource,
     syntax: &IntegralSyntax,
     mut stats: Stats,
     limits: Limits,
@@ -50,38 +46,20 @@ pub(super) fn normalize_parts(
     // symmetry and canonical rendering clone any of their packed payloads.
     let project_census = census_project_parts(&parts, limits)?;
     let canonical_scaffold_base = canonical_scaffold_base(&parts, limits)?;
-    let source_census = match &source {
-        ProjectSource::Symbolica { source } => Some(census_atom_resources(
-            source.as_view(),
-            limits.max_atom_nodes,
-            limits.max_nesting_depth,
-        )?),
-        ProjectSource::Explicit => None,
-    };
-    let source_integer_bits = source_census.map_or(0, |census| census.integer_bits);
-    let source_packed_bytes = source_census.map_or(0, |census| census.packed_bytes);
-    let retained_atom_integer_bits = checked_add(
+    let retained_atom_integer_bits = checked_mul(
         "retained project Atom integer bits",
-        source_integer_bits,
-        checked_mul(
-            "retained project Atom integer bits",
-            project_census.retained_atom_integer_bits,
-            MAX_NORMALIZED_FIELD_ATOM_COPIES,
-        )?,
+        project_census.retained_atom_integer_bits,
+        MAX_NORMALIZED_FIELD_ATOM_COPIES,
     )?;
     check_limit(
         "retained project Atom integer bits",
         retained_atom_integer_bits,
         limits.max_retained_atom_integer_bits,
     )?;
-    let retained_atom_base_bytes = checked_add(
+    let retained_atom_base_bytes = checked_mul(
         "retained project Atom bytes",
-        source_packed_bytes,
-        checked_mul(
-            "retained project Atom bytes",
-            project_census.retained_atom_bytes,
-            MAX_NORMALIZED_FIELD_ATOM_COPIES,
-        )?,
+        project_census.retained_atom_bytes,
+        MAX_NORMALIZED_FIELD_ATOM_COPIES,
     )?;
     check_limit(
         "retained project Atom bytes",
@@ -95,7 +73,6 @@ pub(super) fn normalize_parts(
     }
     stats.retained_atom_integer_bits = retained_atom_integer_bits;
     stats.retained_atom_bytes = retained_atom_base_bytes;
-    let name_explicit = parts.name.is_some();
     let name = parts.name.unwrap_or_else(|| DEFAULT_FAMILY_NAME.to_owned());
     validate_label_text(&name, "family name", limits)?;
     validate_ordered_labels(
@@ -287,16 +264,13 @@ pub(super) fn normalize_parts(
             requested: parts.propagators.len(),
         })?;
     for prop in parts.propagators {
-        let explicit = prop.power_shift.is_some();
         propagators.push(Propagator {
             id: prop.id,
             expression: prop.expression,
             target_power: prop.target_power,
             power_shift: prop.power_shift.unwrap_or_else(|| Atom::num(0)),
-            power_shift_explicit: explicit,
         });
     }
-    let numerator_explicit = parts.numerator.is_some();
     let mut target_powers = Vec::new();
     target_powers
         .try_reserve_exact(propagators.len())
@@ -308,7 +282,6 @@ pub(super) fn normalize_parts(
     let target = Target {
         powers: target_powers,
         numerator: parts.numerator.unwrap_or_else(|| Atom::num(1)),
-        numerator_explicit,
     };
     let canonical = render_canonical(
         syntax,
@@ -322,16 +295,13 @@ pub(super) fn normalize_parts(
         &target,
         limits,
     )?;
-    let (canonical_nodes, _) = census_atom(
+    census_atom(
         canonical.as_view(),
         limits.max_canonical_nodes,
         limits.max_nesting_depth,
     )?;
-    stats.canonical_nodes = canonical_nodes;
     Ok(Project {
-        source,
         name,
-        name_explicit,
         parameter_names,
         operational_parameter_names,
         parameter_source,
@@ -342,8 +312,6 @@ pub(super) fn normalize_parts(
         external_gram,
         target,
         canonical,
-        stats,
-        limits,
     })
 }
 

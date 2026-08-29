@@ -8,10 +8,6 @@ use super::mask::Mask;
 /// Stable identifier of RustRed's first deterministic integral order.
 pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_ID: &str = "rustred.unshifted-sector-order.v1";
 
-/// Stable field order emitted by [`ComplexityKey`]'s display implementation.
-pub(super) const RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA: &str =
-    "arity,propagators,sector-bits,corner-distance,dots,numerators,index-excess";
-
 /// Persisted choice of integral-ordering semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OrderingPolicy {
@@ -32,12 +28,6 @@ impl OrderingPolicy {
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::RustRedUnshiftedV1 => RUSTRED_UNSHIFTED_ORDER_V1_ID,
-        }
-    }
-
-    pub const fn key_schema(self) -> &'static str {
-        match self {
-            Self::RustRedUnshiftedV1 => RUSTRED_UNSHIFTED_ORDER_V1_SCHEMA,
         }
     }
 

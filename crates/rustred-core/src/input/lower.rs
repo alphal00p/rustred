@@ -11,15 +11,8 @@ use super::limits::LoweringLimits;
 use super::model::{LoweredDenominator, LoweredProject, Project};
 
 impl Project {
-    /// Lower this normalized declaration to the exact integral family consumed
-    /// by parametric IBP generation.
-    pub fn lower(&self, limits: LoweringLimits) -> Result<LoweredProject, LoweringError> {
-        guarded_lowering("normalized project lowering", || {
-            lower_normalized_project(self.clone(), limits)
-        })
-    }
-
-    /// Ownership-preserving variant of [`Self::lower`].
+    /// Consume this normalized declaration and lower it to the exact integral
+    /// family consumed by parametric IBP generation.
     pub fn into_lowered(self, limits: LoweringLimits) -> Result<LoweredProject, LoweringError> {
         guarded_lowering("normalized project lowering", || {
             lower_normalized_project(self, limits)
@@ -104,10 +97,12 @@ pub(super) fn lower_normalized_project(
         })?;
     for propagator in &normalized.propagators {
         let compiled = compiler.compile(propagator.expression.as_view())?;
-        affine_denominators.push(compiled.affine_denominator().clone());
+        let (source, normalized_expression, affine_denominator) = compiled.into_parts();
+        affine_denominators.push(affine_denominator);
         denominators.push(LoweredDenominator {
             id: propagator.id.clone(),
-            compiled,
+            source,
+            normalized_expression,
         });
     }
 
@@ -124,10 +119,8 @@ pub(super) fn lower_normalized_project(
     )?;
     Ok(LoweredProject {
         normalized,
-        dimension,
         denominators,
         family,
-        limits,
     })
 }
 

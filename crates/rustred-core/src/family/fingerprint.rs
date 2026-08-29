@@ -8,7 +8,42 @@ use symbolica::prelude::Integer;
 use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial};
 
 use super::error::{IntegralFamilyError, check_family_limit};
-use super::model::{AffineDenominator, IntegralFamilyFingerprintStats, IntegralFamilyLimits};
+#[cfg(test)]
+use super::model::IntegralFamily;
+use super::model::{AffineDenominator, IntegralFamilyLimits};
+
+/// Transient census used to preflight and size one stable family identity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct FamilyFingerprintStats {
+    encoded_bytes: usize,
+    encoding_work: usize,
+    polynomial_terms: usize,
+    exponent_entries: usize,
+    integer_bits: usize,
+}
+
+#[cfg(test)]
+impl FamilyFingerprintStats {
+    pub(super) const fn encoded_bytes(self) -> usize {
+        self.encoded_bytes
+    }
+
+    pub(super) const fn encoding_work(self) -> usize {
+        self.encoding_work
+    }
+
+    pub(super) const fn polynomial_terms(self) -> usize {
+        self.polynomial_terms
+    }
+
+    pub(super) const fn exponent_entries(self) -> usize {
+        self.exponent_entries
+    }
+
+    pub(super) const fn integer_bits(self) -> usize {
+        self.integer_bits
+    }
+}
 
 pub(super) fn preflight_family_identity_strings(
     name: &str,
@@ -41,7 +76,7 @@ pub(super) fn build_family_fingerprint(
     external_gram: &[Vec<Coefficient>],
     power_shifts: &[Coefficient],
     limits: IntegralFamilyLimits,
-) -> Result<(String, IntegralFamilyFingerprintStats), IntegralFamilyError> {
+) -> Result<String, IntegralFamilyError> {
     let mut census = FamilyFingerprintCensus::new(limits);
     encode_family_fingerprint(
         &mut census,
@@ -69,7 +104,26 @@ pub(super) fn build_family_fingerprint(
         power_shifts,
     )?;
     let fingerprint = writer.finish()?;
-    Ok((fingerprint, stats))
+    Ok(fingerprint)
+}
+
+#[cfg(test)]
+pub(super) fn census_family_fingerprint(
+    family: &IntegralFamily,
+) -> Result<FamilyFingerprintStats, IntegralFamilyError> {
+    let mut census = FamilyFingerprintCensus::new(family.limits);
+    encode_family_fingerprint(
+        &mut census,
+        &family.name,
+        &family.loop_momenta,
+        &family.external_momenta,
+        &family.coefficients,
+        &family.dimension,
+        &family.denominators,
+        &family.external_gram,
+        &family.power_shifts,
+    )?;
+    Ok(census.finish())
 }
 
 /// Typed V2 grammar. All variable-size strings are byte-length delimited and
@@ -223,14 +277,14 @@ trait FamilyFingerprintSink {
 
 struct FamilyFingerprintCensus {
     limits: IntegralFamilyLimits,
-    stats: IntegralFamilyFingerprintStats,
+    stats: FamilyFingerprintStats,
 }
 
 impl FamilyFingerprintCensus {
     const fn new(limits: IntegralFamilyLimits) -> Self {
         Self {
             limits,
-            stats: IntegralFamilyFingerprintStats {
+            stats: FamilyFingerprintStats {
                 encoded_bytes: 0,
                 encoding_work: 0,
                 polynomial_terms: 0,
@@ -240,7 +294,7 @@ impl FamilyFingerprintCensus {
         }
     }
 
-    const fn finish(self) -> IntegralFamilyFingerprintStats {
+    const fn finish(self) -> FamilyFingerprintStats {
         self.stats
     }
 

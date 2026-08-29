@@ -52,7 +52,6 @@ pub enum Error {
         denominator: usize,
         coordinate: Option<usize>,
     },
-    CertificateReplayMismatch,
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -147,9 +146,6 @@ impl fmt::Display for Error {
                     "affine denominator replay fails for the constant of D{denominator}"
                 ),
             },
-            Self::CertificateReplayMismatch => {
-                formatter.write_str("the retained affine-family certificate differs on replay")
-            }
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }

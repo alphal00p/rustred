@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use rustred::family::{CoefficientLocation, IntegralFamily, ScalarProductCoordinate};
 use rustred::identity::{
     IdentityConditionSource, ParametricNonZeroCondition, ParametricRelation, RowId,
 };
-use rustred::{CoefficientLocation, IntegralFamily, ScalarProductCoordinate};
 use serde::Serialize;
 use symbolica::prelude::AtomCore;
 
@@ -146,7 +146,7 @@ pub(super) fn target_output(normalized: &rustred::input::Project) -> TargetOutpu
     let target = normalized.target();
     TargetOutputV1 {
         present: true,
-        disposition: target.derive_disposition(),
+        disposition: "not_processed_by_derive",
         powers: Some(target.powers().to_vec()),
         numerator: Some(target.numerator().to_canonical_string()),
     }

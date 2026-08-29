@@ -75,7 +75,16 @@ pub struct IntegralFamilyLimits {
     /// inverse, and verification outputs in one Symbolica session.
     pub max_matrix_output_retained_bytes: usize,
     pub max_matrix_entries: usize,
+    /// Number of cached `(denominator, differentiated loop, contraction)`
+    /// affine expansions.
     pub max_derivative_contractions: usize,
+    /// Total [`Coefficient`] cells retained by those cached expansions,
+    /// including each affine constant and every dense denominator coefficient.
+    ///
+    /// This is a structural cell bound, not an RSS bound: Symbolica's public
+    /// coefficient API does not expose the heap capacity of every exact
+    /// polynomial owned by a cell.
+    pub max_derivative_contraction_coefficient_cells: usize,
     /// Exact byte length of the stable, typed family identity.
     pub max_fingerprint_bytes: usize,
     /// Total bytes, sparse terms, exponent entries, and GMP magnitude bits
@@ -96,44 +105,13 @@ impl Default for IntegralFamilyLimits {
             max_matrix_output_retained_bytes: DEFAULT_MAX_OUTPUT_RETAINED_BYTES,
             max_matrix_entries: 16_000_000,
             max_derivative_contractions: 16_000_000,
+            max_derivative_contraction_coefficient_cells: 16_000_000,
             max_fingerprint_bytes: 1024 * 1024 * 1024,
             max_fingerprint_encoding_work: 4_000_000_000_000_000,
             max_fingerprint_polynomial_terms: 256_000_000,
             max_fingerprint_exponent_entries: 16_000_000_000,
             max_fingerprint_integer_bits: 4_000_000_000_000_000,
         }
-    }
-}
-
-/// Exact census of the stable family-identity construction phase.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct IntegralFamilyFingerprintStats {
-    pub(super) encoded_bytes: usize,
-    pub(super) encoding_work: usize,
-    pub(super) polynomial_terms: usize,
-    pub(super) exponent_entries: usize,
-    pub(super) integer_bits: usize,
-}
-
-impl IntegralFamilyFingerprintStats {
-    pub const fn encoded_bytes(self) -> usize {
-        self.encoded_bytes
-    }
-
-    pub const fn encoding_work(self) -> usize {
-        self.encoding_work
-    }
-
-    pub const fn polynomial_terms(self) -> usize {
-        self.polynomial_terms
-    }
-
-    pub const fn exponent_entries(self) -> usize {
-        self.exponent_entries
-    }
-
-    pub const fn integer_bits(self) -> usize {
-        self.integer_bits
     }
 }
 
@@ -184,6 +162,12 @@ impl AffineDenominator {
     }
 }
 
+impl AsRef<[Coefficient]> for AffineDenominator {
+    fn as_ref(&self) -> &[Coefficient] {
+        &self.coefficients
+    }
+}
+
 /// An affine form in the ordered denominator basis.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DenominatorExpansion {
@@ -222,46 +206,34 @@ impl FamilyNonZeroCondition {
 
 /// The exact domain on which the denominator-coordinate map is valid.
 ///
-/// `input_denominators` are retained even if factors cancel in the determinant
-/// or inverse.  The determinant numerator is a separate condition; a family
-/// specialization is valid only when every listed polynomial is nonzero.
+/// Input-denominator guards are retained even if factors cancel in the
+/// determinant or inverse. The determinant numerator is merged into the same
+/// canonical condition list; a specialization is valid only when every
+/// listed polynomial is nonzero.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyDomain {
-    pub(super) input_denominators: Vec<FamilyNonZeroCondition>,
+    pub(super) conditions: Vec<FamilyNonZeroCondition>,
     pub(super) basis_determinant: Coefficient,
-    pub(super) determinant_nonzero: FamilyNonZeroCondition,
 }
 
 impl FamilyDomain {
-    pub fn input_denominators(&self) -> &[FamilyNonZeroCondition] {
-        &self.input_denominators
-    }
-
     pub fn basis_determinant(&self) -> &Coefficient {
         &self.basis_determinant
     }
 
-    pub fn determinant_nonzero(&self) -> &FamilyNonZeroCondition {
-        &self.determinant_nonzero
-    }
-
     pub fn conditions(&self) -> impl Iterator<Item = &FamilyNonZeroCondition> {
-        self.input_denominators
-            .iter()
-            .filter(|condition| condition.polynomial != self.determinant_nonzero.polynomial)
-            .chain(std::iter::once(&self.determinant_nonzero))
+        self.conditions.iter()
     }
 }
 
 /// A complete, loop-count-independent affine integral family.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct IntegralFamily {
     pub(super) name: String,
-    // `Arc<String>` moves the already fallibly allocated user-sized buffer;
-    // cloning a family shares it. Only the fixed-size Arc header allocation is
-    // infallible, unlike `String -> Arc<str>`, which may copy proportionally.
+    // Retain the already fallibly built String allocation. Converting it to
+    // Arc<str> would allocate and copy the complete caller-sized identity a
+    // second time through an infallible standard-library conversion.
     pub(super) fingerprint: Arc<String>,
-    pub(super) fingerprint_stats: IntegralFamilyFingerprintStats,
     pub(super) loop_momenta: Vec<String>,
     pub(super) external_momenta: Vec<String>,
     pub(super) coefficients: CoefficientContext,
@@ -283,23 +255,14 @@ impl IntegralFamily {
         &self.name
     }
 
-    /// Stable typed semantic identity used to scope parametric indices and
-    /// cached relations. Symbolica's process-local symbol ids and expression
-    /// printers are deliberately absent: coefficients are serialized from
-    /// their authenticated sparse integer-polynomial payload.
-    pub fn fingerprint(&self) -> String {
-        self.fingerprint.as_str().to_owned()
-    }
-
-    /// Borrow the semantic identity cached once during authenticated family
-    /// construction. Proof-bearing replay paths should prefer this view when
-    /// they only need comparison or a separately fallible retained copy.
-    pub fn fingerprint_ref(&self) -> &str {
+    /// Stable typed semantic identity cached during authenticated family
+    /// construction.
+    pub fn fingerprint(&self) -> &str {
         self.fingerprint.as_str()
     }
 
-    pub const fn fingerprint_stats(&self) -> IntegralFamilyFingerprintStats {
-        self.fingerprint_stats
+    pub(crate) fn fingerprint_owner(&self) -> Arc<String> {
+        self.fingerprint.clone()
     }
 
     pub fn loop_count(&self) -> usize {
@@ -348,10 +311,6 @@ impl IntegralFamily {
 
     pub fn power_shifts(&self) -> &[Coefficient] {
         &self.power_shifts
-    }
-
-    pub fn limits(&self) -> IntegralFamilyLimits {
-        self.limits
     }
 
     /// Matrix `A^-1` in `S = A^-1 (D-c)` orientation.

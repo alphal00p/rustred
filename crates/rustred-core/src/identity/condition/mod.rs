@@ -10,7 +10,11 @@ pub use limits::IdentityConditionLimits;
 pub use source::IdentityConditionSource;
 pub use value::ParametricNonZeroCondition;
 
-pub(in crate::identity) use value::insert_parametric_condition;
+#[cfg(test)]
+pub(in crate::identity) use value::borrowed_condition_deep_clone_counts;
+pub(in crate::identity) use value::{
+    insert_borrowed_parametric_condition, insert_parametric_condition,
+};
 
 #[cfg(test)]
 mod tests;

@@ -1,8 +1,9 @@
-use crate::algebra::{Coefficient, CoefficientPolynomial};
-use crate::family::{FamilyDomain, IntegralFamily};
+use std::sync::Arc;
+
+use crate::algebra::Coefficient;
 
 use super::limits::{DEFAULT_MAX_MATRIX_ENTRIES, check_limit};
-use super::{Error, Limits, NonZeroCondition, Stats, verify};
+use super::{Error, NonZeroCondition, Stats};
 
 /// A checked row-major coefficient matrix.
 ///
@@ -183,10 +184,10 @@ pub enum Jacobian {
 
 /// Newly derived proof object. All fields are private so callers cannot
 /// construct a certificate without verification.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct VerifiedMap {
-    pub(super) source_family_fingerprint: String,
-    pub(super) target_family_fingerprint: String,
+    pub(super) source_family_fingerprint: Arc<String>,
+    pub(super) target_family_fingerprint: Arc<String>,
     pub(super) momentum: MomentumMap,
     pub(super) scalar_products: ScalarProductMap,
     pub(super) denominators: DenominatorMap,
@@ -194,9 +195,6 @@ pub struct VerifiedMap {
     pub(super) loop_determinant: Coefficient,
     pub(super) external_determinant: Coefficient,
     pub(super) jacobian: Jacobian,
-    pub(super) source_domain: FamilyDomain,
-    pub(super) target_domain: FamilyDomain,
-    pub(super) candidate_denominator_conditions: Box<[CoefficientPolynomial]>,
     pub(super) nonzero_conditions: Box<[NonZeroCondition]>,
     pub(super) stats: Stats,
 }
@@ -238,25 +236,6 @@ impl VerifiedMap {
         &self.jacobian
     }
 
-    pub const fn source_domain(&self) -> &FamilyDomain {
-        &self.source_domain
-    }
-
-    pub const fn target_domain(&self) -> &FamilyDomain {
-        &self.target_domain
-    }
-
-    /// Denominators of caller-supplied rational map entries, before any
-    /// cancellation in derived matrices.
-    pub fn candidate_denominator_conditions(&self) -> &[CoefficientPolynomial] {
-        &self.candidate_denominator_conditions
-    }
-
-    /// The exact numerator of `det(A)`, required to be nonzero.
-    pub const fn loop_determinant_nonzero_condition(&self) -> &CoefficientPolynomial {
-        &self.loop_determinant.numerator
-    }
-
     /// Complete merged nonzero domain for replay, including both family
     /// domains, all candidate denominators, both determinant numerators, and
     /// every monomial denominator scale numerator.
@@ -266,32 +245,5 @@ impl VerifiedMap {
 
     pub const fn stats(&self) -> Stats {
         self.stats
-    }
-
-    /// Replay a retained map from its momentum witness. Derived data is
-    /// compared structurally, including the complete pre-cancellation domain.
-    pub fn replay(
-        &self,
-        source: &IntegralFamily,
-        target: &IntegralFamily,
-        limits: Limits,
-    ) -> Result<(), Error> {
-        let replayed = verify(source, target, self.momentum.clone(), limits)?;
-        if replayed.source_family_fingerprint != self.source_family_fingerprint
-            || replayed.target_family_fingerprint != self.target_family_fingerprint
-            || replayed.scalar_products != self.scalar_products
-            || replayed.denominators != self.denominators
-            || replayed.row_actions != self.row_actions
-            || replayed.loop_determinant != self.loop_determinant
-            || replayed.external_determinant != self.external_determinant
-            || replayed.jacobian != self.jacobian
-            || replayed.source_domain != self.source_domain
-            || replayed.target_domain != self.target_domain
-            || replayed.candidate_denominator_conditions != self.candidate_denominator_conditions
-            || replayed.nonzero_conditions != self.nonzero_conditions
-        {
-            return Err(Error::CertificateReplayMismatch);
-        }
-        Ok(())
     }
 }

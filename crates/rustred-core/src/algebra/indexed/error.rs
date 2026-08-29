@@ -49,7 +49,7 @@ impl fmt::Display for IndexedAlgebraError {
             ),
             Self::IndexSymbolCollision { position } => write!(
                 formatter,
-                "generated indexed coefficient symbol {position} collides with a base variable"
+                "private indexed coefficient symbol {position} has a conflicting registration"
             ),
             Self::WrongContext => formatter.write_str(
                 "coefficient or polynomial belongs to a different authenticated context",

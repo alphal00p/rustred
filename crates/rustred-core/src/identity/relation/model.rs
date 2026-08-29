@@ -10,10 +10,10 @@ use super::index::IndexShift;
 
 /// A raw parametric zero equation together with every condition inherited
 /// before fraction-field cancellation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ParametricRelation {
-    pub(super) family_fingerprint: Arc<str>,
-    context_fingerprint: Arc<str>,
+    pub(super) family_fingerprint: Arc<String>,
+    context_fingerprint: Arc<String>,
     pub(super) row_id: RowId,
     arity: usize,
     pub(super) terms: BTreeMap<IndexShift, IndexedCoefficient>,
@@ -22,13 +22,13 @@ pub struct ParametricRelation {
 
 impl ParametricRelation {
     pub(in crate::identity) fn new(
-        family_fingerprint: impl Into<Arc<str>>,
+        family_fingerprint: impl Into<Arc<String>>,
         row_id: RowId,
         context: &IndexedCoefficientContext,
     ) -> Self {
         Self {
             family_fingerprint: family_fingerprint.into(),
-            context_fingerprint: context.fingerprint().into(),
+            context_fingerprint: context.fingerprint_owner(),
             row_id,
             arity: context.index_count(),
             terms: BTreeMap::new(),
@@ -52,7 +52,7 @@ impl ParametricRelation {
         &self,
         context: &IndexedCoefficientContext,
     ) -> Result<(), ParametricRelationError> {
-        if self.context_fingerprint.as_ref() == context.fingerprint()
+        if context.owns_fingerprint(&self.context_fingerprint)
             && self.arity == context.index_count()
         {
             Ok(())
@@ -79,7 +79,9 @@ impl ParametricRelation {
     ) -> Result<(), ParametricRelationError> {
         self.validate_context(context)?;
         other.validate_context(context)?;
-        if self.family_fingerprint == other.family_fingerprint {
+        if Arc::ptr_eq(&self.family_fingerprint, &other.family_fingerprint)
+            || self.family_fingerprint == other.family_fingerprint
+        {
             Ok(())
         } else {
             Err(ParametricRelationError::WrongFamily)

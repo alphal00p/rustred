@@ -1,28 +1,29 @@
 use crate::algebra::{CoefficientContext, IndexedAlgebraLimits, IndexedCoefficientContext};
 use crate::identity::row::RowId;
 
-use super::super::{IndexShift, IndexSpace, ParametricRelation, RelationLimits};
+use super::super::{Builder, IndexShift, IndexSpace, RelationLimits};
 
 #[test]
 fn translation_moves_keys_and_coefficient_indices_together() {
     let base = CoefficientContext::new(["d"]);
     let context = IndexedCoefficientContext::try_new(&base, "relation-translate", 2).unwrap();
     let space = IndexSpace::try_new(2).unwrap();
-    let mut relation = ParametricRelation::new(
-        "family",
+    let mut relation = Builder::new(
+        "family".to_owned(),
         RowId::Derived {
             label: "source".into(),
         },
         &context,
     );
     relation
-        .add_term_with_limits(
+        .add_term(
             &context,
             space.try_zero().unwrap(),
             context.index(0).unwrap(),
             RelationLimits::default(),
         )
         .unwrap();
+    let relation = relation.finish();
     let translation = IndexShift::try_new([2, -1], 2).unwrap();
     let translated = relation
         .translated(
@@ -48,21 +49,22 @@ fn translation_composes_exactly() {
     let base = CoefficientContext::new(["d"]);
     let context = IndexedCoefficientContext::try_new(&base, "relation-compose", 2).unwrap();
     let space = IndexSpace::try_new(2).unwrap();
-    let mut source = ParametricRelation::new(
-        "family",
+    let mut source = Builder::new(
+        "family".to_owned(),
         RowId::Derived {
             label: "source".into(),
         },
         &context,
     );
     source
-        .add_term_with_limits(
+        .add_term(
             &context,
             space.unit(1, 1).unwrap(),
             context.index(0).unwrap(),
             RelationLimits::default(),
         )
         .unwrap();
+    let source = source.finish();
     let s = IndexShift::try_new([1, -2], 2).unwrap();
     let t = IndexShift::try_new([-4, 3], 2).unwrap();
     let st = s.checked_add(&t).unwrap();

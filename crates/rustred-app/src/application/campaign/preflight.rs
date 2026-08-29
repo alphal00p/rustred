@@ -1,6 +1,6 @@
 use rustred::campaign::{
-    CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA, CampaignBytes, CampaignEstimatorRevision,
-    CampaignExecutionFixedMemory, CampaignExecutionResourceProfile, CampaignExecutionWidthPlanner,
+    CampaignBytes, CampaignEstimatorRevision, CampaignExecutionFixedMemory,
+    CampaignExecutionResourceProfile, CampaignExecutionWidthPlanner,
     CampaignExecutionWidthPlanningOutcome, CampaignMemoryEstimate, CampaignTaskMemoryEnvelope,
     CampaignTaskResourceEstimate,
 };
@@ -12,6 +12,8 @@ use super::super::{CampaignPreflightRequest, CampaignPreflightResult, MAX_OUTPUT
 
 pub(crate) const CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA: &str =
     "rustred.campaign-execution-preflight-output.toml.v1";
+const CAMPAIGN_EXECUTION_RESOURCE_PROFILE_SCHEMA: &str =
+    "rustred.campaign-execution-resource-profile.v1";
 const UNSIGNED_DECIMAL_STRING_ENCODING: &str = "unsigned-decimal-string";
 
 fn serialize_u64_as_unsigned_decimal_string<S>(
@@ -201,7 +203,7 @@ pub(crate) fn preflight_request(
     let mut output = CampaignPreflightOutputV1 {
         schema: CAMPAIGN_PREFLIGHT_OUTPUT_SCHEMA,
         status: "ready",
-        profile_schema: CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA,
+        profile_schema: CAMPAIGN_EXECUTION_RESOURCE_PROFILE_SCHEMA,
         unsigned_integer_encoding: UNSIGNED_DECIMAL_STRING_ENCODING,
         estimator_revision: estimator_revision.get(),
         requested_core_ceiling,
@@ -252,10 +254,10 @@ pub(crate) fn preflight_request(
 fn prepare_profile(
     document: CampaignExecutionResourceProfileDocumentV1,
 ) -> Result<(CampaignExecutionResourceProfile, CampaignBytes), AppError> {
-    if document.schema != CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA {
+    if document.schema != CAMPAIGN_EXECUTION_RESOURCE_PROFILE_SCHEMA {
         return Err(AppError::schema(format!(
             "unsupported campaign execution resource profile schema {:?}; expected {:?}",
-            document.schema, CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA
+            document.schema, CAMPAIGN_EXECUTION_RESOURCE_PROFILE_SCHEMA
         )));
     }
     let revision = CampaignEstimatorRevision::try_new(document.estimator_revision)

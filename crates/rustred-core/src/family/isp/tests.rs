@@ -1,8 +1,8 @@
 use super::rank::checked_scalar_product_count;
-use super::{ISP_COMPLETION_V2_SCHEMA, IspCompletion, IspCompletionError, IspCompletionLimits};
+use super::{IspCompletion, IspCompletionError, IspCompletionLimits};
 use crate::algebra::matrix::DEFAULT_MAX_INPUT_RETAINED_BYTES;
 use crate::algebra::{Coefficient, CoefficientContext};
-use crate::family::{AffineDenominator, ScalarProductCoordinate};
+use crate::family::AffineDenominator;
 
 #[cfg(test)]
 mod coefficient_limit_tests {
@@ -178,10 +178,6 @@ mod tests {
 
         assert_eq!(completion.input_denominator_count(), 2);
         assert_eq!(completion.appended_coordinate_ordinals(), &[1]);
-        assert_eq!(
-            completion.appended_coordinates().collect::<Vec<_>>(),
-            vec![ScalarProductCoordinate::LoopLoop { left: 0, right: 1 }]
-        );
         assert_eq!(completion.rank_progression(), &[2, 3]);
         assert_eq!(&completion.family().denominators()[..2], input_denominators);
         assert_eq!(&completion.family().power_shifts()[..2], input_shifts);
@@ -210,7 +206,6 @@ mod tests {
             vec![context.zero()],
         )
         .unwrap();
-        assert_eq!(completion.schema(), ISP_COMPLETION_V2_SCHEMA);
         assert_eq!(completion.stats().rank_tests(), 1);
         assert_eq!(completion.stats().rank_operations(), 1);
         assert_eq!(completion.stats().appended_isps(), 0);

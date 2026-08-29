@@ -131,35 +131,65 @@ impl Collector {
     }
 }
 
-pub(super) fn collect_candidate_denominators<'a>(
+pub(super) fn add_candidate_denominators<'a>(
     matrices: impl IntoIterator<Item = (&'static str, &'a CoefficientMatrix)>,
     conditions: &mut Collector,
-) -> Result<Vec<CoefficientPolynomial>, Error> {
-    let mut candidate_denominators = Vec::new();
+) -> Result<(), Error> {
     for (name, matrix) in matrices {
         for row in 0..matrix.rows {
             for column in 0..matrix.columns {
                 let coefficient = matrix.at(row, column);
-                let denominator = coefficient.denominator.clone();
-                if denominator.is_one() {
+                if coefficient.denominator.is_one() {
                     continue;
                 }
                 conditions.add(
-                    denominator.clone(),
+                    coefficient.denominator.clone(),
                     ConditionSource::MomentumMapDenominator {
                         matrix: name,
                         row,
                         column,
                     },
                 )?;
-                if !candidate_denominators
-                    .iter()
-                    .any(|condition| condition == &denominator)
-                {
-                    candidate_denominators.push(denominator);
-                }
             }
         }
     }
-    Ok(candidate_denominators)
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::algebra::CoefficientContext;
+
+    use super::*;
+
+    #[test]
+    fn candidate_denominators_merge_directly_with_complete_provenance() {
+        let context = CoefficientContext::new(["x"]);
+        let reciprocal = context.coefficient_fixture("1/x");
+        let matrix = CoefficientMatrix::try_new(1, 2, [reciprocal.clone(), reciprocal]).unwrap();
+        let expected = matrix.entries()[0].denominator.clone();
+        let mut conditions = Collector::new(Limits::default());
+
+        add_candidate_denominators([("A", &matrix)], &mut conditions).unwrap();
+
+        assert_eq!(conditions.condition_count(), 1);
+        assert_eq!(conditions.source_count(), 2);
+        let conditions = conditions.finish();
+        assert_eq!(conditions[0].polynomial(), &expected);
+        assert_eq!(
+            conditions[0].sources(),
+            &BTreeSet::from([
+                ConditionSource::MomentumMapDenominator {
+                    matrix: "A",
+                    row: 0,
+                    column: 0,
+                },
+                ConditionSource::MomentumMapDenominator {
+                    matrix: "A",
+                    row: 0,
+                    column: 1,
+                },
+            ])
+        );
+    }
 }

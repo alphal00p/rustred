@@ -2,7 +2,7 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::family::{FamilyDomain, IntegralFamily, ScalarProductCoordinate};
+use crate::family::{IntegralFamily, ScalarProductCoordinate};
 
 use super::context::FeynmanPolynomialContext;
 use super::error::FeynmanPolynomialError;
@@ -11,7 +11,7 @@ use super::operations::{checked_adjugate, checked_determinant, verify_homogeneou
 use super::work::{FeynmanWorkBudget, checked_add, checked_mul};
 
 /// Authenticated generic Symanzik data for one complete affine family.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SymanzikPolynomials {
     context: FeynmanPolynomialContext,
     u: FeynmanPolynomial,
@@ -20,10 +20,6 @@ pub struct SymanzikPolynomials {
 }
 
 impl SymanzikPolynomials {
-    pub fn try_from_family(family: &IntegralFamily) -> Result<Self, FeynmanPolynomialError> {
-        Self::try_from_family_with_limits(family, FeynmanPolynomialLimits::default())
-    }
-
     pub fn try_from_family_with_limits(
         family: &IntegralFamily,
         limits: FeynmanPolynomialLimits,
@@ -162,10 +158,6 @@ impl SymanzikPolynomials {
 
     pub fn context(&self) -> &FeynmanPolynomialContext {
         &self.context
-    }
-
-    pub fn family_domain(&self) -> &FamilyDomain {
-        self.context.family_domain()
     }
 
     pub fn u(&self) -> &FeynmanPolynomial {

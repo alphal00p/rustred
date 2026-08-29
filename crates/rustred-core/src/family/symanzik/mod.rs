@@ -16,4 +16,4 @@ mod tests;
 pub use construction::SymanzikPolynomials;
 pub use context::FeynmanPolynomialContext;
 pub use error::FeynmanPolynomialError;
-pub use model::{FeynmanPolynomial, FeynmanPolynomialLimits, RawFeynmanPolynomial};
+pub use model::{FeynmanPolynomial, FeynmanPolynomialLimits};

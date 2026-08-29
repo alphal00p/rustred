@@ -15,10 +15,27 @@ use symbolica::LicenseManager;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParallelExecutionError {
     ZeroCoreBudget,
-    AvailableParallelism { message: String },
-    CoreBudgetExceedsAvailable { requested: usize, available: usize },
-    MulticoreRequiresSymbolicaLicense { requested: usize },
-    WorkerPoolBuild { requested: usize, message: String },
+    AvailableParallelism {
+        message: String,
+    },
+    CoreBudgetExceedsAvailable {
+        requested: usize,
+        available: usize,
+    },
+    MulticoreRequiresSymbolicaLicense {
+        requested: usize,
+    },
+    WorkerPoolBuild {
+        requested: usize,
+        message: String,
+    },
+    OrderedResultCeilingExceeded {
+        work_items: usize,
+        admitted_ceiling: usize,
+    },
+    OrderedResultAllocation {
+        admitted_results: usize,
+    },
 }
 
 impl fmt::Display for ParallelExecutionError {
@@ -44,6 +61,17 @@ impl fmt::Display for ParallelExecutionError {
                 formatter,
                 "cannot construct the {requested}-core RustRed worker pool: {message}"
             ),
+            Self::OrderedResultCeilingExceeded {
+                work_items,
+                admitted_ceiling,
+            } => write!(
+                formatter,
+                "ordered execution received {work_items} work items, exceeding its admitted result ceiling {admitted_ceiling}"
+            ),
+            Self::OrderedResultAllocation { admitted_results } => write!(
+                formatter,
+                "could not reserve the exact {admitted_results}-entry ordered result buffer"
+            ),
         }
     }
 }
@@ -57,6 +85,7 @@ impl std::error::Error for ParallelExecutionError {}
 /// scheduler only: every algebraic operation remains a Symbolica operation.
 pub struct ParallelExecution {
     n_cores: NonZeroUsize,
+    ordered_result_ceiling: usize,
     pool: Option<ThreadPool>,
 }
 
@@ -65,6 +94,7 @@ impl fmt::Debug for ParallelExecution {
         formatter
             .debug_struct("ParallelExecution")
             .field("n_cores", &self.n_cores)
+            .field("ordered_result_ceiling", &self.ordered_result_ceiling)
             .field("has_worker_pool", &self.pool.is_some())
             .finish()
     }
@@ -74,7 +104,7 @@ impl ParallelExecution {
     /// Validate an invocation's requested core ceiling without creating a
     /// worker. Campaign width planning remains host-independent, then calls
     /// this preflight before consuming its checked memory plan.
-    pub fn validate_requested_core_budget(n_cores: usize) -> Result<(), ParallelExecutionError> {
+    fn validate_requested_core_budget(n_cores: usize) -> Result<(), ParallelExecutionError> {
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
             return Ok(());
@@ -100,14 +130,22 @@ impl ParallelExecution {
 
     /// Construct one bounded execution context.
     ///
+    /// `ordered_result_ceiling` is the largest exact batch result count
+    /// admitted by the caller's allocation-free structural preflight. Every
+    /// later ordered map is constrained by this retained ceiling.
+    ///
     /// Multicore execution is rejected before a RustRed worker is created if
     /// the installed Symbolica instance is not licensed for it.
-    pub fn try_new(n_cores: usize) -> Result<Self, ParallelExecutionError> {
+    pub fn try_new(
+        n_cores: usize,
+        ordered_result_ceiling: usize,
+    ) -> Result<Self, ParallelExecutionError> {
         Self::validate_requested_core_budget(n_cores)?;
         let n_cores = NonZeroUsize::new(n_cores).ok_or(ParallelExecutionError::ZeroCoreBudget)?;
         if n_cores.get() == 1 {
             return Ok(Self {
                 n_cores,
+                ordered_result_ceiling,
                 pool: None,
             });
         }
@@ -123,43 +161,71 @@ impl ParallelExecution {
         debug_assert_eq!(pool.current_num_threads(), requested);
         Ok(Self {
             n_cores,
+            ordered_result_ceiling,
             pool: Some(pool),
         })
     }
 
-    pub fn n_cores(&self) -> usize {
+    #[cfg(test)]
+    fn n_cores(&self) -> usize {
         self.n_cores.get()
     }
 
-    pub fn is_parallel(&self) -> bool {
-        self.pool.is_some()
-    }
-
     /// Number of owned Rayon worker threads. Inline width one has none.
-    pub fn worker_thread_count(&self) -> usize {
+    #[cfg(test)]
+    fn worker_thread_count(&self) -> usize {
         self.pool
             .as_ref()
             .map_or(0, rayon::ThreadPool::current_num_threads)
     }
 
-    /// Evaluate stable work ordinals, returning results in ordinal order.
+    /// Evaluate one admitted batch of stable work ordinals.
     ///
-    /// The operation receives the same ordinal in serial and parallel modes.
+    /// `work_items` must be an exact batch count established by the caller's
+    /// allocation-free preflight and cannot exceed the ceiling retained when
+    /// this executor was constructed. The result buffer is reserved fallibly
+    /// before the first operation runs. The operation receives the same
+    /// ordinal in serial and parallel modes, and results retain ordinal order.
     /// In particular, callers can collect `Result` values and then select the
     /// lowest-ordinal failure deterministically on the coordinator.
     pub fn map_ordered<ResultValue, Operation>(
         &self,
         work_items: usize,
         operation: Operation,
-    ) -> Vec<ResultValue>
+    ) -> Result<Vec<ResultValue>, ParallelExecutionError>
     where
         ResultValue: Send,
         Operation: Fn(usize) -> ResultValue + Send + Sync,
     {
-        match &self.pool {
-            None => (0..work_items).map(operation).collect(),
-            Some(pool) => pool.install(|| (0..work_items).into_par_iter().map(operation).collect()),
+        if work_items > self.ordered_result_ceiling {
+            return Err(ParallelExecutionError::OrderedResultCeilingExceeded {
+                work_items,
+                admitted_ceiling: self.ordered_result_ceiling,
+            });
         }
+        let mut results = Vec::new();
+        results.try_reserve_exact(work_items).map_err(|_| {
+            ParallelExecutionError::OrderedResultAllocation {
+                admitted_results: work_items,
+            }
+        })?;
+        match &self.pool {
+            None => {
+                for ordinal in 0..work_items {
+                    results.push(operation(ordinal));
+                }
+            }
+            // Rayon reuses the capacity acquired above: its indexed
+            // `collect_into_vec` reserve is therefore allocation-free here.
+            Some(pool) => pool.install(|| {
+                (0..work_items)
+                    .into_par_iter()
+                    .map(operation)
+                    .collect_into_vec(&mut results);
+            }),
+        }
+        debug_assert_eq!(results.len(), work_items);
+        Ok(results)
     }
 }
 
@@ -171,20 +237,56 @@ mod tests {
 
     #[test]
     fn one_core_is_inline_and_ordered() {
-        let execution = ParallelExecution::try_new(1).unwrap();
+        let execution = ParallelExecution::try_new(1, 8).unwrap();
         assert_eq!(execution.n_cores(), 1);
         assert_eq!(execution.worker_thread_count(), 0);
-        assert!(!execution.is_parallel());
         assert_eq!(
-            execution.map_ordered(8, |ordinal| ordinal * ordinal),
+            execution
+                .map_ordered(8, |ordinal| ordinal * ordinal)
+                .unwrap(),
             vec![0, 1, 4, 9, 16, 25, 36, 49]
         );
     }
 
     #[test]
+    fn ordered_batch_cannot_exceed_its_retained_admission() {
+        let execution = ParallelExecution::try_new(1, 1).unwrap();
+        let invocations = std::sync::atomic::AtomicUsize::new(0);
+        let result = execution.map_ordered(2, |ordinal| {
+            invocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ordinal
+        });
+        assert_eq!(
+            result,
+            Err(ParallelExecutionError::OrderedResultCeilingExceeded {
+                work_items: 2,
+                admitted_ceiling: 1,
+            })
+        );
+        assert_eq!(invocations.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn ordered_result_allocation_fails_before_work_starts() {
+        let execution = ParallelExecution::try_new(1, usize::MAX).unwrap();
+        let invocations = std::sync::atomic::AtomicUsize::new(0);
+        let result = execution.map_ordered::<u8, _>(usize::MAX, |_| {
+            invocations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            0
+        });
+        assert_eq!(
+            result,
+            Err(ParallelExecutionError::OrderedResultAllocation {
+                admitted_results: usize::MAX,
+            })
+        );
+        assert_eq!(invocations.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[test]
     fn zero_core_budget_is_rejected() {
         assert!(matches!(
-            ParallelExecution::try_new(0),
+            ParallelExecution::try_new(0, 0),
             Err(ParallelExecutionError::ZeroCoreBudget)
         ));
     }
@@ -194,7 +296,7 @@ mod tests {
         let available = std::thread::available_parallelism().unwrap().get();
         let requested = available.checked_add(1).unwrap();
         assert!(matches!(
-            ParallelExecution::try_new(requested),
+            ParallelExecution::try_new(requested, 0),
             Err(ParallelExecutionError::CoreBudgetExceedsAvailable {
                 requested: actual_requested,
                 available: actual_available,
@@ -211,22 +313,24 @@ mod tests {
         if n_cores < 2 {
             return;
         }
-        let execution = ParallelExecution::try_new(n_cores).unwrap();
+        let execution = ParallelExecution::try_new(n_cores, n_cores).unwrap();
         assert_eq!(execution.worker_thread_count(), n_cores);
         let barrier = Arc::new(Barrier::new(n_cores));
         let worker_ids = Arc::new(Mutex::new(HashSet::new()));
-        let output = execution.map_ordered(n_cores, {
-            let barrier = Arc::clone(&barrier);
-            let worker_ids = Arc::clone(&worker_ids);
-            move |ordinal| {
-                worker_ids
-                    .lock()
-                    .unwrap()
-                    .insert(std::thread::current().id());
-                barrier.wait();
-                ordinal
-            }
-        });
+        let output = execution
+            .map_ordered(n_cores, {
+                let barrier = Arc::clone(&barrier);
+                let worker_ids = Arc::clone(&worker_ids);
+                move |ordinal| {
+                    worker_ids
+                        .lock()
+                        .unwrap()
+                        .insert(std::thread::current().id());
+                    barrier.wait();
+                    ordinal
+                }
+            })
+            .unwrap();
         assert_eq!(output, (0..n_cores).collect::<Vec<_>>());
         assert_eq!(worker_ids.lock().unwrap().len(), n_cores);
     }
@@ -237,24 +341,26 @@ mod tests {
         {
             return;
         }
-        let execution = ParallelExecution::try_new(2).unwrap();
+        let execution = ParallelExecution::try_new(2, 2).unwrap();
         let later_ordinal_finished = Arc::new((Mutex::new(false), Condvar::new()));
-        let results = execution.map_ordered(2, {
-            let later_ordinal_finished = Arc::clone(&later_ordinal_finished);
-            move |ordinal| -> Result<(), usize> {
-                let (finished, changed) = &*later_ordinal_finished;
-                if ordinal == 0 {
-                    let mut finished = finished.lock().unwrap();
-                    while !*finished {
-                        finished = changed.wait(finished).unwrap();
+        let results = execution
+            .map_ordered(2, {
+                let later_ordinal_finished = Arc::clone(&later_ordinal_finished);
+                move |ordinal| -> Result<(), usize> {
+                    let (finished, changed) = &*later_ordinal_finished;
+                    if ordinal == 0 {
+                        let mut finished = finished.lock().unwrap();
+                        while !*finished {
+                            finished = changed.wait(finished).unwrap();
+                        }
+                    } else {
+                        *finished.lock().unwrap() = true;
+                        changed.notify_one();
                     }
-                } else {
-                    *finished.lock().unwrap() = true;
-                    changed.notify_one();
+                    Err(ordinal)
                 }
-                Err(ordinal)
-            }
-        });
+            })
+            .unwrap();
         assert_eq!(results, vec![Err(0), Err(1)]);
         assert_eq!(results.into_iter().collect::<Result<Vec<_>, _>>(), Err(0));
     }

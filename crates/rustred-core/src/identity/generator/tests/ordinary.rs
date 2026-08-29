@@ -65,7 +65,7 @@ fn one_loop_tadpole_is_a_fully_parametric_recurrence() {
 
     // Sector signs are determined by the raw index, but a power shift is
     // still present in the coefficient at n=0. Raw generation must not use
-    // the concrete zero-index shortcut of the legacy vacuum code.
+    // a concrete zero-index shortcut from the discarded vacuum prototype.
     assert_coefficient_eq(
         &specialize_for_test(
             generator.context(),

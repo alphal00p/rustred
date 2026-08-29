@@ -15,7 +15,7 @@ pub(crate) enum MetadataValue {
 /// `rustred::input` API into this view. Keeping the rest of the
 /// application on this small DTO prevents it from growing a second expression
 /// grammar or duplicating affine lowering.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct LoweredProject {
     input_form: &'static str,
     input_schema: String,

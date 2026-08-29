@@ -13,7 +13,7 @@ use super::limits::{
     IndexedAlgebraLimits, ceil_log2, check_limit, checked_indexed_add, checked_indexed_mul,
     integer_magnitude_bits, verify_polynomial_execution_envelope,
 };
-use super::value::{IndexedCoefficient, IndexedPolynomial};
+use super::value::IndexedCoefficient;
 
 /// Prospective mathematical bounds used immediately by one specialization.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -90,27 +90,6 @@ impl IndexedCoefficientContext {
         })?;
         validate_coefficient_on_map(&result, self.base.variables(), limits.exact_algebra)?;
         Ok((result, denominator_nonzero))
-    }
-
-    pub fn specialize_polynomial(
-        &self,
-        value: &IndexedPolynomial,
-        assignment: &[i64],
-        limits: IndexedAlgebraLimits,
-    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
-        self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
-        self.validate_index_arity(assignment)?;
-        self.specialize_polynomial_raw(&value.raw, assignment, limits)
-    }
-
-    fn specialize_polynomial_raw(
-        &self,
-        source: &CoefficientPolynomial,
-        assignment: &[i64],
-        limits: IndexedAlgebraLimits,
-    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
-        let preflight = self.preflight_specialize_polynomial_raw(source, assignment, limits)?;
-        self.execute_specialize_polynomial_raw(source, assignment, limits, preflight)
     }
 
     fn preflight_specialize_polynomial_raw(

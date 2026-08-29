@@ -34,6 +34,9 @@ pub enum FeynmanPolynomialError {
         parameter: usize,
         detail: String,
     },
+    FeynmanParameterSymbolCollision {
+        parameter: usize,
+    },
     FeynmanBaseSymbolCollision {
         parameter: usize,
         base_parameter: String,
@@ -83,6 +86,10 @@ impl fmt::Display for FeynmanPolynomialError {
             Self::SymbolicaSymbol { parameter, detail } => write!(
                 formatter,
                 "could not construct Symbolica Feynman parameter {parameter}: {detail}"
+            ),
+            Self::FeynmanParameterSymbolCollision { parameter } => write!(
+                formatter,
+                "Feynman parameter {parameter} collides with an unsafe process-global Symbolica symbol"
             ),
             Self::FeynmanBaseSymbolCollision {
                 parameter,

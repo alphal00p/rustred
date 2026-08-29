@@ -11,7 +11,6 @@ mod integral;
 pub mod isp;
 mod kinematics;
 mod model;
-mod replay;
 pub mod symanzik;
 
 #[cfg(test)]
@@ -21,6 +20,6 @@ pub use error::IntegralFamilyError;
 pub use integral::{IntegralKey, IntegralKeyError};
 pub use model::{
     AffineDenominator, CoefficientLocation, ContractionMomentum, DenominatorExpansion,
-    FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyFingerprintStats,
-    IntegralFamilyLimits, ScalarProductCoordinate,
+    FamilyDomain, FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
+    ScalarProductCoordinate,
 };

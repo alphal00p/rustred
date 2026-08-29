@@ -38,11 +38,12 @@ pub(crate) use admission::{
 pub(crate) use error::{
     SymbolicaCoefficientMatrixError, SymbolicaInverseSide, SymbolicaNativeMatrixErrorKind,
 };
+#[cfg(test)]
+pub(crate) use operations::verify_coefficient_matrix_inverse;
 pub(crate) use operations::{
     congruence_of_coefficient_matrix, determinant_of_coefficient_matrix,
     invert_and_verify_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices, rank_of_coefficient_matrix,
-    verify_coefficient_matrix_inverse,
 };
 pub(crate) use right_kernel::{
     RightKernelDecision, RightKernelError, RightKernelLimits, first_primitive_right_kernel,

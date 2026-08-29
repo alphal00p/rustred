@@ -24,11 +24,8 @@ mod tests;
 pub use compact::COMPACT_SCHEMA;
 pub use compiler::Compiler;
 pub use error::{Error, LoweringError};
-pub use limits::{Limits, LoweringLimits, Stats};
-pub use model::{
-    LOWERED_SCHEMA, LoweredDenominator, LoweredProject, ParameterSource, Project, ProjectSource,
-    Propagator, Target,
-};
+pub use limits::{Limits, LoweringLimits};
+pub use model::{LoweredDenominator, LoweredProject, ParameterSource, Project, Propagator, Target};
 pub use request::{
     AtomGramEntry, AtomProject, AtomPropagator, TextGramEntry, TextProject, TextPropagator,
 };

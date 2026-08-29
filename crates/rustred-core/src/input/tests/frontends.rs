@@ -88,8 +88,8 @@ fn raw_and_text_parts_share_canonical_family_identity() {
         .into_lowered(LoweringLimits::default())
         .expect("explicit family should lower");
     assert_eq!(
-        raw_family.family().fingerprint_ref(),
-        explicit_family.family().fingerprint_ref()
+        raw_family.family().fingerprint(),
+        explicit_family.family().fingerprint()
     );
     assert_eq!(
         raw_family.denominators()[0].source(),
@@ -137,14 +137,8 @@ fn outer_only_parameters_and_all_three_frontends_converge() {
     let explicit = explicit
         .into_lowered(LoweringLimits::default())
         .expect("explicit family should lower");
-    assert_eq!(
-        raw.family().fingerprint_ref(),
-        hybrid.family().fingerprint_ref()
-    );
-    assert_eq!(
-        raw.family().fingerprint_ref(),
-        explicit.family().fingerprint_ref()
-    );
+    assert_eq!(raw.family().fingerprint(), hybrid.family().fingerprint());
+    assert_eq!(raw.family().fingerprint(), explicit.family().fingerprint());
 }
 
 #[test]
@@ -179,7 +173,7 @@ fn numerator_only_declared_extra_does_not_specialize_the_family() {
         .into_lowered(LoweringLimits::default())
         .expect("declared family should lower");
     assert_eq!(
-        inferred.family().fingerprint_ref(),
-        declared.family().fingerprint_ref()
+        inferred.family().fingerprint(),
+        declared.family().fingerprint()
     );
 }

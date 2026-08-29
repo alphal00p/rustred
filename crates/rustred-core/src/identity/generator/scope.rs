@@ -24,6 +24,6 @@ impl IbpSourceLayout {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct IbpSourceScope {
-    pub(super) family_fingerprint: Arc<str>,
-    pub(super) context_fingerprint: Arc<str>,
+    pub(super) family_fingerprint: Arc<String>,
+    pub(super) context_fingerprint: Arc<String>,
 }

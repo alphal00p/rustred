@@ -1,7 +1,7 @@
 use crate::algebra::Coefficient;
 use crate::family::ScalarProductCoordinate;
 
-use super::super::relation::{IndexShift, ParametricRelation};
+use super::super::relation::{Builder, IndexShift, ParametricRelation};
 use super::super::row::RowId;
 use super::counts::checked_row_counts;
 use super::error::{ParametricIbpError, try_preallocate_vec};
@@ -127,7 +127,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                 &row_id,
             )?;
         }
-        Ok(row)
+        Ok(row.finish())
     }
 
     fn external_ordinary_row<'rows>(
@@ -152,7 +152,7 @@ impl<'family> ParametricIbpGenerator<'family> {
     #[allow(clippy::too_many_arguments)]
     fn add_weighted_translation(
         &self,
-        target: &mut ParametricRelation,
+        target: &mut Builder,
         source: &ParametricRelation,
         constant: &Coefficient,
         denominator_coefficients: &[Coefficient],
@@ -182,7 +182,7 @@ impl<'family> ParametricIbpGenerator<'family> {
 
     fn add_one_weighted_translation(
         &self,
-        target: &mut ParametricRelation,
+        target: &mut Builder,
         source: &ParametricRelation,
         translation: IndexShift,
         base_factor: &Coefficient,
@@ -205,7 +205,7 @@ impl<'family> ParametricIbpGenerator<'family> {
                 self.config.relation_limits.arithmetic.exact_algebra,
             )?;
         }
-        target.add_scaled_with_limits(
+        target.add_scaled(
             &self.context,
             &translated,
             &factor,

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::algebra::CoefficientContext;
 use crate::family::{AffineDenominator, CoefficientLocation, IntegralFamily};
 use crate::sector::{CutConstraint, Pattern, PatternSlot, Restrictions};
@@ -59,15 +61,32 @@ fn verified_swap(family: &IntegralFamily) -> super::super::VerifiedMap {
 }
 
 #[test]
-fn compile_retains_exact_proof_and_intrinsic_bijection() {
+fn compile_consumes_exact_proof_and_retains_only_intrinsic_bijection() {
     let family = equal_mass_sunset(false);
     let affine = verified_swap(&family);
+    let family_fingerprint = family.fingerprint_owner();
+    assert!(Arc::ptr_eq(
+        &family_fingerprint,
+        &affine.source_family_fingerprint,
+    ));
+    assert!(Arc::ptr_eq(
+        &family_fingerprint,
+        &affine.target_family_fingerprint,
+    ));
+    let determinant_polynomial = family
+        .domain()
+        .conditions()
+        .find(|condition| {
+            condition
+                .sources()
+                .contains(&CoefficientLocation::BasisDeterminantNumerator)
+        })
+        .expect("the family domain retains its determinant condition")
+        .polynomial();
     let determinant_condition = affine
         .nonzero_conditions()
         .iter()
-        .find(|condition| {
-            condition.polynomial() == family.domain().determinant_nonzero().polynomial()
-        })
+        .find(|condition| condition.polynomial() == determinant_polynomial)
         .unwrap();
     assert!(
         determinant_condition
@@ -91,14 +110,12 @@ fn compile_retains_exact_proof_and_intrinsic_bijection() {
             .map(|condition| condition.sources().len())
             .sum::<usize>()
     );
+    assert_eq!(affine.source_family_fingerprint(), family.fingerprint());
+    assert_eq!(affine.target_family_fingerprint(), family.fingerprint());
 
     let permutation = compile(&family, affine).unwrap();
     assert_eq!(permutation.denominator_count(), 3);
     assert_eq!(permutation.source_for_target(), &[1, 0, 2]);
-    assert_eq!(
-        permutation.affine().source_family_fingerprint(),
-        family.fingerprint()
-    );
 }
 
 #[test]

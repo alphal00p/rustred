@@ -21,23 +21,22 @@
 use std::borrow::Cow;
 
 use crate::algebra::{Coefficient, CoefficientContext};
-use crate::family::{AffineDenominator, IntegralFamily, ScalarProductCoordinate};
+use crate::family::{AffineDenominator, IntegralFamily};
 
 use super::error::IspCompletionError;
-use super::model::{ISP_COMPLETION_V2_SCHEMA, IspCompletionLimits, IspCompletionStats};
+use super::model::{IspCompletionLimits, IspCompletionStats};
 use super::rank::{
     RankBudget, authenticate_input_rows, check_limit, checked_row_rank,
     checked_scalar_product_count, preflight_rank_coefficients, preflight_rank_matrix,
 };
 
 /// A complete family plus the exact deterministic ISP-completion witness.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct IspCompletion {
     family: IntegralFamily,
     input_denominator_count: usize,
     appended_coordinate_ordinals: Box<[usize]>,
     rank_progression: Box<[usize]>,
-    limits: IspCompletionLimits,
     stats: IspCompletionStats,
 }
 
@@ -217,13 +216,8 @@ impl IspCompletion {
             input_denominator_count,
             appended_coordinate_ordinals: appended_coordinate_ordinals.into_boxed_slice(),
             rank_progression: rank_progression.into_boxed_slice(),
-            limits,
             stats,
         })
-    }
-
-    pub const fn schema(&self) -> &'static str {
-        ISP_COMPLETION_V2_SCHEMA
     }
 
     pub fn family(&self) -> &IntegralFamily {
@@ -242,19 +236,9 @@ impl IspCompletion {
         &self.appended_coordinate_ordinals
     }
 
-    pub fn appended_coordinates(&self) -> impl Iterator<Item = ScalarProductCoordinate> + '_ {
-        self.appended_coordinate_ordinals
-            .iter()
-            .map(|&ordinal| self.family.coordinates()[ordinal])
-    }
-
     /// Initial generic rank followed by the rank after every accepted ISP.
     pub fn rank_progression(&self) -> &[usize] {
         &self.rank_progression
-    }
-
-    pub const fn limits(&self) -> IspCompletionLimits {
-        self.limits
     }
 
     pub const fn stats(&self) -> IspCompletionStats {

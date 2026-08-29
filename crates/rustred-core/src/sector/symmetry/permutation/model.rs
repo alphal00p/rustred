@@ -1,16 +1,13 @@
-use super::super::VerifiedMap;
-
 /// An exact affine self-map compiled into an intrinsic family permutation.
 ///
 /// Construction is private to
 /// [`compile`](crate::sector::symmetry::permutation::compile). The retained
-/// inverse maps each target denominator to its unique source denominator,
-/// while `affine` owns the complete exact proof from which that action was
-/// derived.
+/// inverse maps each target denominator to its unique source denominator. The
+/// complete affine proof is consumed during compilation and is not duplicated
+/// in the reusable transport object.
 #[derive(Debug)]
 pub struct Verified {
     pub(super) source_for_target: Box<[usize]>,
-    pub(super) affine: VerifiedMap,
 }
 
 impl Verified {
@@ -23,10 +20,5 @@ impl Verified {
     /// image is target denominator `j`.
     pub fn source_for_target(&self) -> &[usize] {
         &self.source_for_target
-    }
-
-    /// Complete exact affine proof retained by this compiled permutation.
-    pub const fn affine(&self) -> &VerifiedMap {
-        &self.affine
     }
 }

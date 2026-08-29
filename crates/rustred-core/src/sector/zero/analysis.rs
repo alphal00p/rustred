@@ -19,7 +19,7 @@ use super::rank::EffectiveRankDecision;
 /// regulators and are therefore included in effective sector support.
 #[derive(Debug)]
 pub struct Analyzer {
-    family_fingerprint: Arc<str>,
+    family_fingerprint: Arc<String>,
     pub(super) symanzik: SymanzikPolynomials,
     restrictions: Restrictions,
     power_support: Mask,
@@ -137,7 +137,7 @@ impl Analyzer {
         }
 
         Ok(Self {
-            family_fingerprint: Arc::from(family.fingerprint()),
+            family_fingerprint: family.fingerprint_owner(),
             symanzik,
             restrictions,
             power_support: Mask::try_new(support)?,

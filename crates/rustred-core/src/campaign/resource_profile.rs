@@ -15,19 +15,15 @@ use super::{
     CampaignExecutionWidthError, CampaignExecutionWidthRequest, CampaignTaskResourceEstimate,
 };
 
-pub const CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA: &str =
-    "rustred.campaign-execution-resource-profile.v1";
-
 /// Explicit calibration inputs for a fresh campaign bootstrap.
 ///
 /// There is deliberately no `Default`: every byte estimate must come from an
 /// explicit physical calibration or an exact caller-owned accounting census.
-/// V1 starts before heavyweight lanes are hydrated. Resuming hydrated lanes
+/// Bootstrap starts before heavyweight lanes are hydrated. Resuming hydrated lanes
 /// will require a later bootstrap that also transfers their resident owners;
 /// a byte-only profile cannot authenticate that ownership.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CampaignExecutionResourceProfile {
-    schema: &'static str,
     estimator_revision: CampaignEstimatorRevision,
     fixed_memory: CampaignExecutionFixedMemory,
     minimum_runnable_task: CampaignTaskResourceEstimate,
@@ -62,15 +58,10 @@ impl CampaignExecutionResourceProfile {
             );
         }
         Ok(Self {
-            schema: CAMPAIGN_EXECUTION_RESOURCE_PROFILE_V1_SCHEMA,
             estimator_revision,
             fixed_memory,
             minimum_runnable_task,
         })
-    }
-
-    pub const fn schema(&self) -> &'static str {
-        self.schema
     }
 
     pub const fn estimator_revision(&self) -> CampaignEstimatorRevision {
@@ -132,11 +123,11 @@ impl fmt::Display for CampaignExecutionResourceProfileError {
             ),
             Self::MinimumTaskMustUseOneCore { actual } => write!(
                 formatter,
-                "minimum runnable task requests {actual} cores; execution resource profile V1 requires exactly one"
+                "minimum runnable task requests {actual} cores; the execution resource profile requires exactly one"
             ),
             Self::HydratedRetainedLanesRequireOwnerBootstrap { bytes } => write!(
                 formatter,
-                "execution resource profile V1 cannot seed {bytes} of hydrated retained memory without resident owners"
+                "an execution resource profile cannot seed {bytes} of hydrated retained memory without resident owners"
             ),
         }
     }

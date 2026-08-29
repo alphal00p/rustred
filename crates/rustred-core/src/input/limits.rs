@@ -77,7 +77,7 @@ impl Default for Limits {
 
 /// Exact work census for one compact syntax compilation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Stats {
+pub(super) struct Stats {
     pub(super) input_bytes: usize,
     pub(super) atom_nodes: usize,
     pub(super) maximum_depth: usize,
@@ -85,62 +85,9 @@ pub struct Stats {
     pub(super) clause_arguments: usize,
     pub(super) symbol_inspections: usize,
     pub(super) inferred_parameters: usize,
-    pub(super) canonical_nodes: usize,
     pub(super) preconversion_integer_bits: usize,
     pub(super) retained_atom_integer_bits: usize,
     pub(super) retained_atom_bytes: usize,
-}
-
-impl Stats {
-    pub const fn input_bytes(self) -> usize {
-        self.input_bytes
-    }
-
-    pub const fn atom_nodes(self) -> usize {
-        self.atom_nodes
-    }
-
-    pub const fn maximum_depth(self) -> usize {
-        self.maximum_depth
-    }
-
-    pub const fn clauses(self) -> usize {
-        self.clauses
-    }
-
-    pub const fn clause_arguments(self) -> usize {
-        self.clause_arguments
-    }
-
-    pub const fn symbol_inspections(self) -> usize {
-        self.symbol_inspections
-    }
-
-    pub const fn inferred_parameters(self) -> usize {
-        self.inferred_parameters
-    }
-
-    pub const fn canonical_nodes(self) -> usize {
-        self.canonical_nodes
-    }
-
-    /// Conservative exact-arithmetic work charged before Token-to-Atom
-    /// conversion, aggregated across all explicit text fields.
-    pub const fn preconversion_integer_bits(self) -> usize {
-        self.preconversion_integer_bits
-    }
-
-    /// Conservative integer-bit envelope of all packed Atom copies retained by
-    /// the normalized project.
-    pub const fn retained_atom_integer_bits(self) -> usize {
-        self.retained_atom_integer_bits
-    }
-
-    /// Conservative packed-byte envelope of all Atom copies retained by the
-    /// normalized project.
-    pub const fn retained_atom_bytes(self) -> usize {
-        self.retained_atom_bytes
-    }
 }
 
 pub(super) fn checked_add(

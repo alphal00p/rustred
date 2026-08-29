@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
 use crate::family::IntegralFamily;
 
@@ -19,15 +17,15 @@ impl<'family> ParametricIbpGenerator<'family> {
         family: &'family IntegralFamily,
         config: ParametricIbpConfig,
     ) -> Result<Self, ParametricIbpError> {
-        let family_fingerprint: Arc<str> = family.fingerprint().into();
-        // The full semantic fingerprint is encoded losslessly by the context
-        // constructor. Thus two distinct family definitions never alias an
-        // index-variable identity merely because their display names agree.
-        let scope = format!("ordinary-ibp|{family_fingerprint}");
-        let context = IndexedCoefficientContext::try_new(
+        let family_fingerprint = family.fingerprint_owner();
+        // The context retains the full semantic fingerprint for exact
+        // authentication while its native symbols use a deterministic compact
+        // namespace. Thus display names never define family compatibility.
+        let context = IndexedCoefficientContext::try_new_with_scope_segments_and_limits(
             family.coefficient_context(),
-            &scope,
+            &["ordinary-ibp|", family_fingerprint.as_ref()],
             family.denominator_count(),
+            config.context_limits,
         )?;
         let arity = family.denominator_count();
         checked_row_counts(family.loop_count(), family.external_count())?;
@@ -43,7 +41,7 @@ impl<'family> ParametricIbpGenerator<'family> {
         let zero_shift = index_space.try_zero()?;
         let source_scope = IbpSourceScope {
             family_fingerprint,
-            context_fingerprint: context.fingerprint().into(),
+            context_fingerprint: context.fingerprint_owner(),
         };
         Ok(Self {
             family,

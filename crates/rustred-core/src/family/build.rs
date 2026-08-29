@@ -11,10 +11,13 @@ use crate::algebra::{
 use super::error::{IntegralFamilyError, check_family_limit};
 use super::exact::{coefficients_are_equal, invert_symbolic_matrix};
 use super::fingerprint::{build_family_fingerprint, preflight_family_identity_strings};
-use super::kinematics::{build_coordinates, checked_scalar_product_count};
+use super::kinematics::{
+    build_contractions, build_coordinates, checked_derivative_cache_census,
+    checked_scalar_product_count,
+};
 use super::model::{
-    AffineDenominator, CoefficientLocation, ContractionMomentum, FamilyDomain,
-    FamilyNonZeroCondition, IntegralFamily, IntegralFamilyLimits,
+    AffineDenominator, CoefficientLocation, FamilyDomain, FamilyNonZeroCondition, IntegralFamily,
+    IntegralFamilyLimits,
 };
 
 impl IntegralFamily {
@@ -86,16 +89,16 @@ impl IntegralFamily {
             matrix_entries,
             limits.max_matrix_entries,
         )?;
-        let derivative_entries = scalar_products
-            .checked_mul(loops)
-            .and_then(|count| count.checked_mul(loops.checked_add(externals)?))
-            .ok_or(IntegralFamilyError::ResourceCountOverflow {
-                resource: "family derivative contractions",
-            })?;
+        let derivative_cache = checked_derivative_cache_census(scalar_products, loops, externals)?;
         check_family_limit(
             "family derivative contractions",
-            derivative_entries,
+            derivative_cache.contractions,
             limits.max_derivative_contractions,
+        )?;
+        check_family_limit(
+            "family derivative contraction coefficient cells",
+            derivative_cache.coefficient_cells,
+            limits.max_derivative_contraction_coefficient_cells,
         )?;
         if loops == 0 {
             return Err(IntegralFamilyError::NoLoopMomenta);
@@ -109,11 +112,8 @@ impl IntegralFamily {
         )?;
         let name = retain_family_name(name)?;
         validate_momentum_labels(&loop_momenta, &external_momenta)?;
-        let coordinates = build_coordinates(loops, externals, scalar_products);
-        let contractions = (0..loops)
-            .map(ContractionMomentum::Loop)
-            .chain((0..externals).map(ContractionMomentum::External))
-            .collect::<Vec<_>>();
+        let coordinates = build_coordinates(loops, externals, scalar_products)?;
+        let contractions = build_contractions(loops, externals)?;
 
         if denominators.len() != scalar_products {
             return Err(IntegralFamilyError::WrongDenominatorCount {
@@ -217,7 +217,7 @@ impl IntegralFamily {
         // Every coefficient is now authenticated on the exact ordered base
         // map. Census the complete typed identity before any GMP formatting or
         // user-sized fingerprint allocation is attempted.
-        let (fingerprint, fingerprint_stats) = build_family_fingerprint(
+        let fingerprint = build_family_fingerprint(
             &name,
             &loop_momenta,
             &external_momenta,
@@ -229,42 +229,41 @@ impl IntegralFamily {
             limits,
         )?;
 
-        let basis = denominators
-            .iter()
-            .map(|denominator| denominator.coefficients.clone())
-            .collect::<Vec<_>>();
         // Symbolica owns the determinant, inverse, and both identity products.
-        // RustRed supplies the already-authenticated coefficient map and the
-        // family resource policy, then retains the certified row orientation.
+        // RustRed lends the already-authenticated denominator rows directly,
+        // so the matrix boundary can admit retained bytes before making its
+        // single fallible native-input clone. It then retains the certified
+        // inverse row orientation.
         let (inverse_basis, basis_determinant) =
-            invert_symbolic_matrix(&coefficients, &basis, limits)?;
+            invert_symbolic_matrix(&coefficients, &denominators, limits)?;
         let determinant_nonzero = make_family_nonzero_condition(
             CoefficientLocation::BasisDeterminantNumerator,
             basis_determinant.numerator.clone(),
         );
-        // If the determinant numerator is already an input-denominator
-        // condition, retain one polynomial with the union of both reasons.
-        // The dedicated determinant getter remains available as a compatible
-        // view of that same merged condition.
-        let determinant_nonzero = if let Some(existing) = input_denominators
+        // Canonicalize the domain to one condition per polynomial. Keep its
+        // deterministic order by placing the determinant-bearing condition
+        // last, whether it is new or merges an input denominator.
+        if let Some(position) = input_denominators
             .iter_mut()
-            .find(|condition| condition.polynomial == determinant_nonzero.polynomial)
+            .position(|condition| condition.polynomial == determinant_nonzero.polynomial)
         {
-            merge_family_condition(existing, &determinant_nonzero);
-            existing.clone()
+            let mut merged = input_denominators.remove(position);
+            merge_family_condition(&mut merged, &determinant_nonzero);
+            input_denominators.push(merged);
         } else {
-            determinant_nonzero
-        };
+            input_denominators.push(determinant_nonzero);
+        }
         let domain = FamilyDomain {
-            input_denominators,
+            conditions: input_denominators,
             basis_determinant,
-            determinant_nonzero,
         };
 
         let mut family = Self {
             name,
+            // The full identity already lives in a fallibly reserved String.
+            // Arc::new adds only its fixed-size owner without reallocating or
+            // copying that caller-sized buffer.
             fingerprint: Arc::new(fingerprint),
-            fingerprint_stats,
             loop_momenta,
             external_momenta,
             coefficients,

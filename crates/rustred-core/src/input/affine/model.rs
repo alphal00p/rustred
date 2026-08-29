@@ -27,6 +27,14 @@ impl CompiledSymbolicaAffineDenominator {
     pub const fn affine_denominator(&self) -> &AffineDenominator {
         &self.affine_denominator
     }
+
+    pub(in crate::input) fn into_parts(self) -> (Atom, Atom, AffineDenominator) {
+        (
+            self.source,
+            self.normalized_expression,
+            self.affine_denominator,
+        )
+    }
 }
 
 /// One reusable, topology-neutral denominator-expression compiler.

@@ -25,7 +25,8 @@
 //!
 //! LiteRed permits caller-configurable (and even randomized) order matrices.
 //! RustRed instead persists one deterministic policy identifier and exact key
-//! schema. Changing that identifier or schema invalidates discovered rules.
+//! display. Changing that identifier or serialized key invalidates discovered
+//! rules.
 
 mod error;
 mod mask;
