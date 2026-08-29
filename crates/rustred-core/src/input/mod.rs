@@ -4,6 +4,7 @@
 //! untrusted expression boundary; transport schemas and metadata remain in the
 //! application crate.
 
+mod affine;
 mod canonical;
 mod compact;
 mod compiler;
@@ -32,9 +33,7 @@ pub use request::{
     AtomGramEntry, AtomProject, AtomPropagator, TextGramEntry, TextProject, TextPropagator,
 };
 
-// The affine implementation remains in its private root module until its
-// native input-module migration. These are its sole public paths.
-pub use crate::symbolica_affine_denominator::{
+pub use affine::{
     CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError,
     SymbolicaAffineDenominatorLimits,
 };

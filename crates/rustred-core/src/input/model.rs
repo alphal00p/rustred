@@ -2,9 +2,9 @@
 
 use symbolica::prelude::*;
 
+use super::affine::CompiledSymbolicaAffineDenominator;
 use crate::algebra::Coefficient;
 use crate::family::{AffineDenominator, IntegralFamily};
-use crate::symbolica_affine_denominator::CompiledSymbolicaAffineDenominator;
 
 use super::limits::{Limits, LoweringLimits, Stats};
 

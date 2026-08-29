@@ -4,9 +4,9 @@ use std::fmt;
 
 use symbolica::atom::Atom;
 
+use super::affine::SymbolicaAffineDenominatorError;
 use crate::algebra::CoefficientContextError;
 use crate::family::IntegralFamilyError;
-use crate::symbolica_affine_denominator::SymbolicaAffineDenominatorError;
 
 /// Typed failures while lowering normalized syntax to an exact family.
 #[derive(Clone, Debug, PartialEq, Eq)]

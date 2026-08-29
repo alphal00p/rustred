@@ -1,7 +1,7 @@
 //! Resource policies and admitted-work statistics for input compilation.
 
+use super::affine::SymbolicaAffineDenominatorLimits;
 use crate::family::IntegralFamilyLimits;
-use crate::symbolica_affine_denominator::SymbolicaAffineDenominatorLimits;
 
 use super::error::Error;
 

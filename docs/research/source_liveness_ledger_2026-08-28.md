@@ -1,12 +1,12 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `f074908`, immediately before the R5 workspace/package
-relocation.
-**Status:** R5/core-relocation working authority, subordinate to `GOAL.md` and
-the clean-repository architecture plan.
+**Baseline parent:** `f050ef4`, immediately before the affine-input ownership
+decomposition.
+**Status:** R3/affine-owner working authority, subordinate to `GOAL.md` and the
+clean-repository architecture plan.
 
-This ledger classifies every one of the 166 Rust source/test paths remaining
-after moving the package named `rustred` to `crates/rustred-core`. It is
+This ledger classifies every one of the 179 Rust source/test paths remaining
+after decomposing the Atom-based affine compiler under `input::affine`. It is
 intentionally hostile to
 accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
@@ -29,8 +29,8 @@ core lanes may dispatch solely on proved generic family properties.
 
 | Decision | Paths |
 |---|---:|
-| move | 53 |
-| split | 112 |
+| move | 55 |
+| split | 123 |
 | delete | 0 |
 | replace | 1 |
 
@@ -160,12 +160,25 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-core/src/sector/tests/mask.rs` | split | sector tests | retain raw-membership, bit orientation, allocation-free corner, Boolean-lattice, and refcount-only clone semantics |
 | `crates/rustred-core/src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain; owner-local pattern tests prove refcount-only clones |
 | `crates/rustred-core/src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest, extreme-`i64` aggregate width, refcount-only coordinate clones, and first-component descent witnesses |
-| `crates/rustred-core/src/symbolica_affine_denominator.rs` | split | input::affine / algebra | retain only Atom-based scalar-product validation, exact affine projection, live resource policy, and lowering payload; standalone raw parsing, schema/stats metadata, compiler cloning/inspection, and their tests are deleted; next split this file under input and replace handwritten CAS kernels with audited Symbolica APIs |
-| `crates/rustred-core/src/input/mod.rs` | move | input | sole canonical input facade over focused private owners; no former flat-module or root aliases, while the minimal live affine values/errors/limits remain temporary exports until their private subtree move |
+| `crates/rustred-core/src/input/affine/mod.rs` | move | input::affine | narrow private owner facade for direct Symbolica Atom evaluation and exact affine lowering; no root module or compatibility alias |
+| `crates/rustred-core/src/input/affine/model.rs` | split | input::affine | retain only the public compiled source/normalized-expression/affine-row payload and the private authenticated compiler context |
+| `crates/rustred-core/src/input/affine/limits.rs` | split | input::affine | retain the live exact-evaluation, projection, normalization, and retained-payload resource policy pending native-operation simplification |
+| `crates/rustred-core/src/input/affine/error.rs` | split | input::affine | retain one typed Atom-evaluation, scalar-product, projection, resource, and Symbolica-boundary failure taxonomy |
+| `crates/rustred-core/src/input/affine/construction.rs` | split | input::affine | authenticate labels, combined Symbolica variables, external Gram data, scalar-product head, and generic coordinate order once per compiler |
+| `crates/rustred-core/src/input/affine/compile.rs` | split | input::affine | guarded public Atom and base-coefficient compilation plus checked exact evaluation composition; no text parser or topology dispatch |
+| `crates/rustred-core/src/input/affine/evaluate.rs` | split | input::affine | direct iterative Symbolica Atom evaluation into the authenticated combined coefficient map, including explicit scalar-product handling |
+| `crates/rustred-core/src/input/affine/projection.rs` | split | input::affine | topology-neutral quadratic momentum classification and projection onto family scalar-product coordinates and the external Gram matrix |
+| `crates/rustred-core/src/input/affine/normalize.rs` | split | input::affine | normalized-expression census and dense-degree operation admission; audit these handwritten envelopes against public Symbolica APIs before changing algebra |
+| `crates/rustred-core/src/input/affine/budget.rs` | split | input::affine / algebra | retain live exact-operation and retained-allocation envelopes shared by evaluation and projection pending migration of genuinely general primitives to algebra |
+| `crates/rustred-core/src/input/affine/work.rs` | split | input::affine | shared checked evaluation/projection work counters and allocation envelopes; keeps the owner facade free of execution state |
+| `crates/rustred-core/src/input/affine/tests/mod.rs` | move | input::affine tests | owner-local topology-neutral compiler fixtures and checked-operation helpers |
+| `crates/rustred-core/src/input/affine/tests/semantics.rs` | split | input::affine tests | retain Atom, scalar-product, Gram, affine-coordinate, declaration, and rejection semantics |
+| `crates/rustred-core/src/input/affine/tests/resources.rs` | split | input::affine tests | retain exact/one-below operation, projection, normalization, GMP, and retained-payload resource sentinels |
+| `crates/rustred-core/src/input/mod.rs` | move | input | sole canonical input facade over focused private owners, including the completed private affine subtree; no former flat-module or root aliases |
 | `crates/rustred-core/src/input/model.rs` | split | input | retain syntax-authenticated normalized and lowered mathematical values plus their ordinary views; prune transport provenance, duplicate lowered fields, and compatibility conveniences in the later input tranche |
 | `crates/rustred-core/src/input/request.rs` | split | input | retain topology-neutral text/Atom request DTOs shared by Rust CLI and Python entrypoints; serde transport belongs to the app |
 | `crates/rustred-core/src/input/limits.rs` | split | input | retain checked parsing/lowering policies, live stats, and neutral checked resource arithmetic; obsolete Pattern counters are deleted |
-| `crates/rustred-core/src/input/error.rs` | split | input | retain typed parser and lowering failures; Pattern-only errors are deleted and the remaining temporary affine split taxonomy is merged after its private move |
+| `crates/rustred-core/src/input/error.rs` | split | input | retain typed parser and lowering failures while delegating affine Atom-boundary failures to the completed `input::affine` owner; Pattern-only errors are deleted |
 | `crates/rustred-core/src/input/compiler.rs` | split | input | thin guarded public compiler facade exposing exactly compact, text, and authenticated-Atom entrypoints with no former names or bypass aliases |
 | `crates/rustred-core/src/input/compact.rs` | split | input | compact `I(...)` orchestration with direct authenticated function-head/arity dispatch; no Symbolica wildcard Pattern machinery |
 | `crates/rustred-core/src/input/canonical.rs` | split | input | deterministic canonical project census and construction in the fixed semantic clause order |

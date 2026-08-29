@@ -15,8 +15,6 @@ pub mod input;
 pub mod sector;
 pub mod zero_sectors;
 
-mod symbolica_affine_denominator;
-
 pub use algebra::{
     CoefficientPolynomial, IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient,
     IndexedCoefficientContext, IndexedPolynomial,

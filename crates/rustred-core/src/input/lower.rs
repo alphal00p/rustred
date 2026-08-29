@@ -2,9 +2,9 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use super::affine::SymbolicaAffineDenominatorCompiler;
 use crate::algebra::{Coefficient, CoefficientContext};
 use crate::family::{AffineDenominator, IntegralFamily};
-use crate::symbolica_affine_denominator::SymbolicaAffineDenominatorCompiler;
 
 use super::error::LoweringError;
 use super::limits::LoweringLimits;
