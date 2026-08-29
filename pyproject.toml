@@ -27,6 +27,12 @@ module-name = "rustred._rustred"
 python-source = "crates/rustred-python/python"
 manifest-path = "crates/rustred-python/Cargo.toml"
 include = [
+    { path = "crates/rustred-core/**/*", format = "sdist" },
     { path = "crates/rustred-python/tests/**/*", format = "sdist" },
+    { path = "vendor/symbolica/Cargo.toml", format = "sdist" },
+    { path = "vendor/symbolica/build.rs", format = "sdist" },
+    { path = "vendor/symbolica/License.md", format = "sdist" },
+    { path = "vendor/symbolica/Readme.md", format = "sdist" },
+    { path = "vendor/symbolica/src/**/*", format = "sdist" },
     { path = "vendor/symbolica/lib/**/*", format = "sdist" },
 ]

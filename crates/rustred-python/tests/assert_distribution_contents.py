@@ -10,9 +10,12 @@ FORBIDDEN_COMPONENT = "FOR_REFERENCE_ONLY_DO_NOT_PUSH"
 FORBIDDEN_DOCUMENTS = {"GOAL.md", "HANDOFF.md"}
 REQUIRED_SDIST_SUFFIXES = (
     "Cargo.toml",
+    "crates/rustred-core/Cargo.toml",
     "crates/rustred-app/Cargo.toml",
     "crates/rustred-python/Cargo.toml",
     "vendor/symbolica/Cargo.toml",
+    "vendor/symbolica/build.rs",
+    "vendor/symbolica/src/lib.rs",
     "vendor/symbolica/lib/graphica/Cargo.toml",
     "vendor/symbolica/lib/numerica/Cargo.toml",
 )

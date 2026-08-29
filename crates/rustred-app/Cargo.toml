@@ -14,9 +14,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "rustred"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
-rustred = { path = "../.." }
+rustred = { path = "../rustred-core" }
 serde = { version = "1", features = ["derive"] }
 symbolica.workspace = true
 toml = "1"

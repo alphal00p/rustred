@@ -1,0 +1,18 @@
+[package]
+name = "rustred"
+version.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Pure-Rust, Symbolica-native parametric IBP tools"
+license = "MIT"
+
+[lib]
+name = "rustred"
+path = "src/lib.rs"
+
+[dependencies]
+rand = "0.9"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+symbolica.workspace = true
+toml = "1"

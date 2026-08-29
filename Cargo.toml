@@ -1,12 +1,14 @@
 [workspace]
-# The root package is an implicit workspace member. Listing `.` explicitly
-# would make every nested path an explicit member prefix in Cargo, defeating
-# the vendor exclusions below.
 members = [
+    "crates/rustred-core",
     "crates/rustred-app",
     "crates/rustred-python",
 ]
-default-members = [".", "crates/rustred-app", "crates/rustred-python"]
+default-members = [
+    "crates/rustred-core",
+    "crates/rustred-app",
+    "crates/rustred-python",
+]
 exclude = [
     "vendor/symbolica",
     "vendor/symbolica/lib/graphica",
@@ -18,32 +20,9 @@ resolver = "3"
 version = "0.1.0"
 
 [workspace.dependencies]
-symbolica = { path = "vendor/symbolica", default-features = false, features = ["gmp", "tracing_max_level_info"] }
-
-[package]
-name = "rustred"
-version.workspace = true
-edition = "2024"
-rust-version = "1.89"
-description = "Pure-Rust, Symbolica-native parametric IBP tools"
-license = "MIT"
-exclude = [
-    "FOR_REFERENCE_ONLY_DO_NOT_PUSH/**",
-    "GOAL.md",
-    "docs/research/**",
-]
-
-[lib]
-name = "rustred"
-path = "src/lib.rs"
-
-[dependencies]
-rand = "0.9"
-rayon = "1"
-serde = { version = "1", features = ["derive"] }
-symbolica.workspace = true
-toml = "1"
+symbolica = { version = "=2.2.0", default-features = false, features = ["gmp", "tracing_max_level_info"] }
 
 [patch.crates-io]
+symbolica = { path = "vendor/symbolica" }
 graphica = { path = "vendor/symbolica/lib/graphica" }
 numerica = { path = "vendor/symbolica/lib/numerica" }
