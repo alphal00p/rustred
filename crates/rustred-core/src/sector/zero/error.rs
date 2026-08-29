@@ -1,12 +1,13 @@
 use std::fmt;
 
 use crate::algebra::ExactAlgebraError;
+use crate::algebra::matrix::RightKernelError;
 use crate::family::symanzik::FeynmanPolynomialError;
 use crate::sector;
 
-/// Typed failures at the proof boundary.
+/// Typed failures at the zero-sector proof boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ZeroSectorError {
+pub enum Error {
     WrongRestrictionsArity {
         expected: usize,
         actual: usize,
@@ -29,17 +30,20 @@ pub enum ZeroSectorError {
     ResourceCountOverflow {
         resource: &'static str,
     },
+    AllocationFailure {
+        resource: &'static str,
+    },
     MatrixDimensionOverflow {
         rows: usize,
         columns: usize,
     },
     MatrixShape {
-        detail: String,
+        rows: usize,
+        columns: usize,
+        entries: usize,
     },
-    ForeignCertificateFamily,
-    CertificateSchemaMismatch,
-    CertificateReplayFailure {
-        detail: String,
+    KernelInvariant {
+        stage: &'static str,
     },
     ExactAlgebra(ExactAlgebraError),
     Feynman(FeynmanPolynomialError),
@@ -47,7 +51,69 @@ pub enum ZeroSectorError {
     SymbolicaPanic,
 }
 
-impl fmt::Display for ZeroSectorError {
+impl Error {
+    pub(super) fn from_right_kernel(value: RightKernelError) -> Self {
+        match value {
+            RightKernelError::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            },
+            RightKernelError::CountOverflow { resource } => {
+                Self::ResourceCountOverflow { resource }
+            }
+            RightKernelError::AllocationFailure { resource } => {
+                Self::AllocationFailure { resource }
+            }
+            RightKernelError::DimensionOverflow { rows, columns } => {
+                Self::MatrixDimensionOverflow { rows, columns }
+            }
+            RightKernelError::Shape {
+                rows,
+                columns,
+                entries,
+            } => Self::MatrixShape {
+                rows,
+                columns,
+                entries,
+            },
+            RightKernelError::NativePanic => Self::SymbolicaPanic,
+            RightKernelError::ZeroColumns => Self::KernelInvariant {
+                stage: "zero-column rank matrix",
+            },
+            RightKernelError::MissingPivot => Self::KernelInvariant {
+                stage: "missing RREF pivot",
+            },
+            RightKernelError::RepeatedPivot => Self::KernelInvariant {
+                stage: "repeated RREF pivot",
+            },
+            RightKernelError::UnnormalizedPivot => Self::KernelInvariant {
+                stage: "unnormalized RREF pivot",
+            },
+            RightKernelError::MissingFreeColumn => Self::KernelInvariant {
+                stage: "missing free RREF column",
+            },
+            RightKernelError::NonIntegralPrimitive => Self::KernelInvariant {
+                stage: "nonintegral primitive part",
+            },
+            RightKernelError::ZeroPrimitive => Self::KernelInvariant {
+                stage: "zero primitive part",
+            },
+            RightKernelError::ReplayFailure => Self::KernelInvariant {
+                stage: "native integer-kernel replay",
+            },
+            RightKernelError::NativeShape => Self::KernelInvariant {
+                stage: "native matrix construction",
+            },
+        }
+    }
+}
+
+impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WrongRestrictionsArity { expected, actual } => write!(
@@ -77,19 +143,23 @@ impl fmt::Display for ZeroSectorError {
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed usize")
             }
+            Self::AllocationFailure { resource } => {
+                write!(formatter, "could not allocate {resource}")
+            }
             Self::MatrixDimensionOverflow { rows, columns } => write!(
                 formatter,
                 "rank matrix shape {rows} x {columns} cannot be represented safely"
             ),
-            Self::MatrixShape { detail } => write!(formatter, "invalid rank matrix: {detail}"),
-            Self::ForeignCertificateFamily => {
-                formatter.write_str("zero-sector certificate belongs to a foreign family")
-            }
-            Self::CertificateSchemaMismatch => {
-                formatter.write_str("zero-sector certificate schema is unsupported")
-            }
-            Self::CertificateReplayFailure { detail } => {
-                write!(formatter, "zero-sector certificate replay failed: {detail}")
+            Self::MatrixShape {
+                rows,
+                columns,
+                entries,
+            } => write!(
+                formatter,
+                "rank matrix has {entries} entries for shape {rows} x {columns}"
+            ),
+            Self::KernelInvariant { stage } => {
+                write!(formatter, "right-kernel invariant failed during {stage}")
             }
             Self::ExactAlgebra(error) => {
                 write!(formatter, "exact power-shift algebra failed: {error}")
@@ -105,21 +175,21 @@ impl fmt::Display for ZeroSectorError {
     }
 }
 
-impl std::error::Error for ZeroSectorError {}
+impl std::error::Error for Error {}
 
-impl From<ExactAlgebraError> for ZeroSectorError {
+impl From<ExactAlgebraError> for Error {
     fn from(value: ExactAlgebraError) -> Self {
         Self::ExactAlgebra(value)
     }
 }
 
-impl From<FeynmanPolynomialError> for ZeroSectorError {
+impl From<FeynmanPolynomialError> for Error {
     fn from(value: FeynmanPolynomialError) -> Self {
         Self::Feynman(value)
     }
 }
 
-impl From<sector::Error> for ZeroSectorError {
+impl From<sector::Error> for Error {
     fn from(value: sector::Error) -> Self {
         Self::Sector(value)
     }

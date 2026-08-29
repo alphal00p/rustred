@@ -1,14 +1,14 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `fb2dd7a`, immediately before the zero-sector ownership
-decomposition.
-**Status:** R3/zero-owner working authority, subordinate to `GOAL.md` and the
-clean-repository architecture plan.
+**Baseline parent:** `7aa2ffa`, immediately before the zero-sector native
+right-kernel and surface-pruning tranche.
+**Status:** R3/zero-Symbolica/prune working authority, subordinate to `GOAL.md`
+and the clean-repository architecture plan.
 
-This ledger classifies every one of the 187 Rust source/test paths remaining
-after decomposing the zero-sector proof service under `sector::zero`. It is
-intentionally hostile to
-accidental preservation: `move` retains a cohesive responsibility, `split`
+This ledger classifies every one of the 191 Rust source/test paths remaining
+after moving the zero-sector exact right-kernel boundary into `algebra::matrix`
+and pruning the zero-sector service under `sector::zero`. It is intentionally
+hostile to accidental preservation: `move` retains a cohesive responsibility, `split`
 retains only symbols proved live while deleting the rest, `delete` removes the
 whole path after any named sentinel is in place, and `replace` writes a new
 authority rather than relocating the file. A `split` decision is not
@@ -30,9 +30,9 @@ core lanes may dispatch solely on proved generic family properties.
 | Decision | Paths |
 |---|---:|
 | move | 56 |
-| split | 130 |
+| split | 132 |
 | delete | 0 |
-| replace | 1 |
+| replace | 3 |
 
 | Current path | Decision | Final owner | Evidence/action |
 |---|---|---|---|
@@ -74,11 +74,15 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-core/src/algebra/indexed/tests/context.rs` | split | algebra::indexed tests | retain map identity, fallible construction/error-ordering, checked name/fingerprint lengths, and field-operation sentinels |
 | `crates/rustred-core/src/algebra/indexed/tests/specialization.rs` | split | algebra::indexed tests | retain specialization, normalization, exact/one-below integer/operation bounds through `u16::MAX`, GMP, and resource-order sentinels through native substitution migration |
 | `crates/rustred-core/src/algebra/indexed/tests/translation.rs` | split | algebra::indexed tests | retain translation composition, exact/one-below term/operation/integer bounds including `i64::MIN`, overflow, GMP, and resource-order sentinels through native substitution migration |
-| `crates/rustred-core/src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations and their admitted metadata to core callers |
+| `crates/rustred-core/src/algebra/matrix/mod.rs` | move | algebra::matrix | private facade exposing only checked matrix operations, admitted metadata, and the exact one-witness right-kernel adapter to core callers |
 | `crates/rustred-core/src/algebra/matrix/admission.rs` | split | algebra::matrix | retain shapes, operation envelopes, payload census, and authenticated conversion; keep native scratch limitations explicit |
 | `crates/rustred-core/src/algebra/matrix/error.rs` | move | algebra::matrix | private typed matrix/native failure vocabulary |
 | `crates/rustred-core/src/algebra/matrix/field.rs` | split | algebra::matrix | retain checked field traits, bounded coefficient powers, and typed unwind transport required by Symbolica's infallible ring interfaces |
 | `crates/rustred-core/src/algebra/matrix/operations.rs` | split | algebra::matrix | retain the narrow native rank, determinant, inverse, product, and congruence entry points with authenticated outputs |
+| `crates/rustred-core/src/algebra/matrix/right_kernel/mod.rs` | replace | algebra::matrix::right_kernel | private topology-neutral adapter composition: Symbolica owns exact RREF, rational `primitive_part`, and native integer-matrix replay; RustRed retains only checked admission and deterministic first-free-column interpretation because the pinned public API has no nullspace operation |
+| `crates/rustred-core/src/algebra/matrix/right_kernel/admission.rs` | split | algebra::matrix::right_kernel | checked dense-shape, exact-operation, RREF/kernel integer-bit, allocation, and panic-boundary policy factored away from native algebra |
+| `crates/rustred-core/src/algebra/matrix/right_kernel/native.rs` | replace | algebra::matrix::right_kernel | narrow Symbolica-native normalization and `Matrix<Z>` product verification plus the sole RustRed-owned stable RREF pivot/free-column interpretation |
+| `crates/rustred-core/src/algebra/matrix/right_kernel/tests.rs` | split | algebra::matrix::right_kernel tests | focused mixed-denominator primitive normalization, sign, deterministic free-column, empty-row, native product, malformed-shape, and exact-resource sentinels |
 | `crates/rustred-core/src/algebra/matrix/tests.rs` | split | algebra::matrix tests | retain focused Symbolica authority, admission-boundary, and typed-failure sentinels; reduce breadth only with equivalent black-box evidence |
 | `crates/rustred-core/src/algebra/mod.rs` | move | algebra | narrow public scalar-algebra facade over private implementation children |
 | `crates/rustred-core/src/campaign/execution.rs` | move | campaign | bounded ordered execution authority; the dead move-owned reservation mapper was deleted with admission |
@@ -215,11 +219,11 @@ core lanes may dispatch solely on proved generic family properties.
 | `crates/rustred-core/src/sector/symmetry/verify/matrix.rs` | split | sector::symmetry::verify | narrow shape and checked matrix-adapter composition without a second CAS |
 | `crates/rustred-core/src/sector/symmetry/verify/replay.rs` | split | sector::symmetry::verify | independent exact denominator-map replay retained until the later ceremony/liveness prune |
 | `crates/rustred-core/src/sector/zero/mod.rs` | move | sector::zero | sole canonical zero-sector facade; retain the topology-neutral proof service without a root alias |
-| `crates/rustred-core/src/sector/zero/analysis.rs` | split | sector::zero | retain family-bound construction, formal power-support semantics, effective-face decisions, and certificate composition; future traversal, caching, and retry orchestration belong to foundry |
+| `crates/rustred-core/src/sector/zero/analysis.rs` | split | sector::zero | narrow family-bound construction, fixed formal-generic power-support semantics, fallible `analyze`, effective-face decisions, and already-native-verified certificate composition; schema/replay/policy/resource-decision ceremony and dead analyzer getters/Clone are deleted |
 | `crates/rustred-core/src/sector/zero/domain.rs` | split | sector::zero | retain one owner-local generic-domain condition and provenance representation shared by family and power-support guards |
-| `crates/rustred-core/src/sector/zero/error.rs` | split | sector::zero | retain typed topology-neutral construction, resource, matrix, and proof failures pending the semantic prune |
-| `crates/rustred-core/src/sector/zero/exponent.rs` | split | sector::zero | retain extraction of the effective `G = U + F` face into the exact exponent-row geometry consumed by the rank test |
+| `crates/rustred-core/src/sector/zero/error.rs` | split | sector::zero | concise typed topology-neutral construction, resource, allocation, matrix, exact-algebra, and CAS-boundary failures; certificate replay/schema/family ceremony is deleted |
+| `crates/rustred-core/src/sector/zero/exponent.rs` | split | sector::zero | retain bounded extraction of the effective `G = U + F` face into one flat row-major exponent matrix consumed by the exact adapter |
 | `crates/rustred-core/src/sector/zero/limits.rs` | split | sector::zero | retain checked Feynman, face-matrix, rank, witness, bit, and power-shift admission policy |
-| `crates/rustred-core/src/sector/zero/model.rs` | split | sector::zero | retain sealed zero certificates, full-rank diagnostics, decisions, and accessors while Step 2 removes redundant schema/replay ceremony |
-| `crates/rustred-core/src/sector/zero/rank.rs` | split | sector::zero / algebra::matrix | isolate the exact rational rank and one-witness seam; Step 2 keeps only free-column interpretation while moving primitive normalization and replay to public Symbolica matrix operations |
-| `crates/rustred-core/src/sector/zero/tests.rs` | split | sector::zero tests | retain focused on-demand zero/full-rank and owner-local guard-provenance sentinels without reviving eager historical sector inventories |
+| `crates/rustred-core/src/sector/zero/model.rs` | split | sector::zero | sealed non-cloneable verified certificate, full-column-rank diagnostic, and three-way successful decision only; durable schemas and self-replay are deleted until a real artifact owner exists |
+| `crates/rustred-core/src/sector/zero/rank.rs` | split | sector::zero | thin family-semantic adaptation of the private Symbolica right-kernel decision; no handwritten normalization, rational rank engine, or dot-product replay remains |
+| `crates/rustred-core/src/sector/zero/tests.rs` | split | sector::zero tests | focused on-demand zero/inconclusive, typed malformed/resource failure, and owner-local guard-provenance sentinels without eager historical sector inventories |

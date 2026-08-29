@@ -7,10 +7,13 @@
 //! policy, typed failure transport, and replay checks needed by proof-bearing
 //! callers.
 //!
-//! Input and every retained native output are censused by exact clone-owned
-//! capacity.  Symbolica's public scalar API does not expose a complete bound on
-//! polynomial GCD, quotient, or dense-multiplication scratch, so that remaining
-//! native scratch gap is explicit rather than being disguised as a byte proof.
+//! Coefficient-matrix inputs and retained outputs are censused by exact
+//! clone-owned capacity. The integer right-kernel adapter instead admits dense
+//! shape, exact operation count, and integer-bit bounds before returning one
+//! primitive witness. Symbolica's public scalar API does not expose a complete
+//! bound on polynomial GCD, quotient, or dense-multiplication scratch, so that
+//! remaining native scratch gap is explicit rather than disguised as a byte
+//! proof.
 //! Typed scalar failures cross Symbolica's infallible field traits through a
 //! private unwind payload.  This boundary therefore requires Rust's
 //! `panic = "unwind"`; `panic = "abort"` builds cannot recover a typed failure.
@@ -25,6 +28,7 @@ mod admission;
 mod error;
 mod field;
 mod operations;
+mod right_kernel;
 
 pub(crate) use admission::{
     DEFAULT_MAX_EXACT_OPERATIONS, DEFAULT_MAX_INPUT_RETAINED_BYTES,
@@ -39,6 +43,9 @@ pub(crate) use operations::{
     invert_and_verify_coefficient_matrix, multiply_coefficient_matrices,
     multiply_three_coefficient_matrices, rank_of_coefficient_matrix,
     verify_coefficient_matrix_inverse,
+};
+pub(crate) use right_kernel::{
+    RightKernelDecision, RightKernelError, RightKernelLimits, first_primitive_right_kernel,
 };
 
 #[cfg(test)]

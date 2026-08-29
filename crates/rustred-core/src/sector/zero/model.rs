@@ -1,124 +1,74 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use symbolica::prelude::Integer;
 
-use crate::family::IntegralFamily;
 use crate::sector::{Exclusion, Mask};
 
-use super::analysis::ZeroSectorAnalyzer;
-use super::domain::ZeroSectorDomain;
-use super::error::ZeroSectorError;
-use super::limits::{PowerShiftPolicy, ZeroSectorLimits};
+use super::domain::Domain;
 
-pub const ZERO_SECTOR_CERTIFICATE_SCHEMA: &str = "rustred.zero-sector-certificate.v1";
-
-/// Bounded work that prevented one effective-mask decision.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ZeroSectorResource {
-    pub(super) resource: &'static str,
-    pub(super) requested: usize,
-    pub(super) limit: usize,
-}
-
-impl ZeroSectorResource {
-    pub fn resource(&self) -> &'static str {
-        self.resource
-    }
-
-    pub fn requested(&self) -> usize {
-        self.requested
-    }
-
-    pub fn limit(&self) -> usize {
-        self.limit
-    }
-}
-
-/// Replayable sufficient proof that one raw sector is zero.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ZeroSectorCertificate {
-    pub(super) schema: &'static str,
+/// Exact sufficient proof that one raw sector is zero.
+///
+/// The primitive witness has already been replayed through Symbolica's native
+/// integer matrix product before a certificate can be constructed.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Certificate {
     pub(super) family_fingerprint: Arc<str>,
-    pub(super) g_fingerprint: Arc<str>,
     pub(super) raw_sector: Mask,
     pub(super) effective_sector: Mask,
     pub(super) active_parameter_order: Box<[usize]>,
     pub(super) primitive_kernel: Box<[Integer]>,
     pub(super) rank: usize,
     pub(super) exponent_row_count: usize,
-    pub(super) domain: ZeroSectorDomain,
-    pub(super) policy: PowerShiftPolicy,
+    pub(super) domain: Arc<Domain>,
 }
 
-impl ZeroSectorCertificate {
-    pub fn schema(&self) -> &'static str {
-        self.schema
-    }
-
+impl Certificate {
+    /// Fingerprint of the authenticated family used for this decision.
     pub fn family_fingerprint(&self) -> &str {
         &self.family_fingerprint
     }
 
-    pub fn g_fingerprint(&self) -> &str {
-        &self.g_fingerprint
-    }
-
+    /// Raw unshifted sector requested by the caller.
     pub fn raw_sector(&self) -> &Mask {
         &self.raw_sector
     }
 
+    /// Effective support after formal nonintegral power shifts are included.
     pub fn effective_sector(&self) -> &Mask {
         &self.effective_sector
     }
 
+    /// Family-parameter indices corresponding to kernel coordinates before
+    /// the final homogenizing coordinate.
     pub fn active_parameter_order(&self) -> &[usize] {
         &self.active_parameter_order
     }
 
+    /// Sign-oriented primitive integer right-kernel witness.
     pub fn primitive_kernel(&self) -> &[Integer] {
         &self.primitive_kernel
     }
 
+    /// Exact rational rank of the exponent matrix.
     pub fn rank(&self) -> usize {
         self.rank
     }
 
+    /// Number of retained exponent rows.
     pub fn exponent_row_count(&self) -> usize {
         self.exponent_row_count
     }
 
-    pub fn domain(&self) -> &ZeroSectorDomain {
+    /// Generic coefficient locus required by the analysis.
+    pub fn domain(&self) -> &Domain {
         &self.domain
-    }
-
-    pub fn policy(&self) -> PowerShiftPolicy {
-        self.policy
-    }
-
-    /// Reconstruct `G` and replay this certificate with default limits.
-    pub fn replay(&self, family: &IntegralFamily) -> Result<(), ZeroSectorError> {
-        self.replay_with_limits(family, ZeroSectorLimits::default())
-    }
-
-    /// Reconstruct `G` and replay this certificate with explicit limits.
-    pub fn replay_with_limits(
-        &self,
-        family: &IntegralFamily,
-        limits: ZeroSectorLimits,
-    ) -> Result<(), ZeroSectorError> {
-        catch_unwind(AssertUnwindSafe(|| {
-            let analyzer = ZeroSectorAnalyzer::build_unrestricted(family, self.policy, limits)?;
-            analyzer.replay_certificate_inner(self)
-        }))
-        .map_err(|_| ZeroSectorError::SymbolicaPanic)?
     }
 }
 
 /// Diagnostic full-column-rank result. It means only that this sufficient
-/// zero test did not produce a certificate; it is not a nonzero proof.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FullColumnRankWitness {
+/// zero test was inconclusive; it is not a nonzero proof.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FullColumnRank {
     pub(super) raw_sector: Mask,
     pub(super) effective_sector: Mask,
     pub(super) active_parameter_order: Box<[usize]>,
@@ -127,38 +77,45 @@ pub struct FullColumnRankWitness {
     pub(super) column_count: usize,
 }
 
-impl FullColumnRankWitness {
+impl FullColumnRank {
+    /// Raw unshifted sector requested by the caller.
     pub fn raw_sector(&self) -> &Mask {
         &self.raw_sector
     }
 
+    /// Effective support after formal nonintegral power shifts are included.
     pub fn effective_sector(&self) -> &Mask {
         &self.effective_sector
     }
 
+    /// Family-parameter indices represented by non-homogenizing columns.
     pub fn active_parameter_order(&self) -> &[usize] {
         &self.active_parameter_order
     }
 
+    /// Exact rational rank of the exponent matrix.
     pub fn rank(&self) -> usize {
         self.rank
     }
 
+    /// Number of retained exponent rows.
     pub fn exponent_row_count(&self) -> usize {
         self.exponent_row_count
     }
 
+    /// Number of exponent-matrix columns, including homogenization.
     pub fn column_count(&self) -> usize {
         self.column_count
     }
 }
 
-/// Complete semantics for one raw sector.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ZeroSectorDecision {
+/// Complete successful classification of one raw sector.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Decision {
+    /// The sector violates authenticated cuts or a sector pattern.
     Excluded(Exclusion),
-    ProvedZero(ZeroSectorCertificate),
-    NoZeroCertificate(FullColumnRankWitness),
-    ResourceLimited(ZeroSectorResource),
-    Failed(ZeroSectorError),
+    /// The exact rank criterion supplied a zero proof.
+    ProvedZero(Certificate),
+    /// The sufficient rank criterion did not prove the sector zero.
+    Inconclusive(FullColumnRank),
 }
