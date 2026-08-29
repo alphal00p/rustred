@@ -32,14 +32,25 @@ The currently evidenced core can:
 - verify explicit affine symmetry maps;
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
-  primitives, with roots-only composition in the application layer.
+  primitives, with roots-only composition in the application layer;
+- freshly generate, exactly replay, and seal the complete canonical one-loop
+  `q^2-1` vacuum partition over `Q(d)`, with `I(1)` as an explicit master, the
+  inactive sector as a proof-backed zero terminal, and a checked common-mass
+  homogeneity witness; and
+- apply a sealed artifact with the topology-independent `reduction::Reducer`,
+  using deterministic first-applicable rule selection, concrete strict-descent
+  checks, an explicit work stack, memoization with retained-payload limits,
+  like-master collection, typed uncovered/cycle failures, and optional common-
+  mass restoration.
 
 It does **not** yet refine coefficient/guard applicability on dependency cells,
-feed back or close proper subsectors or whole families, publish reusable rule
-artifacts, apply IBP reductions, substitute masters, or support
-generic/higher-even-rank tensor reduction. The current API also accepts a
-caller-supplied source span rather than certifying a fresh complete source set.
-Structural source counts—at any loop count—are not closure evidence.
+feed back or close proper subsectors beyond the dedicated one-loop installer,
+encode/load durable artifacts, expose artifact application through the shared
+application/CLI/Python layers, substitute masters, or support generic/higher-
+even-rank tensor reduction. The general foundry API still accepts a caller-
+supplied source span; only the narrow one-loop builder currently certifies its
+own fresh complete source set. Structural source counts—at any loop count—are
+not closure evidence.
 
 ## Active development stage
 
@@ -50,10 +61,13 @@ the tadpole, the sunset and its pinch, and the K4/Mercedes parent with four
 inequivalent contractions. Their complete ordinary-source counts are 1, 4,
 and 9 respectively.
 
-The one-loop recurrence and current two-loop sunset rules are useful generated
-and replayed ingredients; they are not yet durable closed artifacts. Closure,
-artifact publication, recursive guarded application, stable master output, and
-Vakint scalar integration are the active work.
+The one-loop recurrence is now installed as a mathematically closed,
+in-process artifact and consumed by the generic recursive reducer. It is not
+yet durably encoded, loaded, or exposed through RustRed's application, CLI, or
+Python surfaces. The current two-loop sunset rules remain generated and
+replayed ingredients rather than a closed artifact. Durable publication,
+two-loop closure, public application surfaces, and Vakint scalar integration
+are the active work.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend will be FORM-free
@@ -73,7 +87,8 @@ The repository root is a virtual Cargo workspace with three packages:
 
 - `crates/rustred-core` is package and library `rustred`; it owns exact
   algebra, families, normalized input, identities, sectors, tensor and foundry
-  services, and generic campaign primitives.
+  services, sealed artifacts, deterministic reduction, and generic campaign
+  primitives.
 - `crates/rustred-app` owns shared application operations and the `rustred`
   CLI. Transport schemas and presentation stay here rather than in the
   mathematical core.
@@ -223,23 +238,28 @@ printing.
 ## Vakint integration
 
 Vakint development occurs in the independent GammaLoop repository on branch
-`vakint_rustred`. Stage 1 adds an opt-in scalar
-`EvaluationMethod::RustRed(RustRedEvaluationOptions)` which consumes Vakint's
-existing topology match and simultaneous routing witness, applies shipped
-RustRed artifacts, returns exact coefficients in Vakint's existing MATAD
-master basis, and optionally reuses its pure-Rust master evaluations. It does
-not rematch graphs, regenerate artifacts, invoke FORM, or fall back to another
-scalar reducer.
+`vakint_rustred`. The opt-in scalar API boundary
+`EvaluationMethod::RustRed(RustRedEvaluationOptions)` and
+`EvaluationOrder::rustred_only()` are present, but deliberately report no
+supported topology and direct dispatch returns a typed `ReducerUnavailable`
+until durable artifacts and the adapter land. This prevents the reserved
+method from intercepting mixed evaluation orders.
 
-Vakint's defaults and backward compatibility remain unchanged. Tensor-bearing
-inputs continue through the existing FORM tensor prepass before the FORM-free
-RustRed scalar tail, so that whole tensor-bearing chain is not described as
-FORM-free. Scalar and already tensor-reduced inputs can test the RustRed
-backend with an invalid FORM path. The previously implemented optional,
-bounded `TensorReductionMode::RustRed` experiment remains frozen and is not an
-active Stage 1 dependency.
+Once activated, the backend will consume Vakint's existing topology match and
+simultaneous routing witness, apply shipped RustRed artifacts, return exact
+coefficients in Vakint's existing MATAD master basis, and optionally reuse its
+pure-Rust master evaluations. It will not rematch graphs, regenerate
+artifacts, invoke FORM, or fall back to another scalar reducer.
 
-Production artifacts are generated once, checked into and shipped with
+Vakint's defaults and backward compatibility remain unchanged. Once activated,
+tensor-bearing inputs will continue through the existing FORM tensor prepass
+before the FORM-free RustRed scalar tail, so that whole tensor-bearing chain
+will not be described as FORM-free. Invalid-FORM-path scalar tests are an
+activation acceptance gate, not a capability of the reserved stub. The
+previously implemented optional, bounded `TensorReductionMode::RustRed`
+experiment remains frozen and is not an active Stage 1 dependency.
+
+Production artifacts will be generated once, checked into and shipped with
 Vakint, and loaded rather than rediscovered during evaluation. RustRed owns
 guarded rule application and typed master keys; Vakint owns topology matching,
 canonical routing, steering, normalization, presentation, and its existing

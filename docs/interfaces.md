@@ -43,16 +43,22 @@ The public `rustred` facade is organized by mathematical owner:
   exact symbolic replay, guards/provenance, and anchored agreement; both expose
   a requested-pivot variant backed by deterministic Symbolica RREF;
   `foundry::dependency` owns exact target-sector partition work admission and
-  compact, resumable proper-subsector obligation descriptors; and
+  compact, resumable proper-subsector obligation descriptors;
+- `foundry::artifact` owns the versioned immutable closed-artifact value and
+  currently admits only the freshly generated canonical one-loop unit-mass
+  vacuum partition; durable encoding/loading is an explicit typed frontier;
+- `reduction` owns the topology-independent deterministic memoizing applier,
+  exact typed-master decompositions, resource limits, termination checks, and
+  common-mass restoration; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 
-These first foundry and tensor slices do not yet constitute a closing foundry
-or scalar-IBP reducer. There is currently no public durable `artifact` owner,
-closed-rule publisher, rule application, master substitution, generic tensor
-kinematics, or higher-even-rank projector. The Rust API may change directly as
-those real owners and callers are introduced; obsolete facades are not
-retained for compatibility.
+The core therefore has one genuine in-process closing shard and a reusable
+scalar-IBP reducer, but no public durable artifact codec/loader, shared-
+application reduction operation, master substitution, generic tensor
+kinematics, or higher-even-rank projector. No two- or higher-loop family is
+closed yet. The Rust API may change directly as these owners and callers are
+extended; obsolete facades are not retained for compatibility.
 
 ## Shared application API
 
@@ -143,31 +149,35 @@ FORM tensor preprocessing and behavior.
 
 ## Active Stage 1 Vakint seam
 
-The new additive interface is a scalar evaluation backend, separate from
-tensor mode selection:
+The new additive interface reserves a scalar evaluation backend, separate
+from tensor mode selection:
 
 ```rust
 EvaluationMethod::RustRed(RustRedEvaluationOptions::default())
 EvaluationOrder::rustred_only()
 ```
 
-`RustRedEvaluationOptions` controls optional master substitution, enabled by
-default. The backend consumes the topology match and simultaneous routing
-witness already produced by Vakint, loads the corresponding shipped immutable
-artifact, applies guarded rules through RustRed, and returns exact coefficients
-of typed master keys mapped to Vakint's existing MATAD master basis. It reuses
-Vakint's pure-Rust master values when substitution is requested.
+`RustRedEvaluationOptions` already controls optional master substitution,
+enabled by default. At the present boundary, however, `supports()` is false
+for every topology and direct dispatch returns typed `ReducerUnavailable`.
+There is no artifact loading, scalar reduction, master mapping, or invalid-
+FORM-path end-to-end test yet; mixed orders therefore continue safely to the
+next supported existing method.
 
-The scalar backend reports no FORM dependency, never invokes FORM, and never
-falls back to AlphaLoop, MATAD, FMFT, or another reducer. For tensor-bearing
-inputs, Vakint deliberately runs its unchanged FORM tensor prepass before this
-FORM-free scalar tail. Scalar or already tensor-reduced tests use an invalid
-FORM path to prove the backend's isolation. Existing evaluation orders,
-defaults, results, and public behavior remain backward compatible.
+When activated, the backend will consume the topology match and simultaneous
+routing witness already produced by Vakint, load the corresponding shipped
+immutable artifact, apply guarded rules through RustRed, and return exact
+coefficients of typed master keys mapped to Vakint's existing MATAD master
+basis. It will reuse Vakint's pure-Rust master values when substitution is
+requested, report no FORM dependency, invoke no FORM scalar reduction, and
+never fall back internally. Tensor-bearing inputs will deliberately retain
+Vakint's unchanged FORM tensor prepass before this FORM-free scalar tail.
+Invalid-FORM-path scalar tests are required before support is enabled.
 
-Artifacts are generated once by RustRed, checked into and shipped with Vakint,
-validated once when loaded, and reused for ordinary evaluation. Vakint must not
-regenerate them or maintain topology-authored recurrence code.
+Production artifacts will be generated once by RustRed, checked into and
+shipped with Vakint, validated once when loaded, and reused for ordinary
+evaluation. Vakint must not regenerate them or maintain topology-authored
+recurrence code.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve
 RustRed and Vakint against one exact Symbolica-family revision. A relative

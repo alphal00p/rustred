@@ -46,15 +46,21 @@ first three rows. The synthetic six-loop source test remains a generic
 generation sentinel; no six-loop closure or efficiency work is authorized in
 Stage 1.
 
-The current implementation has its first level-4 ingredients but does not pass
-the level-4 closure gate. Generated tadpole and selected sunset source spans
-now yield guarded fixed-sector parametric rules with exact `K(n)` replay,
-uniform descent, and anchored agreement. A target-directed all-four-row sunset
-sentinel additionally proves deterministic RREF selection, exact three-source
-provenance, and the complete four-pivot guard envelope at an interior anchor.
-Exceptional guard-zero loci,
-authentication of a fresh complete source set, proper-subsector feedback,
-terminal selection, total coverage, durable artifacts, a rule applier,
+The canonical one-loop `q^2-1` vacuum family now passes the mathematical
+level-4 closure gate in process. Its sole ordinary source is generated fresh,
+exactly replayed into a strict recurrence, and installed with `I(1)` as an
+explicit master, the inactive sector as a proof-backed zero terminal, and a
+common-mass homogeneity witness. The generic reducer covers every integer
+power with deterministic memoized descent and typed failures. Durable
+encoding/loading and the application/CLI/Python surfaces are still absent, so
+the one-loop artifact is not yet a published production artifact.
+
+Selected sunset source spans yield guarded fixed-sector parametric rules with
+exact `K(n)` replay, uniform descent, and anchored agreement. A target-directed
+all-four-row sunset sentinel additionally proves deterministic RREF selection,
+exact three-source provenance, and the complete four-pivot guard envelope at
+an interior anchor. Exceptional guard-zero loci, complete proper-subsector
+feedback, two- and three-loop terminal selection/coverage, durable artifacts,
 generic tensor service, and master substitution remain absent.
 
 The target-directed sunset rule now also passes a boundary sentinel at
@@ -71,8 +77,8 @@ applicability or that any referenced lower sector is closed.
 
 ## Exact closure gate
 
-A rule or artifact can claim closure only when tests establish all of the
-following:
+An in-process `ClosedArtifact` can claim mathematical closure only when tests
+establish all of the following:
 
 - fresh generic source rows, exact source provenance, and zero symbolic
   residuals;
@@ -82,8 +88,11 @@ following:
 - proof-bearing zero, symmetry, factorization, and lower-sector dependencies;
 - explicit finite terminal/master selection rather than search exhaustion;
 - zero reachable uncovered, unsupported, cancelled, timed-out, interrupted,
-  or resource-limited leaves; and
-- bounded decoding plus independent artifact replay after durable loading.
+  or resource-limited leaves.
+
+Claiming durable publication or production readiness additionally requires
+bounded decoding plus independent replay after loading untrusted artifact
+bytes. The current one-loop owner passes the mathematical gate only.
 
 Finite integer samples, held-out primes, independent routings, and numerical
 evaluation are required adversarial checks, but do not replace symbolic replay.
@@ -139,13 +148,14 @@ Vakint comparisons are reported separately at three boundaries:
 3. **Evaluation:** optional master substitution, measure and MS-bar
    normalization, and Laurent/numerical comparison.
 
-The active Stage 1 ladder is:
+The active Stage 1 ladder is completed in this order:
 
-- one-loop scalar powers reduced by the installed `K = 1` artifact;
-- two-loop sunset powers and its pinch reduced by the installed `K = 3`
+- one-loop scalar powers reduced in core by the installed in-process `K = 1`
+  artifact (durable publication and Vakint application remain open);
+- two-loop sunset powers and its pinch reduced by a future installed `K = 3`
   artifact; and
 - the three-loop K4/Mercedes parent and four inequivalent contractions reduced
-  by the installed `K = 6` artifact.
+  by a future installed `K = 6` artifact.
 
 Each case is compared first as exact coefficients of unsubstituted MATAD-basis
 masters and then, where an existing expectation exists, after Vakint's
@@ -168,12 +178,13 @@ The detailed tensor, routing, convention, and vertical-oracle contract lives in
 
 ### FORM tensor prepass and scalar oracle
 
-FORM is forbidden from RustRed and from the new Vakint RustRed **scalar**
-backend. Scalar-backend tests use an invalid FORM path and must still pass.
-Stage 1 nevertheless retains Vakint's existing FORM tensor prepass, so a
-tensor-bearing end-to-end test may run that prepass before entering the
-FORM-free RustRed scalar tail. Such a complete tensor-bearing chain is not
-claimed to be FORM-free.
+FORM is forbidden from RustRed and from the future functional Vakint RustRed
+**scalar** backend. The currently reserved Vakint method supports no topology
+and has no scalar end-to-end tests. Before support is enabled, scalar-backend
+tests must pass with an invalid FORM path. Stage 1 nevertheless retains
+Vakint's existing FORM tensor prepass, so a tensor-bearing end-to-end test may
+run that prepass before entering the FORM-free RustRed scalar tail. Such a
+complete tensor-bearing chain is not claimed to be FORM-free.
 
 Vakint's existing AlphaLoop and MATAD reductions may run with a pinned FORM in
 segregated oracle coverage through three loops. An oracle-regeneration job

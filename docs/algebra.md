@@ -9,8 +9,9 @@ graph-isomorphism engine.
 
 This document describes the live exact-algebra boundary and the audited limits
 of the pinned dependency. It is not evidence that the narrow live tensor and
-anchored/parametric foundry slices provide a complete projector or closing
-foundry, nor that future artifact or reduction services are implemented.
+anchored/parametric foundry slices provide a complete projector or generic
+closing foundry. The separate artifact/reduction owners currently close and
+apply only the canonical one-loop unit-mass family in process.
 
 ## Pinned backend
 

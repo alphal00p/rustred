@@ -67,12 +67,16 @@ derive concrete-anchor and guarded fixed-sector recurrences over Symbolica
 uniform descent, exactly replay source combinations, partition target-sector
 domains, and stream proper-subsector obligations.
 
-These are closure ingredients, not closed families. RustRed does **not** yet
-refine all exceptional coefficient/guard loci, feed solved dependencies to a
-fixed point, select all terminals, publish durable closed artifacts, apply an
-artifact recursively, or substitute masters. The one-loop recurrence and
-two-loop sunset rules are foundations for Stage 1, not complete installed
-tables.
+The core now also freshly generates and seals the canonical unit-mass
+one-loop partition as an immutable in-process artifact, with exact replay,
+explicit master and zero terminals, a common-mass homogeneity witness, and a
+topology-independent deterministic memoizing reducer. This is the first
+mathematically closed family, not yet a published durable artifact. RustRed
+still does **not** refine every exceptional coefficient/guard locus, feed all
+proper-subsector dependencies to a fixed point, close the two- or three-loop
+families, encode/load durable artifacts, expose reduction through the shared
+application/CLI/Python surfaces, or substitute masters. The current two-loop
+sunset rules remain Stage 1 ingredients rather than an installed table.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish
@@ -129,8 +133,10 @@ not excuse a convention or routing mismatch.
 
 ## Definition of closure
 
-A root is `Closed` only when one immutable artifact establishes all of the
-following:
+RustRed distinguishes mathematical in-process closure from durable production
+publication. A root may become the immutable in-process `ClosedArtifact` only
+when it establishes items 1–6 below. It may be called a published or production
+artifact only after it also establishes item 7:
 
 1. The exact family, coefficient/index contexts, kinematics, metric and
    propagator conventions, routing, cuts, power shifts, ordering, and freshly
@@ -151,8 +157,9 @@ following:
 6. Solved dependencies feed back immutably until the reachable dependency
    graph reaches a deterministic fixed point with no uncovered, unsupported,
    resource-limited, interrupted, or unresolved leaf.
-7. Untrusted durable bytes are validated once and converted to a sealed owner;
-   the reduction hot path does not repeat whole-artifact authentication.
+7. The deterministic durable representation is bounded and validated once at
+   the untrusted load boundary before conversion to the sealed owner; the
+   reduction hot path does not repeat whole-artifact authentication.
 
 Finite-field or numerical samples may propose candidates, but exact
 regenerated-source replay is mandatory.

@@ -29,6 +29,12 @@ RustRed currently provides a topology-neutral mathematical spine for:
   targeted path can additionally classify a maximal parent-sector box into
   exact fixed-target-sector product cells and expose a preflighted, resumable
   stream of compact rule-bound proper-subsector obligation descriptors;
+- a versioned immutable artifact owner whose current verifier freshly
+  generates and seals the mathematically complete canonical one-loop `q^2-1`
+  vacuum partition in process;
+- a topology-independent deterministic memoizing reducer with explicit master
+  and zero terminals, concrete strict-descent checks, retained-payload limits,
+  and common-mass homogeneity restoration;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -42,10 +48,12 @@ caller-supplied source span. Its sector-monotone extension records boundary
 pinches as unresolved lower-sector dependencies but does **not** feed them
 back, refine exceptional guard-zero
 domains, prove source-set completeness or closure, or publish an artifact. No
-current service applies IBP artifacts, selects/substitutes masters, or evaluates
-an integral. The tensor slice does **not** support generic kinematics or even
-rank above two and is frozen during Stage 1. Generic source-count tests exercise
-only the row census; they are not physical closure results.
+general application service publishes or loads artifacts, substitutes masters,
+or evaluates an integral. The core `reduction::Reducer` does apply the narrow
+sealed one-loop artifact in process. The tensor slice does **not** support
+generic kinematics or even rank above two and is frozen during Stage 1.
+Generic source-count tests exercise only the row census; they are not physical
+closure results.
 
 The exact public Rust surface is the module facade in
 [`crates/rustred-core/src/lib.rs`](../crates/rustred-core/src/lib.rs). Public
@@ -86,7 +94,7 @@ mathematical representation or independent output schema.
 
 ## Core ownership DAG
 
-The eight current core domains are rooted at
+The nine current core domains are rooted at
 [`crates/rustred-core/src`](../crates/rustred-core/src):
 
 ```text
@@ -98,6 +106,7 @@ identity ---> family, algebra
 sector -----> family, algebra
 tensor -----> family, algebra, Symbolica public Rust API
 foundry ----> identity, sector, family, algebra, Symbolica public Rust API
+reduction --> foundry, sector, family, algebra
 campaign ---> Rayon and Symbolica license admission
 ```
 
@@ -160,15 +169,17 @@ directly over `K(n)` on a representable fixed-sector interior. Both order
 integral columns through the sector owner and invoke Symbolica's public sparse
 row reducer; the latter retains every required guard and source provenance,
 proves uniform strict descent, exactly replays the symbolic row, and requires
-agreement with the independently derived anchor. It is not yet an
-exceptional-domain engine, complete-source/closure search, or artifact
-publisher. The targeted parametric API can additionally retain a maximal
-parent-sector domain with compact first-pinched witnesses and exact
-fixed-target-sector product partitions. `foundry::dependency` owns aggregate
-work admission and a stable process-local cursor over O(1) proper-subsector
-descriptors; exact cell domains are materialized only on demand. These values
-retain rule/coefficient/guard context but do not refine applicability, feed
-solved children back, or establish closure.
+agreement with the independently derived anchor. Those general rule-discovery
+paths are not yet an exceptional-domain engine or complete-source/closure
+search. The targeted parametric API can additionally retain a maximal parent-
+sector domain with compact first-pinched witnesses and exact fixed-target-
+sector product partitions. `foundry::dependency` owns aggregate work admission
+and a stable process-local cursor over O(1) proper-subsector descriptors; exact
+cell domains are materialized only on demand. These values retain rule,
+coefficient, and guard context but do not refine applicability or feed solved
+children back. Separately, `foundry::artifact` generates and verifies the
+narrow canonical one-loop closure and seals it for `reduction`; it is not yet
+a durable publisher or a generic multi-sector closure engine.
 
 ### `sector`
 
@@ -248,30 +259,30 @@ graph.
 
 Vakint integration is developed in the GammaLoop repository on its own
 `vakint_rustred` branch. Vakint remains the user-facing steering layer, while
-RustRed supplies reusable mathematical services. Stage 1 adds a FORM-free
-scalar RustRed evaluation backend but deliberately retains Vakint's existing
-FORM tensor prepass. Tensor-bearing end-to-end tests may therefore execute FORM
-before entering the RustRed scalar tail; scalar-backend tests use an invalid
-FORM path to prove that the new backend itself has no FORM dependency or
+RustRed supplies reusable mathematical services. The additive scalar RustRed
+API boundary is reserved but currently supports no topology and returns a
+typed unavailable error on direct dispatch. Activating it with shipped
+artifacts will provide the FORM-free scalar tail while deliberately retaining
+Vakint's existing FORM tensor prepass. Tensor-bearing end-to-end tests may then
+execute FORM before entering that tail; invalid-FORM-path scalar tests are an
+activation gate proving that the backend itself has no FORM dependency or
 fallback. Existing FORM-backed scalar methods remain compatibility oracles in
 segregated coverage.
 
-## Stage 1 owners, not yet current packages
+## Stage 1 artifact and reduction owners
 
-The following domains are active Stage 1 requirements but do not exist in the
-live RustRed core yet:
+The live core now contains two cohesive Stage 1 domains:
 
-| Future owner | Intended responsibility | First capability gate |
+| Owner | Current responsibility | Remaining production gate |
 |---|---|---|
-| `artifact` | Immutable closed-rule values, through-three-loop manifests, persistence, and one-time untrusted-load validation | A real closed one-loop shard produced and consumed outside the foundry |
-| `reduction` | Deterministic guarded application, memoization, termination, mass restoration, and stable master keys | End-to-end one-loop application against independent Vakint expectations |
+| `foundry::artifact` | Versioned immutable artifact values plus a verifier that seals the freshly generated canonical one-loop unit-mass partition | Deterministic durable encoding/loading with one-time untrusted-boundary validation, then `K = 3` and `K = 6` installers |
+| `reduction` | Topology-independent deterministic rule selection/application, explicit-stack termination, memoization with retained-payload budgets, typed master maps, and common-mass restoration | Guarded/symmetry/factorization and lower-artifact terminals, public application surfaces, and Vakint comparison |
 
-These owners are introduced only with a cohesive contract and first
-production caller. Empty shells, restored prototype sessions, and transport-
-only microcrates are not milestones. Dependencies must remain acyclic: the
-live foundry may compose the current domains and emit stable artifact values;
-reduction may consume artifacts; artifact models must never depend on foundry
-internals.
+These are real owners rather than empty shells, but the one-loop artifact is
+still in-process and no application-layer caller exists yet. Dependencies
+remain acyclic: the foundry composes current mathematical domains and emits a
+sealed artifact value; reduction consumes artifacts; artifact models do not
+depend on application transports.
 
 ## Change rules
 

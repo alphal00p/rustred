@@ -38,13 +38,16 @@ corner `[1,1,1]` is the first sentinel. This API still requires a nonempty
 common fixed-sector interior for the supplied source span; it does not yet
 replace source preparation with a fully piecewise reducer.
 
-This is not yet a closing foundry. The API does not authenticate that its
-caller-supplied relation slice is a fresh complete source set, refine
-coefficient/guard applicability on each cell, feed solved proper subsectors
-back into the parent, select terminals, publish a closed artifact, or reduce
-an integral. Discovery cursors are not durable artifact identities, and cold
-proof replay may perform fallible O(K) allocations outside the streaming work
-budget. The
+The general dependency foundry is not yet closing: it does not authenticate
+that an arbitrary caller-supplied relation slice is a fresh complete source
+set, refine coefficient/guard applicability on each cell, or feed solved
+proper subsectors back into the parent. A deliberately narrow
+`foundry::artifact` installer now does close the canonical one-loop `q^2-1`
+vacuum partition from its freshly generated source, and `reduction::Reducer`
+applies that sealed in-process owner. No two- or higher-loop candidate can pass
+that installer, and durable encoding/loading remains unavailable. Discovery
+cursors are not durable artifact identities, and cold proof replay may perform
+fallible O(K) allocations outside the streaming work budget. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 
@@ -217,7 +220,8 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-A closed artifact records only durable semantics needed to load and apply it:
+The current sealed one-loop owner is in-process only. The future durable
+artifact format must record only the semantics needed to load and apply it:
 
 - schema/algorithm and Symbolica identities;
 - the canonical family, routing, convention, variable-order, source-set, and
@@ -228,11 +232,12 @@ A closed artifact records only durable semantics needed to load and apply it:
 - source-row provenance and exact replay material; and
 - deterministic dependency and integrity metadata.
 
-Untrusted bytes are bounded and authenticated once at load/installation. A
-sealed in-process owner then carries those invariants; hot-path functions do
-not repeat schema round trips, full hashes, or whole-artifact replay. Atomic
-publication prevents a partial workspace from appearing under the final
-artifact name.
+Once the codec exists, untrusted bytes will be bounded and authenticated once
+at load/installation. The resulting sealed owner will carry those invariants;
+hot-path functions will not repeat schema round trips, full hashes, or whole-
+artifact replay. Atomic publication must prevent a partial workspace from
+appearing under the final artifact name. None of these persistence claims is
+implemented by the current `DurableEncodingUnavailable` boundary.
 
 ## RAM-aware deterministic parallelism
 

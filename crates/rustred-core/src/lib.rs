@@ -13,5 +13,6 @@ pub mod family;
 pub mod foundry;
 pub mod identity;
 pub mod input;
+pub mod reduction;
 pub mod sector;
 pub mod tensor;

@@ -422,8 +422,9 @@ warmed worker plus one minimum runnable task, and returns a typed no-fit pause
 without constructing a pool. The roots-only CLI remains separate; the resource
 preflight exposes only the pure decision from an explicit profile. Named-host
 calibration, task-specific estimator adapters, the actual foundry scheduler,
-reducer execution, and checkpointing remain unimplemented. Neither campaign
-command derives sector rules or claims closure.
+application/CLI campaign reducer execution, and checkpointing remain
+unimplemented. The core one-loop reducer is not exposed by either campaign
+command; neither command derives sector rules or claims closure.
 
 `--n-cores` is always a ceiling. The planner derives an effective execution
 width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator

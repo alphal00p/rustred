@@ -60,6 +60,32 @@ impl IndexedCoefficientContext {
     ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
         self.validate_with_limits(value, limits.exact_algebra)?;
         self.validate_index_arity(assignment)?;
+        self.specialize_authenticated(value, assignment, limits)
+    }
+
+    /// Specialize a coefficient owned by a sealed in-process semantic owner.
+    ///
+    /// Artifact installation already authenticated the complete coefficient
+    /// payload.  This crate-private path checks only the exact context seal,
+    /// then retains the same prospective work bounds and output
+    /// authentication as the public untrusted-ingress operation.
+    pub(crate) fn specialize_sealed(
+        &self,
+        value: &IndexedCoefficient,
+        assignment: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
+        self.bind_sealed(value)?;
+        self.validate_index_arity(assignment)?;
+        self.specialize_authenticated(value, assignment, limits)
+    }
+
+    fn specialize_authenticated(
+        &self,
+        value: &IndexedCoefficient,
+        assignment: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(Coefficient, Option<CoefficientPolynomial>), IndexedAlgebraError> {
         let numerator_preflight =
             self.preflight_specialize_polynomial_raw(&value.raw.numerator, assignment, limits)?;
         let denominator_preflight =
@@ -118,12 +144,6 @@ impl IndexedCoefficientContext {
         assignment: &[i64],
         limits: IndexedAlgebraLimits,
     ) -> Result<SpecializationPreflight, IndexedAlgebraError> {
-        validate_polynomial_on_map(
-            source,
-            &self.variables,
-            crate::algebra::CoefficientPolynomialPart::Numerator,
-            limits.exact_algebra,
-        )?;
         check_limit(
             "coefficient specialization output terms",
             source.nterms(),
