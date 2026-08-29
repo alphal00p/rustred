@@ -1,66 +1,71 @@
 # RustRed
 
-RustRed is a pre-alpha, pure-Rust and Symbolica-native project. Its currently
-evidenced core derives raw topology-neutral parametric integration-by-parts and
-Lorentz-invariance identities; it does not yet close families or apply a
-reduction. Its scientific pressure target is a generic, parallel rule foundry
-capable of closing single-scale vacuum families through six loops. Loop count
-and topology remain input data rather than production dispatch keys.
+RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
+eventually applying parametric integration-by-parts identities. Its scientific
+pressure target is a generic, deterministic rule foundry capable of closing
+single-scale vacuum families through six loops. Loop count and topology are
+input data, never production dispatch keys.
 
-The project is in a deliberate repository and API reset. There is no RustRed
-backward-compatibility promise during this phase. Historical authored
-recurrences, broad integration suites, compatibility facades, and milestone
-logs have been deleted rather than migrated. Git is their archive. Remaining
-reset work is the final sector/input/symmetry/zero regrouping and pruning,
-facade audit, virtual-workspace relocation, and stable documentation gate.
+## Current capability
 
-## Current workspace
+The currently evidenced core can:
 
-- `rustred` is temporarily the repository-root mathematical crate while its
-  live code is pruned into owned domains. It will move to
-  `crates/rustred-core` before Phase 0 completes.
-- `crates/rustred-app` owns the shared application boundary and the `rustred`
-  CLI.
-- `crates/rustred-python` is a thin PyO3 adapter. Python users write
-  `import rustred`; `rustred._rustred` is a private native extension detail.
-  Long-running calls release the GIL and serialize through one process-wide
-  coordinator. If a contained native panic reaches that boundary, the
-  coordinator is permanently poisoned and later requests are rejected rather
-  than reusing potentially inconsistent process state.
-- `vendor/symbolica` is the sole production CAS dependency and is built with
-  GMP support. FORM, Mathematica, SymPy, and authored recurrence tables are
-  forbidden from RustRed production and ordinary tests.
+- compile compact, structured-text, and caller-owned Symbolica Atom family
+  descriptions, authenticating every form at ingress;
+- build exact topology-neutral affine integral families;
+- generate the complete ordinary parametric IBP and LI source rows;
+- verify explicit affine symmetry maps;
+- analyze requested zero sectors using generic Symanzik/rank evidence; and
+- provide deterministic core-owned campaign execution and memory-preflight
+  primitives, with roots-only composition in the application layer.
 
-The root mathematical package is still in the temporary in-place pruning
-stage; the retained algebra, family, identity, and campaign domains are
-structured, while the remaining sector and input ownership cleanup and the
-planned relocation have not yet completed. The currently evidenced
-application operations are raw family/IBP derivation, roots-only campaign
-planning, and campaign resource preflight.
-Closed reusable family artifacts, general reduction, master substitution, a
-complete one-through-four-loop Vakint comparison corpus, and physical six-loop
-closure are not yet available.
+It does **not** yet solve or close families, publish reusable rule artifacts,
+apply IBP reductions, substitute masters, or reduce tensors. Structural source
+counts—even the six-loop count—are not closure evidence.
+
+The codebase has no RustRed backward-compatibility promise during deep
+development. Obsolete prototype solvers, schemas, compatibility facades,
+authored recurrences, and milestone-log architecture have been deleted rather
+than migrated.
+
+## Workspace
+
+The repository root is a virtual Cargo workspace with three packages:
+
+- `crates/rustred-core` is package and library `rustred`; it owns exact
+  algebra, families, normalized input, identities, sectors, and generic
+  campaign primitives.
+- `crates/rustred-app` owns shared application operations and the `rustred`
+  CLI. Transport schemas and presentation stay here rather than in the
+  mathematical core.
+- `crates/rustred-python` is a thin PyO3 adapter over `rustred-app`. Python
+  users write `import rustred`; `rustred._rustred` is a private extension
+  detail, and top-level `import _rustred` is intentionally unsupported.
+
+The exact registry-shaped Symbolica 2.2.0 dependency is patched to
+`vendor/symbolica` and built with GMP. Symbolica is the sole production CAS.
+RustRed never invokes FORM, Mathematica, SymPy, or authored recurrence tables.
 
 ## Development
 
-Enter the pinned Nix development environment and provide a valid Symbolica
-license through the `SYMBOLICA_LICENSE` environment variable when executing
-licensed operations:
+Use the pinned Nix environment. Licensed or multicore Symbolica operations
+need `SYMBOLICA_LICENSE` set before the first Symbolica object or worker pool is
+created.
 
 ```bash
-nix develop
-cargo fmt --all --check
-cargo check --locked
+nix develop --command cargo fmt --all -- --check
+SYMBOLICA_LICENSE=... nix develop --command cargo check --workspace --all-targets
+SYMBOLICA_LICENSE=... nix develop --command cargo test --workspace --all-targets
 ```
 
 Inspect the current CLI contract with:
 
 ```bash
-cargo run -p rustred-app --bin rustred -- --help
+nix develop --command cargo run -p rustred-app --bin rustred -- --help
 ```
 
-The Python distribution is built from the root `pyproject.toml`; its public
-import smoke test is:
+The root `pyproject.toml` builds the Python distribution. The public smoke test
+is:
 
 ```bash
 uv venv .venv
@@ -69,17 +74,36 @@ maturin develop --features extension-module
 python -c 'import rustred'
 ```
 
-## Authority and scope
+## Vakint integration
 
-[`GOAL.md`](GOAL.md) is the authoritative long-horizon objective and execution
-roadmap. The current destructive reset is specified by the
-[clean-repository architecture plan](docs/research/repository_clean_architecture_plan_2026-08-28.md).
-LiteRed2 is a read-only algorithmic reference, not a code or architecture
-dependency; its upstream project is available at
-[rnlg/LiteRed2](https://github.com/rnlg/LiteRed2).
+Vakint development occurs in the independent GammaLoop repository on branch
+`vakint_rustred`. The current additive `RustRed` tensor-mode boundary preserves
+Vakint's existing default FORM behavior, but deliberately returns a typed
+unavailable result because the real RustRed tensor service is not implemented
+yet. The new mode never falls back to FORM.
 
-Local reference checkouts live only under the ignored
-`FOR_REFERENCE_ONLY_DO_NOT_PUSH/` directory. They must never enter RustRed
-history. Vakint/GammaLoop development occurs in its own repository and branch.
+The planned service will be implemented in the RustRed crate and reused by
+Vakint, the CLI, and Python. Vakint remains responsible for topology matching,
+canonical routing, steering, and presentation. Existing FORM-backed Vakint
+paths and their compatibility tests remain reference oracles; the RustRed mode
+does not invoke or fall back to them.
+
+## Documentation
+
+[`GOAL.md`](GOAL.md) is the authoritative objective and execution roadmap.
+Stable design documents are:
+
+- [architecture and ownership](docs/architecture.md);
+- [Symbolica and exact algebra](docs/algebra.md);
+- [tensor reduction and Vakint integration](docs/tensor.md);
+- [closing-rule foundry target](docs/foundry.md);
+- [application, Python, and Vakint interfaces](docs/interfaces.md);
+- [validation and oracle ladder](docs/validation.md);
+- [LiteRed2 semantic reference](docs/references/litered2.md); and
+- [current CLI contract](docs/CLI.md).
+
+Local LiteRed2, GammaLoop/Vakint, FORM, and other reference checkouts live only
+under ignored `FOR_REFERENCE_ONLY_DO_NOT_PUSH/`. They must never enter RustRed
+history. GammaLoop inside that tree is a separate Git repository.
 
 RustRed is licensed under the [MIT License](LICENSE).

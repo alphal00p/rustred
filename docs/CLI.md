@@ -411,14 +411,12 @@ string, identified by `unsigned_integer_encoding = "unsigned-decimal-string"`.
 
 This command invokes only the pure width planner. It does not parse a topology,
 initialize Symbolica or require a license, consume an accepted plan, construct
-a worker pool, hydrate a reducer, or schedule campaign work. The checked-in
-example contains illustrative values, not named-host measurements.
+a worker pool, hydrate a reducer, or schedule campaign work. The inline test
+profiles contain illustrative values, not named-host measurements.
 
-The core library contains a versioned host-independent pre-pool effective-width
-planner, checked resource values, and bounded ordered execution. Roots-only
-family/sector/job interning is application-owned. The deleted core replay plan,
-work-key wave planner, and move-only admission controller were unused
-prototypes and are not part of the supported architecture. The width plan enforces
+The core library contains a host-independent pre-pool effective-width planner,
+checked resource values, and bounded ordered execution. Roots-only
+family/sector/job interning is application-owned. The width plan enforces
 `M_operational < M_enclosing`, charges the coordinator and every possible
 warmed worker plus one minimum runnable task, and returns a typed no-fit pause
 without constructing a pool. The roots-only CLI remains separate; the resource
@@ -427,29 +425,18 @@ calibration, task-specific estimator adapters, the actual foundry scheduler,
 reducer execution, and checkpointing remain unimplemented. Neither campaign
 command derives sector rules or claims closure.
 
-Multiple compact Symbolica family/integral expressions may supply the roots.
-A future execution contract will additionally carry campaign-wide policies
-and resources; `--n-cores` and memory admission may change timing only. The
-deterministic work-unit, closure, checkpoint, and multi-start bundle contracts
-are governed by Phase 3 of [`GOAL.md`](../GOAL.md) and the
-[clean-repository architecture plan](research/repository_clean_architecture_plan_2026-08-28.md).
+`--n-cores` is always a ceiling. The planner derives an effective execution
+width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator
+execution without a worker pool; `E>1` denotes `E` worker threads, while the
+separate coordinator remains another possible Symbolica workspace owner. The
+fixed baseline therefore charges the coordinator plus every possible worker
+and any explicitly admitted inner thread. If the inline baseline plus one
+minimum runnable task does not fit, preflight returns a typed memory-capacity
+pause.
 
-For a future six-loop run on a roughly 100-core, 1-TiB EPYC node,
-`--n-cores 100` remains only a ceiling. Before building its pool, the campaign
-library now derives an effective execution width `E` with
-`1 <= E <= --n-cores`. `E=1` denotes inline coordinator execution without a
-worker pool; `E>1` denotes `E` worker threads, while the separate coordinator
-remains another possible Symbolica Workspace owner. The fixed baseline therefore charges the
-coordinator plus every possible worker (and any explicitly admitted inner
-thread), not merely the currently busy reducer owners. If the `E=1` baseline
-plus one minimum runnable task does not fit, the command returns a typed
-memory-capacity pause before pool construction. A future foundry scheduler must
-keep unadmitted work compact, avoid per-worker clones of the complete symbolic
-state, and may deliberately leave cores idle to respect `--max-memory`;
-operators should set that value below physical RAM to retain headroom for the
-OS and Symbolica memory that its public API cannot census. The width plan
-records requested width, effective width,
-worker-thread count, enclosing/operational limits, the fixed breakdown, and
-estimator revision as physical metadata excluded from semantic hashes. Pure
-CLI reporting is available through `campaign preflight`; named-host calibration
-and execution bootstrap remain pending.
+Operators should keep `--max-memory` below physical RAM to preserve headroom
+for the OS and opaque Symbolica scratch that its public API cannot census. The
+reported width, limits, fixed breakdown, and estimator revision are physical
+metadata excluded from mathematical identities. The future deterministic
+execution, closure, checkpoint, and parallel-memory contracts are documented
+in the [foundry design](foundry.md), not implemented by the present CLI.
