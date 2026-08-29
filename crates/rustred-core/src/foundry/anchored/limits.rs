@@ -24,6 +24,14 @@ pub struct AnchoredRuleLimits {
     /// index-excess buffer, so each key contributes twice its arity.
     pub max_ordering_key_coordinate_cells: usize,
     pub max_native_decomposition_nonzero_entries: usize,
+    /// Maximum conservative nonzero-entry capacity admitted for the complete
+    /// serial Symbolica back-substitution output. This is charged only by the
+    /// target-directed API.
+    pub max_back_substitution_output_nonzero_entries: usize,
+    /// Maximum conservative live nonzero-entry capacity while Symbolica's
+    /// forward `U`/`L` matrices coexist with the serial back-substitution
+    /// output. This is charged only by the target-directed API.
+    pub max_back_substitution_live_nonzero_entries: usize,
     pub max_rule_guards: usize,
     pub max_guard_origins: usize,
     pub max_guard_provenance_sources: usize,
@@ -44,6 +52,8 @@ impl Default for AnchoredRuleLimits {
             max_guard_provenance_index_cells: 64_000_000,
             max_ordering_key_coordinate_cells: 128_000_000,
             max_native_decomposition_nonzero_entries: 64_000_000,
+            max_back_substitution_output_nonzero_entries: 64_000_000,
+            max_back_substitution_live_nonzero_entries: 192_000_000,
             max_rule_guards: 1_000_000,
             max_guard_origins: 4_000_000,
             max_guard_provenance_sources: 4_000_000,

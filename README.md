@@ -21,7 +21,9 @@ The currently evidenced core can:
 - derive both a guarded rule at one concrete anchor and a genuine fixed-sector
   parametric recurrence over `K(n)`, accepting the latter only after exact
   symbolic replay, uniform descent proofs, retained nonzero guards, and
-  independent anchored agreement;
+  independent anchored agreement, with an optional requested-pivot path that
+  performs deterministic Symbolica RREF and retains every reachable pivot
+  guard;
 - verify explicit affine symmetry maps;
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight

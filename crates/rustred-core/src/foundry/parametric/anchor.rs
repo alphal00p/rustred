@@ -1,6 +1,8 @@
 use crate::algebra::{Coefficient, IndexedCoefficientContext};
 use crate::family::IntegralKey;
-use crate::foundry::anchored::derive_strictly_descending_rule;
+use crate::foundry::anchored::{
+    derive_strictly_descending_rule, derive_strictly_descending_rule_for_target,
+};
 use crate::identity::{IndexShift, ParametricRelation};
 use crate::sector::OrderingPolicy;
 
@@ -10,6 +12,12 @@ use super::model::{
     AnchorAgreement, ParametricNonZeroGuard, ParametricRuleTerm, ParametricSourceRowContribution,
 };
 use super::prepare::{check_cell_limit, checked_add, try_vec};
+
+#[derive(Clone, Copy)]
+pub(super) enum AnchorSelection {
+    FirstDescending,
+    Targeted,
+}
 
 pub(super) fn verify_anchor_agreement(
     context: &IndexedCoefficientContext,
@@ -21,6 +29,7 @@ pub(super) fn verify_anchor_agreement(
     guards: &[ParametricNonZeroGuard],
     source_combination: &[ParametricSourceRowContribution],
     limits: ParametricRuleLimits,
+    selection: AnchorSelection,
 ) -> Result<AnchorAgreement, ParametricRuleError> {
     for (guard_ordinal, guard) in guards.iter().enumerate() {
         let specialized =
@@ -30,9 +39,20 @@ pub(super) fn verify_anchor_agreement(
         }
     }
 
-    let anchored =
-        derive_strictly_descending_rule(context, relations, anchor, ordering, limits.anchored)?;
     let parametric_pivot = shifted_key(anchor, pivot)?;
+    let anchored = match selection {
+        AnchorSelection::FirstDescending => {
+            derive_strictly_descending_rule(context, relations, anchor, ordering, limits.anchored)?
+        }
+        AnchorSelection::Targeted => derive_strictly_descending_rule_for_target(
+            context,
+            relations,
+            anchor,
+            parametric_pivot.powers(),
+            ordering,
+            limits.anchored,
+        )?,
+    };
     if anchored.pivot() != &parametric_pivot {
         return Err(ParametricRuleError::AnchorPivotMismatch);
     }

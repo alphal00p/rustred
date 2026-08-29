@@ -14,6 +14,17 @@ pub enum ParametricRuleError {
         expected: usize,
         actual: usize,
     },
+    WrongTargetShiftArity {
+        expected: usize,
+        actual: usize,
+    },
+    TargetShiftAbsent,
+    TargetShiftNotPivot,
+    TargetHasNoUniformlyDescendingRule,
+    TargetBackSubstitutionUsesProvenancePivot {
+        source_ordinal: usize,
+        pivot_column: usize,
+    },
     WrongSourceContext {
         source_ordinal: usize,
     },
@@ -75,6 +86,26 @@ impl fmt::Display for ParametricRuleError {
             Self::WrongAnchorArity { expected, actual } => {
                 write!(formatter, "anchor arity is {actual}, expected {expected}")
             }
+            Self::WrongTargetShiftArity { expected, actual } => write!(
+                formatter,
+                "target shift arity is {actual}, expected {expected}"
+            ),
+            Self::TargetShiftAbsent => formatter.write_str(
+                "the requested target shift is absent from the prepared physical columns",
+            ),
+            Self::TargetShiftNotPivot => formatter.write_str(
+                "the requested target shift is not a pivot of the supplied source-row span",
+            ),
+            Self::TargetHasNoUniformlyDescendingRule => formatter.write_str(
+                "the requested target pivot has no nonempty uniformly lower right-hand side after back-substitution",
+            ),
+            Self::TargetBackSubstitutionUsesProvenancePivot {
+                source_ordinal,
+                pivot_column,
+            } => write!(
+                formatter,
+                "targeted back-substitution reaches unsupported provenance-column pivot {pivot_column} from source row {source_ordinal}"
+            ),
             Self::WrongSourceContext { source_ordinal } => write!(
                 formatter,
                 "source row {source_ordinal} uses a foreign indexed coefficient context"

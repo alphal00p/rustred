@@ -8,7 +8,7 @@ mod prepare;
 mod replay;
 mod sparse;
 
-pub use derive::derive_strictly_descending_rule;
+pub use derive::{derive_strictly_descending_rule, derive_strictly_descending_rule_for_target};
 pub use error::AnchoredRuleError;
 pub use limits::AnchoredRuleLimits;
 pub use model::{

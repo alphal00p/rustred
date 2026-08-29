@@ -40,7 +40,8 @@ The public `rustred` facade is organized by mathematical owner:
   lowering onto typed integral keys;
 - `foundry::anchored` owns concrete-index rule derivation, while
   `foundry::parametric` owns fixed-sector `K(n)` elimination, uniform descent,
-  exact symbolic replay, guards/provenance, and anchored agreement; and
+  exact symbolic replay, guards/provenance, and anchored agreement; both expose
+  a requested-pivot variant backed by deterministic Symbolica RREF; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 

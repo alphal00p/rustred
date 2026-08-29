@@ -55,7 +55,9 @@ The mandatory clean reset is complete:
   presentations, performs bounded scalar/odd/rank-two vacuum tensor projection
   and affine scalar-product lowering, derives both concrete-anchor rules and a
   genuine guarded fixed-sector recurrence directly over Symbolica `K(n)` with
-  exact replay, uniform descent, and anchored agreement, and provides
+  exact replay, uniform descent, and anchored agreement, can select a requested
+  pivot through deterministic Symbolica RREF while retaining the complete
+  reachable pivot-guard envelope, and provides
   deterministic core-owned campaign primitives with application-owned
   roots-only composition. It does **not** yet refine exceptional guard loci,
   prove complete-source or family closure, publish rule artifacts, apply IBPs,
@@ -296,8 +298,10 @@ features must resolve to the same exact CAS identity.
    `K(n)` elimination around generated rows and Symbolica's native sparse
    reducer.
 2. Widen the now-live guarded, uniformly descending, exactly source-replayed
-   tadpole/sunset interior sentinels with target-directed multi-row discovery,
-   without weakening their independent concrete-anchor evidence.
+   tadpole/sunset interior sentinels. The now-live target-directed multi-row
+   path uses deterministic Symbolica RREF, exact source replay, complete
+   reachable pivot guards, and independent concrete-anchor evidence; next make
+   its domain sector-monotone and pinch-aware without weakening those proofs.
 3. Add exceptional-domain refinement only after that generic path is real;
    retain LiteRed2's translate-before-substitute and residual recentering
    semantics without reviving its mutable architecture.

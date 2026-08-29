@@ -13,7 +13,7 @@ use super::prepare::{
     prepare_problem, try_vec,
 };
 use super::replay::verify_exact_source_replay;
-use super::sparse::{ReducedRuleRow, reduce_rows};
+use super::sparse::{ReducedRuleRow, reduce_rows, reduce_rows_for_target};
 
 /// Derive one exact guarded rule at `anchor`, using physical integral columns
 /// in hardest-first order.
@@ -32,6 +32,41 @@ pub fn derive_strictly_descending_rule(
 ) -> Result<AnchoredRule, AnchoredRuleError> {
     let problem = prepare_problem(context, relations, anchor, ordering, limits)?;
     let reduced = reduce_rows(context, &problem, limits)?;
+    let replay = verify_exact_source_replay(context, &problem, &reduced, limits)?;
+    build_rule(context, problem, reduced, replay, limits)
+}
+
+/// Derive the exact RREF rule for one requested physical integral at
+/// `anchor`.
+///
+/// The target must occur among the specialized source-row columns and be a
+/// forward pivot. RustRed computes the complete pivot reachability before
+/// invoking Symbolica's deterministic serial back-substitution, retains every
+/// required pivot guard, and exactly replays the resulting source-row
+/// combination. A reachable provenance-column pivot is reported explicitly
+/// because the public guard model currently names physical pivots only. This
+/// function does not generalize the anchor or claim sector closure.
+pub fn derive_strictly_descending_rule_for_target(
+    context: &IndexedCoefficientContext,
+    relations: &[ParametricRelation],
+    anchor: &[i64],
+    target_integral: &[i64],
+    ordering: OrderingPolicy,
+    limits: AnchoredRuleLimits,
+) -> Result<AnchoredRule, AnchoredRuleError> {
+    if target_integral.len() != context.index_count() {
+        return Err(AnchoredRuleError::WrongTargetIntegralArity {
+            expected: context.index_count(),
+            actual: target_integral.len(),
+        });
+    }
+    let problem = prepare_problem(context, relations, anchor, ordering, limits)?;
+    let target_column = problem
+        .columns
+        .iter()
+        .position(|column| column.key.powers() == target_integral)
+        .ok_or(AnchoredRuleError::TargetIntegralAbsent)?;
+    let reduced = reduce_rows_for_target(context, &problem, target_column, limits)?;
     let replay = verify_exact_source_replay(context, &problem, &reduced, limits)?;
     build_rule(context, problem, reduced, replay, limits)
 }

@@ -24,7 +24,8 @@ RustRed currently provides a topology-neutral mathematical spine for:
 - concrete-anchor and fixed-sector parametric foundry boundaries that derive
   guarded strictly descending rows through Symbolica's sparse reducer; the
   latter eliminates directly over `K(n)` and requires exact symbolic replay,
-  uniform descent, and independent anchored agreement;
+  uniform descent, and independent anchored agreement, while both boundaries
+  can target a requested pivot through guarded deterministic RREF;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and

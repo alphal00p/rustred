@@ -17,6 +17,7 @@ use super::replay::verify_exact_source_replay;
 use super::sparse::reduce_rows;
 
 mod resource_limits;
+mod targeted;
 
 #[test]
 fn symbolica_sparse_reducer_chronology_and_pivots_are_pinned() {

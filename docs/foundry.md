@@ -2,7 +2,7 @@
 
 ## Status
 
-The first two narrow foundry capabilities are now live. The anchored boundary
+Three narrow foundry capabilities are now live. The anchored boundary
 specializes a chronological `ParametricRelation` slice at one concrete integer
 point. The sector-interior boundary instead eliminates that slice directly
 over the authenticated Symbolica field `K(n)`, orders shifts hardest-first,
@@ -10,8 +10,13 @@ and returns one parametric recurrence only after exact symbolic source replay,
 uniform strict-descent proofs, all required retained pivot/denominator guards,
 and agreement with an independently derived anchored rule. Its domain is the
 largest representable box on which every source shift stays in the anchor's
-fixed sector. Generated tadpole and caller-selected two-loop sunset spans, plus
-a genuine two-source ordinary-IBP/LI elimination, exercise this path.
+fixed sector. The target-directed variants request one concrete integral or
+free-index shift, require it to be a forward pivot, compute the complete
+upper-triangular dependency envelope, and invoke Symbolica's deterministic
+serial back-substitution before the same replay, guard, descent, and anchored
+agreement gates. Generated tadpole and caller-selected two-loop sunset spans,
+a genuine two-source ordinary-IBP/LI elimination, and an all-four-row sunset
+target recurrence exercise these paths.
 
 This is not yet a closing foundry. The API does not authenticate that its
 caller-supplied relation slice is a fresh complete source set, split guard-zero

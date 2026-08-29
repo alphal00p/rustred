@@ -12,6 +12,17 @@ pub enum AnchoredRuleError {
         expected: usize,
         actual: usize,
     },
+    WrongTargetIntegralArity {
+        expected: usize,
+        actual: usize,
+    },
+    TargetIntegralAbsent,
+    TargetIntegralNotPivot,
+    TargetHasNoStrictlyDescendingRule,
+    TargetBackSubstitutionUsesProvenancePivot {
+        source_ordinal: usize,
+        pivot_column: usize,
+    },
     WrongSourceContext {
         source_ordinal: usize,
     },
@@ -64,6 +75,26 @@ impl fmt::Display for AnchoredRuleError {
             Self::WrongAnchorArity { expected, actual } => write!(
                 formatter,
                 "anchor arity is {actual}, expected {expected}"
+            ),
+            Self::WrongTargetIntegralArity { expected, actual } => write!(
+                formatter,
+                "target integral arity is {actual}, expected {expected}"
+            ),
+            Self::TargetIntegralAbsent => formatter.write_str(
+                "the requested target integral is absent from the prepared physical columns",
+            ),
+            Self::TargetIntegralNotPivot => formatter.write_str(
+                "the requested target integral is not a pivot of the supplied source-row span",
+            ),
+            Self::TargetHasNoStrictlyDescendingRule => formatter.write_str(
+                "the requested target pivot has no nonempty strictly lower right-hand side after back-substitution",
+            ),
+            Self::TargetBackSubstitutionUsesProvenancePivot {
+                source_ordinal,
+                pivot_column,
+            } => write!(
+                formatter,
+                "targeted back-substitution reaches unsupported provenance-column pivot {pivot_column} from source row {source_ordinal}"
             ),
             Self::WrongSourceContext { source_ordinal } => write!(
                 formatter,

@@ -1,11 +1,13 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::SelfRing;
-use symbolica::domains::rational_polynomial::RationalPolynomialField;
-use symbolica::prelude::{IntegerRing, Z};
+use symbolica::prelude::Z;
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
+use crate::foundry::target_rref::{
+    self, BackSubstitutionLimits, Error as TargetRrefError, ForwardReducerRowMeta, NativeField,
+};
 
 use super::error::ParametricRuleError;
 use super::limits::ParametricRuleLimits;
@@ -19,19 +21,43 @@ pub(super) struct ReducedRuleRow {
     pub(super) pivot_guards: Vec<ParametricReducerPivotGuard>,
 }
 
-struct ReducerRowMeta {
-    source_ordinal: usize,
-    reducer_row: u32,
-    pivot_column: usize,
-    pivot_coefficient: IndexedCoefficient,
-    pivot_dependencies: Vec<usize>,
-    has_trailing_shift_entry: bool,
+type ReducerRowMeta = ForwardReducerRowMeta<IndexedCoefficient>;
+
+#[derive(Clone, Copy)]
+enum RowSelection {
+    FirstDescending,
+    Target { shift_column: usize },
 }
 
 pub(super) fn reduce_rows(
     context: &IndexedCoefficientContext,
     problem: &PreparedProblem,
     limits: ParametricRuleLimits,
+) -> Result<ReducedRuleRow, ParametricRuleError> {
+    reduce_rows_with_selection(context, problem, limits, RowSelection::FirstDescending)
+}
+
+pub(super) fn reduce_rows_for_target(
+    context: &IndexedCoefficientContext,
+    problem: &PreparedProblem,
+    target_shift_column: usize,
+    limits: ParametricRuleLimits,
+) -> Result<ReducedRuleRow, ParametricRuleError> {
+    reduce_rows_with_selection(
+        context,
+        problem,
+        limits,
+        RowSelection::Target {
+            shift_column: target_shift_column,
+        },
+    )
+}
+
+fn reduce_rows_with_selection(
+    context: &IndexedCoefficientContext,
+    problem: &PreparedProblem,
+    limits: ParametricRuleLimits,
+    selection: RowSelection,
 ) -> Result<ReducedRuleRow, ParametricRuleError> {
     let shift_columns = problem.columns.len();
     let augmented_columns = checked_add(
@@ -43,7 +69,7 @@ pub(super) fn reduce_rows(
         u32::try_from(augmented_columns).map_err(|_| ParametricRuleError::ReducerInvariant {
             detail: "admitted sparse column count does not fit u32",
         })?;
-    let field = RationalPolynomialField::<IntegerRing, u16>::new(Z);
+    let field = NativeField::new(Z);
     let mut reducer = call_native(
         "constructing Symbolica's indexed sparse row reducer",
         || SparseRowReducer::new(native_columns, field, LuLMode::Full),
@@ -105,7 +131,7 @@ pub(super) fn reduce_rows(
                 .ok_or(ParametricRuleError::ReducerInvariant {
                     detail: "U has no last row after an accepted chronological input",
                 })?;
-        let has_trailing_shift_entry = upper_columns.iter().any(|&column| {
+        let has_trailing_physical_entry = upper_columns.iter().any(|&column| {
             let column = column as usize;
             column > pivot as usize && column < shift_columns
         });
@@ -196,7 +222,7 @@ pub(super) fn reduce_rows(
             pivot_column: pivot as usize,
             pivot_coefficient,
             pivot_dependencies,
-            has_trailing_shift_entry,
+            has_trailing_physical_entry,
         });
 
         let decomposition_nonzeros = checked_add(
@@ -211,24 +237,117 @@ pub(super) fn reduce_rows(
         )?;
     }
 
-    let candidate = metadata
-        .iter()
-        .filter(|meta| meta.pivot_column < shift_columns && meta.has_trailing_shift_entry)
-        .min_by_key(|meta| (meta.pivot_column, meta.source_ordinal))
-        .ok_or(ParametricRuleError::NoStrictlyDescendingRule)?;
-    if candidate.pivot_dependencies.last().copied() != Some(candidate.reducer_row as usize) {
-        return Err(ParametricRuleError::ReducerInvariant {
-            detail: "the chosen indexed pivot is not last in its dependency chronology",
-        });
-    }
+    let mut targeted_dependencies = None;
+    let (candidate_pivot_column, candidate_reducer_row, dependency_owner, targeted) =
+        match selection {
+            RowSelection::FirstDescending => {
+                let candidate = metadata
+                    .iter()
+                    .filter(|meta| {
+                        meta.pivot_column < shift_columns && meta.has_trailing_physical_entry
+                    })
+                    .min_by_key(|meta| (meta.pivot_column, meta.source_ordinal))
+                    .ok_or(ParametricRuleError::NoStrictlyDescendingRule)?;
+                let candidate_reducer_row = candidate.reducer_row as usize;
+                if candidate.pivot_dependencies.last().copied() != Some(candidate_reducer_row) {
+                    return Err(ParametricRuleError::ReducerInvariant {
+                        detail: "the chosen indexed pivot is not last in its dependency chronology",
+                    });
+                }
+                (
+                    candidate.pivot_column,
+                    candidate_reducer_row,
+                    Some(candidate_reducer_row),
+                    false,
+                )
+            }
+            RowSelection::Target { shift_column } => {
+                let forward_row = reducer
+                    .pivots()
+                    .get(shift_column)
+                    .copied()
+                    .flatten()
+                    .ok_or(ParametricRuleError::TargetShiftNotPivot)?
+                    as usize;
+                let forward_meta = metadata.get(forward_row).ok_or(
+                    ParametricRuleError::ReducerInvariant {
+                        detail: "a target indexed pivot refers to a reducer row outside the chronology",
+                    },
+                )?;
+                if forward_meta.pivot_column != shift_column {
+                    return Err(ParametricRuleError::ReducerInvariant {
+                        detail: "the target indexed pivot map disagrees with reducer metadata",
+                    });
+                }
+                targeted_dependencies = Some(
+                    target_rref::pivot_dependencies(
+                        &reducer,
+                        &metadata,
+                        forward_row,
+                        shift_columns,
+                        limits.max_elimination_pivots,
+                    )
+                    .map_err(map_target_rref_error)?,
+                );
+                let target_limits = BackSubstitutionLimits {
+                    max_output_nonzero_entries: limits.max_back_substitution_output_nonzero_entries,
+                    max_live_nonzero_entries: limits.max_back_substitution_live_nonzero_entries,
+                };
+                let admission = target_rref::admit_back_substitution(
+                    &reducer,
+                    augmented_columns,
+                    target_limits,
+                )
+                .map_err(map_target_rref_error)?;
+                call_native(
+                    "serially back-substituting Symbolica's indexed sparse row reducer",
+                    || reducer.back_substitute(),
+                )?;
+                let output_nonzeros = target_rref::postvalidate_back_substitution(
+                    &reducer,
+                    metadata.len(),
+                    augmented_columns,
+                    admission,
+                    target_limits,
+                )
+                .map_err(map_target_rref_error)?;
+                check_limit(
+                    "Symbolica indexed sparse U/L nonzero entries",
+                    output_nonzeros,
+                    limits.max_native_decomposition_nonzero_entries,
+                )?;
+                let target_row = reducer
+                    .pivots()
+                    .get(shift_column)
+                    .copied()
+                    .flatten()
+                    .ok_or(ParametricRuleError::ReducerInvariant {
+                        detail: "serial back-substitution lost the requested indexed target pivot",
+                    })? as usize;
+                (shift_column, target_row, None, true)
+            }
+        };
+    let candidate_dependencies = match (targeted_dependencies.as_deref(), dependency_owner) {
+        (Some(dependencies), None) => dependencies,
+        (None, Some(owner)) => metadata
+            .get(owner)
+            .ok_or(ParametricRuleError::ReducerInvariant {
+                detail: "the chosen indexed dependency owner is outside the chronology",
+            })?
+            .pivot_dependencies
+            .as_slice(),
+        _ => {
+            return Err(ParametricRuleError::ReducerInvariant {
+                detail: "the indexed reducer selection has ambiguous dependency ownership",
+            });
+        }
+    };
 
-    let (_, columns, values) = reducer
-        .u()
-        .row_iter()
-        .nth(candidate.reducer_row as usize)
-        .ok_or(ParametricRuleError::ReducerInvariant {
+    let (_, columns, values) = reducer.u().row_iter().nth(candidate_reducer_row).ok_or(
+        ParametricRuleError::ReducerInvariant {
             detail: "chosen indexed reducer row is absent from U",
-        })?;
+        },
+    )?;
     let mut shift_entries = try_vec("reduced parametric shift entries", columns.len())?;
     let mut source_combination = try_vec(
         "chronological indexed source-row combination",
@@ -243,8 +362,16 @@ pub(super) fn reduce_rows(
         let coefficient = context
             .admit_native_result_with_limits(raw.clone(), limits.indexed_algebra.exact_algebra)?;
         let column = column as usize;
+        if targeted
+            && column != candidate_pivot_column
+            && reducer.pivots().get(column).copied().flatten().is_some()
+        {
+            return Err(ParametricRuleError::ReducerInvariant {
+                detail: "the target indexed RREF row retains a distinct reducer pivot column",
+            });
+        }
         if column < shift_columns {
-            if column < candidate.pivot_column {
+            if column < candidate_pivot_column {
                 return Err(ParametricRuleError::ReducerInvariant {
                     detail: "U contains a shift left of its declared pivot",
                 });
@@ -283,7 +410,7 @@ pub(super) fn reduce_rows(
             detail: "a reduced indexed row has no source provenance",
         });
     }
-    if shift_entries.first().map(|entry| entry.0) != Some(candidate.pivot_column)
+    if shift_entries.first().map(|entry| entry.0) != Some(candidate_pivot_column)
         || !shift_entries[0].1.raw().is_one()
     {
         return Err(ParametricRuleError::ReducerInvariant {
@@ -291,14 +418,18 @@ pub(super) fn reduce_rows(
         });
     }
     if shift_entries.len() < 2 {
-        return Err(ParametricRuleError::NoStrictlyDescendingRule);
+        return Err(if targeted {
+            ParametricRuleError::TargetHasNoUniformlyDescendingRule
+        } else {
+            ParametricRuleError::NoStrictlyDescendingRule
+        });
     }
 
     let mut pivot_guards = try_vec(
         "parametric elimination pivot guards",
-        candidate.pivot_dependencies.len(),
+        candidate_dependencies.len(),
     )?;
-    for &dependency in &candidate.pivot_dependencies {
+    for &dependency in candidate_dependencies {
         let dependency = metadata
             .get(dependency)
             .ok_or(ParametricRuleError::ReducerInvariant {
@@ -325,7 +456,7 @@ pub(super) fn reduce_rows(
     }
 
     Ok(ReducedRuleRow {
-        pivot_column: candidate.pivot_column,
+        pivot_column: candidate_pivot_column,
         shift_entries,
         source_combination,
         pivot_guards,
@@ -338,4 +469,36 @@ fn call_native<T>(
 ) -> Result<T, ParametricRuleError> {
     catch_unwind(AssertUnwindSafe(callback))
         .map_err(|_| ParametricRuleError::NativePanic { operation })
+}
+
+fn map_target_rref_error(error: TargetRrefError) -> ParametricRuleError {
+    match error {
+        TargetRrefError::ResourceCountOverflow { resource } => {
+            ParametricRuleError::ResourceCountOverflow { resource }
+        }
+        TargetRrefError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => ParametricRuleError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        TargetRrefError::AllocationFailure {
+            resource,
+            requested,
+        } => ParametricRuleError::AllocationFailure {
+            resource,
+            requested,
+        },
+        TargetRrefError::Invariant { detail } => ParametricRuleError::ReducerInvariant { detail },
+        TargetRrefError::ProvenancePivot {
+            source_ordinal,
+            pivot_column,
+        } => ParametricRuleError::TargetBackSubstitutionUsesProvenancePivot {
+            source_ordinal,
+            pivot_column,
+        },
+    }
 }

@@ -45,7 +45,10 @@ reduction.
 The current implementation has its first level-4 ingredients but does not pass
 the level-4 closure gate. Generated tadpole and selected sunset source spans
 now yield guarded fixed-sector parametric rules with exact `K(n)` replay,
-uniform descent, and anchored agreement. Exceptional guard-zero loci,
+uniform descent, and anchored agreement. A target-directed all-four-row sunset
+sentinel additionally proves deterministic RREF selection, exact three-source
+provenance, and the complete four-pivot guard envelope at an interior anchor.
+Exceptional guard-zero loci,
 authentication of a fresh complete source set, proper-subsector feedback,
 terminal selection, total coverage, durable artifacts, a rule applier,
 generic tensor service, and master substitution remain absent.
@@ -97,8 +100,11 @@ ordinary IBP and one LI source into a genuine two-source rule, exercising the
 recursive pivot chain through the public generator and foundry APIs. The sunset
 sentinel deliberately selects one of four freshly generated ordinary rows and
 proves a seven-column recurrence in the all-active sector. It establishes
-two-loop coefficient/domain/replay plumbing only: the current minimum-pivot
-selector returns a one-source rule, not the corner golden above, a complete
+two-loop coefficient/domain/replay plumbing. A separate target-directed sunset
+sentinel consumes all four generated ordinary rows and requests the `e1` pivot;
+Symbolica RREF returns a five-term descending right-hand side with an exact
+three-row source combination and all four forward-pivot guards. Both tests use
+the interior anchor `[2,2,2]`: neither is the corner golden above, a complete
 source proof, or lower-sector closure.
 
 Agreement means mathematical equivalence after explicit convention and

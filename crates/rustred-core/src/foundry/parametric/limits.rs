@@ -36,6 +36,14 @@ pub struct ParametricRuleLimits {
     /// `IndexShift` use shared handles and add no coordinate buffer.
     pub max_guard_provenance_index_cells: usize,
     pub max_native_decomposition_nonzero_entries: usize,
+    /// Maximum conservative nonzero-entry capacity admitted for the complete
+    /// serial Symbolica back-substitution output. This is charged only by the
+    /// target-directed API.
+    pub max_back_substitution_output_nonzero_entries: usize,
+    /// Maximum conservative live nonzero-entry capacity while Symbolica's
+    /// forward `U`/`L` matrices coexist with the serial back-substitution
+    /// output. This is charged only by the target-directed API.
+    pub max_back_substitution_live_nonzero_entries: usize,
     pub max_rule_guards: usize,
     pub max_guard_origins: usize,
     pub max_guard_provenance_sources: usize,
@@ -65,6 +73,8 @@ impl Default for ParametricRuleLimits {
             max_sector_mask_cells: 4_096,
             max_guard_provenance_index_cells: 64_000_000,
             max_native_decomposition_nonzero_entries: 64_000_000,
+            max_back_substitution_output_nonzero_entries: 64_000_000,
+            max_back_substitution_live_nonzero_entries: 192_000_000,
             max_rule_guards: 1_000_000,
             max_guard_origins: 4_000_000,
             max_guard_provenance_sources: 4_000_000,

@@ -2,7 +2,7 @@ use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::identity::ParametricRelation;
 use crate::sector::OrderingPolicy;
 
-use super::anchor::verify_anchor_agreement;
+use super::anchor::{AnchorSelection, verify_anchor_agreement};
 use super::error::ParametricRuleError;
 use super::limits::ParametricRuleLimits;
 use super::model::{
@@ -13,7 +13,7 @@ use super::prepare::{
     try_vec,
 };
 use super::replay::verify_exact_source_replay;
-use super::sparse::{ReducedRuleRow, reduce_rows};
+use super::sparse::{ReducedRuleRow, reduce_rows, reduce_rows_for_target};
 
 /// Derive one exact guarded rule over a representable fixed-sector interior.
 ///
@@ -32,7 +32,60 @@ pub fn derive_sector_interior_rule(
     let problem = prepare_problem(context, relations, anchor, ordering, limits)?;
     let reduced = reduce_rows(context, &problem, limits)?;
     let replay = verify_exact_source_replay(context, &problem, &reduced, limits)?;
-    build_rule(context, relations, problem, reduced, replay, limits)
+    build_rule(
+        context,
+        relations,
+        problem,
+        reduced,
+        replay,
+        limits,
+        AnchorSelection::FirstDescending,
+    )
+}
+
+/// Derive the exact RREF rule for one requested free-index shift over a
+/// representable fixed-sector interior.
+///
+/// The target must occur among the generated physical columns and be a
+/// forward pivot. RustRed computes the complete pivot reachability before
+/// invoking Symbolica's deterministic serial back-substitution, retains every
+/// required physical pivot guard, replays the exact indexed source
+/// combination, proves uniform descent, and compares against an independently
+/// targeted anchored derivation. A reachable provenance-column pivot is
+/// reported explicitly because the public guard model currently names
+/// physical pivots only. This function does not claim exceptional-domain
+/// coverage or closure.
+pub fn derive_sector_interior_rule_for_target(
+    context: &IndexedCoefficientContext,
+    relations: &[ParametricRelation],
+    anchor: &[i64],
+    target_shift: &[i64],
+    ordering: OrderingPolicy,
+    limits: ParametricRuleLimits,
+) -> Result<ParametricRule, ParametricRuleError> {
+    if target_shift.len() != context.index_count() {
+        return Err(ParametricRuleError::WrongTargetShiftArity {
+            expected: context.index_count(),
+            actual: target_shift.len(),
+        });
+    }
+    let problem = prepare_problem(context, relations, anchor, ordering, limits)?;
+    let target_column = problem
+        .columns
+        .iter()
+        .position(|column| column.shift.values() == target_shift)
+        .ok_or(ParametricRuleError::TargetShiftAbsent)?;
+    let reduced = reduce_rows_for_target(context, &problem, target_column, limits)?;
+    let replay = verify_exact_source_replay(context, &problem, &reduced, limits)?;
+    build_rule(
+        context,
+        relations,
+        problem,
+        reduced,
+        replay,
+        limits,
+        AnchorSelection::Targeted,
+    )
 }
 
 fn build_rule(
@@ -42,6 +95,7 @@ fn build_rule(
     reduced: ReducedRuleRow,
     replay: super::model::ParametricExactReplayWitness,
     limits: ParametricRuleLimits,
+    anchor_selection: AnchorSelection,
 ) -> Result<ParametricRule, ParametricRuleError> {
     let right_hand_side_terms = reduced.shift_entries.len().checked_sub(1).ok_or(
         ParametricRuleError::ReducerInvariant {
@@ -183,6 +237,7 @@ fn build_rule(
         &nonzero_guards,
         &reduced.source_combination,
         limits,
+        anchor_selection,
     )?;
 
     Ok(ParametricRule {

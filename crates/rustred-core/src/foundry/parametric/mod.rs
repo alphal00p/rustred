@@ -14,7 +14,7 @@ mod prepare;
 mod replay;
 mod sparse;
 
-pub use derive::derive_sector_interior_rule;
+pub use derive::{derive_sector_interior_rule, derive_sector_interior_rule_for_target};
 pub use error::ParametricRuleError;
 pub use limits::ParametricRuleLimits;
 pub use model::{

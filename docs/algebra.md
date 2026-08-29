@@ -277,10 +277,10 @@ usable service for:
   underdetermined integer-affine solution lattice;
 - a full right-nullspace convenience API (the current zero-sector composition
   deliberately returns only one witness);
-- target-directed sparse parametric candidate selection, reducer cancellation,
-  and a hard native scratch-memory census (the live fixed-sector path supplies
-  RustRed ordering, guards, chronology, and exact replay around Symbolica's
-  fixed-pivot reducer);
+- a hard native scratch-memory census for sparse reduction (the live
+  fixed-sector path supplies RustRed ordering, guards, chronology, structural
+  admission, and exact replay around Symbolica's fixed-pivot reducer and
+  deterministic serial back-substitution);
 - a complete multivariate rational-function reconstruction service;
 - fallible, caller-cancellable, resource-censused polynomial
   GCD/quotient/factorization and rational-power sessions;
@@ -294,9 +294,12 @@ complexity, chronological identity columns recover source combinations from
 public `U`, and public `L` retains pre-normalization pivots. The parametric path
 uses Symbolica's native rational-polynomial representation for `K(n)` directly;
 RustRed supplies map authentication, guards, structural admission, uniform
-descent, and exact source replay. The native reducer's fixed pivot semantics,
-lack of cancellation, and opaque scratch memory remain explicit limitations,
-not permission to write another sparse field reducer.
+descent, and exact source replay. Requested pivots use Symbolica's public
+deterministic serial back-substitution after a RustRed-owned resource and pivot
+reachability preflight; the reduced row is replayed from its chronological
+provenance. The native reducer's fixed forward-pivot semantics, lack of
+cancellation, and opaque scratch memory remain explicit limitations, not
+permission to write another sparse field reducer.
 
 General integer-affine work that needs a missing normal form stops at a typed
 unsupported boundary. The same rule applies to every other gap. A typed pause

@@ -1,11 +1,13 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use symbolica::domains::SelfRing;
-use symbolica::domains::rational_polynomial::RationalPolynomialField;
-use symbolica::prelude::{IntegerRing, Z};
+use symbolica::prelude::Z;
 use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
 
 use crate::algebra::{Coefficient, IndexedCoefficientContext};
+use crate::foundry::target_rref::{
+    self, BackSubstitutionLimits, Error as TargetRrefError, ForwardReducerRowMeta, NativeField,
+};
 
 use super::error::AnchoredRuleError;
 use super::limits::AnchoredRuleLimits;
@@ -19,19 +21,43 @@ pub(super) struct ReducedRuleRow {
     pub(super) pivot_guards: Vec<ReducerPivotGuard>,
 }
 
-struct ReducerRowMeta {
-    source_ordinal: usize,
-    reducer_row: u32,
-    pivot_column: usize,
-    pivot_coefficient: Coefficient,
-    pivot_dependencies: Vec<usize>,
-    has_trailing_physical_entry: bool,
+type ReducerRowMeta = ForwardReducerRowMeta<Coefficient>;
+
+#[derive(Clone, Copy)]
+enum RowSelection {
+    FirstDescending,
+    Target { integral_column: usize },
 }
 
 pub(super) fn reduce_rows(
     context: &IndexedCoefficientContext,
     problem: &PreparedProblem,
     limits: AnchoredRuleLimits,
+) -> Result<ReducedRuleRow, AnchoredRuleError> {
+    reduce_rows_with_selection(context, problem, limits, RowSelection::FirstDescending)
+}
+
+pub(super) fn reduce_rows_for_target(
+    context: &IndexedCoefficientContext,
+    problem: &PreparedProblem,
+    target_integral_column: usize,
+    limits: AnchoredRuleLimits,
+) -> Result<ReducedRuleRow, AnchoredRuleError> {
+    reduce_rows_with_selection(
+        context,
+        problem,
+        limits,
+        RowSelection::Target {
+            integral_column: target_integral_column,
+        },
+    )
+}
+
+fn reduce_rows_with_selection(
+    context: &IndexedCoefficientContext,
+    problem: &PreparedProblem,
+    limits: AnchoredRuleLimits,
+    selection: RowSelection,
 ) -> Result<ReducedRuleRow, AnchoredRuleError> {
     let integral_columns = problem.columns.len();
     let augmented_columns = checked_add(
@@ -43,7 +69,7 @@ pub(super) fn reduce_rows(
         u32::try_from(augmented_columns).map_err(|_| AnchoredRuleError::ReducerInvariant {
             detail: "admitted sparse column count does not fit u32",
         })?;
-    let field = RationalPolynomialField::<IntegerRing, u16>::new(Z);
+    let field = NativeField::new(Z);
     let mut reducer = call_native("constructing Symbolica's sparse row reducer", || {
         SparseRowReducer::new(native_columns, field, LuLMode::Full)
     })?;
@@ -195,24 +221,118 @@ pub(super) fn reduce_rows(
         )?;
     }
 
-    let candidate = metadata
-        .iter()
-        .filter(|meta| meta.pivot_column < integral_columns && meta.has_trailing_physical_entry)
-        .min_by_key(|meta| (meta.pivot_column, meta.source_ordinal))
-        .ok_or(AnchoredRuleError::NoStrictlyDescendingRule)?;
-    if candidate.pivot_dependencies.last().copied() != Some(candidate.reducer_row as usize) {
-        return Err(AnchoredRuleError::ReducerInvariant {
-            detail: "the chosen reducer pivot is not last in its dependency chronology",
-        });
-    }
+    let mut targeted_dependencies = None;
+    let (candidate_pivot_column, candidate_reducer_row, dependency_owner, targeted) =
+        match selection {
+            RowSelection::FirstDescending => {
+                let candidate = metadata
+                    .iter()
+                    .filter(|meta| {
+                        meta.pivot_column < integral_columns && meta.has_trailing_physical_entry
+                    })
+                    .min_by_key(|meta| (meta.pivot_column, meta.source_ordinal))
+                    .ok_or(AnchoredRuleError::NoStrictlyDescendingRule)?;
+                let candidate_reducer_row = candidate.reducer_row as usize;
+                if candidate.pivot_dependencies.last().copied() != Some(candidate_reducer_row) {
+                    return Err(AnchoredRuleError::ReducerInvariant {
+                        detail: "the chosen reducer pivot is not last in its dependency chronology",
+                    });
+                }
+                (
+                    candidate.pivot_column,
+                    candidate_reducer_row,
+                    Some(candidate_reducer_row),
+                    false,
+                )
+            }
+            RowSelection::Target { integral_column } => {
+                let forward_row = reducer
+                    .pivots()
+                    .get(integral_column)
+                    .copied()
+                    .flatten()
+                    .ok_or(AnchoredRuleError::TargetIntegralNotPivot)?
+                    as usize;
+                let forward_meta =
+                    metadata
+                        .get(forward_row)
+                        .ok_or(AnchoredRuleError::ReducerInvariant {
+                            detail: "a target pivot refers to a reducer row outside the chronology",
+                        })?;
+                if forward_meta.pivot_column != integral_column {
+                    return Err(AnchoredRuleError::ReducerInvariant {
+                        detail: "the target pivot map disagrees with reducer metadata",
+                    });
+                }
+                targeted_dependencies = Some(
+                    target_rref::pivot_dependencies(
+                        &reducer,
+                        &metadata,
+                        forward_row,
+                        integral_columns,
+                        limits.max_elimination_pivots,
+                    )
+                    .map_err(map_target_rref_error)?,
+                );
+                let target_limits = BackSubstitutionLimits {
+                    max_output_nonzero_entries: limits.max_back_substitution_output_nonzero_entries,
+                    max_live_nonzero_entries: limits.max_back_substitution_live_nonzero_entries,
+                };
+                let admission = target_rref::admit_back_substitution(
+                    &reducer,
+                    augmented_columns,
+                    target_limits,
+                )
+                .map_err(map_target_rref_error)?;
+                call_native(
+                    "serially back-substituting Symbolica's sparse row reducer",
+                    || reducer.back_substitute(),
+                )?;
+                let output_nonzeros = target_rref::postvalidate_back_substitution(
+                    &reducer,
+                    metadata.len(),
+                    augmented_columns,
+                    admission,
+                    target_limits,
+                )
+                .map_err(map_target_rref_error)?;
+                check_limit(
+                    "Symbolica sparse U/L nonzero entries",
+                    output_nonzeros,
+                    limits.max_native_decomposition_nonzero_entries,
+                )?;
+                let target_row = reducer
+                    .pivots()
+                    .get(integral_column)
+                    .copied()
+                    .flatten()
+                    .ok_or(AnchoredRuleError::ReducerInvariant {
+                        detail: "serial back-substitution lost the requested target pivot",
+                    })? as usize;
+                (integral_column, target_row, None, true)
+            }
+        };
+    let candidate_dependencies = match (targeted_dependencies.as_deref(), dependency_owner) {
+        (Some(dependencies), None) => dependencies,
+        (None, Some(owner)) => metadata
+            .get(owner)
+            .ok_or(AnchoredRuleError::ReducerInvariant {
+                detail: "the chosen reducer dependency owner is outside the chronology",
+            })?
+            .pivot_dependencies
+            .as_slice(),
+        _ => {
+            return Err(AnchoredRuleError::ReducerInvariant {
+                detail: "the reducer selection has ambiguous dependency ownership",
+            });
+        }
+    };
 
-    let (_, columns, values) = reducer
-        .u()
-        .row_iter()
-        .nth(candidate.reducer_row as usize)
-        .ok_or(AnchoredRuleError::ReducerInvariant {
+    let (_, columns, values) = reducer.u().row_iter().nth(candidate_reducer_row).ok_or(
+        AnchoredRuleError::ReducerInvariant {
             detail: "chosen reducer row is absent from U",
-        })?;
+        },
+    )?;
     let mut integral_entries = try_vec("reduced integral entries", columns.len())?;
     let mut source_combination = try_vec(
         "chronological source-row combination",
@@ -228,8 +348,16 @@ pub(super) fn reduce_rows(
             .base()
             .validate_with_limits(coefficient, limits.indexed_algebra.exact_algebra)?;
         let column = column as usize;
+        if targeted
+            && column != candidate_pivot_column
+            && reducer.pivots().get(column).copied().flatten().is_some()
+        {
+            return Err(AnchoredRuleError::ReducerInvariant {
+                detail: "the target RREF row retains a distinct reducer pivot column",
+            });
+        }
         if column < integral_columns {
-            if column < candidate.pivot_column {
+            if column < candidate_pivot_column {
                 return Err(AnchoredRuleError::ReducerInvariant {
                     detail: "U contains an integral left of its declared pivot",
                 });
@@ -271,7 +399,7 @@ pub(super) fn reduce_rows(
             detail: "a reduced physical row has no source provenance",
         });
     }
-    if integral_entries.first().map(|entry| entry.0) != Some(candidate.pivot_column)
+    if integral_entries.first().map(|entry| entry.0) != Some(candidate_pivot_column)
         || !integral_entries[0].1.is_one()
     {
         return Err(AnchoredRuleError::ReducerInvariant {
@@ -279,14 +407,18 @@ pub(super) fn reduce_rows(
         });
     }
     if integral_entries.len() < 2 {
-        return Err(AnchoredRuleError::NoStrictlyDescendingRule);
+        return Err(if targeted {
+            AnchoredRuleError::TargetHasNoStrictlyDescendingRule
+        } else {
+            AnchoredRuleError::NoStrictlyDescendingRule
+        });
     }
 
     let mut pivot_guards = try_vec(
         "anchored elimination pivot guards",
-        candidate.pivot_dependencies.len(),
+        candidate_dependencies.len(),
     )?;
-    for &dependency in &candidate.pivot_dependencies {
+    for &dependency in candidate_dependencies {
         let dependency = metadata
             .get(dependency)
             .ok_or(AnchoredRuleError::ReducerInvariant {
@@ -301,7 +433,7 @@ pub(super) fn reduce_rows(
     }
 
     Ok(ReducedRuleRow {
-        pivot_column: candidate.pivot_column,
+        pivot_column: candidate_pivot_column,
         integral_entries,
         source_combination,
         pivot_guards,
@@ -314,4 +446,36 @@ fn call_native<T>(
 ) -> Result<T, AnchoredRuleError> {
     catch_unwind(AssertUnwindSafe(callback))
         .map_err(|_| AnchoredRuleError::NativePanic { operation })
+}
+
+fn map_target_rref_error(error: TargetRrefError) -> AnchoredRuleError {
+    match error {
+        TargetRrefError::ResourceCountOverflow { resource } => {
+            AnchoredRuleError::ResourceCountOverflow { resource }
+        }
+        TargetRrefError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        } => AnchoredRuleError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        },
+        TargetRrefError::AllocationFailure {
+            resource,
+            requested,
+        } => AnchoredRuleError::AllocationFailure {
+            resource,
+            requested,
+        },
+        TargetRrefError::Invariant { detail } => AnchoredRuleError::ReducerInvariant { detail },
+        TargetRrefError::ProvenancePivot {
+            source_ordinal,
+            pivot_column,
+        } => AnchoredRuleError::TargetBackSubstitutionUsesProvenancePivot {
+            source_ordinal,
+            pivot_column,
+        },
+    }
 }
