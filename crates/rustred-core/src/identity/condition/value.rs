@@ -97,7 +97,7 @@ impl ParametricNonZeroCondition {
             condition_limits,
         )?;
         let polynomial =
-            context.translate_polynomial(self.polynomial(), shift, arithmetic_limits)?;
+            context.translate_polynomial_sealed(self.polynomial(), shift, arithmetic_limits)?;
         let mut sources = self.sources.clone();
         if !already_has_translation {
             sources.insert(IdentityConditionSource::IndexTranslation {

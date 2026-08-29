@@ -1,11 +1,12 @@
 use std::ffi::OsString;
 
-use crate::InputFormat;
 use crate::application::memory::parse_memory_bytes;
+use crate::{ClosingFamilySelector, InputFormat};
 
 use super::{
-    ArgError, CampaignPlanArgs, CampaignPreflightArgs, Command, StreamPath, next_utf8_value,
-    next_value, parse_positive_integer, reject_trailing, set_once,
+    ArgError, CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
+    CampaignReduceArgs, Command, StreamPath, next_utf8_value, next_value,
+    parse_nonnegative_integer, parse_positive_integer, reject_trailing, set_once,
 };
 
 pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
@@ -20,10 +21,178 @@ pub(super) fn parse(mut arguments: impl Iterator<Item = OsString>) -> Result<Com
         }
         "plan" => parse_plan(arguments),
         "preflight" => parse_preflight(arguments),
+        "generate" => parse_generate(arguments),
+        "inspect" => parse_inspect(arguments),
+        "reduce" => parse_reduce(arguments),
         _ => Err(ArgError::UnknownSubcommand {
             command: "campaign",
             subcommand,
         }),
+    }
+}
+
+fn parse_generate(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut family = None;
+    let mut output = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => set_flag(&mut help, "--help")?,
+            "--force" => set_flag(&mut force, "--force")?,
+            "--family" => {
+                let value = next_utf8_value(&mut arguments, "--family")?;
+                let parsed =
+                    value
+                        .parse::<ClosingFamilySelector>()
+                        .map_err(|_| ArgError::InvalidValue {
+                            option: "--family",
+                            value,
+                            expected: ClosingFamilySelector::EXPECTED_VALUES,
+                        })?;
+                set_once(&mut family, "--family", parsed)?;
+            }
+            "--output" => set_once(
+                &mut output,
+                "--output",
+                StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+            )?,
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::CampaignGenerate(CampaignGenerateArgs {
+        family: family.ok_or(ArgError::MissingRequiredOption("--family"))?,
+        output: output.unwrap_or(StreamPath::Stdio),
+        force,
+    }))
+}
+
+fn parse_inspect(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut artifact = None;
+    let mut output = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => set_flag(&mut help, "--help")?,
+            "--force" => set_flag(&mut force, "--force")?,
+            "--artifact" => {
+                set_once(
+                    &mut artifact,
+                    "--artifact",
+                    StreamPath::parse(next_value(&mut arguments, "--artifact")?)?,
+                )?;
+            }
+            "--output" => set_once(
+                &mut output,
+                "--output",
+                StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+            )?,
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::CampaignInspect(CampaignInspectArgs {
+        artifact: artifact.ok_or(ArgError::MissingRequiredOption("--artifact"))?,
+        output: output.unwrap_or(StreamPath::Stdio),
+        force,
+    }))
+}
+
+fn parse_reduce(arguments: impl Iterator<Item = OsString>) -> Result<Command, ArgError> {
+    let mut artifact = None;
+    let mut powers = None;
+    let mut max_rule_applications = None;
+    let mut output = None;
+    let mut force = false;
+    let mut help = false;
+    let mut arguments = arguments.peekable();
+    while let Some(option) = arguments.next() {
+        let option = option.into_string().map_err(ArgError::NonUtf8Option)?;
+        match option.as_str() {
+            "--help" | "-h" => set_flag(&mut help, "--help")?,
+            "--force" => set_flag(&mut force, "--force")?,
+            "--artifact" => {
+                set_once(
+                    &mut artifact,
+                    "--artifact",
+                    StreamPath::parse(next_value(&mut arguments, "--artifact")?)?,
+                )?;
+            }
+            "--powers" => {
+                let value = next_utf8_value(&mut arguments, "--powers")?;
+                let parsed = parse_powers(value.clone()).ok_or(ArgError::InvalidValue {
+                    option: "--powers",
+                    value,
+                    expected: "a nonempty comma-separated list of signed 64-bit integers",
+                })?;
+                set_once(&mut powers, "--powers", parsed)?;
+            }
+            "--max-rule-applications" => {
+                let value = next_utf8_value(&mut arguments, "--max-rule-applications")?;
+                let parsed = parse_nonnegative_integer("--max-rule-applications", value)?;
+                set_once(
+                    &mut max_rule_applications,
+                    "--max-rule-applications",
+                    parsed,
+                )?;
+            }
+            "--output" => set_once(
+                &mut output,
+                "--output",
+                StreamPath::parse(next_value(&mut arguments, "--output")?)?,
+            )?,
+            _ if option.starts_with('-') => return Err(ArgError::UnknownOption(option)),
+            _ => return Err(ArgError::UnexpectedArgument(option)),
+        }
+    }
+    if help {
+        return Ok(Command::Help);
+    }
+    Ok(Command::CampaignReduce(CampaignReduceArgs {
+        artifact: artifact.ok_or(ArgError::MissingRequiredOption("--artifact"))?,
+        target_powers: powers.ok_or(ArgError::MissingRequiredOption("--powers"))?,
+        max_rule_applications: max_rule_applications
+            .unwrap_or(crate::MAX_CLOSING_RULE_APPLICATIONS),
+        output: output.unwrap_or(StreamPath::Stdio),
+        force,
+    }))
+}
+
+fn parse_powers(value: String) -> Option<Vec<i64>> {
+    if value.is_empty() {
+        return None;
+    }
+    value
+        .split(',')
+        .map(str::trim)
+        .map(|component| {
+            if component.is_empty() {
+                None
+            } else {
+                component.parse::<i64>().ok()
+            }
+        })
+        .collect()
+}
+
+fn set_flag(flag: &mut bool, option: &'static str) -> Result<(), ArgError> {
+    if *flag {
+        Err(ArgError::DuplicateOption(option))
+    } else {
+        *flag = true;
+        Ok(())
     }
 }
 

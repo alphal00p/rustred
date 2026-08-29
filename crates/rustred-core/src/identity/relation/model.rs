@@ -52,6 +52,21 @@ impl ParametricRelation {
         self.family_fingerprint.clone()
     }
 
+    /// Copy an already sealed relation inside a caller-owned, preflighted
+    /// identity operation. This is deliberately not a public `Clone`
+    /// implementation: raw relation duplication must remain behind a domain
+    /// boundary which has admitted the aggregate output first.
+    pub(super) fn clone_sealed(&self) -> Self {
+        Self {
+            family_fingerprint: self.family_fingerprint.clone(),
+            context_fingerprint: self.context_fingerprint.clone(),
+            row_id: self.row_id.clone(),
+            arity: self.arity,
+            terms: self.terms.clone(),
+            nonzero_conditions: self.nonzero_conditions.clone(),
+        }
+    }
+
     pub(crate) fn validate_context(
         &self,
         context: &IndexedCoefficientContext,

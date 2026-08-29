@@ -10,8 +10,10 @@ pub use condition::{
     ParametricNonZeroCondition,
 };
 pub use generator::{
-    CompletedIbpSourceRows, IbpSourceRow, ParametricIbpConfig, ParametricIbpError,
+    CompletedIbpSourceRows, IbpSourceRow, IntegralShift, ParametricIbpConfig, ParametricIbpError,
     ParametricIbpGenerator, PreparedIbpSourceBatch, PreparedLorentzInvarianceBatch,
+    TranslatedSource, TranslatedSourceBatch, TranslatedSourceError, TranslatedSourceLimits,
+    TranslatedSourceProvenance,
 };
 pub use relation::{IndexShift, ParametricRelation, ParametricRelationError, RelationLimits};
 pub use row::RowId;

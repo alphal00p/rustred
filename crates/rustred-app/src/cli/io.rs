@@ -3,20 +3,20 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use crate::MAX_INPUT_BYTES;
 use crate::cli::args::StreamPath;
 use crate::cli::error::CliError;
+use crate::{MAX_CLOSING_ARTIFACT_BYTES, MAX_INPUT_BYTES};
 
 const MAX_TEMPORARY_NAME_ATTEMPTS: u32 = 1_024;
 
 pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
     let bytes = match source {
-        StreamPath::Stdio => read_bounded(io::stdin().lock(), "standard input")?,
+        StreamPath::Stdio => read_bounded(io::stdin().lock(), "standard input", MAX_INPUT_BYTES)?,
         StreamPath::File(path) => {
             let file = File::open(path).map_err(|error| {
                 CliError::InputIo(format!("cannot open input {}: {error}", path.display()))
             })?;
-            read_bounded(file, &format!("input {}", path.display()))?
+            read_bounded(file, &format!("input {}", path.display()), MAX_INPUT_BYTES)?
         }
     };
     String::from_utf8(bytes).map_err(|error| {
@@ -27,7 +27,27 @@ pub(crate) fn read_input(source: &StreamPath) -> Result<String, CliError> {
     })
 }
 
-fn read_bounded(mut reader: impl Read, label: &str) -> Result<Vec<u8>, CliError> {
+pub(crate) fn read_artifact(source: &StreamPath) -> Result<Vec<u8>, CliError> {
+    match source {
+        StreamPath::Stdio => read_bounded(
+            io::stdin().lock(),
+            "artifact on standard input",
+            MAX_CLOSING_ARTIFACT_BYTES,
+        ),
+        StreamPath::File(path) => {
+            let file = File::open(path).map_err(|error| {
+                CliError::InputIo(format!("cannot open artifact {}: {error}", path.display()))
+            })?;
+            read_bounded(
+                file,
+                &format!("artifact {}", path.display()),
+                MAX_CLOSING_ARTIFACT_BYTES,
+            )
+        }
+    }
+}
+
+fn read_bounded(mut reader: impl Read, label: &str, max_bytes: usize) -> Result<Vec<u8>, CliError> {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8 * 1024];
     loop {
@@ -39,12 +59,12 @@ fn read_bounded(mut reader: impl Read, label: &str) -> Result<Vec<u8>, CliError>
         }
         let requested = bytes.len().checked_add(read).ok_or_else(|| {
             CliError::Input(format!(
-                "input length overflowed the {MAX_INPUT_BYTES}-byte CLI limit"
+                "{label} length overflowed the {max_bytes}-byte CLI limit"
             ))
         })?;
-        if requested > MAX_INPUT_BYTES {
+        if requested > max_bytes {
             return Err(CliError::Input(format!(
-                "input exceeds the {MAX_INPUT_BYTES}-byte CLI limit"
+                "{label} exceeds the {max_bytes}-byte CLI limit"
             )));
         }
         bytes.try_reserve(read).map_err(|_| {

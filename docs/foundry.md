@@ -44,10 +44,18 @@ set, refine coefficient/guard applicability on each cell, or feed solved
 proper subsectors back into the parent. A deliberately narrow
 `foundry::artifact` installer now does close the canonical one-loop `q^2-1`
 vacuum partition from its freshly generated source, and `reduction::Reducer`
-applies that sealed in-process owner. No two- or higher-loop candidate can pass
-that installer, and durable encoding/loading remains unavailable. Discovery
-cursors are not durable artifact identities, and cold proof replay may perform
-fallible O(K) allocations outside the streaming work budget. The
+applies that sealed owner. A deterministic schema-v1 codec persists its exact
+family inputs, a tagged canonical ordinary-source derivation plan and complete
+semantic witness (including pre-cancellation provenance), the complete rule
+snapshot, masters, zero terminal, and homogeneity proof. Loading bounded
+untrusted bytes independently regenerates that source plan under explicit
+context/relation policies and requires byte-exact retained semantics before it
+derives or installs a rule. It then performs one exact foundry replay against
+the rule snapshot and invokes the same closure installer once. The reducer
+uses the sealed owner without repeating artifact authentication. No two- or
+higher-loop candidate can pass that installer. Discovery cursors are not
+durable artifact identities, and cold proof replay may perform fallible O(K)
+allocations outside the streaming work budget. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 
@@ -71,6 +79,23 @@ A foundry root binds:
   transports; and
 - an explicit terminal policy, resource policy, and deterministic search
   configuration.
+
+Complete generated source spans can now be recentered through
+`ParametricIbpGenerator::translate_completed_source_rows`. The public boundary
+accepts sealed `CompletedIbpSourceRows` plus bounded `IntegralShift` values,
+rejects foreign family/context scopes before symbolic work, sorts and
+deduplicates offsets lexicographically, and emits rows in offset-major then
+sealed-source order. Each immutable result retains the original stable
+`RowId`, source ordinal, and exact offset. A zero offset copies the sealed
+equation exactly while recording zero-offset provenance in the wrapper;
+nonzero offsets use Symbolica's checked coefficient translation and checked
+integer shift addition. Aggregate row, term, condition, condition-provenance,
+and retained-coordinate limits precede construction. Zero translations
+re-admit the sealed payload once under the current relation limits; nonzero
+translations use a crate-private sealed ingress so translated Symbolica
+results are authenticated once rather than rescanned during relation
+insertion. This is a generic search-input primitive only; it does not by
+itself close the sunset or any other multi-line family.
 
 There are two deliberately different outputs:
 
@@ -220,24 +245,34 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The current sealed one-loop owner is in-process only. The future durable
-artifact format must record only the semantics needed to load and apply it:
+The current durable schema-v1 format records the semantics needed to load and
+apply the narrow sealed one-loop artifact:
 
-- schema/algorithm and Symbolica identities;
-- the canonical family, routing, convention, variable-order, source-set, and
-  ordering fingerprints;
-- guarded rules, strict-descent evidence, selected terminals, and stable
-  master keys;
-- zero, symmetry, factorization, and lower-sector dependencies;
-- source-row provenance and exact replay material; and
-- deterministic dependency and integrity metadata.
+- schema/algorithm identifiers and canonical bounded sparse binary Symbolica
+  rational-polynomial payloads;
+- exact `IntegralFamily` constructor inputs, family/indexed-context
+  fingerprints, and the ordering identifier;
+- a tagged complete-ordinary source derivation plan plus a full semantic
+  witness retaining source terms and pre-cancellation condition provenance;
+- the guarded rule snapshot, strict-descent and exact replay evidence; and
+- stable master keys, the proved zero-sector terminal, the common-mass
+  homogeneity proof, and deterministic tagged-section/rule-plan metadata.
 
-Once the codec exists, untrusted bytes will be bounded and authenticated once
-at load/installation. The resulting sealed owner will carry those invariants;
-hot-path functions will not repeat schema round trips, full hashes, or whole-
-artifact replay. Atomic publication must prevent a partial workspace from
-appearing under the final artifact name. None of these persistence claims is
-implemented by the current `DurableEncodingUnavailable` boundary.
+Encoding and decoding have explicit total, collection, string, per-payload and
+aggregate coefficient, aggregate semantic-witness, family, source-generation,
+relation, and rule-replay resource policies. Coefficients carry expanded
+sparse numerator/denominator terms on the family context's authenticated
+ordered variable map; bounded counts, magnitudes, and `u16` exponents are
+checked before Symbolica construction. No expression parser, process-local
+symbol identifier, or foreign symbol can enter this boundary. Source and rule
+witnesses are opaque exact-comparison bytes with their own shared monotonic
+budget, rather than being reparsed as algebra. Untrusted bytes are
+authenticated once at load/installation, and hot-path reduction does not
+repeat schema round trips or whole-artifact replay. Atomic filesystem
+publication remains an application-layer responsibility. Symmetry,
+factorization, lower-sector dependencies, and multi-rule closure will extend
+or supersede this schema only when their installers exist; schema v1 makes no
+`K = 3` claim.
 
 ## RAM-aware deterministic parallelism
 

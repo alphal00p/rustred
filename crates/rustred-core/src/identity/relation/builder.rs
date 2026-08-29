@@ -59,7 +59,9 @@ impl Builder {
         self.attach_nonzero_condition(condition, limits)
     }
 
-    fn add_authenticated_nonzero_condition(
+    /// Attach a condition produced and authenticated by a checked indexed
+    /// operation in this call chain without rescanning its polynomial.
+    pub(in crate::identity) fn add_sealed_nonzero_condition(
         &mut self,
         context: &IndexedCoefficientContext,
         condition: ParametricNonZeroCondition,
@@ -142,6 +144,24 @@ impl Builder {
         )
     }
 
+    /// Insert a coefficient produced and authenticated by a checked indexed
+    /// operation in this call chain without rescanning its complete payload.
+    pub(in crate::identity) fn add_sealed_term(
+        &mut self,
+        context: &IndexedCoefficientContext,
+        shift: IndexShift,
+        coefficient: IndexedCoefficient,
+        limits: RelationLimits,
+    ) -> Result<(), ParametricRelationError> {
+        self.add_term_with_ingress(
+            context,
+            shift,
+            coefficient,
+            limits,
+            CoefficientIngress::Sealed,
+        )
+    }
+
     fn add_term_with_ingress(
         &mut self,
         context: &IndexedCoefficientContext,
@@ -174,7 +194,7 @@ impl Builder {
             }],
             limits.identity_conditions,
         )?;
-        self.add_authenticated_nonzero_condition(context, condition, limits)?;
+        self.add_sealed_nonzero_condition(context, condition, limits)?;
         if coefficient.is_zero() {
             return Ok(());
         }
@@ -198,7 +218,7 @@ impl Builder {
                     }],
                     limits.identity_conditions,
                 )?;
-                self.add_authenticated_nonzero_condition(context, condition, limits)?;
+                self.add_sealed_nonzero_condition(context, condition, limits)?;
                 self.relation.terms.insert(shift, sum);
             }
         } else {
@@ -236,7 +256,7 @@ impl Builder {
             }],
             limits.identity_conditions,
         )?;
-        self.add_authenticated_nonzero_condition(context, factor_condition, limits)?;
+        self.add_sealed_nonzero_condition(context, factor_condition, limits)?;
         for (shift, coefficient) in &other.terms {
             let coefficient = context.bind_sealed(coefficient)?;
             let scaled = context.mul_bound_with_limits(

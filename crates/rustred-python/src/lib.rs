@@ -5,11 +5,15 @@ use std::str::FromStr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyBool};
+use pyo3::types::{PyAnyMethods, PyBool, PyBytes};
 use rustred_app::{
-    AppError, AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest,
-    InputFormat, RelationSelection, campaign_plan as app_campaign_plan,
-    campaign_preflight as app_campaign_preflight, derive as app_derive,
+    AppError, AppErrorKind, CampaignPlanRequest, CampaignPreflightRequest,
+    ClosingArtifactGenerateRequest, ClosingArtifactInspectRequest, ClosingArtifactReduceRequest,
+    ClosingFamilySelector, DeriveRequest, InputFormat, RelationSelection,
+    campaign_plan as app_campaign_plan, campaign_preflight as app_campaign_preflight,
+    closing_artifact_generate as app_closing_artifact_generate,
+    closing_artifact_inspect as app_closing_artifact_inspect,
+    closing_artifact_reduce as app_closing_artifact_reduce, derive as app_derive,
 };
 
 use crate::coordinator::{CoordinatorError, process_coordinator};
@@ -99,6 +103,141 @@ macro_rules! canonical_result {
 canonical_result!("DeriveResult", PyDeriveResult);
 canonical_result!("CampaignPlanResult", PyCampaignPlanResult);
 canonical_result!("CampaignPreflightResult", PyCampaignPreflightResult);
+canonical_result!(
+    "ClosingArtifactInspectionResult",
+    PyClosingArtifactInspectionResult
+);
+
+#[pyclass(frozen, module = "rustred", name = "ClosingArtifactGenerationResult")]
+#[derive(Debug)]
+pub struct PyClosingArtifactGenerationResult {
+    schema: &'static str,
+    status: &'static str,
+    canonical_toml: String,
+    artifact: Py<PyBytes>,
+}
+
+#[pymethods]
+impl PyClosingArtifactGenerationResult {
+    #[getter]
+    fn schema(&self) -> &'static str {
+        self.schema
+    }
+
+    #[getter]
+    fn status(&self) -> &'static str {
+        self.status
+    }
+
+    #[getter]
+    fn artifact(&self, py: Python<'_>) -> Py<PyBytes> {
+        self.artifact.clone_ref(py)
+    }
+
+    fn to_toml(&self) -> &str {
+        &self.canonical_toml
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        format!(
+            "ClosingArtifactGenerationResult(schema={:?}, status={:?}, artifact_bytes={})",
+            self.schema,
+            self.status,
+            self.artifact.bind(py).as_bytes().len()
+        )
+    }
+}
+
+#[pyclass(
+    frozen,
+    module = "rustred",
+    name = "ExactMasterCoefficient",
+    skip_from_py_object
+)]
+#[derive(Clone, Debug)]
+pub struct PyExactMasterCoefficient {
+    master_powers: Vec<i64>,
+    unit_mass_coefficient: String,
+    common_mass_squared_power: i128,
+}
+
+#[pymethods]
+impl PyExactMasterCoefficient {
+    #[getter]
+    fn master_powers(&self) -> Vec<i64> {
+        self.master_powers.clone()
+    }
+
+    #[getter]
+    fn unit_mass_coefficient(&self) -> &str {
+        &self.unit_mass_coefficient
+    }
+
+    #[getter]
+    fn common_mass_squared_power(&self) -> i128 {
+        self.common_mass_squared_power
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ExactMasterCoefficient(master_powers={:?}, unit_mass_coefficient={:?}, common_mass_squared_power={})",
+            self.master_powers, self.unit_mass_coefficient, self.common_mass_squared_power
+        )
+    }
+}
+
+#[pyclass(frozen, module = "rustred", name = "ClosingArtifactReductionResult")]
+#[derive(Debug)]
+pub struct PyClosingArtifactReductionResult {
+    schema: &'static str,
+    status: &'static str,
+    canonical_toml: String,
+    family_fingerprint: String,
+    target_powers: Vec<i64>,
+    terms: Vec<PyExactMasterCoefficient>,
+}
+
+#[pymethods]
+impl PyClosingArtifactReductionResult {
+    #[getter]
+    fn schema(&self) -> &'static str {
+        self.schema
+    }
+
+    #[getter]
+    fn status(&self) -> &'static str {
+        self.status
+    }
+
+    #[getter]
+    fn family_fingerprint(&self) -> &str {
+        &self.family_fingerprint
+    }
+
+    #[getter]
+    fn target_powers(&self) -> Vec<i64> {
+        self.target_powers.clone()
+    }
+
+    #[getter]
+    fn terms(&self) -> Vec<PyExactMasterCoefficient> {
+        self.terms.clone()
+    }
+
+    fn to_toml(&self) -> &str {
+        &self.canonical_toml
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ClosingArtifactReductionResult(schema={:?}, status={:?}, target_powers={:?}, terms={})",
+            self.schema,
+            self.status,
+            self.target_powers,
+            self.terms.len()
+        )
+    }
+}
 
 #[pyfunction]
 #[pyo3(
@@ -186,6 +325,114 @@ fn campaign_preflight(
     ))
 }
 
+#[pyfunction]
+#[pyo3(
+    signature = (*, family = "unit-mass-vacuum-k1"),
+    text_signature = "(*, family='unit-mass-vacuum-k1')"
+)]
+fn generate_closing_artifact(
+    py: Python<'_>,
+    family: &str,
+) -> PyResult<PyClosingArtifactGenerationResult> {
+    let family = family
+        .parse::<ClosingFamilySelector>()
+        .map_err(|error| RustRedInputError::new_err(error.to_string()))?;
+    let result = py
+        .detach(move || {
+            execute(move || {
+                app_closing_artifact_generate(ClosingArtifactGenerateRequest { family })
+            })
+        })
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    Ok(PyClosingArtifactGenerationResult {
+        schema: result.schema(),
+        status: result.status(),
+        canonical_toml: result.to_toml().to_owned(),
+        artifact: PyBytes::new(py, result.artifact()).unbind(),
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (artifact), text_signature = "(artifact)")]
+fn inspect_closing_artifact(
+    py: Python<'_>,
+    artifact: &Bound<'_, PyBytes>,
+) -> PyResult<PyClosingArtifactInspectionResult> {
+    let artifact = bounded_artifact_bytes(artifact)?;
+    let result = py
+        .detach(move || {
+            execute(move || {
+                app_closing_artifact_inspect(ClosingArtifactInspectRequest { artifact })
+            })
+        })
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    Ok(PyClosingArtifactInspectionResult::new(
+        result.schema(),
+        result.status(),
+        result.into_toml(),
+    ))
+}
+
+#[pyfunction]
+#[pyo3(
+    signature = (artifact, target_powers, *, max_rule_applications = PythonInteger(1_000_000)),
+    text_signature = "(artifact, target_powers, *, max_rule_applications=1000000)"
+)]
+fn reduce_with_closing_artifact(
+    py: Python<'_>,
+    artifact: &Bound<'_, PyBytes>,
+    target_powers: Vec<PythonInteger>,
+    max_rule_applications: PythonInteger,
+) -> PyResult<PyClosingArtifactReductionResult> {
+    let artifact = bounded_artifact_bytes(artifact)?;
+    let target_powers = target_powers
+        .into_iter()
+        .enumerate()
+        .map(|(position, power)| {
+            i64::try_from(power.0).map_err(|_| {
+                RustRedInputError::new_err(format!(
+                    "target_powers[{position}] must fit a signed 64-bit integer"
+                ))
+            })
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    let max_rule_applications = nonnegative_usize(
+        "closing-artifact max_rule_applications",
+        max_rule_applications.0,
+    )?;
+    let result = py
+        .detach(move || {
+            execute(move || {
+                app_closing_artifact_reduce(ClosingArtifactReduceRequest {
+                    artifact,
+                    target_powers,
+                    max_rule_applications,
+                })
+            })
+        })
+        .map_err(map_coordinator_error)?;
+    let result = result.map_err(map_app_error)?;
+    let terms = result
+        .terms()
+        .iter()
+        .map(|term| PyExactMasterCoefficient {
+            master_powers: term.master_powers().to_vec(),
+            unit_mass_coefficient: term.unit_mass_coefficient().to_owned(),
+            common_mass_squared_power: term.common_mass_squared_power(),
+        })
+        .collect();
+    Ok(PyClosingArtifactReductionResult {
+        schema: result.schema(),
+        status: result.status(),
+        canonical_toml: result.to_toml().to_owned(),
+        family_fingerprint: result.family_fingerprint().to_owned(),
+        target_powers: result.target_powers().to_vec(),
+        terms,
+    })
+}
+
 fn execute<T, F>(operation: F) -> Result<T, CoordinatorError>
 where
     T: Send + 'static,
@@ -221,6 +468,19 @@ fn positive_core_count(label: &str, value: i128) -> PyResult<usize> {
     })
 }
 
+fn nonnegative_usize(label: &str, value: i128) -> PyResult<usize> {
+    if value < 0 {
+        return Err(RustRedInputError::new_err(format!(
+            "{label} must be a nonnegative integer"
+        )));
+    }
+    usize::try_from(value).map_err(|_| {
+        RustRedInputError::new_err(format!(
+            "{label} must be a nonnegative integer fitting this platform"
+        ))
+    })
+}
+
 fn positive_memory_bytes(value: i128) -> PyResult<u64> {
     const LABEL: &str = "campaign preflight max_memory_bytes";
     if value <= 0 {
@@ -242,6 +502,18 @@ fn bounded_owned_input(label: &str, source: &str) -> PyResult<String> {
         )));
     }
     Ok(source.to_owned())
+}
+
+fn bounded_artifact_bytes(artifact: &Bound<'_, PyBytes>) -> PyResult<Vec<u8>> {
+    let bytes = artifact.as_bytes();
+    if bytes.len() > rustred_app::MAX_CLOSING_ARTIFACT_BYTES {
+        return Err(RustRedLimitError::new_err(format!(
+            "closing artifact has {} bytes, exceeding the {}-byte application limit",
+            bytes.len(),
+            rustred_app::MAX_CLOSING_ARTIFACT_BYTES
+        )));
+    }
+    Ok(bytes.to_vec())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -367,9 +639,16 @@ fn _rustred(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyDeriveResult>()?;
     module.add_class::<PyCampaignPlanResult>()?;
     module.add_class::<PyCampaignPreflightResult>()?;
+    module.add_class::<PyClosingArtifactGenerationResult>()?;
+    module.add_class::<PyClosingArtifactInspectionResult>()?;
+    module.add_class::<PyExactMasterCoefficient>()?;
+    module.add_class::<PyClosingArtifactReductionResult>()?;
     module.add_function(wrap_pyfunction!(derive, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_plan, module)?)?;
     module.add_function(wrap_pyfunction!(campaign_preflight, module)?)?;
+    module.add_function(wrap_pyfunction!(generate_closing_artifact, module)?)?;
+    module.add_function(wrap_pyfunction!(inspect_closing_artifact, module)?)?;
+    module.add_function(wrap_pyfunction!(reduce_with_closing_artifact, module)?)?;
     Ok(())
 }
 

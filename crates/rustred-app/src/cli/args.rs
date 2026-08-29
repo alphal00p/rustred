@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::{InputFormat, RelationSelection};
+use crate::{ClosingFamilySelector, InputFormat, RelationSelection};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StreamPath {
@@ -54,10 +54,36 @@ pub(crate) struct CampaignPreflightArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CampaignGenerateArgs {
+    pub(crate) family: ClosingFamilySelector,
+    pub(crate) output: StreamPath,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CampaignInspectArgs {
+    pub(crate) artifact: StreamPath,
+    pub(crate) output: StreamPath,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CampaignReduceArgs {
+    pub(crate) artifact: StreamPath,
+    pub(crate) target_powers: Vec<i64>,
+    pub(crate) max_rule_applications: usize,
+    pub(crate) output: StreamPath,
+    pub(crate) force: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Command {
     Derive(DeriveArgs),
     CampaignPlan(CampaignPlanArgs),
     CampaignPreflight(CampaignPreflightArgs),
+    CampaignGenerate(CampaignGenerateArgs),
+    CampaignInspect(CampaignInspectArgs),
+    CampaignReduce(CampaignReduceArgs),
     Help,
     Version,
 }
@@ -96,7 +122,7 @@ impl fmt::Display for ArgError {
             }
             Self::MissingSubcommand(command) => write!(
                 formatter,
-                "missing {command} subcommand; expected `plan` or `preflight`"
+                "missing {command} subcommand; expected `plan`, `preflight`, `generate`, `inspect`, or `reduce`"
             ),
             Self::UnknownCommand(command) => write!(formatter, "unknown command {command:?}"),
             Self::UnknownSubcommand {
@@ -104,7 +130,7 @@ impl fmt::Display for ArgError {
                 subcommand,
             } => write!(
                 formatter,
-                "unknown {command} subcommand {subcommand:?}; expected `plan` or `preflight`"
+                "unknown {command} subcommand {subcommand:?}; expected `plan`, `preflight`, `generate`, `inspect`, or `reduce`"
             ),
             Self::UnknownOption(option) => write!(formatter, "unknown option {option:?}"),
             Self::DuplicateOption(option) => {
@@ -195,6 +221,19 @@ fn parse_positive_integer(option: &'static str, value: String) -> Result<usize, 
         })
 }
 
+fn parse_nonnegative_integer(option: &'static str, value: String) -> Result<usize, ArgError> {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| value.parse::<usize>().ok())
+        .flatten()
+        .ok_or(ArgError::InvalidValue {
+            option,
+            value,
+            expected: "a nonnegative integer fitting this platform",
+        })
+}
+
 fn set_once<T>(slot: &mut Option<T>, option: &'static str, value: T) -> Result<(), ArgError> {
     if slot.is_some() {
         Err(ArgError::DuplicateOption(option))
@@ -211,6 +250,9 @@ USAGE:
     rustred derive [OPTIONS]
     rustred campaign plan [OPTIONS]
     rustred campaign preflight [OPTIONS]
+    rustred campaign generate [OPTIONS]
+    rustred campaign inspect [OPTIONS]
+    rustred campaign reduce [OPTIONS]
 
 DERIVE OPTIONS:
     --input <PATH|->             Read from PATH, or standard input with - [default: -]
@@ -234,6 +276,23 @@ CAMPAIGN PREFLIGHT OPTIONS:
     --max-memory <SIZE>          Operational memory limit (B/KiB/MiB/GiB/TiB)
     --force                      Atomically replace an existing output file
 
+CAMPAIGN GENERATE OPTIONS:
+    --family <SELECTOR>          Closing family preset (unit-mass-vacuum-k1)
+    --output <PATH|->            Write durable artifact bytes to PATH or stdout [default: -]
+    --force                      Atomically replace an existing output file
+
+CAMPAIGN INSPECT OPTIONS:
+    --artifact <PATH|->          Read durable artifact bytes from PATH or standard input
+    --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
+    --force                      Atomically replace an existing output file
+
+CAMPAIGN REDUCE OPTIONS:
+    --artifact <PATH|->          Read durable artifact bytes from PATH or standard input
+    --powers <N,...>             Signed integer target powers in denominator order
+    --max-rule-applications <N>  Per-request recurrence ceiling [default: 1000000]
+    --output <PATH|->            Write TOML to PATH, or standard output with - [default: -]
+    --force                      Atomically replace an existing output file
+
 GENERAL OPTIONS:
     -h, --help                   Print this help
     -V, --version                Print the RustRed version
@@ -249,4 +308,12 @@ rules. It deliberately has no --n-cores or --max-memory option.
 `campaign preflight` checks a topology-neutral physical resource profile and
 reports a ready width or typed memory-capacity pause. It never starts a frontier
 or constructs a worker pool.
+
+`campaign generate` writes a deterministic durable artifact encoding.
+`campaign inspect` loads and authenticates durable artifact bytes once, then
+writes their canonical metadata as TOML.
+
+`campaign reduce` loads and applies the supplied artifact and emits exact
+typed-master coefficients at unit mass together with the separate power of
+`mass_squared` required by dimensional homogeneity.
 ";

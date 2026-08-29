@@ -1,7 +1,8 @@
 fn main() {
     // This executes before RustRed initializes Symbolica or starts worker
     // threads. Suppressing Symbolica's informational banner is required by
-    // the CLI contract that successful stdout contains only TOML.
+    // the CLI contract that successful stdout contains only protocol output
+    // (canonical TOML or durable artifact bytes).
     if std::env::var_os("SYMBOLICA_HIDE_BANNER").is_none() {
         // SAFETY: `main` has not spawned threads and no RustRed/Symbolica code
         // has run, so no concurrent environment access exists here.

@@ -9,6 +9,7 @@ mod error;
 mod install;
 mod model;
 mod one_loop;
+mod persistence;
 
 pub use error::{ArtifactError, ArtifactPersistenceError};
 pub use model::{
@@ -16,6 +17,7 @@ pub use model::{
     ZeroSectorTerminal, ZeroTerminalProof,
 };
 pub use one_loop::derive_one_loop_unit_mass_tadpole;
+pub use persistence::{ArtifactEncodingLimits, ArtifactLoadLimits};
 
 #[cfg(test)]
 mod tests;

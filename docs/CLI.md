@@ -414,6 +414,58 @@ initialize Symbolica or require a license, consume an accepted plan, construct
 a worker pool, hydrate a reducer, or schedule campaign work. The inline test
 profiles contain illustrative values, not named-host measurements.
 
+### Durable closing artifacts
+
+Three fine-grained campaign operations expose the completed one-loop closing
+artifact without introducing topology-name dispatch:
+
+```console
+rustred campaign generate \
+  --family unit-mass-vacuum-k1 \
+  --output one_loop.rr
+
+rustred campaign inspect \
+  --artifact one_loop.rr \
+  --output one_loop.inspect.toml
+
+rustred campaign reduce \
+  --artifact one_loop.rr \
+  --powers 3 \
+  --output one_loop.I3.toml
+```
+
+`campaign generate` writes the deterministic binary artifact itself, not a
+TOML proxy. The semantic family selector is currently exactly
+`unit-mass-vacuum-k1`; `K = 3` and `K = 6` remain future Stage 1 work.
+`campaign inspect` and `campaign reduce` require artifact bytes from a path or
+from `--artifact -`; neither silently regenerates a preset. Generation output
+uses the existing atomic file installer, so `--force` is required to replace
+an existing file. Invalid or truncated bytes are rejected before any requested
+TOML output file is created.
+
+The equivalent stream operation is exact binary piping:
+
+```console
+rustred campaign generate --family unit-mass-vacuum-k1 \
+  | rustred campaign inspect --artifact -
+```
+
+Inspection emits schema
+`rustred.closing-artifact-inspect-output.toml.v1` after one bounded decode,
+authentication, and exact replay. Reduction emits schema
+`rustred.closing-artifact-reduce-output.toml.v1`, exact Symbolica-canonical
+unit-mass coefficients keyed by master power vectors, and a separate decimal
+string `common_mass_squared_power`. For `--powers 3`, the only master is `[1]`,
+the coefficient is
+`(-6*rustred::{}::d+8+rustred::{}::d^2)*1/8`, and the common-mass-squared
+power is `-2`.
+
+`--max-rule-applications N` is a nonnegative per-call ceiling, defaulting to
+and capped at 1,000,000. Durable input is bounded at 256 MiB before decode and
+then by the core codec's structural, string, coefficient, arity, and exact-
+algebra limits. Successful decoding produces one sealed owner; recursive hot-
+path application does not repeat cold authentication.
+
 The core library contains a host-independent pre-pool effective-width planner,
 checked resource values, and bounded ordered execution. Roots-only
 family/sector/job interning is application-owned. The width plan enforces
@@ -422,9 +474,9 @@ warmed worker plus one minimum runnable task, and returns a typed no-fit pause
 without constructing a pool. The roots-only CLI remains separate; the resource
 preflight exposes only the pure decision from an explicit profile. Named-host
 calibration, task-specific estimator adapters, the actual foundry scheduler,
-application/CLI campaign reducer execution, and checkpointing remain
-unimplemented. The core one-loop reducer is not exposed by either campaign
-command; neither command derives sector rules or claims closure.
+multi-family campaign execution, and checkpointing remain unimplemented. The
+fine-grained one-loop artifact commands are separate from roots-only planning
+and physical preflight; they do not claim two- or three-loop closure.
 
 `--n-cores` is always a ceiling. The planner derives an effective execution
 width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator

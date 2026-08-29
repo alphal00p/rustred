@@ -6,6 +6,8 @@ mod index;
 mod limits;
 mod model;
 mod operations;
+#[cfg(test)]
+mod persistence;
 
 pub use error::ParametricRelationError;
 pub use index::IndexShift;

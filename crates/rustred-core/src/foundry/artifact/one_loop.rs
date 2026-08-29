@@ -13,7 +13,7 @@ use super::model::{
     ZeroTerminalProof,
 };
 
-const ALGORITHM_ID: &str = "rustred.generated.one-loop-unit-mass-tadpole.v1";
+pub(super) const ALGORITHM_ID: &str = "rustred.generated.one-loop-unit-mass-tadpole.v1";
 
 /// Generate the sole ordinary IBP source and seal the genuinely closed
 /// one-loop, unit-common-mass tadpole family.

@@ -209,14 +209,33 @@ impl ClosedArtifact {
         self.validation
     }
 
-    /// The first artifact slice is generated and sealed in process. A future
-    /// durable format must retain enough source material to authenticate and
-    /// replay untrusted bytes; returning a typed error keeps that frontier
-    /// explicit meanwhile.
     pub fn encode_durable(&self) -> Result<Vec<u8>, ArtifactPersistenceError> {
-        Err(ArtifactPersistenceError::DurableEncodingUnavailable {
-            schema: self.schema,
-        })
+        super::persistence::encode(self)
+    }
+
+    /// Encode under explicit total, container, string, sparse-coefficient,
+    /// and semantic-witness resource policies.
+    pub fn encode_durable_with_limits(
+        &self,
+        limits: super::persistence::ArtifactEncodingLimits,
+    ) -> Result<Vec<u8>, ArtifactPersistenceError> {
+        super::persistence::encode_with_limits(self, limits)
+    }
+
+    /// Load and authenticate one deterministic durable artifact under the
+    /// default resource policy.
+    pub fn decode_durable(bytes: &[u8]) -> Result<Self, ArtifactPersistenceError> {
+        Self::decode_durable_with_limits(bytes, Default::default())
+    }
+
+    /// Load and authenticate one deterministic durable artifact once at the
+    /// untrusted boundary. The returned sealed owner needs no replay or
+    /// authentication in reducer hot paths.
+    pub fn decode_durable_with_limits(
+        bytes: &[u8],
+        limits: super::persistence::ArtifactLoadLimits,
+    ) -> Result<Self, ArtifactPersistenceError> {
+        super::persistence::decode(bytes, limits)
     }
 
     pub(crate) fn indexed_context(&self) -> &IndexedCoefficientContext {

@@ -5,7 +5,11 @@ from enum import StrEnum
 from ._rustred import (
     CampaignPlanResult,
     CampaignPreflightResult,
+    ClosingArtifactGenerationResult,
+    ClosingArtifactInspectionResult,
+    ClosingArtifactReductionResult,
     DeriveResult,
+    ExactMasterCoefficient,
     RustRedCoordinatorPoisonedError,
     RustRedDerivationError,
     RustRedError,
@@ -22,6 +26,9 @@ from ._rustred import (
     campaign_plan,
     campaign_preflight,
     derive,
+    generate_closing_artifact,
+    inspect_closing_artifact,
+    reduce_with_closing_artifact,
 )
 
 
@@ -41,10 +48,21 @@ class RelationSelection(StrEnum):
     LORENTZ_INVARIANCE = "li"
 
 
+class ClosingFamily(StrEnum):
+    """Semantic family presets available to closing-artifact generation."""
+
+    UNIT_MASS_VACUUM_K1 = "unit-mass-vacuum-k1"
+
+
 __all__ = [
     "CampaignPlanResult",
     "CampaignPreflightResult",
+    "ClosingArtifactGenerationResult",
+    "ClosingArtifactInspectionResult",
+    "ClosingArtifactReductionResult",
+    "ClosingFamily",
     "DeriveResult",
+    "ExactMasterCoefficient",
     "InputFormat",
     "RelationSelection",
     "RustRedCoordinatorPoisonedError",
@@ -63,4 +81,7 @@ __all__ = [
     "campaign_plan",
     "campaign_preflight",
     "derive",
+    "generate_closing_artifact",
+    "inspect_closing_artifact",
+    "reduce_with_closing_artifact",
 ]

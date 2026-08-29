@@ -6,12 +6,17 @@ use std::ffi::OsString;
 use std::io::Write;
 
 use crate::{
-    CampaignPlanRequest, CampaignPreflightRequest, DeriveRequest, campaign_plan,
-    campaign_preflight, derive as derive_application,
+    CampaignPlanRequest, CampaignPreflightRequest, ClosingArtifactGenerateRequest,
+    ClosingArtifactInspectRequest, ClosingArtifactReduceRequest, DeriveRequest, campaign_plan,
+    campaign_preflight, closing_artifact_generate, closing_artifact_inspect,
+    closing_artifact_reduce, derive as derive_application,
 };
-use args::{CampaignPlanArgs, CampaignPreflightArgs, Command, DeriveArgs, HELP, parse_args};
+use args::{
+    CampaignGenerateArgs, CampaignInspectArgs, CampaignPlanArgs, CampaignPreflightArgs,
+    CampaignReduceArgs, Command, DeriveArgs, HELP, parse_args,
+};
 use error::CliError;
-use io::{read_input, write_output};
+use io::{read_artifact, read_input, write_output};
 
 pub(crate) fn main_entry() -> i32 {
     match run(std::env::args_os()) {
@@ -43,7 +48,41 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::Derive(arguments) => derive_cli(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),
         Command::CampaignPreflight(arguments) => preflight_campaign(arguments),
+        Command::CampaignGenerate(arguments) => generate_campaign_artifact(arguments),
+        Command::CampaignInspect(arguments) => inspect_campaign_artifact(arguments),
+        Command::CampaignReduce(arguments) => reduce_campaign_target(arguments),
     }
+}
+
+fn generate_campaign_artifact(arguments: CampaignGenerateArgs) -> Result<(), CliError> {
+    let result = closing_artifact_generate(ClosingArtifactGenerateRequest {
+        family: arguments.family,
+    })?;
+    write_output(&arguments.output, result.artifact(), arguments.force)
+}
+
+fn inspect_campaign_artifact(arguments: CampaignInspectArgs) -> Result<(), CliError> {
+    let artifact = read_artifact(&arguments.artifact)?;
+    let result = closing_artifact_inspect(ClosingArtifactInspectRequest { artifact })?;
+    write_output(
+        &arguments.output,
+        result.to_toml().as_bytes(),
+        arguments.force,
+    )
+}
+
+fn reduce_campaign_target(arguments: CampaignReduceArgs) -> Result<(), CliError> {
+    let artifact = read_artifact(&arguments.artifact)?;
+    let result = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        artifact,
+        target_powers: arguments.target_powers,
+        max_rule_applications: arguments.max_rule_applications,
+    })?;
+    write_output(
+        &arguments.output,
+        result.to_toml().as_bytes(),
+        arguments.force,
+    )
 }
 
 fn derive_cli(arguments: DeriveArgs) -> Result<(), CliError> {

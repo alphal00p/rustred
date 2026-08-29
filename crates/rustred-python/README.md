@@ -24,9 +24,48 @@ The initial operations are:
 - `rustred.derive(...)`
 - `rustred.campaign_plan(...)`
 - `rustred.campaign_preflight(...)`
+- `rustred.generate_closing_artifact(...)`
+- `rustred.inspect_closing_artifact(artifact_bytes)`
+- `rustred.reduce_with_closing_artifact(artifact_bytes, target_powers, ...)`
 
 Each result's `to_toml()` method returns the exact canonical,
 newline-terminated TOML produced by `rustred-app` and the CLI.
+
+`generate_closing_artifact()` currently accepts the semantic family selector
+`rustred.ClosingFamily.UNIT_MASS_VACUUM_K1`. Its result also exposes the
+deterministic immutable encoding as `.artifact: bytes`. Inspection and
+reduction consume those bytes; they do not regenerate a preset behind the
+caller's back. Reduction terms expose typed master power vectors, exact
+unit-mass coefficients, and the signed power of the common mass squared that
+restores dimensional homogeneity.
+
+```python
+import rustred
+
+generated = rustred.generate_closing_artifact(
+    family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
+)
+assert isinstance(generated.artifact, bytes)
+
+inspection = rustred.inspect_closing_artifact(generated.artifact)
+reduction = rustred.reduce_with_closing_artifact(generated.artifact, [3])
+term = reduction.terms[0]
+assert term.master_powers == [1]
+assert term.common_mass_squared_power == -2
+```
+
+The matching file-based CLI sequence is:
+
+```bash
+rustred campaign generate --family unit-mass-vacuum-k1 --output one_loop.rr
+rustred campaign inspect --artifact one_loop.rr --output one_loop.inspect.toml
+rustred campaign reduce --artifact one_loop.rr --powers 3
+```
+
+`--output -` writes artifact bytes or TOML, as appropriate, to standard
+output; `--artifact -` reads durable artifact bytes from standard input. Only
+`unit-mass-vacuum-k1` is closed today. The `K = 3` and `K = 6` selectors and
+artifacts remain future Stage 1 work.
 
 Linux wheels built in the Nix development shell are development artifacts.
 Portable manylinux publication remains gated on a separate audited build and

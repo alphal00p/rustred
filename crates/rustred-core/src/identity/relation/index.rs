@@ -55,6 +55,13 @@ impl IndexShift {
         Ok(Self(Arc::new(values)))
     }
 
+    /// Retain a caller-preallocated, nonempty component buffer after its
+    /// identity boundary has checked cardinality.
+    pub(in crate::identity) fn from_nonempty_preallocated(values: Vec<i64>) -> Self {
+        debug_assert!(!values.is_empty());
+        Self(Arc::new(values))
+    }
+
     pub fn values(&self) -> &[i64] {
         self.0.as_slice()
     }

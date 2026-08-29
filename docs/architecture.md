@@ -31,7 +31,10 @@ RustRed currently provides a topology-neutral mathematical spine for:
   stream of compact rule-bound proper-subsector obligation descriptors;
 - a versioned immutable artifact owner whose current verifier freshly
   generates and seals the mathematically complete canonical one-loop `q^2-1`
-  vacuum partition in process;
+  vacuum partition, plus a deterministic bounded durable codec whose load
+  boundary independently regenerates the tagged canonical ordinary-source
+  plan, compares its complete semantic witness, exactly replays the stored
+  rule semantics, and installs one sealed owner;
 - a topology-independent deterministic memoizing reducer with explicit master
   and zero terminals, concrete strict-descent checks, retained-payload limits,
   and common-mass homogeneity restoration;
@@ -48,9 +51,11 @@ caller-supplied source span. Its sector-monotone extension records boundary
 pinches as unresolved lower-sector dependencies but does **not** feed them
 back, refine exceptional guard-zero
 domains, prove source-set completeness or closure, or publish an artifact. No
-general application service publishes or loads artifacts, substitutes masters,
-or evaluates an integral. The core `reduction::Reducer` does apply the narrow
-sealed one-loop artifact in process. The tensor slice does **not** support
+general application service substitutes masters or evaluates an integral. The
+core codec can publish/load bytes and `reduction::Reducer` applies the narrow
+sealed one-loop artifact; the Rust application, CLI, and Python transports
+generate, inspect, and apply those same durable bytes. The tensor slice does
+**not** support
 generic kinematics or even rank above two and is frozen during Stage 1.
 Generic source-count tests exercise only the row census; they are not physical
 closure results.
@@ -158,7 +163,13 @@ relations, shifts, exceptional-domain condition values, stable row identity,
 and topology-neutral ordinary-IBP/LI generation. Prepared source batches have
 stable ordinals; the application may execute independent rows in parallel and
 then complete them in that order. Generation performs no sector solving or
-rule publication.
+rule publication. A bounded translated-source boundary accepts only one of
+those sealed complete batches, binds its sealed family and indexed-context
+scope, canonicalizes arbitrary `IntegralShift` offsets, and returns immutable
+exact translations with stable source-row/offset provenance. It uses the
+existing Symbolica-backed `n -> n+a` algebra and checked lattice-shift
+addition; it is source preparation for the generic foundry, not a recurrence
+or closure claim.
 
 ### `foundry`
 
@@ -179,7 +190,12 @@ cell domains are materialized only on demand. These values retain rule,
 coefficient, and guard context but do not refine applicability or feed solved
 children back. Separately, `foundry::artifact` generates and verifies the
 narrow canonical one-loop closure and seals it for `reduction`; it is not yet
-a durable publisher or a generic multi-sector closure engine.
+a generic multi-sector closure engine. Its schema-v1 codec owns deterministic
+semantic bytes and one-time bounded untrusted loading; it reconstructs
+the tagged complete-ordinary source plan under explicit generator/relation
+policies, compares every retained term, condition, and provenance byte before
+rule derivation, then authenticates exact rule replay against the stored
+snapshot.
 
 ### `sector`
 
@@ -275,14 +291,14 @@ The live core now contains two cohesive Stage 1 domains:
 
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|
-| `foundry::artifact` | Versioned immutable artifact values plus a verifier that seals the freshly generated canonical one-loop unit-mass partition | Deterministic durable encoding/loading with one-time untrusted-boundary validation, then `K = 3` and `K = 6` installers |
-| `reduction` | Topology-independent deterministic rule selection/application, explicit-stack termination, memoization with retained-payload budgets, typed master maps, and common-mass restoration | Guarded/symmetry/factorization and lower-artifact terminals, public application surfaces, and Vakint comparison |
+| `foundry::artifact` | Versioned immutable artifact values, a verifier that seals the freshly generated canonical one-loop unit-mass partition, and deterministic bounded encoding/loading with one-time independent source regeneration and rule replay at the untrusted boundary | `K = 3` and `K = 6` installers, including their symmetry, factorization, and lower-artifact proof plans |
+| `reduction` | Topology-independent deterministic rule selection/application, explicit-stack termination, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | Guard-aware symmetry/factorization application, lower-artifact terminals, and Vakint comparison |
 
-These are real owners rather than empty shells, but the one-loop artifact is
-still in-process and no application-layer caller exists yet. Dependencies
-remain acyclic: the foundry composes current mathematical domains and emits a
-sealed artifact value; reduction consumes artifacts; artifact models do not
-depend on application transports.
+These are real owners rather than empty shells. The one-loop artifact crosses
+a durable byte boundary through a separate user-facing application layer.
+Dependencies remain acyclic: the foundry composes current
+mathematical domains and emits a sealed artifact value; reduction consumes
+artifacts; artifact models do not depend on application transports.
 
 ## Change rules
 

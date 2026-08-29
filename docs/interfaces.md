@@ -46,29 +46,35 @@ The public `rustred` facade is organized by mathematical owner:
   compact, resumable proper-subsector obligation descriptors;
 - `foundry::artifact` owns the versioned immutable closed-artifact value and
   currently admits only the freshly generated canonical one-loop unit-mass
-  vacuum partition; durable encoding/loading is an explicit typed frontier;
+  vacuum partition, with deterministic bounded durable encoding and one-time
+  authenticated load/replay;
 - `reduction` owns the topology-independent deterministic memoizing applier,
   exact typed-master decompositions, resource limits, termination checks, and
   common-mass restoration; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 
-The core therefore has one genuine in-process closing shard and a reusable
-scalar-IBP reducer, but no public durable artifact codec/loader, shared-
-application reduction operation, master substitution, generic tensor
-kinematics, or higher-even-rank projector. No two- or higher-loop family is
-closed yet. The Rust API may change directly as these owners and callers are
-extended; obsolete facades are not retained for compatibility.
+The core therefore has one genuine durable closing shard and a reusable
+scalar-IBP reducer. It still has no master substitution, generic tensor
+kinematics, higher-even-rank projector, or closed two- or higher-loop family.
+The Rust API may change directly as these owners and callers are extended;
+obsolete facades are not retained for compatibility.
 
 ## Shared application API
 
-`rustred-app` currently exposes three transport-neutral operations:
+`rustred-app` currently exposes six transport-neutral operations:
 
 ```rust
 derive(DeriveRequest) -> Result<DeriveResult, AppError>
 campaign_plan(CampaignPlanRequest) -> Result<CampaignPlanResult, AppError>
 campaign_preflight(CampaignPreflightRequest)
     -> Result<CampaignPreflightResult, AppError>
+closing_artifact_generate(ClosingArtifactGenerateRequest)
+    -> Result<ClosingArtifactGenerateResult, AppError>
+closing_artifact_inspect(ClosingArtifactInspectRequest)
+    -> Result<ClosingArtifactInspectResult, AppError>
+closing_artifact_reduce(ClosingArtifactReduceRequest)
+    -> Result<ClosingArtifactReduceResult, AppError>
 ```
 
 `derive` parses and lowers one family and emits selected raw parametric
@@ -76,12 +82,18 @@ ordinary and/or LI relations. A concrete target in the input is validated and
 reported, not reduced. `campaign_plan` authenticates and interns only supplied
 roots; it does not discover dependencies or prove closure.
 `campaign_preflight` computes a topology-neutral memory-limited execution
-width and does not start workers.
+width and does not start workers. Closing-artifact generation accepts the
+semantic `unit-mass-vacuum-k1` family selector and owns deterministic durable
+bytes. Inspection and reduction require those bytes and decode/authenticate
+them exactly once; they never substitute a hidden preset. Reduction returns an
+ordered exact decomposition keyed by typed master power vectors plus common-
+mass-squared homogeneity powers.
 
 Each result owns a canonical, newline-terminated TOML document accessible
-through `to_toml()` or `into_toml()`. Application errors retain typed input,
-schema, resource, lowering, derivation, execution, license, serialization,
-output-limit, and internal categories.
+through `to_toml()` (and, where appropriate, `into_toml()`). The generation
+result additionally owns its durable `Vec<u8>`. Application errors retain
+typed input, schema, resource, lowering, derivation, execution, license,
+serialization, output-limit, and internal categories.
 
 ## Command line
 
@@ -91,6 +103,9 @@ The binary is `rustred`, supplied by `rustred-app`:
 rustred derive [OPTIONS]
 rustred campaign plan [OPTIONS]
 rustred campaign preflight [OPTIONS]
+rustred campaign generate --family unit-mass-vacuum-k1 [OPTIONS]
+rustred campaign inspect --artifact <PATH|-> [OPTIONS]
+rustred campaign reduce --artifact <PATH|-> --powers <N,...> [OPTIONS]
 ```
 
 `derive` accepts `--input-format auto|toml|symbolica`,
@@ -99,6 +114,11 @@ accepts an optional root identifier. Campaign preflight requires a resource
 profile and an explicit positive memory limit. Input and output default to
 standard streams; file output requires `--force` to replace an existing file
 and is committed atomically.
+
+`campaign generate` writes binary durable bytes. Inspection and reduction read
+those bytes from a file or standard input and emit canonical TOML. Invalid
+bytes are rejected before output begins. `K = 3` and `K = 6` selectors are not
+available yet.
 
 The CLI calls the same application functions as Python. It is not a separate
 solver implementation.
@@ -117,12 +137,18 @@ width = rustred.campaign_preflight(
     n_cores=4,
     max_memory_bytes=16 * 1024**3,
 )
+generated = rustred.generate_closing_artifact(
+    family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
+)
+inspection = rustred.inspect_closing_artifact(generated.artifact)
+reduction = rustred.reduce_with_closing_artifact(generated.artifact, [3])
 ```
 
-The result classes expose `schema`, `status`, and `to_toml()`. Public exception
-classes mirror the application error categories. `rustred._rustred` is a
-private extension implementation detail; top-level `_rustred` is not the user
-API.
+The result classes expose `schema`, `status`, and `to_toml()`. Generation also
+exposes immutable `artifact: bytes`; reduction exposes typed exact master
+terms. Public exception classes mirror the application error categories.
+`rustred._rustred` is a private extension implementation detail; top-level
+`_rustred` is not the user API.
 
 Long-running calls release the GIL and pass through one process coordinator.
 If an internal panic crosses that boundary, the coordinator is poisoned and
@@ -160,9 +186,10 @@ EvaluationOrder::rustred_only()
 `RustRedEvaluationOptions` already controls optional master substitution,
 enabled by default. At the present boundary, however, `supports()` is false
 for every topology and direct dispatch returns typed `ReducerUnavailable`.
-There is no artifact loading, scalar reduction, master mapping, or invalid-
-FORM-path end-to-end test yet; mixed orders therefore continue safely to the
-next supported existing method.
+The Vakint adapter does not yet load the now-available standalone RustRed
+artifact, reduce scalars, map masters, or pass invalid-FORM-path end-to-end
+tests; mixed orders therefore continue safely to the next supported existing
+method.
 
 When activated, the backend will consume the topology match and simultaneous
 routing witness already produced by Vakint, load the corresponding shipped
@@ -215,15 +242,16 @@ table.
 The existing tensor API remains available at its evidenced bounded frontier,
 but extension or replacement of tensor reduction belongs to Stage 2.
 
-## Planned Stage 1 fine-grained surfaces
+## Stage 1 fine-grained surfaces
 
-The Rust application, CLI, and Python package will expose the same individual
-artifact services used by Vakint:
+The Rust application, CLI, and Python package now expose durable generation,
+inspection/replay, and guarded memoized reduction for the closed `K = 1`
+family. The same service boundaries will extend to the remaining work:
 
 - family construction and raw IBP/LI generation;
-- closure campaigns and artifact inspection/replay;
-- guarded, memoized reduction to stable master keys with common-mass
-  restoration; and
+- closure campaigns for `K = 3` and `K = 6`;
+- durable artifacts and reduction to stable master keys for those families;
+- symmetry/factorization and lower-artifact routing required by them; and
 - supplied master-value validation and substitution.
 
 These interfaces remain useful for arbitrary non-vacuum families. The Vakint

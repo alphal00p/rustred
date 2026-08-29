@@ -34,6 +34,23 @@ impl IndexedCoefficientContext {
         self.translate_coefficient_validated(value, shift, limits)
     }
 
+    /// Translate a coefficient already sealed by a relation owned by this
+    /// exact context. The translation preflight still scans the complete raw
+    /// numerator and denominator under `limits`, and the native result is
+    /// authenticated once. This ingress only avoids the redundant public-
+    /// boundary scan of an operand whose relation owner already established
+    /// context and representation invariants.
+    pub(crate) fn translate_sealed(
+        &self,
+        value: &IndexedCoefficient,
+        shift: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<IndexedCoefficient, IndexedAlgebraError> {
+        self.bind_sealed(value)?;
+        self.validate_index_arity(shift)?;
+        self.translate_coefficient_validated(value, shift, limits)
+    }
+
     fn translate_coefficient_validated(
         &self,
         value: &IndexedCoefficient,
@@ -86,6 +103,23 @@ impl IndexedCoefficientContext {
         limits: IndexedAlgebraLimits,
     ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
         self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
+        self.validate_index_arity(shift)?;
+        Ok(IndexedPolynomial {
+            raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,
+            context: self.fingerprint.clone(),
+        })
+    }
+
+    /// Translate a polynomial already sealed inside an authenticated relation
+    /// condition. The raw translation preflight remains the single complete
+    /// structural scan and the result is checked before sealing.
+    pub(crate) fn translate_polynomial_sealed(
+        &self,
+        value: &IndexedPolynomial,
+        shift: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_context(value)?;
         self.validate_index_arity(shift)?;
         Ok(IndexedPolynomial {
             raw: self.translate_polynomial_raw(&value.raw, shift, limits)?,

@@ -10,8 +10,8 @@ graph-isomorphism engine.
 This document describes the live exact-algebra boundary and the audited limits
 of the pinned dependency. It is not evidence that the narrow live tensor and
 anchored/parametric foundry slices provide a complete projector or generic
-closing foundry. The separate artifact/reduction owners currently close and
-apply only the canonical one-loop unit-mass family in process.
+closing foundry. The separate artifact/reduction owners currently close,
+durably encode/decode, and apply only the canonical one-loop unit-mass family.
 
 ## Pinned backend
 
@@ -238,10 +238,10 @@ RSS proof. Such an operation must retain calibrated native headroom and a typed
 failure boundary; documentation and artifacts must not relabel it as fully
 memory-bounded.
 
-Authentication is proportional to trust. Untrusted inputs and future durable
-artifacts receive full checks. Once a private or sealed value has crossed that
-boundary, callers use its type and ownership instead of repeatedly serializing,
-fingerprinting, or replaying it between every internal function.
+Authentication is proportional to trust. Untrusted inputs and durable artifact
+bytes receive full checks once at decoding. Once a private or sealed value has
+crossed that boundary, callers use its type and ownership instead of repeatedly
+serializing, fingerprinting, or replaying it between every internal function.
 
 ## Pinned 2.2.0 defects and mitigations
 

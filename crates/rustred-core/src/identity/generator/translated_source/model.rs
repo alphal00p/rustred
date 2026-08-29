@@ -1,0 +1,147 @@
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
+
+use crate::algebra::IndexedCoefficient;
+
+use super::super::super::condition::ParametricNonZeroCondition;
+use super::super::super::relation::{IndexShift, ParametricRelation};
+use super::super::super::row::RowId;
+
+/// One exact displacement in a family's ordered integral-index lattice.
+///
+/// Construction is fallible and bounded; clones share the retained component
+/// buffer. Compatibility with a concrete family is checked when a sealed
+/// source batch is translated.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IntegralShift(pub(super) IndexShift);
+
+impl IntegralShift {
+    pub fn values(&self) -> &[i64] {
+        self.0.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.values().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values().is_empty()
+    }
+}
+
+/// Stable identity of one generated source row translated by one exact
+/// lattice offset.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TranslatedSourceProvenance {
+    pub(super) source_ordinal: usize,
+    pub(super) source_row: RowId,
+    pub(super) offset: IntegralShift,
+}
+
+impl TranslatedSourceProvenance {
+    pub fn source_ordinal(&self) -> usize {
+        self.source_ordinal
+    }
+
+    pub fn source_row(&self) -> &RowId {
+        &self.source_row
+    }
+
+    pub fn offset(&self) -> &IntegralShift {
+        &self.offset
+    }
+
+    /// Version-stable identity for diagnostics and future proof payloads.
+    pub fn stable_string(&self) -> String {
+        let mut output = String::new();
+        self.write_stable(&mut output)
+            .expect("writing translated-source provenance to String cannot fail");
+        output
+    }
+
+    fn write_stable(&self, writer: &mut impl fmt::Write) -> fmt::Result {
+        write!(writer, "translated-source-v1:{}:", self.source_ordinal)?;
+        writer.write_str(&self.source_row.stable_string())?;
+        writer.write_str(":[")?;
+        for (position, value) in self.offset.values().iter().enumerate() {
+            if position != 0 {
+                writer.write_str(",")?;
+            }
+            write!(writer, "{value}")?;
+        }
+        writer.write_str("]")
+    }
+}
+
+/// One immutable translated equation with explicit source provenance.
+///
+/// The underlying mutable/raw relation owner is deliberately not exposed.
+/// Callers can inspect its exact sparse terms and inherited nonzero domain,
+/// and a later foundry ingress can accept the sealed batch as one owner.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TranslatedSource {
+    pub(super) relation: ParametricRelation,
+    pub(super) provenance: TranslatedSourceProvenance,
+}
+
+impl TranslatedSource {
+    pub fn provenance(&self) -> &TranslatedSourceProvenance {
+        &self.provenance
+    }
+
+    pub fn row_id(&self) -> &RowId {
+        self.provenance.source_row()
+    }
+
+    pub fn terms(&self) -> &BTreeMap<IndexShift, IndexedCoefficient> {
+        self.relation.terms()
+    }
+
+    pub fn nonzero_conditions(&self) -> &[ParametricNonZeroCondition] {
+        self.relation.nonzero_conditions()
+    }
+}
+
+/// Deterministically ordered owner of a complete translated source span.
+///
+/// Offsets are sorted lexicographically and deduplicated. Within each offset,
+/// source rows retain the sealed batch chronology.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TranslatedSourceBatch {
+    pub(super) family_fingerprint: Arc<String>,
+    pub(super) context_fingerprint: Arc<String>,
+    pub(super) source_row_count: usize,
+    pub(super) offsets: Vec<IntegralShift>,
+    pub(super) sources: Vec<TranslatedSource>,
+}
+
+impl TranslatedSourceBatch {
+    pub fn family_fingerprint(&self) -> &str {
+        self.family_fingerprint.as_str()
+    }
+
+    pub fn context_fingerprint(&self) -> &str {
+        self.context_fingerprint.as_str()
+    }
+
+    pub fn source_row_count(&self) -> usize {
+        self.source_row_count
+    }
+
+    pub fn offsets(&self) -> &[IntegralShift] {
+        &self.offsets
+    }
+
+    pub fn sources(&self) -> &[TranslatedSource] {
+        &self.sources
+    }
+
+    pub fn len(&self) -> usize {
+        self.sources.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
+    }
+}

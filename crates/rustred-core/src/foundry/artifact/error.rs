@@ -6,8 +6,6 @@ use crate::foundry::parametric::ParametricRuleError;
 use crate::identity::{ParametricIbpError, ParametricRelationError};
 use crate::sector;
 
-use super::model::ArtifactSchemaVersion;
-
 /// Typed failure while generating or sealing a closing artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtifactError {
@@ -104,24 +102,128 @@ artifact_from!(IndexedAlgebraError, IndexedAlgebra);
 artifact_from!(IntegralKeyError, IntegralKey);
 artifact_from!(sector::Error, Ordering);
 
-/// Durable encoding is intentionally not claimed by the first in-process
-/// artifact slice.  Callers receive this typed boundary instead of bytes that
-/// could not yet be authenticated on a subsequent load.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Typed failure at the deterministic durable-artifact boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArtifactPersistenceError {
-    DurableEncodingUnavailable { schema: ArtifactSchemaVersion },
+    InvalidMagic,
+    UnsupportedSchema {
+        actual: u32,
+    },
+    InvalidSection {
+        expected: u16,
+        actual: u16,
+    },
+    Truncated {
+        offset: usize,
+    },
+    TrailingBytes {
+        remaining: usize,
+    },
+    InvalidUtf8 {
+        field: &'static str,
+    },
+    ResourceCountOverflow {
+        resource: &'static str,
+    },
+    ResourceLimit {
+        resource: &'static str,
+        requested: usize,
+        limit: usize,
+    },
+    AllocationFailure {
+        resource: &'static str,
+        requested: usize,
+    },
+    InvalidCoefficient {
+        field: &'static str,
+    },
+    NonCanonicalCoefficient {
+        field: &'static str,
+    },
+    UnsupportedFeature {
+        detail: &'static str,
+    },
+    SemanticMismatch {
+        field: &'static str,
+    },
+    Artifact(ArtifactError),
 }
 
 impl fmt::Display for ArtifactPersistenceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DurableEncodingUnavailable { schema } => write!(
+            Self::InvalidMagic => formatter.write_str("invalid RustRed closing-artifact magic"),
+            Self::UnsupportedSchema { actual } => {
+                write!(
+                    formatter,
+                    "durable artifact schema version {actual} is unsupported"
+                )
+            }
+            Self::InvalidSection { expected, actual } => write!(
                 formatter,
-                "durable encoding is not yet available for closing artifact schema {}",
-                schema.as_u32()
+                "durable artifact section {actual} occurred where section {expected} was required"
             ),
+            Self::Truncated { offset } => {
+                write!(formatter, "durable artifact is truncated at byte {offset}")
+            }
+            Self::TrailingBytes { remaining } => {
+                write!(formatter, "durable artifact has {remaining} trailing bytes")
+            }
+            Self::InvalidUtf8 { field } => {
+                write!(formatter, "durable artifact {field} is not valid UTF-8")
+            }
+            Self::ResourceCountOverflow { resource } => {
+                write!(
+                    formatter,
+                    "durable artifact {resource} count overflowed usize"
+                )
+            }
+            Self::ResourceLimit {
+                resource,
+                requested,
+                limit,
+            } => write!(
+                formatter,
+                "durable artifact {resource} requires {requested} units, limit is {limit}"
+            ),
+            Self::AllocationFailure {
+                resource,
+                requested,
+            } => write!(
+                formatter,
+                "could not reserve {requested} units for durable artifact {resource}"
+            ),
+            Self::InvalidCoefficient { field } => {
+                write!(
+                    formatter,
+                    "durable artifact {field} is not an exact coefficient"
+                )
+            }
+            Self::NonCanonicalCoefficient { field } => write!(
+                formatter,
+                "durable artifact {field} is not in canonical sparse Symbolica form"
+            ),
+            Self::UnsupportedFeature { detail } => {
+                write!(
+                    formatter,
+                    "durable artifact uses an unsupported feature: {detail}"
+                )
+            }
+            Self::SemanticMismatch { field } => {
+                write!(
+                    formatter,
+                    "durable artifact {field} failed exact replay comparison"
+                )
+            }
+            Self::Artifact(error) => error.fmt(formatter),
         }
     }
 }
 
 impl std::error::Error for ArtifactPersistenceError {}
+
+impl From<ArtifactError> for ArtifactPersistenceError {
+    fn from(value: ArtifactError) -> Self {
+        Self::Artifact(value)
+    }
+}

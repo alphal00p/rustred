@@ -114,6 +114,29 @@ def rustred_cli() -> Path | None:
     return path if path.is_file() else None
 
 
+def with_durable_schema(artifact: bytes, schema: int) -> bytes:
+    crafted = bytearray(artifact)
+    crafted[8:12] = schema.to_bytes(4, "little")
+    return bytes(crafted)
+
+
+def with_durable_arity(artifact: bytes, arity: int) -> bytes:
+    crafted = bytearray(artifact)
+    metadata_section_offset = 16
+    assert int.from_bytes(
+        crafted[metadata_section_offset : metadata_section_offset + 2],
+        "little",
+    ) == 1
+    metadata_payload_offset = metadata_section_offset + 2 + 8
+    algorithm_bytes = int.from_bytes(
+        crafted[metadata_payload_offset : metadata_payload_offset + 8],
+        "little",
+    )
+    arity_offset = metadata_payload_offset + 8 + algorithm_bytes
+    crafted[arity_offset : arity_offset + 8] = arity.to_bytes(8, "little")
+    return bytes(crafted)
+
+
 def fresh_local_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
@@ -137,6 +160,30 @@ def cli_toml(arguments: list[str], source: str) -> str:
         raise AssertionError(f"RustRed CLI failed: {completed.stderr}")
     if completed.stderr:
         raise AssertionError(f"successful CLI emitted diagnostics: {completed.stderr}")
+    return completed.stdout
+
+
+def cli_bytes(arguments: list[str], source: bytes = b"") -> bytes:
+    cli = rustred_cli()
+    if cli is None:
+        raise unittest.SkipTest("set RUSTRED_CLI to run Python/CLI parity tests")
+    completed = subprocess.run(
+        [str(cli), *arguments],
+        input=source,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env={**os.environ, "SYMBOLICA_HIDE_BANNER": "1"},
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"RustRed CLI failed: {completed.stderr.decode(errors='replace')}"
+        )
+    if completed.stderr:
+        raise AssertionError(
+            "successful CLI emitted diagnostics: "
+            + completed.stderr.decode(errors="replace")
+        )
     return completed.stdout
 
 
@@ -325,6 +372,135 @@ class PythonApiTests(unittest.TestCase):
                         CAMPAIGN,
                     ),
                 )
+
+    def test_closing_artifact_generation_inspection_and_reduction(self) -> None:
+        generated = rustred.generate_closing_artifact(
+            family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K1,
+        )
+        self.assertEqual(
+            generated.schema,
+            "rustred.closing-artifact-generate-output.toml.v1",
+        )
+        self.assertEqual(generated.status, "generated-durable")
+        self.assertIsInstance(generated.artifact, bytes)
+        self.assertTrue(generated.artifact)
+        generated_document = tomllib.loads(generated.to_toml())
+        self.assertTrue(generated_document["lifecycle"]["durable"])
+        self.assertEqual(
+            generated_document["payload"]["bytes"],
+            len(generated.artifact),
+        )
+        self.assertEqual(generated_document["validation"]["source_rows"], 1)
+        self.assertEqual(generated_document["validation"]["guarded_rules"], 1)
+
+        inspected = rustred.inspect_closing_artifact(generated.artifact)
+        self.assertEqual(inspected.status, "inspected")
+        self.assertIn(
+            "decoded-authenticated-durable-bytes",
+            inspected.to_toml(),
+        )
+
+        reduced = rustred.reduce_with_closing_artifact(
+            generated.artifact,
+            [3],
+        )
+        self.assertEqual(reduced.status, "reduced")
+        self.assertEqual(reduced.target_powers, [3])
+        self.assertEqual(len(reduced.terms), 1)
+        term = reduced.terms[0]
+        self.assertEqual(term.master_powers, [1])
+        self.assertEqual(
+            term.unit_mass_coefficient,
+            "(-6*rustred::{}::d+8+rustred::{}::d^2)*1/8",
+        )
+        self.assertEqual(term.common_mass_squared_power, -2)
+        reduced_document = tomllib.loads(reduced.to_toml())
+        self.assertEqual(reduced_document["terms"][0]["master"]["powers"], [1])
+        self.assertEqual(
+            reduced_document["terms"][0]["unit_mass_coefficient"],
+            term.unit_mass_coefficient,
+        )
+        self.assertEqual(
+            reduced_document["terms"][0]["common_mass_squared_power"],
+            "-2",
+        )
+        self.assertEqual(
+            reduced_document["terms"][0]["common_mass_squared_factor"],
+            "mass_squared^(-2)",
+        )
+
+    def test_closing_artifact_python_cli_parity(self) -> None:
+        selector = "unit-mass-vacuum-k1"
+        generated = rustred.generate_closing_artifact(family=selector)
+        self.assertEqual(
+            generated.artifact,
+            cli_bytes(["campaign", "generate", "--family", selector]),
+        )
+        inspected = rustred.inspect_closing_artifact(generated.artifact)
+        self.assertEqual(
+            inspected.to_toml(),
+            cli_bytes(
+                ["campaign", "inspect", "--artifact", "-"],
+                generated.artifact,
+            ).decode(),
+        )
+        reduced = rustred.reduce_with_closing_artifact(generated.artifact, [3])
+        self.assertEqual(
+            reduced.to_toml(),
+            cli_bytes(
+                [
+                    "campaign",
+                    "reduce",
+                    "--artifact",
+                    "-",
+                    "--powers",
+                    "3",
+                ],
+                generated.artifact,
+            ).decode(),
+        )
+
+    def test_closing_artifact_errors_and_resource_ceiling_are_typed(self) -> None:
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.generate_closing_artifact(family="I1L")
+        generated = rustred.generate_closing_artifact()
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.inspect_closing_artifact(b"invalid artifact")
+        with self.assertRaises(rustred.RustRedSchemaError):
+            rustred.inspect_closing_artifact(
+                with_durable_schema(generated.artifact, 2)
+            )
+        with self.assertRaises(rustred.RustRedLimitError):
+            rustred.inspect_closing_artifact(
+                with_durable_arity(generated.artifact, (1 << 64) - 1)
+            )
+        with self.assertRaises(TypeError):
+            rustred.inspect_closing_artifact("not bytes")
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.reduce_with_closing_artifact(generated.artifact, [])
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.reduce_with_closing_artifact(generated.artifact, [True])
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.reduce_with_closing_artifact(generated.artifact, [1 << 100])
+        with self.assertRaises(rustred.RustRedInputError):
+            rustred.reduce_with_closing_artifact(
+                generated.artifact,
+                [3],
+                max_rule_applications=-1,
+            )
+        with self.assertRaises(rustred.RustRedLimitError):
+            rustred.reduce_with_closing_artifact(
+                generated.artifact,
+                [1],
+                max_rule_applications=1_000_001,
+            )
+        with self.assertRaises(rustred.RustRedLimitError) as exhausted:
+            rustred.reduce_with_closing_artifact(
+                generated.artifact,
+                [3],
+                max_rule_applications=1,
+            )
+        self.assertIn("configured limit 1", str(exhausted.exception))
 
     def test_python_errors_are_typed(self) -> None:
         with self.assertRaises(rustred.RustRedInputError):

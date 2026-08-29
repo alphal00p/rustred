@@ -1,6 +1,65 @@
 use std::fmt;
 use std::str::FromStr;
 
+/// Canonical family presets for closing-artifact generation.
+///
+/// This is a semantic family selector, not a graph/topology name.  Stage 1
+/// currently installs only the one-denominator member; the enum is the
+/// transport-neutral extension point for the `K=3` and `K=6` uniform-mass
+/// vacuum families once their closure verifiers are available.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClosingFamilySelector {
+    UnitMassVacuumK1,
+}
+
+impl ClosingFamilySelector {
+    pub const EXPECTED_VALUES: &str = "unit-mass-vacuum-k1";
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnitMassVacuumK1 => "unit-mass-vacuum-k1",
+        }
+    }
+}
+
+impl FromStr for ClosingFamilySelector {
+    type Err = ParseClosingFamilySelectorError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "unit-mass-vacuum-k1" => Ok(Self::UnitMassVacuumK1),
+            _ => Err(ParseClosingFamilySelectorError {
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
+/// Transport-neutral failure to parse a [`ClosingFamilySelector`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParseClosingFamilySelectorError {
+    value: String,
+}
+
+impl ParseClosingFamilySelectorError {
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+}
+
+impl fmt::Display for ParseClosingFamilySelectorError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "invalid closing family selector {:?}; expected {}",
+            self.value,
+            ClosingFamilySelector::EXPECTED_VALUES
+        )
+    }
+}
+
+impl std::error::Error for ParseClosingFamilySelectorError {}
+
 /// Accepted source encodings for family and campaign inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputFormat {

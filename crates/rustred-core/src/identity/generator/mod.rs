@@ -14,12 +14,17 @@ mod model;
 mod ordinary;
 mod scope;
 mod source;
+mod translated_source;
 
 pub use config::ParametricIbpConfig;
 pub use error::ParametricIbpError;
 pub use model::{
     CompletedIbpSourceRows, IbpSourceRow, ParametricIbpGenerator, PreparedIbpSourceBatch,
     PreparedLorentzInvarianceBatch,
+};
+pub use translated_source::{
+    IntegralShift, TranslatedSource, TranslatedSourceBatch, TranslatedSourceError,
+    TranslatedSourceLimits, TranslatedSourceProvenance,
 };
 
 #[cfg(test)]
