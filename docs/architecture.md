@@ -41,12 +41,11 @@ core parametric slice requires a representable fixed-sector interior of a
 caller-supplied source span. Its sector-monotone extension records boundary
 pinches as unresolved lower-sector dependencies but does **not** feed them
 back, refine exceptional guard-zero
-domains, prove source-set completeness or closure, or publish an artifact. The
-tensor slice does **not** support generic kinematics or even rank above two,
-and no current service applies IBP artifacts, selects/substitutes masters, or
-evaluates an integral. The six-loop source-count test exercises the generic row
-census (`L = 6`, 21 coordinates, 36 ordinary sources); it is not a physical
-six-loop closure result.
+domains, prove source-set completeness or closure, or publish an artifact. No
+current service applies IBP artifacts, selects/substitutes masters, or evaluates
+an integral. The tensor slice does **not** support generic kinematics or even
+rank above two and is frozen during Stage 1. Generic source-count tests exercise
+only the row census; they are not physical closure results.
 
 The exact public Rust surface is the module facade in
 [`crates/rustred-core/src/lib.rs`](../crates/rustred-core/src/lib.rs). Public
@@ -227,9 +226,9 @@ identity.
 Optimized paths may be selected only from authenticated semantic properties.
 The live vacuum tensor lane and future optimized foundry lanes may, for
 example, recognize no external denominator shifts and a common nonzero scale;
-they may not recognize a family label or the literal condition
-`loop_count == 6`. Concrete topologies belong in fixtures, external oracle
-corpora, benchmarks, or shipped artifact metadata.
+they may not recognize a family label or a literal loop-count condition.
+Concrete topologies belong in fixtures, external oracle corpora, benchmarks,
+or shipped artifact metadata.
 
 Symbolica's graph implementation is the intended authority for future graph
 canonization and automorphism candidate generation. RustRed will own the
@@ -248,29 +247,31 @@ enter RustRed history, the Cargo workspace, or the production dependency
 graph.
 
 Vakint integration is developed in the GammaLoop repository on its own
-`vakint_rustred` branch. Vakint remains the eventual user-facing steering
-layer, while RustRed supplies reusable mathematical services. Existing
-FORM-backed Vakint paths and their existing compatibility tests remain
-reference-oracle coverage and should be segregated in CI. RustRed, Vakint's
-RustRed mode, and tests of that mode never invoke FORM and have no FORM
-fallback.
+`vakint_rustred` branch. Vakint remains the user-facing steering layer, while
+RustRed supplies reusable mathematical services. Stage 1 adds a FORM-free
+scalar RustRed evaluation backend but deliberately retains Vakint's existing
+FORM tensor prepass. Tensor-bearing end-to-end tests may therefore execute FORM
+before entering the RustRed scalar tail; scalar-backend tests use an invalid
+FORM path to prove that the new backend itself has no FORM dependency or
+fallback. Existing FORM-backed scalar methods remain compatibility oracles in
+segregated coverage.
 
-## Planned owners, not current packages
+## Stage 1 owners, not yet current packages
 
-The following domains are required by the goal but do not exist in the live
-RustRed core yet:
+The following domains are active Stage 1 requirements but do not exist in the
+live RustRed core yet:
 
 | Future owner | Intended responsibility | First capability gate |
 |---|---|---|
-| `artifact` | Immutable closed-rule values, manifests, persistence, and untrusted-load validation | A real closed shard produced and consumed outside the foundry |
-| `reduction` | Guarded rule application, termination, stable master keys, and typed master substitution | End-to-end lower-loop application against independent Vakint expectations |
+| `artifact` | Immutable closed-rule values, through-three-loop manifests, persistence, and one-time untrusted-load validation | A real closed one-loop shard produced and consumed outside the foundry |
+| `reduction` | Deterministic guarded application, memoization, termination, mass restoration, and stable master keys | End-to-end one-loop application against independent Vakint expectations |
 
 These owners are introduced only with a cohesive contract and first
 production caller. Empty shells, restored prototype sessions, and transport-
-only microcrates are not milestones. Future dependencies must remain acyclic:
-the live foundry may compose the current domains and eventually emit stable
-artifact values; reduction may consume artifacts; artifact models must never
-depend on foundry internals.
+only microcrates are not milestones. Dependencies must remain acyclic: the
+live foundry may compose the current domains and emit stable artifact values;
+reduction may consume artifacts; artifact models must never depend on foundry
+internals.
 
 ## Change rules
 

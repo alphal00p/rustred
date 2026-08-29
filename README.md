@@ -1,10 +1,11 @@
 # RustRed
 
 RustRed is a pre-alpha, pure-Rust and Symbolica-native project for deriving and
-eventually applying parametric integration-by-parts identities. Its scientific
-pressure target is a generic, deterministic rule foundry capable of closing
-single-scale vacuum families through six loops. Loop count and topology are
-input data, never production dispatch keys.
+applying parametric integration-by-parts identities. Its active Stage 1 target
+is a generic, deterministic rule foundry that closes every single-scale vacuum
+family represented in Vakint through three loops, publishes the resulting
+one-off artifacts, and applies them through a FORM-free scalar Vakint backend.
+Loop count and topology are input data, never production dispatch keys.
 
 ## Current capability
 
@@ -38,7 +39,28 @@ feed back or close proper subsectors or whole families, publish reusable rule
 artifacts, apply IBP reductions, substitute masters, or support
 generic/higher-even-rank tensor reduction. The current API also accepts a
 caller-supplied source span rather than certifying a fresh complete source set.
-Structural source counts—even the six-loop count—are not closure evidence.
+Structural source counts—at any loop count—are not closure evidence.
+
+## Active development stage
+
+Stage 1 produces sector-complete unit-mass artifacts for the one-loop
+`K = 1`, two-loop `K = 3`, and three-loop `K = 6` vacuum families. Together
+they must cover Vakint's eight registered graph classes through three loops:
+the tadpole, the sunset and its pinch, and the K4/Mercedes parent with four
+inequivalent contractions. Their complete ordinary-source counts are 1, 4,
+and 9 respectively.
+
+The one-loop recurrence and current two-loop sunset rules are useful generated
+and replayed ingredients; they are not yet durable closed artifacts. Closure,
+artifact publication, recursive guarded application, stable master output, and
+Vakint scalar integration are the active work.
+
+Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
+FORM tensor prepass, while the new RustRed evaluation backend will be FORM-free
+from scalar IBP application through master substitution. Existing experimental
+RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
+high-loop performance work, and new tensor technology are deferred until
+explicit new guidance. See [`GOAL.md`](GOAL.md) for the authoritative gates.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
@@ -201,24 +223,27 @@ printing.
 ## Vakint integration
 
 Vakint development occurs in the independent GammaLoop repository on branch
-`vakint_rustred`. Its additive `RustRed` tensor mode now reuses Vakint's
-matcher/canonical routing and calls RustRed's key-aware projector for
-registered common-mass vacuum families across loop counts through rank two.
-Pinched families receive auxiliary-ISP completion, and explicit multi-loop
-routings must replay exactly through the matcher's complete simultaneous
-basis witness. Scalar numerators pass through, odd ranks vanish, exact
-symbolic or numeric masses and integer powers are retained, and both Vakint
-output notations are covered. Existing behavior still defaults to FORM;
-unsupported RustRed inputs fail with typed errors and never invoke or fall
-back to FORM.
+`vakint_rustred`. Stage 1 adds an opt-in scalar
+`EvaluationMethod::RustRed(RustRedEvaluationOptions)` which consumes Vakint's
+existing topology match and simultaneous routing witness, applies shipped
+RustRed artifacts, returns exact coefficients in Vakint's existing MATAD
+master basis, and optionally reuses its pure-Rust master evaluations. It does
+not rematch graphs, regenerate artifacts, invoke FORM, or fall back to another
+scalar reducer.
 
-The RustRed crate now owns the first scalar/odd/rank-two single-scale-vacuum
-service; Vakint already reuses its projection boundary, while CLI and Python
-tensor adapters remain to be added.
-Vakint remains responsible for topology matching, canonical routing, steering,
-and presentation. Existing FORM-backed Vakint paths and their compatibility
-tests remain reference oracles; the RustRed mode does not invoke or fall back
-to them.
+Vakint's defaults and backward compatibility remain unchanged. Tensor-bearing
+inputs continue through the existing FORM tensor prepass before the FORM-free
+RustRed scalar tail, so that whole tensor-bearing chain is not described as
+FORM-free. Scalar and already tensor-reduced inputs can test the RustRed
+backend with an invalid FORM path. The previously implemented optional,
+bounded `TensorReductionMode::RustRed` experiment remains frozen and is not an
+active Stage 1 dependency.
+
+Production artifacts are generated once, checked into and shipped with
+Vakint, and loaded rather than rediscovered during evaluation. RustRed owns
+guarded rule application and typed master keys; Vakint owns topology matching,
+canonical routing, steering, normalization, presentation, and its existing
+master values.
 
 ## Documentation
 
@@ -227,7 +252,7 @@ Stable design documents are:
 
 - [architecture and ownership](docs/architecture.md);
 - [Symbolica and exact algebra](docs/algebra.md);
-- [tensor reduction and Vakint integration](docs/tensor.md);
+- [frozen tensor boundary and Vakint sequencing](docs/tensor.md);
 - [closing-rule foundry target](docs/foundry.md);
 - [application, Python, and Vakint interfaces](docs/interfaces.md);
 - [validation and oracle ladder](docs/validation.md);

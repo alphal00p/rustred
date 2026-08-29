@@ -35,12 +35,16 @@ counts only.
 
 | Domain | `K` | ordinary | LI | What the count proves |
 |---|---:|---:|---:|---|
-| complete six-loop vacuum | 21 | 36 | 0 | The source layout/generator can represent the family and emit all raw source rows. |
+| one-loop vacuum | 1 | 1 | 0 | The Stage 1 source layout is complete for the family. |
+| two-loop vacuum | 3 | 4 | 0 | The Stage 1 source layout is complete for the family. |
+| three-loop vacuum | 6 | 9 | 0 | The Stage 1 source layout is complete for the family. |
+| synthetic six-loop vacuum | 21 | 36 | 0 | The generic generator can represent the shape; this is a deferred structural sentinel only. |
 
 It does not prove that any sector has a rule, that exceptional loci close, or
-that a terminal is a master. The current synthetic six-loop source test is
-therefore a generation and resource sentinel, not a physical six-loop
-reduction.
+that a terminal is a master. The active Stage 1 closure gate applies to the
+first three rows. The synthetic six-loop source test remains a generic
+generation sentinel; no six-loop closure or efficiency work is authorized in
+Stage 1.
 
 The current implementation has its first level-4 ingredients but does not pass
 the level-4 closure gate. Generated tadpole and selected sunset source spans
@@ -135,15 +139,19 @@ Vakint comparisons are reported separately at three boundaries:
 3. **Evaluation:** optional master substitution, measure and MS-bar
    normalization, and Laurent/numerical comparison.
 
-The reusable lower-loop ladder is:
+The active Stage 1 ladder is:
 
-- one-loop scalar powers and odd/even tensor ranks, including arbitrary index
-  atoms and spectator functions;
-- two-loop sunset powers, pinches, alternate loop bases, mixed-loop tensors,
-  and the exact two-master result;
-- three-loop alphaLoop/MATAD scalar, numerator, and rank-four fixtures; and
-- four-loop `H`, `X`, `BMW`, and `FG` families compared to frozen raw FMFT
-  `PR`-master combinations before master expansion.
+- one-loop scalar powers reduced by the installed `K = 1` artifact;
+- two-loop sunset powers and its pinch reduced by the installed `K = 3`
+  artifact; and
+- the three-loop K4/Mercedes parent and four inequivalent contractions reduced
+  by the installed `K = 6` artifact.
+
+Each case is compared first as exact coefficients of unsubstituted MATAD-basis
+masters and then, where an existing expectation exists, after Vakint's
+pure-Rust master substitution and Laurent expansion. Alternate routings are
+tests of Vakint's existing matcher and simultaneous witness, not permission for
+RustRed to rematch a topology.
 
 Existing Vakint input-matching and inline expected-expression tests can be
 used without FORM. The current RustRed-mode tests use invalid FORM paths and
@@ -151,25 +159,28 @@ establish exact frozen dot/indexed outputs, valid topology relabeling, scalar
 and odd-rank behavior, the rank-four typed frontier, exact numeric mass and
 nonunit-power retention, malformed-routing rejection, and nonsymbolic-
 dimension rejection. Separate compatibility tests establish that the default
-builder equals the existing FORM path. These gates establish a bounded
-rank-two multi-loop bridge only; they do not establish generic tensor or
-scalar-IBP correctness.
+builder equals the existing FORM path. These existing gates establish a
+bounded rank-two multi-loop bridge only. That bridge is frozen during Stage 1
+and does not establish scalar-IBP correctness.
 
 The detailed tensor, routing, convention, and vertical-oracle contract lives in
 [`tensor.md`](tensor.md).
 
-### FORM compatibility oracle
+### FORM tensor prepass and scalar oracle
 
-FORM is forbidden from RustRed, the Vakint `RustRed` mode, and tests of that
-mode. Existing Vakint tests of the default compatibility backend currently may
-run FORM; they are oracle coverage and should move to a separately declared
-job. Such an oracle-regeneration job may run Vakint's existing
-alphaLoop, MATAD, or FMFT backends with a real pinned FORM version at least
-4.2.1; this milestone was compared locally with FORM 5.0.0. That job must
-record the executable identity, input, Vakint revision,
-convention map, and raw output. Its reviewed outputs become versioned fixtures;
-the production implementation never copies the oracle's authored recurrence
-tables.
+FORM is forbidden from RustRed and from the new Vakint RustRed **scalar**
+backend. Scalar-backend tests use an invalid FORM path and must still pass.
+Stage 1 nevertheless retains Vakint's existing FORM tensor prepass, so a
+tensor-bearing end-to-end test may run that prepass before entering the
+FORM-free RustRed scalar tail. Such a complete tensor-bearing chain is not
+claimed to be FORM-free.
+
+Vakint's existing AlphaLoop and MATAD reductions may run with a pinned FORM in
+segregated oracle coverage through three loops. An oracle-regeneration job
+records the executable identity, input, Vakint revision, convention map, and
+raw output. Reviewed raw master coefficients and evaluated expectations become
+versioned fixtures; production RustRed never copies authored oracle recurrence
+tables. FMFT and four-loop comparison belong to deferred Stage 2.
 
 A directory named `form5` is not assumed to contain a FORM executable. Oracle
 availability is checked explicitly, and its absence neither blocks pure-Rust
@@ -223,7 +234,9 @@ the private extension, verify `import rustred`, reject a top-level `_rustred`
 import, exercise CLI/Python byte and error parity, and rebuild a wheel from an
 isolated sdist before any distribution claim.
 
-The eventual six-loop acceptance gate is stronger than all component tests:
-a frozen, completeness-witnessed one- through six-loop single-scale vacuum
-manifest must map every entry to a closed, replayable artifact, and the
-physical benchmark subset must pass its predeclared time/RSS envelope.
+The Stage 1 acceptance gate requires the three artifacts to cover all eight
+Vakint graph classes through three loops, with no reachable uncovered branch,
+and requires the RustRed scalar backend to reproduce every applicable
+through-three-loop Vakint expectation without changing existing defaults. Once
+that passes, development pauses. Four- through six-loop gates and new tensor
+technology are defined only after explicit Stage 2 authorization.

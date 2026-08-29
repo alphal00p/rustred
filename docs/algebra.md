@@ -335,11 +335,12 @@ implements one invocation-wide policy:
   dispatched, then collects by stable ordinal so worker arrival order does not
   alter the result or first-error order.
 
-This is foundational execution infrastructure, not yet the memory-sharing
-architecture of a six-loop foundry. The future worker model must benchmark
-Symbolica TLS/scratch, avoid nested pools and per-task forks, and share
-immutable family/source data instead of cloning complete symbolic state for
-each lane.
+This is foundational execution infrastructure, not yet a high-loop
+memory-sharing architecture. Stage 1 extends it only where the through-three-
+loop workload demonstrates a need. High-loop worker benchmarking belongs to
+deferred Stage 2; any later model must account for Symbolica TLS/scratch, avoid
+nested pools and per-task forks, and share immutable family/source data instead
+of cloning complete symbolic state for each lane.
 
 The Python adapter releases the GIL, but all top-level calls enter the
 application through one process-wide coordinator thread. Its zero-capacity
@@ -377,7 +378,8 @@ Before changing the Symbolica revision, source, or features:
 8. Run the complete licensed default-GMP RustRed suite and exact domain-level
    replay tests before deleting or weakening any mitigation.
 
-Existing FORM-backed Vakint implementations may supply results to a
-separately pinned oracle-regeneration job. They are not algebra providers,
-dependencies, or fallbacks for RustRed or Vakint's RustRed mode. Ordinary
-development, tests, and production remain pure Rust plus Symbolica.
+Existing FORM-backed Vakint implementations may supply results to a separately
+pinned oracle-regeneration job. Stage 1 also retains Vakint's legacy FORM
+tensor prepass for tensor-bearing end-to-end inputs. Neither is an algebra
+provider, dependency, or fallback for RustRed or the Vakint RustRed scalar
+backend. RustRed and that scalar backend remain pure Rust plus Symbolica.

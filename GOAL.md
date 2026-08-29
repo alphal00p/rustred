@@ -24,125 +24,108 @@ Remember, before implementing in vakint the application of the parametric IBPs f
 Also never escalate commands but find workaround if sanbox is being hit.
 ````
 
-## Assignment and current frontier
+## Authority and staged assignment
 
-This is the authoritative active goal assigned to the primary Codex agent
-(`/root`). The primary agent acts mainly as architect, orchestrator, integrator,
-and final verifier. Independent research, implementation slices, performance
-work, and adversarial audits are delegated to subagents whenever useful.
+The preamble above records the long-term scientific motivation verbatim. The
+latest approved plan in this section supersedes its sequencing and defines the
+only active assignment for the primary Codex agent (`/root`). The primary
+agent acts mainly as architect, orchestrator, integrator, and final verifier;
+independent research, implementation slices, and adversarial audits are
+delegated whenever useful.
 
-Later user directives supersede the preamble only on sequencing. The six-loop
-closing-rule foundry remains the primary scientific objective, but the
-orthogonal Vakint integration now proceeds in parallel. Tensor reduction can be
-implemented and tested before closed IBP artifacts exist; guarded IBP
-application begins when the first genuinely closed lower-loop artifact exists.
+Development is divided into two hard-gated stages:
 
-The mandatory clean reset is complete:
+- **Stage 1 is active:** close and publish single-scale vacuum parametric-IBP
+  artifacts through three loops, implement their FORM-free scalar application
+  in Vakint, and reproduce Vakint's end-to-end expectations through three
+  loops. Vakint continues to use its existing FORM tensor reduction before the
+  new scalar backend when tensor numerators are present.
+- **Stage 2 is deferred and must not start without new user guidance:** do not
+  enhance tensor reduction, integrate speculative collaborator tensor work,
+  pursue four- through six-loop closure, or optimize the foundry for a
+  six-loop breakthrough. Those remain long-term goals, not current tasks.
 
-- the root is already a virtual Cargo workspace with no root `src`;
-- the only first-party workspace packages are `rustred`, `rustred-app`, and
-  `rustred-python`;
-- the former solver/session/publication/re-entry and authored-recurrence
-  prototype has been deleted rather than preserved;
-- the core is organized under `algebra`, `family`, `input`, `identity`,
-  `sector`, `tensor`, `foundry`, and `campaign`; the completed Track-A spine's
-  source/facade/allocation audit passed, the new capability slices are audited
-  at each milestone, and the dated research corpus has been consolidated into
-  the stable documents linked below and deleted; and
-- the live core currently compiles families, generates generic ordinary
-  parametric IBP and LI rows, verifies affine symmetry candidates, performs
-  on-demand zero-sector analysis, authenticates physical/auxiliary family
-  presentations, performs bounded scalar/odd/rank-two vacuum tensor projection
-  and affine scalar-product lowering, derives both concrete-anchor rules and a
-  genuine guarded fixed-sector recurrence directly over Symbolica `K(n)` with
-  exact replay, uniform descent, and anchored agreement, can select a requested
-  pivot through deterministic Symbolica RREF while retaining the complete
-  reachable pivot-guard envelope, can extend that targeted rule over a maximal
-  parent-sector box, refine every term into a lazy exact fixed-target-sector
-  product partition, and stream compact rule-bound proper-subsector obligation
-  descriptors with aggregate work preflight, stable process-local cursors,
-  retained coefficient/guard context, and on-demand exact domain
-  materialization, and provides
-  deterministic core-owned campaign primitives with application-owned
-  roots-only composition. It does **not** yet refine exceptional guard loci,
-  prove complete-source or family closure, publish rule artifacts, apply IBPs,
-  substitute masters, or support generic/higher-even-rank tensor reduction.
+The existing experimental RustRed tensor service and GammaLoop
+`TensorReductionMode::RustRed` adapter are frozen. They may remain in their
+repositories, but Stage 1 must not extend, redesign, or make them part of the
+active acceptance path. Vakint's established `TensorReductionMode::Form`
+remains its tensor default and the Stage 1 tensor prepass.
 
-In the independent GammaLoop repository, branch `vakint_rustred` now has the
-first real backward-compatible `TensorReductionMode::RustRed` adapter. It
-reuses Vakint's topology matcher and simultaneous canonical routing, supports
-registered common-mass vacuum families across loop counts (including ISP
-completion for pinches), and calls RustRed's bounded key-aware projector
-through rank two. Explicit multi-loop routings are admitted only after exact
-replay of the matcher's complete simultaneous basis witness. Existing Vakint
-behavior remains unchanged and defaults to its FORM backend. Unsupported
-families and ranks return typed errors; the RustRed mode never invokes or
-falls back to FORM. This is tensor-projection capability, not yet generic
-tensor reduction, scalar IBP application, or master substitution.
+## Current evidence boundary
 
-Work is paused after the exact proper-subsector dependency-stream and Vakint
-explicit-routing milestones at the user's request while a collaborator
-develops a separate fast tensor-reduction tool. RustRed's abandoned
-in-progress all-rank projector edits were removed before this pause. The next
-foundry step is coefficient/guard applicability refinement followed by
-immutable lower-sector feedback into a deterministic fixed point; the current
-stream is discovery evidence, not closure. Any future integration of the
-collaborator's tensor tool must first be reviewed against this document's
-pure-Rust/Symbolica, genericity, ownership, and validation invariants.
+The clean workspace refactor is complete. The root is a virtual Cargo
+workspace containing package/library `rustred`, `rustred-app`, and
+`rustred-python`; obsolete prototype solvers, authored recurrences, and legacy
+compatibility layers have been removed.
 
-Commit and push coherent passing milestones frequently. Every Git operation
-uses:
+The live core compiles topology-neutral families, generates generic ordinary
+IBP and LI source rows, authenticates physical and auxiliary family
+presentations, verifies supplied affine symmetries, analyzes requested zero
+sectors, and provides deterministic campaign primitives. Its foundry can
+derive concrete-anchor and guarded fixed-sector recurrences over Symbolica
+`K(n)`, select a requested pivot with deterministic Symbolica RREF, prove
+uniform descent, exactly replay source combinations, partition target-sector
+domains, and stream proper-subsector obligations.
 
-```text
-user.name=ValentinHirschi
-user.email=valentin.hirschi@gmail.com
-```
+These are closure ingredients, not closed families. RustRed does **not** yet
+refine all exceptional coefficient/guard loci, feed solved dependencies to a
+fixed point, select all terminals, publish durable closed artifacts, apply an
+artifact recursively, or substitute masters. The one-loop recurrence and
+two-loop sunset rules are foundations for Stage 1, not complete installed
+tables.
 
-## Assigned objective
+The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
+Vakint adapter are existing experimental capability. They do not establish
+rank-generic tensor reduction and are frozen for Stage 1.
 
-Build RustRed into a production-grade, topology- and loop-count-independent
-offline rule foundry, written entirely in Rust and using GMP-enabled Symbolica
-as its sole CAS. It must derive guarded, strictly descending, exactly
-replay-certified, coverage-closed parametric IBP/LI replacement systems and
+## Stage 1 objective
+
+Build a production-grade, topology- and loop-count-independent offline rule
+foundry, written entirely in Rust and using GMP-enabled Symbolica as its sole
+CAS. For the active pressure domain it must derive guarded, strictly
+descending, exactly replay-certified, coverage-closed replacement systems and
 persist them as deterministic reusable artifacts.
 
-The first pressure target is practical closure of physical six-loop,
-single-scale massive-vacuum families after a proved `m_uv^2 = 1`
-specialization. A complete six-loop vacuum family has 21 scalar-product
-coordinates and 36 ordinary parametric IBP source rows. Producing those rows is
-only structural evidence: the goal is to discharge every reachable generic and
-exceptional domain onto strictly lower closed dependencies or a finite,
-explicitly selected terminal set.
+Stage 1 freezes a matcher-derived manifest with all eight Vakint graph classes
+through three loops:
 
-All production algorithms remain generic in topology and loop count. Dedicated
-fast lanes may be selected only from authenticated semantic properties such as
-vacuum kinematics, common nonzero scale, proved unit-mass homogeneity,
-coefficient field, graph structure, and routing witnesses. Dispatch on a
-topology name, family label, authored table, or literal `loop_count == 6` is
-forbidden.
+| Family artifact | Coordinates `K` | Ordinary sources | Required Vakint coverage |
+|---|---:|---:|---|
+| one-loop tadpole | 1 | 1 | the one-loop class |
+| two-loop sunset | 3 | 4 | the sunset and its pinch |
+| three-loop K4/Mercedes | 6 | 9 | the parent and four inequivalent contractions |
 
-The one-off foundry deliverable is a versioned and independently verifiable
-library of closing parametric-IBP artifacts covering the declared canonical
-single-scale vacuum topology domain through six loops. Completeness is defined
-by a frozen GammaLoop/Vakint graph manifest after documented routing,
-canonicalization, fusion, and factorization equivalences. The generated
-artifacts are saved and shipped with Vakint; ordinary integral evaluation must
-not rediscover them.
+One sector-complete unit-mass artifact is produced for each row of this table.
+The `K = 6` artifact must prove coverage of all five registered three-loop
+classes; topology names are manifest labels and fixtures, never algorithmic
+dispatch keys. Pinches, symmetries, factorization, and routing are handled
+through generic proved transformations.
 
-Vakint will be the user-facing steering layer for the full evaluation chain,
-but the reusable mathematics belongs to the RustRed crate. Vakint owns topology
-matching, routing, orchestration, configuration, and presentation. RustRed owns
-tensor reduction, family-aware scalar lowering, compiled guarded-rule
-application, stable master keys, and typed master substitution. Numerical
-master data is expected from AMFlow. Through GammaLoop's BPHZ/R-operation
-boundary, this is intended to contribute to the six-loop QCD beta-function
-programme.
+All production algorithms remain generic in topology and loop count, including
+the Rust library, `campaign` CLI, and public Python package. Python users write
+`import rustred`; `rustred._rustred` is private and top-level `import _rustred`
+is unsupported. Generic non-vacuum family construction and identity generation
+remain first-class even though Stage 1 closure pressure is the vacuum manifest.
 
-Vakint does not replace RustRed's own interfaces. The Rust CLI and Python API
-remain first-class fine-grained surfaces for generic families, including
-non-vacuum topologies. Python users write `import rustred`; the native
-`rustred._rustred` module is private and top-level `import _rustred` is not a
-supported interface.
+### Unit-scale contract
+
+The closing search and shipped tables use a proved common squared mass
+`s = m^2 = 1`. For `L` loops and powers `a`,
+
+```text
+I(a; s) = s^(L*d/2 - sum(a)) I(a; 1).
+```
+
+Consequently the coefficient restoring a unit-scale reduction from target
+`a` to master `b` is
+
+```text
+c[a -> b](s) = s^(sum(b) - sum(a)) c[a -> b](1).
+```
+
+This includes negative auxiliary powers. Specialization requires authenticated
+single-scale homogeneity and nonzero scale evidence; dimensional analysis does
+not excuse a convention or routing mismatch.
 
 ## Definition of closure
 
@@ -150,241 +133,175 @@ A root is `Closed` only when one immutable artifact establishes all of the
 following:
 
 1. The exact family, coefficient/index contexts, kinematics, metric and
-   propagator conventions, routing, cuts, power shifts, ordering, and source
-   identity set are bound to one canonical identity.
-2. Every required ordinary parametric IBP and separate LI identity is generated
-   generically. For `L` loops and `E` external momenta,
-   `K = L(L+1)/2 + LE`, the ordinary-row count is `L(L+E)`, and the LI count is
-   `E(E-1)/2`.
-3. Every published rule carries its integer-domain and nonzero-polynomial
-   guards, a strict well-founded descent witness, source provenance, and an
-   exact zero residual against freshly regenerated source identities.
+   propagator conventions, routing, cuts, power shifts, ordering, and freshly
+   generated source set are bound to one canonical identity.
+2. Every required ordinary IBP and LI identity is generated generically. For
+   `L` loops and `E` external momenta,
+   `K = L(L+1)/2 + LE`, with `L(L+E)` ordinary sources and `E(E-1)/2` LI
+   sources.
+3. Every rule carries exact integer-domain and nonzero-polynomial guards,
+   strict well-founded descent, source provenance, and a zero residual against
+   freshly regenerated identities.
 4. Zero, symmetry, cross-family maps, factorization, product structure, and
    proper-subsector dependencies are proof-bearing.
-5. Every exceptional equality/nonzero branch recursively reaches a descending
-   rule, an already closed dependency, an explicitly enumerated selected
-   master, or an independently certified finite zero/product/factorized
-   terminal. A symbolic residual is never a terminal.
-6. Solved dependencies feed back immutably and the reachable dependency graph
-   reaches a deterministic fixed point.
-7. No reachable leaf is uncovered, unsupported, resource-limited, interrupted,
-   timed out, search-exhausted, or unresolved.
-8. The artifact can be validated once at an untrusted durable or cross-process
-   boundary and then represented by a sealed trusted owner. Incomplete
-   resumable workspace state is never confused with an installed closed
-   artifact.
+5. Every generic and exceptional branch reaches a descending rule, an already
+   closed dependency, an explicitly enumerated master, or an independently
+   certified zero/product/factorized terminal. A residual or failed search is
+   never a terminal.
+6. Solved dependencies feed back immutably until the reachable dependency
+   graph reaches a deterministic fixed point with no uncovered, unsupported,
+   resource-limited, interrupted, or unresolved leaf.
+7. Untrusted durable bytes are validated once and converted to a sealed owner;
+   the reduction hot path does not repeat whole-artifact authentication.
 
-Failure to find a rule is neither a zero proof nor a master proof. Finite-field
-or numerical samples propose candidates only; exact regenerated-source replay
-is mandatory.
+Finite-field or numerical samples may propose candidates, but exact
+regenerated-source replay is mandatory.
 
-## Engineering invariants
+## Stage 1 implementation tracks
 
-### Clean ownership first
+### Closing foundry and artifacts
 
-The first milestone is a professional, aggressively cleaned codebase. Delete
-obsolete RustRed APIs, schemas, tests, and compatibility layers directly; no
-RustRed backward compatibility is required during deep development. Preserve
-Vakint backward compatibility.
+1. Refine exact coefficient and guard applicability on target cells, including
+   exceptional equality and nonzero branches.
+2. Add translate-before-substitute residual search, immutable lower-sector
+   feedback, and a deterministic fixed point with proof-bearing symmetry,
+   zero, factorization, product, mapping, and terminal providers.
+3. Introduce versioned immutable artifact ownership only with its first closed
+   family. Keep incomplete resumable workspaces structurally distinct from
+   installable artifacts.
+4. Close, replay, publish, and independently audit the `K = 1`, `K = 3`, and
+   `K = 6` families in that order.
 
-The live workspace remains:
+### Rule application and public APIs
 
-```text
-rustred (crates/rustred-core)
-    ^
-rustred-app (shared application services and CLI)
-    ^
-rustred-python (thin PyO3 adapter)
-```
+Add a deterministic, memoized, strictly descending artifact applier. It
+selects applicable guarded rules, detects malformed artifacts or cycles at the
+trusted boundary, returns exact coefficients of typed master keys, and restores
+the common scale by homogeneity. It never regenerates the artifact during an
+ordinary reduction.
 
-Core responsibilities use cohesive semantic modules. Common filename prefixes,
-chronological stage names, and vague `generated`, `residual`, `runtime`,
-`legacy`, or `misc` buckets are not architecture. Split large implementations
-along real value, algorithm, admission, error, and test boundaries. Add a
-subcrate only for a genuine dependency or independent build/test boundary.
+Expose closing-artifact generation, inspection/replay, and reduction through
+the Rust library, `campaign` CLI, and `import rustred` Python API. All three
+frontends call the same application services and produce the same deterministic
+semantics.
 
-Authentication is proportional to trust. Validate untrusted user input,
-cross-process/repository handoffs, durable artifacts, and final installation.
-Inside a sealed ownership boundary, do not accumulate fingerprint comparisons,
-schema round-trips, deep snapshot clones, or full self-replay merely to call a
-private function.
+### Vakint scalar backend
 
-### Symbolica owns CAS work
+On GammaLoop branch `vakint_rustred`, add the opt-in scalar evaluation backend
+`EvaluationMethod::RustRed(RustRedEvaluationOptions)` and
+`EvaluationOrder::rustred_only()` without changing existing defaults or
+behavior. The adapter:
 
-Production RustRed and Vakint's RustRed mode are pure Rust plus GMP-enabled
-Symbolica. They never link to or execute FORM, Mathematica, SymPy, or another
-CAS. Before implementing any algebraic primitive:
+- consumes Vakint's existing topology match and simultaneous routing witness;
+- never rematches a graph, dispatches on a topology name, or duplicates the
+  topology registry;
+- applies shipped immutable RustRed artifacts and never regenerates them at
+  evaluation time;
+- returns exact coefficients in Vakint's existing MATAD master basis and reuses
+  its pure-Rust master substitution/evaluation data;
+- exposes master substitution control, enabled by default; and
+- reports no FORM dependency and never invokes or falls back to FORM for
+  scalar IBP reduction or master substitution.
 
-1. pin the exact Symbolica revision and features;
-2. search public exports, Rustdoc, source, examples, tests, and existing
-   compositions exhaustively;
-3. prefer a checked composition of native operations; and
-4. compile and run focused licensed probes over edge cases.
+Production artifacts are generated once, checked into and shipped with Vakint,
+and loaded once. A local path dependency may be used while co-developing; every
+pushed GammaLoop milestone pins the exact validated RustRed Git revision.
 
-RustRed may own authentication, shapes, physics meaning, ordering, resource
-admission, guards, provenance, panic containment, and exact replay. It must not
-grow a second determinant, row reducer, polynomial engine, graph-isomorphism
-engine, or other CAS implementation. A genuine public-API gap produces a typed
-unsupported boundary and a recorded upstream requirement.
+“FORM-free RustRed backend” refers precisely to the scalar IBP application and
+master-substitution tail. For tensor-bearing inputs, Stage 1 intentionally runs
+Vakint's unchanged FORM tensor prepass first. Such a complete tensor-bearing
+evaluation is therefore not claimed to be FORM-free. Scalar or already
+tensor-reduced inputs can exercise the RustRed backend with an invalid FORM
+path to prove that the backend itself has no hidden FORM dependency.
 
-Symbolica's intrinsic graph generation/canonization/isomorphism facilities are
-the future symmetry candidate authority. RustRed owns the physics-colored graph
-encoding and exact momentum/routing replay. GammaLoop `feyngen` and LiteRed2
-are read-only design evidence, never production dependencies.
+## Stage 1 milestones and acceptance
 
-### Tensor service belongs to RustRed
+1. Commit and push the authoritative staged goal and documentation.
+2. Close and publish the one-loop artifact with the artifact/reducer spine.
+3. Close the two-loop family, cover its pinch, and expose Rust, CLI, and Python
+   artifact/application APIs.
+4. In parallel with three-loop closure, integrate and validate Vakint RustRed
+   scalar reduction through two loops.
+5. Close the `K = 6` family and prove coverage of all five registered
+   three-loop graph classes.
+6. Pass all applicable single-scale Vakint acceptance tests through three
+   loops, update documentation, commit and push both repositories, then pause.
 
-Introduce tensor reduction only with a real core service and caller. The API
-has `Auto`, an optimized single-scale vacuum lane, and a fully generic lane.
-The vacuum lane is implemented first; the generic lane initially returns a
-typed unsupported result rather than pretending support.
+Acceptance requires:
 
-Vacuum admission is minted by RustRed from an authenticated family
-presentation retaining physical-denominator versus auxiliary-ISP roles,
-momentum shifts, and common-scale evidence. It is never a Vakint boolean or
-topology label. Numerator-only external spectator vectors remain admissible;
-external shifts in physical denominators do not.
+- exact regenerated-source replay, strict descent, explicit terminals, and no
+  uncovered branch in each installed artifact;
+- deterministic artifacts and reductions across supported worker counts;
+- guard selection, termination, memoization, symmetry routing, master-only
+  output, and non-unit-mass restoration tests;
+- exact raw master-coefficient comparison with AlphaLoop/MATAD oracle outputs
+  and matching existing Laurent-series expectations;
+- scalar RustRed-backend tests with an invalid FORM path;
+- tensor-bearing tests using the unchanged FORM tensor prepass followed by the
+  FORM-free RustRed scalar tail; and
+- unchanged Vakint defaults and backward-compatibility tests.
 
-Use the efficient global isotropic projector, not independent per-loop
-averages. Pairing Gram entries depend on alternating-cycle partitions, and the
-solve must operate on permutation/orbit quotients rather than invert the full
-`(2r-1)!!` pairing matrix. Symbolica owns coefficient extraction, tensor
-canonization, rational simplification, and matrix operations. Caller-supplied
-Symbolica heads keep the service reusable outside Vakint.
+PySecDec comparisons are optional, non-gating corroboration.
 
-The first custom-head sentinel is the one-loop reduction
-`dot(k,p) k(mu)/(k^2+m^2)` to the covariant result proportional to
-`p(mu)/d * [I(0)-m^2 I(1)]`, with its `d != 0` guard. The first vertical Vakint
-sentinel reuses its checked one-loop tensor input and compares projected form,
-raw master coefficient, and final series against existing expectations.
+## Stage 2 — deferred, not authorized
 
-### Parallelism is a measured foundry design
+Stage 2 preserves the long-term ambition from the historical preamble, but no
+Stage 2 implementation or performance campaign may begin until the user
+provides the collaborator's tensor-reduction direction, the high-loop IBP
+breakthrough, and explicit permission. It includes:
 
-Six-loop practicality requires deliberate multicore and memory design, not a
-Rayon call around every row. Use one deterministic coordinator and one
-invocation-wide bounded pool. `--n-cores` is a ceiling. Share immutable
-family/source state; isolate bounded lane-local reducers and Symbolica
-contexts; do not clone complete symbolic state per worker or fork a process per
-task.
+- integrating or replacing tensor reduction and making it generic in rank;
+- changing Vakint's tensor preprocessing away from FORM;
+- closing four-, five-, and six-loop vacuum manifests;
+- high-loop-specific distributed-memory, reconstruction, and extreme
+  efficiency work; and
+- the eventual six-loop QCD beta-function evaluation chain.
 
-Admit width from RAM before constructing workers. Charge coordinator and
-worker Symbolica TLS, resident immutable data, committed/trial/successor
-reducer overlap, GMP/native scratch, result staging, buffers, and calibrated
-headroom. Use coarse work units, compact references or bounded framed chunks,
-and deterministic sorted wave/barrier merges. Thread, process, or hybrid
-choices require measured RAM, CAS-scratch, and communication benchmarks.
+Stage 1 code must not preclude Stage 2, but speculative infrastructure is not a
+Stage 1 deliverable.
 
-Deterministic finite-field discovery and reconstruction may accelerate
-candidate search, but sample schedules are frozen and every accepted result is
-verified exactly in the authenticated Symbolica coefficient domain.
+## Engineering and repository invariants
 
-## Parallel execution tracks
+- Production RustRed and the Vakint RustRed scalar backend use only Rust plus
+  GMP-enabled Symbolica. They never execute FORM, Mathematica, SymPy, or
+  another CAS. The explicitly retained Vakint FORM tensor prepass is an
+  external legacy stage, not a RustRed algebra provider.
+- Search Symbolica's public API, Rustdoc, source, examples, and tests before
+  implementing any algebraic primitive. RustRed owns physics meaning,
+  authentication, guards, ordering, provenance, resource admission, and exact
+  replay; it does not grow a second CAS or graph-isomorphism engine.
+- Symbolica's intrinsic graph generation/canonization/isomorphism facilities
+  are the symmetry-candidate authority. RustRed owns physics-colored encoding
+  and exact momentum/routing replay.
+- Use semantic module ownership; do not revive chronological, `generated`,
+  `residual`, `runtime`, `legacy`, or `misc` buckets. RustRed has no pre-release
+  compatibility promise; Vakint retains backward compatibility.
+- Validate untrusted inputs and durable artifacts at their boundary. Do not
+  accumulate repeated internal authentication ceremonies in the hot path.
+- Deterministic parallel work uses one bounded coordinator/pool, shared
+  immutable state, RAM-aware admission, stable ordinals, and sorted merges.
+  Stage 1 implements only the parallelism justified by three-loop workloads;
+  high-loop scaling research belongs to Stage 2.
+- `FOR_REFERENCE_ONLY_DO_NOT_PUSH` is ignored and never enters RustRed history.
+  GammaLoop inside it is a separate repository and branch.
+- Never escalate commands. Use rollback-sized commits, push passing milestones
+  frequently, and configure every Git operation with:
 
-### Track A — refactor milestone closed
+  ```text
+  user.name=ValentinHirschi
+  user.email=valentin.hirschi@gmail.com
+  ```
 
-The source/facade liveness pass, semantic file splits, legacy deletion,
-documentation consolidation, bounded-allocation audit, strict Rustdoc, full
-Rust/Python tests, packaging gates, and independent adversarial audit have
-passed. The resulting pushed milestone is the clean baseline from which the
-new tensor and foundry owners are introduced; Track A is not scientific
-closure evidence.
-
-### Track B — RustRed tensor foundation and Vakint integration
-
-1. Maintain the now-live authenticated family-presentation contract needed to
-   distinguish physical denominators, auxiliary ISPs, routing, shifts, and
-   common scale.
-2. Extend the now-live scalar/odd/rank-two vacuum tensor slice to the full
-   projector/orbit kernel, while retaining family-aware scalar lowering and
-   the typed generic stub.
-3. Maintain and widen the now-live Vakint adapter on `vakint_rustred`, while
-   preserving every existing input/backend/default result and keeping all
-   tensor mathematics in RustRed.
-4. Extend the now-passing one-loop frozen-result and FORM-oracle comparison to
-   identical higher-rank and higher-loop inputs; later add guarded rule
-   application and master substitution as real artifacts become available.
-
-For local co-development, GammaLoop's workspace may temporarily depend on
-`../../crates/rustred-core`. Every pushed GammaLoop milestone pins the
-exact validated RustRed Git revision instead. GammaLoop's Symbolica source and
-features must resolve to the same exact CAS identity.
-
-### Track C — fresh closing-rule foundry
-
-1. Maintain the now-live concrete-anchor boundary and direct fixed-sector
-   `K(n)` elimination around generated rows and Symbolica's native sparse
-   reducer.
-2. Widen the now-live guarded, uniformly descending, exactly source-replayed
-   tadpole/sunset interior sentinels. The now-live target-directed multi-row
-   path uses deterministic Symbolica RREF, exact source replay, complete
-   reachable pivot guards, and independent concrete-anchor evidence. Its new
-   sector-monotone boundary proves term-local same-sector descent, refines
-   every pinch combination into exact fixed-target-sector cells, and streams
-   compact rule-bound proper-subsector obligations without claiming them
-   applicable or closed; next refine coefficient/guard loci and feed solved
-   dependencies immutably into the closure fixed point.
-3. Add exceptional-domain refinement only after that generic path is real;
-   retain LiteRed2's translate-before-substitute and residual recentering
-   semantics without reviving its mutable architecture.
-4. Build a lazy target-driven sector/dependency fixed point with proof-bearing
-   zero, symmetry, factorization, product, mapping, and proper-subsector
-   providers.
-5. Add deterministic resumable parallel campaigns and immutable artifact
-   publication only when their real callers define the contracts.
-6. Close and independently validate one-, two-, three-, and four-loop domains,
-   then optimize and exhaust the frozen six-loop vacuum manifest.
-
-Tracks B and C now advance in parallel from Track A's structural gate. Vakint
-validation is a lower-loop north star and must not divert foundry performance
-work from six-loop closure.
-
-## Validation and oracle policy
-
-Evidence is reported at its actual level:
-
-- source-count or topology-acceptance evidence is structural only;
-- generated identity equality is raw-row parity only;
-- a descending replayed rule is not family closure;
-- tensor equality, scalar reduction, master coefficients, and evaluated series
-  are distinct gates; and
-- physical six-loop closure requires every frozen-manifest entry to install a
-  verified closed artifact.
-
-LiteRed/LiteRed2 and Vakint fixtures provide independent semantics and lower-
-loop expectations. Existing alphaLoop, MATAD, and FMFT paths and tests may
-execute a pinned FORM as compatibility/oracle coverage. The local reference
-tree or a Nix-store executable may supply that oracle. RustRed, Vakint's
-RustRed mode, and tests of that mode never invoke FORM and never fall back to
-it; compatibility coverage should be segregated in CI. Oracle-authored
-recurrence tables are not copied into RustRed rules.
-
-Vakint's existing topology matcher and canonical routing engine remain the
-steering authority through six loops. Fix defects in that engine and extend it
-generically; do not duplicate or bypass it inside RustRed. The acceptance gate
-must cover every topology in the frozen one-through-six-loop vacuum manifest.
-
-## Repository and release discipline
-
-- `FOR_REFERENCE_ONLY_DO_NOT_PUSH` is ignored and never enters RustRed
-  history. GammaLoop inside it is a separate repository with its own branch
-  and commits.
-- Never escalate commands; use in-scope alternatives when a sandbox or tool is
-  unavailable.
-- RustRed has no pre-release API/format compatibility promise. Vakint retains
-  backward compatibility.
-- Use rollback-sized commits, the exact Git identity above, and push relevant
-  milestones frequently.
-- Do not authenticate internally generated artifacts repeatedly. Do validate
-  final durable artifacts and provide an independent exact audit path.
-- Do not claim the overall goal complete until the six-loop artifact manifest
-  is coverage-closed and the FORM-less Vakint chain is operational and
-  validated. Intermediate milestones must state their limitations explicitly.
+Do not claim Stage 1 complete until all three artifacts cover the frozen
+through-three-loop manifest and the Vakint RustRed scalar backend reproduces
+the applicable acceptance suite. At that point, pause; do not roll directly
+into Stage 2.
 
 ## Stable project documentation
 
 - [Architecture](docs/architecture.md)
 - [Algebra and Symbolica boundary](docs/algebra.md)
-- [Tensor reduction and Vakint integration](docs/tensor.md)
+- [Frozen tensor boundary and Vakint sequencing](docs/tensor.md)
 - [Closing-rule foundry design](docs/foundry.md)
 - [Application, Python, and Vakint interfaces](docs/interfaces.md)
 - [Validation and oracle ladder](docs/validation.md)

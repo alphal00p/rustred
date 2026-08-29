@@ -1,10 +1,12 @@
-# Tensor reduction and Vakint integration
+# Frozen tensor boundary and Vakint sequencing
 
 [`GOAL.md`](../GOAL.md) is the sequencing and capability authority. This
-document preserves the stable implementation contract for Track B: a generic
-RustRed tensor service, its optimized single-scale vacuum lane, and the thin
-Vakint adapter that calls it. It records the live frontier and the
-remaining implementation contract.
+document records the existing bounded RustRed tensor experiment and the
+ownership invariants that any future replacement must respect. Tensor
+development is frozen during Stage 1. Vakint uses its existing FORM tensor
+prepass before the new FORM-free RustRed scalar-reduction backend. No section
+below authorizes extension of the projector, its Vakint adapter, or generic
+tensor support before Stage 2.
 
 ## Current frontier
 
@@ -63,10 +65,14 @@ that the default builder remains equivalent. This proves the bounded
 rank-two multi-loop bridge, not general tensor reduction or scalar IBP
 reduction.
 
-The first service described below now lives in the `rustred` core package.
-Vakint now adapts its projection operation; `rustred-app`, the CLI, and Python
-will expose the same owner later rather than carry independent projectors or
-scalar-lowering algorithms.
+Stage 1 leaves this code at exactly that evidenced boundary. Its tests may be
+kept passing, but no new rank, topology, frontend, or projection feature is an
+active milestone. The prospective fast tensor technology is being developed
+by a collaborator; integration awaits explicit Stage 2 guidance.
+
+The bounded service described below lives in the `rustred` core package and
+Vakint has an optional adapter. CLI/Python tensor exposure and every projector
+extension are deferred with the rest of tensor work.
 
 ## Ownership and vertical seam
 
@@ -83,10 +89,11 @@ GammaLoop local counterterm Atom
   -> GammaLoop metric, dimension, normalization, and series postprocessing
 ```
 
-The non-BPHZ analytical-evaluation caller uses the same middle sequence. The
-completed mode will replace tensor and scalar-reduction mathematics without
-duplicating GammaLoop's forest construction or Vakint's topology registry.
-The live slice replaces only the admitted Lorentz projection.
+The non-BPHZ analytical-evaluation caller uses the same middle sequence. During
+Stage 1, Vakint keeps its existing FORM tensor reduction and only the scalar
+reduction tail is replaced by the new RustRed evaluation method. The frozen
+experimental RustRed tensor slice remains optional and is not the Stage 1
+end-to-end path.
 
 Vakint owns:
 
@@ -102,7 +109,8 @@ RustRed owns:
 - authentication of the matched family presentation;
 - Lorentz projection and family-aware scalar-product lowering;
 - exact guards, resource admission, and deterministic results; and
-- later, guarded artifact application and stable master output.
+- guarded artifact application and stable master output in the separate active
+  scalar backend.
 
 The adapter must remain thin. It must not copy Vakint's topology tables into
 RustRed or implement a second tensor projector in GammaLoop.
@@ -158,7 +166,7 @@ Vakint's existing matcher remains the steering authority. It handles short and
 full topology syntax, arbitrary edge/node/loop identifiers, edge orientations,
 masses, propagator powers, pinches, and deterministic selection among graph
 automorphisms. Its contraction generation and loop-basis construction already
-use graph canonization and exact Symbolica solves. Extension through six loops
+use graph canonization and exact Symbolica solves. Any future Stage 2 extension
 must improve that generic engine and its manifest coverage rather than bypass
 it in RustRed.
 
@@ -227,11 +235,12 @@ authenticated inverse affine denominator/ISP map. This step performs exact
 propagator cancellation and emits typed integral keys; it never uses a list of
 two-, three-, or six-loop scalar-product formulas.
 
-## Global isotropic projector
+## Deferred Stage 2 projector design
 
-Vacuum tensor reduction uses one global Lorentz projector across all loop
-vectors. Independent per-loop angular averages are incorrect for mixed-loop
-tensors.
+If tensor work resumes in Stage 2, vacuum tensor reduction must use one global
+Lorentz projector across all loop vectors. Independent per-loop angular
+averages are incorrect for mixed-loop tensors. The remainder of this section
+is retained design context, not an active implementation plan.
 
 For each tensor monomial the planned kernel:
 
@@ -336,25 +345,19 @@ Evidence is reported at three distinct boundaries, as detailed in
 3. **Evaluation:** optional measure/master substitution and Laurent or numerical
    comparison.
 
-A higher-layer agreement cannot compensate for a lower-layer failure. The
-staged oracle programme is:
+A higher-layer agreement cannot compensate for a lower-layer failure. During
+Stage 1, the existing bounded tensor tests remain regression coverage but are
+not widened. Tensor-bearing Vakint acceptance tests use the unchanged FORM
+tensor prepass, then compare the new RustRed scalar tail at the reduction and
+evaluation boundaries through three loops. Scalar-backend tests use an invalid
+FORM path.
 
-- one loop: scalar, odd rank, free/external/mixed rank two and four, arbitrary
-  index Atoms, opaque spectator heads, powers, the custom-head sentinel, and
-  byte-stable `n_cores = 1, 2, 4` results;
-- two loops: sunset powers and pinches, alternate loop bases, simultaneous
-  numerator routing, mixed-loop tensors, and exact unsubstituted masters;
-- three loops: alphaLoop/MATAD scalar, numerator, routing, and rank-four
-  fixtures; and
-- four loops: `H`, `X`, `BMW`, and `FG` inputs compared against frozen raw FMFT
-  `PR`-master combinations before master expansion.
-
-Current Vakint expected expressions and frozen outputs may be consumed without
-FORM. Regeneration may run the existing FORM-backed alphaLoop, MATAD, or FMFT
-paths only in a segregated, pinned oracle job recording executable identity,
-input, conventions, Vakint revision, and raw output. RustRed, its tests,
-Vakint's RustRed mode, and RustRed-mode tests never invoke FORM, load FORM rule
-tables, or fall back to FORM.
+The frozen optional `TensorReductionMode::RustRed` continues to avoid FORM, but
+it is not the active tensor path. Existing FORM-backed tensor and scalar oracle
+jobs record executable identity, input, conventions, Vakint revision, and raw
+output. The RustRed scalar backend never loads FORM rule tables or falls back to
+a FORM reduction. Four-loop tensor validation and projector expansion belong
+to Stage 2.
 
 Every accepted tensor result also passes malformed-head, unknown reserved
 syntax, index-capture, singular-dimension, allocation-limit, and one-below-limit
@@ -369,8 +372,10 @@ Vakint's `src/tensor_reduction.rs`, `VakintTerm`, `VakintExpression`,
 `Topologies::match_topologies_to_user_input`, graph contraction/canonization,
 and GammaLoop's `to_vakint_integrand` and `Integrated::integrate`. The existing
 `tensorreduce.frm`, `pvtab10.h`, `integrateduv.frm`, MATAD, and FMFT sources are
-oracle evidence only. Their rank tables and topology-authored recurrences must
-never enter RustRed production code or shipped rule artifacts.
+reference evidence for RustRed. Stage 1 may execute Vakint's existing FORM
+tensor prepass and AlphaLoop/MATAD oracle paths, but their rank tables and
+topology-authored recurrences must never enter RustRed production code or
+shipped rule artifacts.
 
 See also the [architecture](architecture.md), [interface ownership](interfaces.md),
 [foundry design](foundry.md), and [LiteRed2 semantics](references/litered2.md).

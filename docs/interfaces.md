@@ -123,11 +123,10 @@ If an internal panic crosses that boundary, the coordinator is poisoned and
 later requests fail instead of reusing uncertain native state. A coordinator
 created before `fork()` is likewise rejected in the child.
 
-## Current Vakint seam
+## Existing frozen Vakint tensor seam
 
 Vakint/GammaLoop development lives in its separate repository on the
-`vakint_rustred` feature branch. The pushed additive boundary currently
-provides:
+`vakint_rustred` feature branch. An existing experimental boundary provides:
 
 ```rust
 vakint
@@ -136,21 +135,39 @@ vakint
     .reduce(input)
 ```
 
-`TensorReductionMode::Form` is the default. The existing
-`Vakint::tensor_reduce`, `VakintSettings`, evaluation methods, and FORM-backed
-behavior remain unchanged. The builder's default path is tested to produce
-exactly the same result as the existing method.
+It reaches the bounded RustRed scalar/odd/rank-two projector for authenticated
+common-mass vacuum presentations. `TensorReductionMode::Form` remains the
+default. This experiment is frozen during Stage 1: it is not extended, made
+rank-generic, or used as the Stage 1 tensor path. Vakint retains its existing
+FORM tensor preprocessing and behavior.
 
-The `RustRed` selection now reaches the [bounded RustRed tensor
-service](tensor.md) for registered common-mass vacuum families across loop
-counts through rank two, including auxiliary-ISP completion for pinches.
-Vakint performs its existing topology match and simultaneous numerator
-routing, passes exact matched integral powers into RustRed, and maps exact
-`d = 4 - 2 epsilon` coefficients and tensor heads back to either Vakint output
-notation. Explicit multi-loop routings are admitted only after exact replay of
-the matcher's complete simultaneous basis witness. Unsupported families,
-routings, or ranks return precise typed errors. It does not invoke or fall back
-to FORM.
+## Active Stage 1 Vakint seam
+
+The new additive interface is a scalar evaluation backend, separate from
+tensor mode selection:
+
+```rust
+EvaluationMethod::RustRed(RustRedEvaluationOptions::default())
+EvaluationOrder::rustred_only()
+```
+
+`RustRedEvaluationOptions` controls optional master substitution, enabled by
+default. The backend consumes the topology match and simultaneous routing
+witness already produced by Vakint, loads the corresponding shipped immutable
+artifact, applies guarded rules through RustRed, and returns exact coefficients
+of typed master keys mapped to Vakint's existing MATAD master basis. It reuses
+Vakint's pure-Rust master values when substitution is requested.
+
+The scalar backend reports no FORM dependency, never invokes FORM, and never
+falls back to AlphaLoop, MATAD, FMFT, or another reducer. For tensor-bearing
+inputs, Vakint deliberately runs its unchanged FORM tensor prepass before this
+FORM-free scalar tail. Scalar or already tensor-reduced tests use an invalid
+FORM path to prove the backend's isolation. Existing evaluation orders,
+defaults, results, and public behavior remain backward compatible.
+
+Artifacts are generated once by RustRed, checked into and shipped with Vakint,
+validated once when loaded, and reused for ordinary evaluation. Vakint must not
+regenerate them or maintain topology-authored recurrence code.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve
 RustRed and Vakint against one exact Symbolica-family revision. A relative
@@ -166,42 +183,40 @@ Vakint remains the user-facing steering and presentation layer. It owns:
   `Topologies::match_topologies_to_user_input` matcher;
 - canonical graph/routing selection and simultaneous numerator routing maps;
 - conversion between Vakint terms and typed RustRed requests;
-- backend choice, orchestration, normalization, and result presentation; and
+- backend choice, orchestration, normalization, existing master values, and
+  result presentation; and
 - backward compatibility for all existing modes.
 
-RustRed will own the reusable mathematical services:
+RustRed owns or will own the reusable mathematical services:
 
 - authentication of a matched family presentation, including physical versus
   auxiliary denominators, routing, shifts, and common-scale evidence;
-- Lorentz tensor projection and family-aware scalar-product lowering;
-- guarded artifact lookup and IBP rule application;
-- stable master keys and typed supplied-master substitution; and
+- guarded artifact lookup and deterministic memoized IBP application;
+- stable master keys, common-mass restoration, and typed supplied-master
+  substitution; and
 - exact failures for unsupported domains, missing artifacts, undecidable
   guards, cycles, or resource exhaustion.
 
 RustRed does not rematch a topology that Vakint has already matched, and
-Vakint does not duplicate tensor projectors or the rule engine. Defects in
-Vakint matching are fixed and tested in that matcher rather than bypassed by a
-second topology table.
+Vakint does not duplicate the rule engine. Defects in Vakint matching are
+fixed and tested in that matcher rather than bypassed by a second topology
+table.
 
-The first tensor API exposes separate projection, scalar lowering, and
-composed operations. `Auto` selects an optimized vacuum lane only from a
-sealed RustRed proof of single-scale, no-external-denominator-shift semantics.
-External spectator vectors in the numerator do not invalidate that proof. A
-fully generic external-kinematics lane is present as an explicit typed
-unsupported boundary until its algorithm is implemented.
+The existing tensor API remains available at its evidenced bounded frontier,
+but extension or replacement of tensor reduction belongs to Stage 2.
 
-## Planned fine-grained surfaces
+## Planned Stage 1 fine-grained surfaces
 
-As implementations become real and validated, the Rust application, CLI, and
-Python package will expose the same individual services used by Vakint:
+The Rust application, CLI, and Python package will expose the same individual
+artifact services used by Vakint:
 
 - family construction and raw IBP/LI generation;
 - closure campaigns and artifact inspection/replay;
-- tensor projection and scalar lowering;
-- guarded reduction to stable master keys; and
+- guarded, memoized reduction to stable master keys with common-mass
+  restoration; and
 - supplied master-value validation and substitution.
 
-These interfaces remain useful for arbitrary non-vacuum families. The planned
-Vakint vacuum artifact library will be an optimized deployment of the generic
-services, not the limit of RustRed's family model.
+These interfaces remain useful for arbitrary non-vacuum families. The Vakint
+vacuum artifact library is an optimized deployment of the generic services,
+not the limit of RustRed's family model. Tensor API expansion is not part of
+these Stage 1 surfaces.

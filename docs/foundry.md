@@ -52,7 +52,9 @@ The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
 must remain generic in topology and loop count. A specialized high-throughput
 lane may be selected only from proved family properties such as vacuum
-kinematics, common nonzero mass, and valid unit-mass homogeneity.
+kinematics, common nonzero mass, and valid unit-mass homogeneity. Stage 1 uses
+the current exact methods through three loops; high-loop breakthrough and
+extreme-efficiency work are explicitly deferred.
 
 ## Input and output contract
 
@@ -258,17 +260,28 @@ artifact. Thread, process, or hybrid execution is a measured implementation
 choice; peak RSS, communication volume, coefficient growth, ready-job width,
 and wall/CPU scaling decide it.
 
-## Six-loop pressure lane
+## Stage 1 pressure families
 
-For a complete six-loop vacuum family, `K = 21` and raw generation yields 36
-ordinary IBPs. Unit common mass can reduce concrete coefficient work to
-`Q(d)` after an authenticated homogeneity specialization, but it does not
-reduce the 21-dimensional index domain or prove any sector closed. The fast
-lane must be selected from sealed semantic evidence, never a topology name or
-`loop_count == 6` branch, and must share the generic proof and publication
-path.
+The active manifest contains three sector-complete unit-mass families:
 
-The scientific milestone is a frozen, replayable topology-domain manifest in
-which every entry maps to a closed artifact. Merely constructing 36 sources,
-closing one sampled seed, or fitting a finite recurrence table is not that
-milestone.
+| loops | `K` | ordinary sources | Vakint graph classes covered |
+|---:|---:|---:|---:|
+| 1 | 1 | 1 | 1 |
+| 2 | 3 | 4 | 2 (sunset and pinch) |
+| 3 | 6 | 9 | 5 (K4/Mercedes parent and four contractions) |
+
+All eight graph classes must map through proved routing, symmetry, pinching, or
+factorization semantics to these artifacts. Merely constructing the indicated
+sources, closing one sampled seed, or fitting a finite recurrence table is not
+the milestone.
+
+Unit common mass reduces concrete coefficient work to `Q(d)` only after an
+authenticated homogeneity specialization. For squared mass `s`, the installed
+reducer restores a target-to-master coefficient by
+`s^(sum(master) - sum(target))`. The specialization does not reduce the index
+dimension or establish closure by itself.
+
+Four- through six-loop closure, dedicated high-loop reconstruction, and
+extreme parallel scaling belong to Stage 2 and must not start without explicit
+new guidance. Stage 1 algorithms nevertheless remain topology- and
+loop-count-generic and share the same proof and publication path.
