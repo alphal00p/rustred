@@ -71,7 +71,7 @@ pub(super) fn tadpole_sources() -> (
     )
 }
 
-pub(super) fn sunset_sources() -> (
+pub(crate) fn sunset_sources() -> (
     CoefficientContext,
     IndexedCoefficientContext,
     Vec<ParametricRelation>,

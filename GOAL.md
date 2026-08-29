@@ -58,8 +58,11 @@ The mandatory clean reset is complete:
   exact replay, uniform descent, and anchored agreement, can select a requested
   pivot through deterministic Symbolica RREF while retaining the complete
   reachable pivot-guard envelope, can extend that targeted rule over a maximal
-  parent-sector box with explicit same-sector and proper-subsector pinch
-  dependencies, and provides
+  parent-sector box, refine every term into a lazy exact fixed-target-sector
+  product partition, and stream compact rule-bound proper-subsector obligation
+  descriptors with aggregate work preflight, stable process-local cursors,
+  retained coefficient/guard context, and on-demand exact domain
+  materialization, and provides
   deterministic core-owned campaign primitives with application-owned
   roots-only composition. It does **not** yet refine exceptional guard loci,
   prove complete-source or family closure, publish rule artifacts, apply IBPs,
@@ -77,12 +80,15 @@ families and ranks return typed errors; the RustRed mode never invokes or
 falls back to FORM. This is tensor-projection capability, not yet generic
 tensor reduction, scalar IBP application, or master substitution.
 
-Work is paused after the sector-monotone and explicit-routing milestones at
-the user's request while a collaborator develops a separate fast tensor
-reduction tool. RustRed's abandoned in-progress all-rank projector edits were
-removed before this pause. Any future integration of that tool must first be
-reviewed against this document's pure-Rust/Symbolica, genericity, ownership,
-and validation invariants.
+Work is paused after the exact proper-subsector dependency-stream and Vakint
+explicit-routing milestones at the user's request while a collaborator
+develops a separate fast tensor-reduction tool. RustRed's abandoned
+in-progress all-rank projector edits were removed before this pause. The next
+foundry step is coefficient/guard applicability refinement followed by
+immutable lower-sector feedback into a deterministic fixed point; the current
+stream is discovery evidence, not closure. Any future integration of the
+collaborator's tensor tool must first be reviewed against this document's
+pure-Rust/Symbolica, genericity, ownership, and validation invariants.
 
 Commit and push coherent passing milestones frequently. Every Git operation
 uses:
@@ -312,10 +318,11 @@ features must resolve to the same exact CAS identity.
    tadpole/sunset interior sentinels. The now-live target-directed multi-row
    path uses deterministic Symbolica RREF, exact source replay, complete
    reachable pivot guards, and independent concrete-anchor evidence. Its new
-   sector-monotone boundary proves term-local same-sector descent and exposes
-   every pinch as an explicit proper-subsector dependency without claiming
-   that dependency closed; next feed those dependencies into the closure fixed
-   point without weakening those proofs.
+   sector-monotone boundary proves term-local same-sector descent, refines
+   every pinch combination into exact fixed-target-sector cells, and streams
+   compact rule-bound proper-subsector obligations without claiming them
+   applicable or closed; next refine coefficient/guard loci and feed solved
+   dependencies immutably into the closure fixed point.
 3. Add exceptional-domain refinement only after that generic path is real;
    retain LiteRed2's translate-before-substitute and residual recentering
    semantics without reviving its mutable architecture.

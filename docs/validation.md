@@ -54,12 +54,16 @@ terminal selection, total coverage, durable artifacts, a rule applier,
 generic tensor service, and master substitution remain absent.
 
 The target-directed sunset rule now also passes a boundary sentinel at
-`[1,1,1]`. Its maximal parent-sector box is partitioned term by term into
-same-sector cells and four concrete proper-subsector dependencies; exhaustive
-points in `{1,2,3}^3`, negative-two shifts, simultaneous pinches, and i64
-extremes verify the generic sector proof. This proves pinch classification and
-strict descent only. It does not prove that any referenced lower sector is
-closed.
+`[1,1,1]`. Its maximal parent-sector box describes nine exact term-local cells
+and streams four compact proper-subsector obligations. Tests cover aggregate
+resource boundaries, exact cursor resume, rejection of an equivalent but
+separately allocated rule's cursor, on-demand domain materialization, and cold
+descriptor replay. Independent sector tests exhaust small integer boxes and
+cover negative-two shifts, simultaneous and later-coordinate pinches,
+noncontiguous optional coordinates, zero-option and i64 extremes, and typed
+exponential-count overflow without enumeration. This proves exact partitioning
+and dependency discovery only. It does not prove coefficient/guard
+applicability or that any referenced lower sector is closed.
 
 ## Exact closure gate
 

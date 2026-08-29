@@ -12,6 +12,7 @@
 //! reducer.
 
 pub mod anchored;
+pub mod dependency;
 pub mod parametric;
 
 mod target_rref;

@@ -36,4 +36,4 @@ pub use model::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

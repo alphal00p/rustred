@@ -6,6 +6,13 @@ use super::{
     ShiftComplexityKey, ShiftStrictDescentWitness,
 };
 
+mod target_partition;
+
+pub use target_partition::{
+    SectorMonotoneTargetCell, SectorMonotoneTargetCellKind, SectorMonotoneTargetCells,
+    SectorMonotoneTargetPartition, SectorMonotoneTargetPartitionCensus,
+};
+
 /// The largest orthogonal parent-sector box on which one recurrence remains
 /// i64-representable and its pivot stays in the parent sector.
 ///

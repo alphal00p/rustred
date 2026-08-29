@@ -47,6 +47,16 @@ impl SectorInteriorDomain {
         bounds: impl IntoIterator<Item = InteriorBounds>,
     ) -> Result<Self, Error> {
         let bounds = try_collect_vec(bounds, "sector interior bounds")?;
+        Self::try_from_preallocated(sector, bounds)
+    }
+
+    /// Retain one already fallibly reserved bound buffer. Sector-owned
+    /// symbolic partition builders use this seam to avoid copying every
+    /// coordinate when materializing one exact child cell.
+    pub(super) fn try_from_preallocated(
+        sector: Mask,
+        bounds: Vec<InteriorBounds>,
+    ) -> Result<Self, Error> {
         if bounds.len() != sector.arity() {
             return Err(Error::WrongArity {
                 expected: sector.arity(),

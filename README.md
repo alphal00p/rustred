@@ -24,17 +24,21 @@ The currently evidenced core can:
   independent anchored agreement, with an optional requested-pivot path that
   performs deterministic Symbolica RREF and retains every reachable pivot
   guard;
+- refine sector-monotone RHS shifts into lazy exact fixed-target-sector cells
+  and stream preflighted O(1), rule-bound proper-subsector obligation
+  descriptors with stable process-local resume and on-demand domain
+  materialization;
 - verify explicit affine symmetry maps;
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer.
 
-It does **not** yet split the parametric rule's exceptional guard loci, close
-proper subsectors or whole families, publish reusable rule artifacts, apply IBP
-reductions, substitute masters, or support generic/higher-even-rank tensor
-reduction. The current API also accepts a caller-supplied source span rather
-than certifying a fresh complete source set. Structural source counts—even the
-six-loop count—are not closure evidence.
+It does **not** yet refine coefficient/guard applicability on dependency cells,
+feed back or close proper subsectors or whole families, publish reusable rule
+artifacts, apply IBP reductions, substitute masters, or support
+generic/higher-even-rank tensor reduction. The current API also accepts a
+caller-supplied source span rather than certifying a fresh complete source set.
+Structural source counts—even the six-loop count—are not closure evidence.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

@@ -2,7 +2,7 @@
 
 ## Status
 
-Four narrow foundry capabilities are now live. The anchored boundary
+Five narrow foundry capabilities are now live. The anchored boundary
 specializes a chronological `ParametricRelation` slice at one concrete integer
 point. The sector-interior boundary instead eliminates that slice directly
 over the authenticated Symbolica field `K(n)`, orders shifts hardest-first,
@@ -20,18 +20,31 @@ target recurrence exercise these paths.
 
 The target-directed parametric path also has a sector-monotone admission. It
 retains the exact fixed-sector rule and replay, then admits specialization on
-the maximal i64-representable parent-sector box. Each RHS shift stores a
-compact first-pinched partition: the surviving cell has the ordinary
-same-sector descent proof, while every disjoint boundary cylinder is an
-explicit proper-subsector dependency descending first by propagator count.
-The sunset corner `[1,1,1]` is the first sentinel. This API still requires a
-nonempty common fixed-sector interior for the supplied source span; it does
-not yet replace source preparation with a fully piecewise reducer.
+the maximal i64-representable parent-sector box. Each RHS shift first stores a
+compact first-pinched proof and can refine it into an exact finite product
+partition whose every cell has one fixed target-sector mask. Optional
+coordinates are represented in O(K) metadata and cells are materialized
+lazily, so constructing the partition does not enumerate its potentially
+exponential cell set.
+
+`foundry::dependency` turns those term-local partitions into one preflighted,
+stable-ordinal proper-subsector discovery stream. It retains O(R*K) partition
+metadata but yields O(1) descriptors bound to the parent rule, ordered RHS
+coefficient, guards, and exact target-cell ordinal. Exact base, pivot, and
+target domains are allocated only on explicit demand. Aggregate described
+cell and obligation counts are admitted before iteration; a process-local
+cursor can resume only against the same borrowed rule allocation. The sunset
+corner `[1,1,1]` is the first sentinel. This API still requires a nonempty
+common fixed-sector interior for the supplied source span; it does not yet
+replace source preparation with a fully piecewise reducer.
 
 This is not yet a closing foundry. The API does not authenticate that its
-caller-supplied relation slice is a fresh complete source set, split guard-zero
-exceptional loci, feed back proper subsectors, select terminals, publish a
-closed artifact, or reduce an integral. The
+caller-supplied relation slice is a fresh complete source set, refine
+coefficient/guard applicability on each cell, feed solved proper subsectors
+back into the parent, select terminals, publish a closed artifact, or reduce
+an integral. Discovery cursors are not durable artifact identities, and cold
+proof replay may perform fallible O(K) allocations outside the streaming work
+budget. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 

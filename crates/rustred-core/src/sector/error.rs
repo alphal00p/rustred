@@ -47,6 +47,10 @@ pub enum Error {
         position: usize,
         shift: i64,
     },
+    TargetSectorCellOutOfRange {
+        ordinal: usize,
+        cell_count: usize,
+    },
     UnknownOrderingPolicy {
         id: String,
     },
@@ -113,6 +117,13 @@ impl fmt::Display for Error {
             Self::InactiveLineActivation { position, shift } => write!(
                 formatter,
                 "positive shift {shift} at inactive position {position} activates a line on the proposed sector-monotone domain"
+            ),
+            Self::TargetSectorCellOutOfRange {
+                ordinal,
+                cell_count,
+            } => write!(
+                formatter,
+                "target-sector cell ordinal {ordinal} is outside a partition of {cell_count} cells"
             ),
             Self::UnknownOrderingPolicy { id } => {
                 write!(formatter, "unknown integral-ordering policy {id:?}")

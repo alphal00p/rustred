@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
+use crate::foundry::dependency::{
+    ParametricDependencyError, ParametricDependencyLimits, ParametricProperSubsectorPlan,
+};
 use crate::identity::RowId;
-use crate::sector::{ComplexityComponent, OrderingPolicy, SectorMonotonePointClass};
+use crate::sector::{ComplexityComponent, Mask, OrderingPolicy, SectorMonotonePointClass};
 
 use super::super::prepare::{PreparedSourceRow, prepare_problem};
 use super::super::sparse::reduce_rows_for_target;
@@ -297,6 +300,251 @@ fn complete_sunset_span_exposes_corner_pinch_dependencies() {
             }
         }
     }
+}
+
+#[test]
+fn sunset_rule_streams_exact_proper_subsector_obligations() {
+    let (_, context, relations) = sunset_sources();
+    let rule = derive_sector_monotone_rule_for_target(
+        &context,
+        &relations,
+        &[1, 1, 1],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    let plan = ParametricProperSubsectorPlan::try_new(&rule, ParametricDependencyLimits::default())
+        .unwrap();
+
+    assert!(plan.try_verify().unwrap());
+    assert_eq!(plan.described_target_sector_cell_count(), 9);
+    assert_eq!(plan.proper_subsector_obligation_count(), 4);
+    let obligations = plan.obligations().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(
+        obligations
+            .iter()
+            .map(|obligation| obligation.ordinal())
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, 3]
+    );
+    assert_eq!(
+        obligations
+            .iter()
+            .map(|obligation| obligation.right_hand_side_ordinal())
+            .collect::<Vec<_>>(),
+        vec![0, 2, 3, 4]
+    );
+    assert_eq!(
+        obligations
+            .iter()
+            .map(|obligation| obligation.target_cell_ordinal())
+            .collect::<Vec<_>>(),
+        vec![0, 0, 0, 0]
+    );
+    assert_eq!(
+        obligations
+            .iter()
+            .map(|obligation| {
+                obligation
+                    .try_materialize_cell()
+                    .unwrap()
+                    .target_domain()
+                    .sector()
+                    .clone()
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            Mask::try_new([true, true, false]).unwrap(),
+            Mask::try_new([true, false, true]).unwrap(),
+            Mask::try_new([false, true, true]).unwrap(),
+            Mask::try_new([false, true, true]).unwrap(),
+        ]
+    );
+    for obligation in &obligations {
+        assert!(obligation.try_verify().unwrap());
+        assert!(std::ptr::eq(obligation.parent_rule(), &rule));
+        assert!(std::ptr::eq(
+            obligation.coefficient(),
+            rule.right_hand_side()[obligation.right_hand_side_ordinal()].coefficient()
+        ));
+        assert_eq!(obligation.nonzero_guards(), rule.nonzero_guards());
+    }
+}
+
+#[test]
+fn dependency_plan_rejects_a_stale_admission_after_rule_reordering() {
+    let (_, context, relations) = sunset_sources();
+    let derive = || {
+        derive_sector_monotone_rule_for_target(
+            &context,
+            &relations,
+            &[1, 1, 1],
+            &[1, 0, 0],
+            OrderingPolicy::default(),
+            ParametricRuleLimits::default(),
+        )
+        .unwrap()
+    };
+
+    let mut reordered = derive();
+    reordered.right_hand_side.swap(0, 1);
+    assert!(matches!(
+        ParametricProperSubsectorPlan::try_new(&reordered, ParametricDependencyLimits::default()),
+        Err(ParametricDependencyError::Invariant { .. })
+    ));
+
+    let mut repivoted = derive();
+    repivoted.pivot = repivoted.right_hand_side[0].shift().clone();
+    assert!(matches!(
+        ParametricProperSubsectorPlan::try_new(&repivoted, ParametricDependencyLimits::default()),
+        Err(ParametricDependencyError::Invariant { .. })
+    ));
+}
+
+#[test]
+fn proper_subsector_stream_resumes_at_the_exact_unmaterialized_cell() {
+    let (_, context, relations) = sunset_sources();
+    let rule = derive_sector_monotone_rule_for_target(
+        &context,
+        &relations,
+        &[1, 1, 1],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    let plan = ParametricProperSubsectorPlan::try_new(&rule, ParametricDependencyLimits::default())
+        .unwrap();
+    let mut first_wave = plan.obligations();
+    assert_eq!(first_wave.next().unwrap().unwrap().ordinal(), 0);
+    assert_eq!(first_wave.next().unwrap().unwrap().ordinal(), 1);
+    let cursor = first_wave.cursor();
+    assert_eq!(cursor.obligation_ordinal(), 2);
+    assert_eq!(first_wave.remaining_obligation_count(), 2);
+
+    let resumed = plan
+        .obligations_from(cursor)
+        .unwrap()
+        .map(|obligation| obligation.unwrap().ordinal())
+        .collect::<Vec<_>>();
+    assert_eq!(resumed, vec![2, 3]);
+
+    let repeated_rule = derive_sector_monotone_rule_for_target(
+        &context,
+        &relations,
+        &[1, 1, 1],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    let foreign_plan = ParametricProperSubsectorPlan::try_new(
+        &repeated_rule,
+        ParametricDependencyLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        foreign_plan.obligations_from(cursor),
+        Err(ParametricDependencyError::InvalidCursor)
+    ));
+}
+
+#[test]
+fn proper_subsector_plan_preflights_exact_aggregate_limits() {
+    let (_, context, relations) = sunset_sources();
+    let rule = derive_sector_monotone_rule_for_target(
+        &context,
+        &relations,
+        &[1, 1, 1],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    let exact = ParametricDependencyLimits {
+        max_rule_terms: 5,
+        max_partition_coordinate_cells: 45,
+        max_described_target_sector_cells: 9,
+        max_proper_subsector_obligations: 4,
+        max_per_obligation_materialization_coordinate_cells: 12,
+    };
+    ParametricProperSubsectorPlan::try_new(&rule, exact).unwrap();
+
+    let check = |limits| ParametricProperSubsectorPlan::try_new(&rule, limits).unwrap_err();
+    assert_eq!(
+        check(ParametricDependencyLimits {
+            max_rule_terms: 4,
+            ..exact
+        }),
+        ParametricDependencyError::ResourceLimit {
+            resource: "parametric dependency rule terms",
+            requested: 5,
+            limit: 4,
+        }
+    );
+    assert_eq!(
+        check(ParametricDependencyLimits {
+            max_partition_coordinate_cells: 44,
+            ..exact
+        }),
+        ParametricDependencyError::ResourceLimit {
+            resource: "parametric dependency partition coordinate cells",
+            requested: 45,
+            limit: 44,
+        }
+    );
+    assert_eq!(
+        check(ParametricDependencyLimits {
+            max_described_target_sector_cells: 8,
+            ..exact
+        }),
+        ParametricDependencyError::ResourceLimit {
+            resource: "described parametric target-sector cells",
+            requested: 9,
+            limit: 8,
+        }
+    );
+    assert_eq!(
+        check(ParametricDependencyLimits {
+            max_proper_subsector_obligations: 3,
+            ..exact
+        }),
+        ParametricDependencyError::ResourceLimit {
+            resource: "proper-subsector obligations",
+            requested: 4,
+            limit: 3,
+        }
+    );
+    assert_eq!(
+        check(ParametricDependencyLimits {
+            max_per_obligation_materialization_coordinate_cells: 11,
+            ..exact
+        }),
+        ParametricDependencyError::ResourceLimit {
+            resource: "parametric dependency per-obligation materialization coordinate cells",
+            requested: 12,
+            limit: 11,
+        }
+    );
+}
+
+#[test]
+fn fixed_interior_rule_is_not_mislabeled_as_a_dependency_plan() {
+    let (_, context, relations) = sunset_sources();
+    let rule = derive_sector_interior_rule_for_target(
+        &context,
+        &relations,
+        &[2, 2, 2],
+        &[1, 0, 0],
+        OrderingPolicy::default(),
+        ParametricRuleLimits::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        ParametricProperSubsectorPlan::try_new(&rule, ParametricDependencyLimits::default()),
+        Err(ParametricDependencyError::RuleHasNoSectorMonotoneAdmission)
+    ));
 }
 
 #[test]

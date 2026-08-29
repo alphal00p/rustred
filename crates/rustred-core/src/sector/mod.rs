@@ -43,7 +43,8 @@ pub use interior::{InteriorBounds, SectorInteriorDomain};
 pub use mask::Mask;
 pub use monotone::{
     ActivePinchThreshold, SectorMonotoneDomain, SectorMonotonePointClass,
-    SectorMonotoneShiftDescentWitness,
+    SectorMonotoneShiftDescentWitness, SectorMonotoneTargetCell, SectorMonotoneTargetCellKind,
+    SectorMonotoneTargetCells, SectorMonotoneTargetPartition, SectorMonotoneTargetPartitionCensus,
 };
 pub use ordering::{ComplexityComponent, ComplexityKey, OrderingPolicy, StrictDescentWitness};
 pub use restriction::{

@@ -27,7 +27,8 @@ RustRed currently provides a topology-neutral mathematical spine for:
   uniform descent, and independent anchored agreement, while both boundaries
   can target a requested pivot through guarded deterministic RREF; the
   targeted path can additionally classify a maximal parent-sector box into
-  disjoint same-sector and proper-subsector pinch dependencies;
+  exact fixed-target-sector product cells and expose a preflighted, resumable
+  stream of compact rule-bound proper-subsector obligation descriptors;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -163,9 +164,12 @@ proves uniform strict descent, exactly replays the symbolic row, and requires
 agreement with the independently derived anchor. It is not yet an
 exceptional-domain engine, complete-source/closure search, or artifact
 publisher. The targeted parametric API can additionally retain a maximal
-parent-sector domain with compact first-pinched cylinders and exact
-proper-subsector descent witnesses; these are dependency evidence, not closure
-evidence.
+parent-sector domain with compact first-pinched witnesses and exact
+fixed-target-sector product partitions. `foundry::dependency` owns aggregate
+work admission and a stable process-local cursor over O(1) proper-subsector
+descriptors; exact cell domains are materialized only on demand. These values
+retain rule/coefficient/guard context but do not refine applicability, feed
+solved children back, or establish closure.
 
 ### `sector`
 
