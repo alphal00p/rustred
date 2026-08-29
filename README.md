@@ -91,6 +91,113 @@ maturin develop --features extension-module
 python -c 'import rustred'
 ```
 
+## Two-loop parametric-IBP examples
+
+The [`examples/`](examples/) tree contains complete, runnable versions of the
+same calculation through the Rust library, CLI, and Python APIs. They define
+the equal-mass two-loop vacuum (sunset) family
+
+```text
+D1 = k1^2 - m2
+D2 = k2^2 - m2
+D3 = (k1 + k2)^2 - m2
+```
+
+with symbolic dimension `d`, no external momenta, and common squared mass
+`m2`. Because `L = 2` and `E = 0`, RustRed must generate exactly
+`L * (L + E) = 4` ordinary parametric IBP sources and no LI sources. Their
+stable IDs are:
+
+```text
+ordinary-ibp:0:0
+ordinary-ibp:0:1
+ordinary-ibp:1:0
+ordinary-ibp:1:1
+```
+
+These are the complete universal source identities for this family, with
+equation convention `sum(coefficient * I(n + shift)) = 0`. They are not yet a
+closed sector-reduction table. For the scale-free presentation used by the
+single-scale vacuum program, `m2` may subsequently be specialized to `1`.
+
+The commands below are for a Git checkout. Run them from the repository root
+inside `nix develop` (or an equivalent environment).
+
+### Rust library
+
+[`examples/rust/two_loop_single_mass_vacuum.rs`](examples/rust/two_loop_single_mass_vacuum.rs)
+uses the public `rustred` crate directly: it compiles and lowers the family,
+prepares all ordinary rows, completes the batch, checks the four stable IDs,
+and renders the equations.
+
+```bash
+cargo run --locked -p rustred-app --example two-loop-single-mass-vacuum
+```
+
+After any Cargo build messages, the expected program output is:
+
+```text
+# sum(coefficient * I(n + shift)) = 0
+ordinary-ibp:0:0: (-n2) * I(n0-1,n1,n2+1) + (n2) * I(n0,n1-1,n2+1) + (d-2*n0-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-2*m2*n0) * I(n0+1,n1,n2) = 0
+ordinary-ibp:0:1: (-n2) * I(n0-1,n1,n2+1) + (n1) * I(n0-1,n1+1,n2) + (n2) * I(n0,n1-1,n2+1) + (n1-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-n1) * I(n0,n1+1,n2-1) + (m2*n1) * I(n0,n1+1,n2) = 0
+ordinary-ibp:1:0: (n2) * I(n0-1,n1,n2+1) + (-n2) * I(n0,n1-1,n2+1) + (n0-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (n0) * I(n0+1,n1-1,n2) + (-n0) * I(n0+1,n1,n2-1) + (m2*n0) * I(n0+1,n1,n2) = 0
+ordinary-ibp:1:1: (n2) * I(n0-1,n1,n2+1) + (-n2) * I(n0,n1-1,n2+1) + (d-2*n1-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-2*m2*n1) * I(n0,n1+1,n2) = 0
+```
+
+### CLI
+
+[`examples/cli/two_loop_single_mass_vacuum.symbolica`](examples/cli/two_loop_single_mass_vacuum.symbolica)
+is the family input. The portable runner resolves the checkout independently
+of the caller's working directory and requests ordinary rows explicitly:
+
+```bash
+sh examples/cli/run.sh
+```
+
+The CLI prints a canonical `rustred.derive-output.toml.v1` document. It is
+verbose because it includes exact family/context fingerprints and every sparse
+term; the defining expected fields are:
+
+```toml
+schema = "rustred.derive-output.toml.v1"
+status = "ok"
+relation_selection = "ordinary"
+
+[family]
+name = "equal_mass_sunset"
+loop_momenta = ["k1", "k2"]
+external_momenta = []
+denominator_count = 3
+index_symbols = ["n0", "n1", "n2"]
+
+[relation_counts]
+generated_ordinary = 4
+generated_li = 0
+emitted_ordinary = 4
+emitted_li = 0
+emitted_total = 4
+```
+
+The four `[[relations]]` records have the stable IDs listed above, in that
+order. The CLI integration test pins this input and those counts/IDs.
+
+### Python
+
+[`examples/python/two_loop_single_mass_vacuum.py`](examples/python/two_loop_single_mass_vacuum.py)
+uses the public package name `import rustred`, embeds the same family, checks
+the output schema, counts, and row IDs, then prints the canonical TOML.
+
+```bash
+uv venv .venv
+. .venv/bin/activate
+maturin develop --features extension-module
+python examples/python/two_loop_single_mass_vacuum.py
+```
+
+Its expected output is byte-identical to the CLI's canonical TOML for the same
+build. Any schema, count, or stable-ID mismatch makes the script fail before
+printing.
+
 ## Vakint integration
 
 Vakint development occurs in the independent GammaLoop repository on branch

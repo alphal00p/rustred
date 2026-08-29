@@ -1,0 +1,10 @@
+I(
+  name(equal_mass_sunset),
+  loops(k1,k2),
+  externals(),
+  parameters(d,m2),
+  dimension(d),
+  prop(D1,k1^2-m2,1),
+  prop(D2,k2^2-m2,1),
+  prop(D3,(k1+k2)^2-m2,1)
+)

@@ -16,6 +16,10 @@ name = "rustred"
 path = "src/main.rs"
 doc = false
 
+[[example]]
+name = "two-loop-single-mass-vacuum"
+path = "../../examples/rust/two_loop_single_mass_vacuum.rs"
+
 [dependencies]
 rustred = { path = "../rustred-core" }
 serde = { version = "1", features = ["derive"] }

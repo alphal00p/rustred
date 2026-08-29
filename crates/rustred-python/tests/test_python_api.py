@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import threading
-import unittest
 import concurrent.futures
+import contextlib
 import importlib.util
+import io
 import inspect
 import os
 from pathlib import Path
@@ -11,6 +11,9 @@ import pickle
 import socket
 import subprocess
 import sys
+import threading
+import tomllib
+import unittest
 
 import rustred
 
@@ -138,6 +141,43 @@ def cli_toml(arguments: list[str], source: str) -> str:
 
 
 class PythonApiTests(unittest.TestCase):
+    def test_repository_two_loop_example_generates_the_complete_source_set(
+        self,
+    ) -> None:
+        example = (
+            Path(__file__).resolve().parents[3]
+            / "examples"
+            / "python"
+            / "two_loop_single_mass_vacuum.py"
+        )
+        if not example.is_file():
+            repository_root = Path(__file__).resolve().parents[3]
+            if (repository_root / ".git").exists():
+                self.fail("Git checkout is missing the documented Python example")
+            self.skipTest("repository examples are not included in source distributions")
+        specification = importlib.util.spec_from_file_location(
+            "rustred_two_loop_single_mass_vacuum_example",
+            example,
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            module.main()
+        document = tomllib.loads(output.getvalue())
+
+        self.assertEqual(document["family"]["name"], "equal_mass_sunset")
+        self.assertEqual(document["family"]["loop_momenta"], ["k1", "k2"])
+        self.assertEqual(document["relation_counts"]["generated_ordinary"], 4)
+        self.assertEqual(document["relation_counts"]["generated_li"], 0)
+        self.assertEqual(
+            [relation["stable_id"] for relation in document["relations"]],
+            module.EXPECTED_ROWS,
+        )
+
     def test_all_derive_input_modes_return_canonical_toml(self) -> None:
         cases = [
             (ONE_LOOP, "symbolica", "raw_symbolica"),
