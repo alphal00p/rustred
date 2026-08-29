@@ -32,10 +32,9 @@ pub use request::{
     AtomGramEntry, AtomProject, AtomPropagator, TextGramEntry, TextProject, TextPropagator,
 };
 
-// Step A keeps the affine implementation in its existing private root module.
-// These are its sole public paths until the affine facade is made internal in
-// the later pruning tranche.
+// The affine implementation remains in its private root module until its
+// native input-module migration. These are its sole public paths.
 pub use crate::symbolica_affine_denominator::{
     CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError,
-    SymbolicaAffineDenominatorLimits, SymbolicaAffineDenominatorStats,
+    SymbolicaAffineDenominatorLimits,
 };

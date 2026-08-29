@@ -1,8 +1,8 @@
 # RustRed Phase-0 source liveness ledger
 
-**Baseline parent:** `f6b0e15`, immediately before moving exact symmetry
-verification under the sector owner tree.
-**Status:** R3/symmetry-1 working authority, subordinate to `GOAL.md` and the
+**Baseline parent:** `b826097`, immediately before pruning the private affine
+compiler to its live Atom-based boundary.
+**Status:** R3/affine-prune working authority, subordinate to `GOAL.md` and the
 clean-repository architecture plan.
 
 This ledger classifies every one of the 161 Rust source/test paths remaining
@@ -159,8 +159,8 @@ core lanes may dispatch solely on proved generic family properties.
 | `src/sector/tests/mask.rs` | split | sector tests | retain raw-membership, bit orientation, allocation-free corner, Boolean-lattice, and refcount-only clone semantics |
 | `src/sector/tests/restriction.rs` | split | sector tests | retain direct cut/pattern exclusion evidence across the complete small mask domain; owner-local pattern tests prove refcount-only clones |
 | `src/sector/tests/ordering.rs` | split | sector tests | retain exact ordering injectivity/manifest, extreme-`i64` aggregate width, refcount-only coordinate clones, and first-component descent witnesses |
-| `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | keep parsing and family-coordinate lowering under input; reuse algebra's sole raw polynomial alias, extract only genuinely family-neutral checked coefficient primitives into algebra, and audit handwritten exponent projection against Symbolica |
-| `src/input/mod.rs` | move | input | sole canonical input facade over focused private owners; no former flat-module or root aliases, while the still-live affine value surface is temporary until its private subtree move |
+| `src/symbolica_affine_denominator.rs` | split | input::affine / algebra | retain only Atom-based scalar-product validation, exact affine projection, live resource policy, and lowering payload; standalone raw parsing, schema/stats metadata, compiler cloning/inspection, and their tests are deleted; next split this file under input and replace handwritten CAS kernels with audited Symbolica APIs |
+| `src/input/mod.rs` | move | input | sole canonical input facade over focused private owners; no former flat-module or root aliases, while the minimal live affine values/errors/limits remain temporary exports until their private subtree move |
 | `src/input/model.rs` | split | input | retain syntax-authenticated normalized and lowered mathematical values plus their ordinary views; prune transport provenance, duplicate lowered fields, and compatibility conveniences in the later input tranche |
 | `src/input/request.rs` | split | input | retain topology-neutral text/Atom request DTOs shared by Rust CLI and Python entrypoints; serde transport belongs to the app |
 | `src/input/limits.rs` | split | input | retain checked parsing/lowering policies, live stats, and neutral checked resource arithmetic; obsolete Pattern counters are deleted |

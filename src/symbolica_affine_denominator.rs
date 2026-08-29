@@ -28,9 +28,7 @@ use std::sync::Arc;
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
 use symbolica::coefficient::SerializedRational;
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
-use symbolica::parser::Operator;
 use symbolica::prelude::*;
-use symbolica::state::Workspace;
 
 use crate::algebra::{
     Coefficient, CoefficientContext, CoefficientContextError, CoefficientPolynomial,
@@ -42,21 +40,13 @@ const RUSTRED_NAMESPACE: &str = "rustred";
 const SCALAR_PRODUCT_NAME: &str = "rustred::sp";
 const CONSERVATIVE_GMP_CAPACITY_FACTOR: usize = 2;
 
-/// Stable schema identifier for the retained compilation payload.
-pub const SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA: &str = "rustred.symbolica-affine-denominator.v1";
-
-/// Resource policy for parsing, exact evaluation, projection, and retention.
+/// Resource policy for exact evaluation, projection, and retention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SymbolicaAffineDenominatorLimits {
     pub exact_algebra: ExactAlgebraLimits,
     pub max_input_bytes: usize,
-    pub max_raw_parser_units: usize,
-    pub max_raw_token_nodes: usize,
-    pub max_raw_variable_map_lookup_work: usize,
     pub max_input_nodes: usize,
     pub max_nesting_depth: usize,
-    pub max_raw_integer_digits: usize,
-    pub max_integer_magnitude_bits: usize,
     pub max_label_bytes: usize,
     pub max_total_label_bytes: usize,
     pub max_base_parameters: usize,
@@ -100,13 +90,8 @@ impl Default for SymbolicaAffineDenominatorLimits {
                 max_term_operations: 1_000_000,
             },
             max_input_bytes: 16 * 1024 * 1024,
-            max_raw_parser_units: 1_000_000,
-            max_raw_token_nodes: 100_000,
-            max_raw_variable_map_lookup_work: 100_000_000,
             max_input_nodes: 100_000,
             max_nesting_depth: 256,
-            max_raw_integer_digits: 1_000_000,
-            max_integer_magnitude_bits: 4_000_000,
             max_label_bytes: 1_024,
             max_total_label_bytes: 1024 * 1024,
             max_base_parameters: 4_096,
@@ -143,140 +128,12 @@ impl Default for SymbolicaAffineDenominatorLimits {
     }
 }
 
-/// Exact work census for one successful denominator compilation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SymbolicaAffineDenominatorStats {
-    input_bytes: usize,
-    raw_token_nodes: usize,
-    raw_token_maximum_depth: usize,
-    raw_integer_magnitude_bits: usize,
-    input_nodes: usize,
-    maximum_nesting_depth: usize,
-    arithmetic_operations: u64,
-    power_multiplications: u64,
-    scalar_product_calls: usize,
-    dense_degree_box_terms: usize,
-    dense_degree_box_exponent_entries: usize,
-    combined_numerator_terms: usize,
-    combined_denominator_terms: usize,
-    projected_numerator_terms: usize,
-    projection_groups: usize,
-    projection_denominator_replication_terms: usize,
-    projection_gram_operations: usize,
-    projected_retained_bytes: usize,
-    retained_nonzero_coefficients: usize,
-    normalized_expression_nodes: usize,
-    normalized_expression_integer_bits: usize,
-    normalized_expression_bytes: usize,
-    compiled_retained_bytes: usize,
-}
-
-impl SymbolicaAffineDenominatorStats {
-    pub const fn input_bytes(self) -> usize {
-        self.input_bytes
-    }
-
-    pub const fn raw_token_nodes(self) -> usize {
-        self.raw_token_nodes
-    }
-
-    pub const fn raw_token_maximum_depth(self) -> usize {
-        self.raw_token_maximum_depth
-    }
-
-    pub const fn raw_integer_magnitude_bits(self) -> usize {
-        self.raw_integer_magnitude_bits
-    }
-
-    pub const fn input_nodes(self) -> usize {
-        self.input_nodes
-    }
-
-    pub const fn maximum_nesting_depth(self) -> usize {
-        self.maximum_nesting_depth
-    }
-
-    pub const fn arithmetic_operations(self) -> u64 {
-        self.arithmetic_operations
-    }
-
-    pub const fn power_multiplications(self) -> u64 {
-        self.power_multiplications
-    }
-
-    pub const fn scalar_product_calls(self) -> usize {
-        self.scalar_product_calls
-    }
-
-    pub const fn dense_degree_box_terms(self) -> usize {
-        self.dense_degree_box_terms
-    }
-
-    pub const fn dense_degree_box_exponent_entries(self) -> usize {
-        self.dense_degree_box_exponent_entries
-    }
-
-    pub const fn combined_numerator_terms(self) -> usize {
-        self.combined_numerator_terms
-    }
-
-    pub const fn combined_denominator_terms(self) -> usize {
-        self.combined_denominator_terms
-    }
-
-    pub const fn projected_numerator_terms(self) -> usize {
-        self.projected_numerator_terms
-    }
-
-    pub const fn projection_groups(self) -> usize {
-        self.projection_groups
-    }
-
-    pub const fn projection_denominator_replication_terms(self) -> usize {
-        self.projection_denominator_replication_terms
-    }
-
-    pub const fn projection_gram_operations(self) -> usize {
-        self.projection_gram_operations
-    }
-
-    pub const fn projected_retained_bytes(self) -> usize {
-        self.projected_retained_bytes
-    }
-
-    pub const fn retained_nonzero_coefficients(self) -> usize {
-        self.retained_nonzero_coefficients
-    }
-
-    pub const fn normalized_expression_bytes(self) -> usize {
-        self.normalized_expression_bytes
-    }
-
-    pub const fn normalized_expression_nodes(self) -> usize {
-        self.normalized_expression_nodes
-    }
-
-    pub const fn normalized_expression_integer_bits(self) -> usize {
-        self.normalized_expression_integer_bits
-    }
-
-    pub const fn compiled_retained_bytes(self) -> usize {
-        self.compiled_retained_bytes
-    }
-}
-
 /// Typed failures at the untrusted Symbolica-expression boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SymbolicaAffineDenominatorError {
     CoefficientContext(CoefficientContextError),
     ExactAlgebra(ExactAlgebraError),
     Parse(String),
-    RawTokenGrammar {
-        detail: &'static str,
-    },
-    RawUnknownIdentifier(String),
-    RawUnsupportedNumber(String),
-    RawUnsupportedFunction(String),
     NoLoopMomenta,
     EmptyLabel {
         role: &'static str,
@@ -323,10 +180,6 @@ pub enum SymbolicaAffineDenominatorError {
         resource: &'static str,
         requested: u128,
         limit: u128,
-    },
-    PowerLimit {
-        requested: u64,
-        limit: u32,
     },
     ResourceCountOverflow {
         resource: &'static str,
@@ -388,24 +241,6 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
             Self::Parse(error) => {
                 write!(formatter, "could not parse Symbolica denominator: {error}")
             }
-            Self::RawTokenGrammar { detail } => {
-                write!(
-                    formatter,
-                    "unsupported raw Symbolica token grammar: {detail}"
-                )
-            }
-            Self::RawUnknownIdentifier(identifier) => write!(
-                formatter,
-                "raw Symbolica input contains undeclared identifier {identifier:?}"
-            ),
-            Self::RawUnsupportedNumber(number) => write!(
-                formatter,
-                "raw Symbolica input contains noninteger or inexact number {number:?}"
-            ),
-            Self::RawUnsupportedFunction(function) => write!(
-                formatter,
-                "raw Symbolica input contains unsupported function {function:?}"
-            ),
             Self::NoLoopMomenta => formatter
                 .write_str("an affine denominator compiler needs at least one loop momentum"),
             Self::EmptyLabel { role, position } => {
@@ -466,10 +301,6 @@ impl fmt::Display for SymbolicaAffineDenominatorError {
             } => write!(
                 formatter,
                 "{resource} needs {requested} units, exceeding the configured limit {limit}"
-            ),
-            Self::PowerLimit { requested, limit } => write!(
-                formatter,
-                "absolute power {requested} exceeds the configured limit {limit}"
             ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} count overflowed its representation")
@@ -564,40 +395,12 @@ impl From<ExactAlgebraError> for SymbolicaAffineDenominatorError {
 /// Retained source, canonical normalized expression, and authenticated affine row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledSymbolicaAffineDenominator {
-    schema: &'static str,
-    base_parameter_names: Vec<String>,
-    loop_momenta: Vec<String>,
-    external_momenta: Vec<String>,
-    external_gram: Vec<Vec<Coefficient>>,
     source: Atom,
     normalized_expression: Atom,
-    coordinates: Vec<ScalarProductCoordinate>,
     affine_denominator: AffineDenominator,
-    stats: SymbolicaAffineDenominatorStats,
-    limits: SymbolicaAffineDenominatorLimits,
 }
 
 impl CompiledSymbolicaAffineDenominator {
-    pub const fn schema(&self) -> &'static str {
-        self.schema
-    }
-
-    pub fn base_parameter_names(&self) -> &[String] {
-        &self.base_parameter_names
-    }
-
-    pub fn loop_momenta(&self) -> &[String] {
-        &self.loop_momenta
-    }
-
-    pub fn external_momenta(&self) -> &[String] {
-        &self.external_momenta
-    }
-
-    pub fn external_gram(&self) -> &[Vec<Coefficient>] {
-        &self.external_gram
-    }
-
     pub const fn source(&self) -> &Atom {
         &self.source
     }
@@ -606,37 +409,13 @@ impl CompiledSymbolicaAffineDenominator {
         &self.normalized_expression
     }
 
-    pub fn constant(&self) -> &Coefficient {
-        self.affine_denominator.constant()
-    }
-
-    pub fn coefficients(&self) -> &[Coefficient] {
-        self.affine_denominator.coefficients()
-    }
-
-    pub fn coordinates(&self) -> &[ScalarProductCoordinate] {
-        &self.coordinates
-    }
-
     pub const fn affine_denominator(&self) -> &AffineDenominator {
         &self.affine_denominator
-    }
-
-    pub fn into_affine_denominator(self) -> AffineDenominator {
-        self.affine_denominator
-    }
-
-    pub const fn stats(&self) -> SymbolicaAffineDenominatorStats {
-        self.stats
-    }
-
-    pub const fn limits(&self) -> SymbolicaAffineDenominatorLimits {
-        self.limits
     }
 }
 
 /// One reusable, topology-neutral denominator-expression compiler.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SymbolicaAffineDenominatorCompiler {
     coefficients: CoefficientContext,
     loop_momenta: Vec<String>,
@@ -645,10 +424,6 @@ pub struct SymbolicaAffineDenominatorCompiler {
     combined: CoefficientContext,
     symbol_positions: BTreeMap<Symbol, usize>,
     scalar_product: Symbol,
-    raw_parser_variables: Arc<Vec<PolyVariable>>,
-    raw_parser_labels: Vec<String>,
-    raw_variable_spellings: BTreeSet<String>,
-    raw_scalar_product_spellings: BTreeSet<String>,
     coordinates: Vec<ScalarProductCoordinate>,
     limits: SymbolicaAffineDenominatorLimits,
 }
@@ -836,71 +611,6 @@ impl SymbolicaAffineDenominatorCompiler {
             external_momenta.len(),
             coordinate_count,
         )?;
-        // Token conversion receives an exact prepopulated name map.  No name
-        // lookup, alias resolution, or symbol construction is permitted after
-        // the raw-token grammar census.  Human-facing unqualified spellings and
-        // both Symbolica qualified printer spellings map to the same already
-        // authenticated symbol.
-        let mut raw_name_map = BTreeMap::<String, Symbol>::new();
-        let mut raw_variable_spellings = BTreeSet::new();
-        for (position, (label, variable)) in combined_names
-            .iter()
-            .zip(combined.variables().iter())
-            .enumerate()
-        {
-            let symbol = match variable {
-                PolyVariable::Symbol(symbol) => *symbol,
-                _ => {
-                    return Err(
-                        SymbolicaAffineDenominatorError::UnsupportedCombinedVariable {
-                            position,
-                            label: label.clone(),
-                        },
-                    );
-                }
-            };
-            for spelling in authenticated_symbol_spellings(label, symbol) {
-                insert_raw_symbol_spelling(&mut raw_name_map, spelling.clone(), symbol)?;
-                raw_variable_spellings.insert(spelling);
-            }
-        }
-        let mut raw_scalar_product_spellings = BTreeSet::new();
-        for spelling in authenticated_symbol_spellings("sp", scalar_product) {
-            insert_raw_symbol_spelling(&mut raw_name_map, spelling.clone(), scalar_product)?;
-            raw_scalar_product_spellings.insert(spelling);
-        }
-        let raw_parser_count = raw_name_map.len();
-        let raw_label_bytes = raw_name_map.keys().try_fold(0usize, |total, label| {
-            total.checked_add(label.len()).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "raw parser label bytes",
-                },
-            )
-        })?;
-        check_limit(
-            "raw parser label bytes",
-            raw_label_bytes,
-            limits.max_total_label_bytes,
-        )?;
-        let mut raw_parser_variables = Vec::new();
-        raw_parser_variables
-            .try_reserve_exact(raw_parser_count)
-            .map_err(|_| SymbolicaAffineDenominatorError::AllocationFailure {
-                resource: "raw parser Symbolica variables",
-                requested: raw_parser_count,
-            })?;
-        let mut raw_parser_labels = Vec::new();
-        raw_parser_labels
-            .try_reserve_exact(raw_parser_count)
-            .map_err(|_| SymbolicaAffineDenominatorError::AllocationFailure {
-                resource: "raw parser Symbolica labels",
-                requested: raw_parser_count,
-            })?;
-        for (label, symbol) in raw_name_map {
-            raw_parser_labels.push(label);
-            raw_parser_variables.push(PolyVariable::Symbol(symbol));
-        }
-
         Ok(Self {
             coefficients,
             loop_momenta,
@@ -909,127 +619,9 @@ impl SymbolicaAffineDenominatorCompiler {
             combined,
             symbol_positions,
             scalar_product,
-            raw_parser_variables: Arc::new(raw_parser_variables),
-            raw_parser_labels,
-            raw_variable_spellings,
-            raw_scalar_product_spellings,
             coordinates,
             limits,
         })
-    }
-
-    pub const fn coefficient_context(&self) -> &CoefficientContext {
-        &self.coefficients
-    }
-
-    pub fn loop_momenta(&self) -> &[String] {
-        &self.loop_momenta
-    }
-
-    pub fn external_momenta(&self) -> &[String] {
-        &self.external_momenta
-    }
-
-    pub fn external_gram(&self) -> &[Vec<Coefficient>] {
-        &self.external_gram
-    }
-
-    pub fn coordinates(&self) -> &[ScalarProductCoordinate] {
-        &self.coordinates
-    }
-
-    pub const fn limits(&self) -> SymbolicaAffineDenominatorLimits {
-        self.limits
-    }
-
-    /// Parse without allowing Symbolica to resolve a name, alias, attribute,
-    /// or callback before RustRed has authenticated the raw token grammar.
-    ///
-    /// Callback-poisoning tests must live in a subprocess integration test:
-    /// Symbolica's symbol registry is process-global and deliberately cannot
-    /// be restored after registering a hostile normalization callback.
-    fn parse_authenticated_raw_string(
-        &self,
-        expression: &str,
-    ) -> Result<(Atom, RawTokenStats), SymbolicaAffineDenominatorError> {
-        check_limit(
-            "input expression bytes",
-            expression.len(),
-            self.limits.max_input_bytes,
-        )?;
-        let parser_units = expression.chars().count();
-        check_limit(
-            "raw parser lexical units",
-            parser_units,
-            self.limits.max_raw_parser_units,
-        )?;
-        preflight_raw_lexical(expression, self.limits)?;
-        let token = Token::parse(
-            expression,
-            ParseSettings::symbolica().convert_mul_to_atom(false),
-        )
-        .map_err(SymbolicaAffineDenominatorError::Parse)?;
-        let stats = validate_raw_token_tree(
-            &token,
-            &self.raw_variable_spellings,
-            &self.raw_scalar_product_spellings,
-            self.limits,
-        )?;
-        // Token-to-Atom conversion normalizes exact numerical subtrees.  Bound
-        // every such subtree before that conversion so a compact tower of
-        // permitted powers cannot manufacture an enormous GMP integer first.
-        preflight_raw_numeric_subtrees(&token, self.limits)?;
-        let lookup_work = stats
-            .identifier_lookups
-            .checked_mul(self.raw_parser_labels.len())
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "raw variable-map lookup work",
-            })?;
-        check_limit(
-            "raw variable-map lookup work",
-            lookup_work,
-            self.limits.max_raw_variable_map_lookup_work,
-        )?;
-
-        // The target API accepts SmartString labels.  Their concrete type is
-        // inferred from this call, avoiding another public dependency in
-        // RustRed while still providing an exact prepopulated name map.
-        let raw_names = self
-            .raw_parser_labels
-            .iter()
-            .map(|label| label.as_str().into())
-            .collect::<Vec<_>>();
-        let mut atom = Atom::new();
-        Workspace::get_local().with(|workspace| {
-            token
-                .to_atom_with_output_and_var_map(
-                    workspace,
-                    &self.raw_parser_variables,
-                    &raw_names,
-                    &mut atom,
-                )
-                .map_err(SymbolicaAffineDenominatorError::Parse)
-        })?;
-        Ok((atom, stats))
-    }
-
-    /// Parse with RustRed's namespace and compile the resulting exact Atom.
-    pub fn compile_str(
-        &self,
-        expression: &str,
-    ) -> Result<CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError> {
-        let (atom, raw_stats) = catch_unwind(AssertUnwindSafe(|| {
-            self.parse_authenticated_raw_string(expression)
-        }))
-        .map_err(|_| SymbolicaAffineDenominatorError::SymbolicaPanic {
-            stage: "raw-token expression parsing",
-        })??;
-        catch_unwind(AssertUnwindSafe(|| {
-            self.compile_inner(atom.as_view(), Some(raw_stats))
-        }))
-        .map_err(|_| SymbolicaAffineDenominatorError::SymbolicaPanic {
-            stage: "checked expression evaluation",
-        })?
     }
 
     /// Compile an already parsed Atom on the authenticated combined map.
@@ -1037,7 +629,7 @@ impl SymbolicaAffineDenominatorCompiler {
         &self,
         source: AtomView<'_>,
     ) -> Result<CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError> {
-        catch_unwind(AssertUnwindSafe(|| self.compile_inner(source, None))).map_err(|_| {
+        catch_unwind(AssertUnwindSafe(|| self.compile_inner(source))).map_err(|_| {
             SymbolicaAffineDenominatorError::SymbolicaPanic {
                 stage: "checked expression evaluation",
             }
@@ -1047,7 +639,6 @@ impl SymbolicaAffineDenominatorCompiler {
     fn compile_inner(
         &self,
         source: AtomView<'_>,
-        raw_stats: Option<RawTokenStats>,
     ) -> Result<CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError> {
         let input_bytes = source.get_byte_size();
         check_limit(
@@ -1055,20 +646,8 @@ impl SymbolicaAffineDenominatorCompiler {
             input_bytes,
             self.limits.max_input_bytes,
         )?;
-        let (input_nodes, maximum_nesting_depth) = checked_atom_shape(source, self.limits)?;
-        let fixed_variable_map_arc_bytes =
-            retained_variable_map_arc_bytes(self.external_gram.iter().flatten())?;
-        let fixed_retained_bytes = compiled_retained_byte_bound(
-            self.coefficients.parameter_names(),
-            &self.loop_momenta,
-            &self.external_momenta,
-            &self.external_gram,
-            input_bytes,
-            0,
-            self.coordinates.len(),
-            0,
-            fixed_variable_map_arc_bytes,
-        )?;
+        checked_atom_shape(source, self.limits)?;
+        let fixed_retained_bytes = compiled_retained_byte_bound(input_bytes, 0, 0, 0)?;
         check_limit(
             "compiled fixed retained bytes",
             fixed_retained_bytes,
@@ -1095,12 +674,7 @@ impl SymbolicaAffineDenominatorCompiler {
             normalized_census.integer_bits,
             self.limits.max_normalized_expression_integer_bits,
         )?;
-        let maximum_symbol_bytes = self
-            .raw_parser_labels
-            .iter()
-            .map(String::len)
-            .max()
-            .unwrap_or(1);
+        let maximum_symbol_bytes = maximum_combined_symbol_bytes(&self.combined)?;
         let normalized_render_byte_bound =
             normalized_expression_render_byte_bound(normalized_census, maximum_symbol_bytes)?;
         if normalized_render_byte_bound > self.limits.max_normalized_expression_bytes {
@@ -1127,29 +701,13 @@ impl SymbolicaAffineDenominatorCompiler {
             &mut evaluator.work,
             &mut evaluator.projection_work,
         )?;
-        let retained_nonzero_coefficients =
-            usize::from(!affine_denominator.constant().numerator.is_zero())
-                + affine_denominator
-                    .coefficients()
-                    .iter()
-                    .filter(|coefficient| !coefficient.numerator.is_zero())
-                    .count();
-        let raw_stats = raw_stats.unwrap_or_default();
         let variable_map_arc_bytes = retained_variable_map_arc_bytes(
-            self.external_gram
-                .iter()
-                .flatten()
-                .chain(std::iter::once(affine_denominator.constant()))
+            std::iter::once(affine_denominator.constant())
                 .chain(affine_denominator.coefficients().iter()),
         )?;
         let compiled_retained_bytes = compiled_retained_byte_bound(
-            self.coefficients.parameter_names(),
-            &self.loop_momenta,
-            &self.external_momenta,
-            &self.external_gram,
             input_bytes,
             normalized_expression_bytes,
-            self.coordinates.len(),
             projection_stats.projected_retained_bytes,
             variable_map_arc_bytes,
         )?;
@@ -1158,46 +716,10 @@ impl SymbolicaAffineDenominatorCompiler {
             compiled_retained_bytes,
             self.limits.max_compiled_retained_bytes,
         )?;
-        let stats = SymbolicaAffineDenominatorStats {
-            input_bytes,
-            raw_token_nodes: raw_stats.nodes,
-            raw_token_maximum_depth: raw_stats.maximum_depth,
-            raw_integer_magnitude_bits: raw_stats.integer_magnitude_bits,
-            input_nodes,
-            maximum_nesting_depth,
-            arithmetic_operations: evaluator.arithmetic_operations,
-            power_multiplications: evaluator.power_multiplications,
-            scalar_product_calls: evaluator.scalar_product_calls,
-            dense_degree_box_terms: evaluator.work.dense_degree_box_terms,
-            dense_degree_box_exponent_entries: evaluator.work.dense_degree_box_exponent_entries,
-            combined_numerator_terms: evaluated.numerator.nterms(),
-            combined_denominator_terms: evaluated.denominator.nterms(),
-            projected_numerator_terms: projection_stats.projected_numerator_terms,
-            projection_groups: evaluator.projection_work.groups,
-            projection_denominator_replication_terms: evaluator
-                .projection_work
-                .denominator_replication_terms,
-            projection_gram_operations: evaluator.projection_work.gram_operations,
-            projected_retained_bytes: projection_stats.projected_retained_bytes,
-            retained_nonzero_coefficients,
-            normalized_expression_nodes: normalized_census.nodes,
-            normalized_expression_integer_bits: normalized_census.integer_bits,
-            normalized_expression_bytes,
-            compiled_retained_bytes,
-        };
-
         Ok(CompiledSymbolicaAffineDenominator {
-            schema: SYMBOLICA_AFFINE_DENOMINATOR_V1_SCHEMA,
-            base_parameter_names: self.coefficients.parameter_names().to_vec(),
-            loop_momenta: self.loop_momenta.clone(),
-            external_momenta: self.external_momenta.clone(),
-            external_gram: self.external_gram.clone(),
             source: source.to_owned(),
             normalized_expression,
-            coordinates: self.coordinates.clone(),
             affine_denominator,
-            stats,
-            limits: self.limits,
         })
     }
 
@@ -1231,19 +753,6 @@ impl SymbolicaAffineDenominatorCompiler {
         .map_err(|_| SymbolicaAffineDenominatorError::SymbolicaPanic {
             stage: "base-coefficient evaluation",
         })?
-    }
-
-    pub fn parse_base_coefficient_str(
-        &self,
-        expression: &str,
-    ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
-        let (atom, _) = catch_unwind(AssertUnwindSafe(|| {
-            self.parse_authenticated_raw_string(expression)
-        }))
-        .map_err(|_| SymbolicaAffineDenominatorError::SymbolicaPanic {
-            stage: "raw-token base-coefficient parsing",
-        })??;
-        self.parse_base_coefficient(atom.as_view())
     }
 
     fn base_count(&self) -> usize {
@@ -2100,7 +1609,6 @@ impl SymbolicaAffineDenominatorCompiler {
         Ok((
             AffineDenominator::new(constant, coordinates),
             ProjectionStats {
-                projected_numerator_terms,
                 projected_retained_bytes: output_census.retained_bytes,
             },
         ))
@@ -2289,7 +1797,6 @@ struct ExactWorkBudget {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ProjectionStats {
-    projected_numerator_terms: usize,
     projected_retained_bytes: usize,
 }
 
@@ -2551,32 +2058,6 @@ fn conservative_owned_capacity_bytes(
         .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow { resource })
 }
 
-fn planned_string_vector_clone_bytes(
-    strings: &[String],
-) -> Result<usize, SymbolicaAffineDenominatorError> {
-    let slots = strings
-        .len()
-        .checked_mul(std::mem::size_of::<String>())
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained string-vector bytes",
-        })?;
-    let payload = strings.iter().try_fold(0usize, |total, string| {
-        total.checked_add(string.len()).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "compiled retained string bytes",
-            },
-        )
-    })?;
-    conservative_owned_capacity_bytes(slots, "compiled retained string-vector bytes")?
-        .checked_add(conservative_owned_capacity_bytes(
-            payload,
-            "compiled retained string bytes",
-        )?)
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained string bytes",
-        })
-}
-
 fn retained_variable_map_arc_bytes<'a>(
     coefficients: impl IntoIterator<Item = &'a Coefficient>,
 ) -> Result<usize, SymbolicaAffineDenominatorError> {
@@ -2615,61 +2096,16 @@ fn retained_variable_map_arc_bytes<'a>(
     Ok(bytes)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compiled_retained_byte_bound(
-    base_parameter_names: &[String],
-    loop_momenta: &[String],
-    external_momenta: &[String],
-    external_gram: &[Vec<Coefficient>],
     source_bytes: usize,
     normalized_expression_bytes: usize,
-    coordinate_count: usize,
     projected_coefficient_bytes: usize,
     variable_map_arc_bytes: usize,
 ) -> Result<usize, SymbolicaAffineDenominatorError> {
-    // The inline top-level structure owns all Vec/Atom/AffineDenominator
-    // handles.  The additions below therefore charge only their owned buffers
-    // and nested allocations; coefficient censuses include their inline
-    // polynomial values because those live in Vec buffers.
+    // The inline top-level structure owns both Atom handles and the affine row.
+    // The additions below therefore charge only backing buffers and nested
+    // coefficient allocations.
     let mut bytes = std::mem::size_of::<CompiledSymbolicaAffineDenominator>();
-    for strings in [base_parameter_names, loop_momenta, external_momenta] {
-        bytes = bytes
-            .checked_add(planned_string_vector_clone_bytes(strings)?)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "compiled retained bytes",
-            })?;
-    }
-
-    let gram_row_headers = external_gram
-        .len()
-        .checked_mul(std::mem::size_of::<Vec<Coefficient>>())
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained external Gram bytes",
-        })?;
-    bytes = bytes
-        .checked_add(conservative_owned_capacity_bytes(
-            gram_row_headers,
-            "compiled retained external Gram row bytes",
-        )?)
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained bytes",
-        })?;
-    let mut gram_census = CoefficientCensus::default();
-    for coefficient in external_gram.iter().flatten() {
-        gram_census.checked_add_assign(
-            coefficient_census(coefficient)?,
-            "compiled external Gram census",
-        )?;
-    }
-    bytes = bytes
-        .checked_add(conservative_owned_capacity_bytes(
-            gram_census.retained_bytes,
-            "compiled retained external Gram coefficient bytes",
-        )?)
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained bytes",
-        })?;
-
     let atom_payload = source_bytes
         .checked_add(normalized_expression_bytes)
         .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
@@ -2688,19 +2124,6 @@ fn compiled_retained_byte_bound(
             resource: "compiled retained bytes",
         })?;
 
-    let coordinate_payload = coordinate_count
-        .checked_mul(std::mem::size_of::<ScalarProductCoordinate>())
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained coordinate bytes",
-        })?;
-    bytes = bytes
-        .checked_add(conservative_owned_capacity_bytes(
-            coordinate_payload,
-            "compiled retained coordinate bytes",
-        )?)
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "compiled retained bytes",
-        })?;
     bytes = bytes
         .checked_add(conservative_owned_capacity_bytes(
             projected_coefficient_bytes,
@@ -3446,8 +2869,6 @@ fn charge_dense_degree_box(
 struct CheckedEvaluator<'a> {
     compiler: &'a SymbolicaAffineDenominatorCompiler,
     arithmetic_operations: u64,
-    power_multiplications: u64,
-    scalar_product_calls: usize,
     work: ExactWorkBudget,
     projection_work: ProjectionAllocationBudget,
 }
@@ -3457,8 +2878,6 @@ impl<'a> CheckedEvaluator<'a> {
         Self {
             compiler,
             arithmetic_operations: 0,
-            power_multiplications: 0,
-            scalar_product_calls: 0,
             work: ExactWorkBudget::default(),
             projection_work: ProjectionAllocationBudget::default(),
         }
@@ -3487,7 +2906,7 @@ impl<'a> CheckedEvaluator<'a> {
                 let mut result = self.compiler.combined.zero();
                 for child in sum.iter() {
                     let child = self.evaluate(child, scalar_product_allowed)?;
-                    self.charge_arithmetic(false)?;
+                    self.charge_arithmetic()?;
                     result = self.compiler.checked_add(&result, &child, &mut self.work)?;
                 }
                 Ok(result)
@@ -3496,7 +2915,7 @@ impl<'a> CheckedEvaluator<'a> {
                 let mut result = self.compiler.combined.one();
                 for child in product.iter() {
                     let child = self.evaluate(child, scalar_product_allowed)?;
-                    self.charge_arithmetic(false)?;
+                    self.charge_arithmetic()?;
                     result = self.compiler.checked_mul(&result, &child, &mut self.work)?;
                 }
                 Ok(result)
@@ -3561,12 +2980,7 @@ impl<'a> CheckedEvaluator<'a> {
                 self.compiler.validate_vector_linear(&left, 0, left_atom)?;
                 self.compiler
                     .validate_vector_linear(&right, 1, right_atom)?;
-                self.scalar_product_calls = self.scalar_product_calls.checked_add(1).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "scalar-product calls",
-                    },
-                )?;
-                self.charge_arithmetic(false)?;
+                self.charge_arithmetic()?;
                 let product = self.compiler.checked_mul(&left, &right, &mut self.work)?;
                 self.compiler.contract_explicit_scalar_product(
                     product,
@@ -3624,21 +3038,21 @@ impl<'a> CheckedEvaluator<'a> {
         let mut factor = base.clone();
         while remaining != 0 {
             if remaining & 1 == 1 {
-                self.charge_arithmetic(true)?;
+                self.charge_arithmetic()?;
                 result = self
                     .compiler
                     .checked_mul(&result, &factor, &mut self.work)?;
             }
             remaining >>= 1;
             if remaining != 0 {
-                self.charge_arithmetic(true)?;
+                self.charge_arithmetic()?;
                 factor = self
                     .compiler
                     .checked_mul(&factor, &factor, &mut self.work)?;
             }
         }
         if exponent < 0 {
-            self.charge_arithmetic(false)?;
+            self.charge_arithmetic()?;
             self.compiler
                 .checked_div(&self.compiler.combined.one(), &result, &mut self.work)
         } else {
@@ -3646,10 +3060,7 @@ impl<'a> CheckedEvaluator<'a> {
         }
     }
 
-    fn charge_arithmetic(
-        &mut self,
-        power_multiplication: bool,
-    ) -> Result<(), SymbolicaAffineDenominatorError> {
+    fn charge_arithmetic(&mut self) -> Result<(), SymbolicaAffineDenominatorError> {
         self.arithmetic_operations = self.arithmetic_operations.checked_add(1).ok_or(
             SymbolicaAffineDenominatorError::ResourceCountOverflow {
                 resource: "expression arithmetic operations",
@@ -3661,13 +3072,6 @@ impl<'a> CheckedEvaluator<'a> {
                 requested: u128::from(self.arithmetic_operations),
                 limit: u128::from(self.compiler.limits.max_arithmetic_operations),
             });
-        }
-        if power_multiplication {
-            self.power_multiplications = self.power_multiplications.checked_add(1).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "power multiplications",
-                },
-            )?;
         }
         Ok(())
     }
@@ -4253,33 +3657,24 @@ fn plain_symbol(name: &str) -> Result<Symbol, SymbolicaAffineDenominatorError> {
         .map_err(|error| SymbolicaAffineDenominatorError::Parse(error.to_string()))
 }
 
-fn authenticated_symbol_spellings(declared: &str, symbol: Symbol) -> [String; 3] {
-    [
-        declared.to_owned(),
-        symbol.get_name().to_owned(),
-        format!(
-            "{}::{{}}::{}",
-            symbol.get_namespace(),
-            symbol.get_stripped_name()
-        ),
-    ]
-}
-
-fn insert_raw_symbol_spelling(
-    names: &mut BTreeMap<String, Symbol>,
-    spelling: String,
-    symbol: Symbol,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    if let Some(previous) = names.insert(spelling.clone(), symbol)
-        && previous != symbol
-    {
-        return Err(SymbolicaAffineDenominatorError::DuplicateLabel {
-            label: spelling,
-            first_role: "raw Symbolica declaration",
-            second_role: "raw Symbolica declaration",
-        });
-    }
-    Ok(())
+fn maximum_combined_symbol_bytes(
+    coefficients: &CoefficientContext,
+) -> Result<usize, SymbolicaAffineDenominatorError> {
+    coefficients
+        .variables()
+        .iter()
+        .enumerate()
+        .try_fold(1usize, |maximum, (position, variable)| {
+            let PolyVariable::Symbol(symbol) = variable else {
+                return Err(
+                    SymbolicaAffineDenominatorError::UnsupportedCombinedVariable {
+                        position,
+                        label: coefficients.parameter_names()[position].clone(),
+                    },
+                );
+            };
+            Ok(maximum.max(symbol.get_name().len()))
+        })
 }
 
 fn authenticate_plain_symbol(
@@ -4312,915 +3707,6 @@ fn authenticate_plain_symbol(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct RawTokenStats {
-    nodes: usize,
-    maximum_depth: usize,
-    integer_magnitude_bits: usize,
-    identifier_lookups: usize,
-}
-
-#[derive(Clone, Copy)]
-enum RawTokenRole {
-    Expression,
-    FunctionHead,
-}
-
-fn signed_decimal_digits(number: &str) -> Option<&str> {
-    let digits = number.strip_prefix('-').unwrap_or(number);
-    if digits.is_empty() || !digits.as_bytes().iter().all(u8::is_ascii_digit) {
-        None
-    } else {
-        Some(digits)
-    }
-}
-
-fn preflight_raw_lexical(
-    expression: &str,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum Run {
-        Digits,
-        Identifier,
-    }
-
-    let mut depth = 0usize;
-    let mut lexical_token_envelope = 0usize;
-    let mut run = None;
-    let mut integer_digits = 0usize;
-    let mut integer_bits = 0usize;
-    let mut expects_operand = true;
-    let mut prefix_operator_depth = 0usize;
-
-    let charge = |total: &mut usize,
-                  amount: usize,
-                  resource: &'static str,
-                  limit: usize|
-     -> Result<(), SymbolicaAffineDenominatorError> {
-        *total = total
-            .checked_add(amount)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow { resource })?;
-        check_limit(resource, *total, limit)
-    };
-    let flush_run = |run: &mut Option<Run>,
-                     lexical_token_envelope: &mut usize|
-     -> Result<(), SymbolicaAffineDenominatorError> {
-        if run.take().is_some() {
-            // Two units cover the leaf plus a possible implicit product.
-            charge(
-                lexical_token_envelope,
-                2,
-                "raw lexical token envelope",
-                limits.max_raw_token_nodes,
-            )?;
-        }
-        Ok(())
-    };
-
-    for character in expression.chars() {
-        if character.is_ascii_digit() {
-            integer_digits = integer_digits.checked_add(1).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "raw lexical integer digits",
-                },
-            )?;
-            check_limit(
-                "raw lexical integer digits",
-                integer_digits,
-                limits.max_raw_integer_digits,
-            )?;
-            integer_bits = integer_bits.checked_add(4).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "raw lexical integer magnitude bits",
-                },
-            )?;
-            check_limit(
-                "raw lexical integer magnitude bits",
-                integer_bits,
-                limits.max_integer_magnitude_bits,
-            )?;
-        }
-
-        match character {
-            '(' | '[' => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-                charge(
-                    &mut lexical_token_envelope,
-                    1,
-                    "raw lexical token envelope",
-                    limits.max_raw_token_nodes,
-                )?;
-                depth = depth.checked_add(1).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw lexical nesting depth",
-                    },
-                )?;
-                let syntactic_depth = depth.checked_add(prefix_operator_depth).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw lexical nesting depth",
-                    },
-                )?;
-                check_limit(
-                    "raw lexical nesting depth",
-                    syntactic_depth,
-                    limits.max_nesting_depth,
-                )?;
-                expects_operand = true;
-            }
-            ')' | ']' => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-                charge(
-                    &mut lexical_token_envelope,
-                    1,
-                    "raw lexical token envelope",
-                    limits.max_raw_token_nodes,
-                )?;
-                depth = depth.checked_sub(1).ok_or(
-                    SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a closing delimiter has no opening delimiter",
-                    },
-                )?;
-                expects_operand = false;
-                prefix_operator_depth = 0;
-            }
-            '-' | '/' if expects_operand => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-                charge(
-                    &mut lexical_token_envelope,
-                    2,
-                    "raw lexical token envelope",
-                    limits.max_raw_token_nodes,
-                )?;
-                prefix_operator_depth = prefix_operator_depth.checked_add(1).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw lexical prefix-operator depth",
-                    },
-                )?;
-                let syntactic_depth = depth.checked_add(prefix_operator_depth).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw lexical prefix-operator depth",
-                    },
-                )?;
-                check_limit(
-                    "raw lexical prefix-operator depth",
-                    syntactic_depth,
-                    limits.max_nesting_depth,
-                )?;
-            }
-            '+' | '-' | '*' | '/' | '^' | ',' => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-                // Division and subtraction can each lower to two operator
-                // nodes; charging two for every operator is conservative.
-                charge(
-                    &mut lexical_token_envelope,
-                    2,
-                    "raw lexical token envelope",
-                    limits.max_raw_token_nodes,
-                )?;
-                expects_operand = true;
-                prefix_operator_depth = 0;
-            }
-            '\\' => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-            }
-            character if character.is_whitespace() => {
-                flush_run(&mut run, &mut lexical_token_envelope)?;
-            }
-            character => {
-                let next = if character.is_ascii_digit() {
-                    Run::Digits
-                } else {
-                    Run::Identifier
-                };
-                if matches!(run, Some(Run::Digits)) && next == Run::Identifier {
-                    flush_run(&mut run, &mut lexical_token_envelope)?;
-                }
-                if run.is_none() {
-                    expects_operand = false;
-                    prefix_operator_depth = 0;
-                }
-                run.get_or_insert(next);
-            }
-        }
-    }
-    flush_run(&mut run, &mut lexical_token_envelope)?;
-    Ok(())
-}
-
-fn raw_power_exponent(token: &Token) -> Option<(&str, bool)> {
-    match token {
-        Token::Number(number, false) => {
-            let digits = signed_decimal_digits(number)?;
-            Some((digits, number.starts_with('-')))
-        }
-        Token::Op(false, false, Operator::Neg, arguments) if arguments.len() == 1 => {
-            let Token::Number(number, false) = &arguments[0] else {
-                return None;
-            };
-            let digits = signed_decimal_digits(number)?;
-            if number.starts_with('-') {
-                None
-            } else {
-                Some((digits, true))
-            }
-        }
-        _ => None,
-    }
-}
-
-fn decimal_magnitude_u64(digits: &str) -> Option<u64> {
-    digits.parse().ok()
-}
-
-fn validate_raw_power(
-    arguments: &[Token],
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    let Some((digits, _negative)) = arguments.get(1).and_then(raw_power_exponent) else {
-        return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-            detail: "a power exponent is not an exact signed integer",
-        });
-    };
-    let significant = digits.trim_start_matches('0');
-    let significant = if significant.is_empty() {
-        "0"
-    } else {
-        significant
-    };
-    let limit_string = limits.max_abs_power.to_string();
-    if significant.len() > limit_string.len()
-        || (significant.len() == limit_string.len() && significant > limit_string.as_str())
-    {
-        return Err(SymbolicaAffineDenominatorError::PowerLimit {
-            requested: decimal_magnitude_u64(significant).unwrap_or(u64::MAX),
-            limit: limits.max_abs_power,
-        });
-    }
-    let magnitude = significant.parse::<usize>().map_err(|_| {
-        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "raw absolute power",
-        }
-    })?;
-    if let Some(Token::Number(base, false)) = arguments.first()
-        && let Some(base_digits) = signed_decimal_digits(base)
-    {
-        let base_bits = base_digits.len().checked_mul(4).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "raw numeric-power output magnitude bits",
-            },
-        )?;
-        let output_bits = base_bits.checked_mul(magnitude).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "raw numeric-power output magnitude bits",
-            },
-        )?;
-        check_limit(
-            "raw numeric-power output magnitude bits",
-            output_bits,
-            limits
-                .max_coefficient_integer_bits
-                .min(limits.max_normalized_expression_integer_bits),
-        )?;
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct RawNumericMagnitudeEnvelope {
-    numerator_bits: usize,
-    denominator_bits: usize,
-    definitely_zero: bool,
-}
-
-impl RawNumericMagnitudeEnvelope {
-    const ONE: Self = Self {
-        numerator_bits: 0,
-        denominator_bits: 0,
-        definitely_zero: false,
-    };
-
-    fn checked_power(
-        self,
-        magnitude: usize,
-        negative: bool,
-    ) -> Result<Self, SymbolicaAffineDenominatorError> {
-        let powered = Self {
-            numerator_bits: self.numerator_bits.checked_mul(magnitude).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "raw numeric-subtree numerator magnitude bits",
-                },
-            )?,
-            denominator_bits: self.denominator_bits.checked_mul(magnitude).ok_or(
-                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                    resource: "raw numeric-subtree denominator magnitude bits",
-                },
-            )?,
-            definitely_zero: self.definitely_zero && magnitude != 0,
-        };
-        if negative {
-            Ok(Self {
-                numerator_bits: powered.denominator_bits,
-                denominator_bits: powered.numerator_bits,
-                definitely_zero: powered.definitely_zero,
-            })
-        } else {
-            Ok(powered)
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct RawNumericSubtreeCensus {
-    envelope: Option<RawNumericMagnitudeEnvelope>,
-    retained_maximal_bits: usize,
-}
-
-fn raw_numeric_retained_bits(
-    envelope: RawNumericMagnitudeEnvelope,
-) -> Result<usize, SymbolicaAffineDenominatorError> {
-    envelope
-        .numerator_bits
-        .checked_add(envelope.denominator_bits)
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "aggregate raw numeric-subtree magnitude bits",
-        })
-}
-
-fn checked_add_raw_numeric_retained(
-    retained: &mut usize,
-    child: RawNumericSubtreeCensus,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    let child_bits = match child.envelope {
-        Some(envelope) => raw_numeric_retained_bits(envelope)?,
-        None => child.retained_maximal_bits,
-    };
-    *retained = retained.checked_add(child_bits).ok_or(
-        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "aggregate raw numeric-subtree magnitude bits",
-        },
-    )?;
-    Ok(())
-}
-
-fn check_raw_numeric_magnitude(
-    envelope: RawNumericMagnitudeEnvelope,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    let limit = limits
-        .max_coefficient_integer_bits
-        .min(limits.max_normalized_expression_integer_bits);
-    check_limit(
-        "raw numeric-subtree magnitude bits",
-        envelope.numerator_bits.max(envelope.denominator_bits),
-        limit,
-    )
-}
-
-/// Return an exact-arithmetic magnitude envelope when `token` is wholly
-/// numerical, otherwise retain the sum of its disjoint maximal numerical
-/// descendants.  Numeric children are deliberately not charged when their
-/// parent is numeric: only the maximal subtree can survive Token-to-Atom
-/// normalization, so nested towers are counted once rather than at every node.
-fn raw_numeric_subtree_census(
-    token: &Token,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<RawNumericSubtreeCensus, SymbolicaAffineDenominatorError> {
-    let census = match token {
-        Token::Number(number, false) => {
-            let digits = signed_decimal_digits(number).ok_or_else(|| {
-                SymbolicaAffineDenominatorError::RawUnsupportedNumber(number.to_string())
-            })?;
-            let definitely_zero = digits.bytes().all(|digit| digit == b'0');
-            RawNumericSubtreeCensus {
-                envelope: Some(RawNumericMagnitudeEnvelope {
-                    numerator_bits: if definitely_zero {
-                        0
-                    } else {
-                        digits.len().checked_mul(4).ok_or(
-                            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                resource: "raw numeric-subtree numerator magnitude bits",
-                            },
-                        )?
-                    },
-                    denominator_bits: 0,
-                    definitely_zero,
-                }),
-                retained_maximal_bits: 0,
-            }
-        }
-        Token::Number(number, true) => {
-            return Err(SymbolicaAffineDenominatorError::RawUnsupportedNumber(
-                number.to_string(),
-            ));
-        }
-        Token::ID(_) => RawNumericSubtreeCensus::default(),
-        Token::Op(_, _, operator, arguments) => match operator {
-            Operator::Neg | Operator::Inv => {
-                let child = raw_numeric_subtree_census(&arguments[0], limits)?;
-                match child.envelope {
-                    Some(value) => {
-                        if matches!(operator, Operator::Inv) && value.definitely_zero {
-                            return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                                detail: "division by a numerically zero subtree",
-                            });
-                        }
-                        RawNumericSubtreeCensus {
-                            envelope: Some(if matches!(operator, Operator::Inv) {
-                                RawNumericMagnitudeEnvelope {
-                                    numerator_bits: value.denominator_bits,
-                                    denominator_bits: value.numerator_bits,
-                                    definitely_zero: value.definitely_zero,
-                                }
-                            } else {
-                                value
-                            }),
-                            retained_maximal_bits: 0,
-                        }
-                    }
-                    None => child,
-                }
-            }
-            Operator::Add | Operator::Mul => {
-                let mut wholly_numeric = true;
-                let mut retained_maximal_bits = 0usize;
-                let mut numeric_child_retained_bits = 0usize;
-                let mut count = 0usize;
-                let mut numerator_bits = 0usize;
-                let mut denominator_bits = 0usize;
-                let mut definitely_zero = matches!(operator, Operator::Add);
-                for argument in arguments {
-                    let child = raw_numeric_subtree_census(argument, limits)?;
-                    match child.envelope {
-                        Some(value) => {
-                            numeric_child_retained_bits = numeric_child_retained_bits
-                                .checked_add(raw_numeric_retained_bits(value)?)
-                                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                    resource: "aggregate raw numeric-subtree magnitude bits",
-                                })?;
-                            if wholly_numeric {
-                                if matches!(operator, Operator::Add) {
-                                    // After consuming i operands, this is
-                                    // max_j(n_j + sum_{q != j} d_q).  Updating
-                                    // it online avoids allocating a child Vec.
-                                    numerator_bits = if count == 0 {
-                                        value.numerator_bits
-                                    } else {
-                                        numerator_bits
-                                            .checked_add(value.denominator_bits)
-                                            .ok_or(
-                                                SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                                    resource: "raw numeric-subtree numerator magnitude bits",
-                                                },
-                                            )?
-                                            .max(
-                                                value
-                                                    .numerator_bits
-                                                    .checked_add(denominator_bits)
-                                                    .ok_or(
-                                                        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                                            resource: "raw numeric-subtree numerator magnitude bits",
-                                                        },
-                                                    )?,
-                                            )
-                                    };
-                                    denominator_bits = denominator_bits
-                                        .checked_add(value.denominator_bits)
-                                        .ok_or(
-                                            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                                resource: "raw numeric-subtree denominator magnitude bits",
-                                            },
-                                        )?;
-                                    definitely_zero &= value.definitely_zero;
-                                } else {
-                                    numerator_bits = numerator_bits
-                                        .checked_add(value.numerator_bits)
-                                        .ok_or(
-                                            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                                resource: "raw numeric-subtree numerator magnitude bits",
-                                            },
-                                        )?;
-                                    denominator_bits = denominator_bits
-                                        .checked_add(value.denominator_bits)
-                                        .ok_or(
-                                            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                                resource: "raw numeric-subtree denominator magnitude bits",
-                                            },
-                                        )?;
-                                    definitely_zero |= value.definitely_zero;
-                                }
-                                count = count.checked_add(1).ok_or(
-                                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                        resource: "raw numeric-subtree operand count",
-                                    },
-                                )?;
-                            } else {
-                                checked_add_raw_numeric_retained(
-                                    &mut retained_maximal_bits,
-                                    child,
-                                )?;
-                            }
-                        }
-                        None => {
-                            if wholly_numeric {
-                                retained_maximal_bits = retained_maximal_bits
-                                    .checked_add(numeric_child_retained_bits)
-                                    .ok_or(
-                                        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                            resource:
-                                                "aggregate raw numeric-subtree magnitude bits",
-                                        },
-                                    )?;
-                            }
-                            wholly_numeric = false;
-                            retained_maximal_bits = retained_maximal_bits
-                                .checked_add(child.retained_maximal_bits)
-                                .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                    resource: "aggregate raw numeric-subtree magnitude bits",
-                                })?;
-                        }
-                    }
-                }
-                if wholly_numeric {
-                    if matches!(operator, Operator::Add) {
-                        numerator_bits = numerator_bits
-                            .checked_add(ceil_log2_usize(count.max(1)))
-                            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                                resource: "raw numeric-subtree numerator magnitude bits",
-                            })?;
-                    }
-                    RawNumericSubtreeCensus {
-                        envelope: Some(RawNumericMagnitudeEnvelope {
-                            numerator_bits,
-                            denominator_bits,
-                            definitely_zero,
-                        }),
-                        retained_maximal_bits: 0,
-                    }
-                } else {
-                    RawNumericSubtreeCensus {
-                        envelope: None,
-                        retained_maximal_bits,
-                    }
-                }
-            }
-            Operator::Pow => {
-                let base = raw_numeric_subtree_census(&arguments[0], limits)?;
-                // Traverse the exponent as well even though raw-power grammar
-                // has already authenticated it as one signed decimal integer.
-                let exponent = raw_numeric_subtree_census(&arguments[1], limits)?;
-                let (digits, negative) = raw_power_exponent(&arguments[1]).ok_or(
-                    SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a power exponent is not an exact signed integer",
-                    },
-                )?;
-                let magnitude = digits.parse::<usize>().map_err(|_| {
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw absolute power",
-                    }
-                })?;
-                match base.envelope {
-                    Some(value) => {
-                        if negative && value.definitely_zero {
-                            return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                                detail: "a numerically zero base has a negative power",
-                            });
-                        }
-                        RawNumericSubtreeCensus {
-                            envelope: Some(if magnitude == 0 {
-                                RawNumericMagnitudeEnvelope::ONE
-                            } else {
-                                value.checked_power(magnitude, negative)?
-                            }),
-                            retained_maximal_bits: 0,
-                        }
-                    }
-                    None => {
-                        let mut retained_maximal_bits = base.retained_maximal_bits;
-                        checked_add_raw_numeric_retained(&mut retained_maximal_bits, exponent)?;
-                        RawNumericSubtreeCensus {
-                            envelope: None,
-                            retained_maximal_bits,
-                        }
-                    }
-                }
-            }
-            Operator::Argument => {
-                let mut retained_maximal_bits = 0usize;
-                for argument in arguments {
-                    checked_add_raw_numeric_retained(
-                        &mut retained_maximal_bits,
-                        raw_numeric_subtree_census(argument, limits)?,
-                    )?;
-                }
-                RawNumericSubtreeCensus {
-                    envelope: None,
-                    retained_maximal_bits,
-                }
-            }
-        },
-        Token::Fn(_, _, arguments) => {
-            let mut retained_maximal_bits = 0usize;
-            for argument in arguments.iter().skip(1) {
-                checked_add_raw_numeric_retained(
-                    &mut retained_maximal_bits,
-                    raw_numeric_subtree_census(argument, limits)?,
-                )?;
-            }
-            RawNumericSubtreeCensus {
-                envelope: None,
-                retained_maximal_bits,
-            }
-        }
-        Token::SpecialNumber(_)
-        | Token::RationalPolynomial(_)
-        | Token::ParsedMul(_)
-        | Token::Start
-        | Token::OpenParenthesis
-        | Token::CloseParenthesis
-        | Token::CloseBracket
-        | Token::EOF => RawNumericSubtreeCensus::default(),
-    };
-    if let Some(value) = census.envelope {
-        check_raw_numeric_magnitude(value, limits)?;
-    }
-    Ok(census)
-}
-
-fn preflight_raw_numeric_subtrees(
-    token: &Token,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    let census = raw_numeric_subtree_census(token, limits)?;
-    let mut retained_bits = census.retained_maximal_bits;
-    if let Some(envelope) = census.envelope {
-        retained_bits = retained_bits
-            .checked_add(raw_numeric_retained_bits(envelope)?)
-            .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "aggregate raw numeric-subtree magnitude bits",
-            })?;
-    }
-    check_limit(
-        "aggregate raw numeric-subtree magnitude bits",
-        retained_bits,
-        limits
-            .max_coefficient_integer_bits
-            .min(limits.max_normalized_expression_integer_bits),
-    )
-}
-
-fn validate_raw_token_tree(
-    token: &Token,
-    variable_spellings: &BTreeSet<String>,
-    scalar_product_spellings: &BTreeSet<String>,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<RawTokenStats, SymbolicaAffineDenominatorError> {
-    let mut stats = RawTokenStats::default();
-    let mut integer_digits = 0usize;
-    let mut pending = vec![(token, 0usize, RawTokenRole::Expression)];
-    while let Some((current, depth, role)) = pending.pop() {
-        stats.nodes = stats.nodes.checked_add(1).ok_or(
-            SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                resource: "raw Symbolica token nodes",
-            },
-        )?;
-        check_limit(
-            "raw Symbolica token nodes",
-            stats.nodes,
-            limits.max_raw_token_nodes,
-        )?;
-        check_limit(
-            "raw Symbolica token nesting depth",
-            depth,
-            limits.max_nesting_depth,
-        )?;
-        stats.maximum_depth = stats.maximum_depth.max(depth);
-
-        match current {
-            Token::Number(number, imaginary) => {
-                if !matches!(role, RawTokenRole::Expression) {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a function head is not an identifier",
-                    });
-                }
-                let Some(digits) = signed_decimal_digits(number) else {
-                    return Err(SymbolicaAffineDenominatorError::RawUnsupportedNumber(
-                        number.to_string(),
-                    ));
-                };
-                if *imaginary {
-                    return Err(SymbolicaAffineDenominatorError::RawUnsupportedNumber(
-                        number.to_string(),
-                    ));
-                }
-                integer_digits = integer_digits.checked_add(digits.len()).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw integer digits",
-                    },
-                )?;
-                check_limit(
-                    "raw integer digits",
-                    integer_digits,
-                    limits.max_raw_integer_digits,
-                )?;
-                let magnitude_bits = digits.len().checked_mul(4).ok_or(
-                    SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw integer magnitude bits",
-                    },
-                )?;
-                check_limit(
-                    "one raw integer magnitude",
-                    magnitude_bits,
-                    limits.max_integer_magnitude_bits,
-                )?;
-                stats.integer_magnitude_bits = stats
-                    .integer_magnitude_bits
-                    .checked_add(magnitude_bits)
-                    .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                        resource: "raw integer magnitude bits",
-                    })?;
-                check_limit(
-                    "raw integer magnitude bits",
-                    stats.integer_magnitude_bits,
-                    limits.max_integer_magnitude_bits,
-                )?;
-            }
-            Token::ID(identifier) => match role {
-                RawTokenRole::Expression => {
-                    stats.identifier_lookups = stats.identifier_lookups.checked_add(1).ok_or(
-                        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                            resource: "raw identifier lookups",
-                        },
-                    )?;
-                    if !variable_spellings.contains(identifier.as_str()) {
-                        return Err(SymbolicaAffineDenominatorError::RawUnknownIdentifier(
-                            identifier.to_string(),
-                        ));
-                    }
-                }
-                RawTokenRole::FunctionHead => {
-                    stats.identifier_lookups = stats.identifier_lookups.checked_add(1).ok_or(
-                        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-                            resource: "raw identifier lookups",
-                        },
-                    )?;
-                    if !scalar_product_spellings.contains(identifier.as_str()) {
-                        return Err(SymbolicaAffineDenominatorError::RawUnsupportedFunction(
-                            identifier.to_string(),
-                        ));
-                    }
-                }
-            },
-            Token::Op(more_left, more_right, operator, arguments) => {
-                if !matches!(role, RawTokenRole::Expression) {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a function head is not an identifier",
-                    });
-                }
-                if *more_left || *more_right {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "an operator token is incomplete",
-                    });
-                }
-                let valid_arity = match operator {
-                    Operator::Mul | Operator::Add => arguments.len() >= 2,
-                    Operator::Pow => arguments.len() == 2,
-                    Operator::Neg | Operator::Inv => arguments.len() == 1,
-                    Operator::Argument => false,
-                };
-                if !valid_arity {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "an operator has unsupported arity",
-                    });
-                }
-                if matches!(operator, Operator::Pow) {
-                    validate_raw_power(arguments, limits)?;
-                }
-                schedule_raw_tokens(
-                    &mut pending,
-                    arguments
-                        .iter()
-                        .map(|argument| (argument, RawTokenRole::Expression)),
-                    arguments.len(),
-                    depth,
-                    stats.nodes,
-                    limits,
-                )?;
-            }
-            Token::Fn(more_right, bracket, arguments) => {
-                if !matches!(role, RawTokenRole::Expression) {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a function head is not an identifier",
-                    });
-                }
-                if *more_right {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a function token is incomplete",
-                    });
-                }
-                if *bracket {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "square-bracket function notation is unsupported",
-                    });
-                }
-                let Some(Token::ID(head)) = arguments.first() else {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "a function head is not an identifier",
-                    });
-                };
-                if !scalar_product_spellings.contains(head.as_str()) {
-                    return Err(SymbolicaAffineDenominatorError::RawUnsupportedFunction(
-                        head.to_string(),
-                    ));
-                }
-                if arguments.len() != 3 {
-                    return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                        detail: "scalar product must have exactly two arguments",
-                    });
-                }
-                schedule_raw_tokens(
-                    &mut pending,
-                    arguments.iter().enumerate().map(|(position, argument)| {
-                        (
-                            argument,
-                            if position == 0 {
-                                RawTokenRole::FunctionHead
-                            } else {
-                                RawTokenRole::Expression
-                            },
-                        )
-                    }),
-                    arguments.len(),
-                    depth,
-                    stats.nodes,
-                    limits,
-                )?;
-            }
-            Token::SpecialNumber(_)
-            | Token::RationalPolynomial(_)
-            | Token::ParsedMul(_)
-            | Token::Start
-            | Token::OpenParenthesis
-            | Token::CloseParenthesis
-            | Token::CloseBracket
-            | Token::EOF => {
-                return Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                    detail: "unsupported parser token survived parsing",
-                });
-            }
-        }
-    }
-    Ok(stats)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn schedule_raw_tokens<'a>(
-    pending: &mut Vec<(&'a Token, usize, RawTokenRole)>,
-    children: impl Iterator<Item = (&'a Token, RawTokenRole)>,
-    child_count: usize,
-    parent_depth: usize,
-    inspected: usize,
-    limits: SymbolicaAffineDenominatorLimits,
-) -> Result<(), SymbolicaAffineDenominatorError> {
-    let scheduled = inspected
-        .checked_add(pending.len())
-        .and_then(|value| value.checked_add(child_count))
-        .ok_or(SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "raw Symbolica token traversal stack",
-        })?;
-    check_limit(
-        "raw Symbolica token traversal stack",
-        scheduled,
-        limits.max_raw_token_nodes,
-    )?;
-    let child_depth = parent_depth.checked_add(1).ok_or(
-        SymbolicaAffineDenominatorError::ResourceCountOverflow {
-            resource: "raw Symbolica token nesting depth",
-        },
-    )?;
-    check_limit(
-        "raw Symbolica token nesting depth",
-        child_depth,
-        limits.max_nesting_depth,
-    )?;
-    pending.try_reserve(child_count).map_err(|_| {
-        SymbolicaAffineDenominatorError::AllocationFailure {
-            resource: "raw Symbolica token traversal stack",
-            requested: child_count,
-        }
-    })?;
-    let before = pending.len();
-    pending.extend(children.map(|(child, role)| (child, child_depth, role)));
-    if pending.len() != before + child_count {
-        return Err(
-            SymbolicaAffineDenominatorError::InternalVerificationFailure {
-                detail: "raw token child iterator disagrees with its authenticated arity",
-            },
-        );
-    }
-    Ok(())
-}
-
 fn check_limit(
     resource: &'static str,
     requested: usize,
@@ -5240,6 +3726,52 @@ fn check_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl SymbolicaAffineDenominatorCompiler {
+        fn compile_expression(
+            &self,
+            expression: &str,
+        ) -> Result<CompiledSymbolicaAffineDenominator, SymbolicaAffineDenominatorError> {
+            let source = try_parse!(expression, default_namespace = RUSTRED_NAMESPACE)
+                .map_err(SymbolicaAffineDenominatorError::Parse)?;
+            self.compile(source.as_view())
+        }
+
+        fn parse_base_expression(
+            &self,
+            expression: &str,
+        ) -> Result<Coefficient, SymbolicaAffineDenominatorError> {
+            let source = try_parse!(expression, default_namespace = RUSTRED_NAMESPACE)
+                .map_err(SymbolicaAffineDenominatorError::Parse)?;
+            self.parse_base_coefficient(source.as_view())
+        }
+
+        fn test_with_limits(&self, limits: SymbolicaAffineDenominatorLimits) -> Self {
+            Self {
+                coefficients: self.coefficients.clone(),
+                loop_momenta: self.loop_momenta.clone(),
+                external_momenta: self.external_momenta.clone(),
+                external_gram: self.external_gram.clone(),
+                combined: self.combined.clone(),
+                symbol_positions: self.symbol_positions.clone(),
+                scalar_product: self.scalar_product,
+                coordinates: self.coordinates.clone(),
+                limits,
+            }
+        }
+
+        fn test_clone(&self) -> Self {
+            self.test_with_limits(self.limits)
+        }
+
+        const fn test_limits(&self) -> SymbolicaAffineDenominatorLimits {
+            self.limits
+        }
+
+        const fn test_coefficient_context(&self) -> &CoefficientContext {
+            &self.coefficients
+        }
+    }
 
     fn compiler(
         parameters: &[&str],
@@ -5267,18 +3799,26 @@ mod tests {
     }
 
     fn assert_coefficients(
+        compiler: &SymbolicaAffineDenominatorCompiler,
         compiled: &CompiledSymbolicaAffineDenominator,
         expected_constant: &str,
         expected_coefficients: &[&str],
     ) {
-        let context =
-            CoefficientContext::new(compiled.base_parameter_names().iter().map(String::as_str));
+        let context = &compiler.coefficients;
         assert_eq!(
-            compiled.constant(),
+            compiled.affine_denominator().constant(),
             &context.coefficient_fixture(expected_constant)
         );
-        assert_eq!(compiled.coefficients().len(), expected_coefficients.len());
-        for (actual, expected) in compiled.coefficients().iter().zip(expected_coefficients) {
+        assert_eq!(
+            compiled.affine_denominator().coefficients().len(),
+            expected_coefficients.len()
+        );
+        for (actual, expected) in compiled
+            .affine_denominator()
+            .coefficients()
+            .iter()
+            .zip(expected_coefficients)
+        {
             assert_eq!(actual, &context.coefficient_fixture(expected));
         }
     }
@@ -5300,10 +3840,10 @@ mod tests {
     #[test]
     fn one_loop_external_square_contracts_gram_and_preserves_cross_factor() {
         let compiler = compiler(&["d", "m2", "s"], &["k"], &["p"], &[&["s"]]);
-        let compiled = compiler.compile_str("(k+p)^2-m2").unwrap();
-        assert_coefficients(&compiled, "s-m2", &["1", "2"]);
+        let compiled = compiler.compile_expression("(k+p)^2-m2").unwrap();
+        assert_coefficients(&compiler, &compiled, "s-m2", &["1", "2"]);
         assert_eq!(
-            compiled.coordinates(),
+            compiler.coordinates,
             &[
                 ScalarProductCoordinate::LoopLoop { left: 0, right: 0 },
                 ScalarProductCoordinate::LoopExternal {
@@ -5312,37 +3852,38 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(compiled.stats().projected_numerator_terms(), 4);
     }
 
     #[test]
     fn two_loop_square_lowers_in_generic_upper_triangular_order() {
         let compiler = compiler(&["m2"], &["k1", "k2"], &[], &[]);
-        let compiled = compiler.compile_str("(k1+k2)^2-m2").unwrap();
-        assert_coefficients(&compiled, "-m2", &["1", "2", "1"]);
-        assert_eq!(compiled.stats().scalar_product_calls(), 0);
+        let compiled = compiler.compile_expression("(k1+k2)^2-m2").unwrap();
+        assert_coefficients(&compiler, &compiled, "-m2", &["1", "2", "1"]);
     }
 
     #[test]
     fn validated_sp_accepts_rational_parameter_vector_coefficients() {
         let compiler = compiler(&["a", "s", "g"], &["k1", "k2"], &["p"], &[&["g"]]);
         let compiled = compiler
-            .compile_str("sp(a/s*k1+p,k2-2*p)+a/s*k1^2")
+            .compile_expression("sp(a/s*k1+p,k2-2*p)+a/s*k1^2")
             .unwrap();
-        assert_coefficients(&compiled, "-2*g", &["a/s", "a/s", "0", "-2*a/s", "1"]);
-        assert_eq!(compiled.stats().scalar_product_calls(), 1);
-        assert!(compiled.stats().arithmetic_operations() > 0);
+        assert_coefficients(
+            &compiler,
+            &compiled,
+            "-2*g",
+            &["a/s", "a/s", "0", "-2*a/s", "1"],
+        );
     }
 
     #[test]
     fn exact_parameter_denominators_are_retained_without_map_extension() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
-        let compiled = compiler.compile_str("k^2/(a+1)").unwrap();
-        assert_coefficients(&compiled, "0", &["1/(a+1)"]);
+        let compiled = compiler.compile_expression("k^2/(a+1)").unwrap();
+        assert_coefficients(&compiler, &compiled, "0", &["1/(a+1)"]);
         assert_eq!(
-            compiler.parse_base_coefficient_str("(a-1)/(a+1)").unwrap(),
+            compiler.parse_base_expression("(a-1)/(a+1)").unwrap(),
             compiler
-                .coefficient_context()
+                .test_coefficient_context()
                 .coefficient_fixture("(a-1)/(a+1)")
         );
     }
@@ -5351,14 +3892,12 @@ mod tests {
     fn unknown_symbols_and_functions_are_rejected() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
         assert!(matches!(
-            compiler.compile_str("q^2"),
-            Err(SymbolicaAffineDenominatorError::RawUnknownIdentifier(identifier))
-                if identifier == "q"
+            compiler.compile_expression("q^2"),
+            Err(SymbolicaAffineDenominatorError::UnknownSymbol(_))
         ));
         assert!(matches!(
-            compiler.compile_str("f(k)"),
-            Err(SymbolicaAffineDenominatorError::RawUnsupportedFunction(function))
-                if function == "f"
+            compiler.compile_expression("f(k)"),
+            Err(SymbolicaAffineDenominatorError::UnsupportedFunction(_))
         ));
     }
 
@@ -5366,21 +3905,19 @@ mod tests {
     fn momentum_denominators_noninteger_powers_and_wrong_degrees_are_rejected() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
         assert!(matches!(
-            compiler.compile_str("1/k"),
+            compiler.compile_expression("1/k"),
             Err(SymbolicaAffineDenominatorError::NegativeMomentumPower { .. })
         ));
         assert!(matches!(
-            compiler.compile_str("k^(1/2)"),
-            Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                detail: "a power exponent is not an exact signed integer"
-            })
+            compiler.compile_expression("k^(1/2)"),
+            Err(SymbolicaAffineDenominatorError::UnsupportedPower(_))
         ));
         assert!(matches!(
-            compiler.compile_str("k+a"),
+            compiler.compile_expression("k+a"),
             Err(SymbolicaAffineDenominatorError::MomentumDegreeOne { .. })
         ));
         assert!(matches!(
-            compiler.compile_str("k^3"),
+            compiler.compile_expression("k^3"),
             Err(SymbolicaAffineDenominatorError::MomentumDegreeTooHigh { degree: 3, .. })
         ));
     }
@@ -5389,17 +3926,15 @@ mod tests {
     fn scalar_product_requires_two_homogeneous_vector_linear_arguments() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
         assert!(matches!(
-            compiler.compile_str("sp(k+1,k)"),
+            compiler.compile_expression("sp(k+1,k)"),
             Err(SymbolicaAffineDenominatorError::InvalidScalarProductArgument { argument: 0, .. })
         ));
         assert!(matches!(
-            compiler.compile_str("sp(k)"),
-            Err(SymbolicaAffineDenominatorError::RawTokenGrammar {
-                detail: "scalar product must have exactly two arguments"
-            })
+            compiler.compile_expression("sp(k)"),
+            Err(SymbolicaAffineDenominatorError::MalformedScalarProduct { arguments: 1, .. })
         ));
         assert!(matches!(
-            compiler.compile_str("sp(sp(k,k)*k,k)"),
+            compiler.compile_expression("sp(sp(k,k)*k,k)"),
             Err(SymbolicaAffineDenominatorError::NestedScalarProduct(_))
         ));
     }
@@ -5443,29 +3978,16 @@ mod tests {
             .unwrap();
             (shape.1, shape.0)
         };
-        let mut exact = compiler.limits();
+        let mut exact = compiler.test_limits();
         exact.max_input_nodes = exact_nodes;
-        SymbolicaAffineDenominatorCompiler::try_new(
-            compiler.coefficient_context().clone(),
-            compiler.loop_momenta().to_vec(),
-            compiler.external_momenta().to_vec(),
-            compiler.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap()
-        .compile(source.as_view())
-        .unwrap();
+        compiler
+            .test_with_limits(exact)
+            .compile(source.as_view())
+            .unwrap();
 
         let mut below = exact;
         below.max_input_nodes = exact_nodes - 1;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            compiler.coefficient_context().clone(),
-            compiler.loop_momenta().to_vec(),
-            compiler.external_momenta().to_vec(),
-            compiler.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
+        let below = compiler.test_with_limits(below);
         assert!(matches!(
             below.compile(source.as_view()),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
@@ -5483,63 +4005,33 @@ mod tests {
             &["p", "q"],
             &[&["spp", "spq"], &["spq", "sqq"]],
         );
-        let square = compiler.compile_str("(k+p+q)^2").unwrap();
-        assert_coefficients(&square, "spp+2*spq+sqq", &["1", "2", "2"]);
-        let explicit = compiler.compile_str("sp(p,q)+k^2").unwrap();
-        assert_coefficients(&explicit, "spq", &["1", "0", "0"]);
-        assert_eq!(explicit.stats().projection_gram_operations(), 2);
+        let square = compiler.compile_expression("(k+p+q)^2").unwrap();
+        assert_coefficients(&compiler, &square, "spp+2*spq+sqq", &["1", "2", "2"]);
+        let explicit = compiler.compile_expression("sp(p,q)+k^2").unwrap();
+        assert_coefficients(&compiler, &explicit, "spq", &["1", "0", "0"]);
     }
 
     #[test]
     fn zero_parameter_fields_are_supported() {
         let compiler = compiler(&[], &["k"], &[], &[]);
-        let compiled = compiler.compile_str("k^2+1").unwrap();
-        assert_coefficients(&compiled, "1", &["1"]);
-    }
-
-    #[test]
-    fn unqualified_and_qualified_symbolica_spellings_match() {
-        let compiler = compiler(&["a"], &["k"], &[], &[]);
-        let unqualified = compiler.compile_str("k^2+a").unwrap();
-        let qualified = compiler.compile_str("rustred::k^2+rustred::a").unwrap();
-        assert_eq!(
-            qualified.affine_denominator(),
-            unqualified.affine_denominator()
-        );
+        let compiled = compiler.compile_expression("k^2+1").unwrap();
+        assert_coefficients(&compiler, &compiled, "1", &["1"]);
     }
 
     #[test]
     fn projection_denominator_replication_limit_has_exact_boundary() {
         let base = compiler(&["a"], &["k1", "k2"], &[], &[]);
         let expression = "(k1^2+k1*k2+k2^2)/(a+1)";
-        let mut exact = base.limits();
+        let mut exact = base.test_limits();
         exact.max_projection_denominator_replication_terms = 6;
-        let exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap();
-        let compiled = exact_compiler.compile_str(expression).unwrap();
-        assert_eq!(
-            compiled.stats().projection_denominator_replication_terms(),
-            6
-        );
+        let exact_compiler = base.test_with_limits(exact);
+        exact_compiler.compile_expression(expression).unwrap();
 
         let mut below = exact;
         below.max_projection_denominator_replication_terms = 5;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
+        let below = base.test_with_limits(below);
         assert!(matches!(
-            below.compile_str(expression),
+            below.compile_expression(expression),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "projection denominator replication terms",
                 requested: 6,
@@ -5551,18 +4043,11 @@ mod tests {
     #[test]
     fn projection_group_and_retained_limits_precede_group_allocation() {
         let base = compiler(&["a"], &["k"], &[], &[]);
-        let mut no_groups = base.limits();
+        let mut no_groups = base.test_limits();
         no_groups.max_projection_groups = 0;
-        let no_groups = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            no_groups,
-        )
-        .unwrap();
+        let no_groups = base.test_with_limits(no_groups);
         assert!(matches!(
-            no_groups.compile_str("k^2"),
+            no_groups.compile_expression("k^2"),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "aggregate projection groups",
                 requested: 1,
@@ -5570,18 +4055,11 @@ mod tests {
             })
         ));
 
-        let mut no_projection_storage = base.limits();
+        let mut no_projection_storage = base.test_limits();
         no_projection_storage.max_projected_retained_bytes = 0;
-        let no_projection_storage = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            no_projection_storage,
-        )
-        .unwrap();
+        let no_projection_storage = base.test_with_limits(no_projection_storage);
         assert!(matches!(
-            no_projection_storage.compile_str("k^2"),
+            no_projection_storage.compile_expression("k^2"),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "aggregate projected retained bytes",
                 requested,
@@ -5594,30 +4072,16 @@ mod tests {
     fn componentwise_dense_degree_box_limit_has_exact_boundary() {
         let base = compiler(&["a", "b"], &["k"], &[], &[]);
         let expression = "(a+1)*(b+1)*k^2";
-        let mut exact = base.limits();
+        let mut exact = base.test_limits();
         exact.max_dense_degree_box_terms = 12;
-        let exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap();
-        exact_compiler.compile_str(expression).unwrap();
+        let exact_compiler = base.test_with_limits(exact);
+        exact_compiler.compile_expression(expression).unwrap();
 
         let mut below = exact;
         below.max_dense_degree_box_terms = 11;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
+        let below = base.test_with_limits(below);
         assert!(matches!(
-            below.compile_str(expression),
+            below.compile_expression(expression),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "dense numerator degree-box terms",
                 requested: 12,
@@ -5627,82 +4091,29 @@ mod tests {
     }
 
     #[test]
-    fn raw_and_normalized_gmp_integer_limits_have_exact_boundaries() {
+    fn normalized_gmp_integer_limit_has_exact_boundary() {
         let base = compiler(&["a"], &["k"], &[], &[]);
-        let raw_expression = "12345678901234567890123456789012345678901234567890*sp(k,k)";
-        let raw_baseline = base.compile_str(raw_expression).unwrap();
-        assert_eq!(raw_baseline.stats().raw_integer_magnitude_bits(), 200);
-
-        // The decimal digit envelope is intentionally conservative relative to
-        // the post-conversion binary GMP magnitude.  Exercise its own exact
-        // pre-Atom boundary instead of conflating it with the normalized
-        // retained-expression census.
-        let mut raw_exact = base.limits();
-        raw_exact.max_integer_magnitude_bits = 200;
-        let raw_exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            raw_exact,
-        )
-        .unwrap();
-        raw_exact_compiler.compile_str(raw_expression).unwrap();
-
-        let mut below_raw = raw_exact;
-        below_raw.max_integer_magnitude_bits = 199;
-        let below_raw = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below_raw,
-        )
-        .unwrap();
-        assert!(matches!(
-            below_raw.compile_str(raw_expression),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw lexical integer magnitude bits",
-                requested: 200,
-                limit: 199,
-            })
-        ));
-
-        // Use a polynomial expansion whose retained integer census is larger
-        // than its tiny raw exponent subtree, making the normalized boundary
-        // independently reachable after preconversion admission.
         let normalized_expression = "(a+1)^16*sp(k,k)";
-        let normalized_baseline = base.compile_str(normalized_expression).unwrap();
-        let normalized_bits = normalized_baseline
-            .stats()
-            .normalized_expression_integer_bits();
+        let source =
+            try_parse!(normalized_expression, default_namespace = RUSTRED_NAMESPACE).unwrap();
+        let mut evaluator = CheckedEvaluator::new(&base);
+        let evaluated = evaluator.evaluate(source.as_view(), true).unwrap();
+        let normalized_bits = normalized_expression_census(&evaluated)
+            .unwrap()
+            .integer_bits;
         assert!(normalized_bits > 8);
-        let mut normalized_exact = base.limits();
+        let mut normalized_exact = base.test_limits();
         normalized_exact.max_normalized_expression_integer_bits = normalized_bits;
-        let normalized_exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            normalized_exact,
-        )
-        .unwrap();
+        let normalized_exact_compiler = base.test_with_limits(normalized_exact);
         normalized_exact_compiler
-            .compile_str(normalized_expression)
+            .compile_expression(normalized_expression)
             .unwrap();
 
         let mut below_normalized = normalized_exact;
         below_normalized.max_normalized_expression_integer_bits = normalized_bits - 1;
-        let below_normalized = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below_normalized,
-        )
-        .unwrap();
+        let below_normalized = base.test_with_limits(below_normalized);
         assert!(matches!(
-            below_normalized.compile_str(normalized_expression),
+            below_normalized.compile_expression(normalized_expression),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "normalized expression integer bits",
                 requested,
@@ -5714,164 +4125,10 @@ mod tests {
     #[test]
     fn signed_constants_coefficients_and_parameter_powers_are_exact() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
-        let signed = compiler.compile_str("-2*k^2-3").unwrap();
-        assert_coefficients(&signed, "-3", &["-2"]);
-        let inverse_parameter = compiler.compile_str("a^-2*k^2").unwrap();
-        assert_coefficients(&inverse_parameter, "0", &["1/a^2"]);
-    }
-
-    #[test]
-    fn raw_power_preflight_has_exact_and_huge_boundaries() {
-        let base = compiler(&["a"], &["k"], &[], &[]);
-        let mut exact = base.limits();
-        exact.max_abs_power = 3;
-        let exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap();
-        let compiled = exact_compiler.compile_str("2^3*k^2").unwrap();
-        assert_coefficients(&compiled, "0", &["8"]);
-
-        let mut below = exact;
-        below.max_abs_power = 2;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
-        assert!(matches!(
-            below.compile_str("2^3*k^2"),
-            Err(SymbolicaAffineDenominatorError::PowerLimit {
-                requested: 3,
-                limit: 2,
-            })
-        ));
-        assert!(matches!(
-            exact_compiler.compile_str("2^999999999999999999999999999999999999999999"),
-            Err(SymbolicaAffineDenominatorError::PowerLimit {
-                requested: u64::MAX,
-                limit: 3,
-            })
-        ));
-
-        let mut magnitude = base.limits();
-        magnitude.max_coefficient_integer_bits = 64;
-        magnitude.max_normalized_expression_integer_bits = 64;
-        let magnitude_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            magnitude,
-        )
-        .unwrap();
-        // `sp(k,k)` avoids introducing a second numeric subtree for the
-        // exponent in `k^2`, isolating the 64-bit raw power-output boundary.
-        magnitude_compiler.compile_str("10^8*sp(k,k)").unwrap();
-        let mut below_magnitude = magnitude;
-        below_magnitude.max_coefficient_integer_bits = 63;
-        below_magnitude.max_normalized_expression_integer_bits = 63;
-        let below_magnitude = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below_magnitude,
-        )
-        .unwrap();
-        assert!(matches!(
-            below_magnitude.compile_str("10^8*sp(k,k)"),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw numeric-power output magnitude bits",
-                requested: 64,
-                limit: 63,
-            })
-        ));
-    }
-
-    #[test]
-    fn recursive_numeric_subtrees_are_bounded_before_symbolica_normalization() {
-        let base = compiler(&["a"], &["k"], &[], &[]);
-        let mut limits = base.limits();
-        limits.max_coefficient_integer_bits = 128;
-        limits.max_normalized_expression_integer_bits = 128;
-        let bounded = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            limits,
-        )
-        .unwrap();
-        for expression in [
-            "((2^4)^4)^4*k^2",
-            "((2+2)*2)^32*k^2",
-            "(-(2+2))^64*k^2",
-            "k^2/((2+2)^64)",
-        ] {
-            assert!(matches!(
-                bounded.compile_str(expression),
-                Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                    resource: "raw numeric-subtree magnitude bits",
-                    requested,
-                    limit: 128,
-                }) if requested > 128
-            ));
-        }
-        // A signed decimal base is visible to the earlier literal-power gate;
-        // assert that deterministic ordering separately from compound bases.
-        assert!(matches!(
-            bounded.compile_str("(-2)^64*k^2"),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw numeric-power output magnitude bits",
-                requested: 256,
-                limit: 128,
-            })
-        ));
-    }
-
-    #[test]
-    fn disjoint_raw_numeric_subtrees_are_aggregated_but_nested_ones_are_not_duplicated() {
-        let sibling = Token::parse(
-            "2^16*a+3^16*k*k",
-            ParseSettings::symbolica().convert_mul_to_atom(false),
-        )
-        .unwrap();
-        let mut exact = SymbolicaAffineDenominatorLimits::default();
-        exact.max_coefficient_integer_bits = 128;
-        exact.max_normalized_expression_integer_bits = 128;
-        preflight_raw_numeric_subtrees(&sibling, exact).unwrap();
-        let mut below = exact;
-        below.max_coefficient_integer_bits = 127;
-        below.max_normalized_expression_integer_bits = 127;
-        assert!(matches!(
-            preflight_raw_numeric_subtrees(&sibling, below),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "aggregate raw numeric-subtree magnitude bits",
-                requested: 128,
-                limit: 127,
-            })
-        ));
-
-        let nested = Token::parse(
-            "((2+2)^16)*a",
-            ParseSettings::symbolica().convert_mul_to_atom(false),
-        )
-        .unwrap();
-        let nested_census = raw_numeric_subtree_census(&nested, exact).unwrap();
-        assert!(nested_census.envelope.is_none());
-        assert_eq!(nested_census.retained_maximal_bits, 80);
-        let mut nested_exact = exact;
-        nested_exact.max_coefficient_integer_bits = 80;
-        nested_exact.max_normalized_expression_integer_bits = 80;
-        preflight_raw_numeric_subtrees(&nested, nested_exact).unwrap();
+        let signed = compiler.compile_expression("-2*k^2-3").unwrap();
+        assert_coefficients(&compiler, &signed, "-3", &["-2"]);
+        let inverse_parameter = compiler.compile_expression("a^-2*k^2").unwrap();
+        assert_coefficients(&compiler, &inverse_parameter, "0", &["1/a^2"]);
     }
 
     #[test]
@@ -5907,7 +4164,7 @@ mod tests {
             let actual_census = coefficient_census(&actual).unwrap();
             verify_operation_result_envelope(&actual, actual_census, allocation).unwrap();
 
-            let mut exact = base.clone();
+            let mut exact = base.test_clone();
             exact.limits.max_combined_polynomial_terms =
                 allocation.numerator_terms.max(allocation.denominator_terms);
             exact.limits.max_combined_exponent_entries = allocation.census.exponent_entries;
@@ -5915,7 +4172,7 @@ mod tests {
             exact.limits.max_combined_retained_bytes = allocation.census.retained_bytes;
             checked_test_operation(&exact, &left, &right, operation).unwrap();
 
-            let mut below_support = base.clone();
+            let mut below_support = base.test_clone();
             below_support.limits.max_combined_polynomial_terms = allocation.numerator_terms - 1;
             assert!(matches!(
                 checked_test_operation(&below_support, &left, &right, operation),
@@ -5926,7 +4183,7 @@ mod tests {
                 }) if requested == allocation.numerator_terms as u128 && limit + 1 == requested
             ));
 
-            let mut below_integer = base.clone();
+            let mut below_integer = base.test_clone();
             below_integer.limits.max_coefficient_integer_bits = allocation.census.integer_bits - 1;
             assert!(matches!(
                 checked_test_operation(&below_integer, &left, &right, operation),
@@ -5937,7 +4194,7 @@ mod tests {
                 }) if requested == allocation.census.integer_bits as u128 && limit + 1 == requested
             ));
 
-            let mut below_storage = base.clone();
+            let mut below_storage = base.test_clone();
             below_storage.limits.max_combined_retained_bytes = allocation.census.retained_bytes - 1;
             assert!(matches!(
                 checked_test_operation(&below_storage, &left, &right, operation),
@@ -5953,8 +4210,13 @@ mod tests {
     #[test]
     fn combined_integer_and_storage_envelopes_are_preoperation() {
         let base = compiler(&["a"], &["k"], &[], &[]);
-        let expanded = base.compile_str("(a+1)^256*k^2").unwrap();
-        assert_eq!(expanded.coefficients()[0].numerator.nterms(), 257);
+        let expanded = base.compile_expression("(a+1)^256*k^2").unwrap();
+        assert_eq!(
+            expanded.affine_denominator().coefficients()[0]
+                .numerator
+                .nterms(),
+            257
+        );
 
         let half_power = base.combined.coefficient_fixture("(a+1)^128");
         let power_step = exact_operation_allocation_envelope(
@@ -5969,7 +4231,7 @@ mod tests {
             checked_test_operation(&base, &half_power, &half_power, BinaryOperation::Multiply)
                 .unwrap();
         assert_eq!(squared.numerator.nterms(), 257);
-        let mut exact_power_step = base.clone();
+        let mut exact_power_step = base.test_clone();
         exact_power_step.limits.max_combined_polynomial_terms = 257;
         exact_power_step.limits.max_combined_exponent_entries = power_step.census.exponent_entries;
         exact_power_step.limits.max_coefficient_integer_bits = power_step.census.integer_bits;
@@ -5982,18 +4244,11 @@ mod tests {
         )
         .unwrap();
 
-        let mut integer_limits = base.limits();
+        let mut integer_limits = base.test_limits();
         integer_limits.max_coefficient_integer_bits = 128;
-        let integer_bounded = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            integer_limits,
-        )
-        .unwrap();
+        let integer_bounded = base.test_with_limits(integer_limits);
         assert!(matches!(
-            integer_bounded.compile_str("(a+1)^256*k^2"),
+            integer_bounded.compile_expression("(a+1)^256*k^2"),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "combined exact-operation integer bits",
                 requested,
@@ -6001,10 +4256,10 @@ mod tests {
             }) if requested > 128
         ));
 
-        let mut support_bounded = base.clone();
+        let mut support_bounded = base.test_clone();
         support_bounded.limits.max_combined_polynomial_terms = 256;
         assert!(matches!(
-            support_bounded.compile_str("(a+1)^256*k^2"),
+            support_bounded.compile_expression("(a+1)^256*k^2"),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "combined exact-operation numerator term envelope",
                 requested: 257,
@@ -6021,7 +4276,7 @@ mod tests {
             base.combined.parameter_names().len(),
         )
         .unwrap();
-        let mut storage_bounded = base.clone();
+        let mut storage_bounded = base.test_clone();
         storage_bounded.limits.max_combined_retained_bytes = allocation.census.retained_bytes - 1;
         let mut work = ExactWorkBudget::default();
         assert!(matches!(
@@ -6034,7 +4289,7 @@ mod tests {
         ));
 
         let one = base.combined.one();
-        let mut no_storage = base.clone();
+        let mut no_storage = base.test_clone();
         no_storage.limits.max_combined_retained_bytes = 0;
         assert!(matches!(
             checked_test_operation(&no_storage, &one, &one, BinaryOperation::Multiply),
@@ -6057,7 +4312,7 @@ mod tests {
 
         let large_base = base.combined.coefficient_fixture("(a+1)^16");
         let unit = planned_unit_coefficient_census(base.combined.parameter_names().len()).unwrap();
-        let mut zero_power_compiler = base.clone();
+        let mut zero_power_compiler = base.test_clone();
         zero_power_compiler.limits.max_coefficient_integer_bits = unit.integer_bits;
         zero_power_compiler.limits.max_combined_retained_bytes = unit.retained_bytes;
         let mut evaluator = CheckedEvaluator::new(&zero_power_compiler);
@@ -6065,7 +4320,7 @@ mod tests {
             evaluator.checked_power(&large_base, 0).unwrap(),
             zero_power_compiler.combined.one()
         );
-        let mut zero_power_rejected = base.clone();
+        let mut zero_power_rejected = base.test_clone();
         zero_power_rejected.limits.max_coefficient_integer_bits = 0;
         zero_power_rejected.limits.max_combined_retained_bytes = 0;
         let mut evaluator = CheckedEvaluator::new(&zero_power_rejected);
@@ -6095,41 +4350,6 @@ mod tests {
     }
 
     #[test]
-    fn lexical_flat_and_prefix_depth_preflights_are_exact() {
-        let mut exact = SymbolicaAffineDenominatorLimits::default();
-        exact.max_raw_token_nodes = 10;
-        preflight_raw_lexical("a+a+a", exact).unwrap();
-        let mut below = exact;
-        below.max_raw_token_nodes = 9;
-        assert!(matches!(
-            preflight_raw_lexical("a+a+a", below),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw lexical token envelope",
-                requested: 10,
-                limit: 9,
-            })
-        ));
-
-        let mut depth = SymbolicaAffineDenominatorLimits::default();
-        depth.max_nesting_depth = 2;
-        assert!(matches!(
-            preflight_raw_lexical("---1", depth),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw lexical prefix-operator depth",
-                requested: 3,
-                limit: 2,
-            })
-        ));
-        assert!(matches!(
-            preflight_raw_lexical("-/-/1", depth),
-            Err(SymbolicaAffineDenominatorError::ResourceLimit {
-                resource: "raw lexical prefix-operator depth",
-                ..
-            })
-        ));
-    }
-
-    #[test]
     fn explicit_external_scalar_products_close_compositionally() {
         let compiler = compiler(
             &["spp", "spq", "sqq"],
@@ -6137,28 +4357,27 @@ mod tests {
             &["p", "q"],
             &[&["spp", "spq"], &["spq", "sqq"]],
         );
-        let product = compiler.compile_str("sp(p,q)*k^2").unwrap();
-        assert_coefficients(&product, "0", &["spq", "0", "0"]);
-        let square = compiler.compile_str("sp(p,p)^2+k^2").unwrap();
-        assert_coefficients(&square, "spp^2", &["1", "0", "0"]);
-        let quotient = compiler.compile_str("k^2/sp(p,p)").unwrap();
-        assert_coefficients(&quotient, "0", &["1/spp", "0", "0"]);
-        assert_eq!(product.stats().projection_gram_operations(), 2);
+        let product = compiler.compile_expression("sp(p,q)*k^2").unwrap();
+        assert_coefficients(&compiler, &product, "0", &["spq", "0", "0"]);
+        let square = compiler.compile_expression("sp(p,p)^2+k^2").unwrap();
+        assert_coefficients(&compiler, &square, "spp^2", &["1", "0", "0"]);
+        let quotient = compiler.compile_expression("k^2/sp(p,p)").unwrap();
+        assert_coefficients(&compiler, &quotient, "0", &["1/spp", "0", "0"]);
     }
 
     #[test]
     fn loop_coordinate_scalar_products_remain_nonlinear_under_products() {
         let compiler = compiler(&["spp"], &["k"], &["p"], &[&["spp"]]);
         assert!(matches!(
-            compiler.compile_str("sp(k,k)^2"),
+            compiler.compile_expression("sp(k,k)^2"),
             Err(SymbolicaAffineDenominatorError::MomentumDegreeTooHigh { degree: 4, .. })
         ));
         assert!(matches!(
-            compiler.compile_str("sp(k,p)*sp(k,p)"),
+            compiler.compile_expression("sp(k,p)*sp(k,p)"),
             Err(SymbolicaAffineDenominatorError::MomentumDegreeTooHigh { degree: 4, .. })
         ));
         assert!(matches!(
-            compiler.compile_str("1/sp(k,k)"),
+            compiler.compile_expression("1/sp(k,k)"),
             Err(SymbolicaAffineDenominatorError::NegativeMomentumPower { exponent: -1, .. })
         ));
     }
@@ -6166,14 +4385,14 @@ mod tests {
     #[test]
     fn projection_coordinate_and_gmp_denominator_storage_boundaries_are_exact() {
         let compiler = compiler(&["a"], &["k"], &[], &[]);
-        let zero = compiler.coefficient_context().zero();
+        let zero = compiler.test_coefficient_context().zero();
         let coordinate_baseline = multiply_census(
             coefficient_census(&zero).unwrap(),
             2,
             "test coordinate baseline",
         )
         .unwrap();
-        let mut exact_limits = compiler.limits();
+        let mut exact_limits = compiler.test_limits();
         exact_limits.max_projected_retained_bytes = coordinate_baseline.retained_bytes;
         let mut exact_budget = ProjectionAllocationBudget::default();
         exact_budget
@@ -6199,7 +4418,7 @@ mod tests {
         ));
 
         let large = compiler
-            .coefficient_context()
+            .test_coefficient_context()
             .coefficient_fixture("1/(12345678901234567890123456789012345678901234567890*a+1)");
         assert!(
             large
@@ -6214,7 +4433,7 @@ mod tests {
             "test denominator replication",
         )
         .unwrap();
-        let mut denominator_limits = compiler.limits();
+        let mut denominator_limits = compiler.test_limits();
         denominator_limits.max_projected_retained_bytes = denominator_replication.retained_bytes;
         let mut denominator_budget = ProjectionAllocationBudget::default();
         denominator_budget
@@ -6242,41 +4461,21 @@ mod tests {
     #[test]
     fn normalized_render_byte_preflight_has_exact_boundary() {
         let base = compiler(&["a"], &["k"], &[], &[]);
-        let baseline = base.compile_str("(a+1)*k^2").unwrap();
-        let census = NormalizedExpressionCensus {
-            nodes: baseline.stats().normalized_expression_nodes(),
-            integer_bits: baseline.stats().normalized_expression_integer_bits(),
-        };
-        let maximum_symbol_bytes = base
-            .raw_parser_labels
-            .iter()
-            .map(String::len)
-            .max()
-            .unwrap();
+        let source = try_parse!("(a+1)*k^2", default_namespace = RUSTRED_NAMESPACE).unwrap();
+        let mut evaluator = CheckedEvaluator::new(&base);
+        let evaluated = evaluator.evaluate(source.as_view(), true).unwrap();
+        let census = normalized_expression_census(&evaluated).unwrap();
+        let maximum_symbol_bytes = maximum_combined_symbol_bytes(&base.combined).unwrap();
         let bound = normalized_expression_render_byte_bound(census, maximum_symbol_bytes).unwrap();
-        let mut exact = base.limits();
+        let mut exact = base.test_limits();
         exact.max_normalized_expression_bytes = bound;
-        let exact_compiler = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap();
-        exact_compiler.compile_str("(a+1)*k^2").unwrap();
+        let exact_compiler = base.test_with_limits(exact);
+        exact_compiler.compile_expression("(a+1)*k^2").unwrap();
         let mut below = exact;
         below.max_normalized_expression_bytes = bound - 1;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
+        let below = base.test_with_limits(below);
         assert!(matches!(
-            below.compile_str("(a+1)*k^2"),
+            below.compile_expression("(a+1)*k^2"),
             Err(SymbolicaAffineDenominatorError::NormalizedExpressionTooLarge {
                 requested,
                 limit,
@@ -6288,35 +4487,41 @@ mod tests {
     fn complete_compiled_retained_bound_has_exact_boundary() {
         let base = compiler(&["a"], &["k"], &[], &[]);
         let expression = "(a+1)*k^2";
-        let baseline = base.compile_str(expression).unwrap();
-        let retained = baseline.stats().compiled_retained_bytes();
+        let baseline = base.compile_expression(expression).unwrap();
+        let mut projected = coefficient_census(baseline.affine_denominator().constant()).unwrap();
+        for coefficient in baseline.affine_denominator().coefficients() {
+            projected
+                .checked_add_assign(
+                    coefficient_census(coefficient).unwrap(),
+                    "test affine census",
+                )
+                .unwrap();
+        }
+        let variable_maps = retained_variable_map_arc_bytes(
+            std::iter::once(baseline.affine_denominator().constant())
+                .chain(baseline.affine_denominator().coefficients()),
+        )
+        .unwrap();
+        let retained = compiled_retained_byte_bound(
+            baseline.source().as_view().get_byte_size(),
+            baseline.normalized_expression().as_view().get_byte_size(),
+            projected.retained_bytes,
+            variable_maps,
+        )
+        .unwrap();
         assert!(retained > std::mem::size_of::<CompiledSymbolicaAffineDenominator>());
 
-        let mut exact = base.limits();
+        let mut exact = base.test_limits();
         exact.max_compiled_retained_bytes = retained;
-        SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            exact,
-        )
-        .unwrap()
-        .compile_str(expression)
-        .unwrap();
+        base.test_with_limits(exact)
+            .compile_expression(expression)
+            .unwrap();
 
         let mut below = exact;
         below.max_compiled_retained_bytes = retained - 1;
-        let below = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            below,
-        )
-        .unwrap();
+        let below = base.test_with_limits(below);
         assert!(matches!(
-            below.compile_str(expression),
+            below.compile_expression(expression),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "compiled retained bytes",
                 requested,
@@ -6324,18 +4529,11 @@ mod tests {
             }) if requested == retained as u128 && limit + 1 == requested
         ));
 
-        let mut zero = base.limits();
+        let mut zero = base.test_limits();
         zero.max_compiled_retained_bytes = 0;
-        let zero = SymbolicaAffineDenominatorCompiler::try_new(
-            base.coefficient_context().clone(),
-            base.loop_momenta().to_vec(),
-            base.external_momenta().to_vec(),
-            base.external_gram().to_vec(),
-            zero,
-        )
-        .unwrap();
+        let zero = base.test_with_limits(zero);
         assert!(matches!(
-            zero.compile_str(expression),
+            zero.compile_expression(expression),
             Err(SymbolicaAffineDenominatorError::ResourceLimit {
                 resource: "compiled fixed retained bytes",
                 requested,
