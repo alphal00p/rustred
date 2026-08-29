@@ -14,14 +14,21 @@ The currently evidenced core can:
   descriptions, authenticating every form at ingress;
 - build exact topology-neutral affine integral families;
 - generate the complete ordinary parametric IBP and LI source rows;
+- exactly replay physical family rows/common-scale claims, retain auxiliary
+  roles, and structurally validate caller-attested presentation metadata;
+- project scalar, odd-rank, and rank-two vacuum tensors and separately lower
+  explicit scalar products onto family integral keys;
+- derive one guarded strictly descending rule at a concrete integer anchor and
+  accept it only after exact replay from freshly specialized source rows;
 - verify explicit affine symmetry maps;
 - analyze requested zero sectors using generic Symanzik/rank evidence; and
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer.
 
-It does **not** yet solve or close families, publish reusable rule artifacts,
-apply IBP reductions, substitute masters, or reduce tensors. Structural source
-counts—even the six-loop count—are not closure evidence.
+It does **not** yet generalize the anchored rule, solve or close families,
+publish reusable rule artifacts, apply IBP reductions, substitute masters, or
+support generic/higher-even-rank tensor reduction. Structural source counts—even
+the six-loop count—are not closure evidence.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
@@ -33,8 +40,8 @@ than migrated.
 The repository root is a virtual Cargo workspace with three packages:
 
 - `crates/rustred-core` is package and library `rustred`; it owns exact
-  algebra, families, normalized input, identities, sectors, and generic
-  campaign primitives.
+  algebra, families, normalized input, identities, sectors, tensor and foundry
+  services, and generic campaign primitives.
 - `crates/rustred-app` owns shared application operations and the `rustred`
   CLI. Transport schemas and presentation stay here rather than in the
   mathematical core.
@@ -79,14 +86,15 @@ python -c 'import rustred'
 Vakint development occurs in the independent GammaLoop repository on branch
 `vakint_rustred`. The current additive `RustRed` tensor-mode boundary preserves
 Vakint's existing default FORM behavior, but deliberately returns a typed
-unavailable result because the real RustRed tensor service is not implemented
-yet. The new mode never falls back to FORM.
+unavailable result because its adapter is not wired to RustRed's new bounded
+tensor service yet. The new mode never falls back to FORM.
 
-The planned service will be implemented in the RustRed crate and reused by
-Vakint, the CLI, and Python. Vakint remains responsible for topology matching,
-canonical routing, steering, and presentation. Existing FORM-backed Vakint
-paths and their compatibility tests remain reference oracles; the RustRed mode
-does not invoke or fall back to them.
+The RustRed crate now owns the first scalar/odd/rank-two single-scale-vacuum
+service; Vakint, the CLI, and Python will reuse it as their adapters land.
+Vakint remains responsible for topology matching, canonical routing, steering,
+and presentation. Existing FORM-backed Vakint paths and their compatibility
+tests remain reference oracles; the RustRed mode does not invoke or fall back
+to them.
 
 ## Documentation
 

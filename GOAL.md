@@ -45,15 +45,20 @@ The mandatory clean reset is complete:
 - the former solver/session/publication/re-entry and authored-recurrence
   prototype has been deleted rather than preserved;
 - the core is organized under `algebra`, `family`, `input`, `identity`,
-  `sector`, and `campaign`; its source/facade/allocation audit has passed, and
-  the dated research corpus has been consolidated into the stable documents
-  linked below and deleted; and
+  `sector`, `tensor`, `foundry`, and `campaign`; the completed Track-A spine's
+  source/facade/allocation audit passed, the new capability slices are audited
+  at each milestone, and the dated research corpus has been consolidated into
+  the stable documents linked below and deleted; and
 - the live core currently compiles families, generates generic ordinary
   parametric IBP and LI rows, verifies affine symmetry candidates, performs
-  on-demand zero-sector analysis, and provides deterministic core-owned
-  campaign primitives with application-owned roots-only composition. It does
-  **not** yet solve or close families, publish
-  rule artifacts, apply IBPs, substitute masters, or reduce tensors.
+  on-demand zero-sector analysis, authenticates physical/auxiliary family
+  presentations, performs bounded scalar/odd/rank-two vacuum tensor projection
+  and affine scalar-product lowering, derives one guarded strictly descending
+  rule at a concrete anchor with Symbolica's sparse reducer and exact source
+  replay, and provides deterministic core-owned campaign primitives with
+  application-owned roots-only composition. It does **not** yet generalize
+  anchored rules, solve or close families, publish rule artifacts, apply IBPs,
+  substitute masters, or support generic/higher-even-rank tensor reduction.
 
 In the independent GammaLoop repository, branch `vakint_rustred` already has a
 backward-compatible `TensorReductionMode::RustRed` boundary. Existing Vakint
@@ -262,27 +267,30 @@ closure evidence.
 
 ### Track B — RustRed tensor foundation and Vakint integration
 
-1. Add the authenticated family-presentation contract needed to distinguish
-   physical denominators, auxiliary ISPs, routing, shifts, and common scale.
-2. Implement the RustRed tensor vocabulary, projector/orbit kernel, optimized
-   vacuum lane, family-aware scalar lowering, and typed generic stub.
+1. Maintain the now-live authenticated family-presentation contract needed to
+   distinguish physical denominators, auxiliary ISPs, routing, shifts, and
+   common scale.
+2. Extend the now-live scalar/odd/rank-two vacuum tensor slice to the full
+   projector/orbit kernel, while retaining family-aware scalar lowering and
+   the typed generic stub.
 3. Replace Vakint's typed-unavailable adapter with the real RustRed service on
    `vakint_rustred`, preserving every existing input/backend/default result.
 4. Compare identical lower-loop inputs through RustRed and existing Vakint
    oracle expectations; later add guarded rule application and master
    substitution as real artifacts become available.
 
-For local co-development, Vakint may temporarily depend on
-`../../../../crates/rustred-core`. Every pushed GammaLoop milestone pins the
+For local co-development, GammaLoop's workspace may temporarily depend on
+`../../crates/rustred-core`. Every pushed GammaLoop milestone pins the
 exact validated RustRed Git revision instead. GammaLoop's Symbolica source and
 features must resolve to the same exact CAS identity.
 
 ### Track C — fresh closing-rule foundry
 
-1. Build a small exact-solving boundary around freshly generated generic rows
-   and Symbolica-native sparse/matrix operations.
-2. Derive one strictly descending guarded lower-loop rule and prove it by exact
-   regenerated-source residual replay.
+1. Extend the now-live concrete-anchor exact-solving boundary around freshly
+   generated rows and Symbolica's native sparse reducer toward parametric
+   discovery.
+2. Generalize the now-live guarded, strictly descending, exactly source-replayed
+   lower-loop sentinel without weakening its concrete-anchor evidence.
 3. Add exceptional-domain refinement only after that generic path is real;
    retain LiteRed2's translate-before-substitute and residual recentering
    semantics without reviving its mutable architecture.

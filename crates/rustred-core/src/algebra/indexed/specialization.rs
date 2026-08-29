@@ -13,7 +13,7 @@ use super::limits::{
     IndexedAlgebraLimits, ceil_log2, check_limit, checked_indexed_add, checked_indexed_mul,
     integer_magnitude_bits, verify_polynomial_execution_envelope,
 };
-use super::value::IndexedCoefficient;
+use super::value::{IndexedCoefficient, IndexedPolynomial};
 
 /// Prospective mathematical bounds used immediately by one specialization.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,6 +24,26 @@ struct SpecializationPreflight {
 }
 
 impl IndexedCoefficientContext {
+    /// Simultaneously specialize every index of an authenticated polynomial
+    /// and project it to the exact base variable map.
+    ///
+    /// Unlike [`Self::specialize`], this operation performs no rational
+    /// normalization: the returned polynomial is the exact mapped condition.
+    /// This is the boundary used by domain owners that must retain a
+    /// pre-cancellation nonzero condition at a concrete lattice point.
+    pub fn specialize_polynomial(
+        &self,
+        value: &IndexedPolynomial,
+        assignment: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
+        self.validate_index_arity(assignment)?;
+        let preflight =
+            self.preflight_specialize_polynomial_raw(value.raw(), assignment, limits)?;
+        self.execute_specialize_polynomial_raw(value.raw(), assignment, limits, preflight)
+    }
+
     /// Simultaneously specialize every index and project the result to the
     /// exact base variable map.
     ///

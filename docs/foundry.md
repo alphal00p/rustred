@@ -2,13 +2,16 @@
 
 ## Status
 
-The foundry described here is one of the next production subsystems, not a current
-RustRed capability. The present core can construct authenticated affine
-families, generate raw topology-neutral parametric IBP/LI rows, and provide
-selected sector, symmetry, zero-analysis, and resource primitives. It does not
-yet discover guarded rules, prove coverage closure, publish closed artifacts,
-or reduce an integral. The [project goal](../GOAL.md) is the authority whenever
-this design and the implementation frontier differ.
+The first narrow foundry capability is now live. In addition to constructing
+authenticated affine families and generic parametric IBP/LI rows, the core can
+specialize a chronological `ParametricRelation` slice at one concrete integer
+anchor, order its integral columns hardest-first, and use Symbolica's public
+`SparseRowReducer` to derive one guarded strictly descending rule. The rule is
+returned only after exact source-row replay. This concrete-anchor capability
+does not generalize a rule, refine exceptional domains, prove coverage closure,
+publish a closed artifact, or reduce an integral. The
+[project goal](../GOAL.md) is the authority whenever this design and the
+implementation frontier differ.
 
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
@@ -154,6 +157,17 @@ reconstruction may accelerate candidate discovery. Prime/point schedules are
 deterministic, bad samples are rejected, and every reconstructed rule is
 verified over the exact authenticated coefficient domain. Finite-field
 agreement alone cannot publish a rule.
+
+The live anchored boundary augments the physical matrix with chronological
+identity columns. Forward reduction therefore exposes both a normalized row
+and its exact source combination in `U`, while `L` identifies the complete
+chronological chain of pre-normalization pivot coefficients. It uses neither
+sparse `solve` nor sparse `inv` as an oracle. Visible input/output structure
+and exact replay work are limited with typed errors. Aggregate structural
+budgets separately census live integral-key power cells, every index cell
+deep-cloned into guard provenance, and both coordinate buffers owned by each
+prepared or strict-descent ordering key. Symbolica 2.2.0 still exposes no hard
+scratch-memory census or cancellation hook for the reducer.
 
 A missing public Symbolica primitive is a typed unsupported boundary. In
 particular, the pinned Symbolica revision has no complete public integer

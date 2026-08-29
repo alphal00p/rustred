@@ -5,7 +5,29 @@ use crate::algebra::{CoefficientContext, ExactAlgebraLimits};
 use super::super::limits::integer_magnitude_bits;
 use super::super::{
     IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
+    IndexedPolynomial,
 };
+
+#[test]
+fn polynomial_specialization_preserves_the_pre_cancellation_condition() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "polynomial-condition", 1).unwrap();
+    let n = context.index(0).unwrap();
+    let x = context.lift(&base.parameter("x").unwrap()).unwrap();
+    let condition = context.add(&n, &x).unwrap();
+    let condition = IndexedPolynomial {
+        raw: condition.raw.numerator,
+        context: context.fingerprint.clone(),
+    };
+
+    let specialized = context
+        .specialize_polynomial(&condition, &[2], IndexedAlgebraLimits::default())
+        .unwrap();
+    assert_eq!(
+        specialized,
+        (&base.parameter("x").unwrap() + &base.integer(2)).numerator
+    );
+}
 
 #[test]
 fn zero_and_constant_specializations_rebind_the_exact_base_map() {

@@ -11,6 +11,7 @@ mod integral;
 pub mod isp;
 mod kinematics;
 mod model;
+pub mod presentation;
 pub mod symanzik;
 
 #[cfg(test)]

@@ -17,6 +17,13 @@ RustRed currently provides a topology-neutral mathematical spine for:
   Lee--Pomeransky/Symanzik data;
 - exact ordinary parametric IBP rows and separate Lorentz-invariance rows over
   symbolic integral indices;
+- authenticated physical/auxiliary family presentations and sealed semantic
+  admission for a common-scale vacuum lane;
+- bounded scalar, odd-rank, and global rank-two vacuum tensor projection, with
+  separately callable affine scalar-product lowering onto integral keys;
+- one concrete-anchor foundry boundary that derives a guarded strictly
+  descending row through Symbolica's sparse reducer and accepts it only after
+  exact chronological source replay;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -24,11 +31,14 @@ RustRed currently provides a topology-neutral mathematical spine for:
   width preflight, roots-only campaign planning, and canonical TOML output
   through Rust, CLI, and Python application surfaces.
 
-The current `derive` path emits raw parametric identities. It does **not** find
-closing rules, reduce an integral, select masters, publish a closed artifact,
-perform tensor reduction, or apply master values. The six-loop source-count
-test exercises the generic row census (`L = 6`, 21 coordinates, 36 ordinary
-sources); it is not a physical six-loop closure result.
+The application `derive` path still emits raw parametric identities. The
+anchored foundry slice does **not** generalize its concrete rule, refine
+exceptional domains, prove closure, or publish an artifact. The tensor slice
+does **not** support generic kinematics or even rank above two, and no current
+service applies IBP artifacts, selects/substitutes masters, or evaluates an
+integral. The six-loop source-count test exercises the generic row census
+(`L = 6`, 21 coordinates, 36 ordinary sources); it is not a physical six-loop
+closure result.
 
 The exact public Rust surface is the module facade in
 [`crates/rustred-core/src/lib.rs`](../crates/rustred-core/src/lib.rs). Public
@@ -69,7 +79,7 @@ mathematical representation or independent output schema.
 
 ## Core ownership DAG
 
-The six current core domains are rooted at
+The eight current core domains are rooted at
 [`crates/rustred-core/src`](../crates/rustred-core/src):
 
 ```text
@@ -79,12 +89,14 @@ input ------> family ------> algebra ------> Symbolica public Rust API
 
 identity ---> family, algebra
 sector -----> family, algebra
+tensor -----> family, algebra, Symbolica public Rust API
+foundry ----> identity, sector, family, algebra, Symbolica public Rust API
 campaign ---> Rayon and Symbolica license admission
 ```
 
 An arrow means “may depend on.” Same-domain child imports are omitted. There
 is no reverse dependency from a mathematical value layer into input,
-application transport, CLI, Python, or a future foundry.
+application transport, CLI, or Python.
 
 ### `algebra`
 
@@ -99,7 +111,12 @@ authority; see [`algebra.md`](algebra.md).
 [`family`](../crates/rustred-core/src/family/mod.rs) owns authenticated family
 kinematics, scalar-product coordinates, affine denominators, power shifts,
 family-domain conditions, integral keys, deterministic fingerprints, ISP
-completion, and Symanzik polynomials. Family construction is the semantic
+completion, Symanzik polynomials, and authenticated family presentations.
+The presentation layer exactly replays physical propagators, retains auxiliary
+ISP roles, structurally validates caller-attested routing/convention metadata,
+and mints sealed common-scale-physical vacuum evidence from semantic
+properties. Source-side routing replay remains the topology matcher's proof;
+the presentation does not manufacture it. Family construction is the semantic
 boundary between a normalized declaration and reusable mathematical data.
 
 ### `input`
@@ -110,6 +127,14 @@ lowering to `family::IntegralFamily`. Every supported frontend converges on
 the same normalized `input::Project`. Transport metadata and TOML decoding
 remain in `rustred-app`.
 
+### `tensor`
+
+[`tensor`](../crates/rustred-core/src/tensor/mod.rs) owns authenticated caller
+heads, numerator-momentum labels, semantic lane selection, Lorentz projection,
+and family-aware scalar-product lowering onto integral keys. Its first bounded
+slice is the single-scale-vacuum scalar/odd/rank-two service; generic external
+kinematics and higher even rank remain typed unsupported frontiers.
+
 ### `identity`
 
 [`identity`](../crates/rustred-core/src/identity/mod.rs) owns sparse parametric
@@ -118,6 +143,16 @@ and topology-neutral ordinary-IBP/LI generation. Prepared source batches have
 stable ordinals; the application may execute independent rows in parallel and
 then complete them in that order. Generation performs no sector solving or
 rule publication.
+
+### `foundry`
+
+[`foundry`](../crates/rustred-core/src/foundry/mod.rs) owns rule discovery and
+its proof-bearing result values. Its first deliberately narrow boundary
+specializes freshly generated relations at one integer anchor, orders physical
+integral columns by the sector ordering owner, invokes Symbolica's public
+sparse row reducer, retains all required guards and source provenance, proves
+strict descent, and exactly replays the chosen row. It is not yet a parametric
+solver, exceptional-domain engine, closure search, or artifact publisher.
 
 ### `sector`
 
@@ -173,11 +208,11 @@ for a named family. Loop count is a dimension of the input, not an algorithm
 identity.
 
 Optimized paths may be selected only from authenticated semantic properties.
-The planned vacuum tensor/foundry lanes may, for example, recognize no
-external denominator shifts and a common nonzero scale; they may not recognize
-a family label or the literal condition `loop_count == 6`. Concrete
-topologies belong in fixtures, external oracle corpora, benchmarks, or shipped
-artifact metadata.
+The live vacuum tensor lane and future optimized foundry lanes may, for
+example, recognize no external denominator shifts and a common nonzero scale;
+they may not recognize a family label or the literal condition
+`loop_count == 6`. Concrete topologies belong in fixtures, external oracle
+corpora, benchmarks, or shipped artifact metadata.
 
 Symbolica's graph implementation is the intended authority for future graph
 canonization and automorphism candidate generation. RustRed will own the
@@ -210,17 +245,15 @@ RustRed core yet:
 
 | Future owner | Intended responsibility | First capability gate |
 |---|---|---|
-| [`tensor`](tensor.md) | Typed numerator vocabulary, Lorentz projection, vacuum fast lane, generic-lane typed boundary, and family-aware scalar lowering | A real RustRed service called through the Vakint adapter and independent custom-head tests |
-| `foundry` | Lazy closure search over generated identities, sectors, exceptional domains, and deterministic campaign resources | One genuinely descending guarded rule with exact regenerated-source replay |
 | `artifact` | Immutable closed-rule values, manifests, persistence, and untrusted-load validation | A real closed shard produced and consumed outside the foundry |
 | `reduction` | Guarded rule application, termination, stable master keys, and typed master substitution | End-to-end lower-loop application against independent Vakint expectations |
 
 These owners are introduced only with a cohesive contract and first
 production caller. Empty shells, restored prototype sessions, and transport-
 only microcrates are not milestones. Future dependencies must remain acyclic:
-the foundry may compose the current domains and emit stable artifact values;
-reduction may consume artifacts; artifact models must never depend on foundry
-internals.
+the live foundry may compose the current domains and eventually emit stable
+artifact values; reduction may consume artifacts; artifact models must never
+depend on foundry internals.
 
 ## Change rules
 

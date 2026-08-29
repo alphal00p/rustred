@@ -25,22 +25,30 @@ The public `rustred` facade is organized by mathematical owner:
 - `algebra` provides authenticated base and index-extended Symbolica
   coefficient contexts and checked exact operations;
 - `family` owns complete affine integral families, integral keys, automatic
-  ISP completion, kinematics, domain conditions, and Symanzik polynomials;
+  ISP completion, kinematics, domain conditions, Symanzik polynomials, and the
+  authenticated physical/auxiliary presentation used for optimized-lane
+  evidence;
 - `input` compiles compact, TOML-derived, text-Symbolica, or caller-owned Atom
   descriptions into one normalized project, authenticates them at ingress,
   and lowers the result to a family;
 - `identity` owns sparse parametric relations and the topology-neutral
   `ParametricIbpGenerator`, including ordinary and LI source batches;
 - `sector` owns masks, restrictions, ordering, exact caller-supplied symmetry
-  verification/transport, and on-demand zero-sector analysis; and
+  verification/transport, and on-demand zero-sector analysis;
+- `tensor` owns validated caller Symbolica heads, sealed-evidence lane
+  selection, bounded key-aware Lorentz projection, and affine scalar-product
+  lowering onto typed integral keys;
+- `foundry::anchored` owns concrete-index rule derivation, exact source replay,
+  strict-descent evidence, and anchored guard/provenance values; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 
-These services do not yet constitute a foundry or reducer. There is currently
-no public `foundry`, `artifact`, `tensor`, or `reduction` module, no closed-rule
-publisher, and no rule application or master substitution API. The Rust API
-may change directly as those real owners and callers are introduced; obsolete
-facades are not retained for compatibility.
+These first foundry and tensor slices do not yet constitute a closing foundry
+or scalar-IBP reducer. There is currently no public durable `artifact` owner,
+closed-rule publisher, rule application, master substitution, generic tensor
+kinematics, or higher-even-rank projector. The Rust API may change directly as
+those real owners and callers are introduced; obsolete facades are not
+retained for compatibility.
 
 ## Shared application API
 
@@ -130,11 +138,11 @@ behavior remain unchanged. The builder's default path is tested to produce
 exactly the same result as the existing method.
 
 The `RustRed` selection currently reaches a real adapter boundary and returns
-the typed `TensorReductionError::RustRedUnavailable`, because the pinned
-RustRed core does not yet expose the [planned tensor service](tensor.md). It
-does not invoke FORM, fall back to FORM, or manufacture a result. This seam
-proves compatibility and dispatch isolation only; it is not evidence of
-native tensor reduction.
+the typed `TensorReductionError::RustRedUnavailable`, because that adapter is
+not yet wired to the [new bounded RustRed tensor service](tensor.md). It does
+not invoke FORM, fall back to FORM, or manufacture a result. This seam proves
+compatibility and dispatch isolation only; RustRed's native core sentinel is
+validated separately.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve
 RustRed and Vakint against one exact Symbolica-family revision. A relative

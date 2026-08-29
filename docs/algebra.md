@@ -8,8 +8,9 @@ rational-function, polynomial, determinant, matrix-product, row-reduction, or
 graph-isomorphism engine.
 
 This document describes the live exact-algebra boundary and the audited limits
-of the pinned dependency. It is not evidence that the future foundry, tensor,
-artifact, or reduction services are implemented.
+of the pinned dependency. It is not evidence that the narrow live
+tensor/anchored-foundry slices provide a complete projector or closing
+foundry, nor that future artifact or reduction services are implemented.
 
 ## Pinned backend
 
@@ -253,7 +254,7 @@ algebra.
 | `det_in_place` loses row-swap parity. | Use `Matrix::det` at proof-bearing boundaries. |
 | Dense single-row indexing uses the wrong stride for rectangular matrices. | Use tuple indexing and iterators, never `Index<u32>` row slices. |
 | Dense rank panics for a valid `0 x N` matrix with `N > 0`. | Reject empty coefficient matrices before native reduction; handle structural empty cases outside that call. |
-| Sparse inverse shares the augmented-matrix defect, and sparse inconsistent-row detection is inverted. | The current core does not use those operations as correctness oracles. A future sparse foundry must pin independent probes and exact replay around every adopted operation. |
+| Sparse inverse shares the augmented-matrix defect, and sparse inconsistent-row detection is inverted. | The anchored foundry does not use either operation. It pins the adopted `SparseRowReducer` pivot/`U`/`L` behavior and exactly replays every returned candidate from source rows. |
 | Multivariate multiplication is infallible, selects private dense/heap lanes, and can panic when fixed-width exponents overflow; its coefficient-ring and scratch censuses are opaque. | Authenticate inputs, preflight the outer product count and per-variable degree sums, invoke native arithmetic, then authenticate and exactly rebind the result. The known exponent-overflow path is excluded prospectively; standalone coefficient operations do not claim a general unwind boundary. |
 | Rational-polynomial power is infallible, rejects exponents above `u32::MAX` by panic, uses a linear multiplication schedule, and can overflow `u16` degrees. | Checked matrix sessions preflight exponent, degree box, terms, operations, and retained output; their native-session transport contains unwind and reauthenticates the result. Do not replace it with a RustRed power algorithm. |
 | Symbolica `Integer` equality/hash and zero/one predicates can observe noncanonical backend variants. | Construct values through canonical conversions and numerically reject every representation of zero during sparse-polynomial authentication. |
@@ -285,10 +286,12 @@ usable service for:
   an opaque spectator grammar and caller budgets; or
 - a hard-bounded/cancellable graph-canonization operation.
 
-`SparseRowReducer` is still the mandatory first candidate for future foundry
-row algebra: columns can be reordered by RustRed complexity and its public
-`U`, `L`, and pivot data can be inspected. Its fixed pivot semantics and lack
-of guards/provenance/resource control are application gaps to compose around,
+`SparseRowReducer` is the live primitive for the first concrete-anchor foundry
+boundary: columns are reordered by RustRed complexity, chronological identity
+columns recover source combinations from public `U`, and public `L` retains
+pre-normalization pivots. RustRed supplies guards, structural admission, strict
+descent, and exact source replay. The native reducer's fixed pivot semantics,
+lack of cancellation, and opaque scratch memory remain explicit limitations,
 not permission to write another sparse field reducer.
 
 General integer-affine work that needs a missing normal form stops at a typed

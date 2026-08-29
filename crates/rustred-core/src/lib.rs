@@ -10,6 +10,8 @@
 pub mod algebra;
 pub mod campaign;
 pub mod family;
+pub mod foundry;
 pub mod identity;
 pub mod input;
 pub mod sector;
+pub mod tensor;

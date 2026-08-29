@@ -3,14 +3,41 @@
 [`GOAL.md`](../GOAL.md) is the sequencing and capability authority. This
 document preserves the stable implementation contract for Track B: a generic
 RustRed tensor service, its optimized single-scale vacuum lane, and the thin
-Vakint adapter that will call it. It records requirements, not current tensor
-capability.
+Vakint adapter that will call it. It records the live frontier and the
+remaining implementation contract.
 
 ## Current frontier
 
-RustRed currently has no public `tensor` module and performs no tensor
-projection or scalar numerator lowering. In the independent GammaLoop
-repository, branch `vakint_rustred` has only an additive dispatch seam:
+RustRed now exposes a first cohesive public `tensor` service. It authenticates
+caller-supplied Symbolica heads, admits `Auto` and explicit vacuum execution
+only through sealed `SingleScaleVacuumEvidence`, and keeps key-aware
+projection, family-aware scalar-product lowering, and their composed reduction
+as separate typed operations. Projection requires an integral key and rejects
+nonzero auxiliary powers or power shifts before applying vacuum parity or
+isotropy. The live production slice supports scalar terms, exact
+odd-internal-rank zero, and the global rank-two isotropic projector. Its custom
+head sentinel exactly lowers `dot(k,p) k(mu)` on the one-denominator base key
+`[1]` to the keys `[0]` and `[1]` with coefficients `1/d` and `-m^2/d`, while
+retaining the exact polynomial guard `d != 0`.
+
+Ingress is deliberately bounded to root sums of explicit products. Reserved
+tensor heads may occur only as arity-two indexed loop/external vectors,
+metrics, or scalar products; every other factor is retained as an opaque
+scalar Atom only when it contains no configured nonnumeric loop-momentum
+label. Numeric momentum IDs acquire that meaning only inside reserved tensor
+heads, so ordinary numeric arguments of opaque scalar functions remain
+scalars. Tensor-bearing powers and nested tensor sums remain unsupported,
+as do even rank above two. Shared Lorentz indices involving retained metrics or
+external vectors are rejected until native contraction/canonicalization is
+implemented. The `Generic` lane returns the typed
+`UnsupportedGenericKinematics` boundary rather than selecting a vacuum
+projector or another backend. Scalar lowering currently also requires every
+auxiliary/ISP base-key power and auxiliary family power shift to be zero;
+otherwise numerator content would be invisible to the bounded tensor grammar,
+so both positive and negative auxiliary powers are typed unsupported results.
+
+In the independent GammaLoop repository, branch `vakint_rustred` still has
+only an additive dispatch seam:
 
 - `TensorReductionMode::Form` remains the default and preserves existing
   Vakint behavior;
@@ -19,12 +46,12 @@ repository, branch `vakint_rustred` has only an additive dispatch seam:
   `TensorReductionError::RustRedUnavailable`; and
 - selection of the RustRed mode never calls or falls back to FORM.
 
-The current tests prove dispatch and backward-compatibility boundaries only.
-They do not prove native tensor reduction. A test that intentionally executes
-Vakint's existing FORM backend belongs to a separately declared compatibility
-or oracle job; it is not a RustRed-mode test.
+Those current Vakint tests prove dispatch and backward-compatibility boundaries
+only; RustRed's native core sentinel is tested independently. A test that
+intentionally executes Vakint's existing FORM backend belongs to a separately
+declared compatibility or oracle job; it is not a RustRed-mode test.
 
-The service described below will be implemented in the `rustred` core package.
+The first service described below now lives in the `rustred` core package.
 Vakint, `rustred-app`, the CLI, and Python will adapt to that one service rather
 than carry independent projectors or scalar-lowering algorithms.
 
@@ -130,27 +157,43 @@ numerators, and scalar products.
 After routing, the boundary rejects any source loop variable or free variable
 from an underdetermined momentum solve that remains in either the canonical
 integral or the rewritten numerator. Checking only the denominator topology is
-insufficient. The routing/permutation witness is retained in the authenticated
-family presentation.
+insufficient. Vakint owns that source-side routing proof. The family
+presentation retains its resulting exact map as caller-attested metadata and
+checks coefficient domains, shape, loop unimodularity, and external
+invertibility without relabeling it a second topology-match proof.
 
 Concrete names such as `I1L`, `I2L`, `H`, or `BMW` are fixtures and Vakint
-presentation data. RustRed family keys authenticate the complete coefficient
-map, routing, kinematics, conventions, denominator roles, and ISP definitions;
-they never dispatch on those names.
+presentation data. RustRed family presentations exactly replay physical rows
+and common-scale claims, retain auxiliary roles, and structurally admit the
+attested routing/convention map; they never dispatch on those names.
 
 ## Authenticated family presentation and lanes
 
 The adapter presents matched data; RustRed mints the proof used for lane
 selection. The presentation retains at least:
 
-- loop and external momentum order and the exact routing witness;
-- dimension, metric signature, denominator sign, and measure convention;
+- loop and external momentum order and caller-attested exact routing map,
+  after structural/unimodularity/invertibility checks;
+- dimension, metric signature, and denominator sign. Loop-measure
+  normalization remains caller/Vakint-owned and is deliberately outside this
+  tensor/IBP presentation; future artifacts must map it explicitly at their
+  boundary;
 - every physical denominator's affine scalar-product row, mass squared,
-  external shift, power, and power shift;
+  external shift, and family-owned power shift; target powers remain owned by
+  the tensor/reduction request's integral key and are never duplicated in the
+  presentation;
 - every auxiliary denominator/ISP and its role, rather than flattening it into
   the physical propagator list;
 - external Gram data and family-domain nonzero conditions; and
-- common-scale and unit-scale homogeneity evidence when claimed.
+- common-scale evidence for physical denominators. A separate future proof is
+  required for whole-family unit-scale homogeneity, including auxiliary rows
+  and powers.
+
+The live presentation contract retains exact nonzero guards for every
+presentation-coefficient denominator and for a symbolic common scale's
+numerator. The affine-family fingerprint alone is not yet a presentation
+cache key; callers must retain the full presentation metadata until a
+versioned presentation fingerprint is introduced.
 
 The tensor selection contract has three choices:
 

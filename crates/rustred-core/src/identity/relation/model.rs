@@ -48,7 +48,11 @@ impl ParametricRelation {
         &self.nonzero_conditions
     }
 
-    pub(super) fn validate_context(
+    pub(crate) fn family_fingerprint_owner(&self) -> Arc<String> {
+        self.family_fingerprint.clone()
+    }
+
+    pub(crate) fn validate_context(
         &self,
         context: &IndexedCoefficientContext,
     ) -> Result<(), ParametricRelationError> {
