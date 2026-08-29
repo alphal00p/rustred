@@ -16,6 +16,7 @@ mod condition;
 mod error;
 mod limits;
 mod model;
+pub mod permutation;
 mod verify;
 
 pub use condition::{ConditionSource, NonZeroCondition};
