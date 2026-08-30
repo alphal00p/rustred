@@ -325,6 +325,21 @@ scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
 publication gate.
 
+The first exact completion-geometry prototype maps every one of those 46
+cells into the corresponding sector-local nonnegative lattice. Exhaustive
+`3^6` membership comparisons per cell (33,534 comparisons in total) agree
+with `RuleCell::assignment_for_target`. The mapping records 205 coefficient
+guards separately from structural coverage and leaves all 276 outer
+coordinate endpoints as explicit extension obligations. Of these, 61 reach a
+maximal rule-safe application endpoint but only 35 actually touch the `i64`
+chart carrier; neither condition is treated as a proof of mathematical
+infinity. On the two sectors containing the six recurrence
+witnesses, the exact guard-blind structural complements contain respectively
+20 and 32 disjoint boxes after subtracting 7 and 19 rule boxes. Both retain
+six-dimensional varying boxes and more than one million carrier points. This
+is a lower bound on the true uncovered set and a precise diagnosis of missing
+all-rank coverage, not a terminal count or closure claim.
+
 The MATAD oracle fixes the eventual in-family basis boundary without being used
 as a rule generator. The scalar six-line and four-line corners map directly to
 `miD6` and `m_uv^4 miBN`, respectively. The scalar five-line corner is a third
@@ -454,6 +469,17 @@ from RustRed's current rule set and for producing high-precision reference
 values. Oracle output may guide and validate freshly replayed RustRed rules or
 terminal maps; FORM/MATAD never enters the production RustRed scalar path.
 
+The provisional direct-numerical-basis budget is green only for at most 100
+terminals whose largest measured auxiliary AMFlow system has dimension at
+most 100. Counts through 1,000 terminals and system dimension 300 are
+conditional on a successful simultaneous-evaluation pilot; larger proposals
+return to completion or compression unless measurements justify a reviewed
+exception. Exact finite closure alone does not prove AMFlow computability.
+Every pilot must also bound accumulated `(d-4)` pole depth with index rank,
+because an unbounded spurious-pole order would require an unbounded Laurent
+table even for a finite terminal set. These are falsifiable engineering gates,
+not claims about AMFlow's theoretical limits.
+
 ## Stage 1 implementation tracks
 
 ### Closing foundry and artifacts
@@ -497,7 +523,9 @@ behavior. The adapter:
 - returns exact coefficients of typed RustRed evaluation terminals; Vakint
   uses an exact MATAD-basis map when one exists, otherwise it substitutes a
   separately validated shipped high-precision Laurent table generated once
-  with MATAD (and, for a future four-loop artifact, FMFT);
+  with MATAD; future four-loop data may use exact FMFT reductions, but the
+  currently shipped FMFT numerical tables are mostly only 26--50 digits, so
+  generic 20,000-digit terminal data would require regeneration or AMFlow;
 - exposes master substitution control, enabled by default; and
 - reports no FORM dependency and never invokes or falls back to FORM for
   scalar IBP reduction or master substitution.
@@ -624,4 +652,6 @@ into Stage 2.
 - [Parametric-IBP breakthrough research](docs/research/parametric_ibp_breakthrough.md)
 - [Independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md)
 - [Primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md)
+- [Finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md)
+- [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Current CLI contract](docs/CLI.md)

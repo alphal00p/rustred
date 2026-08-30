@@ -523,6 +523,10 @@ fn first_active_slot(sector: &[i64; 6]) -> usize {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
+    use crate::foundry::completion::{
+        BoxCover, CompletionGeometryError, CompletionGeometryLimits, GuardBlindCarrierRegion,
+        LatticePoint, OuterPowerDirection, SectorChart,
+    };
     use crate::foundry::search::{ReachabilityDisposition, ReachabilityTerminalKind};
 
     use super::*;
@@ -545,6 +549,7 @@ mod tests {
     #[test]
     fn finite_k6_census_reports_current_coverage_without_promoting_corners() {
         let census = K6ReachabilityCensus::try_new().unwrap();
+        assert_exact_carrier_regions(&census);
         assert_eq!(census.roots.len(), 115);
         assert_eq!(
             census.cell_kinds().collect::<Vec<_>>(),
@@ -1627,6 +1632,190 @@ mod tests {
                 limit: statistics.discovered_nodes() - 1,
             })
         );
+    }
+
+    fn assert_exact_carrier_regions(census: &K6ReachabilityCensus) {
+        let mut retained_guards = 0usize;
+        let mut maximal_rule_application_outer_axes = 0usize;
+        let mut carrier_saturated_outer_axes = 0usize;
+        for owned in &census.cells {
+            let chart = SectorChart::new(owned.cell.application_domain().sector().clone());
+            let region = GuardBlindCarrierRegion::try_from_cell(&chart, &owned.cell).unwrap();
+            assert_eq!(
+                region.guard_count(),
+                owned.cell.guards().len(),
+                "guard census changed for {:?}",
+                owned.kind
+            );
+            assert_eq!(region.outer_extensions().len(), 6);
+            for (position, obligation) in region.outer_extensions().iter().copied().enumerate() {
+                assert_eq!(obligation.position(), position);
+                assert_eq!(
+                    obligation.power_direction(),
+                    if chart.sector().active_bits()[position] {
+                        OuterPowerDirection::Increasing
+                    } else {
+                        OuterPowerDirection::Decreasing
+                    }
+                );
+                assert_eq!(
+                    obligation.target_endpoint() >= 1,
+                    chart.sector().active_bits()[position]
+                );
+                maximal_rule_application_outer_axes +=
+                    usize::from(obligation.reaches_maximal_rule_application_endpoint());
+                carrier_saturated_outer_axes += usize::from(obligation.reaches_carrier_endpoint());
+            }
+            retained_guards += region.guard_count();
+
+            assert_region_endpoints(&chart, &owned.cell, &region);
+
+            for ordinal in 0..3_usize.pow(6) {
+                let mut residual = ordinal;
+                let coordinates: [u64; 6] = std::array::from_fn(|_| {
+                    let coordinate = (residual % 3) as u64;
+                    residual /= 3;
+                    coordinate
+                });
+                let point = LatticePoint::try_new(coordinates).unwrap();
+                let target = chart.to_integral(&point).unwrap();
+                assert_eq!(
+                    region.structural_target_box().contains(&point),
+                    owned.cell.assignment_for_target(&target).unwrap().is_some(),
+                    "carrier-region mismatch for {:?} at {:?}",
+                    owned.kind,
+                    target.powers()
+                );
+            }
+        }
+        assert_eq!(census.cells.len(), 46);
+        assert_eq!(retained_guards, 205);
+        assert_eq!(maximal_rule_application_outer_axes, 61);
+        assert_eq!(carrier_saturated_outer_axes, 35);
+
+        assert_guard_blind_carrier_complement(
+            census,
+            [0, 0, 1, 1, 1, 1],
+            &[[0, -1, 1, 2, 2, 1], [0, -2, 2, 2, 1, 1]],
+            (7, 20, 42),
+        );
+        assert_guard_blind_carrier_complement(
+            census,
+            [0, 1, 1, 1, 1, 0],
+            &[
+                [0, 1, 1, 2, 4, 0],
+                [0, 1, 1, 2, 5, 0],
+                [0, 1, 2, 3, 3, 0],
+                [0, 1, 3, 2, 3, 0],
+            ],
+            (19, 32, 114),
+        );
+    }
+
+    fn assert_region_endpoints(
+        chart: &SectorChart,
+        cell: &RuleCell,
+        region: &GuardBlindCarrierRegion,
+    ) {
+        let target_box = region.structural_target_box();
+        let carrier = chart.carrier_box().unwrap();
+        for obligation in region.outer_extensions().iter().copied() {
+            assert_eq!(
+                obligation.reaches_carrier_endpoint(),
+                target_box.upper()[obligation.position()] == carrier.upper()[obligation.position()]
+            );
+        }
+        for corner in 0..(1_usize << 6) {
+            let coordinates: [u64; 6] = std::array::from_fn(|position| {
+                if corner & (1 << position) == 0 {
+                    target_box.lower()[position]
+                } else {
+                    target_box.upper()[position].unwrap()
+                }
+            });
+            let point = LatticePoint::try_new(coordinates).unwrap();
+            let target = chart.to_integral(&point).unwrap();
+            assert!(cell.assignment_for_target(&target).unwrap().is_some());
+        }
+
+        for position in 0..6 {
+            if target_box.lower()[position] > 0 {
+                let mut coordinates: [u64; 6] =
+                    std::array::from_fn(|slot| target_box.lower()[slot]);
+                coordinates[position] -= 1;
+                let point = LatticePoint::try_new(coordinates).unwrap();
+                let target = chart.to_integral(&point).unwrap();
+                assert!(cell.assignment_for_target(&target).unwrap().is_none());
+            }
+            let upper = target_box.upper()[position].unwrap();
+            if upper < carrier.upper()[position].unwrap() {
+                let mut coordinates: [u64; 6] =
+                    std::array::from_fn(|slot| target_box.lower()[slot]);
+                coordinates[position] = upper + 1;
+                let point = LatticePoint::try_new(coordinates).unwrap();
+                let target = chart.to_integral(&point).unwrap();
+                assert!(cell.assignment_for_target(&target).unwrap().is_none());
+            }
+        }
+    }
+
+    fn assert_guard_blind_carrier_complement(
+        census: &K6ReachabilityCensus,
+        sector_corner: [i64; 6],
+        witnesses: &[[i64; 6]],
+        expected_metrics: (usize, usize, usize),
+    ) {
+        let sector = crate::sector::Mask::try_from_indices(&sector_corner).unwrap();
+        let chart = SectorChart::new(sector.clone());
+        let boxes = census
+            .cells
+            .iter()
+            .filter(|owned| owned.cell.application_domain().sector() == &sector)
+            .map(|owned| {
+                GuardBlindCarrierRegion::try_from_cell(&chart, &owned.cell)
+                    .unwrap()
+                    .into_structural_target_box()
+            });
+        let cover = BoxCover::try_new(6, boxes, CompletionGeometryLimits::default()).unwrap();
+        assert!(!cover.boxes().is_empty());
+        let uncovered = cover
+            .uncovered_within(chart.carrier_box().unwrap())
+            .unwrap();
+        assert_eq!(
+            (
+                cover.boxes().len(),
+                uncovered.boxes().len(),
+                uncovered.split_operations(),
+            ),
+            expected_metrics,
+        );
+        // This guard-blind structural complement is a lower bound on the true
+        // uncovered set. Carrier finiteness is tautological and is never
+        // promoted to an all-rank closure claim. The large varying boxes and
+        // unresolved outer extensions are precisely the next E0 obligations.
+        assert!(uncovered.is_finite());
+        assert_eq!(
+            uncovered
+                .boxes()
+                .iter()
+                .map(|cell| cell.varying_dimension())
+                .max(),
+            Some(6)
+        );
+        assert!(matches!(
+            uncovered.try_cardinality(1_000_000),
+            Err(CompletionGeometryError::ResourceLimit {
+                resource: "finite uncovered lattice points",
+                limit: 1_000_000,
+                ..
+            })
+        ));
+        for powers in witnesses {
+            let key = IntegralKey::try_new(*powers).unwrap();
+            let point = chart.to_lattice(&key).unwrap();
+            assert!(!cover.covers(&point).unwrap());
+            assert!(uncovered.containing_box(&point).is_some());
+        }
     }
 
     fn assert_rule_kind(

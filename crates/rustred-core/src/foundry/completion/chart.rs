@@ -1,7 +1,7 @@
 use crate::family::IntegralKey;
 use crate::sector::Mask;
 
-use super::{CompletionGeometryError, LatticePoint};
+use super::{CompletionGeometryError, LatticeBox, LatticePoint};
 
 const INACTIVE_I64_MIN_COORDINATE: u64 = 1_u64 << 63;
 
@@ -19,6 +19,32 @@ impl SectorChart {
 
     pub(crate) fn sector(&self) -> &Mask {
         &self.sector
+    }
+
+    pub(crate) fn carrier_box(&self) -> Result<LatticeBox, CompletionGeometryError> {
+        let mut lower = Vec::new();
+        let mut upper = Vec::new();
+        lower.try_reserve_exact(self.sector.arity()).map_err(|_| {
+            CompletionGeometryError::AllocationFailure {
+                resource: "sector-chart carrier lower endpoints",
+                requested: self.sector.arity(),
+            }
+        })?;
+        upper.try_reserve_exact(self.sector.arity()).map_err(|_| {
+            CompletionGeometryError::AllocationFailure {
+                resource: "sector-chart carrier upper endpoints",
+                requested: self.sector.arity(),
+            }
+        })?;
+        for &active in self.sector.active_bits() {
+            lower.push(0);
+            upper.push(Some(if active {
+                i64::MAX as u64 - 1
+            } else {
+                INACTIVE_I64_MIN_COORDINATE
+            }));
+        }
+        LatticeBox::try_from_preallocated(lower, upper)
     }
 
     pub(crate) fn to_lattice(

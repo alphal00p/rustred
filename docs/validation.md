@@ -374,8 +374,13 @@ records the executable identity, input, Vakint revision, convention map, raw
 output, Laurent order, and precision. Reviewed raw coefficients, where a basis
 map exists, and high-precision evaluated terminal data become versioned
 fixtures; production RustRed never copies authored oracle recurrence tables.
-Four-loop artifact production remains deferred, but FMFT is the designated
-offline evaluator and parity oracle for a future finite RustRed terminal set.
+MATAD's ten shipped three-loop master tables contain about 20,095--20,100
+decimal digits, so a 20,000-digit request leaves only about 95--100 guard
+digits. Four-loop artifact production remains deferred. FMFT is a possible
+offline exact-reduction oracle, but most currently shipped Vakint FMFT
+constants contain only about 26--50 digits; generic four-loop 20,000-digit
+terminal data therefore require regenerated master data or AMFlow rather than
+an unsupported precision claim.
 
 A directory named `form5` is not assumed to contain a FORM executable. Oracle
 availability is checked explicitly, and its absence neither blocks pure-Rust

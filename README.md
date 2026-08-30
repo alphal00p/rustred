@@ -171,6 +171,13 @@ both rules descend only to the certified path factorization and the unresolved
 scalar four-line corner. The three scalar graph corners, deeper mixed-dot
 faces, and remaining numerator directions remain obligations rather than implicit
 masters.
+The test-only completion geometry independently maps all 46 cells to exact
+sector-local carrier boxes and checks 33,534 small-lattice membership points.
+It keeps 205 guards outside structural coverage and reports guard-blind
+complements of 20 and 32 disjoint boxes in the two sectors containing the six
+recurrence witnesses. Each complement still has a six-dimensional varying component;
+even endpoints that saturate the `i64` carrier remain explicit all-rank
+extension obligations rather than assumed rays.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
 while complete provenance and projection replay retain the full search span.
@@ -476,7 +483,9 @@ Stable design documents are:
 - [LiteRed2 semantic reference](docs/references/litered2.md);
 - [parametric-IBP breakthrough research](docs/research/parametric_ibp_breakthrough.md);
 - [independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md);
-- [primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md); and
+- [primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md);
+- [finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md);
+- [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md); and
 - [current CLI contract](docs/CLI.md).
 
 Local LiteRed2, GammaLoop/Vakint, FORM, and other reference checkouts live only

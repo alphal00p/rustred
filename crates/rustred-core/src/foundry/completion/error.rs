@@ -19,6 +19,17 @@ pub(crate) enum CompletionGeometryError {
         coordinate: u64,
         active: bool,
     },
+    InvalidBoxBounds {
+        position: usize,
+        lower: u64,
+        upper: u64,
+    },
+    RuleCellSectorMismatch,
+    RuleDomainReconstruction,
+    TargetEndpointNotRepresentable {
+        position: usize,
+        endpoint: &'static str,
+    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -67,6 +78,23 @@ impl fmt::Display for CompletionGeometryError {
                 formatter,
                 "lattice coordinate {coordinate} at position {position} is not representable in an i64 {} power",
                 if *active { "active" } else { "inactive" }
+            ),
+            Self::InvalidBoxBounds {
+                position,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "lattice box has lower endpoint {lower} above upper endpoint {upper} at position {position}"
+            ),
+            Self::RuleCellSectorMismatch => {
+                formatter.write_str("rule cell and completion chart use different sectors")
+            }
+            Self::RuleDomainReconstruction => formatter
+                .write_str("could not reconstruct the rule cell's maximal safe application domain"),
+            Self::TargetEndpointNotRepresentable { position, endpoint } => write!(
+                formatter,
+                "rule-cell target {endpoint} endpoint at position {position} is outside the i64 carrier"
             ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} overflowed usize")

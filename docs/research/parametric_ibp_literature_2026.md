@@ -595,8 +595,10 @@ rewrite rule is valid or every guard branch is covered.
 For `K = 6`, an exact production map to Vakint's existing MATAD master basis is useful but optional.
 If such a map is constructed, every identity in it must be reproduced from exact RustRed sources.
 A certified finite nonminimal RustRed terminal basis may instead be assigned separately generated
-Laurent values at roughly 20,000-digit precision: from MATAD through three loops and from FMFT
-through four loops. Vakint may ship those versioned numerical terminal tables as evaluation data.
+Laurent values. MATAD's shipped three-loop tables support roughly 20,000-digit data. Although FMFT
+can provide exact four-loop reductions, most numerical constants currently shipped with Vakint
+contain only about 26--50 digits; generic four-loop 20,000-digit terminal data require regenerated
+master data or AMFlow. Vakint may ship those versioned numerical terminal tables as evaluation data.
 
 Modular or high-precision numerical samples may identify a likely mapping support and reconstruct
 rational coefficients. A reconstructed exact map is accepted only after exact Symbolica source
@@ -636,8 +638,9 @@ MATAD and Vakint can be used without contaminating the production path:
 
 FORM is allowed only inside this offline diagnostic oracle. No FORM-generated recurrence equation
 or reduction rule enters a RustRed artifact merely because it agrees numerically. Separately
-generated high-precision MATAD or FMFT terminal values may enter Vakint as versioned numerical
-evaluation tables. They are data attached to already certified RustRed terminals, not IBP rules.
+generated high-precision MATAD terminal values, and future regenerated FMFT or AMFlow values, may
+enter Vakint as versioned numerical evaluation tables. They are data attached to already certified
+RustRed terminals, not IBP rules.
 The production Vakint RustRed scalar backend must not invoke, require, or fall back to FORM. Oracle
 comparison should be repeatable with an invalid FORM path after checked-in artifacts and terminal
 tables have been generated.

@@ -25,8 +25,11 @@ The output basis need not be minimal.  A proof that the all-rank residual
 complement is finite permits that finite set to become a versioned set of
 evaluation terminals, even when it is larger than a conventional master
 basis.  This is operationally useful: Stage 1 can attach exact MATAD maps or
-very-high-precision MATAD evaluations, a future four-loop family can use FMFT
-the same way, and a later high-loop campaign can attach AMFlow values directly.
+very-high-precision MATAD evaluations, while a later high-loop campaign can
+attach AMFlow values directly. FMFT can supply future exact four-loop
+reductions, but most numerical constants currently shipped with Vakint have
+only about 26--50 digits; generic four-loop 20,000-digit terminal data would
+need regeneration or AMFlow.
 Adding more denominator coordinates is not the mechanism—the completed family
 already spans every scalar product.  The mechanism is to retain additional
 integral keys as terminal representatives.  A finite bounded sample of misses
@@ -87,6 +90,16 @@ The six current recurrence witnesses are:
 
 They are samples of positive-dimensional lattice strata, not six reasons to
 add six individually planned Rust modules.
+
+The first exact geometry prototype maps all 46 current cells to sector-local
+carrier boxes and agrees with 33,534 direct cell-membership checks. On the two
+sectors above, subtracting the 7 and 19 structural domain boxes leaves 20 and
+32 disjoint boxes, each with a six-dimensional varying component. This is a
+guard-blind lower bound on the genuinely uncovered set: 205 nonzero guards
+still require separate stratification. Likewise, 61 of 276 outer endpoints
+reach a maximal rule-safe application endpoint, but only 35 touch the `i64`
+chart carrier. Neither is called an infinite ray without a symbolic extension
+proof.
 
 ## What the literature establishes
 

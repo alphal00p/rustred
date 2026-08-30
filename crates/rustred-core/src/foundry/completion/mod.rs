@@ -19,12 +19,14 @@ mod coverage;
 mod error;
 mod limits;
 mod model;
+mod region;
 
 pub(crate) use chart::SectorChart;
-pub(crate) use coverage::LeadingIdeal;
+pub(crate) use coverage::{BoxCover, LeadingIdeal};
 pub(crate) use error::CompletionGeometryError;
 pub(crate) use limits::CompletionGeometryLimits;
-pub(crate) use model::{LatticeBox, LatticePoint, UncoveredPartition};
+pub(crate) use model::{LatticeBox, LatticeCardinality, LatticePoint, UncoveredPartition};
+pub(crate) use region::{GuardBlindCarrierRegion, OuterPowerDirection};
 
 #[cfg(test)]
 mod tests;

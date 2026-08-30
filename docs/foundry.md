@@ -286,6 +286,27 @@ Symbolica's exact active-edge momentum rank, and the three product domains reuse
 factorization compiler. Scalar corners and the reported mixed-dot/numerator
 holes stay uncovered; no census value is promoted to publication evidence.
 
+The adjacent test-only `foundry::completion` prototype now converts each
+`RuleCell` application domain to an exact box in the sector chart
+`x_i=n_i-1` for active slots and `x_i=-n_i` for inactive slots. Exhaustive
+membership checks over `3^6` lattice points for every one of the 46 K6 cells
+agree with the cell matcher. Guards are deliberately not counted as
+structural coverage. Nor is an `i64` endpoint promoted to infinity: all 276
+outer endpoints remain typed extension obligations. Sixty-one reach a maximal
+rule-safe application endpoint, whereas only 35 touch the `i64` chart carrier;
+neither is an infinity proof.
+
+Arbitrary-box subtraction gives a deterministic disjoint guard-blind
+structural complement. For sectors `[0,0,1,1,1,1]` and
+`[0,1,1,1,1,0]`, respectively,
+7 and 19 rule boxes leave 20 and 32 complement boxes after 42 and 114 split
+operations. All six known recurrence witnesses lie in those complements,
+whose maximal varying dimension remains six. The fact that an `i64` carrier
+complement is finite is tautological; only a separate exact outer-extension
+and guard-stratification proof can turn this diagnostic into an all-rank
+terminal certificate. Because guard zero loci can add holes, this structural
+complement is only a lower bound on the genuinely uncovered domain.
+
 The final terminal set is not required to be a minimal master basis. If exact
 sector-wide coverage proves that its complement is finite, those finitely many
 integral keys may be retained as explicit evaluation terminals. Stage 1 must
@@ -310,7 +331,9 @@ diamonds remain the control, while exact lattice-stratum completion and a
 modular target-separation scout are the first proposed replacements. Four-
 through six-loop artifact production and an extreme-efficiency campaign remain
 deferred. The hypotheses, kill criteria, and primary sources are recorded in
-the [breakthrough research note](research/parametric_ibp_breakthrough.md).
+the [breakthrough research note](research/parametric_ibp_breakthrough.md),
+the [2026 literature synthesis](research/parametric_ibp_literature_2026.md),
+and the [finite-frame candidate study](research/finite_frame_breakthrough_2026.md).
 
 ## Input and output contract
 
