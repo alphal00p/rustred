@@ -84,8 +84,14 @@ all nine sources and retains exact residual replay, guards, bounded application
 proof, provenance, and strict descent. On the irreducible four-line face, an
 exact target-aligned translation supplies a guarded canonical-dot multi-excess
 cell, while the untranslated span supplies the canonical mixed
-numerator/dot cell, including its isolated mixed corner. The isolated pure-dot
-corner, deeper numerator faces, and the rest of the fixed point remain open.
+numerator/dot cell, including its isolated mixed corner. Exact fixed-corner
+projections additionally lower the isolated pure-dot orbit to the scalar
+corner and supply a strict-descent recurrence for the opposite two-dot orbit
+from selected source subsets. The latter's descendants remain part of
+the fixed-point obligations. The inequivalent adjacent two-dot orbit remains
+explicitly uncovered after exact tests of the complete untranslated span and
+its natural one-dot translation. Deeper dot/numerator faces and the rest of
+the fixed point remain open.
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
 

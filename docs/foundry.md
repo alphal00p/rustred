@@ -72,9 +72,19 @@ four-line face, a target-aligned translation derives a guarded canonical-dot
 multi-excess cell and the untranslated span derives the canonical mixed
 numerator/dot boundary cell. All four raw dot and eight raw mixed placements
 are routed through the exact `S4` canonicalizer. The translated dot rule is
-singular at the isolated pure-dot corner, which therefore remains an explicit
-residual obligation. The fixture intentionally exposes no closed artifact
-while its complete rule fixed point is incomplete. The
+singular at the isolated pure-dot corner. A fixed-corner residual projection
+lowers that corner to the scalar corner from two selected ordinary rows and
+routes all four raw dot placements. A one-dot translated projection supplies
+a strict-descent recurrence for the opposite two-dot orbit from four selected
+rows; exact canonicalization routes its two raw placements. Its descendants
+remain obligations of the surrounding fixed point.
+The inequivalent four-placement adjacent-pair orbit remains an explicit typed
+residual after the complete untranslated span reports the target absent and
+the natural translated span reports that it is not a pivot. These bounded
+negative results are not an exhaustive translated-source search or a terminal
+classification. Deeper dot and numerator faces remain open. The fixture
+intentionally exposes no closed artifact while its complete rule fixed point
+is incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 

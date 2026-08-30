@@ -110,7 +110,18 @@ four-line face, the same exact projection boundary now derives a guarded
 canonical-dot multi-excess cell from one target-aligned translated source span
 and a canonical mixed numerator/dot cell from the untranslated span. Exact
 `S4` tests route all four dotted and all eight mixed placements; the pure-dot
-cell's `n1 - 1` guard deliberately leaves its isolated corner uncovered. The
+cell's `n1 - 1` guard excludes its isolated corner. A fixed-corner residual
+projection now lowers that isolated dot to the scalar corner with the exact
+rows `ordinary-ibp:0:0` and `ordinary-ibp:1:0`. A one-dot translated
+projection supplies a recurrence for the opposite two-dot orbit with four
+selected rows and three strictly descending right-hand-side terms; those terms
+remain subject to the surrounding fixed-point obligations. Exact global
+canonicalization covers all four isolated-dot placements and both raw
+opposite-pair placements. The inequivalent
+adjacent two-dot orbit remains a typed uncovered obligation: neither the
+untranslated complete source span nor its natural one-dot translation yields
+the requested rule—the target is absent from the former and present without
+being a pivot in the latter. Deeper dot and numerator faces remain open, and the
 fixture does not expose an installable artifact until the complete rule fixed
 point is closed.
 

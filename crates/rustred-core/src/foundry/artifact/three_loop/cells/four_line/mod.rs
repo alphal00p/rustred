@@ -15,6 +15,10 @@ use crate::sector::{
 use super::super::{canonical_family, canonical_s4};
 use super::support::{complete_ordinary_sources, exact_zero_sectors};
 
+mod exceptional;
+#[cfg(test)]
+mod exceptional_tests;
+
 const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
 const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 0];
 const CANONICAL_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, 0];
