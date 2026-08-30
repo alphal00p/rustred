@@ -128,6 +128,16 @@ reprojected compact rules, exact replay through target power `i64::MIN`,
 strict descent, factorization routing, and the exact nonownership boundary for
 the other four decorated-path `S4` orbits.
 
+The bridge-descendant singleton tests start from the complete untranslated
+nine-row span, pin selected ordinals 0 and 3, and compare the compact
+production rule's exact coefficients and RHS with that complete derivation.
+They additionally pin empty guards, concrete and parametric replay metrics,
+strict descent, deterministic rebuild, the exact 24-image owned orbit, four
+inequivalent nonowned representatives, and routing of both children to the
+installed decorated endpoint or factorization owner 2. A separately measured
+mixed-numerator bulk candidate is not installed because it would add three
+open decorated obligations.
+
 The factorized bridge-dot numerator tests derive endpoint and bulk rules from
 the complete depth-zero span of all nine ordinary sources. They pin exact
 selected ordinals, independent compact reprojection, authenticated
@@ -146,8 +156,8 @@ infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
 following exact deterministic report: 44 canonical roots, 84 discovered
-nodes, 38 rule applications spanning all 29 current cell owners, 26
-zero/factorization terminals, and 20 uncovered nodes. The census pins
+nodes, 39 rule applications spanning all 30 current cell owners, 26
+zero/factorization terminals, and 19 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

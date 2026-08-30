@@ -39,6 +39,7 @@ const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
+const THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 0, 1, 0, 2, 1];
 const THREE_LINE_UNDOTTED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 1, -1, 1, 1];
 const THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 1, -2, 1, 1];
 const FACTORIZATION_SECTORS: [[i64; 6]; 3] =
@@ -70,6 +71,7 @@ enum K6CellKind {
     FourLineScalarNumeratorBulk,
     FourLineFactorizedBridgeDotNumeratorEndpoint,
     FourLineFactorizedBridgeDotNumeratorBulk,
+    ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorBulk,
     ThreeLineUndottedPathNumeratorEndpoint,
@@ -126,6 +128,7 @@ impl K6ReachabilityCensus {
             mixed_numerator,
         } = derive_all_four_line_cells()?;
         let ThreeLineCellSet {
+            bridge_descendant_dot_numerator_endpoint,
             decorated_path_numerator_endpoint,
             decorated_path_numerator_bulk,
             undotted_path_numerator_endpoint,
@@ -231,6 +234,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
                 cell: factorized_bridge_dot_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
+                cell: bridge_descendant_dot_numerator_endpoint,
             },
             OwnedCell {
                 kind: K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
@@ -408,7 +415,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 29,
+            max_rule_cells: 30,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -451,6 +458,7 @@ mod tests {
                 K6CellKind::FourLineScalarNumeratorBulk,
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorEndpoint,
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
+                K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
                 K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
@@ -506,6 +514,7 @@ mod tests {
                 (K6CellKind::FourLineScalarNumeratorBulk, 2),
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk, 1,),
+                (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
                 (K6CellKind::ThreeLineUndottedPathNumeratorEndpoint, 1),
@@ -527,8 +536,8 @@ mod tests {
         assert_eq!(statistics.canonical_roots(), 44);
         assert_eq!(statistics.discovered_nodes(), 84);
         assert_eq!(statistics.terminal_nodes(), 26);
-        assert_eq!(statistics.rule_applications(), 38);
-        assert_eq!(statistics.uncovered_nodes(), 20);
+        assert_eq!(statistics.rule_applications(), 39);
+        assert_eq!(statistics.uncovered_nodes(), 19);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -593,6 +602,10 @@ mod tests {
             (
                 FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE,
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
+            ),
+            (
+                THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
             ),
             (
                 THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE,
@@ -787,12 +800,16 @@ mod tests {
                 [0, 0, 1, 0, 1, 1],
             ]
         );
-        for powers in [[-1, 0, 1, 0, 2, 1], [0, -1, 1, 1, 1, 1]] {
-            assert!(matches!(
-                disposition(&census, &first, powers),
-                ReachabilityDisposition::Uncovered
-            ));
-        }
+        assert_rule_kind(
+            &census,
+            &first,
+            THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE,
+            K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
+        );
+        assert!(matches!(
+            disposition(&census, &first, [0, -1, 1, 1, 1, 1]),
+            ReachabilityDisposition::Uncovered
+        ));
         for (powers, owner) in [([0, 0, 1, 1, 1, 1], 0), ([0, 0, 1, 0, 1, 1], 2)] {
             assert!(matches!(
                 disposition(&census, &first, powers),
@@ -801,6 +818,42 @@ mod tests {
                         && terminal.owner_ordinal() == owner
             ));
         }
+
+        // The first bridge-bulk obligation now has its own exact singleton
+        // owner.  Both children were already reachable and owned, so this
+        // cell removes one uncovered node without growing the frontier.
+        let ReachabilityDisposition::Rule(bridge_descendant) = disposition(
+            &census,
+            &first,
+            THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE,
+        ) else {
+            panic!("expected bridge-descendant three-line endpoint")
+        };
+        assert_eq!(
+            census.cell_kind(bridge_descendant.cell_ordinal()),
+            K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint
+        );
+        assert_eq!(bridge_descendant.assignment(), [0, 0, 1, 0, 1, 1]);
+        assert_eq!(
+            bridge_descendant
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [[0, 0, 2, -1, 1, 1], [0, 0, 1, 0, 1, 1]]
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            [0, 0, 2, -1, 1, 1],
+            K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
+        );
+        assert!(matches!(
+            disposition(&census, &first, [0, 0, 1, 0, 1, 1]),
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Factorization
+                    && terminal.owner_ordinal() == 2
+        ));
 
         // The decorated three-line cells own one certified S4 orbit of the
         // negative dotted path.  They descend into the undotted recurrence,
@@ -902,7 +955,6 @@ mod tests {
                 .map(|key| key.powers().to_vec())
                 .collect::<Vec<_>>(),
             [
-                [-1, 0, 1, 0, 2, 1],
                 [0, -1, 1, 1, 1, 1],
                 [0, -1, 1, 1, 2, 1],
                 [0, -1, 1, 2, 1, 1],

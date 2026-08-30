@@ -235,11 +235,21 @@ in two authenticated factorization sectors. The bulk replaces its mixed
 dot/numerator frontier with one decorated-path and one undotted
 factorized-face obligation, without promoting either to a terminal.
 
+The decorated bridge descendant `J(-1,0,1,0,2,1)` now has its own exact
+singleton cell. The complete untranslated nine-row span selects rows 0 and 3,
+and production independently reprojects only those rows into a guard-free,
+strictly descending recurrence. Its 24-image `S4` orbit is disjoint from the
+other four decorated-path placements. Both children already route to the
+installed decorated-path endpoint or factorization owner 2, so this cell
+reduces the finite frontier by one without creating another obligation. A
+candidate bulk mixed-numerator lane that would increase that frontier remains
+deliberately uninstalled.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 84 nodes: all 29 presently derived cell owners are
-exercised in 38 applications, 26 nodes terminate through independently checked
-zero or factorization proofs, and 20 remain explicitly uncovered. The census
+roots and discover 84 nodes: all 30 presently derived cell owners are
+exercised in 39 applications, 26 nodes terminate through independently checked
+zero or factorization proofs, and 19 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

@@ -204,11 +204,23 @@ expose only strictly lower decorated/undotted numerator obligations in the
 bulk. Exact orbit enumeration keeps the three inequivalent dot placements
 unowned.
 
+The bridge bulk's decorated child `J(-1,0,1,0,2,1)` is now owned by a separate
+singleton three-line cell. Its complete depth-zero search contains all nine
+ordinary rows and selects ordinals 0 and 3; production independently
+reprojects only those two rows. The resulting guard-free recurrence has a
+24-image `S4` orbit, descends only to the installed decorated-path endpoint and
+factorization owner 2, and therefore removes one frontier node without
+creating another. The four inequivalent neighboring decorated placements are
+tested as nonowners. A complete depth-one candidate for the mixed-numerator
+bulk is intentionally deferred because its first application would expose
+three distinct new decorated obligations and increase, rather than decrease,
+the present frontier.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
 canonicalization retains 44 roots and discovery visits 84 nodes. The report
-pins 38 applications across all 29 current rule-cell owners, 26 independently
-proved zero/factorization terminals, and 20 uncovered nodes. A
+pins 39 applications across all 30 current rule-cell owners, 26 independently
+proved zero/factorization terminals, and 19 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
