@@ -23,10 +23,10 @@ The currently evidenced core can:
 - derive both a guarded rule at one concrete anchor and a genuine fixed-sector
   parametric recurrence over `K(n)`, accepting the latter only after exact
   symbolic replay, uniform descent proofs, retained nonzero guards, and
-  independent anchored agreement, with an optional requested-pivot path that
-  performs deterministic Symbolica RREF over physical pivots, keeps
-  chronological provenance columns as free source weights, and retains every
-  reachable pivot guard;
+  exact base-field source replay at the declared anchor, with an optional
+  requested-pivot path that performs deterministic Symbolica RREF over
+  physical pivots, keeps chronological provenance columns as free source
+  weights, and retains every reachable pivot guard;
 - refine sector-monotone RHS shifts into lazy exact fixed-target-sector cells
   and stream preflighted O(1), rule-bound proper-subsector obligation
   descriptors with stable process-local resume and on-demand domain
@@ -129,7 +129,9 @@ explicit new guidance. See [`GOAL.md`](GOAL.md) for the authoritative gates.
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
 authored recurrences, and milestone-log architecture have been deleted rather
-than migrated.
+than migrated. Durable artifacts accept the current RustRed schema only: V2
+is rejected and there is no migration or dual decoder. This does not weaken
+Vakint's separate API/default and existing FORM-method compatibility contract.
 
 ## Workspace
 
@@ -329,12 +331,14 @@ exact coefficients in Vakint's existing MATAD master basis, and optionally
 reuses its pure-Rust master evaluations. It does not rematch graphs, regenerate
 artifacts, invoke FORM, or fall back to another scalar reducer.
 
-Vakint's defaults and backward compatibility remain unchanged. Tensor-bearing
-inputs continue through the existing FORM tensor prepass before the FORM-free
-RustRed scalar tail, so that whole tensor-bearing chain is not described as
-FORM-free. Dedicated invalid-FORM-path tests exercise nontrivial one- and
-two-loop scalar numerators and prove that the scalar backend itself has no FORM
-dependency. Broad raw-master and substituted-result tests agree with MATAD. The
+Vakint's public API conventions, defaults, and existing FORM-backed methods
+remain backward-compatible; obsolete RustRed artifact schemas deliberately do
+not. Tensor-bearing inputs continue through the existing FORM tensor prepass
+before the FORM-free RustRed scalar tail, so that whole tensor-bearing chain is
+not described as FORM-free. Dedicated invalid-FORM-path tests exercise
+nontrivial one- and two-loop scalar numerators and prove that the scalar backend
+itself has no FORM dependency. Broad raw-master and substituted-result tests
+agree with MATAD. The
 previously implemented optional, bounded `TensorReductionMode::RustRed`
 experiment remains frozen and is not an active Stage 1 dependency.
 

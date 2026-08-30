@@ -1,5 +1,4 @@
 use crate::algebra::IndexedAlgebraLimits;
-use crate::foundry::anchored::AnchoredRuleLimits;
 
 /// Resource policy for deriving and authenticating one parametric rule.
 ///
@@ -10,7 +9,6 @@ use crate::foundry::anchored::AnchoredRuleLimits;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParametricRuleLimits {
     pub indexed_algebra: IndexedAlgebraLimits,
-    pub anchored: AnchoredRuleLimits,
     pub max_source_rows: usize,
     pub max_shift_columns: usize,
     pub max_augmented_columns: usize,
@@ -19,7 +17,7 @@ pub struct ParametricRuleLimits {
     /// foundry boundary.
     ///
     /// Every value-distinct source shift is canonicalized to one retained Arc
-    /// buffer and counted once, together with the copied agreement anchor.
+    /// buffer and counted once, together with the copied replay anchor.
     /// Cloning that canonical `IndexShift` into columns, pivots, RHS terms,
     /// pivot guards, and guard origins only adds Arc handles, so it never
     /// counts the same coordinate buffer again. Domain endpoints have their
@@ -60,16 +58,32 @@ pub struct ParametricRuleLimits {
     pub max_elimination_pivot_dependency_entries: usize,
     pub max_source_combination_terms: usize,
     pub max_replay_exact_operations: usize,
-    /// Maximum `i64` power cells simultaneously retained by the concrete
-    /// anchor comparison outside the independently limited anchored rule.
-    pub max_anchor_bridge_integral_key_power_cells: usize,
+    /// Maximum source and rule terms specialized by the concrete base-field
+    /// replay. This bounds work before any integral-key allocation starts.
+    pub max_concrete_replay_terms: usize,
+    /// Maximum distinct integral keys retained by the concrete replay's exact
+    /// base-field accumulator.
+    pub max_concrete_replay_integral_keys: usize,
+    /// Maximum aggregate numerator-plus-denominator term count retained by
+    /// base-field coefficients in the concrete replay accumulator.
+    pub max_concrete_replay_retained_coefficient_terms: usize,
+    /// Maximum aggregate clone-owned bytes retained by base-field
+    /// coefficients in the concrete replay accumulator. This is deliberately
+    /// runtime-only policy state: native capacities and `size_of` are not
+    /// cross-platform semantic evidence and are never persisted in a rule.
+    pub max_concrete_replay_retained_coefficient_clone_owned_bytes: usize,
+    /// Maximum `i64` power cells constructed while specializing source terms,
+    /// the pivot, and right-hand-side terms, plus the retained replay anchor.
+    pub max_concrete_replay_integral_key_power_cells: usize,
+    /// Maximum exact specializations, products, sums, negations, and
+    /// coefficient comparisons performed by the concrete replay.
+    pub max_concrete_replay_exact_operations: usize,
 }
 
 impl Default for ParametricRuleLimits {
     fn default() -> Self {
         Self {
             indexed_algebra: IndexedAlgebraLimits::default(),
-            anchored: AnchoredRuleLimits::default(),
             max_source_rows: 65_536,
             max_shift_columns: 1_000_000,
             max_augmented_columns: 2_000_000,
@@ -90,7 +104,12 @@ impl Default for ParametricRuleLimits {
             max_elimination_pivot_dependency_entries: 64_000_000,
             max_source_combination_terms: 65_536,
             max_replay_exact_operations: 100_000_000,
-            max_anchor_bridge_integral_key_power_cells: 64_000_000,
+            max_concrete_replay_terms: 64_000_000,
+            max_concrete_replay_integral_keys: 16_000_000,
+            max_concrete_replay_retained_coefficient_terms: 64_000_000,
+            max_concrete_replay_retained_coefficient_clone_owned_bytes: 1024 * 1024 * 1024,
+            max_concrete_replay_integral_key_power_cells: 64_000_000,
+            max_concrete_replay_exact_operations: 200_000_000,
         }
     }
 }

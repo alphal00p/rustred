@@ -2,7 +2,7 @@ use crate::algebra::{IndexedCoefficientContext, IndexedPolynomial};
 use crate::identity::ParametricRelation;
 use crate::sector::OrderingPolicy;
 
-use super::anchor::{AnchorSelection, verify_anchor_agreement};
+use super::anchor::verify_concrete_specialization_replay;
 use super::boundary::{build_sector_monotone_admission, preflight_sector_monotone_rhs_shift};
 use super::error::ParametricRuleError;
 use super::limits::ParametricRuleLimits;
@@ -21,8 +21,8 @@ use super::sparse::{ReducedRuleRow, reduce_rows, reduce_rows_for_target};
 /// Rows are eliminated directly over the authenticated indexed field `K(n)`
 /// using Symbolica's public sparse reducer. The result is returned only after
 /// exact indexed source replay, uniform structural descent proofs, complete
-/// pivot/denominator guards, and an independent concrete anchored derivation
-/// agree. This function does not claim exceptional-domain coverage or closure.
+/// pivot/denominator guards, and exact concrete base-field replay agree. This
+/// function does not claim exceptional-domain coverage or closure.
 pub fn derive_sector_interior_rule(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],
@@ -40,7 +40,6 @@ pub fn derive_sector_interior_rule(
         reduced,
         replay,
         limits,
-        AnchorSelection::FirstDescending,
         RuleAdmission::Interior,
     )
 }
@@ -52,8 +51,8 @@ pub fn derive_sector_interior_rule(
 /// forward pivot. RustRed computes the complete pivot reachability before
 /// invoking Symbolica's deterministic serial back-substitution, retains every
 /// required physical pivot guard, replays the exact indexed source
-/// combination, proves uniform descent, and compares against an independently
-/// targeted anchored derivation. Back-substitution admits physical pivots only
+/// combination, proves uniform descent, and replays the resulting relation at
+/// the declared anchor. Back-substitution admits physical pivots only
 /// and treats the identity-augmentation columns as free right-hand-side
 /// coefficients, so dependent source rows cannot obstruct an otherwise valid
 /// target rule. This function does not claim exceptional-domain coverage or
@@ -87,7 +86,6 @@ pub fn derive_sector_interior_rule_for_target(
         reduced,
         replay,
         limits,
-        AnchorSelection::Targeted,
         RuleAdmission::Interior,
     )
 }
@@ -100,7 +98,7 @@ pub fn derive_sector_interior_rule_for_target(
 /// the ordinary strict shift ordering, while deterministic first-pinched
 /// cylinders descend by propagator count. Positive inactive-line shifts are a
 /// typed refinement boundary. The anchor is checked inside this larger box
-/// and still agrees with an independent anchored derivation. Proper-subsector
+/// and still passes an exact concrete specialization replay. Proper-subsector
 /// cells are unresolved dependencies; this function certifies neither their
 /// rule availability nor closure.
 pub fn derive_sector_monotone_rule_for_target(
@@ -132,7 +130,6 @@ pub fn derive_sector_monotone_rule_for_target(
         reduced,
         replay,
         limits,
-        AnchorSelection::Targeted,
         RuleAdmission::SectorMonotone,
     )
 }
@@ -150,7 +147,6 @@ fn build_rule(
     reduced: ReducedRuleRow,
     replay: super::model::ParametricExactReplayWitness,
     limits: ParametricRuleLimits,
-    anchor_selection: AnchorSelection,
     admission: RuleAdmission,
 ) -> Result<ParametricRule, ParametricRuleError> {
     let right_hand_side_terms = reduced.shift_entries.len().checked_sub(1).ok_or(
@@ -364,17 +360,15 @@ fn build_rule(
     }
     let nonzero_guards = guards.finish();
 
-    let anchor_agreement = verify_anchor_agreement(
+    let concrete_replay = verify_concrete_specialization_replay(
         context,
         relations,
         problem.anchor.powers(),
-        problem.ordering,
         &pivot,
         &right_hand_side,
         &nonzero_guards,
         &reduced.source_combination,
         limits,
-        anchor_selection,
     )?;
     Ok(ParametricRule {
         family_fingerprint: problem.family_fingerprint,
@@ -387,7 +381,7 @@ fn build_rule(
         nonzero_guards,
         source_combination: reduced.source_combination,
         replay,
-        anchor_agreement,
+        concrete_replay,
         sector_monotone_admission,
     })
 }

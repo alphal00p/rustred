@@ -2,7 +2,8 @@
 //!
 //! This module eliminates generated identities directly over the authenticated
 //! indexed field `K(n)`. A successful value proves its guarded source-row
-//! replay, uniform structural descent, and agreement at one concrete anchor.
+//! replay, uniform structural descent, and exact base-field replay at one
+//! concrete anchor.
 //! The target-directed sector-monotone API additionally constructs a maximal
 //! representable parent-sector box and an exhaustive compact threshold
 //! partition for every RHS shift. Pinched cells remain explicit lower-sector
@@ -19,6 +20,10 @@ mod prepare;
 mod replay;
 mod sparse;
 
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use anchor::replay_rule_at_concrete_assignment;
+
 pub use boundary::{
     SectorMonotoneDependency, SectorMonotoneDependencyAtPoint, SectorMonotoneDependencyKind,
     SectorMonotoneTargetAdmission,
@@ -30,8 +35,8 @@ pub use derive::{
 pub use error::ParametricRuleError;
 pub use limits::ParametricRuleLimits;
 pub use model::{
-    AnchorAgreement, ParametricExactReplayWitness, ParametricGuardOrigin, ParametricNonZeroGuard,
-    ParametricReducerPivotGuard, ParametricRule, ParametricRuleTerm,
+    ConcreteSpecializationReplayWitness, ParametricExactReplayWitness, ParametricGuardOrigin,
+    ParametricNonZeroGuard, ParametricReducerPivotGuard, ParametricRule, ParametricRuleTerm,
     ParametricSourceRowContribution,
 };
 

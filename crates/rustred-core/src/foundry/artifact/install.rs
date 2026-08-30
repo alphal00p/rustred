@@ -301,13 +301,25 @@ fn validate_cell_replay(cell: &RuleCell) -> Result<(), ArtifactError> {
             });
         }
     }
-    let agreement = rule.anchor_agreement();
-    if agreement.specialized_source_terms() == 0
-        || agreement.specialized_right_hand_side_terms() != rule.right_hand_side().len()
-        || agreement.nonzero_guards_checked() != rule.nonzero_guards().len()
+    let concrete = rule.concrete_replay();
+    if concrete.source_contributions_checked() == 0
+        || concrete.source_contributions_checked() != rule.source_combination().len()
+        || concrete.source_terms_checked() == 0
+        || concrete.right_hand_side_terms_checked() != rule.right_hand_side().len()
+        || concrete.integral_keys_checked()
+            != concrete
+                .source_terms_checked()
+                .checked_add(rule.right_hand_side().len())
+                .and_then(|count| count.checked_add(1))
+                .ok_or(ArtifactError::InvalidReplayEvidence {
+                    detail: "a rule cell concrete replay key count overflowed",
+                })?
+        || concrete.nonzero_guards_checked() != rule.nonzero_guards().len()
+        || concrete.exact_operations() == 0
+        || concrete.peak_retained_coefficient_terms() == 0
     {
         return Err(ArtifactError::InvalidReplayEvidence {
-            detail: "a rule cell has incomplete independent anchored agreement",
+            detail: "a rule cell has incomplete concrete specialization replay",
         });
     }
     Ok(())

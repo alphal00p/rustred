@@ -119,7 +119,7 @@ impl<'plan, 'rule> ParametricProperSubsectorObligation<'plan, 'rule> {
     }
 
     /// Complete parent rule carrying family/context/order, source replay,
-    /// pivot provenance, and anchor agreement.
+    /// pivot provenance, and concrete specialization replay.
     pub fn parent_rule(&self) -> &'rule ParametricRule {
         self.rule
     }

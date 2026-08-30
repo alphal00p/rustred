@@ -26,7 +26,7 @@ RustRed currently provides a topology-neutral mathematical spine for:
 - concrete-anchor and fixed-sector parametric foundry boundaries that derive
   guarded strictly descending rows through Symbolica's sparse reducer; the
   latter eliminates directly over `K(n)` and requires exact symbolic replay,
-  uniform descent, and independent anchored agreement, while both boundaries
+  uniform descent, and exact concrete base-field replay, while both boundaries
   can target a requested pivot through guarded deterministic RREF; the
   targeted path can additionally classify a maximal parent-sector box into
   exact fixed-target-sector product cells and expose a preflighted, resumable
@@ -184,7 +184,8 @@ directly over `K(n)` on a representable fixed-sector interior. Both order
 integral columns through the sector owner and invoke Symbolica's public sparse
 row reducer; the latter retains every required guard and source provenance,
 proves uniform strict descent, exactly replays the symbolic row, and requires
-agreement with the independently derived anchor. Targeted discovery performs
+an exact specialization replay of the retained source combination at the
+declared anchor. Targeted discovery performs
 physical-pivot-only deterministic back-substitution while retaining identity
 columns as free source weights. Those general rule-discovery paths are not yet
 an exceptional-domain engine or complete-source/closure search.
@@ -209,7 +210,7 @@ children back. Separately, `foundry::artifact` generates and verifies the
 canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
-closure search. Its schema-v2 codec owns deterministic semantic bytes and
+closure search. Its schema-v3 codec owns deterministic semantic bytes and
 one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained
 semantics exactly, and authenticates replay before exposing a sealed owner.
@@ -333,7 +334,9 @@ artifacts; artifact models do not depend on application transports.
   and test boundaries. A small file count is not an architectural goal.
 - Keep visibility minimal and expose public items under the owning module.
 - Delete obsolete RustRed APIs directly; there is no pre-release RustRed
-  compatibility promise. Preserve backward compatibility in Vakint.
+  compatibility promise. Preserve Vakint's public API conventions, defaults,
+  and existing FORM-backed methods, but never add a Vakint decoder or migration
+  layer for obsolete RustRed artifact schemas.
 - Add a subcrate only when it creates a demonstrable dependency or independent
   build/test boundary.
 - Describe capabilities from passing live evidence. A source count, proposed

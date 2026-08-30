@@ -82,19 +82,16 @@ fn generated_tadpole_yields_a_genuine_guarded_parametric_rule() {
     assert_eq!(rule.replay().source_rows_used(), 1);
     assert_eq!(rule.replay().shift_columns_checked(), 2);
     assert!(rule.replay().exact_operations() > 0);
+    assert_eq!(rule.concrete_replay().right_hand_side_terms_checked(), 1);
+    assert_eq!(rule.concrete_replay().source_contributions_checked(), 1);
+    assert_eq!(rule.concrete_replay().source_terms_checked(), 2);
+    assert_eq!(rule.concrete_replay().integral_keys_checked(), 4);
     assert_eq!(
-        rule.anchor_agreement().specialized_right_hand_side_terms(),
-        1
-    );
-    assert_eq!(rule.anchor_agreement().specialized_source_terms(), 1);
-    assert_eq!(
-        rule.anchor_agreement().nonzero_guards_checked(),
+        rule.concrete_replay().nonzero_guards_checked(),
         rule.nonzero_guards().len()
     );
-    assert_eq!(
-        rule.anchor_agreement().anchored_rule().pivot().powers(),
-        &[2]
-    );
+    assert_eq!(rule.concrete_replay().anchor().powers(), &[1]);
+    assert!(rule.concrete_replay().exact_operations() > 0);
 }
 
 #[test]
@@ -221,16 +218,14 @@ fn generated_equal_mass_sunset_selected_source_span_is_descending_and_replayed()
     assert_eq!(rule.replay().source_rows_used(), 1);
     assert_eq!(rule.replay().shift_columns_checked(), 7);
     assert_eq!(rule.replay().exact_operations(), 14);
+    assert_eq!(rule.concrete_replay().anchor().powers(), &[2, 3, 4]);
+    assert_eq!(rule.concrete_replay().right_hand_side_terms_checked(), 6);
+    assert_eq!(rule.concrete_replay().source_contributions_checked(), 1);
     assert_eq!(
-        rule.anchor_agreement().anchored_rule().pivot().powers(),
-        &[2, 4, 4]
+        rule.concrete_replay().integral_keys_checked(),
+        rule.concrete_replay().source_terms_checked() + 7
     );
-    assert_eq!(
-        rule.anchor_agreement().specialized_right_hand_side_terms(),
-        6
-    );
-    assert_eq!(rule.anchor_agreement().specialized_source_terms(), 1);
-    assert_eq!(rule.anchor_agreement().nonzero_guards_checked(), 3);
+    assert_eq!(rule.concrete_replay().nonzero_guards_checked(), 3);
 }
 
 #[test]
@@ -316,12 +311,7 @@ fn generated_ordinary_and_li_rows_yield_a_genuine_two_source_rule() {
         vec![0, 1]
     );
     assert_eq!(rule.replay().source_rows_used(), 2);
-    assert_eq!(rule.anchor_agreement().specialized_source_terms(), 2);
-    assert_eq!(
-        rule.anchor_agreement()
-            .anchored_rule()
-            .source_combination()
-            .len(),
-        2
-    );
+    assert_eq!(rule.concrete_replay().source_contributions_checked(), 2);
+    assert!(rule.concrete_replay().source_terms_checked() > 0);
+    assert_eq!(rule.concrete_replay().anchor().powers(), &[1, 2, 3, 1]);
 }

@@ -383,7 +383,10 @@ Stage 1 deliverable.
   and exact momentum/routing replay.
 - Use semantic module ownership; do not revive chronological, `generated`,
   `residual`, `runtime`, `legacy`, or `misc` buckets. RustRed has no pre-release
-  compatibility promise; Vakint retains backward compatibility.
+  compatibility promise. Vakint preserves its public API conventions, defaults,
+  and existing FORM-backed reduction methods, but it deliberately provides no
+  compatibility layer for obsolete RustRed parametric-IBP artifact schemas:
+  shipped and user-supplied artifacts must use the single current schema.
 - Validate untrusted inputs and durable artifacts at their boundary. Do not
   accumulate repeated internal authentication ceremonies in the hot path.
 - Deterministic parallel work uses one bounded coordinator/pool, shared

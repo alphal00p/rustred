@@ -2,7 +2,7 @@
 //!
 //! [`anchored`] derives exact rules at one concrete integer anchor, while
 //! [`parametric`] derives exactly replayed recurrences on a fixed-sector
-//! interior and proves agreement with anchored specializations. Both
+//! interior and replays them directly in the exact base field. Both
 //! foundries offer their original forward-selected rule and a target-directed
 //! serial-RREF path. The parametric target path can also prove a recurrence on
 //! a sector-monotone parent box, retaining every pinch cylinder as an explicit

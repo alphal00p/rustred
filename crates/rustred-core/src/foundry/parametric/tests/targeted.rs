@@ -118,11 +118,8 @@ fn complete_sunset_span_yields_the_targeted_e1_rref_recurrence() {
 
     assert_eq!(rule.replay().source_rows_used(), 3);
     assert_eq!(rule.replay().shift_columns_checked(), 10);
-    assert_eq!(
-        rule.anchor_agreement().anchored_rule().pivot().powers(),
-        &[3, 2, 2]
-    );
-    assert_eq!(rule.anchor_agreement().specialized_source_terms(), 3);
+    assert_eq!(rule.concrete_replay().anchor().powers(), &[2, 2, 2]);
+    assert_eq!(rule.concrete_replay().source_contributions_checked(), 3);
 
     let repeated = derive_sector_interior_rule_for_target(
         &context,
@@ -162,10 +159,7 @@ fn complete_sunset_span_exposes_corner_pinch_dependencies() {
     .unwrap();
     assert!(!rule.domain().contains(rule.anchor().powers()).unwrap());
     assert_eq!(rule.sector().active_bits(), &[true, true, true]);
-    assert_eq!(
-        rule.anchor_agreement().anchored_rule().pivot().powers(),
-        &[2, 1, 1]
-    );
+    assert_eq!(rule.concrete_replay().anchor().powers(), &[1, 1, 1]);
 
     let admission = rule.sector_monotone_admission().unwrap();
     assert!(admission.verify());

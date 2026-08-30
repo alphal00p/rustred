@@ -1,14 +1,10 @@
 use crate::family::{CoefficientLocation, IntegralKey};
-use crate::foundry::anchored::{AnchoredRule, GuardOrigin};
 use crate::foundry::parametric::{ParametricGuardOrigin, ParametricRule};
 use crate::identity::{IdentityConditionSource, RowId};
 
 use super::super::error::ArtifactPersistenceError;
 use super::binary::{Reader, Writer, try_vec};
-use super::coefficient::{
-    encode_base_coefficient, encode_base_polynomial, encode_indexed_coefficient,
-    encode_indexed_polynomial,
-};
+use super::coefficient::{encode_indexed_coefficient, encode_indexed_polynomial};
 
 fn copy_string(value: &str, resource: &'static str) -> Result<String, ArtifactPersistenceError> {
     let mut output = String::new();
@@ -282,126 +278,6 @@ fn encode_parametric_guard_origin(
     }
 }
 
-fn encode_guard_origin(
-    writer: &mut Writer,
-    origin: &GuardOrigin,
-) -> Result<(), ArtifactPersistenceError> {
-    match origin {
-        GuardOrigin::SourceCondition {
-            source_ordinal,
-            row_id,
-            condition_ordinal,
-            condition_sources,
-        } => {
-            writer.u8(0)?;
-            writer.usize(*source_ordinal, "anchored guard source ordinal")?;
-            encode_row_id(writer, row_id)?;
-            writer.usize(*condition_ordinal, "anchored guard condition ordinal")?;
-            writer.usize(condition_sources.len(), "anchored guard condition sources")?;
-            for source in condition_sources {
-                encode_condition_source(writer, source)?;
-            }
-            Ok(())
-        }
-        GuardOrigin::SourceCoefficientDenominator {
-            source_ordinal,
-            row_id,
-            shift,
-        } => {
-            writer.u8(1)?;
-            writer.usize(*source_ordinal, "anchored guard source ordinal")?;
-            encode_row_id(writer, row_id)?;
-            encode_i64_slice(writer, shift)
-        }
-        GuardOrigin::ReducerPivotNumerator {
-            source_ordinal,
-            row_id,
-            pivot_column,
-        } => {
-            writer.u8(2)?;
-            writer.usize(*source_ordinal, "anchored guard source ordinal")?;
-            encode_row_id(writer, row_id)?;
-            writer.usize(*pivot_column, "anchored guard pivot column")
-        }
-        GuardOrigin::ReducerPivotDenominator {
-            source_ordinal,
-            row_id,
-            pivot_column,
-        } => {
-            writer.u8(3)?;
-            writer.usize(*source_ordinal, "anchored guard source ordinal")?;
-            encode_row_id(writer, row_id)?;
-            writer.usize(*pivot_column, "anchored guard pivot column")
-        }
-        GuardOrigin::RuleCoefficientDenominator { integral } => {
-            writer.u8(4)?;
-            encode_integral_key(writer, integral)
-        }
-        GuardOrigin::SourceCombinationDenominator {
-            source_ordinal,
-            row_id,
-        } => {
-            writer.u8(5)?;
-            writer.usize(*source_ordinal, "anchored guard source ordinal")?;
-            encode_row_id(writer, row_id)
-        }
-    }
-}
-
-fn encode_anchored_rule(
-    writer: &mut Writer,
-    rule: &AnchoredRule,
-) -> Result<(), ArtifactPersistenceError> {
-    writer.string(
-        rule.family_fingerprint(),
-        "anchored rule family fingerprint",
-    )?;
-    encode_integral_key(writer, rule.anchor())?;
-    writer.string(rule.ordering().stable_id(), "anchored ordering identifier")?;
-    encode_integral_key(writer, rule.pivot())?;
-    writer.usize(rule.right_hand_side().len(), "anchored RHS terms")?;
-    for term in rule.right_hand_side() {
-        encode_integral_key(writer, term.integral())?;
-        encode_base_coefficient(writer, term.coefficient())?;
-        writer.u8(u8::from(term.descent().verify()))?;
-    }
-    writer.usize(
-        rule.elimination_pivot_guards().len(),
-        "anchored pivot guards",
-    )?;
-    for guard in rule.elimination_pivot_guards() {
-        writer.usize(guard.source_ordinal(), "anchored pivot source ordinal")?;
-        encode_row_id(writer, guard.row_id())?;
-        writer.usize(guard.pivot_column(), "anchored pivot column")?;
-        encode_base_coefficient(writer, guard.coefficient())?;
-        encode_base_polynomial(writer, guard.nonzero_polynomial())?;
-    }
-    writer.usize(rule.nonzero_guards().len(), "anchored nonzero guards")?;
-    for guard in rule.nonzero_guards() {
-        encode_base_polynomial(writer, guard.polynomial())?;
-        writer.usize(guard.origins().len(), "anchored guard origins")?;
-        for origin in guard.origins() {
-            encode_guard_origin(writer, origin)?;
-        }
-    }
-    writer.usize(
-        rule.source_combination().len(),
-        "anchored source combination",
-    )?;
-    for contribution in rule.source_combination() {
-        writer.usize(contribution.source_ordinal(), "anchored source ordinal")?;
-        encode_row_id(writer, contribution.row_id())?;
-        encode_base_coefficient(writer, contribution.coefficient())?;
-    }
-    let replay = rule.replay();
-    writer.usize(replay.source_rows_used(), "anchored replay source rows")?;
-    writer.usize(
-        replay.integral_columns_checked(),
-        "anchored replay integral columns",
-    )?;
-    writer.usize(replay.exact_operations(), "anchored replay operations")
-}
-
 /// Encode every semantic and replay-bearing field of one derived rule. The
 /// loader compares these bytes to a freshly authenticated derivation from the
 /// retained source rows.
@@ -462,19 +338,32 @@ pub(super) fn encode_rule_snapshot(
         "parametric replay shift columns",
     )?;
     writer.usize(replay.exact_operations(), "parametric replay operations")?;
-    let agreement = rule.anchor_agreement();
-    encode_anchored_rule(&mut writer, agreement.anchored_rule())?;
+    let concrete = rule.concrete_replay();
+    encode_integral_key(&mut writer, concrete.anchor())?;
     writer.usize(
-        agreement.specialized_right_hand_side_terms(),
-        "anchor agreement RHS terms",
+        concrete.source_contributions_checked(),
+        "concrete replay source contributions",
     )?;
     writer.usize(
-        agreement.specialized_source_terms(),
-        "anchor agreement source terms",
+        concrete.source_terms_checked(),
+        "concrete replay source terms",
     )?;
     writer.usize(
-        agreement.nonzero_guards_checked(),
-        "anchor agreement guards",
+        concrete.right_hand_side_terms_checked(),
+        "concrete replay RHS terms",
+    )?;
+    writer.usize(
+        concrete.integral_keys_checked(),
+        "concrete replay integral keys",
+    )?;
+    writer.usize(concrete.nonzero_guards_checked(), "concrete replay guards")?;
+    writer.usize(
+        concrete.exact_operations(),
+        "concrete replay exact operations",
+    )?;
+    writer.usize(
+        concrete.peak_retained_coefficient_terms(),
+        "concrete replay peak retained coefficient terms",
     )?;
     match rule.sector_monotone_admission() {
         None => writer.u8(0)?,

@@ -44,7 +44,8 @@ The public `rustred` facade is organized by mathematical owner:
   common-mass powers; it does not perform Lorentz projection;
 - `foundry::anchored` owns concrete-index rule derivation, while
   `foundry::parametric` owns fixed-sector `K(n)` elimination, uniform descent,
-  exact symbolic replay, guards/provenance, and anchored agreement; both expose
+  exact symbolic and concrete-specialization replay, and guards/provenance;
+  both expose
   a requested-pivot variant backed by deterministic Symbolica RREF;
   `foundry::dependency` owns exact target-sector partition work admission and
   compact, resumable proper-subsector obligation descriptors;
@@ -228,7 +229,8 @@ Vakint remains the user-facing steering and presentation layer. It owns:
 - conversion between Vakint terms and typed RustRed requests;
 - backend choice, orchestration, normalization, existing master values, and
   result presentation; and
-- backward compatibility for all existing modes.
+- backward compatibility for its public API conventions, defaults, and all
+  existing FORM-backed modes, but not for obsolete RustRed artifact schemas.
 
 RustRed owns or will own the reusable mathematical services:
 

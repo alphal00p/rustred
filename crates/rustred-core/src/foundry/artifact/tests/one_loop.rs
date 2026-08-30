@@ -18,7 +18,7 @@ use super::one_loop::derive_one_loop_unit_mass_tadpole;
 fn generated_tadpole_installs_one_exact_closed_partition() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
 
-    assert_eq!(artifact.schema(), ArtifactSchemaVersion::V2);
+    assert_eq!(artifact.schema(), ArtifactSchemaVersion::V3);
     assert_eq!(artifact.arity(), 1);
     assert_eq!(
         artifact.algorithm_id(),

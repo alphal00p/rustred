@@ -48,7 +48,7 @@ struct UnmappedSourceRow {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AnchorRequirement {
     Interior,
-    SectorMonotoneAgreement,
+    SectorMonotoneReplay,
 }
 
 pub(super) fn prepare_problem(
@@ -81,7 +81,7 @@ pub(super) fn prepare_sector_monotone_problem(
         anchor,
         ordering,
         limits,
-        AnchorRequirement::SectorMonotoneAgreement,
+        AnchorRequirement::SectorMonotoneReplay,
     )
 }
 
@@ -291,7 +291,7 @@ fn prepare_problem_with_anchor_requirement(
         limits.max_shift_columns,
     )?;
     // The exact returned non-provenance payload is one buffer per unique
-    // shift, plus the agreement anchor which will be copied near the return
+    // shift, plus the replay anchor which will be copied near the return
     // below. Source-coefficient guard origins are rebound to these canonical
     // column handles before the anchor allocation. Preflight that payload
     // before constructing any later owner.
@@ -408,7 +408,7 @@ fn prepare_problem_with_anchor_requirement(
 
     let anchor = IntegralKey::try_from_preallocated(copy_i64_slice(
         anchor,
-        "parametric rule agreement anchor",
+        "parametric rule concrete replay anchor",
     )?)?;
     Ok(PreparedProblem {
         family_fingerprint,

@@ -339,42 +339,6 @@ fn parametric_ibp_error_is_limit(error: &rustred::identity::ParametricIbpError) 
     }
 }
 
-fn anchored_rule_error_kind(error: &rustred::foundry::anchored::AnchoredRuleError) -> AppErrorKind {
-    use rustred::foundry::anchored::AnchoredRuleError;
-
-    match error {
-        AnchoredRuleError::ResourceCountOverflow { .. }
-        | AnchoredRuleError::ResourceLimit { .. }
-        | AnchoredRuleError::AllocationFailure { .. } => AppErrorKind::Limit,
-        AnchoredRuleError::IndexedAlgebra(error) => untrusted_indexed_algebra_error_kind(error),
-        AnchoredRuleError::ExactAlgebra(error) if exact_algebra_error_is_limit(error) => {
-            AppErrorKind::Limit
-        }
-        AnchoredRuleError::IntegralKey(error) if integral_key_error_is_limit(error) => {
-            AppErrorKind::Limit
-        }
-        AnchoredRuleError::Ordering(error) if sector_error_is_limit(error) => AppErrorKind::Limit,
-        AnchoredRuleError::NativePanic { .. }
-        | AnchoredRuleError::ReducerRejectedChronologicalRow { .. } => AppErrorKind::Execution,
-        AnchoredRuleError::ReducerInvariant { .. } => AppErrorKind::InternalInvariant,
-        AnchoredRuleError::EmptySourceRows
-        | AnchoredRuleError::WrongAnchorArity { .. }
-        | AnchoredRuleError::WrongTargetIntegralArity { .. }
-        | AnchoredRuleError::TargetIntegralAbsent
-        | AnchoredRuleError::TargetIntegralNotPivot
-        | AnchoredRuleError::TargetHasNoStrictlyDescendingRule
-        | AnchoredRuleError::WrongSourceContext { .. }
-        | AnchoredRuleError::WrongSourceFamily { .. }
-        | AnchoredRuleError::AnchorIndexOverflow { .. }
-        | AnchoredRuleError::UnsatisfiedSourceCondition { .. }
-        | AnchoredRuleError::NoStrictlyDescendingRule
-        | AnchoredRuleError::ReplayMismatch { .. }
-        | AnchoredRuleError::ExactAlgebra(_)
-        | AnchoredRuleError::IntegralKey(_)
-        | AnchoredRuleError::Ordering(_) => AppErrorKind::Input,
-    }
-}
-
 fn parametric_rule_error_kind(
     error: &rustred::foundry::parametric::ParametricRuleError,
 ) -> AppErrorKind {
@@ -389,10 +353,14 @@ fn parametric_rule_error_kind(
             AppErrorKind::Limit
         }
         ParametricRuleError::Ordering(error) if sector_error_is_limit(error) => AppErrorKind::Limit,
-        ParametricRuleError::Anchored(error) => anchored_rule_error_kind(error),
         ParametricRuleError::NativePanic { .. }
         | ParametricRuleError::ReducerRejectedChronologicalRow { .. } => AppErrorKind::Execution,
-        ParametricRuleError::ReducerInvariant { .. } => AppErrorKind::InternalInvariant,
+        ParametricRuleError::ReducerInvariant { .. }
+        | ParametricRuleError::ConcreteReplaySourceOrdinalOutOfRange { .. }
+        | ParametricRuleError::ConcreteReplaySourceIdentityMismatch { .. }
+        | ParametricRuleError::ConcreteReplayPivotMismatch
+        | ParametricRuleError::ConcreteReplayRightHandSideMismatch { .. }
+        | ParametricRuleError::ConcreteReplayUnexpectedIntegral => AppErrorKind::InternalInvariant,
         ParametricRuleError::EmptySourceRows
         | ParametricRuleError::WrongAnchorArity { .. }
         | ParametricRuleError::WrongTargetShiftArity { .. }
@@ -411,9 +379,6 @@ fn parametric_rule_error_kind(
         | ParametricRuleError::NoStrictlyDescendingRule
         | ParametricRuleError::ReplayMismatch { .. }
         | ParametricRuleError::GuardVanishedAtAnchor { .. }
-        | ParametricRuleError::AnchorPivotMismatch
-        | ParametricRuleError::AnchorRightHandSideMismatch
-        | ParametricRuleError::AnchorSourceCombinationMismatch
         | ParametricRuleError::IntegralKey(_)
         | ParametricRuleError::Ordering(_) => AppErrorKind::Input,
     }
@@ -422,15 +387,13 @@ fn parametric_rule_error_kind(
 #[cfg(test)]
 mod tests {
     use rustred::family::IntegralKey;
-    use rustred::foundry::anchored::AnchoredRuleError;
-    use rustred::foundry::parametric::ParametricRuleError;
 
     use super::*;
 
     #[test]
     fn durable_encoder_failures_keep_schema_output_and_serialization_categories() {
         assert_eq!(
-            map_artifact_encoding_error(ArtifactPersistenceError::UnsupportedSchema { actual: 3 })
+            map_artifact_encoding_error(ArtifactPersistenceError::UnsupportedSchema { actual: 2 })
                 .kind(),
             AppErrorKind::Schema
         );
@@ -473,7 +436,7 @@ mod tests {
     #[test]
     fn durable_loader_schema_and_resource_failures_have_stable_categories() {
         assert_eq!(
-            map_artifact_load_error(ArtifactPersistenceError::UnsupportedSchema { actual: 3 })
+            map_artifact_load_error(ArtifactPersistenceError::UnsupportedSchema { actual: 2 })
                 .kind(),
             AppErrorKind::Schema
         );
@@ -517,6 +480,33 @@ mod tests {
                 detail: "test invariant",
             }),
             AppErrorKind::InternalInvariant
+        );
+    }
+
+    #[test]
+    fn concrete_replay_relation_mismatches_are_internal_but_guard_failure_is_input() {
+        use rustred::foundry::parametric::ParametricRuleError;
+
+        let invariant_errors = [
+            ParametricRuleError::ConcreteReplaySourceOrdinalOutOfRange { source_ordinal: 1 },
+            ParametricRuleError::ConcreteReplaySourceIdentityMismatch { source_ordinal: 0 },
+            ParametricRuleError::ConcreteReplayPivotMismatch,
+            ParametricRuleError::ConcreteReplayRightHandSideMismatch {
+                right_hand_side_ordinal: 0,
+            },
+            ParametricRuleError::ConcreteReplayUnexpectedIntegral,
+        ];
+        for error in invariant_errors {
+            assert_eq!(
+                parametric_rule_error_kind(&error),
+                AppErrorKind::InternalInvariant
+            );
+        }
+        assert_eq!(
+            parametric_rule_error_kind(&ParametricRuleError::GuardVanishedAtAnchor {
+                guard_ordinal: 0,
+            }),
+            AppErrorKind::Input
         );
     }
 
@@ -573,35 +563,6 @@ mod tests {
                 target: IntegralKey::try_new([2]).unwrap(),
             }),
             AppErrorKind::Execution
-        );
-    }
-
-    #[test]
-    fn anchored_parametric_failures_are_classified_recursively() {
-        let category = |error| parametric_rule_error_kind(&ParametricRuleError::Anchored(error));
-        assert_eq!(
-            category(AnchoredRuleError::NativePanic {
-                operation: "test operation",
-            }),
-            AppErrorKind::Execution
-        );
-        assert_eq!(
-            category(AnchoredRuleError::ReducerRejectedChronologicalRow { source_ordinal: 0 }),
-            AppErrorKind::Execution
-        );
-        assert_eq!(
-            category(AnchoredRuleError::ReducerInvariant {
-                detail: "test invariant",
-            }),
-            AppErrorKind::InternalInvariant
-        );
-        assert_eq!(
-            category(AnchoredRuleError::ResourceLimit {
-                resource: "anchored rows",
-                requested: 2,
-                limit: 1,
-            }),
-            AppErrorKind::Limit
         );
     }
 }

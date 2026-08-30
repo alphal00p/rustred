@@ -152,7 +152,7 @@ fn validate_rule(rule: &ParametricRule) -> Result<(), ArtifactError> {
     }
     if rule.anchor().powers() != [1] {
         return Err(ArtifactError::InvalidRuleShape {
-            detail: "the independently replayed agreement anchor is not the sector corner",
+            detail: "the concrete replay anchor is not the sector corner",
         });
     }
     Ok(())
@@ -187,12 +187,16 @@ fn validate_replay(
             });
         }
     }
-    if rule.anchor_agreement().specialized_source_terms() == 0
-        || rule.anchor_agreement().specialized_right_hand_side_terms() != 1
-        || rule.anchor_agreement().nonzero_guards_checked() != rule.nonzero_guards().len()
+    if rule.concrete_replay().source_contributions_checked() == 0
+        || rule.concrete_replay().source_terms_checked() != 2
+        || rule.concrete_replay().right_hand_side_terms_checked() != 1
+        || rule.concrete_replay().integral_keys_checked() != 4
+        || rule.concrete_replay().nonzero_guards_checked() != rule.nonzero_guards().len()
+        || rule.concrete_replay().exact_operations() == 0
+        || rule.concrete_replay().peak_retained_coefficient_terms() == 0
     {
         return Err(ArtifactError::InvalidReplayEvidence {
-            detail: "the independent anchored agreement is incomplete",
+            detail: "the concrete specialization replay is incomplete",
         });
     }
     Ok(())

@@ -175,7 +175,7 @@ fn domain_ordering_and_replay_limits_are_exact_and_typed() {
     );
 
     limits = ParametricRuleLimits {
-        max_anchor_bridge_integral_key_power_cells: 3,
+        max_concrete_replay_integral_key_power_cells: 3,
         ..ParametricRuleLimits::default()
     };
     assert_eq!(
@@ -187,8 +187,8 @@ fn domain_ordering_and_replay_limits_are_exact_and_typed() {
             limits,
         ),
         Err(ParametricRuleError::ResourceLimit {
-            resource: "parametric anchor-bridge integral-key power cells",
-            requested: 4,
+            resource: "concrete specialization replay integral-key power cells",
+            requested: 5,
             limit: 3,
         })
     );

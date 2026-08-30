@@ -45,9 +45,9 @@ impl IndexedCoefficientContext {
     }
 
     /// Specialize a polynomial already authenticated by a sealed semantic
-    /// owner. Artifact loading validates the payload once; reducer hot paths
-    /// therefore check only its context seal before doing the bounded exact
-    /// substitution.
+    /// owner. Foundry preparation and artifact installation validate their
+    /// respective payloads once; subsequent derivation or reduction checks
+    /// only the context seal before doing the bounded exact substitution.
     pub(crate) fn specialize_polynomial_sealed(
         &self,
         value: &IndexedPolynomial,
@@ -82,10 +82,11 @@ impl IndexedCoefficientContext {
 
     /// Specialize a coefficient owned by a sealed in-process semantic owner.
     ///
-    /// Artifact installation already authenticated the complete coefficient
-    /// payload.  This crate-private path checks only the exact context seal,
-    /// then retains the same prospective work bounds and output
-    /// authentication as the public untrusted-ingress operation.
+    /// A prior sealed semantic owner, such as foundry preparation or artifact
+    /// installation, already authenticated the complete coefficient payload.
+    /// This crate-private path checks only the exact context seal, then retains
+    /// the same prospective work bounds and output authentication as the
+    /// public untrusted-ingress operation.
     pub(crate) fn specialize_sealed(
         &self,
         value: &IndexedCoefficient,

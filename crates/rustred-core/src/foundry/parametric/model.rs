@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::algebra::{IndexedCoefficient, IndexedPolynomial};
 use crate::family::IntegralKey;
-use crate::foundry::anchored::AnchoredRule;
 use crate::identity::{IdentityConditionSource, IndexShift, RowId};
 use crate::sector::{Mask, OrderingPolicy, SectorInteriorDomain, ShiftStrictDescentWitness};
 
@@ -168,39 +167,68 @@ impl ParametricExactReplayWitness {
     }
 }
 
-/// Independent concrete evidence that the parametric rule specializes to the
-/// existing anchored elimination result.
+/// Exact base-field replay of the retained indexed source combination at one
+/// concrete lattice point.
+///
+/// The witness authenticates the rule relation itself. It deliberately does
+/// not compare against another elimination normal form: a boundary sector can
+/// induce a different concrete column ordering even though both rows belong
+/// to the same exact source span.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AnchorAgreement {
-    anchored_rule: AnchoredRule,
-    specialized_right_hand_side_terms: usize,
-    specialized_source_terms: usize,
+pub struct ConcreteSpecializationReplayWitness {
+    anchor: IntegralKey,
+    source_contributions_checked: usize,
+    source_terms_checked: usize,
+    right_hand_side_terms_checked: usize,
+    integral_keys_checked: usize,
     nonzero_guards_checked: usize,
+    exact_operations: usize,
+    peak_retained_coefficient_terms: usize,
 }
 
-impl AnchorAgreement {
-    pub fn anchored_rule(&self) -> &AnchoredRule {
-        &self.anchored_rule
+impl ConcreteSpecializationReplayWitness {
+    pub fn anchor(&self) -> &IntegralKey {
+        &self.anchor
     }
 
-    pub fn specialized_right_hand_side_terms(&self) -> usize {
-        self.specialized_right_hand_side_terms
+    pub fn source_contributions_checked(&self) -> usize {
+        self.source_contributions_checked
     }
 
-    pub fn specialized_source_terms(&self) -> usize {
-        self.specialized_source_terms
+    pub fn source_terms_checked(&self) -> usize {
+        self.source_terms_checked
+    }
+
+    pub fn right_hand_side_terms_checked(&self) -> usize {
+        self.right_hand_side_terms_checked
+    }
+
+    /// Number of source-term, pivot, and RHS keys constructed and checked.
+    /// Zero-specialized terms remain included in this deterministic count.
+    pub fn integral_keys_checked(&self) -> usize {
+        self.integral_keys_checked
     }
 
     pub fn nonzero_guards_checked(&self) -> usize {
         self.nonzero_guards_checked
+    }
+
+    pub fn exact_operations(&self) -> usize {
+        self.exact_operations
+    }
+
+    /// Peak aggregate numerator-plus-denominator term count retained by the
+    /// exact base-field accumulator after any deterministic map transition.
+    pub fn peak_retained_coefficient_terms(&self) -> usize {
+        self.peak_retained_coefficient_terms
     }
 }
 
 /// One guarded, uniformly descending, exactly replayed parametric rule.
 ///
 /// This object certifies only its fixed-sector interior, supplied source-row
-/// span, and concrete anchor agreement. For a sector-monotone target
-/// derivation, the agreement anchor may lie outside that same-sector interior;
+/// span, and concrete specialization replay. For a sector-monotone target
+/// derivation, the replay anchor may lie outside that same-sector interior;
 /// [`Self::sector_monotone_admission`] then supplies a larger universal parent
 /// box and exhaustive term-local pinch proofs. It does not certify exceptional
 /// guards, lower-sector rule availability, dependency closure, or a published
@@ -217,7 +245,7 @@ pub struct ParametricRule {
     pub(super) nonzero_guards: Vec<ParametricNonZeroGuard>,
     pub(super) source_combination: Vec<ParametricSourceRowContribution>,
     pub(super) replay: ParametricExactReplayWitness,
-    pub(super) anchor_agreement: AnchorAgreement,
+    pub(super) concrete_replay: ConcreteSpecializationReplayWitness,
     pub(super) sector_monotone_admission: Option<SectorMonotoneTargetAdmission>,
 }
 
@@ -272,8 +300,8 @@ impl ParametricRule {
         self.replay
     }
 
-    pub fn anchor_agreement(&self) -> &AnchorAgreement {
-        &self.anchor_agreement
+    pub fn concrete_replay(&self) -> &ConcreteSpecializationReplayWitness {
+        &self.concrete_replay
     }
 
     /// Universal parent-box and term-local pinch evidence produced only by the
@@ -283,7 +311,7 @@ impl ParametricRule {
     }
 
     pub fn anchor(&self) -> &IntegralKey {
-        self.anchor_agreement.anchored_rule().anchor()
+        self.concrete_replay.anchor()
     }
 }
 
@@ -349,18 +377,26 @@ impl ParametricExactReplayWitness {
     }
 }
 
-impl AnchorAgreement {
+impl ConcreteSpecializationReplayWitness {
     pub(super) fn new(
-        anchored_rule: AnchoredRule,
-        specialized_right_hand_side_terms: usize,
-        specialized_source_terms: usize,
+        anchor: IntegralKey,
+        source_contributions_checked: usize,
+        source_terms_checked: usize,
+        right_hand_side_terms_checked: usize,
+        integral_keys_checked: usize,
         nonzero_guards_checked: usize,
+        exact_operations: usize,
+        peak_retained_coefficient_terms: usize,
     ) -> Self {
         Self {
-            anchored_rule,
-            specialized_right_hand_side_terms,
-            specialized_source_terms,
+            anchor,
+            source_contributions_checked,
+            source_terms_checked,
+            right_hand_side_terms_checked,
+            integral_keys_checked,
             nonzero_guards_checked,
+            exact_operations,
+            peak_retained_coefficient_terms,
         }
     }
 }

@@ -2,7 +2,6 @@ use std::fmt;
 
 use crate::algebra::IndexedAlgebraError;
 use crate::family::IntegralKeyError;
-use crate::foundry::anchored::AnchoredRuleError;
 use crate::sector;
 
 /// Typed failure while preparing, eliminating, replaying, or anchoring one
@@ -73,13 +72,20 @@ pub enum ParametricRuleError {
     GuardVanishedAtAnchor {
         guard_ordinal: usize,
     },
-    AnchorPivotMismatch,
-    AnchorRightHandSideMismatch,
-    AnchorSourceCombinationMismatch,
+    ConcreteReplaySourceOrdinalOutOfRange {
+        source_ordinal: usize,
+    },
+    ConcreteReplaySourceIdentityMismatch {
+        source_ordinal: usize,
+    },
+    ConcreteReplayPivotMismatch,
+    ConcreteReplayRightHandSideMismatch {
+        right_hand_side_ordinal: usize,
+    },
+    ConcreteReplayUnexpectedIntegral,
     IndexedAlgebra(IndexedAlgebraError),
     IntegralKey(IntegralKeyError),
     Ordering(sector::Error),
-    Anchored(AnchoredRuleError),
 }
 
 impl fmt::Display for ParametricRuleError {
@@ -175,21 +181,31 @@ impl fmt::Display for ParametricRuleError {
             ),
             Self::GuardVanishedAtAnchor { guard_ordinal } => write!(
                 formatter,
-                "parametric nonzero guard {guard_ordinal} vanishes at the agreement anchor"
+                "parametric nonzero guard {guard_ordinal} vanishes at the concrete replay anchor"
             ),
-            Self::AnchorPivotMismatch => formatter.write_str(
-                "the parametric pivot does not specialize to the independently derived anchored pivot",
+            Self::ConcreteReplaySourceOrdinalOutOfRange { source_ordinal } => write!(
+                formatter,
+                "concrete specialization replay source ordinal {source_ordinal} is outside the supplied chronology"
             ),
-            Self::AnchorRightHandSideMismatch => formatter.write_str(
-                "the zero-pruned parametric right-hand side differs from the anchored rule",
+            Self::ConcreteReplaySourceIdentityMismatch { source_ordinal } => write!(
+                formatter,
+                "concrete specialization replay source ordinal {source_ordinal} has mismatched row identity"
             ),
-            Self::AnchorSourceCombinationMismatch => formatter.write_str(
-                "the parametric source combination differs from the anchored reducer chronology",
+            Self::ConcreteReplayPivotMismatch => formatter.write_str(
+                "concrete specialization replay does not produce pivot coefficient +1",
+            ),
+            Self::ConcreteReplayRightHandSideMismatch {
+                right_hand_side_ordinal,
+            } => write!(
+                formatter,
+                "concrete specialization replay differs at right-hand-side term {right_hand_side_ordinal}"
+            ),
+            Self::ConcreteReplayUnexpectedIntegral => formatter.write_str(
+                "concrete specialization replay retains an integral absent from the rule",
             ),
             Self::IndexedAlgebra(error) => error.fmt(formatter),
             Self::IntegralKey(error) => error.fmt(formatter),
             Self::Ordering(error) => error.fmt(formatter),
-            Self::Anchored(error) => error.fmt(formatter),
         }
     }
 }
@@ -211,11 +227,5 @@ impl From<IntegralKeyError> for ParametricRuleError {
 impl From<sector::Error> for ParametricRuleError {
     fn from(value: sector::Error) -> Self {
         Self::Ordering(value)
-    }
-}
-
-impl From<AnchoredRuleError> for ParametricRuleError {
-    fn from(value: AnchoredRuleError) -> Self {
-        Self::Anchored(value)
     }
 }

@@ -8,15 +8,16 @@ point. The sector-interior boundary instead eliminates that slice directly
 over the authenticated Symbolica field `K(n)`, orders shifts hardest-first,
 and returns one parametric recurrence only after exact symbolic source replay,
 uniform strict-descent proofs, all required retained pivot/denominator guards,
-and agreement with an independently derived anchored rule. Its domain is the
+and exact base-field replay of the retained source combination at the declared
+anchor. Its domain is the
 largest representable box on which every source shift stays in the anchor's
 fixed sector. The target-directed variants request one concrete integral or
 free-index shift, require it to be a forward pivot, compute the complete
 upper-triangular dependency envelope, and invoke Symbolica's deterministic
-serial back-substitution before the same replay, guard, descent, and anchored
-agreement gates. Generated tadpole and caller-selected two-loop sunset spans,
-a genuine two-source ordinary-IBP/LI elimination, and an all-four-row sunset
-target recurrence exercise these paths.
+serial back-substitution before the same replay, guard, descent, and concrete
+specialization gates. Generated tadpole and caller-selected two-loop sunset
+spans, a genuine two-source ordinary-IBP/LI elimination, and an all-four-row
+sunset target recurrence exercise these paths.
 
 Targeted back-substitution copies only normalized physical-pivot rows into its
 Symbolica upper-triangular system. Chronological identity/provenance columns
@@ -24,6 +25,24 @@ remain free right-hand-side source weights, so linearly dependent input rows
 cannot become artificial elimination pivots. Duplicate-row and interleaved
 physical/provenance chronology tests pin exact transitive source weights and
 normalization guards.
+
+Concrete specialization first checks every retained pre-cancellation guard.
+It then specializes every stored source weight and every term of its referenced
+original source row, accumulates exact base-field coefficients by
+`IntegralKey` in deterministic order, and requires precisely pivot coefficient
+`+1`, relation coefficient `-c` for each stored RHS coefficient `c`, and no
+leftover key. Zero-specialized weights, source terms, RHS terms, and exact
+cancellations remain checked and counted. The resulting witness records the
+anchor, contribution/term/key/guard counts, bounded exact-operation count, and
+the deterministic peak retained coefficient-term count. The accumulator also
+enforces an aggregate clone-owned-byte ceiling at runtime. That byte census is
+not durable witness data because native capacities and `size_of` vary across
+platforms. Replacement subtracts the prior map value before admitting its
+normalized replacement, and exact cancellation removes the prior payload;
+transient arithmetic values remain governed by the exact-algebra limits.
+It deliberately does not demand equality with another RREF: at a sector
+boundary, pinches can change concrete column order and hence the valid normal
+form without changing the exact source-span relation.
 
 The target-directed parametric path also has a sector-monotone admission. It
 retains the exact fixed-sector rule and replay, then admits specialization on
@@ -53,7 +72,7 @@ application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
 unimodular pinch factorization, and immutable lower-family feedback.
 `reduction::Reducer` applies either sealed owner.
 
-A deterministic schema-v2 codec persists exact family inputs, tagged source
+A deterministic schema-v3 codec persists exact family inputs, tagged source
 plans and semantic witnesses, rules/cells, symmetry and factorization data,
 masters, zero terminals, and homogeneity proofs. Bounded loading independently
 reconstructs and exactly compares the registered semantics once under the
@@ -315,7 +334,11 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The current durable schema-v2 format records the semantics needed to load and
+The durable loader accepts the current schema-v3 format only. It rejects V2
+with a typed schema error and deliberately provides neither migration nor a
+dual decoder; RustRed artifact schemas have no backward-compatibility promise.
+Vakint's API/defaults and existing FORM methods retain their separate backward-
+compatibility obligation. Schema V3 records the semantics needed to load and
 apply the sealed `K = 1` and `K = 3` artifacts:
 
 - schema/algorithm identifiers and canonical bounded sparse binary Symbolica
@@ -347,7 +370,7 @@ repeat schema round trips or whole-artifact replay. Atomic filesystem
 publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
-authentication is repeated by recursive hot-path reduction. Schema v2 records
+authentication is repeated by recursive hot-path reduction. Schema v3 records
 the generic typed dependency-master product embeddings needed by `K3 x K1`;
 the future `K = 6` codec will extend the registered algorithm payload without
 changing those semantics.
