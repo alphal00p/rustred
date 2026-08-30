@@ -8,6 +8,7 @@
 
 mod build;
 mod error;
+pub(crate) mod evidence;
 pub(crate) mod exact;
 mod limits;
 mod model;

@@ -125,6 +125,48 @@ splits, and owner restrictions, but stop as soon as the weaker owner-cover verif
 Fairness prevents starvation; it does not turn discovery into a guaranteed terminating
 algorithm.
 
+The trusted cover should be a canonical disjoint split trie, not a list of sampled points or
+overlapping standard pairs. Internal nodes split exact coordinate thresholds, explicitly proved
+residue classes, or supported guard predicates; leaves are rule owners or uncovered Stanley cells
+`a + N^F`. A nonempty `F` is an open all-rank obligation, while `F = empty` enumerates a finite
+terminal. Standard pairs remain the compressed search view, and the trie is the independently
+replayed coverage certificate. Affine integer equalities, inequalities, and explicit congruences
+are semilinear, but a general nonlinear integer guard locus is not Presburger. Such a branch stays
+typed and unresolved unless another guard-sane rule owns it. Coverage-directed completion may
+drop overlap pairs used only for confluence once deterministic ownership is fixed, but it may not
+drop a prolongation whose conservative possible-leader shadow touches an uncovered free direction,
+sector face, or guard-zero leaf.
+
+A concrete implementation should separate three responsibilities. A persistent axis-block trie
+owns the disjoint coordinate partition; a reduced ordered decision DAG over exact affine and
+congruence atoms owns shifted guards at block leaves; and one frozen Janet or Janet-like epoch
+generates candidate cones and supplies fast divisor lookup. Janet multiplicative masks depend on
+the ambient basis, so an incrementally changing Janet tree cannot itself be publication authority.
+Standard pairs may overlap, and signed rational-generating-function representations do not retain
+unique owner provenance, so both remain generators or independent cross-checks. See the basis-
+epoch and complement conditions in the complementary-decomposition work above, the Janet-tree
+lookup construction in [Gerdt and Blinkov](https://arxiv.org/abs/math/0501180), and the overlap
+warning for standard pairs in
+[O'Shea and Thomas](https://sites.math.washington.edu/~thomas/papers/ot.pdf).
+
+Candidates are inserted in one canonical order after exact replay. They may replace only
+`Unowned` leaves; previously installed owners are immutable. Subtracting one half-open axis block
+from another can be compiled in fixed axis order into at most `2K` disjoint lower/upper slabs,
+while the guard DAG uses false edges directly for disequalities and congruence complements rather
+than expanding them into disjunctive normal form. This makes common insertions output-sensitive in
+the number of touched fragments, but generic decision-DAG apply can still be quadratic in its two
+input DAGs and must not be advertised as uniformly output-sensitive.
+
+Relaxed minimality permits an even weaker stopping condition than full Janet completion: every
+installed infinite owner region has its own exact replay/domain/guard/descent proof, and every
+remaining `Unowned` path has a materialized finite upper bound in every coordinate. The finite
+residue can then be retained as terminals, with a conservative `BigUint` volume bound equal to the
+sum of block volumes. Compactness of the proof does not imply affordable evaluation: the ideal
+`<x_1^K,...,x_K^K>` has one bounded box but `K^K` terminal lattice points. An inferred ILP bound
+must be converted to an exact implication witness before it enters this trusted boundary. Any
+unbounded affine wall, congruence class, or nonlinear integer wall is a hard `Incomplete`, never a
+terminal label.
+
 ### Signatures, source cofactors, and reusable modular traces
 
 **Verified result.** Hofstadler and Verron construct signature Groebner bases and syzygy bases in
@@ -257,6 +299,66 @@ same target-local modular circuit and exact replay boundary as ordinary translat
 published examples do not yet establish that the number of descendants or guard strata stays
 affordable at dense five or six loops; K6/K10/K15 falsification remains mandatory.
 
+#### Audited proof-carrying descendant compiler
+
+**Verified result.** The expanded generating-function algorithm chooses and caches candidate
+"mother" equations heuristically rather than supplying an exhaustive critical-parent theorem. Its
+sunset example contains one descendant with two parents: substitution by the generating mother
+returns `0 = 0`, whereas substitution by the other parent exposes a new lower-degree equation:
+[*Algorithm for Symbolic Reduction*, Sections 3.2.3 and 4.2](https://arxiv.org/html/2605.09541v1#S4.SS2).
+The same paper uses a tunable descendant cutoff and relaxes it when completeness stalls; this is
+not a generic termination proof.
+
+**RustRed inference.** A proof-carrying descendant is sound only as a typed left Ore-module
+circuit. With ordinary sources `P_j` and `E = sum_j C_j P_j`, the permitted provenance updates are
+
+```text
+D_i E           -> sum_j (D_i C_j) P_j
+E - Q R         -> C(E) - Q C(R)
+sum_i a_i E_i   -> sum_j (sum_i a_i C_ij) P_j.
+```
+
+`Q` acts from the left. Right multiplication or an unshifted commutative coefficient is invalid.
+Lead normalization localizes the circuit; every later shift `delta` must retain
+`sigma^delta(lead) != 0` and every shifted denominator factor. Restricted subsector generating
+functions also need a distinct proof-node type because differentiation and restriction to a zero
+parameter do not commute. A hash-consed DAG can share provenance, but it cannot hide growth in the
+normalized candidate rule, shifted denominators, or a flattened ordinary-source certificate.
+Compositional exact replay is therefore the authority, while bounded flattening remains mandatory
+scaling telemetry.
+
+The search scheduler must enumerate the complete parent-incidence list for an exposed descendant,
+exclude the generating mother as the sole attempted reduction, and retain a bounded transverse or
+LCM critical halo. Exact-source-signature deduplication and owner-cover intersection prioritize the
+useful remainders. Once every guard-specific complement is finite, the remaining parent pairs are
+irrelevant to closure and may be discarded. Before then, mother-only normal forming can silently
+stall even though a finite cover exists.
+
+The smallest mandatory semantic falsifier uses six commuting shifts:
+
+```text
+P1 = S1*S2 - 1        P2 = S1*S3 - S2
+P3 = S1^2 - 1         P4 = S3^2 - 1
+P5 = S4 - 1           P6 = S5 - 1           P7 = S6 - 1.
+```
+
+The initial leading ideal leaves an infinite `S2` direction. For `E = S3*P1`, mother reduction
+gives zero, but the alternative parent yields
+
+```text
+E - S2*P2 = S2^2 - S3,
+cofactor = S3*e(P1) - S2*e(P2).
+```
+
+Adding that exact rule leaves five standard monomials. A companion Ore mutation
+`G = (n1-n2) S2 - 1` must give `S1 G = (n1+1-n2) S1*S2 - S1`; the infinite wall
+`n1+1=n2` remains a separate guard branch. This synthetic regression and one physical K6 `S4a`
+descendant must pass before the hybrid can replace target-local translated frames. At K10 and K15,
+report alternative-parent multiplicity, retained descendants, proof DAG/flattened sizes, shifted
+guard factors, exact replay cost, and free-dimension reduction. If the critical halo recreates the
+full translated shell or the full Ore pair set, the candidate is correct but not the required
+scaling breakthrough.
+
 ### Finite spanning closure versus terminal independence
 
 **Verified result.** Relations visible only after supersector elimination can connect integrals
@@ -337,6 +439,39 @@ accumulated negative valuation on every cell and guard stratum. Without such a p
 transition bound, repeated divisions can create epsilon debt proportional to target rank even when
 the integral order strictly descends.
 
+The exact sufficient certificate is a finite valuation-weighted owner/guard graph. After
+substituting `D = 4-2 epsilon`, combine identical children and normalize each coefficient exactly
+with Symbolica. On every exhaustive valuation leaf retain a uniform integer lower bound
+`w(u,v) <= nu_epsilon(c_uv)`. A potential must satisfy
+
+```text
+p(u) <= w(u,v) + p(v),       p(terminal) = 0,       p(start) >= -B.
+```
+
+Telescoping and `nu(a+b) >= min(nu(a),nu(b))` prove that every terminal coefficient has pole debt
+at most `B`, independently of target rank. A negative cycle rejects the finite abstraction unless
+an exact coordinate refinement proves that cycle nonrepeatable. The recurrence
+`I_n = epsilon^-1 I_(n-1)` is the mandatory counterexample: it has strict descent and one terminal,
+but debt grows as `n`. Generic valuation over `Q(n)` is also insufficient because
+`1/(n+epsilon)` has valuation zero generically and minus one at `n=0`; the valuation guard must
+split that wall or remain inconclusive.
+
+Store the witness as exact epsilon powers times numerator/denominator units whose nonvanishing at
+epsilon zero is proved on the declared leaf. Terminal basis changes, gamma factors, evaluator
+normalizations, and finite substitutions are graph edges too. Bellman--Ford-style difference-
+constraint verification is combinatorial; Symbolica remains responsible for exact cancellation,
+factorization, substitution, and coefficient-series primitives. This certificate is independent
+of the finite owner-cover proof and is required before a rank-generic nonminimal terminal set is
+shippable.
+
+An epsilon-finite or quasi-finite evaluator basis is a useful optimization, not the theorem:
+[*An epsilon-finite basis of master integrals for the integration-by-parts method*](https://arxiv.org/abs/hep-ph/0601165)
+and [*A toolbox for solving Feynman integrals with dimension shifts*](https://arxiv.org/abs/1411.7392).
+Exact finite terminal relations may be eliminated over the epsilon local ring to build a sparse
+map `T -> E` with lower debt, without claiming that `E` is a globally minimal RustRed basis. If
+independence is not certified, the numerical evaluator must still reduce its target set rather
+than using an unsafe skip-reduction option.
+
 ### Five-loop master counts and AMFlow auxiliary blocks
 
 **Verified result.** The fully massive five-loop tadpole classification gives a concrete `K = 15`
@@ -373,6 +508,16 @@ thousands of redundant terminals, or a 20,000-digit K21 campaign, plausible. `m`
 dominant numerical feasibility measure and can exceed both `t` and `r`. No public complete fully
 massive K21 master count or universal reduction was found in this scan.
 
+The affordability ledger must therefore also retain evaluator target count `e`, unique recursion
+families, physical and auxiliary master counts, differential-equation nonzeros and strongly
+connected block sizes, flow segments, series orders, epsilon samples, working precision, boundary
+children, exact `T -> E` map sparsity, certified per-terminal debt, checkpoint bytes, wall time, and
+RSS. Numerical epsilon sampling parallelizes well but turns pole debt into conditioning loss rather
+than removing it. Precision ladders must calibrate this full recursion before extrapolating a
+20,000-digit campaign. A thousand shipped values can be storage-cheap while one dense auxiliary
+system is computationally prohibitive; conversely, a redundant terminal set split into small exact
+blocks can be viable.
+
 ### Dense-parent extrapolation and sparse controls
 
 **RustRed derivation.** Face-local completion can make complexity follow the dimension of the
@@ -394,10 +539,25 @@ Sym^2(V) = [7] + [6,1] + [5,2].
 The seven propagator quadrics span the first two summands, leaving the 14-dimensional `[5,2]` ISP
 quotient. A Burnside/Molien audit gives 344 invariant degree-ten numerator polynomials on the
 fully undotted symmetric stratum instead of 1,144,066 raw monomials, while dot excess ten has 38
-`S7` orbits instead of 8,008 raw compositions. These reductions matter in practice, and Symbolica
-graph stabilizers should provide their exact transport. A finite group supplies only an eventual
-constant factor, however; generic unequal dot patterns destroy the stabilizer and do not change
-the polynomial growth degree.
+`S7` orbits instead of 8,008 raw compositions. These reductions matter in practice, but the pinned
+Symbolica graph API has an important representation boundary: canonicalization exposes vertex
+maps and vertex-automorphism generators, whereas identical parallel-edge permutations contribute
+to the reported automorphism-group size without yielding explicit edge maps. RustRed must therefore
+subdivide propagators into colored edge vertices, or generate and verify parallel-bucket
+transpositions itself, before a routing witness may use those line symmetries. Mass, cut, sector,
+and guard colors must remain canonicalization-visible; hidden graph data is safe only for
+provenance that cannot affect equivalence.
+
+Even explicit graph symmetry is not a rank-generic monomial-expansion strategy. For the seven-line
+banana, dot excess `r = 8, 16, 32` has respectively `3,003`, `74,613`, and `2,760,681` labelled
+assignments but only `21`, `164`, and `2,400` partitions with at most seven parts. By contrast, the
+14 ISP directions form the nontrivial `[5,2]` representation rather than a permutation basis. A
+dense symmetry image of a degree-`r` ISP monomial can touch `binomial(r+13,13)` monomials:
+`203,490`, `67,863,915`, and `73,006,209,045` at those same degrees. Graph orbiting is therefore
+appropriate for structural task routing and physical-dot orbits. Rank-generic ISP transport must
+retain symbolic generating rules or representation blocks without monomial expansion. A finite
+group still supplies only an eventual constant factor; generic unequal dot patterns destroy the
+stabilizer and do not change the polynomial growth degree.
 
 The asymmetric multitheta controls make the opposite structural caution concrete. For bundle
 multiplicities `(1,2,3)`, `K = 10`, and four inactive directions, the complete one-sided

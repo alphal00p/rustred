@@ -377,15 +377,26 @@ witnesses, and lower-owner dependencies. Synthetic controls and a genuine
 nonempty degree-one `S4a` circuit pass; support that does not lift remains a
 typed inconclusive result.
 
+The bounded multi-prime evidence scheduler is also executable. It admits one
+finite declared probe plan only after odd-prime, arity, canonical finite-field
+sample-identity, and aggregate retained-diagnostics checks. Discovery and
+HeldOut roles cannot alias the same modular point under different integer
+representatives. Every task retains exactly one of RejectedSample,
+RejectedQuery, ModularNoHit, or Hit. Discovery hits are grouped only as
+source/pivot-trace telemetry, the largest group selects one deterministic
+original hit for exact lift, and HeldOut disagreement can only mark that trace
+unstable. It cannot invalidate a replayed exact identity or turn agreement
+into closure evidence. Cross-prime coefficients are never combined. Synthetic
+controls and a genuine K6 `S4a` target pass this complete schedule.
+
 This still does not complete A0 or install a new RuleCell. The next step is to
-run the multi-prime/held-out target schedule, refine every exact circuit onto
-its proved guard strata, and admit only circuits whose full rule construction
-replays. Completion state remains separate by sector, fixed/free coordinates,
-application box, and guard branch. Exact all-rank coverage must then be proved
-by a finite owner cover rather than by the present `i64` carrier endpoints. A
-finite strictly descending rewrite partition may close on an affordable
-nonminimal typed terminal set without constructing a minimal quotient or all
-shift-action matrices.
+refine every exact circuit onto its proved guard strata and admit only circuits
+whose full rule construction replays. Completion state remains separate by
+sector, fixed/free coordinates, application box, and guard branch. Exact
+all-rank coverage must then be proved by a finite owner cover rather than by
+the present `i64` carrier endpoints. A finite strictly descending rewrite
+partition may close on an affordable nonminimal typed terminal set without
+constructing a minimal quotient or all shift-action matrices.
 
 The MATAD oracle fixes the eventual in-family basis boundary without being used
 as a rule generator. The scalar six-line and four-line corners map directly to

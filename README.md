@@ -261,9 +261,16 @@ Positive finite-field supports can now be lifted over Symbolica's exact
 rational-function field. The lift recovers the original translated-source
 combination, retains every pivot/source/denominator guard, and independently
 replays all physical columns. Synthetic controls and a genuine nonempty `S4a`
-partition pass. This is still a discovery result, not a closing RuleCell:
-multi-prime and held-out agreement, exact guard-stratum refinement, rule
-admission, all-rank complement ownership, and the outer-extension proof remain.
+partition pass. A bounded serial scheduler now executes canonical finite-field
+Discovery and HeldOut tasks in declared order, retains rejected samples,
+rejected queries, no-hits, and hits separately, groups only identical source/
+pivot traces, exactly lifts one deterministic Discovery proposal, and treats
+HeldOut agreement strictly as nonauthoritative telemetry. Same-prime residue
+aliases cannot inflate a group, all retained forbidden-column diagnostics are
+preflighted, and coefficients are never combined across primes. This is still
+a discovery result, not a closing RuleCell: exact guard-stratum refinement,
+rule admission, all-rank complement ownership, and the outer-extension proof
+remain.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

@@ -353,6 +353,57 @@ authenticated inputs/outputs, and the independently bounded replay are hard
 limits, but promotion must additionally run native exact elimination inside a
 worker-level RSS/time envelope.
 
+One bounded multi-sample scheduler now surrounds that lift. Probe admission
+prevalidates every odd prime and point arity, canonicalizes the actual
+finite-field point for uniqueness, and rejects role-crossing residue aliases.
+Execution retains RejectedSample, RejectedQuery, ModularNoHit, and Hit as four
+distinct outcomes in declared order. Only Discovery hits are grouped, and
+only by a complete frame-local target/forbidden/source/pivot trace; fill and
+field values are excluded. The largest group and earliest ordinal select one
+original hit for exact lift. HeldOut outcomes remain diagnostics: a mismatch
+makes the modular trace unstable but never changes the exact result, while
+agreement never proves a relation. No coefficient or support is combined by
+CRT. Scheduler limits charge the probe plan, every retained source/pivot and
+forbidden-column diagnostic—including the selected exact result's clone—and
+the one shared canonical trace scope before promotion. Tadpole adversarial
+controls and a genuine K6 `S4a` target exercise this boundary.
+
+Terminal snapshots are the base of the completion DAG, not its final owner
+model. A K6 campaign cannot construct a closed parent artifact first and then
+use that same artifact to justify its own lower sectors. Completion therefore
+proceeds in propagator-count order. Once one decorated lower sector has an
+exact disjoint owner cover, the foundry may seal a `ClosedSectorLayer` that
+binds:
+
+- the family, coefficient context, sector, application boxes, and guard
+  branches;
+- every admitted rule's exact source circuit and strict-descent witness;
+- every zero, factorization, symmetry, and explicit terminal leaf; and
+- references only to earlier immutable sector layers for proper-subsector
+  dependencies.
+
+An individual RuleCell remains a one-step identity and never becomes closure
+authority by itself. Only a verified whole-layer cover can be copied into a
+later snapshot as a transitive owner. Propagator-count descent makes the layer
+graph acyclic; same-sector terms remain governed by the global strict order.
+This removes the apparent bootstrap cycle without requiring the final parent
+artifact to exist during discovery. The layer type, its disjoint-cover
+certificate, and its content-bound persistence are now the next owner-boundary
+implementation; they are not yet present in the production foundry.
+
+The proposed layer cover is deliberately hybrid. An immutable half-open
+axis-block trie is the disjoint coordinate authority; a hash-consed ordered
+decision DAG over exact affine equalities/inequalities and congruences decorates
+its leaves with shifted guards. A frozen Janet/Janet-like snapshot may propose
+cones and accelerate divisor lookup, but its multiplicative masks are valid
+only for that completed basis epoch and it is not mutable publication state.
+Candidates are replayed and inserted in canonical order, can claim only
+`Unowned` leaves, and never replace a prior owner. Closure may stop without a
+minimal or complete Janet basis when every infinite region has a replayed owner
+and every residual path has explicit finite bounds in all coordinates. The
+bounded residue is an intentionally nonminimal terminal set; any unbounded
+affine, congruence, or nonlinear guard wall remains `Incomplete`.
+
 The final terminal set is not required to be a minimal master basis. If exact
 sector-wide coverage proves that its complement is finite, those finitely many
 integral keys may be retained as explicit evaluation terminals. Stage 1 must
