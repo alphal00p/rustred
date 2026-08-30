@@ -11,10 +11,14 @@ mod install;
 mod model;
 mod one_loop;
 mod persistence;
+#[cfg(test)]
+mod three_loop;
 mod two_loop;
 
 pub use error::{ArtifactError, ArtifactPersistenceError};
-pub use factorization::{FactorizationFactor, FactorizationRule, UnimodularLoopBasis};
+pub use factorization::{
+    FactorizationFactor, FactorizationMasterEmbedding, FactorizationRule, UnimodularLoopBasis,
+};
 pub use model::{
     ArtifactSchemaVersion, ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof,
     ZeroSectorTerminal, ZeroTerminalProof,

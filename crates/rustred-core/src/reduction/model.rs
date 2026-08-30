@@ -19,6 +19,9 @@ pub struct ReductionLimits {
     /// bounded independently by the integral and coefficient-term limits.
     pub max_cached_coefficient_bytes: usize,
     pub max_pending_frames: usize,
+    /// Maximum exact Cartesian terms admitted at any intermediate step of a
+    /// lower-family product factorization.
+    pub max_factorization_terms: usize,
 }
 
 impl Default for ReductionLimits {
@@ -31,6 +34,7 @@ impl Default for ReductionLimits {
             max_cached_coefficient_terms: 16_000_000,
             max_cached_coefficient_bytes: 1024 * 1024 * 1024,
             max_pending_frames: 1_000_000,
+            max_factorization_terms: 1_000_000,
         }
     }
 }

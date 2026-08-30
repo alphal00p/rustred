@@ -41,9 +41,10 @@ pub(super) struct ClosingArtifactCandidate {
 /// generic; the registered verifiers currently recognize the generated
 /// one-loop tadpole and equal-mass two-loop sunset unit-mass partitions.
 pub(super) fn install(
-    candidate: ClosingArtifactCandidate,
+    mut candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
     validate_generic_bindings(&candidate)?;
+    factorization::validate_and_compile(&mut candidate)?;
     match candidate.algorithm_id {
         super::one_loop::ALGORITHM_ID => one_loop::validate(candidate),
         super::two_loop::ALGORITHM_ID => two_loop::validate(candidate),
@@ -165,7 +166,6 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
             return Err(ArtifactError::InvalidCanonicalizer);
         }
     }
-    factorization::validate(candidate)?;
     Ok(())
 }
 

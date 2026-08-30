@@ -91,6 +91,17 @@ substituted results agree with MATAD, the existing FORM tensor prepass remains
 unchanged, and the full applicable Vakint regression suite is green through
 two loops. Three-loop closure and adapter coverage remain open.
 
+The three-loop search nevertheless now starts from an exact, test-only
+pressure manifest rather than an informal topology list: it authenticates the
+six-denominator unit-mass family, all nine ordinary sources, and the complete
+order-24 `S4` edge action and eleven sector orbits. It freezes an internally
+validated five-class Vakint routing snapshot with its exact upstream revision
+and source-blob provenance; live cross-repository matching remains an
+integration gate. Generic factorization tests separately certify both the
+`K3 x K1` sector and the additional `K1 x K1 x K1` spanning-tree sector. The
+fixture does not expose an installable artifact until the rule fixed point is
+closed.
+
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish
 rank-generic tensor reduction and are frozen for Stage 1.

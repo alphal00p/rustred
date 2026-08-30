@@ -1,6 +1,6 @@
 //! Deterministic durable ownership for sealed closing artifacts.
 //!
-//! Schema v1 persists exact family constructor inputs, tagged derivation
+//! Schema v2 persists exact family constructor inputs, tagged derivation
 //! plans with complete semantic witnesses, rule plans, and terminals. Loading
 //! first bounds every byte-level shape, independently regenerates the tagged
 //! canonical ordinary source plan, compares the full retained semantics, then
@@ -120,7 +120,7 @@ fn encode_into_writer(
     } else {
         rules.usize(artifact.rules().len(), "artifact rules")?;
         for rule in artifact.rules() {
-            // Schema-v1 derivation plan: deterministic first-descending
+            // Schema-v2 derivation plan: deterministic first-descending
             // interior rule from the independently regenerated source set.
             let mut plan = rules.child();
             encode_integral_key(&mut plan, rule.anchor())?;
@@ -215,7 +215,8 @@ pub(super) fn decode(
     metadata.finish()?;
 
     if algorithm_id == TWO_LOOP_ALGORITHM_ID {
-        // K=3 schema-v1 owns complete cell/projection/factorization snapshots.
+        // K=3 schema-v2 owns complete cell/projection/factorization snapshots,
+        // including its installer-compiled typed master-product embeddings.
         // At this untrusted boundary only, regenerate the registered exact
         // foundry plan and compare its complete deterministic encoding. The
         // returned sealed artifact is then reused without authentication or
@@ -316,7 +317,7 @@ pub(super) fn decode(
     terminal_reader.finish()?;
 
     install(ClosingArtifactCandidate {
-        schema: ArtifactSchemaVersion::V1,
+        schema: ArtifactSchemaVersion::V2,
         algorithm_id,
         arity,
         supported_root_power_bounds: vec![crate::sector::InteriorBounds::new(i64::MIN, i64::MAX)]

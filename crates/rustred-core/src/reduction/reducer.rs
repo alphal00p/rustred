@@ -421,7 +421,11 @@ impl<'artifact> Reducer<'artifact> {
                 detail: "a selected factorization ordinal is absent",
             })?;
         let context = self.artifact.coefficient_context();
-        let mut coefficient = rule.normalization().clone();
+        let mut products = BTreeMap::new();
+        products.insert(
+            IntegralKey::try_new(std::iter::repeat_n(0_i64, self.artifact.arity()))?,
+            rule.normalization().clone(),
+        );
         for factor in rule.factors() {
             let mut powers = Vec::new();
             powers
@@ -445,22 +449,23 @@ impl<'artifact> Reducer<'artifact> {
                     detail: "a sealed factorization dependency is absent",
                 })?;
             let expansion = dependency.reduce_unit_mass_in_request(&dependency_target, request)?;
-            if expansion.terms().len() != 1 {
-                return Err(ReductionError::UnexpectedDependencyMaster {
-                    dependency_ordinal: factor.dependency_ordinal(),
-                });
-            }
-            let factor_coefficient = expansion.coefficient(factor.dependency_master()).ok_or(
-                ReductionError::UnexpectedDependencyMaster {
-                    dependency_ordinal: factor.dependency_ordinal(),
-                },
+            products = convolve_factor_expansion(
+                context,
+                &products,
+                expansion.terms(),
+                factor.parent_positions(),
+                self.artifact.arity(),
+                self.limits,
             )?;
-            coefficient =
-                context.try_mul(&coefficient, factor_coefficient, self.limits.exact_algebra)?;
         }
         let mut masters = BTreeMap::new();
-        if !coefficient.is_zero() {
-            masters.insert(rule.parent_master().clone(), coefficient);
+        for (raw_master, coefficient) in products {
+            let master = rule.parent_terminal_for(&raw_master).ok_or(
+                ReductionError::ReducerInvariant {
+                    detail: "a sealed factorization produced an unauthenticated parent-master product",
+                },
+            )?;
+            accumulate_master(context, &mut masters, master, coefficient, self.limits)?;
         }
         Ok(MasterDecomposition::new(
             self.family_fingerprint.clone(),
@@ -624,6 +629,70 @@ impl<'artifact> Reducer<'artifact> {
             dependency.merge_work_statistics(aggregate);
         }
     }
+}
+
+/// Deterministically convolve one complete dependency-master expansion into
+/// disjoint parent positions. Kept separate from dependency scheduling so the
+/// generic multi-master product algebra has direct tests.
+pub(super) fn convolve_factor_expansion(
+    context: &CoefficientContext,
+    products: &BTreeMap<IntegralKey, Coefficient>,
+    dependency_terms: &BTreeMap<IntegralKey, Coefficient>,
+    parent_positions: &[usize],
+    parent_arity: usize,
+    limits: ReductionLimits,
+) -> Result<BTreeMap<IntegralKey, Coefficient>, ReductionError> {
+    let requested = products.len().checked_mul(dependency_terms.len()).ok_or(
+        ReductionError::FactorizationTermLimit {
+            requested: usize::MAX,
+            limit: limits.max_factorization_terms,
+        },
+    )?;
+    if requested > limits.max_factorization_terms {
+        return Err(ReductionError::FactorizationTermLimit {
+            requested,
+            limit: limits.max_factorization_terms,
+        });
+    }
+    let mut next_products = BTreeMap::new();
+    for (partial_master, partial_coefficient) in products {
+        if partial_master.powers().len() != parent_arity {
+            return Err(ReductionError::ReducerInvariant {
+                detail: "a partial factorization master has foreign parent arity",
+            });
+        }
+        for (dependency_master, dependency_coefficient) in dependency_terms {
+            if dependency_master.powers().len() != parent_positions.len() {
+                return Err(ReductionError::ReducerInvariant {
+                    detail: "a dependency master has foreign factorization arity",
+                });
+            }
+            let mut parent_powers = partial_master.powers().to_vec();
+            for (&parent_position, &power) in
+                parent_positions.iter().zip(dependency_master.powers())
+            {
+                *parent_powers.get_mut(parent_position).ok_or(
+                    ReductionError::ReducerInvariant {
+                        detail: "a sealed factorization master embedding is out of range",
+                    },
+                )? = power;
+            }
+            let parent_master = IntegralKey::try_new(parent_powers)?;
+            let coefficient = context.try_mul(
+                partial_coefficient,
+                dependency_coefficient,
+                limits.exact_algebra,
+            )?;
+            accumulate_master(
+                context,
+                &mut next_products,
+                &parent_master,
+                coefficient,
+                limits,
+            )?;
+        }
+    }
+    Ok(next_products)
 }
 
 #[derive(Default)]

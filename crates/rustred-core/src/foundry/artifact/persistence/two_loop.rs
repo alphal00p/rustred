@@ -59,7 +59,6 @@ pub(super) fn encode(
             factorization.application_domain().sector(),
             factorization.application_domain().bounds(),
         )?;
-        encode_integral_key(&mut header, factorization.parent_master())?;
         coefficient::encode_base_coefficient(&mut header, factorization.normalization())?;
         header.usize(
             factorization.loop_basis().dimension(),
@@ -79,7 +78,6 @@ pub(super) fn encode(
             for &position in factor.parent_positions() {
                 header.usize(position, "factorization parent position")?;
             }
-            encode_integral_key(&mut header, factor.dependency_master())?;
             header.usize(
                 factor.transformed_loop_positions().len(),
                 "factor transformed loops",
@@ -87,6 +85,14 @@ pub(super) fn encode(
             for &position in factor.transformed_loop_positions() {
                 header.usize(position, "factor transformed loop position")?;
             }
+        }
+        header.usize(
+            factorization.master_embeddings().len(),
+            "factorization master embeddings",
+        )?;
+        for embedding in factorization.master_embeddings() {
+            encode_integral_key(&mut header, embedding.raw_parent_master())?;
+            encode_integral_key(&mut header, embedding.parent_terminal())?;
         }
     }
     writer.u16(TWO_LOOP_CLOSURE_HEADER)?;

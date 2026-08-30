@@ -196,13 +196,18 @@ children back. Separately, `foundry::artifact` generates and verifies the
 canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
 reusable primitives are topology-neutral, while these first complete
 partition verifiers are registered family manifests rather than a generic
-closure search. Its schema-v1 codec owns deterministic semantic bytes and
+closure search. Its schema-v2 codec owns deterministic semantic bytes and
 one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
 source plans under explicit family/generator/rule policies, compares retained
 semantics exactly, and authenticates replay before exposing a sealed owner.
 The sunset pinch additionally retains and replays a unimodular loop-basis
 certificate proving its denominator blocks factor into immutable `K = 1`
-dependencies.
+dependencies. Product-sector application is generic over multi-master lower
+families: installation compiles the complete finite Cartesian product of typed
+dependency masters into authenticated canonical parent terminals, and the
+runtime performs deterministic exact convolution without repeating that
+authentication. Installation and runtime both bound Cartesian product
+cardinality before retaining terms.
 
 ### `sector`
 
@@ -297,7 +302,7 @@ The live core now contains two cohesive Stage 1 domains:
 
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|
-| `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary | The `K = 6` installer and its complete five-class coverage proof |
+| `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary. A test-only `K = 6` pressure fixture owns its exact family, nine sources, `S4` sector orbits, revision-stamped internally checked Vakint class snapshots, and certified `K3 x K1`/`K1 x K1 x K1` factorization sectors without claiming closure. | Live Vakint matcher comparison plus the `K = 6` rule fixed point, installer, durable codec, and complete five-class closure proof |
 | `reduction` | Topology-independent deterministic guarded rule selection/application, canonical symmetry routing, lower-artifact factorization, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | The additional generic features demanded by `K = 6`; Vakint comparison through two loops is complete |
 
 These are real owners rather than empty shells. Both closed artifacts cross a

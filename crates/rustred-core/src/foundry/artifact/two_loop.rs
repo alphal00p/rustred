@@ -87,7 +87,6 @@ pub(super) fn derive_two_loop_unit_mass_sunset_with_limits(
         source_generation,
         rule_derivation,
     )?;
-    let dependency_master = IntegralKey::try_new([1])?;
     let product_domain = SectorInteriorDomain::try_new(
         Mask::try_from_indices(&[0, 1, 1])?,
         [
@@ -99,10 +98,9 @@ pub(super) fn derive_two_loop_unit_mass_sunset_with_limits(
     let factorization = FactorizationRule::new(
         product_domain,
         [
-            FactorizationFactor::new(0, [1], dependency_master.clone(), [0]),
-            FactorizationFactor::new(0, [2], dependency_master, [1]),
+            FactorizationFactor::new(0, [1], [0]),
+            FactorizationFactor::new(0, [2], [1]),
         ],
-        product_master,
         family.coefficient_context().one(),
         // q0 = k2, q1 = k1+k2. The determinant is -1, D1=q0^2-1,
         // and D2=q1^2-1, so the pinched measure and denominators split

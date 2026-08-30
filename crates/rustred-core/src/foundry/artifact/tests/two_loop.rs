@@ -32,6 +32,19 @@ fn generated_sunset_installs_the_exact_five_cell_closed_partition() {
     assert_eq!(factorization.loop_basis().row_major(), [0, 1, 1, 1]);
     assert_eq!(factorization.factors()[0].transformed_loop_positions(), [0]);
     assert_eq!(factorization.factors()[1].transformed_loop_positions(), [1]);
+    assert_eq!(factorization.master_embeddings().len(), 1);
+    assert_eq!(
+        factorization.master_embeddings()[0]
+            .raw_parent_master()
+            .powers(),
+        [0, 1, 1]
+    );
+    assert_eq!(
+        factorization.master_embeddings()[0]
+            .parent_terminal()
+            .powers(),
+        [0, 1, 1]
+    );
 }
 
 #[test]

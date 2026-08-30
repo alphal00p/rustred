@@ -1,11 +1,79 @@
+use std::collections::BTreeMap;
+
 use crate::algebra::{CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
 use crate::family::IntegralKey;
 use crate::foundry::artifact::{
     derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
 };
 
-use super::reducer::{accumulate_master, begin_expansion};
+use super::reducer::{accumulate_master, begin_expansion, convolve_factor_expansion};
 use super::{Reducer, ReductionError, ReductionLimits};
+
+#[test]
+fn factorization_convolves_every_typed_master_of_a_lower_family() {
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let d = context.parameter("d").unwrap();
+    let mut products = BTreeMap::new();
+    products.insert(
+        IntegralKey::try_new([0, 0, 0, 0, 0, 0]).unwrap(),
+        context.one(),
+    );
+    let mut two_master_dependency = BTreeMap::new();
+    two_master_dependency.insert(IntegralKey::try_new([0, 1, 1]).unwrap(), context.integer(2));
+    two_master_dependency.insert(IntegralKey::try_new([1, 1, 1]).unwrap(), d.clone());
+    assert_eq!(
+        convolve_factor_expansion(
+            &context,
+            &products,
+            &two_master_dependency,
+            &[3, 4, 5],
+            6,
+            ReductionLimits {
+                max_factorization_terms: 1,
+                ..ReductionLimits::default()
+            },
+        ),
+        Err(ReductionError::FactorizationTermLimit {
+            requested: 2,
+            limit: 1,
+        })
+    );
+    products = convolve_factor_expansion(
+        &context,
+        &products,
+        &two_master_dependency,
+        &[3, 4, 5],
+        6,
+        ReductionLimits::default(),
+    )
+    .unwrap();
+
+    let mut one_master_dependency = BTreeMap::new();
+    one_master_dependency.insert(IntegralKey::try_new([1]).unwrap(), context.integer(3));
+    let products = convolve_factor_expansion(
+        &context,
+        &products,
+        &one_master_dependency,
+        &[2],
+        6,
+        ReductionLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(products.len(), 2);
+    assert_eq!(
+        products.get(&IntegralKey::try_new([0, 0, 1, 0, 1, 1]).unwrap()),
+        Some(&context.integer(6))
+    );
+    assert_eq!(
+        products.get(&IntegralKey::try_new([0, 0, 1, 1, 1, 1]).unwrap()),
+        Some(
+            &context
+                .try_mul(&context.integer(3), &d, ExactAlgebraLimits::default())
+                .unwrap()
+        )
+    );
+}
 
 #[test]
 fn sunset_artifact_closes_a_bounded_complete_lattice_without_foreign_terminals() {

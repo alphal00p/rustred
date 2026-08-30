@@ -9,17 +9,19 @@ use crate::family::{
 };
 
 use super::super::error::ArtifactError;
-use super::super::factorization::FactorizationRule;
+use super::super::factorization::{FactorizationMasterEmbedding, FactorizationRule};
 use super::ClosingArtifactCandidate;
 
-pub(super) fn validate(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
-    for rule in &candidate.factorization_rules {
-        if rule.application_domain().arity() != candidate.arity
-            || rule.parent_master().powers().len() != candidate.arity
-            || !candidate.masters.contains(rule.parent_master())
-        {
+const MAX_MASTER_EMBEDDINGS_PER_RULE: usize = 1_000_000;
+
+pub(super) fn validate_and_compile(
+    candidate: &mut ClosingArtifactCandidate,
+) -> Result<(), ArtifactError> {
+    for rule_ordinal in 0..candidate.factorization_rules.len() {
+        let rule = &candidate.factorization_rules[rule_ordinal];
+        if rule.application_domain().arity() != candidate.arity {
             return Err(ArtifactError::InvalidFactorization {
-                detail: "the factorization domain or parent master has a foreign shape",
+                detail: "the factorization domain has a foreign shape",
             });
         }
         candidate
@@ -36,17 +38,13 @@ pub(super) fn validate(candidate: &ClosingArtifactCandidate) -> Result<(), Artif
         }
 
         let sector = rule.application_domain().sector();
-        for (position, (&active, bounds)) in sector
+        for (&active, bounds) in sector
             .active_bits()
             .iter()
             .zip(rule.application_domain().bounds())
-            .enumerate()
         {
             let corner = if active { 1 } else { 0 };
-            if rule.parent_master().powers()[position] != corner
-                || bounds.lower() != corner
-                || (!active && bounds.upper() != 0)
-            {
+            if bounds.lower() != corner || (!active && bounds.upper() != 0) {
                 return Err(ArtifactError::InvalidFactorization {
                     detail: "a factorization cell is not a sector-corner product domain",
                 });
@@ -64,10 +62,9 @@ pub(super) fn validate(candidate: &ClosingArtifactCandidate) -> Result<(), Artif
                 .coefficient_context()
                 .has_same_variable_map(candidate.family.coefficient_context())
                 || factor.parent_positions().len() != dependency.arity()
-                || !dependency.masters().contains(factor.dependency_master())
             {
                 return Err(ArtifactError::InvalidFactorization {
-                    detail: "a factorization projection or dependency master is incompatible",
+                    detail: "a factorization projection or dependency artifact is incompatible",
                 });
             }
             let mut seen = BTreeSet::new();
@@ -80,6 +77,95 @@ pub(super) fn validate(candidate: &ClosingArtifactCandidate) -> Result<(), Artif
             }
         }
         validate_kinematics(candidate, rule)?;
+        let embeddings = compile_embedded_master_products(candidate, rule)?;
+        candidate.factorization_rules[rule_ordinal].install_master_embeddings(embeddings);
+    }
+    Ok(())
+}
+
+/// Prove once at installation that every Cartesian product of typed
+/// dependency masters embeds into an explicit parent-family terminal. The
+/// reducer can then perform the same projection without any hot-path artifact
+/// authentication.
+fn compile_embedded_master_products(
+    candidate: &ClosingArtifactCandidate,
+    rule: &FactorizationRule,
+) -> Result<Vec<FactorizationMasterEmbedding>, ArtifactError> {
+    let embedding_count = rule.factors().iter().try_fold(1_usize, |count, factor| {
+        count.checked_mul(
+            candidate.dependencies[factor.dependency_ordinal()]
+                .masters()
+                .len(),
+        )
+    });
+    let Some(embedding_count) = embedding_count else {
+        return Err(ArtifactError::InvalidFactorization {
+            detail: "the dependency-master Cartesian product cardinality overflowed",
+        });
+    };
+    if embedding_count > MAX_MASTER_EMBEDDINGS_PER_RULE {
+        return Err(ArtifactError::InvalidFactorization {
+            detail: "the dependency-master Cartesian product exceeds the installation limit",
+        });
+    }
+    let mut embeddings = Vec::new();
+    embeddings.try_reserve_exact(embedding_count).map_err(|_| {
+        ArtifactError::InvalidFactorization {
+            detail: "could not allocate the dependency-master embedding table",
+        }
+    })?;
+    let mut parent_powers = vec![0_i64; candidate.arity];
+    compile_embedded_master_product_at(candidate, rule, 0, &mut parent_powers, &mut embeddings)?;
+    embeddings
+        .sort_unstable_by(|left, right| left.raw_parent_master().cmp(right.raw_parent_master()));
+    if embeddings.len() != embedding_count
+        || embeddings
+            .windows(2)
+            .any(|pair| pair[0].raw_parent_master() == pair[1].raw_parent_master())
+    {
+        return Err(ArtifactError::InvalidFactorization {
+            detail: "the dependency-master embedding table is incomplete or non-injective",
+        });
+    }
+    Ok(embeddings)
+}
+
+fn compile_embedded_master_product_at(
+    candidate: &ClosingArtifactCandidate,
+    rule: &FactorizationRule,
+    factor_ordinal: usize,
+    parent_powers: &mut [i64],
+    embeddings: &mut Vec<FactorizationMasterEmbedding>,
+) -> Result<(), ArtifactError> {
+    let Some(factor) = rule.factors().get(factor_ordinal) else {
+        let raw = crate::family::IntegralKey::try_new(parent_powers.iter().copied())?;
+        let terminal = match &candidate.canonicalizer {
+            Some(canonicalizer) => canonicalizer.canonicalize(&raw)?.canonical().clone(),
+            None => raw.clone(),
+        };
+        if !candidate.masters.contains(&terminal) {
+            return Err(ArtifactError::InvalidFactorization {
+                detail: "a dependency-master product does not embed into a parent master terminal",
+            });
+        }
+        embeddings.push(FactorizationMasterEmbedding::new(raw, terminal));
+        return Ok(());
+    };
+    let dependency = &candidate.dependencies[factor.dependency_ordinal()];
+    for master in dependency.masters() {
+        for (&parent_position, &power) in factor.parent_positions().iter().zip(master.powers()) {
+            parent_powers[parent_position] = power;
+        }
+        compile_embedded_master_product_at(
+            candidate,
+            rule,
+            factor_ordinal + 1,
+            parent_powers,
+            embeddings,
+        )?;
+    }
+    for &parent_position in factor.parent_positions() {
+        parent_powers[parent_position] = 0;
     }
     Ok(())
 }
@@ -356,3 +442,7 @@ fn coefficients_equal(
             .is_zero())
     }
 }
+
+#[cfg(test)]
+#[path = "factorization/tests.rs"]
+mod tests;

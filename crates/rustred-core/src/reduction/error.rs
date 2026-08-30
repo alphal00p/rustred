@@ -55,11 +55,12 @@ pub enum ReductionError {
         requested: usize,
         limit: usize,
     },
+    FactorizationTermLimit {
+        requested: usize,
+        limit: usize,
+    },
     ReducerInvariant {
         detail: &'static str,
-    },
-    UnexpectedDependencyMaster {
-        dependency_ordinal: usize,
     },
     ZeroCommonMass,
     MissingCommonMassHomogeneityProof,
@@ -134,13 +135,13 @@ impl fmt::Display for ReductionError {
                 formatter,
                 "reduction needs {requested} pending frames, exceeding the configured limit {limit}"
             ),
+            Self::FactorizationTermLimit { requested, limit } => write!(
+                formatter,
+                "factorization needs {requested} intermediate master-product terms, exceeding the configured limit {limit}"
+            ),
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")
             }
-            Self::UnexpectedDependencyMaster { dependency_ordinal } => write!(
-                formatter,
-                "factorization dependency {dependency_ordinal} reduced outside its sealed typed master"
-            ),
             Self::ZeroCommonMass => {
                 formatter.write_str("common-mass restoration requires nonzero mass squared")
             }

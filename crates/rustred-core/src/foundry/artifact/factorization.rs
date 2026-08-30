@@ -2,16 +2,45 @@ use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::sector::SectorInteriorDomain;
 
+/// One installer-compiled product embedding.
+///
+/// `raw_parent_master` is obtained by injecting one typed master from every
+/// dependency into its disjoint parent slots. `parent_terminal` is its exact
+/// canonical representative in the parent artifact. The finite table is
+/// generated and authenticated once when the artifact is sealed.
+#[derive(Debug)]
+pub struct FactorizationMasterEmbedding {
+    raw_parent_master: IntegralKey,
+    parent_terminal: IntegralKey,
+}
+
+impl FactorizationMasterEmbedding {
+    pub fn raw_parent_master(&self) -> &IntegralKey {
+        &self.raw_parent_master
+    }
+
+    pub fn parent_terminal(&self) -> &IntegralKey {
+        &self.parent_terminal
+    }
+
+    pub(super) fn new(raw_parent_master: IntegralKey, parent_terminal: IntegralKey) -> Self {
+        Self {
+            raw_parent_master,
+            parent_terminal,
+        }
+    }
+}
+
 /// One lower-family integral entering an exact factorization identity.
 ///
 /// Parent powers are projected in the declared order into the immutable
-/// dependency artifact.  The dependency master is typed explicitly so a
-/// multi-master lower family can never be collapsed accidentally.
+/// dependency artifact. Every typed master returned by that dependency is
+/// embedded back into the same parent positions; product expansion is not
+/// restricted to a distinguished lower-family master.
 #[derive(Debug)]
 pub struct FactorizationFactor {
     pub(super) dependency_ordinal: usize,
     pub(super) parent_positions: Box<[usize]>,
-    pub(super) dependency_master: IntegralKey,
     pub(super) transformed_loop_positions: Box<[usize]>,
 }
 
@@ -24,10 +53,6 @@ impl FactorizationFactor {
         &self.parent_positions
     }
 
-    pub fn dependency_master(&self) -> &IntegralKey {
-        &self.dependency_master
-    }
-
     /// Loop coordinates of the certified transformed parent basis owned by
     /// this independent lower-family factor.
     pub fn transformed_loop_positions(&self) -> &[usize] {
@@ -37,13 +62,11 @@ impl FactorizationFactor {
     pub(super) fn new(
         dependency_ordinal: usize,
         parent_positions: impl IntoIterator<Item = usize>,
-        dependency_master: IntegralKey,
         transformed_loop_positions: impl IntoIterator<Item = usize>,
     ) -> Self {
         Self {
             dependency_ordinal,
             parent_positions: parent_positions.into_iter().collect(),
-            dependency_master,
             transformed_loop_positions: transformed_loop_positions.into_iter().collect(),
         }
     }
@@ -78,14 +101,15 @@ impl UnimodularLoopBasis {
 ///
 /// The application domain is restricted to a sector-corner product: inactive
 /// coordinates are fixed at zero and active coordinates start at one.  The
-/// explicit parent master is that sector corner.  Consequently every
-/// nonterminal application descends strictly to the master, while the master
-/// itself is intercepted by the artifact terminal before rule selection.
+/// returned lower-family masters are embedded into the parent coordinates and
+/// canonicalized to explicit parent terminals. Consequently a factorized
+/// lower family may itself have multiple masters within the explicit product
+/// cardinality limits.
 #[derive(Debug)]
 pub struct FactorizationRule {
     pub(super) application_domain: SectorInteriorDomain,
     pub(super) factors: Box<[FactorizationFactor]>,
-    pub(super) parent_master: IntegralKey,
+    pub(super) master_embeddings: Box<[FactorizationMasterEmbedding]>,
     pub(super) normalization: Coefficient,
     pub(super) loop_basis: UnimodularLoopBasis,
 }
@@ -99,8 +123,9 @@ impl FactorizationRule {
         &self.factors
     }
 
-    pub fn parent_master(&self) -> &IntegralKey {
-        &self.parent_master
+    /// Complete, raw-key-sorted Cartesian dependency-master embedding.
+    pub fn master_embeddings(&self) -> &[FactorizationMasterEmbedding] {
+        &self.master_embeddings
     }
 
     pub fn normalization(&self) -> &Coefficient {
@@ -114,16 +139,29 @@ impl FactorizationRule {
     pub(super) fn new(
         application_domain: SectorInteriorDomain,
         factors: impl IntoIterator<Item = FactorizationFactor>,
-        parent_master: IntegralKey,
         normalization: Coefficient,
         loop_basis: UnimodularLoopBasis,
     ) -> Self {
         Self {
             application_domain,
             factors: factors.into_iter().collect(),
-            parent_master,
+            master_embeddings: Box::new([]),
             normalization,
             loop_basis,
         }
+    }
+
+    pub(super) fn install_master_embeddings(
+        &mut self,
+        embeddings: impl IntoIterator<Item = FactorizationMasterEmbedding>,
+    ) {
+        self.master_embeddings = embeddings.into_iter().collect();
+    }
+
+    pub(crate) fn parent_terminal_for(&self, raw: &IntegralKey) -> Option<&IntegralKey> {
+        self.master_embeddings
+            .binary_search_by(|embedding| embedding.raw_parent_master().cmp(raw))
+            .ok()
+            .map(|ordinal| self.master_embeddings[ordinal].parent_terminal())
     }
 }

@@ -148,10 +148,17 @@ fn durable_loader_rejects_corruption_schema_and_trailing_bytes() {
     );
 
     let mut wrong_schema = encoded.clone();
-    wrong_schema[8..12].copy_from_slice(&2_u32.to_le_bytes());
+    wrong_schema[8..12].copy_from_slice(&3_u32.to_le_bytes());
     assert_eq!(
         ClosedArtifact::decode_durable(&wrong_schema).unwrap_err(),
-        ArtifactPersistenceError::UnsupportedSchema { actual: 2 }
+        ArtifactPersistenceError::UnsupportedSchema { actual: 3 }
+    );
+
+    let mut obsolete_schema = encoded.clone();
+    obsolete_schema[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    assert_eq!(
+        ClosedArtifact::decode_durable(&obsolete_schema).unwrap_err(),
+        ArtifactPersistenceError::UnsupportedSchema { actual: 1 }
     );
 
     assert!(matches!(

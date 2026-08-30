@@ -131,6 +131,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         | ReductionError::CacheCoefficientByteLimit { .. }
         | ReductionError::CacheResourceCountOverflow { .. }
         | ReductionError::PendingFrameLimit { .. }
+        | ReductionError::FactorizationTermLimit { .. }
         | ReductionError::IndexOverflow { .. }
         | ReductionError::CommonMassPowerOverflow => AppErrorKind::Limit,
         ReductionError::IntegralKey(error) if integral_key_error_is_limit(error) => {
@@ -154,7 +155,6 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         }
         ReductionError::CycleDetected { .. }
         | ReductionError::ReducerInvariant { .. }
-        | ReductionError::UnexpectedDependencyMaster { .. }
         | ReductionError::RuleCell(_)
         | ReductionError::Canonicalization(_)
         | ReductionError::IntegralKey(_)
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn durable_encoder_failures_keep_schema_output_and_serialization_categories() {
         assert_eq!(
-            map_artifact_encoding_error(ArtifactPersistenceError::UnsupportedSchema { actual: 2 })
+            map_artifact_encoding_error(ArtifactPersistenceError::UnsupportedSchema { actual: 3 })
                 .kind(),
             AppErrorKind::Schema
         );
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn durable_loader_schema_and_resource_failures_have_stable_categories() {
         assert_eq!(
-            map_artifact_load_error(ArtifactPersistenceError::UnsupportedSchema { actual: 2 })
+            map_artifact_load_error(ArtifactPersistenceError::UnsupportedSchema { actual: 3 })
                 .kind(),
             AppErrorKind::Schema
         );
@@ -506,6 +506,10 @@ mod tests {
                 resource: "coefficient terms",
             },
             ReductionError::PendingFrameLimit {
+                requested: 2,
+                limit: 1,
+            },
+            ReductionError::FactorizationTermLimit {
                 requested: 2,
                 limit: 1,
             },

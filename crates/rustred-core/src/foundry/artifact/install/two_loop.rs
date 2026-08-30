@@ -411,15 +411,15 @@ fn validate_two_loop_factorization(
     let rule = &candidate.factorization_rules[0];
     let valid = dependency.algorithm_id() == super::super::one_loop::ALGORITHM_ID
         && dependency.arity() == 1
-        && rule.parent_master().powers() == [0, 1, 1]
         && rule.normalization() == &candidate.family.coefficient_context().one()
         && rule.factors().len() == 2
         && rule.factors()[0].dependency_ordinal() == 0
         && rule.factors()[0].parent_positions() == [1]
-        && rule.factors()[0].dependency_master().powers() == [1]
         && rule.factors()[1].dependency_ordinal() == 0
         && rule.factors()[1].parent_positions() == [2]
-        && rule.factors()[1].dependency_master().powers() == [1];
+        && rule.master_embeddings().len() == 1
+        && rule.master_embeddings()[0].raw_parent_master().powers() == [0, 1, 1]
+        && rule.master_embeddings()[0].parent_terminal().powers() == [0, 1, 1];
     if valid {
         Ok(())
     } else {

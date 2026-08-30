@@ -46,7 +46,7 @@ application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
 unimodular pinch factorization, and immutable lower-family feedback.
 `reduction::Reducer` applies either sealed owner.
 
-A deterministic schema-v1 codec persists exact family inputs, tagged source
+A deterministic schema-v2 codec persists exact family inputs, tagged source
 plans and semantic witnesses, rules/cells, symmetry and factorization data,
 masters, zero terminals, and homogeneity proofs. Bounded loading independently
 reconstructs and exactly compares the registered semantics once under the
@@ -55,7 +55,14 @@ does not repeat artifact authentication. Three-loop `K = 6` remains open;
 successfully deriving one isolated rule for any other family is not a closure
 claim. Discovery cursors are not durable artifact identities, and cold proof
 replay may perform fallible O(K) allocations outside the streaming work
-budget. The
+budget. A test-only `K = 6` pressure fixture now authenticates the exact
+six-denominator family, all nine ordinary sources, the order-24 `S4` action,
+and the complete eleven-orbit sector partition. It freezes internally checked,
+revision-stamped snapshots for all five Vakint classes; live matcher comparison
+remains a separate cross-repository gate. Generic factorization tests certify
+both `K3 x K1` and the additional spanning-tree `K1 x K1 x K1` product. The
+fixture intentionally exposes no closed artifact while its rule fixed point is
+incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 
@@ -245,7 +252,7 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The current durable schema-v1 format records the semantics needed to load and
+The current durable schema-v2 format records the semantics needed to load and
 apply the sealed `K = 1` and `K = 3` artifacts:
 
 - schema/algorithm identifiers and canonical bounded sparse binary Symbolica
@@ -257,8 +264,9 @@ apply the sealed `K = 1` and `K = 3` artifacts:
 - ordered guarded rule-cell domains and proofs, fixed-index source views,
   proof-bearing residual projections, rule snapshots, strict-descent and exact
   replay evidence;
-- exact canonical symmetry actions, immutable lower-artifact dependencies, and
-  factorization projections; and
+- exact canonical symmetry actions, immutable lower-artifact dependencies,
+  factorization projections, and installer-compiled typed master-product
+  embeddings; and
 - stable master keys, proved zero-sector terminals, common-mass homogeneity
   proofs, and deterministic tagged-section/rule-plan metadata.
 
@@ -276,9 +284,10 @@ repeat schema round trips or whole-artifact replay. Atomic filesystem
 publication remains an application-layer responsibility. The `K = 3`
 installer independently validates its complete five-cell projection,
 symmetry, factorization, and terminal layout at this cold boundary. No such
-authentication is repeated by recursive hot-path reduction. The future
-`K = 6` owner may extend or supersede schema v1 when its exact semantics are
-known.
+authentication is repeated by recursive hot-path reduction. Schema v2 records
+the generic typed dependency-master product embeddings needed by `K3 x K1`;
+the future `K = 6` codec will extend the registered algorithm payload without
+changing those semantics.
 
 ## RAM-aware deterministic parallelism
 
