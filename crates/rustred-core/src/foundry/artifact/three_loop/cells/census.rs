@@ -35,6 +35,7 @@ const FOUR_LINE_BULK_DOT_PROBE: [i64; 6] = [0, 2, 2, 2, 3, 0];
 const FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE: [i64; 6] = [0, 1, 2, 3, 2, 0];
 const FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -1];
 const FOUR_LINE_SCALAR_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -2];
+const FOUR_LINE_INCIDENT_TWO_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 1, 2, 2, 1, -1];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 1, 1, 1, 1];
@@ -76,6 +77,7 @@ enum K6CellKind {
     FourLineFactorizedBridgeDotNumeratorBulk,
     FourLineFactorizedFaceNumeratorEndpoint,
     FourLineFactorizedTwoDotNumeratorEndpoint,
+    FourLineIncidentTwoDotNumeratorEndpoint,
     FourLineDottedNegativeNumeratorBulk,
     ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorEndpoint,
@@ -132,6 +134,7 @@ impl K6ReachabilityCensus {
             factorized_bridge_dot_numerator_bulk,
             factorized_face_numerator_endpoint,
             factorized_two_dot_numerator_endpoint,
+            incident_two_dot_numerator_endpoint,
             dotted_negative_numerator_bulk,
             canonical_dot,
             mixed_numerator,
@@ -251,6 +254,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
                 cell: factorized_two_dot_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
+                cell: incident_two_dot_numerator_endpoint,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineDottedNegativeNumeratorBulk,
@@ -436,7 +443,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 33,
+            max_rule_cells: 34,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -481,6 +488,7 @@ mod tests {
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
                 K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+                K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
                 K6CellKind::FourLineDottedNegativeNumeratorBulk,
                 K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
@@ -540,6 +548,7 @@ mod tests {
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk, 1,),
                 (K6CellKind::FourLineFactorizedFaceNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint, 1,),
+                (K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineDottedNegativeNumeratorBulk, 1,),
                 (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
@@ -563,8 +572,8 @@ mod tests {
         assert_eq!(statistics.canonical_roots(), 44);
         assert_eq!(statistics.discovered_nodes(), 85);
         assert_eq!(statistics.terminal_nodes(), 27);
-        assert_eq!(statistics.rule_applications(), 42);
-        assert_eq!(statistics.uncovered_nodes(), 16);
+        assert_eq!(statistics.rule_applications(), 43);
+        assert_eq!(statistics.uncovered_nodes(), 15);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -637,6 +646,10 @@ mod tests {
             (
                 FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_INCIDENT_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
             ),
             (
                 FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE,
@@ -940,6 +953,58 @@ mod tests {
             ));
         }
 
+        // This exact-corner numerator cell owns only the S4 placement in
+        // which the inactive edge is incident to both active dots. Its four
+        // children route through two existing positive-dot cells, one
+        // authenticated product, and the still-unresolved scalar corner.
+        let ReachabilityDisposition::Rule(incident_two_dot_endpoint) = disposition(
+            &census,
+            &first,
+            FOUR_LINE_INCIDENT_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
+        ) else {
+            panic!("expected incident two-dot numerator endpoint")
+        };
+        assert_eq!(
+            census.cell_kind(incident_two_dot_endpoint.cell_ordinal()),
+            K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint
+        );
+        assert_eq!(incident_two_dot_endpoint.assignment(), FOUR_LINE_CORNER);
+        assert_eq!(
+            incident_two_dot_endpoint
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [
+                [0, 1, 1, 2, 2, 0],
+                [0, 1, 1, 1, 3, 0],
+                [0, 0, 1, 0, 2, 2],
+                FOUR_LINE_CORNER,
+            ]
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            [0, 1, 1, 2, 2, 0],
+            K6CellKind::FourLineAdjacentPair,
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            [0, 1, 1, 1, 3, 0],
+            K6CellKind::FourLineTriple,
+        );
+        assert!(matches!(
+            disposition(&census, &first, [0, 0, 1, 0, 2, 2]),
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Factorization
+                    && terminal.owner_ordinal() == 2
+        ));
+        assert!(matches!(
+            disposition(&census, &first, FOUR_LINE_CORNER),
+            ReachabilityDisposition::Uncovered
+        ));
+
         // The two-dot inactive-numerator placement is a deliberately narrow
         // singleton.  Its compact selected-source replay removes the
         // complete-system's spurious d-1 guard, and every child is discharged
@@ -1104,7 +1169,6 @@ mod tests {
             TOP_CORNER,
             FIVE_LINE_CORNER,
             FOUR_LINE_CORNER,
-            [0, 1, 2, 2, 1, -1],
             [0, 1, 1, 2, 4, 0],
             [0, 1, 1, 2, 5, 0],
         ] {
@@ -1128,7 +1192,6 @@ mod tests {
                 [-1, 1, 1, 1, 1, -1],
                 [-1, 1, 1, 1, 1, -2],
                 [-1, 1, 1, 1, 2, -1],
-                [0, 1, 2, 2, 1, -1],
                 [0, 1, 1, 2, 4, 0],
                 [0, 1, 1, 2, 5, 0],
                 [0, 1, 2, 3, 3, 0],

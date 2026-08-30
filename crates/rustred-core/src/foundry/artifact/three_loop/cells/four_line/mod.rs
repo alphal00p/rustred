@@ -20,36 +20,33 @@ mod complementary_mixed_dot;
 #[cfg(test)]
 mod complementary_mixed_dot_tests;
 mod corner;
-mod dotted_negative_numerator_bulk;
-#[cfg(test)]
-mod dotted_negative_numerator_bulk_tests;
 mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
 mod factorized;
-mod inactive_numerator;
-#[cfg(test)]
-mod inactive_numerator_tests;
 mod mixed_dot;
 mod mixed_dot_ray;
 #[cfg(test)]
 mod mixed_dot_ray_tests;
 #[cfg(test)]
 mod mixed_dot_tests;
+mod numerator;
 mod repeated_dot;
 #[cfg(test)]
 mod repeated_dot_tests;
 
 use complementary_mixed_dot::derive_complementary_mixed_dot_cell;
-use dotted_negative_numerator_bulk::derive_dotted_negative_numerator_bulk;
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
 use factorized::{
     derive_factorized_bridge_dot_numerator_cells, derive_factorized_face_numerator_endpoint,
     derive_factorized_two_dot_numerator_endpoint,
 };
-use inactive_numerator::derive_inactive_numerator_cells;
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
+use numerator::{
+    derive_dotted_negative_numerator_bulk, derive_inactive_numerator_cells,
+    derive_incident_two_dot_numerator_endpoint,
+};
 use repeated_dot::derive_repeated_dot_ray_cell;
 
 const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
@@ -80,6 +77,7 @@ pub(super) struct FourLineCellSet {
     pub(super) factorized_bridge_dot_numerator_bulk: RuleCell,
     pub(super) factorized_face_numerator_endpoint: RuleCell,
     pub(super) factorized_two_dot_numerator_endpoint: RuleCell,
+    pub(super) incident_two_dot_numerator_endpoint: RuleCell,
     pub(super) dotted_negative_numerator_bulk: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
@@ -110,6 +108,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         derive_factorized_face_numerator_endpoint()?;
     let (_context, factorized_two_dot_numerator_endpoint) =
         derive_factorized_two_dot_numerator_endpoint()?;
+    let (_context, incident_two_dot_numerator_endpoint) =
+        derive_incident_two_dot_numerator_endpoint()?;
     let (_context, dotted_negative_numerator_bulk) = derive_dotted_negative_numerator_bulk()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
@@ -129,6 +129,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         factorized_bridge_dot_numerator_bulk,
         factorized_face_numerator_endpoint,
         factorized_two_dot_numerator_endpoint,
+        incident_two_dot_numerator_endpoint,
         dotted_negative_numerator_bulk,
         canonical_dot,
         mixed_numerator,

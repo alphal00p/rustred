@@ -1,17 +1,18 @@
-//! Exact bulk recurrence for one dot with a deeper inactive numerator.
+//! Exact endpoint with an inactive numerator incident to both active dots.
 //!
-//! The existing mixed-numerator cell owns the `N = -1` boundary across its
-//! positive active-power box.  This disjoint cell owns the scalar active face
-//! `J(0,1,1,1,2,N)` for `N <= -2`.  It is generated from the complete nine
-//! ordinary depth-zero K6 rows, then the selected rows are independently
-//! projected over the full representable source interval.
+//! This module owns one `S4` orbit of `J(0,1,2,2,1,-1)`.  A complete
+//! depth-one search selects five of the 63 translated ordinary K6 rows.
+//! Production independently retranslates and reprojects only those rows on
+//! the exact scalar four-line corner.  The cell deliberately does not claim
+//! deeper numerators, higher active powers, or inequivalent two-dot
+//! placements.
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::IntegralKey;
 use crate::foundry::artifact::ArtifactError;
 use crate::foundry::cell::{FixedIndexRestriction, RuleCell, RuleCellLimits, SourceViewBatch};
 use crate::foundry::parametric::{
-    ParametricRule, ParametricRuleLimits, derive_sector_interior_rule_for_target,
+    ParametricRule, ParametricRuleLimits, derive_sector_monotone_rule_for_target,
 };
 use crate::foundry::search::{SectorSearchDiamond, SectorSearchLimits};
 use crate::identity::{
@@ -21,43 +22,41 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
-use super::super::support::complete_ordinary_sources;
-use super::FOUR_LINE_SECTOR;
+use super::super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
+use super::super::super::support::complete_ordinary_sources;
+use super::super::FOUR_LINE_SECTOR;
 
-pub(super) const DOTTED_NEGATIVE_NUMERATOR_PIVOT: [i64; 6] = [0, 0, 0, 0, 1, -1];
-pub(super) const BULK_REPLAY_ANCHOR: [i64; 6] = [0, 3, 3, 3, 3, -2];
-pub(super) const FREE_POSITION: usize = 5;
-const SEARCH_DEPTH: usize = 0;
+pub(super) const INCIDENT_TWO_DOT_NUMERATOR_PIVOT: [i64; 6] = [0, 0, 1, 1, 0, -1];
+const SEARCH_DEPTH: usize = 1;
 
-pub(super) struct DottedNegativeNumeratorSelectionWitness {
+pub(super) struct IncidentTwoDotSelectionWitness {
     pub(super) complete_sources: SourceViewBatch,
     pub(super) complete_rule: ParametricRule,
 }
 
-pub(super) struct DottedNegativeNumeratorBulkBuild {
+pub(super) struct IncidentTwoDotEndpointBuild {
     pub(super) context: IndexedCoefficientContext,
-    pub(super) bulk: RuleCell,
+    pub(super) endpoint: RuleCell,
     pub(super) selected_complete_source_ordinals: Box<[usize]>,
-    pub(super) selection_witness: Option<DottedNegativeNumeratorSelectionWitness>,
+    pub(super) selection_witness: Option<IncidentTwoDotSelectionWitness>,
 }
 
-pub(super) fn derive_dotted_negative_numerator_bulk()
+pub(in super::super) fn derive_incident_two_dot_numerator_endpoint()
 -> Result<(IndexedCoefficientContext, RuleCell), ArtifactError> {
-    let build = derive_dotted_negative_numerator_bulk_build(false)?;
-    Ok((build.context, build.bulk))
+    let build = derive_incident_two_dot_endpoint_build(false)?;
+    Ok((build.context, build.endpoint))
 }
 
-pub(super) fn derive_dotted_negative_numerator_bulk_build(
+pub(super) fn derive_incident_two_dot_endpoint_build(
     retain_selection_witness: bool,
-) -> Result<DottedNegativeNumeratorBulkBuild, ArtifactError> {
+) -> Result<IncidentTwoDotEndpointBuild, ArtifactError> {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
     let (completed, _ordinary_source_count) = complete_ordinary_sources(&generator)?;
-    let search = depth_search()?;
+    let search = depth_search(SEARCH_DEPTH)?;
 
     let complete_sources = project_complete_sources(
         &generator,
@@ -66,7 +65,7 @@ pub(super) fn derive_dotted_negative_numerator_bulk_build(
         &canonicalizer,
         &zero_sectors,
     )?;
-    let complete_rule = derive_bulk_rule(&generator, &complete_sources)?;
+    let complete_rule = derive_endpoint_rule(&generator, &complete_sources)?;
     let selected_complete_source_ordinals = complete_rule
         .source_combination()
         .iter()
@@ -82,42 +81,41 @@ pub(super) fn derive_dotted_negative_numerator_bulk_build(
         &canonicalizer,
         &zero_sectors,
     )?;
-    let rule = derive_bulk_rule(&generator, &selected_sources)?;
-    let application = application_domain(&rule)?;
-    let bulk = RuleCell::try_refined(
+    let selected_rule = derive_endpoint_rule(&generator, &selected_sources)?;
+    let application = endpoint_application_domain(&selected_rule)?;
+    let endpoint = RuleCell::try_refined(
         generator.context(),
-        rule,
+        selected_rule,
         selected_sources,
         application,
-        fixed_scalar_source_face(),
+        fixed_endpoint(),
         [],
         RuleCellLimits::default(),
     )?;
 
-    let selection_witness =
-        retain_selection_witness.then_some(DottedNegativeNumeratorSelectionWitness {
-            complete_sources,
-            complete_rule,
-        });
+    let selection_witness = retain_selection_witness.then_some(IncidentTwoDotSelectionWitness {
+        complete_sources,
+        complete_rule,
+    });
     let context = generator.context().clone();
     drop(generator);
-    Ok(DottedNegativeNumeratorBulkBuild {
+    Ok(IncidentTwoDotEndpointBuild {
         context,
-        bulk,
+        endpoint,
         selected_complete_source_ordinals,
         selection_witness,
     })
 }
 
-fn derive_bulk_rule(
+fn derive_endpoint_rule(
     generator: &ParametricIbpGenerator<'_>,
     sources: &SourceViewBatch,
 ) -> Result<ParametricRule, ArtifactError> {
-    Ok(derive_sector_interior_rule_for_target(
+    Ok(derive_sector_monotone_rule_for_target(
         generator.context(),
         sources.relations(),
-        &BULK_REPLAY_ANCHOR,
-        &DOTTED_NEGATIVE_NUMERATOR_PIVOT,
+        &FOUR_LINE_SECTOR,
+        &INCIDENT_TWO_DOT_NUMERATOR_PIVOT,
         OrderingPolicy::default(),
         ParametricRuleLimits::default(),
     )?)
@@ -138,8 +136,8 @@ fn project_complete_sources(
     Ok(SourceViewBatch::try_project_complete_residual(
         translated,
         generator.context(),
-        source_domain(i64::MIN + 2)?,
-        fixed_scalar_source_face(),
+        endpoint_source_domain()?,
+        fixed_endpoint(),
         canonicalizer,
         zero_sectors,
         RuleCellLimits::default(),
@@ -163,49 +161,40 @@ fn project_selected_sources(
         translated,
         ordinals,
         generator.context(),
-        source_domain(i64::MIN + 1)?,
-        fixed_scalar_source_face(),
+        endpoint_source_domain()?,
+        fixed_endpoint(),
         canonicalizer,
         zero_sectors,
         RuleCellLimits::default(),
     )?)
 }
 
-fn depth_search() -> Result<SectorSearchDiamond, ArtifactError> {
+fn depth_search(depth: usize) -> Result<SectorSearchDiamond, ArtifactError> {
     Ok(SectorSearchDiamond::try_new(
         IntegralKey::try_new(FOUR_LINE_SECTOR)?,
-        SEARCH_DEPTH,
+        depth,
         SectorSearchLimits::default(),
     )?)
 }
 
-pub(super) const fn dotted_negative_numerator_search_depth() -> usize {
+pub(super) const fn incident_two_dot_search_depth() -> usize {
     SEARCH_DEPTH
 }
 
-pub(super) fn fixed_scalar_source_face() -> [FixedIndexRestriction; 5] {
+pub(super) fn fixed_endpoint() -> [FixedIndexRestriction; 6] {
     std::array::from_fn(|position| FixedIndexRestriction::new(position, FOUR_LINE_SECTOR[position]))
 }
 
-fn source_domain(lower: i64) -> Result<SectorInteriorDomain, ArtifactError> {
+fn endpoint_source_domain() -> Result<SectorInteriorDomain, ArtifactError> {
     Ok(SectorInteriorDomain::try_new(
         Mask::try_from_indices(&FOUR_LINE_SECTOR)?,
-        scalar_source_bounds(lower),
+        FOUR_LINE_SECTOR.map(|power| InteriorBounds::new(power, power)),
     )?)
 }
 
-fn scalar_source_bounds(lower: i64) -> [InteriorBounds; 6] {
-    [
-        InteriorBounds::new(0, 0),
-        InteriorBounds::new(1, 1),
-        InteriorBounds::new(1, 1),
-        InteriorBounds::new(1, 1),
-        InteriorBounds::new(1, 1),
-        InteriorBounds::new(lower, -1),
-    ]
-}
-
-fn application_domain(rule: &ParametricRule) -> Result<SectorMonotoneDomain, ArtifactError> {
+fn endpoint_application_domain(
+    rule: &ParametricRule,
+) -> Result<SectorMonotoneDomain, ArtifactError> {
     let rhs = rule
         .right_hand_side()
         .iter()
@@ -213,8 +202,29 @@ fn application_domain(rule: &ParametricRule) -> Result<SectorMonotoneDomain, Art
         .collect::<Vec<_>>();
     Ok(SectorMonotoneDomain::try_new_for_rule(
         Mask::try_from_indices(&FOUR_LINE_SECTOR)?,
-        scalar_source_bounds(i64::MIN + 1),
+        FOUR_LINE_SECTOR.map(|power| InteriorBounds::new(power, power)),
         rule.pivot().values(),
         &rhs,
     )?)
+}
+
+#[cfg(test)]
+pub(super) fn derive_incident_two_dot_candidate(
+    depth: usize,
+) -> Result<ParametricRule, ArtifactError> {
+    let family = canonical_family()?;
+    let canonicalizer = canonical_s4(&family)?;
+    let zero_sectors = exact_zero_sectors(&canonicalizer)?;
+    let generator =
+        ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
+    let (completed, _ordinary_source_count) = complete_ordinary_sources(&generator)?;
+    let search = depth_search(depth)?;
+    let sources = project_complete_sources(
+        &generator,
+        &completed,
+        search.offsets().iter().cloned(),
+        &canonicalizer,
+        &zero_sectors,
+    )?;
+    derive_endpoint_rule(&generator, &sources)
 }

@@ -156,6 +156,16 @@ inequivalent `S4` two-dot/numerator placement classes. Its four children are
 checked against factorization owners 2, 0, 1, and 2; adjacent higher-dot and
 deeper-numerator patterns remain nonowners.
 
+The incident two-dot numerator endpoint tests retain the complete 63-row
+depth-one search for `J(0,1,2,2,1,-1)`, pin selected ordinals 18, 21, 27, 28,
+and 30, and compare the complete and independently reprojected compact source,
+pivot, and RHS coefficients exactly. They prove removal of the complete-only
+`6-3d` guard with its reducer-pivot provenance, replay both systems, check
+strict descent and deterministic rebuild, and partition all decorations into
+exactly three inequivalent `S4` placement classes. Child routing is checked
+against the adjacent-pair and triple-dot owners, factorization owner 2, and the
+still-uncovered scalar corner.
+
 The dotted negative-numerator bulk tests start from all nine untranslated
 ordinary rows, select ordinals 0, 3, and 4, and independently reproject only
 those rows over the machine-safe interval. They pin pivot `-4`, source weights
@@ -185,8 +195,8 @@ infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
 following exact deterministic report: 44 canonical roots, 85 discovered
-nodes, 42 rule applications spanning all 33 current cell owners, 27
-zero/factorization terminals, and 16 uncovered nodes. The census pins
+nodes, 43 rule applications spanning all 34 current cell owners, 27
+zero/factorization terminals, and 15 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

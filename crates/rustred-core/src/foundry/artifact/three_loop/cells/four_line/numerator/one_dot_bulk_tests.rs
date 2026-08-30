@@ -10,18 +10,18 @@ use crate::foundry::search::{
 };
 use crate::sector::InteriorBounds;
 
-use super::super::super::{
+use super::super::super::super::{
     K6ReachabilityTerminals, canonical_family, canonical_s4, exact_zero_sectors,
 };
-use super::super::three_line::derive_three_line_cells;
-use super::FOUR_LINE_SECTOR;
-use super::dotted_negative_numerator_bulk::{
+use super::super::super::three_line::derive_three_line_cells;
+use super::super::FOUR_LINE_SECTOR;
+use super::one_dot_bulk::{
     BULK_REPLAY_ANCHOR, DOTTED_NEGATIVE_NUMERATOR_PIVOT, DottedNegativeNumeratorBulkBuild,
     FREE_POSITION, derive_dotted_negative_numerator_bulk,
     derive_dotted_negative_numerator_bulk_build, dotted_negative_numerator_search_depth,
     fixed_scalar_source_face,
 };
-use super::inactive_numerator::derive_inactive_numerator_cells;
+use super::scalar::derive_inactive_numerator_cells;
 
 const ORDINARY_ROWS: [&str; 9] = [
     "ordinary-ibp:0:0",

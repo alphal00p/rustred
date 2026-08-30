@@ -263,6 +263,17 @@ classification of the six inequivalent two-dot/numerator placements proves
 the singleton boundary and keeps the neighboring bulk and higher-dot lanes
 open.
 
+The irreducible four-line numerator cells now live under the semantic
+`four_line::numerator` module. A complete depth-one search derives an exact
+singleton for `J(0,1,2,2,1,-1)`, the placement where the inactive numerator
+is incident to both active dots. It selects complete ordinals 18, 21, 27, 28,
+and 30; production independently reprojects those five rows and removes the
+complete elimination's spurious `6-3d` guard. Exact `S4` enumeration proves
+three inequivalent placement classes and owns only this one. Its four children
+route to the installed adjacent-pair and triple-dot cells, factorization owner
+2, and the unresolved scalar four-line corner, so the finite frontier shrinks
+without acquiring a new node.
+
 The irreducible scalar four-line face now also has a guard-free bulk owner for
 the complete machine-wide ray `J(0,1,1,1,2,N)`, `N<=-2`. Its depth-zero
 search starts from all nine ordinary rows and independently reprojects selected
@@ -276,9 +287,9 @@ neighbors.
 
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 85 nodes: all 33 presently derived cell owners are
-exercised in 42 applications, 27 nodes terminate through independently checked
-zero or factorization proofs, and 16 remain explicitly uncovered. The census
+roots and discover 85 nodes: all 34 presently derived cell owners are
+exercised in 43 applications, 27 nodes terminate through independently checked
+zero or factorization proofs, and 15 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

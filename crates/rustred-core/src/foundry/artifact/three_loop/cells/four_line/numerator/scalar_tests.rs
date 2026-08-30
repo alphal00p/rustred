@@ -9,15 +9,15 @@ use crate::foundry::search::{
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 use crate::sector::InteriorBounds;
 
-use super::super::super::{
+use super::super::super::super::{
     K6ReachabilityTerminals, canonical_family, canonical_s4, exact_zero_sectors,
 };
-use super::super::support::complete_ordinary_sources;
-use super::FOUR_LINE_SECTOR;
-use super::corner::{
+use super::super::super::support::complete_ordinary_sources;
+use super::super::FOUR_LINE_SECTOR;
+use super::super::corner::{
     derive_exact_corner_cell, fixed_base_corner, project_complete_exact_corner_sources,
 };
-use super::inactive_numerator::{
+use super::scalar::{
     BULK_REPLAY_ANCHOR, INACTIVE_NUMERATOR_PIVOT, InactiveNumeratorBuild,
     derive_inactive_numerator_build, derive_inactive_numerator_cells, fixed_scalar_face,
     inactive_numerator_search_depth,

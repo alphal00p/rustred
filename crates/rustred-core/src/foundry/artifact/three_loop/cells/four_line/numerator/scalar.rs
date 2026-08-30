@@ -23,10 +23,10 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
-use super::super::support::complete_ordinary_sources;
-use super::FOUR_LINE_SECTOR;
-use super::corner::{derive_exact_corner_cell, project_complete_exact_corner_sources};
+use super::super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
+use super::super::super::support::complete_ordinary_sources;
+use super::super::FOUR_LINE_SECTOR;
+use super::super::corner::{derive_exact_corner_cell, project_complete_exact_corner_sources};
 
 pub(super) const INACTIVE_NUMERATOR_PIVOT: [i64; 6] = [0, 0, 0, 0, 0, -1];
 pub(super) const BULK_REPLAY_ANCHOR: [i64; 6] = [0, 3, 3, 3, 3, -2];
@@ -46,7 +46,7 @@ pub(super) struct InactiveNumeratorBuild {
     pub(super) bulk_selection_witness: Option<InactiveNumeratorSelectionWitness>,
 }
 
-pub(super) fn derive_inactive_numerator_cells()
+pub(in super::super) fn derive_inactive_numerator_cells()
 -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
     let build = derive_inactive_numerator_build(false)?;
     Ok((build.context, build.endpoint, build.bulk))
