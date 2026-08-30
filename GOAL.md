@@ -107,15 +107,20 @@ five-line face additionally derives the two inequivalent positive dotted-edge
 cells from all nine sources, retaining the complete 26-sector zero routing and
 strict-descent evidence. Six exact generated-source cells now partition the
 negative inactive-power direction into disjoint endpoint and bulk owners on
-the all-unit active-power, adjacent active-dot, and opposite active-dot domains. Their exact
-endpoint pruning, held-out replay, machine bounds, guard domains, and `S4`
-routing are pinned. This advances but does not close the five-line sector: its
-scalar corner and the remaining fixed-point branches stay open. On the canonical irreducible
+the all-unit active-power, adjacent active-dot, and opposite active-dot
+domains. Their exact endpoint pruning, held-out replay, machine bounds, guard
+domains, and `S4` routing are pinned. This advances but does not close the
+five-line sector: its scalar corner and the remaining fixed-point branches stay
+open. On the canonical irreducible
 four-line face, the same exact projection boundary now derives a guarded
 canonical-dot multi-excess cell from one target-aligned translated source span
 and a canonical mixed numerator/dot cell from the untranslated span. Exact
 `S4` tests route all four dotted and all eight mixed placements; the pure-dot
-cell's `n1 - 1` guard excludes its isolated corner. A fixed-corner residual
+cell's `n1 - 1` guard excludes its isolated corner. A complete depth-one search
+also derives endpoint and bulk cells for `J(0,1,1,1,1,n)` over every
+representable `n<0`. Independent five-row reprojection proves the bulk through
+the `i64::MIN` target; its pinched numerator children remain open instead of
+being mislabeled as factorization terminals. A fixed-corner residual
 projection now lowers that isolated dot to the scalar corner with the exact
 rows `ordinary-ibp:0:0` and `ordinary-ibp:1:0`. A one-dot translated
 projection of the complete nine-row ordinary-source layer supplies a
@@ -214,9 +219,9 @@ installable artifact until the complete rule fixed point is closed.
 
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 114 submitted probes reduce under exact `S4` to 43
-roots and discover 79 nodes: all 21 presently derived cell owners are
-exercised in 29 applications, 26 nodes terminate through independently checked
-zero or factorization proofs, and 24 remain explicitly uncovered. The census
+roots and discover 80 nodes: all 23 presently derived cell owners are
+exercised in 32 applications, 26 nodes terminate through independently checked
+zero or factorization proofs, and 22 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

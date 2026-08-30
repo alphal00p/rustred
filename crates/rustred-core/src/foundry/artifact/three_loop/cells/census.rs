@@ -32,6 +32,8 @@ const FIVE_LINE_NUMERATOR_OVERLAP_PROBE: [i64; 6] = [-1, 1, 1, 1, 2, 2];
 const FOUR_LINE_CORNER: [i64; 6] = [0, 1, 1, 1, 1, 0];
 const FOUR_LINE_BULK_DOT_PROBE: [i64; 6] = [0, 2, 2, 2, 3, 0];
 const FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE: [i64; 6] = [0, 1, 2, 3, 2, 0];
+const FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -1];
+const FOUR_LINE_SCALAR_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -2];
 const FACTORIZATION_SECTORS: [[i64; 6]; 3] =
     [[0, 0, 1, 1, 1, 1], [0, 0, 1, 1, 0, 1], [0, 0, 1, 0, 1, 1]];
 const ZERO_PROBE: [i64; 6] = [0, 0, 0, 1, 1, 1];
@@ -57,6 +59,8 @@ enum K6CellKind {
     FourLineComplementaryMixedDot,
     FourLineMixedDotRay,
     FourLineRepeatedDotRay,
+    FourLineScalarNumeratorEndpoint,
+    FourLineScalarNumeratorBulk,
     FourLineDotBulk,
     FourLineMixedNumerator,
 }
@@ -101,6 +105,8 @@ impl K6ReachabilityCensus {
             complementary_mixed_dot,
             mixed_dot_ray,
             repeated_dot_ray,
+            scalar_numerator_endpoint: four_line_scalar_numerator_endpoint,
+            scalar_numerator_bulk: four_line_scalar_numerator_bulk,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
@@ -188,6 +194,14 @@ impl K6ReachabilityCensus {
                 cell: repeated_dot_ray,
             },
             OwnedCell {
+                kind: K6CellKind::FourLineScalarNumeratorEndpoint,
+                cell: four_line_scalar_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineScalarNumeratorBulk,
+                cell: four_line_scalar_numerator_bulk,
+            },
+            OwnedCell {
                 kind: K6CellKind::FourLineDotBulk,
                 cell: canonical_dot,
             },
@@ -265,6 +279,9 @@ fn bounded_roots() -> Result<Vec<IntegralKey>, ArtifactError> {
         roots.push(IntegralKey::try_new(probe)?);
     }
     append_diamond(&mut roots, FOUR_LINE_CORNER, 3)?;
+    // This complete diamond already includes the scalar numerator endpoint
+    // and the first two bulk-ray targets. Keep them as named probes in the
+    // assertions below without duplicating submitted roots here.
     // The broad positive-box recurrence starts beyond the depth-three corner
     // diamond; retain one explicit interior representative so every installed
     // discovery cell is exercised.
@@ -338,7 +355,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 21,
+            max_rule_cells: 23,
             max_roots: 114,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -377,6 +394,8 @@ mod tests {
                 K6CellKind::FourLineComplementaryMixedDot,
                 K6CellKind::FourLineMixedDotRay,
                 K6CellKind::FourLineRepeatedDotRay,
+                K6CellKind::FourLineScalarNumeratorEndpoint,
+                K6CellKind::FourLineScalarNumeratorBulk,
                 K6CellKind::FourLineDotBulk,
                 K6CellKind::FourLineMixedNumerator,
             ]
@@ -424,6 +443,8 @@ mod tests {
                 (K6CellKind::FourLineComplementaryMixedDot, 1),
                 (K6CellKind::FourLineMixedDotRay, 2),
                 (K6CellKind::FourLineRepeatedDotRay, 2),
+                (K6CellKind::FourLineScalarNumeratorEndpoint, 1),
+                (K6CellKind::FourLineScalarNumeratorBulk, 2),
                 (K6CellKind::FourLineDotBulk, 1),
                 (K6CellKind::FourLineMixedNumerator, 4),
             ])
@@ -439,10 +460,10 @@ mod tests {
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 114);
         assert_eq!(statistics.canonical_roots(), 43);
-        assert_eq!(statistics.discovered_nodes(), 79);
+        assert_eq!(statistics.discovered_nodes(), 80);
         assert_eq!(statistics.terminal_nodes(), 26);
-        assert_eq!(statistics.rule_applications(), 29);
-        assert_eq!(statistics.uncovered_nodes(), 24);
+        assert_eq!(statistics.rule_applications(), 32);
+        assert_eq!(statistics.uncovered_nodes(), 22);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -491,6 +512,15 @@ mod tests {
             ([0, 1, 2, 2, 3, 0], K6CellKind::FourLineMixedDotRay),
             ([0, 1, 2, 2, 4, 0], K6CellKind::FourLineMixedDotRay),
             ([0, 1, 1, 1, 4, 0], K6CellKind::FourLineRepeatedDotRay),
+            (
+                FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineScalarNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_SCALAR_NUMERATOR_BULK_PROBE,
+                K6CellKind::FourLineScalarNumeratorBulk,
+            ),
+            ([0, 1, 1, 1, 1, -3], K6CellKind::FourLineScalarNumeratorBulk),
             (FOUR_LINE_BULK_DOT_PROBE, K6CellKind::FourLineDotBulk),
             ([0, 1, 1, 1, 2, -1], K6CellKind::FourLineMixedNumerator),
         ] {
@@ -549,6 +579,65 @@ mod tests {
             );
         }
 
+        // The scalar inactive-numerator endpoint precedes its disjoint bulk
+        // ray. Their exact children recurse toward the unresolved scalar
+        // corner and expose the pinched numerator face honestly.
+        let ReachabilityDisposition::Rule(endpoint) =
+            disposition(&census, &first, FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE)
+        else {
+            panic!("expected scalar four-line numerator endpoint")
+        };
+        assert_eq!(
+            census.cell_kind(endpoint.cell_ordinal()),
+            K6CellKind::FourLineScalarNumeratorEndpoint
+        );
+        assert_eq!(endpoint.assignment(), FOUR_LINE_CORNER);
+        assert_eq!(endpoint.dependencies().len(), 2);
+        assert_eq!(
+            endpoint.dependencies()[0].canonical_child().powers(),
+            FOUR_LINE_CORNER
+        );
+        assert_eq!(
+            endpoint.dependencies()[1].canonical_child().powers(),
+            [0, 0, 1, 0, 2, 1]
+        );
+        assert!(matches!(
+            disposition(&census, &first, [0, 0, 1, 0, 2, 1]),
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Factorization
+                    && terminal.owner_ordinal() == 2
+        ));
+
+        for (target_power, assignment_power) in [(-2, -1), (-3, -2)] {
+            let target = [0, 1, 1, 1, 1, target_power];
+            let ReachabilityDisposition::Rule(application) = disposition(&census, &first, target)
+            else {
+                panic!("expected scalar four-line numerator bulk at {target:?}")
+            };
+            assert_eq!(
+                census.cell_kind(application.cell_ordinal()),
+                K6CellKind::FourLineScalarNumeratorBulk
+            );
+            assert_eq!(application.assignment(), [0, 1, 1, 1, 1, assignment_power]);
+            assert_eq!(application.dependencies().len(), 3);
+            assert_eq!(
+                application.dependencies()[0].canonical_child().powers(),
+                [0, 1, 1, 1, 1, assignment_power]
+            );
+            assert_eq!(
+                application.dependencies()[1].canonical_child().powers(),
+                [0, 0, 2, assignment_power, 1, 1]
+            );
+            assert_eq!(
+                application.dependencies()[2].canonical_child().powers(),
+                [0, 1, 1, 1, 1, assignment_power + 1]
+            );
+            assert!(matches!(
+                disposition(&census, &first, [0, 0, 2, assignment_power, 1, 1]),
+                ReachabilityDisposition::Uncovered
+            ));
+        }
+
         // Scalar graph corners are obligations, never assumed masters.
         // The additional representatives pin the distinct deeper-dot and
         // inactive-numerator holes exposed by this bounded root set.
@@ -556,7 +645,6 @@ mod tests {
             TOP_CORNER,
             FIVE_LINE_CORNER,
             FOUR_LINE_CORNER,
-            [0, 1, 1, 1, 1, -1],
             [0, 1, 2, 2, 1, -1],
             [0, 1, 1, 2, 4, 0],
             [0, 1, 1, 2, 5, 0],
@@ -573,6 +661,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 [0, 0, 2, -1, 1, 1],
+                [0, 0, 2, -2, 1, 1],
                 [0, -1, 1, 1, 2, 1],
                 [0, -1, 1, 2, 1, 1],
                 [0, -1, 2, 1, 1, 1],
@@ -582,10 +671,7 @@ mod tests {
                 [0, -1, 2, 2, 1, 1],
                 [0, -2, 2, 2, 1, 1],
                 [0, 1, 1, 1, 1, 0],
-                [0, 1, 1, 1, 1, -1],
-                [0, 1, 1, 1, 1, -2],
                 [-1, 1, 1, 1, 1, -1],
-                [0, 1, 1, 1, 1, -3],
                 [-1, 1, 1, 1, 1, -2],
                 [0, 1, 1, 1, 2, -2],
                 [-1, 1, 1, 1, 2, -1],

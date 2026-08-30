@@ -68,15 +68,20 @@ memoization, and mass-restoration goldens, and reject foreign terminals.
 
 The test-only `K = 6` fixture has partial evidence through levels 2--4, not a
 family-level closure pass. Its five-line inactive-numerator partition now has
-six exact generated cells: scalar, adjacent active-dot, and opposite active-dot
 six exact generated cells: all-unit active-power, adjacent active-dot, and
-opposite active-dot domains each have disjoint endpoint and bulk owners. Tests pin their respective
-`(contributions, source terms, RHS, guards, replay keys, operations)` metrics
+opposite active-dot domains each have disjoint endpoint and bulk owners. Tests
+pin their respective `(contributions, source terms, RHS, guards, replay keys, operations)` metrics
 as `(5,29,8,3,38,105)`, `(1,8,7,1,16,40)`, and
-`(12,117,21,9,139,382)`, together with exact endpoint pruning, held-out replay, strict
-descent, `S4` routing, and both i64 endpoints. The scalar five-line corner
-remains uncovered. In particular, the adjacent two-dot four-line
-corner is derived from the complete depth-two same-sector diamond: 28 offsets,
+`(12,117,21,9,139,382)`, together with exact endpoint pruning, held-out replay,
+strict descent, `S4` routing, and both i64 endpoints. The scalar five-line corner
+remains uncovered. The scalar four-line inactive-numerator direction has a
+separate complete depth-one endpoint/bulk partition. Exact tests retain the
+63-row discovery witnesses, independently reproject five selected bulk rows,
+replay assignments `-1`, `-7`, and `i64::MIN+1`, and prove strict descent and
+nonzero symbolic-d guards; the resulting targets cover all representable
+negative powers while their pinched numerator children remain uncovered. In
+particular, the adjacent two-dot four-line corner is derived from the complete
+depth-two same-sector diamond: 28 offsets,
 252 projected ordinary rows, exact target RREF with 16 selected rows, nine
 retained guards, complete projection replay, strict descent, and exact routing
 of all four `S4` placements. Its factorized child is an already certified
@@ -123,9 +128,9 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 114 bounded probes and has the
-following exact deterministic report: 43 canonical roots, 79 discovered
-nodes, 29 rule applications spanning all 21 current cell owners, 26
-zero/factorization terminals, and 24 uncovered nodes. The census pins
+following exact deterministic report: 43 canonical roots, 80 discovered
+nodes, 32 rule applications spanning all 23 current cell owners, 26
+zero/factorization terminals, and 22 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

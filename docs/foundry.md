@@ -94,15 +94,19 @@ projection supplies all nine sources and all 26 exact zero masks to derive the
 two canonical positive dotted-edge cells on the five-line face; each retains
 its projection replay, guards, application box, and descent proof. Six further
 generated-source cells partition the negative inactive-power direction into
-disjoint endpoint and bulk owners on the all-unit active-power, adjacent active-dot, and
-opposite active-dot domains. They pin exact source selection, endpoint
-specialization/pruning, held-out replay, machine bounds, strict descent, and
+disjoint endpoint and bulk owners on the all-unit active-power, adjacent
+active-dot, and opposite active-dot domains. They pin exact source selection,
+endpoint specialization/pruning, held-out replay, machine bounds, strict descent, and
 the two active-dot `S4` orbits. This still does not promote the scalar
 five-line corner or claim complete face closure. On the irreducible
 four-line face, a target-aligned translation derives a guarded canonical-dot
 multi-excess cell and the untranslated span derives the canonical mixed
-numerator/dot boundary cell. All four raw dot and eight raw mixed placements
-are routed through the exact `S4` canonicalizer. The translated dot rule is
+numerator/dot boundary cell. A complete depth-one search additionally derives
+an endpoint and full-i64 bulk ray for `J(0,1,1,1,1,n)`, `n<0`. The endpoint
+retains all 63 projected rows; the bulk's five selected generated rows are
+independently reprojected over assignments through `i64::MIN+1`, and its
+pinched numerator child remains an explicit obligation. All four raw dot and
+eight raw mixed placements are routed through the exact `S4` canonicalizer. The translated dot rule is
 singular at the isolated pure-dot corner. A fixed-corner residual projection
 lowers that corner to the scalar corner from two selected ordinary rows and
 routes all four raw dot placements. A one-dot translated projection supplies
@@ -183,9 +187,9 @@ complementary ray and the new child ray `J(0,1,1,2,N,0)` remain open.
 
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 114 bounded probes, exact `S4`
-canonicalization retains 43 roots and discovery visits 79 nodes. The report
-pins 29 applications across all 21 current rule-cell owners, 26 independently
-proved zero/factorization terminals, and 24 uncovered nodes. A
+canonicalization retains 43 roots and discovery visits 80 nodes. The report
+pins 32 applications across all 23 current rule-cell owners, 26 independently
+proved zero/factorization terminals, and 22 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production

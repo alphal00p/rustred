@@ -84,15 +84,19 @@ cells on the canonical five-line residual face. Each cell is projected from
 all nine sources and retains exact residual replay, guards, bounded application
 proof, provenance, and strict descent. Six further generated cells advance the
 five-line inactive-numerator partition: disjoint endpoint and bulk owners for
-the all-unit active-power lane, the adjacent active-dot orbit, and the opposite active-dot
-orbit. They retain exact source selections, endpoint specialization and
-pruning, held-out replay, machine-boundary coverage, and strict descent; the
+the all-unit active-power lane, the adjacent active-dot orbit, and the opposite
+active-dot orbit. They retain exact source selections, endpoint specialization
+and pruning, held-out replay, machine-boundary coverage, and strict descent; the
 five-line scalar corner and the rest of the fixed point remain explicit
-obligations. On the irreducible four-line face, an
-exact target-aligned translation supplies a guarded canonical-dot multi-excess
+obligations. On the irreducible four-line face, an exact target-aligned
+translation supplies a guarded canonical-dot multi-excess
 cell, while the untranslated span supplies the canonical mixed
-numerator/dot cell, including its isolated mixed corner. Exact fixed-corner
-projections additionally lower the isolated pure-dot orbit to the scalar
+numerator/dot cell, including its isolated mixed corner. A complete depth-one
+search now also supplies disjoint endpoint and bulk owners for the scalar
+inactive-numerator ray `J(0,1,1,1,1,n)`, covering every representable `n<0`.
+The selected bulk rows are independently reprojected over the full i64 box;
+their pinched numerator children remain explicitly uncovered. Exact
+fixed-corner projections additionally lower the isolated pure-dot orbit to the scalar
 corner and supply a strict-descent recurrence for the opposite two-dot orbit
 from the complete nine-row one-dot translated source layer, with exact RREF
 selecting five rows. A topology-neutral bounded same-sector search now grows
@@ -103,15 +107,15 @@ with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
 closing artifact. The current test-only K6 census submits 114 bounded probes,
-which canonicalize to 43 roots and discover 79 nodes. It exercises all 21
-current cell owners through 29 rule applications, discharges 26 nodes only by
-freshly proved zero/factorization terminals, and leaves 24 nodes explicitly
+which canonicalize to 43 roots and discover 80 nodes. It exercises all 23
+current cell owners through 32 rule applications, discharges 26 nodes only by
+freshly proved zero/factorization terminals, and leaves 22 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;
 both rules descend only to the certified path factorization and the unresolved
 scalar four-line corner. The three scalar graph corners, deeper mixed-dot
-faces, and numerator directions remain obligations rather than implicit
+faces, and remaining numerator directions remain obligations rather than implicit
 masters.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,

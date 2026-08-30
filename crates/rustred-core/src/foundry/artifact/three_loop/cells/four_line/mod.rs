@@ -23,6 +23,9 @@ mod corner;
 mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
+mod inactive_numerator;
+#[cfg(test)]
+mod inactive_numerator_tests;
 mod mixed_dot;
 mod mixed_dot_ray;
 #[cfg(test)]
@@ -35,6 +38,7 @@ mod repeated_dot_tests;
 
 use complementary_mixed_dot::derive_complementary_mixed_dot_cell;
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
+use inactive_numerator::derive_inactive_numerator_cells;
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
 use repeated_dot::derive_repeated_dot_ray_cell;
@@ -61,6 +65,8 @@ pub(super) struct FourLineCellSet {
     pub(super) complementary_mixed_dot: RuleCell,
     pub(super) mixed_dot_ray: RuleCell,
     pub(super) repeated_dot_ray: RuleCell,
+    pub(super) scalar_numerator_endpoint: RuleCell,
+    pub(super) scalar_numerator_bulk: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
 }
@@ -82,6 +88,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
     let complementary_mixed_dot = derive_complementary_mixed_dot_cell()?.cell;
     let (_context, mixed_dot_ray) = derive_mixed_dot_ray_cell()?;
     let (_context, repeated_dot_ray) = derive_repeated_dot_ray_cell()?;
+    let (_context, scalar_numerator_endpoint, scalar_numerator_bulk) =
+        derive_inactive_numerator_cells()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
         isolated,
@@ -94,6 +102,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         complementary_mixed_dot,
         mixed_dot_ray,
         repeated_dot_ray,
+        scalar_numerator_endpoint,
+        scalar_numerator_bulk,
         canonical_dot,
         mixed_numerator,
     })
