@@ -8,4 +8,5 @@ mod census;
 mod five_line;
 mod four_line;
 mod support;
+mod three_line;
 mod top;

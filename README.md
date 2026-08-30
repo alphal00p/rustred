@@ -95,7 +95,11 @@ numerator/dot cell, including its isolated mixed corner. A complete depth-one
 search now also supplies disjoint endpoint and bulk owners for the scalar
 inactive-numerator ray `J(0,1,1,1,1,n)`, covering every representable `n<0`.
 The selected bulk rows are independently reprojected over the full i64 box;
-their pinched numerator children remain explicitly uncovered. Exact
+one exposed pinched child is now continued by separate generated endpoint and
+bulk cells for `J(0,0,2,n,1,1)` and then `J(0,0,1,n,1,1)`, again through the
+full representable negative-power domain. Exact orbit tests limit the
+decorated cell to one of five inequivalent `S4` orbits; the other orbits
+remain explicit obligations. Exact
 fixed-corner projections additionally lower the isolated pure-dot orbit to the scalar
 corner and supply a strict-descent recurrence for the opposite two-dot orbit
 from the complete nine-row one-dot translated source layer, with exact RREF
@@ -106,10 +110,10 @@ An independent finite reachability planner applies caller-ordered rule cells
 with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
-closing artifact. The current test-only K6 census submits 114 bounded probes,
-which canonicalize to 43 roots and discover 80 nodes. It exercises all 23
-current cell owners through 32 rule applications, discharges 26 nodes only by
-freshly proved zero/factorization terminals, and leaves 22 nodes explicitly
+closing artifact. The current test-only K6 census submits 115 bounded probes,
+which canonicalize to 44 roots and discover 82 nodes. It exercises all 27
+current cell owners through 36 rule applications, discharges 26 nodes only by
+freshly proved zero/factorization terminals, and leaves 20 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;
@@ -154,8 +158,8 @@ selects 46 of 756 generated rows (310 source terms), producing four RHS terms,
 through two retain typed target-absent results, the fixed application box owns
 only this `S4` orbit point, and neighboring points remain explicitly unowned.
 The remaining complementary ray, the exposed descendant
-`J(0,1,1,2,N,0)`, other numerator faces, scalar corners, and the rest of the
-fixed point remain open.
+`J(0,1,1,2,N,0)`, inequivalent path-numerator orbits, other numerator faces,
+scalar corners, and the rest of the fixed point remain open.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.

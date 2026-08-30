@@ -120,6 +120,14 @@ complementary mixed-dot ray, the descendant `[0,1,1,2,N,0]`, other numerator
 faces, scalar corners, the complete fixed point, publication, and all five
 three-loop Vakint reductions remain open.
 
+Generated three-line endpoint/bulk cells continue one pinched four-line
+numerator child through `J(0,0,2,n,1,1)` and `J(0,0,1,n,1,1)` for the full
+representable negative-power domain. Their tests pin complete depth-one
+provenance, algorithmic machine-safe source partitions, independently
+reprojected compact rules, exact replay through target power `i64::MIN`,
+strict descent, factorization routing, and the exact nonownership boundary for
+the other four decorated-path `S4` orbits.
+
 The topology-neutral finite reachability planner is separately tested for
 deterministic concrete chains, caller-ordered rule selection, vanished-guard
 rejection, exact-zero RHS pruning, terminal precedence, root/child symmetry
@@ -127,10 +135,10 @@ routing, sorted root deduplication, and exact resource boundaries. It reports
 only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
-Its first K6 pressure-family census submits 114 bounded probes and has the
-following exact deterministic report: 43 canonical roots, 80 discovered
-nodes, 32 rule applications spanning all 23 current cell owners, 26
-zero/factorization terminals, and 22 uncovered nodes. The census pins
+Its first K6 pressure-family census submits 115 bounded probes and has the
+following exact deterministic report: 44 canonical roots, 82 discovered
+nodes, 36 rule applications spanning all 27 current cell owners, 26
+zero/factorization terminals, and 20 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

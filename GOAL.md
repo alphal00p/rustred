@@ -217,11 +217,20 @@ overclaim. The rest of that complementary ray and the first exposed descendant
 ray `J(0,1,1,2,N,0)` remain explicit obligations. The fixture exposes no
 installable artifact until the complete rule fixed point is closed.
 
+Two generated three-line path recurrences now continue the scalar four-line
+inactive-numerator child. Disjoint endpoint/bulk cells first lower one exact
+`S4` orbit of `J(0,0,2,n,1,1)` and then the undotted
+`J(0,0,1,n,1,1)` lane for every representable `n<0`. Their complete depth-one
+source spans, algorithmically selected machine-safe rows, full-i64 replay,
+guards, descent, terminal routing, and symmetry boundaries are pinned. The
+decorated path has five inequivalent `S4` orbits; only the certified one is
+owned and the other four remain explicit closure obligations.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
-test-only fixed census. Its 114 submitted probes reduce under exact `S4` to 43
-roots and discover 80 nodes: all 23 presently derived cell owners are
-exercised in 32 applications, 26 nodes terminate through independently checked
-zero or factorization proofs, and 22 remain explicitly uncovered. The census
+test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
+roots and discover 82 nodes: all 27 presently derived cell owners are
+exercised in 36 applications, 26 nodes terminate through independently checked
+zero or factorization proofs, and 20 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

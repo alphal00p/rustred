@@ -18,6 +18,7 @@ use crate::sector::OrderingPolicy;
 use super::super::K6ReachabilityTerminals;
 use super::five_line::{FiveLineCellSet, derive_five_line_cells};
 use super::four_line::{FourLineCellSet, derive_all_four_line_cells};
+use super::three_line::{ThreeLineCellSet, derive_three_line_cells};
 use super::top::derive_top_cell;
 
 const TOP_CORNER: [i64; 6] = [1; 6];
@@ -34,6 +35,10 @@ const FOUR_LINE_BULK_DOT_PROBE: [i64; 6] = [0, 2, 2, 2, 3, 0];
 const FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE: [i64; 6] = [0, 1, 2, 3, 2, 0];
 const FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -1];
 const FOUR_LINE_SCALAR_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -2];
+const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
+const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
+const THREE_LINE_UNDOTTED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 1, -1, 1, 1];
+const THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 1, -2, 1, 1];
 const FACTORIZATION_SECTORS: [[i64; 6]; 3] =
     [[0, 0, 1, 1, 1, 1], [0, 0, 1, 1, 0, 1], [0, 0, 1, 0, 1, 1]];
 const ZERO_PROBE: [i64; 6] = [0, 0, 0, 1, 1, 1];
@@ -61,6 +66,10 @@ enum K6CellKind {
     FourLineRepeatedDotRay,
     FourLineScalarNumeratorEndpoint,
     FourLineScalarNumeratorBulk,
+    ThreeLineDecoratedPathNumeratorEndpoint,
+    ThreeLineDecoratedPathNumeratorBulk,
+    ThreeLineUndottedPathNumeratorEndpoint,
+    ThreeLineUndottedPathNumeratorBulk,
     FourLineDotBulk,
     FourLineMixedNumerator,
 }
@@ -110,12 +119,20 @@ impl K6ReachabilityCensus {
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
+        let ThreeLineCellSet {
+            decorated_path_numerator_endpoint,
+            decorated_path_numerator_bulk,
+            undotted_path_numerator_endpoint,
+            undotted_path_numerator_bulk,
+        } = derive_three_line_cells()?;
 
         // First-applicable order is explicit. Five-line numerator endpoints
         // precede their disjoint bulk rays, and the adjacent active-dot lane
         // owns its genuine overlap with the opposite lane. Exact four-line
         // corner exceptions and selected-source rays likewise precede broad
-        // positive boxes.
+        // positive boxes.  Each three-line endpoint precedes its disjoint
+        // full-i64 bulk lane; none of these numerator cells is itself a
+        // factorization owner.
         let cells = vec![
             OwnedCell {
                 kind: K6CellKind::Top,
@@ -200,6 +217,22 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineScalarNumeratorBulk,
                 cell: four_line_scalar_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
+                cell: decorated_path_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
+                cell: decorated_path_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
+                cell: undotted_path_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineUndottedPathNumeratorBulk,
+                cell: undotted_path_numerator_bulk,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineDotBulk,
@@ -289,6 +322,12 @@ fn bounded_roots() -> Result<Vec<IntegralKey>, ArtifactError> {
     roots.push(IntegralKey::try_new(
         FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE,
     )?);
+    // The decorated path descendants exercise the undotted endpoint.  Keep a
+    // separate bulk representative so every installed three-line cell is
+    // covered by this finite census.
+    roots.push(IntegralKey::try_new(
+        THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE,
+    )?);
     for sector in FACTORIZATION_SECTORS {
         roots.push(IntegralKey::try_new(sector)?);
         let dotted: [i64; 6] = std::array::from_fn(|slot| {
@@ -355,8 +394,8 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 23,
-            max_roots: 114,
+            max_rule_cells: 27,
+            max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
             max_retained_lattice_coordinate_cells: 100_000,
@@ -371,7 +410,7 @@ mod tests {
     #[test]
     fn finite_k6_census_reports_current_coverage_without_promoting_corners() {
         let census = K6ReachabilityCensus::try_new().unwrap();
-        assert_eq!(census.roots.len(), 114);
+        assert_eq!(census.roots.len(), 115);
         assert_eq!(
             census.cell_kinds().collect::<Vec<_>>(),
             [
@@ -396,6 +435,10 @@ mod tests {
                 K6CellKind::FourLineRepeatedDotRay,
                 K6CellKind::FourLineScalarNumeratorEndpoint,
                 K6CellKind::FourLineScalarNumeratorBulk,
+                K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
+                K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
+                K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
+                K6CellKind::ThreeLineUndottedPathNumeratorBulk,
                 K6CellKind::FourLineDotBulk,
                 K6CellKind::FourLineMixedNumerator,
             ]
@@ -445,6 +488,10 @@ mod tests {
                 (K6CellKind::FourLineRepeatedDotRay, 2),
                 (K6CellKind::FourLineScalarNumeratorEndpoint, 1),
                 (K6CellKind::FourLineScalarNumeratorBulk, 2),
+                (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
+                (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
+                (K6CellKind::ThreeLineUndottedPathNumeratorEndpoint, 1),
+                (K6CellKind::ThreeLineUndottedPathNumeratorBulk, 1),
                 (K6CellKind::FourLineDotBulk, 1),
                 (K6CellKind::FourLineMixedNumerator, 4),
             ])
@@ -458,12 +505,12 @@ mod tests {
         );
 
         let statistics = first.statistics();
-        assert_eq!(statistics.submitted_roots(), 114);
-        assert_eq!(statistics.canonical_roots(), 43);
-        assert_eq!(statistics.discovered_nodes(), 80);
+        assert_eq!(statistics.submitted_roots(), 115);
+        assert_eq!(statistics.canonical_roots(), 44);
+        assert_eq!(statistics.discovered_nodes(), 82);
         assert_eq!(statistics.terminal_nodes(), 26);
-        assert_eq!(statistics.rule_applications(), 32);
-        assert_eq!(statistics.uncovered_nodes(), 22);
+        assert_eq!(statistics.rule_applications(), 36);
+        assert_eq!(statistics.uncovered_nodes(), 20);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -521,6 +568,22 @@ mod tests {
                 K6CellKind::FourLineScalarNumeratorBulk,
             ),
             ([0, 1, 1, 1, 1, -3], K6CellKind::FourLineScalarNumeratorBulk),
+            (
+                THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
+            ),
+            (
+                THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE,
+                K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
+            ),
+            (
+                THREE_LINE_UNDOTTED_PATH_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
+            ),
+            (
+                THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE,
+                K6CellKind::ThreeLineUndottedPathNumeratorBulk,
+            ),
             (FOUR_LINE_BULK_DOT_PROBE, K6CellKind::FourLineDotBulk),
             ([0, 1, 1, 1, 2, -1], K6CellKind::FourLineMixedNumerator),
         ] {
@@ -634,9 +697,87 @@ mod tests {
             );
             assert!(matches!(
                 disposition(&census, &first, [0, 0, 2, assignment_power, 1, 1]),
-                ReachabilityDisposition::Uncovered
+                ReachabilityDisposition::Rule(_)
             ));
         }
+
+        // The decorated three-line cells own one certified S4 orbit of the
+        // negative dotted path.  They descend into the undotted recurrence,
+        // whose scalar n=0 endpoint is an authenticated factorization
+        // terminal.  The other decorated-path orbits remain obligations.
+        let ReachabilityDisposition::Rule(path_endpoint) = disposition(
+            &census,
+            &first,
+            THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE,
+        ) else {
+            panic!("expected decorated three-line numerator endpoint")
+        };
+        assert_eq!(
+            census.cell_kind(path_endpoint.cell_ordinal()),
+            K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint
+        );
+        assert_eq!(path_endpoint.assignment(), [0, 0, 1, 0, 1, 1]);
+        assert_eq!(path_endpoint.dependencies().len(), 1);
+        assert_eq!(
+            path_endpoint.dependencies()[0].canonical_child().powers(),
+            [0, 0, 1, 0, 1, 1]
+        );
+        assert!(matches!(
+            disposition(&census, &first, [0, 0, 1, 0, 1, 1]),
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Factorization
+                    && terminal.owner_ordinal() == 2
+        ));
+
+        let ReachabilityDisposition::Rule(path_bulk) = disposition(
+            &census,
+            &first,
+            THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE,
+        ) else {
+            panic!("expected decorated three-line numerator bulk")
+        };
+        assert_eq!(
+            census.cell_kind(path_bulk.cell_ordinal()),
+            K6CellKind::ThreeLineDecoratedPathNumeratorBulk
+        );
+        assert_eq!(path_bulk.assignment(), [0, 0, 1, -1, 1, 1]);
+        assert_eq!(path_bulk.dependencies().len(), 2);
+        assert_eq!(
+            path_bulk.dependencies()[0].canonical_child().powers(),
+            [0, 0, 1, -1, 1, 1]
+        );
+        assert_eq!(
+            path_bulk.dependencies()[1].canonical_child().powers(),
+            [0, 0, 1, 0, 1, 1]
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            [0, 0, 1, -1, 1, 1],
+            K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
+        );
+
+        let ReachabilityDisposition::Rule(undotted_bulk) = disposition(
+            &census,
+            &first,
+            THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE,
+        ) else {
+            panic!("expected undotted three-line numerator bulk")
+        };
+        assert_eq!(
+            census.cell_kind(undotted_bulk.cell_ordinal()),
+            K6CellKind::ThreeLineUndottedPathNumeratorBulk
+        );
+        assert_eq!(undotted_bulk.assignment(), [0, 0, 1, -1, 1, 1]);
+        assert_eq!(undotted_bulk.dependencies().len(), 2);
+        assert_eq!(
+            undotted_bulk.dependencies()[0].canonical_child().powers(),
+            [0, 0, 1, -1, 1, 1]
+        );
+        assert_eq!(
+            undotted_bulk.dependencies()[1].canonical_child().powers(),
+            [0, 0, 1, 0, 1, 1]
+        );
 
         // Scalar graph corners are obligations, never assumed masters.
         // The additional representatives pin the distinct deeper-dot and
@@ -660,8 +801,6 @@ mod tests {
                 .map(|key| key.powers().to_vec())
                 .collect::<Vec<_>>(),
             [
-                [0, 0, 2, -1, 1, 1],
-                [0, 0, 2, -2, 1, 1],
                 [0, -1, 1, 1, 2, 1],
                 [0, -1, 1, 2, 1, 1],
                 [0, -1, 2, 1, 1, 1],

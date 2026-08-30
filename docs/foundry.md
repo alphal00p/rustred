@@ -185,11 +185,20 @@ operations. Typed target absence through depth two, a fixed singleton domain,
 and the exact 16/8 orbit split rule out a neighboring-ray claim. The remaining
 complementary ray and the new child ray `J(0,1,1,2,N,0)` remain open.
 
+The scalar four-line inactive-numerator bulk exposes a pinched path numerator.
+Complete depth-one translated-source spans now derive disjoint endpoint/bulk
+cells for one exact `S4` orbit of `J(0,0,2,n,1,1)` and for its undotted
+descendant `J(0,0,1,n,1,1)`, over every representable `n<0`. Machine-safe
+rows are selected from authenticated residual shifts and independently
+reprojected before the final rules are admitted. Exact tests cover the
+`i64::MIN` target, strict descent, terminal recursion, and nonownership of the
+other four decorated-path orbits.
+
 The current K6 fixture composes those owners in one test-only census rather
-than another synthetic closure artifact. From 114 bounded probes, exact `S4`
-canonicalization retains 43 roots and discovery visits 80 nodes. The report
-pins 32 applications across all 23 current rule-cell owners, 26 independently
-proved zero/factorization terminals, and 22 uncovered nodes. A
+than another synthetic closure artifact. From 115 bounded probes, exact `S4`
+canonicalization retains 44 roots and discovery visits 82 nodes. The report
+pins 36 applications across all 27 current rule-cell owners, 26 independently
+proved zero/factorization terminals, and 20 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
