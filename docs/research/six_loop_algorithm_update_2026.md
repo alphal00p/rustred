@@ -39,19 +39,22 @@ fully massive `K = 21` family. Recent work nevertheless strengthens the hybrid d
 
 ```text
 physical-stratum source generation
+    -> sector-local syzygy compression and generating-function operators
     -> modular signature traces carrying source cofactors
     -> Janet-like complementary decomposition and explicit open obligations
-    -> local simplex-face or tube discovery on those obligations
+    -> descendant/prolongation, simplex-face, or tube discovery on those obligations
     -> optional action recovery only after exact finite-frame certification
     -> exact rational, guard, sector, and shift-algebra replay
     -> epsilon-valuation certificate and measured numerical-master campaign
 ```
 
 The central change is that modular discovery must identify a rule by its source provenance, not by
-a pivot pattern alone. Janet-like complements provide the global coverage authority. Seedless and
-tube methods propose compact local rules, while block-Krylov or FGLM methods may compress an
-already proved finite quotient when direct terminal evaluation is too expensive. None of those
-discovery or compression methods may replace exact replay.
+a pivot pattern alone. Janet-like complements provide the global coverage authority.
+Generating-function descendants, seedless faces, and tubes propose compact local rules, while
+sector-local syzygies can shrink the source module before any translated frame is materialized.
+Block-Krylov or FGLM methods may compress an already proved finite quotient when direct terminal
+evaluation is too expensive. None of those discovery or compression methods may replace exact
+replay.
 
 ## Verified primary-source deltas
 
@@ -174,6 +177,73 @@ boundary must either join an already certified rule cell or remain an explicit s
 obligation. CALICO is a promising source generator on the physical unit-mass stratum, not a
 closure authority.
 
+### Generating-function prolongations and syzygy-compressed rules
+
+**Verified result.** The generating-function construction packages every integral in one sector
+as a coefficient of a single generating function and rewrites IBPs as differential equations.
+Its expanded algorithm iterates three operations: generate and simplify descendant equations,
+solve the surviving operator system for symbolic rules, and inspect the remaining irreducible
+index lattice for completeness. A failed completeness check feeds the geometry of the surviving
+set back into the next descendant round. The published demonstrations cover the massive and
+massless sunset, planar and nonplanar massless double boxes, representative subsectors, and a
+sector with no master:
+[*Symbolic Reduction of Multi-loop Feynman Integrals via Generating Functions*](https://arxiv.org/abs/2509.21769),
+arXiv:`2509.21769`, and
+[*An Algorithm for the Symbolic Reduction of Multi-loop Feynman Integrals via Generating Functions*](https://arxiv.org/abs/2605.09541),
+arXiv:`2605.09541`.
+
+Syzygy-constrained symbolic reduction instead solves sector-local syzygies that avoid artificial
+propagator-power increases, row-reduces the resulting shift/number operators, and falls back to
+small symbolic neighborhoods only when operator reshuffling is insufficient. The reported
+rank-20 tests are two-loop scattering families. The examples also exhibit leading coefficients
+that vanish on exceptional index walls, so the extracted rule is not automatically valid on the
+whole integer sector:
+[*Feynman Integral Reduction using Syzygy-Constrained Symbolic Reduction Rules*](https://arxiv.org/abs/2507.11140),
+arXiv:`2507.11140`.
+
+**RustRed inference.** The irreducible lattice left by the generating-function completeness module
+is the geometric object that RustRed already represents as a leader complement or collection of
+standard pairs. Under the relaxed minimality requirement, success means driving every
+positive-dimensional component to a finite, affordable spanning terminal set; its cardinality
+need not equal an independently minimal master count. This removes a needless stopping
+condition, but not the hard obligations: every exceptional coefficient wall needs its own exact
+guard stratum, every subsector or factorizing boundary needs an owner, and every accepted rule
+needs a fixed well-founded descent order and ordinary-source replay.
+
+The most promising hybrid is therefore to use sector-local no-raised-propagator syzygies as a row
+compressor, use standard-pair free directions to choose generating-function derivatives rather
+than differentiating indiscriminately, and submit the resulting small descendant systems to the
+same target-local modular circuit and exact replay boundary as ordinary translated sources. The
+published examples do not yet establish that the number of descendants or guard strata stays
+affordable at dense five or six loops; K6/K10/K15 falsification remains mandatory.
+
+### Finite spanning closure versus terminal independence
+
+**Verified result.** Relations visible only after supersector elimination can connect integrals
+that appear independent in sector-local systems. Relative-cohomology analysis gives a small
+physical-locus regression: after the relevant Lee--Pomeransky polynomial degenerates, the
+equal-mass bubble's two tadpole subsectors are related only when the top sector and both subsectors
+are considered together:
+[*Intersection theory, relative cohomology and the Feynman parametrization*](https://arxiv.org/abs/2411.05226),
+arXiv:`2411.05226`, Section 3.3. Block-triangular reduction software likewise warns that such
+``magic'' relations may require equations from supersectors:
+[*Blade: A package for block-triangular form improved Feynman integrals decomposition*](https://arxiv.org/abs/2405.14621),
+arXiv:`2405.14621`.
+
+**RustRed inference.** Closure and independence are different theorems. Exact guarded rules with
+strict well-founded descent onto a finite terminal collection `T` prove that `T` spans the physical
+quotient. They are already sufficient for a universal reducer if every member of `T` has an
+independently supplied numerical value; no minimality or independence claim is needed.
+
+Optional compression to a claimed independent set `J` needs a separate guard-stratum-wide rank
+sandwich. Reducing an exact finite terminal-relation envelope through the closing rules and
+exhibiting `|T|-|J|` independent relation witnesses proves an upper bound on the physical rank and
+valid `T -> J` identities. It does not prove that `J` is independent. That lower bound needs an
+exact physical-rank theorem or a complete dual pairing with nonzero determinant. Stable modular
+rank, maximal cuts, AMFlow values, and SCC-local kernels are valuable diagnostics but do not by
+themselves supply this lower half. If it remains unaffordable, RustRed must retain the honest
+finite spanning set and call it a spanning set, not a basis.
+
 ### Local-ring pivots and epsilon debt
 
 **Verified result.** A sequential `D = 4` projection and local-ring Gaussian elimination can avoid
@@ -251,6 +321,14 @@ graph stabilizers should provide their exact transport. A finite group supplies 
 constant factor, however; generic unequal dot patterns destroy the stabilizer and do not change
 the polynomial growth degree.
 
+The asymmetric multitheta controls make the opposite structural caution concrete. For bundle
+multiplicities `(1,2,3)`, `K = 10`, and four inactive directions, the complete one-sided
+degree-one and degree-two face plans have only 80 and 240 rows. For `(1,2,4)`, `K = 15`, and eight
+inactive directions, they have 225 and 1,125 rows. These graphs have treewidth two, admit sparse
+routings, and their codimension-one daughters factorize. Success is useful evidence that the
+generic sparse lane is implemented correctly, but it is not evidence that a dense parent will
+scale.
+
 **Verified result.** The equal-mass `L`-loop banana family has `L+1` masters and an all-loop
 differential-equation treatment:
 [*Bananas of equal mass: any loop, any order in the dimensional regularisation parameter*](https://arxiv.org/abs/2212.08908),
@@ -273,25 +351,34 @@ separately.
 | --- | --- | --- |
 | Janet-like complement | exact owner of uncovered orthants and prolongation obligations | commutative coverage automatically proves guards or shift-algebra closure |
 | signature and source cofactor | stable modular identity and exact replay certificate | agreement of pivots or signatures across primes proves termination |
+| sector-local syzygies | compress ordinary sources and avoid gratuitous raised propagators | a chosen syzygy degree or small symbolic neighborhood spans the full source module |
+| generating-function descendants | target free directions of an infinite complement with symbolic operator rules | a finite generic rule list proves exceptional-wall or subsector coverage |
 | seedless/simplex-face and tube systems | compact, parallel candidate-rule discovery | a closing finite collection of tested paths proves all-rank closure |
 | CALICO annihilators | physical-stratum source enrichment | a chosen degree/order or numerical filter proves a complete source module |
 | block-Krylov, Scalar-FGLM, or Hermite recovery | compress a previously certified finite quotient | stable modular action matrices prove a finite quotient |
+| guard-wide terminal relation audit | prove exact identities inside a finite spanning set | enough relations for an upper rank bound prove the retained terminals independent |
+| exact dual pairing or global physical-rank theorem | supply the lower half of an optional independence certificate | maximal-cut or stable finite-frame rank automatically certifies all sectors |
 | local-ring elimination | avoid bad epsilon pivots and refine a basis | finite-system regularity proves uniform recurrence pole depth |
 | AMFlow | evaluate a certified independent terminal quotient offline | terminal count alone predicts auxiliary-system cost |
 
 ## Exact implementation sequence
 
 1. Generate ordinary physical-family IBPs and selected low-order Schwinger or
-   Lee--Pomeransky annihilators. Preserve exact ordinary-source or annihilator-source cofactors.
+   Lee--Pomeransky annihilators. Build sector-local no-raised-propagator syzygies where they reduce
+   the source volume. Preserve an exact expansion into ordinary or annihilator sources.
 2. Build a Janet-like leading-shift complement for each sector chart and exact guard stratum.
    Positive-dimensional standard pairs are queued obligations, never implicit terminals.
-3. Attack each obligation with simplex-face and sparse-tube searches. Modular workers share one
-   immutable symbolic trace and return signature-keyed coefficients and source cofactors.
+3. Attack each obligation with generating-function descendants directed along its standard-pair
+   free variables, then bounded simplex-face or sparse-tube searches when that is cheaper. Modular
+   workers share one immutable symbolic trace and return signature-keyed coefficients and source
+   cofactors.
 4. Lift candidates exactly and replay them over the rational coefficient field before admitting
    their leading classes into the complement.
 5. Once every remaining complement component is finite, either retain and evaluate the complete
    affordable typed terminal set, or—only when compression is useful—construct its exact relation
-   module before recovering shift actions with block-Krylov, FGLM, or Hermite methods.
+   module across the whole guard stratum before recovering shift actions with block-Krylov, FGLM,
+   or Hermite methods. Call the compressed set independent only after a separate exact lower-rank
+   certificate closes the rank sandwich.
 6. Verify source annihilation, guard ownership, lower-sector maps, symmetry routes, strict descent,
    overlap normal forms, and all required discrete shift-algebra critical pairs.
 7. Prove a uniform epsilon-valuation bound and derive the Laurent depth required of every terminal.
@@ -323,6 +410,11 @@ The numerical thresholds below are engineering gates, not literature theorems.
   `D` points, followed by exact lift and replay.
 - Run at least two larger outer-frame controls. They are falsification tests only; exact complement
   and prolongation exhaustion remain the proof.
+- The `(1,2,3)` multitheta structure probe is bounded to descendant/face degree two, with at most
+  one degree-three exception on a single unresolved standard pair. Stop that lane above two GiB or
+  one wall-clock hour, above 20-times input `L+U` fill for promotion (50-times is an immediate
+  kill), above twice the pair-directed tube count after deduplication, or above 16 exact guard
+  strata. A dense-parent result is still mandatory.
 - Reject an implementation whose normal worker exceeds roughly 32 GiB before K15, unless a clear
   chunked representation removes the replicated state.
 
@@ -333,6 +425,10 @@ This is the mandatory design gate before K21.
 - Require exact finite complements for a twelve-propagator dense parent, the six-edge banana, and
   the `(1,2,4)` multitheta; the sparse multitheta generic lane may not escalate beyond face level
   four without rejecting or redesigning the architecture.
+- Its structure-only multitheta probe stops above 16 GiB or four wall-clock hours, above 20-times
+  input fill for promotion (50-times is an immediate kill), above twice the pair-directed tube
+  count after deduplication, or above 64 exact guard strata. Repeated negative epsilon valuation
+  without a bounded transition potential is also a kill, not a request for a wider frame.
 - When an independent quotient is computed, compare its rank with the known fully massive scale
   of roughly one hundred and explain large discrepancies by exact maps or physical-stratum
   relations. Otherwise the complete typed set `t` must itself pass the numerical budget.

@@ -345,23 +345,34 @@ six-dimensional varying boxes and more than one million carrier points. This
 is a lower bound on the true uncovered set and a precise diagnosis of missing
 all-rank coverage, not a terminal count or closure claim.
 
-The physical-frame half of the next bounded completion experiment is now an
-executable test-only prototype. It deterministically regenerates the complete
-one-sided degree-one through degree-three plans for `S6`, `S5`, and both `S4`
-sector representatives from the nine ordinary sources. In particular, the
-`S4a` degree-one plan has 63 translated rows, 157 raw physical columns, and
-630 nonzero entries. Raw shifts alone enter the checked CSR pattern; exact
-source/translation provenance remains a row sidecar, and no `S4` quotient is
-taken. The next step is the target-specific A0 modular query and exact-lift
-boundary. A0 is only a modular discovery and provenance kernel.
-Every target has its own forbidden-column rank query; provenance columns never
-enter that physical rank; no `S4` quotient is taken during assembly; and a
-modular miss remains inconclusive. Only an exactly lifted and replayed relation
-may refine the exact decorated-stratum complement. Completion state remains
-separate by sector, fixed/free coordinates, application box, and guard branch.
-A finite strictly descending rewrite partition may close on an affordable
-nonminimal typed terminal set without constructing a minimal quotient or all
-shift-action matrices.
+The physical-frame and modular-discovery halves of the next bounded completion
+experiment are now executable test-only prototypes. The frame planner
+deterministically regenerates the complete one-sided degree-one through
+degree-three plans for `S6`, `S5`, and both `S4` sector representatives from
+the nine ordinary sources. In particular, the `S4a` degree-one plan has 63
+translated rows, 157 raw physical columns, and 630 structural entries. Raw
+shifts alone enter the checked CSR pattern; exact source/translation provenance
+remains a row sidecar, and no `S4` quotient is taken.
+
+The A0 modular kernel validates an odd prime before constructing Symbolica's
+`Zp64`, maps sector-chart coordinates to the actual signed indices, evaluates
+coefficient numerators and denominators separately, rejects vanishing source
+conditions, and drops only sampled numerator zeros. Every target receives its
+own `[F_b | b]` rank query. The canonical nonempty `S4a` probe agrees with an
+independent dense Symbolica reference for both ranks, pivot columns, and the
+chronological original rows selected for exact lifting. Pattern-only `L` plus
+coefficient-valued `U` fill is measured and subject to the registered 20-times
+input gate. Provenance columns never enter the physical rank, and a modular
+miss remains explicitly inconclusive.
+
+This does not yet complete A0. The next step is to build the exact decorated-
+stratum column-role owner, run the multi-prime/held-out target schedule, and
+lift each modular hit to an exact ordinary-source circuit with complete guard
+and replay evidence. Only that exact boundary may refine the completion.
+Completion state remains separate by sector, fixed/free coordinates,
+application box, and guard branch. A finite strictly descending rewrite
+partition may close on an affordable nonminimal typed terminal set without
+constructing a minimal quotient or all shift-action matrices.
 
 The MATAD oracle fixes the eventual in-family basis boundary without being used
 as a rule generator. The scalar six-line and four-line corners map directly to

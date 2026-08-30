@@ -248,6 +248,18 @@ generating-function operators, and decorated graph/minor reuse are evaluated
 as possible routes beyond its scaling. See [`GOAL.md`](GOAL.md) for the
 authoritative gates.
 
+The current test-only A0 kernel samples the canonical degree-one `S4a`
+physical frame (63 ordinary-source rows, 157 raw integral columns, and 630
+structural entries) directly over Symbolica `Zp64`. It rejects singular
+coefficient or source-guard samples, keeps exact original-row provenance, and
+answers a separate target-versus-forbidden rank question for each requested
+column. A nonempty physical partition agrees with an independent dense
+reference for ranks, pivots, and selected source rows; Symbolica's pattern-only
+`L` and coefficient-valued `U` supply the registered fill metric. This is a
+discovery kernel, not a closing result: decorated-stratum column ownership,
+multi-prime support, exact circuit lift, guard refinement, and ordinary-source
+replay remain before any new RuleCell can be admitted.
+
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
 authored recurrences, and milestone-log architecture have been deleted rather
