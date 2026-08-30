@@ -110,9 +110,14 @@ An independent finite reachability planner applies caller-ordered rule cells
 with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
-closing artifact. The current test-only K6 census submits 115 bounded probes,
-which canonicalize to 44 roots and discover 82 nodes. It exercises all 27
-current cell owners through 36 rule applications, discharges 26 nodes only by
+closing artifact. On the factorized four-line face, the untranslated nine-row
+span now also derives compact endpoint/bulk cells for the bridge-dot numerator
+orbit `J(0,n,2,1,1,1)`, covering every representable `n<0`. The endpoint
+terminates in authenticated product sectors; the bulk descends into two
+simpler, explicitly open path-numerator lanes. The current test-only K6 census
+submits 115 bounded probes, which canonicalize to 44 roots and discover 84
+nodes. It exercises all 29 current cell owners through 38 rule applications,
+discharges 26 nodes only by
 freshly proved zero/factorization terminals, and leaves 20 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line

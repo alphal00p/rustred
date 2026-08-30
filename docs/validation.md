@@ -128,6 +128,15 @@ reprojected compact rules, exact replay through target power `i64::MIN`,
 strict descent, factorization routing, and the exact nonownership boundary for
 the other four decorated-path `S4` orbits.
 
+The factorized bridge-dot numerator tests derive endpoint and bulk rules from
+the complete depth-zero span of all nine ordinary sources. They pin exact
+selected ordinals, independent compact reprojection, authenticated
+machine-safety selection, empty final guard sets, strict descent, and replay at
+the full `i64` boundary. Exact `S4` tests enumerate all four inequivalent
+dot/numerator placements on the scalar factorized face and reject the three
+unowned orbits. Endpoint children are checked against factorization owners 2
+and 0; bulk children retain two explicit lower numerator obligations.
+
 The topology-neutral finite reachability planner is separately tested for
 deterministic concrete chains, caller-ordered rule selection, vanished-guard
 rejection, exact-zero RHS pruning, terminal precedence, root/child symmetry
@@ -136,8 +145,8 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
-following exact deterministic report: 44 canonical roots, 82 discovered
-nodes, 36 rule applications spanning all 27 current cell owners, 26
+following exact deterministic report: 44 canonical roots, 84 discovered
+nodes, 38 rule applications spanning all 29 current cell owners, 26
 zero/factorization terminals, and 20 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator

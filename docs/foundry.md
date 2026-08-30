@@ -194,10 +194,20 @@ reprojected before the final rules are admitted. Exact tests cover the
 `i64::MIN` target, strict descent, terminal recursion, and nonownership of the
 other four decorated-path orbits.
 
+On the factorized four-line face, all nine untranslated ordinary rows suffice
+to derive the bridge-dot numerator lane `J(0,n,2,1,1,1)`, `n<0`. Exact
+elimination selects five endpoint and six bulk contributions. Independent
+compact reprojection removes a transient free-span term and guard, leaving two
+and four RHS terms with no final guards. The resulting cells cover target
+power `i64::MIN`, terminate the endpoint through certified products, and
+expose only strictly lower decorated/undotted numerator obligations in the
+bulk. Exact orbit enumeration keeps the three inequivalent dot placements
+unowned.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
-canonicalization retains 44 roots and discovery visits 82 nodes. The report
-pins 36 applications across all 27 current rule-cell owners, 26 independently
+canonicalization retains 44 roots and discovery visits 84 nodes. The report
+pins 38 applications across all 29 current rule-cell owners, 26 independently
 proved zero/factorization terminals, and 20 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using

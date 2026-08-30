@@ -23,6 +23,9 @@ mod corner;
 mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
+mod factorized_bridge_dot_numerator;
+#[cfg(test)]
+mod factorized_bridge_dot_numerator_tests;
 mod inactive_numerator;
 #[cfg(test)]
 mod inactive_numerator_tests;
@@ -38,6 +41,7 @@ mod repeated_dot_tests;
 
 use complementary_mixed_dot::derive_complementary_mixed_dot_cell;
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
+use factorized_bridge_dot_numerator::derive_factorized_bridge_dot_numerator_cells;
 use inactive_numerator::derive_inactive_numerator_cells;
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
@@ -67,6 +71,8 @@ pub(super) struct FourLineCellSet {
     pub(super) repeated_dot_ray: RuleCell,
     pub(super) scalar_numerator_endpoint: RuleCell,
     pub(super) scalar_numerator_bulk: RuleCell,
+    pub(super) factorized_bridge_dot_numerator_endpoint: RuleCell,
+    pub(super) factorized_bridge_dot_numerator_bulk: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
 }
@@ -90,6 +96,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
     let (_context, repeated_dot_ray) = derive_repeated_dot_ray_cell()?;
     let (_context, scalar_numerator_endpoint, scalar_numerator_bulk) =
         derive_inactive_numerator_cells()?;
+    let (_context, factorized_bridge_dot_numerator_endpoint, factorized_bridge_dot_numerator_bulk) =
+        derive_factorized_bridge_dot_numerator_cells()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
         isolated,
@@ -104,6 +112,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         repeated_dot_ray,
         scalar_numerator_endpoint,
         scalar_numerator_bulk,
+        factorized_bridge_dot_numerator_endpoint,
+        factorized_bridge_dot_numerator_bulk,
         canonical_dot,
         mixed_numerator,
     })

@@ -226,10 +226,19 @@ guards, descent, terminal routing, and symmetry boundaries are pinned. The
 decorated path has five inequivalent `S4` orbits; only the certified one is
 owned and the other four remain explicit closure obligations.
 
+The complete untranslated nine-row span also derives disjoint endpoint/bulk
+cells for the factorized bridge-dot numerator orbit
+`J(0,n,2,1,1,1)`, `n<0`. Independent compact reprojection retains five and six
+production sources, respectively; both final cells are guard-free, replay
+through target power `i64::MIN`, and descend strictly. The endpoint terminates
+in two authenticated factorization sectors. The bulk replaces its mixed
+dot/numerator frontier with one decorated-path and one undotted
+factorized-face obligation, without promoting either to a terminal.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 82 nodes: all 27 presently derived cell owners are
-exercised in 36 applications, 26 nodes terminate through independently checked
+roots and discover 84 nodes: all 29 presently derived cell owners are
+exercised in 38 applications, 26 nodes terminate through independently checked
 zero or factorization proofs, and 20 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
