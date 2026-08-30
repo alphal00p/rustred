@@ -2,24 +2,35 @@ use std::collections::BTreeSet;
 
 use crate::algebra::IndexedCoefficientContext;
 use crate::family::{IntegralFamily, IntegralKey};
+use crate::foundry::cell::{RuleCell, SourceViewConstruction};
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::ParametricRelation;
-use crate::sector::OrderingPolicy;
+use crate::sector::{InteriorBounds, OrderingPolicy, symmetry::Canonicalizer};
 
 use super::error::ArtifactError;
+use super::factorization::FactorizationRule;
 use super::model::{
-    ArtifactSchemaVersion, ArtifactValidationWitness, ClosedArtifact, CommonMassHomogeneityProof,
-    ZeroSectorTerminal, ZeroTerminalProof,
+    ArtifactSchemaVersion, ClosedArtifact, CommonMassHomogeneityProof, ZeroSectorTerminal,
+    ZeroTerminalProof,
 };
+
+mod factorization;
+mod one_loop;
+mod two_loop;
 
 pub(super) struct ClosingArtifactCandidate {
     pub schema: ArtifactSchemaVersion,
     pub algorithm_id: &'static str,
     pub arity: usize,
+    pub supported_root_power_bounds: Box<[InteriorBounds]>,
     pub family: IntegralFamily,
     pub context: IndexedCoefficientContext,
     pub source_relations: Vec<ParametricRelation>,
     pub rules: Vec<ParametricRule>,
+    pub rule_cells: Vec<RuleCell>,
+    pub canonicalizer: Option<Canonicalizer>,
+    pub dependencies: Vec<Box<ClosedArtifact>>,
+    pub factorization_rules: Vec<FactorizationRule>,
     pub masters: BTreeSet<IntegralKey>,
     pub zero_sectors: Vec<ZeroSectorTerminal>,
     pub common_mass_homogeneity: Option<CommonMassHomogeneityProof>,
@@ -27,13 +38,17 @@ pub(super) struct ClosingArtifactCandidate {
 
 /// Seal a candidate only after a registered closure verifier discharges its
 /// complete lattice partition. The candidate/runtime representation is
-/// generic; the sole registered verifier in this first slice recognizes the
-/// generated one-loop unit-mass vacuum partition.
+/// generic; the registered verifiers currently recognize the generated
+/// one-loop tadpole and equal-mass two-loop sunset unit-mass partitions.
 pub(super) fn install(
     candidate: ClosingArtifactCandidate,
 ) -> Result<ClosedArtifact, ArtifactError> {
     validate_generic_bindings(&candidate)?;
-    validate_generated_one_loop_partition(candidate)
+    match candidate.algorithm_id {
+        super::one_loop::ALGORITHM_ID => one_loop::validate(candidate),
+        super::two_loop::ALGORITHM_ID => two_loop::validate(candidate),
+        _ => Err(ArtifactError::UnsupportedClosureShape),
+    }
 }
 
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
@@ -46,6 +61,16 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
         return Err(ArtifactError::WrongArity {
             expected: candidate.context.index_count(),
             actual: candidate.arity,
+        });
+    }
+    if candidate.supported_root_power_bounds.len() != candidate.arity
+        || candidate
+            .supported_root_power_bounds
+            .iter()
+            .any(|bounds| bounds.lower() > bounds.upper())
+    {
+        return Err(ArtifactError::InvalidRuleShape {
+            detail: "the certified root-power box has invalid bounds or arity",
         });
     }
     if candidate.family.denominator_count() != candidate.arity
@@ -77,6 +102,7 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
     }) {
         return Err(ArtifactError::InvalidZeroTerminal);
     }
+    validate_zero_terminal_proofs(candidate)?;
     for source in &candidate.source_relations {
         source.validate_context(&candidate.context)?;
         if source.family_fingerprint_owner().as_str() != candidate.family.fingerprint() {
@@ -97,208 +123,178 @@ fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(),
             });
         }
     }
+    for cell in &candidate.rule_cells {
+        if cell.rule().family_fingerprint() != candidate.family.fingerprint() {
+            return Err(ArtifactError::WrongFamily);
+        }
+        if !cell.indexed_context_matches(&candidate.context) {
+            return Err(ArtifactError::WrongCoefficientContext);
+        }
+        if cell.application_domain().arity() != candidate.arity {
+            return Err(ArtifactError::WrongArity {
+                expected: candidate.arity,
+                actual: cell.application_domain().arity(),
+            });
+        }
+        if cell.terms().iter().any(|term| !term.descent().verify()) {
+            return Err(ArtifactError::InvalidRuleShape {
+                detail: "a rule cell has invalid sector-monotone descent evidence",
+            });
+        }
+        if cell.sources().family_fingerprint() != candidate.family.fingerprint()
+            || cell.sources().context_fingerprint() != candidate.context.fingerprint()
+            || cell.sources().len() != cell.sources().provenance().len()
+        {
+            return Err(ArtifactError::InvalidReplayEvidence {
+                detail: "a rule cell has foreign or incomplete immutable source views",
+            });
+        }
+        for source in cell.sources().relations() {
+            source.validate_context(&candidate.context)?;
+            if source.family_fingerprint_owner().as_str() != candidate.family.fingerprint() {
+                return Err(ArtifactError::WrongFamily);
+            }
+        }
+        validate_source_view_construction(cell, candidate)?;
+        validate_cell_replay(cell)?;
+    }
+    if let Some(canonicalizer) = &candidate.canonicalizer {
+        if canonicalizer.arity() != candidate.arity
+            || canonicalizer.ordering() != OrderingPolicy::default()
+        {
+            return Err(ArtifactError::InvalidCanonicalizer);
+        }
+    }
+    factorization::validate(candidate)?;
     Ok(())
 }
 
-fn validate_generated_one_loop_partition(
-    candidate: ClosingArtifactCandidate,
-) -> Result<ClosedArtifact, ArtifactError> {
-    if candidate.arity != 1
-        || candidate.algorithm_id != "rustred.generated.one-loop-unit-mass-tadpole.v1"
-        || candidate.source_relations.len() != 1
-        || candidate.rules.len() != 1
-        || candidate.masters.len() != 1
-        || candidate.zero_sectors.len() != 1
-        || candidate.common_mass_homogeneity
-            != Some(CommonMassHomogeneityProof::UniformVacuumMassSquared)
-    {
-        return Err(ArtifactError::UnsupportedClosureShape);
-    }
-    validate_canonical_one_loop_family(&candidate.family)?;
-    let master = candidate
-        .masters
-        .first()
-        .expect("the generic validator requires a nonempty master manifest");
-    if master.powers() != [1] {
-        return Err(ArtifactError::InvalidMasterManifest);
-    }
-    let zero = &candidate.zero_sectors[0];
-    if zero.sector().active_bits() != [false]
-        || zero.proof() != ZeroTerminalProof::ScalelessVacuumPolynomial
-    {
-        return Err(ArtifactError::InvalidZeroTerminal);
-    }
-    let rule = &candidate.rules[0];
-    validate_complete_one_loop_rule(rule)?;
-    validate_replay(&candidate.source_relations, rule)?;
-
-    let guard_count = rule.nonzero_guards().len();
-    for (guard_ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
-        candidate
-            .context
-            .validate_polynomial_context(guard.polynomial())?;
-        if !guard_is_nonzero_on_positive_one_loop_domain(
-            &candidate.context,
-            guard.polynomial().raw(),
-        ) {
-            return Err(ArtifactError::UnprovedGuardApplicability { guard_ordinal });
+fn validate_zero_terminal_proofs(
+    candidate: &ClosingArtifactCandidate,
+) -> Result<(), ArtifactError> {
+    let needs_rank_analysis = candidate
+        .zero_sectors
+        .iter()
+        .any(|terminal| terminal.proof() == ZeroTerminalProof::LeePomeranskyRankDeficiency);
+    let analyzer = needs_rank_analysis
+        .then(|| crate::sector::zero::Analyzer::try_unrestricted(&candidate.family))
+        .transpose()?;
+    for terminal in &candidate.zero_sectors {
+        match terminal.proof() {
+            ZeroTerminalProof::ScalelessVacuumPolynomial => {
+                if terminal.sector().active_bits().iter().any(|&active| active) {
+                    return Err(ArtifactError::InvalidZeroTerminal);
+                }
+            }
+            ZeroTerminalProof::LeePomeranskyRankDeficiency => {
+                let Some(analyzer) = analyzer.as_ref() else {
+                    return Err(ArtifactError::InvalidZeroTerminal);
+                };
+                if !matches!(
+                    analyzer.analyze(terminal.sector())?,
+                    crate::sector::zero::Decision::ProvedZero(_)
+                ) {
+                    return Err(ArtifactError::InvalidZeroTerminal);
+                }
+            }
         }
     }
-
-    let replay = rule.replay();
-    let validation = ArtifactValidationWitness::new(
-        candidate.source_relations.len(),
-        replay.source_rows_used(),
-        replay.shift_columns_checked(),
-        candidate.rules.len(),
-        guard_count,
-        candidate.masters.len(),
-        candidate.zero_sectors.len(),
-    );
-    Ok(ClosedArtifact {
-        schema: candidate.schema,
-        algorithm_id: candidate.algorithm_id,
-        arity: candidate.arity,
-        family_fingerprint: candidate.family.fingerprint_owner(),
-        family: candidate.family,
-        context: candidate.context,
-        source_relations: candidate.source_relations,
-        rules: candidate.rules,
-        masters: candidate.masters,
-        zero_sectors: candidate.zero_sectors,
-        common_mass_homogeneity: candidate.common_mass_homogeneity,
-        validation,
-    })
+    Ok(())
 }
 
-fn validate_canonical_one_loop_family(family: &IntegralFamily) -> Result<(), ArtifactError> {
-    let context = family.coefficient_context();
-    let one = context.one();
-    let minus_one = context
-        .try_neg(&one, Default::default())
-        .map_err(crate::family::IntegralFamilyError::from)?;
-    let dimension = context
-        .parameter("d")
-        .ok_or(ArtifactError::UnsupportedClosureShape)?;
-    let canonical = family.loop_count() == 1
-        && family.external_count() == 0
-        && family.denominator_count() == 1
-        && context.parameter_names() == ["d"]
-        && family.dimension() == &dimension
-        && family.denominators()[0].constant() == &minus_one
-        && family.denominators()[0].coefficients() == [one]
-        && family.external_gram().is_empty()
-        && family.power_shifts() == [context.zero()];
-    if canonical {
-        Ok(())
-    } else {
-        Err(ArtifactError::UnsupportedClosureShape)
-    }
-}
-
-fn validate_complete_one_loop_rule(rule: &ParametricRule) -> Result<(), ArtifactError> {
-    if rule.ordering() != OrderingPolicy::default() {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the rule uses a foreign integral ordering",
+fn validate_source_view_construction(
+    cell: &RuleCell,
+    candidate: &ClosingArtifactCandidate,
+) -> Result<(), ArtifactError> {
+    let SourceViewConstruction::ResidualProjection(evidence) = cell.sources().construction() else {
+        return Ok(());
+    };
+    if evidence.original_relations().len() != cell.sources().len()
+        || evidence.term_projections().len() != cell.sources().len()
+        || evidence.stabilizer_group_elements().is_empty()
+        || evidence.domain().arity() != cell.application_domain().arity()
+        || evidence.domain().sector() != cell.application_domain().sector()
+        || cell
+            .application_domain()
+            .bounds()
+            .iter()
+            .zip(evidence.domain().bounds())
+            .any(|(application, proof)| {
+                application.lower() < proof.lower() || application.upper() > proof.upper()
+            })
+    {
+        return Err(ArtifactError::InvalidReplayEvidence {
+            detail: "a residual source projection has an incomplete proof payload",
         });
     }
-    if rule.sector().active_bits() != [true] {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the recurrence does not own the positive one-line sector",
-        });
-    }
-    let bounds = rule.domain().bounds()[0];
-    if bounds.lower() != 1 || bounds.upper() != i64::MAX - 1 {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the free-index domain does not cover every target power n >= 2",
-        });
-    }
-    if rule.pivot().values() != [1] {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the positive-sector rule pivot is not I(n+1)",
-        });
-    }
-    if rule.right_hand_side().len() != 1 || rule.right_hand_side()[0].shift().values() != [0] {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the generated rule does not descend directly from I(n+1) to I(n)",
-        });
-    }
-    for (right_hand_side_ordinal, term) in rule.right_hand_side().iter().enumerate() {
-        if !term.descent().verify() {
-            return Err(ArtifactError::InvalidDescentWitness {
-                right_hand_side_ordinal,
+    for ((original, terms), projected) in evidence
+        .original_relations()
+        .iter()
+        .zip(evidence.term_projections())
+        .zip(cell.sources().relations())
+    {
+        if original.row_id() != projected.row_id() || terms.len() != original.terms().len() {
+            return Err(ArtifactError::InvalidReplayEvidence {
+                detail: "a residual source projection does not own one disposition per input term",
             });
         }
     }
-    if rule.anchor().powers() != [1] {
-        return Err(ArtifactError::InvalidRuleShape {
-            detail: "the independently replayed agreement anchor is not the sector corner",
+    let canonicalizer = candidate
+        .canonicalizer
+        .as_ref()
+        .ok_or(ArtifactError::InvalidCanonicalizer)?;
+    let zero_sectors = candidate
+        .zero_sectors
+        .iter()
+        .map(|terminal| terminal.sector().clone())
+        .collect::<Vec<_>>();
+    if !cell.sources().verify_residual_projection(
+        &candidate.context,
+        canonicalizer,
+        &zero_sectors,
+        Default::default(),
+    )? {
+        return Err(ArtifactError::InvalidReplayEvidence {
+            detail: "a residual source projection does not exactly replay its owned source terms",
         });
     }
     Ok(())
 }
 
-fn validate_replay(
-    source_relations: &[ParametricRelation],
-    rule: &ParametricRule,
-) -> Result<(), ArtifactError> {
+fn validate_cell_replay(cell: &RuleCell) -> Result<(), ArtifactError> {
+    let rule = cell.rule();
     let replay = rule.replay();
     if replay.source_rows_used() == 0
         || replay.source_rows_used() != rule.source_combination().len()
+        || replay.shift_columns_checked() == 0
+        || replay.exact_operations() == 0
     {
         return Err(ArtifactError::InvalidReplayEvidence {
-            detail: "the replayed source-row count differs from retained provenance",
-        });
-    }
-    if replay.shift_columns_checked() != 2 || replay.exact_operations() == 0 {
-        return Err(ArtifactError::InvalidReplayEvidence {
-            detail: "the one-loop replay did not check both physical shift columns",
+            detail: "a rule cell has incomplete exact indexed replay counts",
         });
     }
     for contribution in rule.source_combination() {
-        let source = source_relations.get(contribution.source_ordinal()).ok_or(
-            ArtifactError::InvalidReplayEvidence {
-                detail: "a source contribution ordinal is outside the retained source set",
-            },
-        )?;
+        let source = cell
+            .sources()
+            .relations()
+            .get(contribution.source_ordinal())
+            .ok_or(ArtifactError::InvalidReplayEvidence {
+                detail: "a rule-cell source contribution is outside its immutable source span",
+            })?;
         if source.row_id() != contribution.row_id() {
             return Err(ArtifactError::InvalidReplayEvidence {
-                detail: "a source contribution row identity differs from retained provenance",
+                detail: "a rule-cell source contribution has foreign row provenance",
             });
         }
     }
-    if rule.anchor_agreement().specialized_source_terms() == 0
-        || rule.anchor_agreement().specialized_right_hand_side_terms() != 1
-        || rule.anchor_agreement().nonzero_guards_checked() != rule.nonzero_guards().len()
+    let agreement = rule.anchor_agreement();
+    if agreement.specialized_source_terms() == 0
+        || agreement.specialized_right_hand_side_terms() != rule.right_hand_side().len()
+        || agreement.nonzero_guards_checked() != rule.nonzero_guards().len()
     {
         return Err(ArtifactError::InvalidReplayEvidence {
-            detail: "the independent anchored agreement is incomplete",
+            detail: "a rule cell has incomplete independent anchored agreement",
         });
     }
     Ok(())
-}
-
-/// Prove the only guard shape admitted by the first closure verifier: one
-/// nonzero integer monomial in the sole positive index. Base-parameter factors
-/// and polynomial sums are deliberately rejected; proving those belongs to
-/// the exceptional-locus engine.
-fn guard_is_nonzero_on_positive_one_loop_domain(
-    context: &IndexedCoefficientContext,
-    polynomial: &crate::algebra::CoefficientPolynomial,
-) -> bool {
-    if polynomial.nterms() != 1 {
-        return false;
-    }
-    let Some(exponents) = polynomial.exponents_iter().next() else {
-        return false;
-    };
-    let base_count = context.base().parameter_names().len();
-    if exponents.len() != base_count + 1
-        || exponents[..base_count]
-            .iter()
-            .any(|exponent| *exponent != 0)
-    {
-        return false;
-    }
-    !polynomial.coefficients[0].is_zero()
 }

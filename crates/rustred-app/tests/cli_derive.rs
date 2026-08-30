@@ -1,5 +1,3 @@
-#[path = "cli_derive/examples.rs"]
-mod examples;
 #[path = "cli_derive/input_forms.rs"]
 mod input_forms;
 #[path = "cli_derive/output.rs"]

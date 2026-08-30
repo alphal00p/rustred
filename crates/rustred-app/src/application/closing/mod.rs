@@ -5,6 +5,7 @@ mod render;
 use rustred::family::IntegralKey;
 use rustred::foundry::artifact::{
     ArtifactLoadLimits, ClosedArtifact, derive_one_loop_unit_mass_tadpole,
+    derive_two_loop_unit_mass_sunset,
 };
 use rustred::reduction::{Reducer, ReductionLimits};
 use symbolica::prelude::AtomCore;
@@ -106,6 +107,54 @@ pub(super) fn generate_request(
                     })
                     .collect(),
             })
+            .chain(
+                artifact
+                    .rule_cells()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cell)| {
+                        let rule = cell.rule();
+                        ClosingRuleOutputV1 {
+                            ordinal: artifact.rules().len() + index,
+                            sector: cell.application_domain().sector().to_string(),
+                            domain_lower: cell
+                                .application_domain()
+                                .bounds()
+                                .iter()
+                                .map(|bounds| bounds.lower())
+                                .collect(),
+                            domain_upper: cell
+                                .application_domain()
+                                .bounds()
+                                .iter()
+                                .map(|bounds| bounds.upper())
+                                .collect(),
+                            pivot: rule.pivot().values().to_vec(),
+                            nonzero_guards: cell
+                                .guards()
+                                .iter()
+                                .map(|guard| {
+                                    guard.polynomial().to_expression().to_canonical_string()
+                                })
+                                .collect(),
+                            right_hand_side: cell
+                                .terms()
+                                .iter()
+                                .map(|retained| {
+                                    let term =
+                                        &rule.right_hand_side()[retained.source_rhs_ordinal()];
+                                    RuleTermOutputV1 {
+                                        shift: term.shift().values().to_vec(),
+                                        coefficient: term
+                                            .coefficient()
+                                            .to_expression()
+                                            .to_canonical_string(),
+                                    }
+                                })
+                                .collect(),
+                        }
+                    }),
+            )
             .collect(),
     };
     let canonical_toml = render::serialize(&output)?;
@@ -234,6 +283,7 @@ pub(super) fn reduce_request(
 fn generate_family(selector: ClosingFamilySelector) -> Result<ClosedArtifact, AppError> {
     match selector {
         ClosingFamilySelector::UnitMassVacuumK1 => derive_one_loop_unit_mass_tadpole(),
+        ClosingFamilySelector::UnitMassVacuumK3 => derive_two_loop_unit_mass_sunset(),
     }
     .map_err(|error| AppError::derivation(format!("cannot generate closing artifact: {error}")))
 }

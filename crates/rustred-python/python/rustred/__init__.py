@@ -52,6 +52,7 @@ class ClosingFamily(StrEnum):
     """Semantic family presets available to closing-artifact generation."""
 
     UNIT_MASS_VACUUM_K1 = "unit-mass-vacuum-k1"
+    UNIT_MASS_VACUUM_K3 = "unit-mass-vacuum-k3"
 
 
 __all__ = [

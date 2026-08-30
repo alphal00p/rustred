@@ -44,6 +44,23 @@ impl IndexedCoefficientContext {
         self.execute_specialize_polynomial_raw(value.raw(), assignment, limits, preflight)
     }
 
+    /// Specialize a polynomial already authenticated by a sealed semantic
+    /// owner. Artifact loading validates the payload once; reducer hot paths
+    /// therefore check only its context seal before doing the bounded exact
+    /// substitution.
+    pub(crate) fn specialize_polynomial_sealed(
+        &self,
+        value: &IndexedPolynomial,
+        assignment: &[i64],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_context(value)?;
+        self.validate_index_arity(assignment)?;
+        let preflight =
+            self.preflight_specialize_polynomial_raw(value.raw(), assignment, limits)?;
+        self.execute_specialize_polynomial_raw(value.raw(), assignment, limits, preflight)
+    }
+
     /// Simultaneously specialize every index and project the result to the
     /// exact base variable map.
     ///
@@ -235,6 +252,261 @@ impl IndexedCoefficientContext {
         validate_polynomial_on_map(
             &result,
             self.base.variables(),
+            crate::algebra::CoefficientPolynomialPart::Numerator,
+            limits.exact_algebra,
+        )?;
+        Ok(result)
+    }
+}
+
+impl IndexedCoefficientContext {
+    /// Substitute only the selected integral indices, retaining the same
+    /// authenticated `K(n)` variable map for every unfixed index.
+    ///
+    /// The returned polynomial is the exact pre-cancellation denominator
+    /// witness.  Foundry refinement owners retain it even when normalization
+    /// cancels a common factor from the returned coefficient.
+    pub fn specialize_fixed_indices(
+        &self,
+        value: &IndexedCoefficient,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(IndexedCoefficient, IndexedPolynomial), IndexedAlgebraError> {
+        self.validate_with_limits(value, limits.exact_algebra)?;
+        self.specialize_fixed_indices_authenticated(value, fixed, limits)
+    }
+
+    /// Sealed-owner variant of [`Self::specialize_fixed_indices`].
+    pub(crate) fn specialize_fixed_indices_sealed(
+        &self,
+        value: &IndexedCoefficient,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(IndexedCoefficient, IndexedPolynomial), IndexedAlgebraError> {
+        self.bind_sealed(value)?;
+        self.specialize_fixed_indices_authenticated(value, fixed, limits)
+    }
+
+    /// Partially specialize one retained pre-cancellation polynomial guard.
+    pub fn specialize_fixed_polynomial(
+        &self,
+        value: &IndexedPolynomial,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_with_limits(value, limits.exact_algebra)?;
+        self.specialize_fixed_polynomial_authenticated(value, fixed, limits)
+    }
+
+    pub(crate) fn specialize_fixed_polynomial_sealed(
+        &self,
+        value: &IndexedPolynomial,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_context(value)?;
+        self.specialize_fixed_polynomial_authenticated(value, fixed, limits)
+    }
+
+    fn specialize_fixed_indices_authenticated(
+        &self,
+        value: &IndexedCoefficient,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<(IndexedCoefficient, IndexedPolynomial), IndexedAlgebraError> {
+        let fixed = self.canonical_fixed_indices(fixed)?;
+        let numerator_preflight =
+            self.preflight_fixed_polynomial(&value.raw.numerator, &fixed, limits)?;
+        let denominator_preflight =
+            self.preflight_fixed_polynomial(&value.raw.denominator, &fixed, limits)?;
+        check_coefficient_specialization_normalization_limits(
+            &value.raw.numerator,
+            &value.raw.denominator,
+            numerator_preflight,
+            denominator_preflight,
+            value.raw.numerator.is_zero(),
+            value.raw.denominator.is_one(),
+            self.variables.len(),
+            limits,
+        )?;
+        let numerator = self.execute_fixed_polynomial(
+            &value.raw.numerator,
+            &fixed,
+            limits,
+            numerator_preflight,
+        )?;
+        let denominator = self.execute_fixed_polynomial(
+            &value.raw.denominator,
+            &fixed,
+            limits,
+            denominator_preflight,
+        )?;
+        if denominator.is_zero() {
+            return Err(IndexedAlgebraError::ZeroDenominator);
+        }
+        let denominator_guard = IndexedPolynomial {
+            raw: denominator.clone(),
+            context: self.fingerprint.clone(),
+        };
+        let raw = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            <Coefficient as FromNumeratorAndDenominator<IntegerRing, IntegerRing, u16>>::from_num_den(
+                numerator,
+                denominator,
+                &Z,
+                true,
+            )
+        }))
+        .map_err(|_| {
+            IndexedAlgebraError::Symbolica(
+                "Symbolica panicked while normalizing a checked fixed-index specialization"
+                    .to_owned(),
+            )
+        })?;
+        Ok((
+            self.wrap_checked_with_limits(raw, limits.exact_algebra)?,
+            denominator_guard,
+        ))
+    }
+
+    fn specialize_fixed_polynomial_authenticated(
+        &self,
+        value: &IndexedPolynomial,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        let fixed = self.canonical_fixed_indices(fixed)?;
+        let preflight = self.preflight_fixed_polynomial(&value.raw, &fixed, limits)?;
+        Ok(IndexedPolynomial {
+            raw: self.execute_fixed_polynomial(&value.raw, &fixed, limits, preflight)?,
+            context: self.fingerprint.clone(),
+        })
+    }
+
+    fn canonical_fixed_indices(
+        &self,
+        fixed: &[(usize, i64)],
+    ) -> Result<Vec<(usize, i64)>, IndexedAlgebraError> {
+        let mut canonical = Vec::new();
+        canonical.try_reserve_exact(fixed.len()).map_err(|_| {
+            IndexedAlgebraError::AllocationFailure {
+                resource: "fixed-index assignments",
+                requested: fixed.len(),
+            }
+        })?;
+        canonical.extend_from_slice(fixed);
+        canonical.sort_unstable_by_key(|(position, _)| *position);
+        for window in canonical.windows(2) {
+            if window[0].0 == window[1].0 {
+                return Err(IndexedAlgebraError::DuplicateFixedIndex {
+                    position: window[0].0,
+                });
+            }
+        }
+        if let Some(&(position, _)) = canonical
+            .iter()
+            .find(|(position, _)| *position >= self.index_count())
+        {
+            return Err(IndexedAlgebraError::FixedIndexOutOfRange {
+                position,
+                index_count: self.index_count(),
+            });
+        }
+        Ok(canonical)
+    }
+
+    fn preflight_fixed_polynomial(
+        &self,
+        source: &CoefficientPolynomial,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+    ) -> Result<SpecializationPreflight, IndexedAlgebraError> {
+        validate_polynomial_on_map(
+            source,
+            &self.variables,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
+            limits.exact_algebra,
+        )?;
+        check_limit(
+            "fixed-index specialization output terms",
+            source.nterms(),
+            limits.exact_algebra.max_polynomial_terms,
+        )?;
+        let operations = source.nterms().checked_mul(fixed.len()).ok_or(
+            IndexedAlgebraError::ResourceCountOverflow {
+                resource: "fixed-index specialization power operations",
+            },
+        )?;
+        check_limit(
+            "fixed-index specialization power operations",
+            operations,
+            limits.max_specialization_power_operations,
+        )?;
+        let mut assignment = vec![1_i64; self.index_count()];
+        for &(position, value) in fixed {
+            assignment[position] = value;
+        }
+        let base_count = self.base.variables().len();
+        let mut largest = 0usize;
+        for (coefficient, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
+            largest = largest.max(specialization_integer_bit_bound(
+                coefficient,
+                exponents,
+                base_count,
+                &assignment,
+            )?);
+        }
+        largest = checked_indexed_add(
+            "fixed-index specialization integer bits",
+            largest,
+            ceil_log2(source.nterms()),
+        )?;
+        check_limit(
+            "fixed-index specialization integer bits",
+            largest,
+            limits.max_specialization_integer_bits,
+        )?;
+        Ok(SpecializationPreflight {
+            output_term_bound: source.nterms(),
+            output_exponent_entry_bound: checked_indexed_mul(
+                "fixed-index specialization output exponent entries",
+                source.nterms(),
+                self.variables.len(),
+            )?,
+            largest_output_integer_bit_bound: largest,
+        })
+    }
+
+    fn execute_fixed_polynomial(
+        &self,
+        source: &CoefficientPolynomial,
+        fixed: &[(usize, i64)],
+        limits: IndexedAlgebraLimits,
+        preflight: SpecializationPreflight,
+    ) -> Result<CoefficientPolynomial, IndexedAlgebraError> {
+        let base_count = self.base.variables().len();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut result = source.clone();
+            for &(position, value) in fixed {
+                result = result.replace(base_count + position, &Integer::from(value));
+            }
+            result
+        }))
+        .map_err(|_| {
+            IndexedAlgebraError::Symbolica(
+                "Symbolica panicked during a checked fixed-index polynomial substitution"
+                    .to_owned(),
+            )
+        })?;
+        verify_polynomial_execution_envelope(
+            &result,
+            preflight.output_term_bound,
+            preflight.output_exponent_entry_bound,
+            preflight.largest_output_integer_bit_bound,
+            "fixed-index specialization",
+        )?;
+        validate_polynomial_on_map(
+            &result,
+            &self.variables,
             crate::algebra::CoefficientPolynomialPart::Numerator,
             limits.exact_algebra,
         )?;

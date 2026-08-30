@@ -2,9 +2,9 @@
 //!
 //! [`Reducer`] is independent of loop count and topology: it consumes ordered
 //! guarded rules and explicit terminals from a sealed
-//! [`crate::foundry::artifact::ClosedArtifact`]. The only artifact installer
-//! currently completed is the generated one-loop vacuum preset, so this
-//! generic runtime does not imply two-loop closure yet.
+//! [`crate::foundry::artifact::ClosedArtifact`]. Installed unit-mass `K = 1`
+//! and `K = 3` artifacts exercise ordinary rules, guarded exceptional cells,
+//! exact symmetry routing, and immutable lower-family factorization.
 
 mod error;
 mod model;

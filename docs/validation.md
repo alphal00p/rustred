@@ -46,39 +46,32 @@ first three rows. The synthetic six-loop source test remains a generic
 generation sentinel; no six-loop closure or efficiency work is authorized in
 Stage 1.
 
-The canonical one-loop `q^2-1` vacuum family now passes both the mathematical
-level-4 closure gate and RustRed's durable-publication gate. Its sole ordinary
-source is generated fresh, exactly replayed into a strict recurrence, and
-installed with `I(1)` as an explicit master, the inactive sector as a
-proof-backed zero terminal, and a common-mass homogeneity witness. The bounded
-binary loader independently regenerates and compares that source before
-rederiving and installing the rule once. The generic reducer covers every
-integer power with deterministic memoized descent and typed failures, while
+The canonical one-loop `q^2-1` family and equal-mass two-loop sunset now pass
+both the mathematical level-4 closure gate and RustRed's durable-publication
+gate. Their complete ordinary source sets contain one and four freshly
+generated rows, respectively. Every installed rule retains exact source and
+pre-cancellation guard provenance, independently replays to zero, and is
+strictly descending on its declared cell.
+
+The `K = 3` artifact closes the parent and every proper sector with five exact
+guarded cells: one all-active rule, bulk and exceptional-boundary pair rules,
+and bulk and endpoint corner rules. Exact `S3` denominator symmetry routes
+equivalent faces; the empty face has a scaleless-polynomial proof, while the
+three one-line faces replay Lee--Pomeransky rank-deficiency certificates; and
+`J(0,b,c)=I(b)I(c)` is owned as an exact factorization into the immutable
+`K = 1` dependency. Its stored `q=(k2,k1+k2)` basis has determinant `-1`, and
+installation uses Symbolica matrix algebra to replay the two independent
+denominator blocks and unit Jacobian. The explicit typed terminals are the sunset
+`[1,1,1]` and pinch `[0,1,1]` masters. Tests exhaust every target in the bounded
+integer cube `[-3,4]^3`, check exact interior, boundary, numerator, symmetry,
+memoization, and mass-restoration goldens, and reject foreign terminals.
+
+Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python
-package exercise the same durable bytes. This establishes only the standalone
-`K = 1` artifact; Vakint consumption and `K = 3`/`K = 6` publication remain
-future Stage 1 work.
-
-Selected sunset source spans yield guarded fixed-sector parametric rules with
-exact `K(n)` replay, uniform descent, and anchored agreement. A target-directed
-all-four-row sunset sentinel additionally proves deterministic RREF selection,
-exact three-source provenance, and the complete four-pivot guard envelope at
-an interior anchor. Exceptional guard-zero loci, complete proper-subsector
-feedback, two- and three-loop terminal selection/coverage and durable
-artifacts, rank-generic tensor reduction, and master substitution remain
-absent.
-
-The target-directed sunset rule now also passes a boundary sentinel at
-`[1,1,1]`. Its maximal parent-sector box describes nine exact term-local cells
-and streams four compact proper-subsector obligations. Tests cover aggregate
-resource boundaries, exact cursor resume, rejection of an equivalent but
-separately allocated rule's cursor, on-demand domain materialization, and cold
-descriptor replay. Independent sector tests exhaust small integer boxes and
-cover negative-two shifts, simultaneous and later-coordinate pinches,
-noncontiguous optional coordinates, zero-option and i64 extremes, and typed
-exponential-count overflow without enumeration. This proves exact partitioning
-and dependency discovery only. It does not prove coefficient/guard
-applicability or that any referenced lower sector is closed.
+package. Untrusted loading authenticates and replays the artifact once; the
+memoized hot reducer does not repeat that work. Vakint consumption and the
+three-loop `K = 6` artifact remain open Stage 1 work. Tensor development and
+master substitution inside RustRed remain outside this checkpoint.
 
 Translated-source tests regenerate a complete sealed ordinary-IBP batch and
 replay exact rows after deterministic integral-lattice recentering, including
@@ -106,9 +99,9 @@ of the following:
 
 Claiming durable publication or production readiness additionally requires
 bounded decoding plus independent replay after loading untrusted artifact
-bytes. The current one-loop owner passes both the mathematical and durable
-publication gates: its bounded decoder reconstructs and authenticates a sealed
-owner before inspection or application.
+bytes. The current `K = 1` and `K = 3` owners pass both the mathematical and
+durable publication gates: their bounded decoders reconstruct and authenticate
+a sealed owner before inspection or application.
 
 Finite integer samples, held-out primes, independent routings, and numerical
 evaluation are required adversarial checks, but do not replace symbolic replay.
@@ -128,25 +121,19 @@ fixture is:
    behavior where the fixture supplies it.
 
 The first compact family is the LiteRed2 one-loop triangle. The connected
-equal-mass two-loop sunset is the first closure regression because its
-boundary numerators require residual recentering; RustRed must rediscover
-`J(2,1,1) = (d-3)/(3 m^2) J(1,1,1)` from generic rows. The `HQET5`
-`NewDsSet` case is kept separate until the overcomplete-denominator and
+equal-mass two-loop sunset is the first complete multi-sector closure
+regression because its boundary numerators require residual recentering. The
+installed artifact rediscovers, among its exact consequences,
+`J(2,1,1) = (d-3)/(3 m^2) J(1,1,1)`, and closes every exceptional face through
+symmetry, factorization, or a guarded boundary cell. The separate `HQET5`
+`NewDsSet` case remains deferred until the overcomplete-denominator and
 partial-fraction lane exists.
 
-Before that closure regression, the live parametric reducer has three generated
-interior fixtures. The tadpole proves its full one-row recurrence and a held-out
-specialization. A one-loop family with three external momenta combines one
-ordinary IBP and one LI source into a genuine two-source rule, exercising the
-recursive pivot chain through the public generator and foundry APIs. The sunset
-sentinel deliberately selects one of four freshly generated ordinary rows and
-proves a seven-column recurrence in the all-active sector. It establishes
-two-loop coefficient/domain/replay plumbing. A separate target-directed sunset
-sentinel consumes all four generated ordinary rows and requests the `e1` pivot;
-Symbolica RREF returns a five-term descending right-hand side with an exact
-three-row source combination and all four forward-pivot guards. Both tests use
-the interior anchor `[2,2,2]`: neither is the corner golden above, a complete
-source proof, or lower-sector closure.
+Lower-level tadpole, multi-source one-loop, anchored-sunset, target-directed
+sunset, dependency-partition, and translated-source fixtures remain useful
+unit tests of their individual owners. The closure claim, however, is made
+only by the installed artifact's complete replay, coverage, terminal, and
+durable-load tests—not by any one interior sentinel.
 
 Agreement means mathematical equivalence after explicit convention and
 canonical-master maps. RustRed need not reproduce Mathematica APIs, mutable
@@ -168,8 +155,8 @@ The active Stage 1 ladder is completed in this order:
 
 - one-loop scalar powers reduced by the installed, durably encoded `K = 1`
   artifact (Vakint application remains open);
-- two-loop sunset powers and its pinch reduced by a future installed `K = 3`
-  artifact; and
+- two-loop sunset powers and its pinch reduced by the installed, durably
+  encoded `K = 3` artifact (Vakint application remains open); and
 - the three-loop K4/Mercedes parent and four inequivalent contractions reduced
   by a future installed `K = 6` artifact.
 

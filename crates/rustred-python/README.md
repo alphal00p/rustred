@@ -31,13 +31,16 @@ The initial operations are:
 Each result's `to_toml()` method returns the exact canonical,
 newline-terminated TOML produced by `rustred-app` and the CLI.
 
-`generate_closing_artifact()` currently accepts the semantic family selector
-`rustred.ClosingFamily.UNIT_MASS_VACUUM_K1`. Its result also exposes the
+`generate_closing_artifact()` currently accepts the semantic family selectors
+`rustred.ClosingFamily.UNIT_MASS_VACUUM_K1` and
+`rustred.ClosingFamily.UNIT_MASS_VACUUM_K3`. Its result also exposes the
 deterministic immutable encoding as `.artifact: bytes`. Inspection and
-reduction consume those bytes; they do not regenerate a preset behind the
-caller's back. Reduction terms expose typed master power vectors, exact
-unit-mass coefficients, and the signed power of the common mass squared that
-restores dimensional homogeneity.
+reduction consume those exact bytes rather than substituting a hidden preset.
+For `K = 3`, the untrusted-load boundary cold-regenerates the registered
+derivation once and byte-compares it before returning a sealed owner; the hot
+reducer does not regenerate or reauthenticate it. Reduction terms expose typed
+master power vectors, exact unit-mass coefficients, and the signed power of
+the common mass squared that restores dimensional homogeneity.
 
 ```python
 import rustred
@@ -63,9 +66,10 @@ rustred campaign reduce --artifact one_loop.rr --powers 3
 ```
 
 `--output -` writes artifact bytes or TOML, as appropriate, to standard
-output; `--artifact -` reads durable artifact bytes from standard input. Only
-`unit-mass-vacuum-k1` is closed today. The `K = 3` and `K = 6` selectors and
-artifacts remain future Stage 1 work.
+output; `--artifact -` reads durable artifact bytes from standard input. The
+matching two-loop selector is `unit-mass-vacuum-k3`; its powers have arity
+three. The `K = 1` and `K = 3` artifacts are closed today. The three-loop
+`K = 6` artifact remains Stage 1 work.
 
 Linux wheels built in the Nix development shell are development artifacts.
 Portable manylinux publication remains gated on a separate audited build and

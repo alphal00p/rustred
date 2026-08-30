@@ -1,23 +1,15 @@
 # CLI example
 
-[`two_loop_single_mass_vacuum.symbolica`](two_loop_single_mass_vacuum.symbolica)
-declares the complete equal-mass sunset family. The runner requests ordinary
-parametric IBPs explicitly and writes the canonical
-`rustred.derive-output.toml.v1` document to standard output.
-
-From the repository root, run:
+[`run.sh`](run.sh) generates the complete `unit-mass-vacuum-k3` artifact into
+a temporary file, authenticates and inspects those bytes, and applies them to
+`I(2,2,1)`:
 
 ```bash
 sh examples/cli/run.sh
 ```
 
-Equivalently, invoke the command directly:
-
-```bash
-cargo run --locked -p rustred-app --bin rustred -- derive \
-  --input examples/cli/two_loop_single_mass_vacuum.symbolica \
-  --input-format symbolica \
-  --relations ordinary \
-  --n-cores 1 \
-  --output -
-```
+The inspection output reports algorithm
+`rustred.generated.two-loop-unit-mass-sunset.v1`, arity 3, four source rows,
+five guarded rules, two masters, and four zero sectors. The reduction output
+contains master keys `[0,1,1]` and `[1,1,1]`, with common-mass-squared powers
+`-3` and `-2`, respectively. The temporary artifact is removed on exit.

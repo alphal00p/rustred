@@ -1,9 +1,269 @@
 use crate::algebra::{CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
 use crate::family::IntegralKey;
-use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
+use crate::foundry::artifact::{
+    derive_one_loop_unit_mass_tadpole, derive_two_loop_unit_mass_sunset,
+};
 
 use super::reducer::{accumulate_master, begin_expansion};
 use super::{Reducer, ReductionError, ReductionLimits};
+
+#[test]
+fn sunset_artifact_closes_a_bounded_complete_lattice_without_foreign_terminals() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let mut reducer = Reducer::new(&artifact).unwrap();
+    for a in -3..=4 {
+        for b in -3..=4 {
+            for c in -3..=4 {
+                let target = IntegralKey::try_new([a, b, c]).unwrap();
+                let reduction = reducer.reduce_unit_mass(&target).unwrap();
+                assert_eq!(reduction.target(), &target);
+                assert!(
+                    reduction
+                        .terms()
+                        .keys()
+                        .all(|master| artifact.masters().contains(master)),
+                    "foreign terminal while reducing {:?}",
+                    target.powers()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn sunset_rejects_only_the_uncertified_machine_endpoint_before_rule_selection() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    assert_eq!(artifact.supported_root_power_bounds().len(), 3);
+    assert!(
+        artifact
+            .supported_root_power_bounds()
+            .iter()
+            .all(|bounds| bounds.lower() == i64::MIN && bounds.upper() == i64::MAX - 1)
+    );
+    let target = IntegralKey::try_new([1, i64::MAX, i64::MAX]).unwrap();
+    assert_eq!(
+        Reducer::new(&artifact).unwrap().reduce_unit_mass(&target),
+        Err(ReductionError::OutsideCertifiedRootDomain {
+            position: 1,
+            value: i64::MAX,
+            lower: i64::MIN,
+            upper: i64::MAX - 1,
+        })
+    );
+}
+
+#[test]
+fn sunset_dependency_work_and_cache_limits_are_aggregate() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    assert_eq!(
+        Reducer::new(&artifact)
+            .unwrap()
+            .statistics()
+            .cached_integrals(),
+        3
+    );
+    assert!(matches!(
+        Reducer::with_limits(
+            &artifact,
+            ReductionLimits {
+                max_cached_integrals: 2,
+                ..ReductionLimits::default()
+            }
+        ),
+        Err(ReductionError::CacheLimit {
+            requested: 3,
+            limit: 2,
+        })
+    ));
+
+    let target = IntegralKey::try_new([0, 2, 2]).unwrap();
+    let mut limited = Reducer::with_limits(
+        &artifact,
+        ReductionLimits {
+            max_rule_applications: 1,
+            ..ReductionLimits::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        limited.reduce_unit_mass(&target),
+        Err(ReductionError::RuleApplicationLimit {
+            requested: 2,
+            limit: 1,
+        })
+    );
+
+    let mut reducer = Reducer::new(&artifact).unwrap();
+    reducer.reduce_unit_mass(&target).unwrap();
+    assert_eq!(
+        reducer.statistics().rule_applications(),
+        2,
+        "one parent factorization plus one memoized lower-family recurrence"
+    );
+    assert!(reducer.statistics().cache_hits() >= 1);
+}
+
+#[test]
+fn sunset_rules_match_exact_top_pair_factorization_and_corner_goldens() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let context = artifact.coefficient_context();
+    let s = IntegralKey::try_new([1, 1, 1]).unwrap();
+    let p = IntegralKey::try_new([0, 1, 1]).unwrap();
+    let d_minus_2 = d_minus(context, 2);
+    let d_minus_3 = d_minus(context, 3);
+    let d_minus_8 = d_minus(context, 8);
+    let d_minus_2_squared = context
+        .try_mul(&d_minus_2, &d_minus_2, ExactAlgebraLimits::default())
+        .unwrap();
+    let mut reducer = Reducer::new(&artifact).unwrap();
+
+    let j211 = reducer
+        .reduce_unit_mass(&IntegralKey::try_new([2, 1, 1]).unwrap())
+        .unwrap();
+    assert_eq!(j211.coefficient(&s), Some(&div(context, &d_minus_3, 3)));
+    assert_eq!(j211.terms().len(), 1);
+
+    let j221 = reducer
+        .reduce_unit_mass(&IntegralKey::try_new([2, 2, 1]).unwrap())
+        .unwrap();
+    let s221 = context
+        .try_mul(&d_minus_2, &d_minus_3, ExactAlgebraLimits::default())
+        .map(|value| div(context, &value, 9))
+        .unwrap();
+    let p221 = context
+        .try_neg(
+            &div(context, &d_minus_2_squared, 12),
+            ExactAlgebraLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(j221.coefficient(&s), Some(&s221));
+    assert_eq!(j221.coefficient(&p), Some(&p221));
+
+    let j311 = reducer
+        .reduce_unit_mass(&IntegralKey::try_new([3, 1, 1]).unwrap())
+        .unwrap();
+    let s311 = context
+        .try_mul(&d_minus_8, &d_minus_3, ExactAlgebraLimits::default())
+        .map(|value| div(context, &value, 18))
+        .unwrap();
+    assert_eq!(j311.coefficient(&s), Some(&s311));
+    assert_eq!(
+        j311.coefficient(&p),
+        Some(&div(context, &d_minus_2_squared, 12))
+    );
+
+    for (target, expected) in [
+        ([0, 2, 1], div(context, &d_minus_2, 2)),
+        ([0, 2, 2], div(context, &d_minus_2_squared, 4)),
+        ([-1, 1, 1], context.one()),
+    ] {
+        let result = reducer
+            .reduce_unit_mass(&IntegralKey::try_new(target).unwrap())
+            .unwrap();
+        assert_eq!(result.terms().len(), 1);
+        assert_eq!(result.coefficient(&p), Some(&expected));
+    }
+
+    let j_minus_2 = reducer
+        .reduce_unit_mass(&IntegralKey::try_new([-2, 1, 1]).unwrap())
+        .unwrap();
+    let expected = context
+        .try_add(
+            &context.one(),
+            &context
+                .try_div(
+                    &context.integer(4),
+                    &context.parameter("d").unwrap(),
+                    ExactAlgebraLimits::default(),
+                )
+                .unwrap(),
+            ExactAlgebraLimits::default(),
+        )
+        .unwrap();
+    assert_eq!(j_minus_2.coefficient(&p), Some(&expected));
+    assert_eq!(j_minus_2.terms().len(), 1);
+}
+
+#[test]
+fn sunset_symmetry_memoization_and_mass_restoration_preserve_typed_outputs() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let mut reducer = Reducer::new(&artifact).unwrap();
+    let canonical = IntegralKey::try_new([1, 1, 3]).unwrap();
+    let routed = IntegralKey::try_new([3, 1, 1]).unwrap();
+    let first = reducer.reduce_unit_mass(&canonical).unwrap();
+    let before = reducer.statistics();
+    let second = reducer.reduce_unit_mass(&routed).unwrap();
+    assert_eq!(first.terms(), second.terms());
+    assert_eq!(second.target(), &routed);
+    assert_eq!(
+        reducer.statistics().rule_applications(),
+        before.rule_applications()
+    );
+    assert!(reducer.statistics().cache_hits() > before.cache_hits());
+
+    let target = IntegralKey::try_new([2, 2, 1]).unwrap();
+    let homogeneous = reducer
+        .reduce_with_common_mass_homogeneity(&target)
+        .unwrap();
+    assert_eq!(
+        homogeneous
+            .coefficient(&IntegralKey::try_new([1, 1, 1]).unwrap())
+            .unwrap()
+            .common_mass_squared_power(),
+        -2
+    );
+    assert_eq!(
+        homogeneous
+            .coefficient(&IntegralKey::try_new([0, 1, 1]).unwrap())
+            .unwrap()
+            .common_mass_squared_power(),
+        -3
+    );
+
+    let unit = reducer.reduce_unit_mass(&target).unwrap();
+    let mass_squared = artifact.coefficient_context().integer(4);
+    let restored = reducer
+        .reduce_with_common_mass_squared(&target, &mass_squared)
+        .unwrap();
+    for (master, mass_denominator) in [
+        (IntegralKey::try_new([1, 1, 1]).unwrap(), 16_i64),
+        (IntegralKey::try_new([0, 1, 1]).unwrap(), 64_i64),
+    ] {
+        let expected = artifact
+            .coefficient_context()
+            .try_div(
+                unit.coefficient(&master).unwrap(),
+                &artifact.coefficient_context().integer(mass_denominator),
+                ExactAlgebraLimits::default(),
+            )
+            .unwrap();
+        assert_eq!(restored.coefficient(&master), Some(&expected));
+    }
+}
+
+fn d_minus(context: &CoefficientContext, value: i64) -> crate::algebra::Coefficient {
+    context
+        .try_sub(
+            &context.parameter("d").unwrap(),
+            &context.integer(value),
+            ExactAlgebraLimits::default(),
+        )
+        .unwrap()
+}
+
+fn div(
+    context: &CoefficientContext,
+    numerator: &crate::algebra::Coefficient,
+    denominator: i64,
+) -> crate::algebra::Coefficient {
+    context
+        .try_div(
+            numerator,
+            &context.integer(denominator),
+            ExactAlgebraLimits::default(),
+        )
+        .unwrap()
+}
 
 #[test]
 fn generated_rule_reduces_positive_powers_and_memoizes_intermediates() {

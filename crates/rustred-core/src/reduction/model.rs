@@ -74,6 +74,13 @@ impl ReductionStatistics {
         self.rule_applications = self.rule_applications.saturating_add(1);
     }
 
+    pub(super) fn merge_work(&mut self, other: Self) {
+        self.cache_hits = self.cache_hits.saturating_add(other.cache_hits);
+        self.rule_applications = self
+            .rule_applications
+            .saturating_add(other.rule_applications);
+    }
+
     pub(super) fn set_cache_census(
         &mut self,
         cached_integrals: usize,

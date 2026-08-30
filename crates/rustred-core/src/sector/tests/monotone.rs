@@ -1,5 +1,5 @@
 use super::super::{
-    ComplexityComponent, Error, Mask, OrderingPolicy, SectorMonotoneDomain,
+    ComplexityComponent, Error, InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain,
     SectorMonotonePointClass, SectorMonotoneTargetCellKind,
 };
 
@@ -156,6 +156,36 @@ fn activation_and_same_sector_harder_shifts_are_rejected() {
     assert_eq!(
         OrderingPolicy::default().prove_sector_monotone_shift_descent(&harder_domain, &[0], &[1],),
         Err(Error::NotStrictDescent)
+    );
+}
+
+#[test]
+fn tightened_inactive_cell_accepts_a_positive_shift_that_cannot_activate() {
+    let inactive = Mask::try_new([false]).unwrap();
+    let maximal =
+        SectorMonotoneDomain::try_maximal_for_rule(inactive.clone(), &[0], &[[1]]).unwrap();
+    assert_eq!(
+        OrderingPolicy::default().prove_sector_monotone_shift_descent(&maximal, &[0], &[1]),
+        Err(Error::InactiveLineActivation {
+            position: 0,
+            shift: 1,
+        })
+    );
+
+    let tightened = SectorMonotoneDomain::try_new_for_rule(
+        inactive,
+        [InteriorBounds::new(-8, -1)],
+        &[0],
+        &[[1]],
+    )
+    .unwrap();
+    let witness = OrderingPolicy::default()
+        .prove_sector_monotone_shift_descent(&tightened, &[0], &[1])
+        .unwrap();
+    assert!(witness.verify());
+    assert_eq!(
+        witness.classify(&[-1]).unwrap(),
+        Some(SectorMonotonePointClass::SameSector)
     );
 }
 

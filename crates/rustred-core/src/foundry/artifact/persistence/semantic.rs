@@ -409,11 +409,6 @@ pub(super) fn encode_rule_snapshot(
     rule: &ParametricRule,
     parent: &Writer,
 ) -> Result<Vec<u8>, ArtifactPersistenceError> {
-    if rule.sector_monotone_admission().is_some() {
-        return Err(ArtifactPersistenceError::UnsupportedFeature {
-            detail: "sector-monotone rule persistence is not part of schema v1",
-        });
-    }
     let mut writer = parent.child();
     writer.string(rule.family_fingerprint(), "rule family fingerprint")?;
     writer.string(rule.context_fingerprint(), "rule context fingerprint")?;
@@ -481,6 +476,54 @@ pub(super) fn encode_rule_snapshot(
         agreement.nonzero_guards_checked(),
         "anchor agreement guards",
     )?;
-    writer.u8(0)?;
+    match rule.sector_monotone_admission() {
+        None => writer.u8(0)?,
+        Some(admission) => {
+            writer.u8(1)?;
+            encode_bool_slice(&mut writer, admission.parent_sector().active_bits())?;
+            writer.usize(
+                admission.domain().bounds().len(),
+                "sector-monotone domain bounds",
+            )?;
+            for bounds in admission.domain().bounds() {
+                writer.i64(bounds.lower())?;
+                writer.i64(bounds.upper())?;
+            }
+            encode_i64_slice(&mut writer, admission.pivot().values())?;
+            writer.usize(
+                admission.dependencies().len(),
+                "sector-monotone dependencies",
+            )?;
+            for dependency in admission.dependencies() {
+                writer.usize(
+                    dependency.right_hand_side_ordinal(),
+                    "sector-monotone RHS ordinal",
+                )?;
+                encode_i64_slice(&mut writer, dependency.pivot_shift().values())?;
+                encode_i64_slice(&mut writer, dependency.shift().values())?;
+                let descent = dependency.descent();
+                writer.string(
+                    descent.policy().stable_id(),
+                    "sector-monotone ordering identifier",
+                )?;
+                writer.usize(descent.thresholds().len(), "sector-monotone thresholds")?;
+                for threshold in descent.thresholds() {
+                    writer.usize(threshold.position(), "pinch threshold position")?;
+                    writer.i64(threshold.pinched_upper())?;
+                    match threshold.same_sector_lower() {
+                        None => writer.u8(0)?,
+                        Some(lower) => {
+                            writer.u8(1)?;
+                            writer.i64(lower)?;
+                        }
+                    }
+                }
+                writer.u8(u8::from(descent.same_sector_descent().is_some()))?;
+                writer.u8(u8::from(descent.verify()))?;
+                writer.u8(u8::from(dependency.verify()))?;
+            }
+            writer.u8(u8::from(admission.verify()))?;
+        }
+    }
     Ok(writer.finish())
 }

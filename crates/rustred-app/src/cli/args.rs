@@ -277,7 +277,7 @@ CAMPAIGN PREFLIGHT OPTIONS:
     --force                      Atomically replace an existing output file
 
 CAMPAIGN GENERATE OPTIONS:
-    --family <SELECTOR>          Closing family preset (unit-mass-vacuum-k1)
+    --family <SELECTOR>          unit-mass-vacuum-k1 or unit-mass-vacuum-k3
     --output <PATH|->            Write durable artifact bytes to PATH or stdout [default: -]
     --force                      Atomically replace an existing output file
 

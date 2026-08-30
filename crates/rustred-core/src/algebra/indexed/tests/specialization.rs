@@ -194,3 +194,68 @@ fn specialization_bounds_the_full_u16_exponent_range() {
         65_536
     );
 }
+
+#[test]
+fn fixed_index_specialization_retains_unfixed_indices_and_denominator_guard() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "fixed-index", 3).unwrap();
+    let n0 = context.index(0).unwrap();
+    let n1 = context.index(1).unwrap();
+    let n2 = context.index(2).unwrap();
+    let x = context.lift(&base.parameter("x").unwrap()).unwrap();
+    let numerator = context.mul(&n0, &context.add(&n1, &x).unwrap()).unwrap();
+    let denominator = context.sub(&n2, &context.one()).unwrap();
+    let value = context.div(&numerator, &denominator).unwrap();
+
+    let (zero, guard) = context
+        .specialize_fixed_indices(&value, &[(0, 0)], Default::default())
+        .unwrap();
+    assert!(zero.is_zero());
+    assert_eq!(guard.raw(), &denominator.raw().numerator);
+    assert_eq!(
+        guard.raw().variables.as_ref(),
+        context.variables.as_ref(),
+        "partial specialization must keep the authenticated indexed map"
+    );
+
+    let (specialized, guard) = context
+        .specialize_fixed_indices(&value, &[(1, 1)], Default::default())
+        .unwrap();
+    let expected = context
+        .div(
+            &context
+                .mul(&n0, &context.add(&context.one(), &x).unwrap())
+                .unwrap(),
+            &denominator,
+        )
+        .unwrap();
+    assert_eq!(specialized, expected);
+    assert_eq!(guard.raw(), &denominator.raw().numerator);
+}
+
+#[test]
+fn fixed_index_assignments_are_canonical_and_fail_closed() {
+    let base = CoefficientContext::new(Vec::<String>::new());
+    let context = IndexedCoefficientContext::try_new(&base, "fixed-index-errors", 2).unwrap();
+    let value = context
+        .add(&context.index(0).unwrap(), &context.index(1).unwrap())
+        .unwrap();
+    let left = context
+        .specialize_fixed_indices(&value, &[(1, 3), (0, 2)], Default::default())
+        .unwrap();
+    let right = context
+        .specialize_fixed_indices(&value, &[(0, 2), (1, 3)], Default::default())
+        .unwrap();
+    assert_eq!(left, right);
+    assert_eq!(
+        context.specialize_fixed_indices(&value, &[(0, 1), (0, 1)], Default::default()),
+        Err(IndexedAlgebraError::DuplicateFixedIndex { position: 0 })
+    );
+    assert_eq!(
+        context.specialize_fixed_indices(&value, &[(2, 1)], Default::default()),
+        Err(IndexedAlgebraError::FixedIndexOutOfRange {
+            position: 2,
+            index_count: 2,
+        })
+    );
+}

@@ -21,4 +21,8 @@ impl Verified {
     pub fn source_for_target(&self) -> &[usize] {
         &self.source_for_target
     }
+
+    pub(in crate::sector::symmetry) fn into_source_for_target(self) -> Box<[usize]> {
+        self.source_for_target
+    }
 }

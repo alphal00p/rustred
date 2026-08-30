@@ -11,7 +11,8 @@ This document describes the live exact-algebra boundary and the audited limits
 of the pinned dependency. It is not evidence that the narrow live tensor and
 anchored/parametric foundry slices provide a complete projector or generic
 closing foundry. The separate artifact/reduction owners currently close,
-durably encode/decode, and apply only the canonical one-loop unit-mass family.
+durably encode/decode, and apply the canonical one-loop and equal-mass
+two-loop unit-mass vacuum families.
 
 ## Pinned backend
 

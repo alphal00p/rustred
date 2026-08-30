@@ -14,7 +14,7 @@ pub use index::IndexShift;
 pub use limits::RelationLimits;
 pub use model::ParametricRelation;
 
-pub(in crate::identity) use builder::Builder;
+pub(crate) use builder::Builder;
 pub(in crate::identity) use index::IndexSpace;
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use super::error::ParametricRelationError;
 pub struct IndexShift(Arc<Vec<i64>>);
 
 impl IndexShift {
-    pub(in crate::identity) fn try_new(
+    pub(crate) fn try_new(
         values: impl IntoIterator<Item = i64>,
         expected_arity: usize,
     ) -> Result<Self, ParametricRelationError> {

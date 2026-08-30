@@ -101,6 +101,10 @@ impl TranslatedSource {
     pub fn nonzero_conditions(&self) -> &[ParametricNonZeroCondition] {
         self.relation.nonzero_conditions()
     }
+
+    pub(crate) fn into_foundry_parts(self) -> (ParametricRelation, TranslatedSourceProvenance) {
+        (self.relation, self.provenance)
+    }
 }
 
 /// Deterministically ordered owner of a complete translated source span.
@@ -143,5 +147,13 @@ impl TranslatedSourceBatch {
 
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty()
+    }
+
+    pub(crate) fn into_foundry_parts(self) -> (Arc<String>, Arc<String>, Vec<TranslatedSource>) {
+        (
+            self.family_fingerprint,
+            self.context_fingerprint,
+            self.sources,
+        )
     }
 }

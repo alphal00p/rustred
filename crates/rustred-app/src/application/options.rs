@@ -3,21 +3,22 @@ use std::str::FromStr;
 
 /// Canonical family presets for closing-artifact generation.
 ///
-/// This is a semantic family selector, not a graph/topology name.  Stage 1
-/// currently installs only the one-denominator member; the enum is the
-/// transport-neutral extension point for the `K=3` and `K=6` uniform-mass
-/// vacuum families once their closure verifiers are available.
+/// This is a semantic family selector, not a graph/topology name. Stage 1
+/// currently installs the `K = 1` and `K = 3` uniform-mass families; `K = 6`
+/// remains the transport-neutral extension frontier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClosingFamilySelector {
     UnitMassVacuumK1,
+    UnitMassVacuumK3,
 }
 
 impl ClosingFamilySelector {
-    pub const EXPECTED_VALUES: &str = "unit-mass-vacuum-k1";
+    pub const EXPECTED_VALUES: &str = "unit-mass-vacuum-k1 or unit-mass-vacuum-k3";
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::UnitMassVacuumK1 => "unit-mass-vacuum-k1",
+            Self::UnitMassVacuumK3 => "unit-mass-vacuum-k3",
         }
     }
 }
@@ -28,6 +29,7 @@ impl FromStr for ClosingFamilySelector {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "unit-mass-vacuum-k1" => Ok(Self::UnitMassVacuumK1),
+            "unit-mass-vacuum-k3" => Ok(Self::UnitMassVacuumK3),
             _ => Err(ParseClosingFamilySelectorError {
                 value: value.to_owned(),
             }),

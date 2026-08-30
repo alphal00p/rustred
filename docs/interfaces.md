@@ -45,18 +45,18 @@ The public `rustred` facade is organized by mathematical owner:
   `foundry::dependency` owns exact target-sector partition work admission and
   compact, resumable proper-subsector obligation descriptors;
 - `foundry::artifact` owns the versioned immutable closed-artifact value and
-  currently admits only the freshly generated canonical one-loop unit-mass
-  vacuum partition, with deterministic bounded durable encoding and one-time
-  authenticated load/replay;
+  currently admits the freshly generated canonical one-loop and equal-mass
+  two-loop unit-mass vacuum partitions, with deterministic bounded durable
+  encoding and one-time authenticated load/replay;
 - `reduction` owns the topology-independent deterministic memoizing applier,
   exact typed-master decompositions, resource limits, termination checks, and
   common-mass restoration; and
 - `campaign` owns resource profiles, execution-width preflight, and bounded
   ordered parallel execution.
 
-The core therefore has one genuine durable closing shard and a reusable
+The core therefore has two genuine durable closing artifacts and a reusable
 scalar-IBP reducer. It still has no master substitution, generic tensor
-kinematics, higher-even-rank projector, or closed two- or higher-loop family.
+kinematics, higher-even-rank projector, or closed three- or higher-loop family.
 The Rust API may change directly as these owners and callers are extended;
 obsolete facades are not retained for compatibility.
 
@@ -83,11 +83,13 @@ reported, not reduced. `campaign_plan` authenticates and interns only supplied
 roots; it does not discover dependencies or prove closure.
 `campaign_preflight` computes a topology-neutral memory-limited execution
 width and does not start workers. Closing-artifact generation accepts the
-semantic `unit-mass-vacuum-k1` family selector and owns deterministic durable
-bytes. Inspection and reduction require those bytes and decode/authenticate
-them exactly once; they never substitute a hidden preset. Reduction returns an
-ordered exact decomposition keyed by typed master power vectors plus common-
-mass-squared homogeneity powers.
+semantic `unit-mass-vacuum-k1` and `unit-mass-vacuum-k3` family selectors and
+owns deterministic durable bytes. Inspection and reduction require those
+bytes and decode/authenticate them exactly once; they never substitute a
+hidden preset. The `K = 3` loader cold-regenerates its tagged derivation and
+requires byte-exact equality at that one untrusted boundary. Reduction returns
+an ordered exact decomposition keyed by typed master power vectors plus
+common-mass-squared homogeneity powers.
 
 Each result owns a canonical, newline-terminated TOML document accessible
 through `to_toml()` (and, where appropriate, `into_toml()`). The generation
@@ -103,7 +105,8 @@ The binary is `rustred`, supplied by `rustred-app`:
 rustred derive [OPTIONS]
 rustred campaign plan [OPTIONS]
 rustred campaign preflight [OPTIONS]
-rustred campaign generate --family unit-mass-vacuum-k1 [OPTIONS]
+rustred campaign generate \
+  --family <unit-mass-vacuum-k1|unit-mass-vacuum-k3> [OPTIONS]
 rustred campaign inspect --artifact <PATH|-> [OPTIONS]
 rustred campaign reduce --artifact <PATH|-> --powers <N,...> [OPTIONS]
 ```
@@ -117,7 +120,7 @@ and is committed atomically.
 
 `campaign generate` writes binary durable bytes. Inspection and reduction read
 those bytes from a file or standard input and emit canonical TOML. Invalid
-bytes are rejected before output begins. `K = 3` and `K = 6` selectors are not
+bytes are rejected before output begins. The three-loop `K = 6` selector is not
 available yet.
 
 The CLI calls the same application functions as Python. It is not a separate
@@ -245,13 +248,15 @@ but extension or replacement of tensor reduction belongs to Stage 2.
 ## Stage 1 fine-grained surfaces
 
 The Rust application, CLI, and Python package now expose durable generation,
-inspection/replay, and guarded memoized reduction for the closed `K = 1`
-family. The same service boundaries will extend to the remaining work:
+inspection/replay, and guarded memoized reduction for the closed `K = 1` and
+`K = 3` families. The same service boundaries will extend to the remaining
+work:
 
 - family construction and raw IBP/LI generation;
-- closure campaigns for `K = 3` and `K = 6`;
-- durable artifacts and reduction to stable master keys for those families;
-- symmetry/factorization and lower-artifact routing required by them; and
+- closure campaigns for `K = 6`;
+- a durable artifact and reduction to stable master keys for that family;
+- the additional symmetry/factorization and lower-artifact routing it requires;
+  and
 - supplied master-value validation and substitution.
 
 These interfaces remain useful for arbitrary non-vacuum families. The Vakint

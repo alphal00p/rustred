@@ -1,33 +1,23 @@
 # RustRed examples
 
-These examples derive the complete ordinary parametric IBP source set for the
-two-loop, single-mass-scale vacuum (equal-mass sunset) family
+These three examples generate the complete closing parametric-IBP artifact for
+the two-loop single-scale vacuum sunset family. RustRed derives four ordinary
+sources and five guarded rule cells, closes every sector with exact `S3`
+routing, zero terminals, and one-loop factorization, then reduces the sample
+integral `I(2,2,1)` to masters `I(1,1,1)` and `I(0,1,1)`.
 
-```text
-D1 = k1^2 - m2
-D2 = k2^2 - m2
-D3 = (k1 + k2)^2 - m2.
-```
+- [`rust/`](rust/) uses the public `rustred` library directly.
+- [`cli/`](cli/) uses `rustred campaign generate`, `inspect`, and `reduce`.
+- [`python/`](python/) uses the public `import rustred` package.
 
-There are two loop momenta and no external momenta, so the generic ordinary
-source count is `L * (L + E) = 2 * 2 = 4`. Rust and Python assert the four
-stable row IDs directly, while the CLI fixture is pinned by its integration
-test. Every surface uses the equation convention
+The artifact sets the common squared mass to one. Each reduction coefficient
+also reports the exact power of `mass_squared` that restores a general common
+mass by dimensional homogeneity.
 
-```text
-sum(coefficient * I(n + shift)) = 0.
-```
+No parameter declaration exists or is needed in these preset closing-artifact
+workflows. In the separate generic `derive` input formats, RustRed infers
+family scalars such as `d` and `m2`; their optional parameter allowlist is an
+advanced validation aid, not required family data.
 
-Choose the interface you want to exercise:
-
-- [`rust/`](rust/) calls the fine-grained `rustred` Rust library directly;
-- [`cli/`](cli/) invokes the `rustred derive` command; and
-- [`python/`](python/) uses the public `import rustred` Python API.
-
-Run the documented commands inside the repository's pinned `nix develop`
-environment (or another environment providing the same Rust/Python tools).
-
-The examples generate the full universal parametric source identities over
-`K(n)`. They do not claim that those four identities are already a closed
-sector-reduction table. The common mass parameter `m2` can be specialized to
-`1` after generation when only the single-scale vacuum family is needed.
+Run the examples from the repository root in the pinned development
+environment with `SYMBOLICA_LICENSE` set.

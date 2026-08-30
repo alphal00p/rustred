@@ -31,13 +31,14 @@ RustRed currently provides a topology-neutral mathematical spine for:
   stream of compact rule-bound proper-subsector obligation descriptors;
 - a versioned immutable artifact owner whose current verifier freshly
   generates and seals the mathematically complete canonical one-loop `q^2-1`
-  vacuum partition, plus a deterministic bounded durable codec whose load
-  boundary independently regenerates the tagged canonical ordinary-source
-  plan, compares its complete semantic witness, exactly replays the stored
-  rule semantics, and installs one sealed owner;
-- a topology-independent deterministic memoizing reducer with explicit master
-  and zero terminals, concrete strict-descent checks, retained-payload limits,
-  and common-mass homogeneity restoration;
+  and equal-mass two-loop sunset vacuum partitions, plus a deterministic
+  bounded durable codec whose untrusted load boundary authenticates complete
+  source, cell, projection, symmetry, factorization, terminal, and homogeneity
+  semantics once;
+- a topology-independent deterministic memoizing reducer with canonical
+  symmetry routing, guarded cells, lower-artifact factorization, explicit
+  master and zero terminals, concrete strict-descent checks, retained-payload
+  limits, and common-mass homogeneity restoration;
 - sector masks, restrictions, deterministic ordering, verification of
   caller-supplied momentum maps, verified denominator permutations, and an
   on-demand sufficient zero-sector rank test; and
@@ -45,20 +46,20 @@ RustRed currently provides a topology-neutral mathematical spine for:
   width preflight, roots-only campaign planning, and canonical TOML output
   through Rust, CLI, and Python application surfaces.
 
-The application `derive` path still emits raw parametric identities. The new
-core parametric slice requires a representable fixed-sector interior of a
-caller-supplied source span. Its sector-monotone extension records boundary
-pinches as unresolved lower-sector dependencies but does **not** feed them
-back, refine exceptional guard-zero
-domains, prove source-set completeness or closure, or publish an artifact. No
-general application service substitutes masters or evaluates an integral. The
-core codec can publish/load bytes and `reduction::Reducer` applies the narrow
-sealed one-loop artifact; the Rust application, CLI, and Python transports
-generate, inspect, and apply those same durable bytes. The tensor slice does
-**not** support
-generic kinematics or even rank above two and is frozen during Stage 1.
-Generic source-count tests exercise only the row census; they are not physical
-closure results.
+The application `derive` path still emits raw parametric identities. The
+generic fixed-sector foundry exposes exact translated-source, elimination,
+guard, residual-projection, and dependency primitives; an artifact owner must
+compose those primitives with complete cell coverage, symmetry, zero,
+factorization, and terminal proofs before claiming closure. The installed
+`K = 1` and `K = 3` owners do so, including immutable lower-artifact feedback
+for the sunset pinch. No application service substitutes or numerically
+evaluates masters. The core codec publishes and loads both artifacts, and
+`reduction::Reducer` applies their guarded cells with canonical symmetry and
+memoized strict descent. The Rust application, CLI, and Python transports use
+those same durable bytes. The tensor slice does **not** support generic
+kinematics or even rank above two and is frozen during Stage 1. Generic
+three- and six-loop source-count tests exercise only row censuses; they are not
+physical closure results.
 
 The exact public Rust surface is the module facade in
 [`crates/rustred-core/src/lib.rs`](../crates/rustred-core/src/lib.rs). Public
@@ -189,13 +190,16 @@ and a stable process-local cursor over O(1) proper-subsector descriptors; exact
 cell domains are materialized only on demand. These values retain rule,
 coefficient, and guard context but do not refine applicability or feed solved
 children back. Separately, `foundry::artifact` generates and verifies the
-narrow canonical one-loop closure and seals it for `reduction`; it is not yet
-a generic multi-sector closure engine. Its schema-v1 codec owns deterministic
-semantic bytes and one-time bounded untrusted loading; it reconstructs
-the tagged complete-ordinary source plan under explicit generator/relation
-policies, compares every retained term, condition, and provenance byte before
-rule derivation, then authenticates exact rule replay against the stored
-snapshot.
+canonical `K = 1` and `K = 3` closures and seals them for `reduction`; the
+reusable primitives are topology-neutral, while these first complete
+partition verifiers are registered family manifests rather than a generic
+closure search. Its schema-v1 codec owns deterministic semantic bytes and
+one-time bounded untrusted loading. It reconstructs tagged complete-ordinary
+source plans under explicit family/generator/rule policies, compares retained
+semantics exactly, and authenticates replay before exposing a sealed owner.
+The sunset pinch additionally retains and replays a unimodular loop-basis
+certificate proving its denominator blocks factor into immutable `K = 1`
+dependencies.
 
 ### `sector`
 
@@ -291,11 +295,11 @@ The live core now contains two cohesive Stage 1 domains:
 
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|
-| `foundry::artifact` | Versioned immutable artifact values, a verifier that seals the freshly generated canonical one-loop unit-mass partition, and deterministic bounded encoding/loading with one-time independent source regeneration and rule replay at the untrusted boundary | `K = 3` and `K = 6` installers, including their symmetry, factorization, and lower-artifact proof plans |
-| `reduction` | Topology-independent deterministic rule selection/application, explicit-stack termination, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | Guard-aware symmetry/factorization application, lower-artifact terminals, and Vakint comparison |
+| `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary | The `K = 6` installer and its complete five-class coverage proof |
+| `reduction` | Topology-independent deterministic guarded rule selection/application, canonical symmetry routing, lower-artifact factorization, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | Vakint comparison and the additional generic features demanded by `K = 6` |
 
-These are real owners rather than empty shells. The one-loop artifact crosses
-a durable byte boundary through a separate user-facing application layer.
+These are real owners rather than empty shells. Both closed artifacts cross a
+durable byte boundary through one user-facing application layer.
 Dependencies remain acyclic: the foundry composes current
 mathematical domains and emits a sealed artifact value; reduction consumes
 artifacts; artifact models do not depend on application transports.

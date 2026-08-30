@@ -51,7 +51,7 @@ impl ParametricNonZeroCondition {
     /// insertion prevents a condition authenticated by a different indexed
     /// context from crossing the identity boundary without rescanning every
     /// polynomial term.
-    pub(in crate::identity) fn from_authenticated_with_limits(
+    pub(crate) fn from_authenticated_with_limits(
         polynomial: IndexedPolynomial,
         sources: impl IntoIterator<Item = IdentityConditionSource>,
         condition_limits: IdentityConditionLimits,

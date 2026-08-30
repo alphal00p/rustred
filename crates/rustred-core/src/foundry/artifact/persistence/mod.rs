@@ -10,6 +10,7 @@ mod binary;
 mod coefficient;
 mod limits;
 mod semantic;
+mod two_loop;
 
 use std::collections::BTreeSet;
 
@@ -25,7 +26,10 @@ use super::model::{
     ArtifactSchemaVersion, ClosedArtifact, CommonMassHomogeneityProof, ZeroSectorTerminal,
     ZeroTerminalProof,
 };
-use super::one_loop::ALGORITHM_ID;
+use super::one_loop::ALGORITHM_ID as ONE_LOOP_ALGORITHM_ID;
+use super::two_loop::{
+    ALGORITHM_ID as TWO_LOOP_ALGORITHM_ID, derive_two_loop_unit_mass_sunset_with_limits,
+};
 use binary::{Reader, Writer, try_vec};
 use coefficient::{decode_base_coefficient, encode_base_coefficient};
 pub use limits::{ArtifactEncodingLimits, ArtifactLoadLimits};
@@ -48,6 +52,8 @@ const TERMINALS_SECTION: u16 = 5;
 /// Translated-source plans will receive a distinct tag and payload grammar.
 const COMPLETE_ORDINARY_SOURCE_PLAN: u16 = 1;
 const INTERIOR_FIRST_DESCENDING_RULE_PLAN: u16 = 1;
+const REGISTERED_RULE_CELL_PLAN: u16 = 2;
+const TWO_LOOP_CLOSURE_HEADER: u16 = 0x200;
 
 fn write_section(
     output: &mut Writer,
@@ -66,12 +72,20 @@ pub(super) fn encode_with_limits(
     artifact: &ClosedArtifact,
     limits: ArtifactEncodingLimits,
 ) -> Result<Vec<u8>, ArtifactPersistenceError> {
+    let mut output = Writer::new(limits);
+    encode_into_writer(artifact, &mut output)?;
+    Ok(output.finish())
+}
+
+fn encode_into_writer(
+    artifact: &ClosedArtifact,
+    output: &mut Writer,
+) -> Result<(), ArtifactPersistenceError> {
     if artifact.schema() != ArtifactSchemaVersion::CURRENT {
         return Err(ArtifactPersistenceError::UnsupportedSchema {
             actual: artifact.schema().as_u32(),
         });
     }
-    let mut output = Writer::new(limits);
     output.raw(MAGIC)?;
     output.u32(artifact.schema().as_u32())?;
     output.u32(SECTION_COUNT)?;
@@ -81,11 +95,11 @@ pub(super) fn encode_with_limits(
     metadata.usize(artifact.arity(), "artifact arity")?;
     metadata.string(artifact.family_fingerprint(), "family fingerprint")?;
     metadata.string(artifact.context_fingerprint(), "context fingerprint")?;
-    write_section(&mut output, METADATA_SECTION, metadata)?;
+    write_section(output, METADATA_SECTION, metadata)?;
 
     let mut family = output.child();
     encode_family(&mut family, artifact.family())?;
-    write_section(&mut output, FAMILY_SECTION, family)?;
+    write_section(output, FAMILY_SECTION, family)?;
 
     let mut sources = output.child();
     sources.usize(1, "source derivation plans")?;
@@ -98,28 +112,32 @@ pub(super) fn encode_with_limits(
     source_plan.bytes(&source_snapshot, "source semantic witness")?;
     sources.u16(COMPLETE_ORDINARY_SOURCE_PLAN)?;
     sources.bytes(&source_plan.finish(), "source-plan bytes")?;
-    write_section(&mut output, SOURCES_SECTION, sources)?;
+    write_section(output, SOURCES_SECTION, sources)?;
 
     let mut rules = output.child();
-    rules.usize(artifact.rules().len(), "artifact rules")?;
-    for rule in artifact.rules() {
-        // Schema-v1 derivation plan: deterministic first-descending interior
-        // rule from the independently regenerated source set.
-        let mut plan = rules.child();
-        encode_integral_key(&mut plan, rule.anchor())?;
-        plan.string(rule.ordering().stable_id(), "rule ordering identifier")?;
-        let snapshot = encode_rule_snapshot(rule, &rules)?;
-        rules.charge_witness_payload(snapshot.len())?;
-        plan.bytes(&snapshot, "rule snapshot bytes")?;
-        rules.u16(INTERIOR_FIRST_DESCENDING_RULE_PLAN)?;
-        rules.bytes(&plan.finish(), "rule-plan bytes")?;
+    if artifact.algorithm_id() == TWO_LOOP_ALGORITHM_ID {
+        two_loop::encode(&mut rules, artifact)?;
+    } else {
+        rules.usize(artifact.rules().len(), "artifact rules")?;
+        for rule in artifact.rules() {
+            // Schema-v1 derivation plan: deterministic first-descending
+            // interior rule from the independently regenerated source set.
+            let mut plan = rules.child();
+            encode_integral_key(&mut plan, rule.anchor())?;
+            plan.string(rule.ordering().stable_id(), "rule ordering identifier")?;
+            let snapshot = encode_rule_snapshot(rule, &rules)?;
+            rules.charge_witness_payload(snapshot.len())?;
+            plan.bytes(&snapshot, "rule snapshot bytes")?;
+            rules.u16(INTERIOR_FIRST_DESCENDING_RULE_PLAN)?;
+            rules.bytes(&plan.finish(), "rule-plan bytes")?;
+        }
     }
-    write_section(&mut output, RULES_SECTION, rules)?;
+    write_section(output, RULES_SECTION, rules)?;
 
     let mut terminals = output.child();
     encode_terminals(&mut terminals, artifact)?;
-    write_section(&mut output, TERMINALS_SECTION, terminals)?;
-    Ok(output.finish())
+    write_section(output, TERMINALS_SECTION, terminals)?;
+    Ok(())
 }
 
 struct EncodedSourcePlan<'input> {
@@ -162,7 +180,8 @@ pub(super) fn decode(
     let mut metadata = input.child(metadata_bytes);
     let algorithm = decode_owned_string(&mut metadata, "algorithm identifier")?;
     let algorithm_id = match algorithm.as_str() {
-        ALGORITHM_ID => ALGORITHM_ID,
+        ONE_LOOP_ALGORITHM_ID => ONE_LOOP_ALGORITHM_ID,
+        TWO_LOOP_ALGORITHM_ID => TWO_LOOP_ALGORITHM_ID,
         _ => {
             return Err(ArtifactPersistenceError::UnsupportedFeature {
                 detail: "unknown closing algorithm identifier",
@@ -177,16 +196,51 @@ pub(super) fn decode(
             limit: limits.max_index_arity,
         });
     }
-    // Schema-v1 currently recognizes only the K=1 algorithm. Reject its
-    // algorithm-specific shape before reading any family coefficient.
-    if arity != 1 {
+    let expected_arity = if algorithm_id == ONE_LOOP_ALGORITHM_ID {
+        1
+    } else {
+        3
+    };
+    if arity != expected_arity {
         return Err(ArtifactPersistenceError::SemanticMismatch {
-            field: "one-loop algorithm arity",
+            field: if algorithm_id == ONE_LOOP_ALGORITHM_ID {
+                "one-loop algorithm arity"
+            } else {
+                "two-loop algorithm arity"
+            },
         });
     }
     let expected_family_fingerprint = decode_owned_string(&mut metadata, "family fingerprint")?;
     let expected_context_fingerprint = decode_owned_string(&mut metadata, "context fingerprint")?;
     metadata.finish()?;
+
+    if algorithm_id == TWO_LOOP_ALGORITHM_ID {
+        // K=3 schema-v1 owns complete cell/projection/factorization snapshots.
+        // At this untrusted boundary only, regenerate the registered exact
+        // foundry plan and compare its complete deterministic encoding. The
+        // returned sealed artifact is then reused without authentication or
+        // foundry work in reducer hot paths.
+        let artifact = derive_two_loop_unit_mass_sunset_with_limits(
+            limits.family,
+            limits.source_generation,
+            limits.rule_derivation,
+        )
+        .map_err(ArtifactPersistenceError::from)?;
+        if artifact.family_fingerprint() != expected_family_fingerprint
+            || artifact.context_fingerprint() != expected_context_fingerprint
+        {
+            return Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "two-loop metadata witness",
+            });
+        }
+        let regenerated = encode_with_limits(&artifact, limits.replay_encoding())?;
+        if regenerated.as_slice() != bytes {
+            return Err(ArtifactPersistenceError::SemanticMismatch {
+                field: "two-loop complete artifact witness",
+            });
+        }
+        return Ok(artifact);
+    }
 
     // Parse and globally charge all opaque coefficient-bearing witnesses
     // before family reconstruction or source/rule native work.
@@ -265,10 +319,16 @@ pub(super) fn decode(
         schema: ArtifactSchemaVersion::V1,
         algorithm_id,
         arity,
+        supported_root_power_bounds: vec![crate::sector::InteriorBounds::new(i64::MIN, i64::MAX)]
+            .into_boxed_slice(),
         family,
         context,
         source_relations,
         rules,
+        rule_cells: Vec::new(),
+        canonicalizer: None,
+        dependencies: Vec::new(),
+        factorization_rules: Vec::new(),
         masters: decoded_terminals.masters,
         zero_sectors: decoded_terminals.zero_sectors,
         common_mass_homogeneity: decoded_terminals.common_mass_homogeneity,
@@ -533,6 +593,7 @@ fn encode_terminals(
         encode_bool_slice(writer, terminal.sector().active_bits())?;
         writer.u8(match terminal.proof() {
             ZeroTerminalProof::ScalelessVacuumPolynomial => 0,
+            ZeroTerminalProof::LeePomeranskyRankDeficiency => 1,
         })?;
     }
     writer.u8(match artifact.common_mass_homogeneity() {
@@ -579,6 +640,7 @@ fn decode_terminals(
         let sector = Mask::try_new(active).map_err(ArtifactError::from)?;
         let proof = match reader.u8()? {
             0 => ZeroTerminalProof::ScalelessVacuumPolynomial,
+            1 => ZeroTerminalProof::LeePomeranskyRankDeficiency,
             _ => {
                 return Err(ArtifactPersistenceError::UnsupportedFeature {
                     detail: "unknown zero-terminal proof",
@@ -601,4 +663,49 @@ fn decode_terminals(
         zero_sectors,
         common_mass_homogeneity,
     })
+}
+
+#[cfg(test)]
+mod aggregate_budget_tests {
+    use super::*;
+    use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
+
+    #[test]
+    fn nested_documents_share_the_root_aggregate_coefficient_budget() {
+        let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+        let mut lower = 0usize;
+        let mut upper = ArtifactEncodingLimits::default().max_total_coefficient_bytes;
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2;
+            if encode_with_limits(
+                &artifact,
+                ArtifactEncodingLimits {
+                    max_total_coefficient_bytes: middle,
+                    ..ArtifactEncodingLimits::default()
+                },
+            )
+            .is_ok()
+            {
+                upper = middle;
+            } else {
+                lower = middle + 1;
+            }
+        }
+        assert!(lower > 0);
+
+        let root = Writer::new(ArtifactEncodingLimits {
+            max_total_coefficient_bytes: lower,
+            ..ArtifactEncodingLimits::default()
+        });
+        let mut first = root.child();
+        encode_into_writer(&artifact, &mut first).unwrap();
+        let mut second = root.child();
+        assert!(matches!(
+            encode_into_writer(&artifact, &mut second),
+            Err(ArtifactPersistenceError::ResourceLimit {
+                resource: "aggregate coefficient bytes",
+                ..
+            })
+        ));
+    }
 }

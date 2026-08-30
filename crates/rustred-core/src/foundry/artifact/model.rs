@@ -3,11 +3,13 @@ use std::sync::Arc;
 
 use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
 use crate::family::{IntegralFamily, IntegralKey};
+use crate::foundry::cell::RuleCell;
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::ParametricRelation;
-use crate::sector::Mask;
+use crate::sector::{InteriorBounds, Mask, symmetry::Canonicalizer};
 
 use super::error::ArtifactPersistenceError;
+use super::factorization::FactorizationRule;
 
 /// Stable schema identity of an installed closing artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -37,6 +39,10 @@ pub enum ZeroTerminalProof {
     /// With every denominator absent, a vacuum integrand is polynomial in
     /// loop momenta and has no scale in dimensional regularization.
     ScalelessVacuumPolynomial,
+    /// The exact Lee--Pomeransky exponent matrix is rank deficient on this
+    /// sector. Installation reruns the generic Symbolica-backed analyzer and
+    /// accepts this tag only when its primitive integer kernel replays.
+    LeePomeranskyRankDeficiency,
 }
 
 /// Exact reason why a unit-scale reduction can restore one common mass by
@@ -62,6 +68,7 @@ impl ZeroTerminalProof {
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::ScalelessVacuumPolynomial => "rustred.zero.scaleless-vacuum-polynomial.v1",
+            Self::LeePomeranskyRankDeficiency => "rustred.zero.lee-pomeransky-rank-deficiency.v1",
         }
     }
 }
@@ -135,19 +142,24 @@ impl ArtifactValidationWitness {
 /// The runtime owner is independent of loop count and topology. Its ordered
 /// rules, exact master keys, and proof-backed zero sectors are installed only
 /// after one closure-specific verifier has discharged the whole lattice
-/// partition. The first verifier currently accepts only the generated
-/// one-loop unit-mass vacuum preset; unsupported candidate shapes never
-/// become this sealed type.
+/// partition. Registered verifiers currently accept the generated unit-mass
+/// `K = 1` tadpole and `K = 3` sunset families; unsupported candidate shapes
+/// never become this sealed type.
 #[derive(Debug)]
 pub struct ClosedArtifact {
     pub(super) schema: ArtifactSchemaVersion,
     pub(super) algorithm_id: &'static str,
     pub(super) arity: usize,
+    pub(super) supported_root_power_bounds: Box<[InteriorBounds]>,
     pub(super) family: IntegralFamily,
     pub(super) family_fingerprint: Arc<String>,
     pub(super) context: IndexedCoefficientContext,
     pub(super) source_relations: Vec<ParametricRelation>,
     pub(super) rules: Vec<ParametricRule>,
+    pub(super) rule_cells: Vec<RuleCell>,
+    pub(super) canonicalizer: Option<Canonicalizer>,
+    pub(super) dependencies: Vec<Box<ClosedArtifact>>,
+    pub(super) factorization_rules: Vec<FactorizationRule>,
     pub(super) masters: BTreeSet<IntegralKey>,
     pub(super) zero_sectors: Vec<ZeroSectorTerminal>,
     pub(super) common_mass_homogeneity: Option<CommonMassHomogeneityProof>,
@@ -165,6 +177,14 @@ impl ClosedArtifact {
 
     pub fn arity(&self) -> usize {
         self.arity
+    }
+
+    /// Certified rectangular machine-index domain accepted at the public
+    /// reduction boundary. Descendants may temporarily reach representation
+    /// endpoints outside this root box when their sealed descent proof makes
+    /// that arithmetic safe.
+    pub fn supported_root_power_bounds(&self) -> &[InteriorBounds] {
+        &self.supported_root_power_bounds
     }
 
     pub fn family_fingerprint(&self) -> &str {
@@ -191,6 +211,30 @@ impl ClosedArtifact {
     /// selection.
     pub fn rules(&self) -> &[ParametricRule] {
         &self.rules
+    }
+
+    /// Proof-bearing exceptional/application cells in deterministic
+    /// first-applicable order. Each cell retains its translated source span,
+    /// exact guard domain, and any coefficient-dead boundary pruning.
+    pub fn rule_cells(&self) -> &[RuleCell] {
+        &self.rule_cells
+    }
+
+    /// Exact family-internal orbit owner used before terminal lookup and
+    /// memoization.  Absence means that the family has no installed symmetry
+    /// action beyond the identity.
+    pub fn canonicalizer(&self) -> Option<&Canonicalizer> {
+        self.canonicalizer.as_ref()
+    }
+
+    /// Immutable lower-family artifacts used by exact factorization cells.
+    pub fn dependencies(&self) -> &[Box<ClosedArtifact>] {
+        &self.dependencies
+    }
+
+    /// Deterministically ordered exact factorization actions.
+    pub fn factorization_rules(&self) -> &[FactorizationRule] {
+        &self.factorization_rules
     }
 
     pub fn masters(&self) -> &BTreeSet<IntegralKey> {

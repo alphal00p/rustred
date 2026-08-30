@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::algebra::{
     Coefficient, CoefficientContext, coefficient_clone_owned_retained_byte_bound,
 };
 use crate::family::IntegralKey;
 use crate::foundry::artifact::{ClosedArtifact, CommonMassHomogeneityProof};
+use crate::foundry::cell::RuleCellTerm;
 use crate::foundry::parametric::ParametricRule;
 
 use super::error::ReductionError;
@@ -20,8 +21,10 @@ pub struct Reducer<'artifact> {
     limits: ReductionLimits,
     cache: BTreeMap<IntegralKey, MasterDecomposition>,
     cache_weight: CacheWeight,
+    shared_cache: Arc<SharedCacheBudget>,
     statistics: ReductionStatistics,
     family_fingerprint: Arc<String>,
+    dependency_reducers: Vec<Reducer<'artifact>>,
 }
 
 impl<'artifact> Reducer<'artifact> {
@@ -33,13 +36,37 @@ impl<'artifact> Reducer<'artifact> {
         artifact: &'artifact ClosedArtifact,
         limits: ReductionLimits,
     ) -> Result<Self, ReductionError> {
+        Self::build(artifact, limits, Arc::new(SharedCacheBudget::default()))
+    }
+
+    fn build(
+        artifact: &'artifact ClosedArtifact,
+        limits: ReductionLimits,
+        shared_cache: Arc<SharedCacheBudget>,
+    ) -> Result<Self, ReductionError> {
+        let mut dependency_reducers = Vec::new();
+        dependency_reducers
+            .try_reserve_exact(artifact.dependencies().len())
+            .map_err(|_| ReductionError::AllocationFailure {
+                resource: "lower-artifact reducers",
+                requested: artifact.dependencies().len(),
+            })?;
+        for dependency in artifact.dependencies() {
+            dependency_reducers.push(Self::build(
+                dependency.as_ref(),
+                limits,
+                shared_cache.clone(),
+            )?);
+        }
         let mut reducer = Self {
             artifact,
             limits,
             cache: BTreeMap::new(),
             cache_weight: CacheWeight::default(),
+            shared_cache,
             statistics: ReductionStatistics::default(),
             family_fingerprint: artifact.family_fingerprint_owner(),
+            dependency_reducers,
         };
         reducer.seed_master_terminals()?;
         Ok(reducer)
@@ -54,15 +81,32 @@ impl<'artifact> Reducer<'artifact> {
     }
 
     pub fn statistics(&self) -> ReductionStatistics {
-        self.statistics
+        let mut aggregate = ReductionStatistics::default();
+        self.merge_work_statistics(&mut aggregate);
+        let census = self.shared_cache.snapshot();
+        aggregate.set_cache_census(
+            census.integrals,
+            census.coefficient_terms,
+            census.coefficient_bytes,
+        );
+        aggregate
     }
 
     /// Drop all memoized nonterminal results while retaining the explicit
     /// artifact master terminals.
     pub fn clear_cache(&mut self) -> Result<(), ReductionError> {
+        for dependency in &mut self.dependency_reducers {
+            dependency.clear_cache()?;
+        }
+        self.shared_cache.replace(
+            self.cache.len(),
+            self.cache_weight,
+            0,
+            CacheWeight::default(),
+            self.limits,
+        )?;
         self.cache.clear();
         self.cache_weight = CacheWeight::default();
-        self.refresh_cache_census();
         self.seed_master_terminals()
     }
 
@@ -71,7 +115,34 @@ impl<'artifact> Reducer<'artifact> {
         &mut self,
         target: &IntegralKey,
     ) -> Result<MasterDecomposition, ReductionError> {
+        let mut request = ReductionRequest::default();
+        self.reduce_unit_mass_in_request(target, &mut request)
+    }
+
+    fn reduce_unit_mass_in_request(
+        &mut self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+    ) -> Result<MasterDecomposition, ReductionError> {
         self.validate_target(target)?;
+        let canonical_target = self.canonicalize(target)?;
+        let canonical = self.reduce_canonical_unit_mass(&canonical_target, request)?;
+        if canonical_target == *target {
+            Ok(canonical)
+        } else {
+            Ok(MasterDecomposition::new(
+                self.family_fingerprint.clone(),
+                target.clone(),
+                canonical.into_terms(),
+            ))
+        }
+    }
+
+    fn reduce_canonical_unit_mass(
+        &mut self,
+        target: &IntegralKey,
+        request: &mut ReductionRequest,
+    ) -> Result<MasterDecomposition, ReductionError> {
         if let Some(cached) = self.cache.get(target).cloned() {
             self.statistics.record_cache_hit();
             return Ok(cached);
@@ -80,8 +151,6 @@ impl<'artifact> Reducer<'artifact> {
         let mut stack = Vec::new();
         self.push_frame(&mut stack, Frame::Expand(target.clone()))?;
         let mut active = BTreeSet::new();
-        let mut call_rule_applications = 0usize;
-
         while let Some(frame) = stack.pop() {
             match frame {
                 Frame::Expand(key) => {
@@ -100,20 +169,17 @@ impl<'artifact> Reducer<'artifact> {
                         )?;
                         continue;
                     }
+                    if let Some(factorization_ordinal) = self.select_first_factorization(&key)? {
+                        request.record_rule_application(self.limits.max_rule_applications)?;
+                        let expansion =
+                            self.apply_factorization(&key, factorization_ordinal, request)?;
+                        self.statistics.record_rule_application();
+                        self.cache_insert(key, expansion)?;
+                        continue;
+                    }
                     begin_expansion(&mut active, &key)?;
                     let selected = self.select_first_rule(&key)?;
-                    call_rule_applications = call_rule_applications.checked_add(1).ok_or(
-                        ReductionError::RuleApplicationLimit {
-                            requested: usize::MAX,
-                            limit: self.limits.max_rule_applications,
-                        },
-                    )?;
-                    if call_rule_applications > self.limits.max_rule_applications {
-                        return Err(ReductionError::RuleApplicationLimit {
-                            requested: call_rule_applications,
-                            limit: self.limits.max_rule_applications,
-                        });
-                    }
+                    request.record_rule_application(self.limits.max_rule_applications)?;
                     let application = self.apply_selected_rule(&key, selected)?;
                     self.statistics.record_rule_application();
                     let mut children = Vec::new();
@@ -245,20 +311,61 @@ impl<'artifact> Reducer<'artifact> {
     }
 
     fn validate_target(&self, target: &IntegralKey) -> Result<(), ReductionError> {
-        if target.powers().len() == self.artifact.arity() {
-            Ok(())
-        } else {
-            Err(ReductionError::WrongArity {
+        if target.powers().len() != self.artifact.arity() {
+            return Err(ReductionError::WrongArity {
                 expected: self.artifact.arity(),
                 actual: target.powers().len(),
-            })
+            });
         }
+        for (position, (&value, bounds)) in target
+            .powers()
+            .iter()
+            .zip(self.artifact.supported_root_power_bounds())
+            .enumerate()
+        {
+            if !bounds.contains(value) {
+                return Err(ReductionError::OutsideCertifiedRootDomain {
+                    position,
+                    value,
+                    lower: bounds.lower(),
+                    upper: bounds.upper(),
+                });
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn select_first_rule(
         &self,
         target: &IntegralKey,
     ) -> Result<SelectedRule<'_>, ReductionError> {
+        for cell in self.artifact.rule_cells() {
+            let Some(assignment) = cell.assignment_for_target(target)? else {
+                continue;
+            };
+            let mut applicable = true;
+            for guard in cell.guards() {
+                let specialized = self
+                    .artifact
+                    .indexed_context()
+                    .specialize_polynomial_sealed(
+                        guard.polynomial(),
+                        &assignment,
+                        self.limits.indexed_algebra,
+                    )?;
+                if specialized.is_zero() {
+                    applicable = false;
+                    break;
+                }
+            }
+            if applicable {
+                return Ok(SelectedRule {
+                    rule: cell.rule(),
+                    assignment,
+                    retained_terms: Some(cell.terms()),
+                });
+            }
+        }
         for rule in self.artifact.rules() {
             let mut assignment = Vec::new();
             assignment
@@ -276,12 +383,90 @@ impl<'artifact> Reducer<'artifact> {
                 assignment.push(value);
             }
             if representable && rule.domain().contains(&assignment)? {
-                return Ok(SelectedRule { rule, assignment });
+                return Ok(SelectedRule {
+                    rule,
+                    assignment,
+                    retained_terms: None,
+                });
             }
         }
         Err(ReductionError::UncoveredIntegral {
             target: target.clone(),
         })
+    }
+
+    fn select_first_factorization(
+        &self,
+        target: &IntegralKey,
+    ) -> Result<Option<usize>, ReductionError> {
+        for (ordinal, rule) in self.artifact.factorization_rules().iter().enumerate() {
+            if rule.application_domain().contains(target.powers())? {
+                return Ok(Some(ordinal));
+            }
+        }
+        Ok(None)
+    }
+
+    fn apply_factorization(
+        &mut self,
+        target: &IntegralKey,
+        factorization_ordinal: usize,
+        request: &mut ReductionRequest,
+    ) -> Result<MasterDecomposition, ReductionError> {
+        let rule = self
+            .artifact
+            .factorization_rules()
+            .get(factorization_ordinal)
+            .ok_or(ReductionError::ReducerInvariant {
+                detail: "a selected factorization ordinal is absent",
+            })?;
+        let context = self.artifact.coefficient_context();
+        let mut coefficient = rule.normalization().clone();
+        for factor in rule.factors() {
+            let mut powers = Vec::new();
+            powers
+                .try_reserve_exact(factor.parent_positions().len())
+                .map_err(|_| ReductionError::AllocationFailure {
+                    resource: "factorized lower-integral powers",
+                    requested: factor.parent_positions().len(),
+                })?;
+            for &position in factor.parent_positions() {
+                powers.push(*target.powers().get(position).ok_or(
+                    ReductionError::ReducerInvariant {
+                        detail: "a sealed factorization projection is out of range",
+                    },
+                )?);
+            }
+            let dependency_target = IntegralKey::try_new(powers)?;
+            let dependency = self
+                .dependency_reducers
+                .get_mut(factor.dependency_ordinal())
+                .ok_or(ReductionError::ReducerInvariant {
+                    detail: "a sealed factorization dependency is absent",
+                })?;
+            let expansion = dependency.reduce_unit_mass_in_request(&dependency_target, request)?;
+            if expansion.terms().len() != 1 {
+                return Err(ReductionError::UnexpectedDependencyMaster {
+                    dependency_ordinal: factor.dependency_ordinal(),
+                });
+            }
+            let factor_coefficient = expansion.coefficient(factor.dependency_master()).ok_or(
+                ReductionError::UnexpectedDependencyMaster {
+                    dependency_ordinal: factor.dependency_ordinal(),
+                },
+            )?;
+            coefficient =
+                context.try_mul(&coefficient, factor_coefficient, self.limits.exact_algebra)?;
+        }
+        let mut masters = BTreeMap::new();
+        if !coefficient.is_zero() {
+            masters.insert(rule.parent_master().clone(), coefficient);
+        }
+        Ok(MasterDecomposition::new(
+            self.family_fingerprint.clone(),
+            target.clone(),
+            masters,
+        ))
     }
 
     fn apply_selected_rule(
@@ -296,7 +481,19 @@ impl<'artifact> Reducer<'artifact> {
                 resource: "applied rule right-hand side",
                 requested: selected.rule.right_hand_side().len(),
             })?;
-        for term in selected.rule.right_hand_side() {
+        let retained_ordinals = selected.retained_terms.map(|terms| {
+            terms
+                .iter()
+                .map(RuleCellTerm::source_rhs_ordinal)
+                .collect::<BTreeSet<_>>()
+        });
+        for (ordinal, term) in selected.rule.right_hand_side().iter().enumerate() {
+            if retained_ordinals
+                .as_ref()
+                .is_some_and(|retained| !retained.contains(&ordinal))
+            {
+                continue;
+            }
             let mut child_powers = Vec::new();
             child_powers
                 .try_reserve_exact(self.artifact.arity())
@@ -316,25 +513,38 @@ impl<'artifact> Reducer<'artifact> {
                         .ok_or(ReductionError::IndexOverflow { position })?,
                 );
             }
-            let child = IntegralKey::try_new(child_powers)?;
+            let raw_child = IntegralKey::try_new(child_powers)?;
             selected
                 .rule
                 .ordering()
-                .prove_strict_descent(target.powers(), child.powers())?;
-            let (coefficient, denominator_guard) =
+                .prove_strict_descent(target.powers(), raw_child.powers())?;
+            let child = if let Some(canonicalizer) = self.artifact.canonicalizer() {
+                canonicalizer
+                    .canonicalize_descending_child(target, &raw_child)?
+                    .into_child()
+                    .canonical()
+                    .clone()
+            } else {
+                raw_child
+            };
+            let (coefficient, _formal_parameter_denominator) =
                 self.artifact.indexed_context().specialize_sealed(
                     term.coefficient(),
                     &selected.assignment,
                     self.limits.indexed_algebra,
                 )?;
-            if denominator_guard.is_some() {
-                return Err(ReductionError::UnexpectedCoefficientGuard);
-            }
             if !coefficient.is_zero() {
                 terms.push((child, coefficient));
             }
         }
         Ok(terms)
+    }
+
+    fn canonicalize(&self, target: &IntegralKey) -> Result<IntegralKey, ReductionError> {
+        match self.artifact.canonicalizer() {
+            Some(canonicalizer) => Ok(canonicalizer.canonicalize(target)?.canonical().clone()),
+            None => Ok(target.clone()),
+        }
     }
 
     fn push_frame(&self, stack: &mut Vec<Frame>, frame: Frame) -> Result<(), ReductionError> {
@@ -366,22 +576,7 @@ impl<'artifact> Reducer<'artifact> {
         key: IntegralKey,
         value: MasterDecomposition,
     ) -> Result<(), ReductionError> {
-        if !self.cache.contains_key(&key) {
-            let requested = self
-                .cache
-                .len()
-                .checked_add(1)
-                .ok_or(ReductionError::CacheLimit {
-                    requested: usize::MAX,
-                    limit: self.limits.max_cached_integrals,
-                })?;
-            if requested > self.limits.max_cached_integrals {
-                return Err(ReductionError::CacheLimit {
-                    requested,
-                    limit: self.limits.max_cached_integrals,
-                });
-            }
-        }
+        let previous_count = usize::from(self.cache.contains_key(&key));
         let previous_weight = self
             .cache
             .get(&key)
@@ -391,21 +586,15 @@ impl<'artifact> Reducer<'artifact> {
         let value_weight = decomposition_cache_weight(&value)?;
         let retained_without_previous = self.cache_weight.checked_sub(previous_weight)?;
         let prospective_weight = retained_without_previous.checked_add(value_weight)?;
-        if prospective_weight.coefficient_terms > self.limits.max_cached_coefficient_terms {
-            return Err(ReductionError::CacheCoefficientTermLimit {
-                requested: prospective_weight.coefficient_terms,
-                limit: self.limits.max_cached_coefficient_terms,
-            });
-        }
-        if prospective_weight.coefficient_bytes > self.limits.max_cached_coefficient_bytes {
-            return Err(ReductionError::CacheCoefficientByteLimit {
-                requested: prospective_weight.coefficient_bytes,
-                limit: self.limits.max_cached_coefficient_bytes,
-            });
-        }
+        self.shared_cache.replace(
+            previous_count,
+            previous_weight,
+            1,
+            value_weight,
+            self.limits,
+        )?;
         self.cache.insert(key, value);
         self.cache_weight = prospective_weight;
-        self.refresh_cache_census();
         Ok(())
     }
 
@@ -426,16 +615,38 @@ impl<'artifact> Reducer<'artifact> {
                 MasterDecomposition::new(self.family_fingerprint.clone(), master, terms),
             )?;
         }
-        self.refresh_cache_census();
         Ok(())
     }
 
-    fn refresh_cache_census(&mut self) {
-        self.statistics.set_cache_census(
-            self.cache.len(),
-            self.cache_weight.coefficient_terms,
-            self.cache_weight.coefficient_bytes,
-        );
+    fn merge_work_statistics(&self, aggregate: &mut ReductionStatistics) {
+        aggregate.merge_work(self.statistics);
+        for dependency in &self.dependency_reducers {
+            dependency.merge_work_statistics(aggregate);
+        }
+    }
+}
+
+#[derive(Default)]
+struct ReductionRequest {
+    rule_applications: usize,
+}
+
+impl ReductionRequest {
+    fn record_rule_application(&mut self, limit: usize) -> Result<(), ReductionError> {
+        self.rule_applications =
+            self.rule_applications
+                .checked_add(1)
+                .ok_or(ReductionError::RuleApplicationLimit {
+                    requested: usize::MAX,
+                    limit,
+                })?;
+        if self.rule_applications > limit {
+            return Err(ReductionError::RuleApplicationLimit {
+                requested: self.rule_applications,
+                limit,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -443,6 +654,86 @@ impl<'artifact> Reducer<'artifact> {
 struct CacheWeight {
     coefficient_terms: usize,
     coefficient_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CacheCensus {
+    integrals: usize,
+    coefficient_terms: usize,
+    coefficient_bytes: usize,
+}
+
+#[derive(Debug, Default)]
+struct SharedCacheBudget {
+    census: Mutex<CacheCensus>,
+}
+
+impl SharedCacheBudget {
+    fn snapshot(&self) -> CacheCensus {
+        *self
+            .census
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn replace(
+        &self,
+        old_integrals: usize,
+        old_weight: CacheWeight,
+        new_integrals: usize,
+        new_weight: CacheWeight,
+        limits: ReductionLimits,
+    ) -> Result<(), ReductionError> {
+        let mut census = self
+            .census
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let integrals = census
+            .integrals
+            .checked_sub(old_integrals)
+            .and_then(|value| value.checked_add(new_integrals))
+            .ok_or(ReductionError::CacheResourceCountOverflow {
+                resource: "retained integrals",
+            })?;
+        let coefficient_terms = census
+            .coefficient_terms
+            .checked_sub(old_weight.coefficient_terms)
+            .and_then(|value| value.checked_add(new_weight.coefficient_terms))
+            .ok_or(ReductionError::CacheResourceCountOverflow {
+                resource: "retained coefficient terms",
+            })?;
+        let coefficient_bytes = census
+            .coefficient_bytes
+            .checked_sub(old_weight.coefficient_bytes)
+            .and_then(|value| value.checked_add(new_weight.coefficient_bytes))
+            .ok_or(ReductionError::CacheResourceCountOverflow {
+                resource: "retained coefficient bytes",
+            })?;
+        if integrals > limits.max_cached_integrals {
+            return Err(ReductionError::CacheLimit {
+                requested: integrals,
+                limit: limits.max_cached_integrals,
+            });
+        }
+        if coefficient_terms > limits.max_cached_coefficient_terms {
+            return Err(ReductionError::CacheCoefficientTermLimit {
+                requested: coefficient_terms,
+                limit: limits.max_cached_coefficient_terms,
+            });
+        }
+        if coefficient_bytes > limits.max_cached_coefficient_bytes {
+            return Err(ReductionError::CacheCoefficientByteLimit {
+                requested: coefficient_bytes,
+                limit: limits.max_cached_coefficient_bytes,
+            });
+        }
+        *census = CacheCensus {
+            integrals,
+            coefficient_terms,
+            coefficient_bytes,
+        };
+        Ok(())
+    }
 }
 
 impl CacheWeight {
@@ -518,6 +809,7 @@ enum Frame {
 pub(super) struct SelectedRule<'rule> {
     pub(super) rule: &'rule ParametricRule,
     assignment: Vec<i64>,
+    retained_terms: Option<&'rule [RuleCellTerm]>,
 }
 
 pub(super) fn begin_expansion(

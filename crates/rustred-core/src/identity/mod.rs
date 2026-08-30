@@ -17,3 +17,5 @@ pub use generator::{
 };
 pub use relation::{IndexShift, ParametricRelation, ParametricRelationError, RelationLimits};
 pub use row::RowId;
+
+pub(crate) use relation::Builder as RelationBuilder;

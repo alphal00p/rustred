@@ -2,7 +2,9 @@ use std::fmt;
 
 use crate::algebra::{ExactAlgebraError, IndexedAlgebraError};
 use crate::family::IntegralKeyError;
+use crate::foundry::cell::RuleCellError;
 use crate::sector;
+use crate::sector::symmetry::CanonicalizationError;
 
 /// Typed failure while applying a sealed closing artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10,6 +12,12 @@ pub enum ReductionError {
     WrongArity {
         expected: usize,
         actual: usize,
+    },
+    OutsideCertifiedRootDomain {
+        position: usize,
+        value: i64,
+        lower: i64,
+        upper: i64,
     },
     IndexOverflow {
         position: usize,
@@ -50,7 +58,9 @@ pub enum ReductionError {
     ReducerInvariant {
         detail: &'static str,
     },
-    UnexpectedCoefficientGuard,
+    UnexpectedDependencyMaster {
+        dependency_ordinal: usize,
+    },
     ZeroCommonMass,
     MissingCommonMassHomogeneityProof,
     CommonMassPowerOverflow,
@@ -58,6 +68,8 @@ pub enum ReductionError {
     IndexedAlgebra(IndexedAlgebraError),
     ExactAlgebra(ExactAlgebraError),
     Ordering(sector::Error),
+    RuleCell(RuleCellError),
+    Canonicalization(CanonicalizationError),
 }
 
 impl fmt::Display for ReductionError {
@@ -66,8 +78,20 @@ impl fmt::Display for ReductionError {
             Self::WrongArity { expected, actual } => {
                 write!(formatter, "integral arity is {actual}, expected {expected}")
             }
+            Self::OutsideCertifiedRootDomain {
+                position,
+                value,
+                lower,
+                upper,
+            } => write!(
+                formatter,
+                "integral power {value} at position {position} is outside the artifact's certified root domain [{lower}, {upper}]"
+            ),
             Self::IndexOverflow { position } => {
-                write!(formatter, "integral-index arithmetic overflowed at position {position}")
+                write!(
+                    formatter,
+                    "integral-index arithmetic overflowed at position {position}"
+                )
             }
             Self::UncoveredIntegral { target } => write!(
                 formatter,
@@ -113,20 +137,25 @@ impl fmt::Display for ReductionError {
             Self::ReducerInvariant { detail } => {
                 write!(formatter, "sealed reducer invariant failed: {detail}")
             }
-            Self::UnexpectedCoefficientGuard => formatter.write_str(
-                "a sealed universally applicable rule produced an unexpected base-parameter denominator guard",
+            Self::UnexpectedDependencyMaster { dependency_ordinal } => write!(
+                formatter,
+                "factorization dependency {dependency_ordinal} reduced outside its sealed typed master"
             ),
-            Self::ZeroCommonMass => formatter
-                .write_str("common-mass restoration requires nonzero mass squared"),
+            Self::ZeroCommonMass => {
+                formatter.write_str("common-mass restoration requires nonzero mass squared")
+            }
             Self::MissingCommonMassHomogeneityProof => formatter.write_str(
                 "the closed artifact has no proof for common-mass homogeneity restoration",
             ),
-            Self::CommonMassPowerOverflow => formatter
-                .write_str("the common-mass homogeneity exponent cannot be represented"),
+            Self::CommonMassPowerOverflow => {
+                formatter.write_str("the common-mass homogeneity exponent cannot be represented")
+            }
             Self::IntegralKey(error) => error.fmt(formatter),
             Self::IndexedAlgebra(error) => error.fmt(formatter),
             Self::ExactAlgebra(error) => error.fmt(formatter),
             Self::Ordering(error) => error.fmt(formatter),
+            Self::RuleCell(error) => error.fmt(formatter),
+            Self::Canonicalization(error) => error.fmt(formatter),
         }
     }
 }
@@ -154,5 +183,17 @@ impl From<ExactAlgebraError> for ReductionError {
 impl From<sector::Error> for ReductionError {
     fn from(value: sector::Error) -> Self {
         Self::Ordering(value)
+    }
+}
+
+impl From<RuleCellError> for ReductionError {
+    fn from(value: RuleCellError) -> Self {
+        Self::RuleCell(value)
+    }
+}
+
+impl From<CanonicalizationError> for ReductionError {
+    fn from(value: CanonicalizationError) -> Self {
+        Self::Canonicalization(value)
     }
 }

@@ -188,7 +188,7 @@ def cli_bytes(arguments: list[str], source: bytes = b"") -> bytes:
 
 
 class PythonApiTests(unittest.TestCase):
-    def test_repository_two_loop_example_generates_the_complete_source_set(
+    def test_repository_two_loop_example_generates_and_applies_closed_artifact(
         self,
     ) -> None:
         example = (
@@ -214,15 +214,25 @@ class PythonApiTests(unittest.TestCase):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             module.main()
-        document = tomllib.loads(output.getvalue())
+        payload = output.getvalue()
+        reduction_marker = (
+            'schema = "rustred.closing-artifact-reduce-output.toml.v1"'
+        )
+        reduction_offset = payload.index(reduction_marker)
+        generation = tomllib.loads(payload[:reduction_offset])
+        reduction = tomllib.loads(payload[reduction_offset:])
 
-        self.assertEqual(document["family"]["name"], "equal_mass_sunset")
-        self.assertEqual(document["family"]["loop_momenta"], ["k1", "k2"])
-        self.assertEqual(document["relation_counts"]["generated_ordinary"], 4)
-        self.assertEqual(document["relation_counts"]["generated_li"], 0)
+        self.assertEqual(generation["family_selector"], "unit-mass-vacuum-k3")
+        self.assertEqual(generation["validation"]["source_rows"], 4)
+        self.assertEqual(generation["validation"]["guarded_rules"], 5)
+        self.assertEqual(len(generation["rules"]), 5)
+        self.assertEqual(reduction["target"]["powers"], [2, 2, 1])
         self.assertEqual(
-            [relation["stable_id"] for relation in document["relations"]],
-            module.EXPECTED_ROWS,
+            {
+                tuple(term["master"]["powers"]): term["common_mass_squared_power"]
+                for term in reduction["terms"]
+            },
+            {(0, 1, 1): "-3", (1, 1, 1): "-2"},
         )
 
     def test_all_derive_input_modes_return_canonical_toml(self) -> None:
@@ -459,6 +469,28 @@ class PythonApiTests(unittest.TestCase):
                 generated.artifact,
             ).decode(),
         )
+
+    def test_two_loop_closing_artifact_is_available_from_import_rustred(self) -> None:
+        selector = rustred.ClosingFamily.UNIT_MASS_VACUUM_K3
+        self.assertEqual(selector, "unit-mass-vacuum-k3")
+        generated = rustred.generate_closing_artifact(family=selector)
+        document = tomllib.loads(generated.to_toml())
+        self.assertEqual(document["family_selector"], "unit-mass-vacuum-k3")
+        self.assertEqual(document["validation"]["source_rows"], 4)
+        self.assertEqual(document["validation"]["guarded_rules"], 5)
+
+        reduced = rustred.reduce_with_closing_artifact(
+            generated.artifact,
+            [2, 2, 1],
+        )
+        self.assertEqual(reduced.target_powers, [2, 2, 1])
+        self.assertEqual(len(reduced.terms), 2)
+        powers = {
+            tuple(term.master_powers): term.common_mass_squared_power
+            for term in reduced.terms
+        }
+        self.assertEqual(powers[(1, 1, 1)], -2)
+        self.assertEqual(powers[(0, 1, 1)], -3)
 
     def test_closing_artifact_errors_and_resource_ceiling_are_typed(self) -> None:
         with self.assertRaises(rustred.RustRedInputError):

@@ -2,9 +2,11 @@ use std::fmt;
 
 use crate::algebra::{CoefficientContextError, IndexedAlgebraError};
 use crate::family::{IntegralFamilyError, IntegralKeyError};
+use crate::foundry::cell::RuleCellError;
 use crate::foundry::parametric::ParametricRuleError;
-use crate::identity::{ParametricIbpError, ParametricRelationError};
+use crate::identity::{ParametricIbpError, ParametricRelationError, TranslatedSourceError};
 use crate::sector;
+use crate::sector::symmetry::{CanonicalizationError, permutation};
 
 /// Typed failure while generating or sealing a closing artifact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,16 +15,24 @@ pub enum ArtifactError {
     Family(IntegralFamilyError),
     Identity(ParametricIbpError),
     ParametricRule(ParametricRuleError),
+    RuleCell(RuleCellError),
     Relation(ParametricRelationError),
+    TranslatedSource(TranslatedSourceError),
+    Symmetry(sector::symmetry::Error),
+    SymmetryPermutation(permutation::Error),
+    Canonicalization(CanonicalizationError),
     IndexedAlgebra(IndexedAlgebraError),
     IntegralKey(IntegralKeyError),
     Ordering(sector::Error),
+    ZeroAnalysis(sector::zero::Error),
     UnsupportedSchema { actual: u32 },
     WrongFamily,
     WrongCoefficientContext,
     WrongArity { expected: usize, actual: usize },
     InvalidMasterManifest,
     InvalidZeroTerminal,
+    InvalidFactorization { detail: &'static str },
+    InvalidCanonicalizer,
     UnsupportedClosureShape,
     InvalidRuleShape { detail: &'static str },
     InvalidDescentWitness { right_hand_side_ordinal: usize },
@@ -37,10 +47,16 @@ impl fmt::Display for ArtifactError {
             Self::Family(error) => error.fmt(formatter),
             Self::Identity(error) => error.fmt(formatter),
             Self::ParametricRule(error) => error.fmt(formatter),
+            Self::RuleCell(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
+            Self::TranslatedSource(error) => error.fmt(formatter),
+            Self::Symmetry(error) => error.fmt(formatter),
+            Self::SymmetryPermutation(error) => error.fmt(formatter),
+            Self::Canonicalization(error) => error.fmt(formatter),
             Self::IndexedAlgebra(error) => error.fmt(formatter),
             Self::IntegralKey(error) => error.fmt(formatter),
             Self::Ordering(error) => error.fmt(formatter),
+            Self::ZeroAnalysis(error) => error.fmt(formatter),
             Self::UnsupportedSchema { actual } => {
                 write!(formatter, "artifact schema version {actual} is unsupported")
             }
@@ -59,10 +75,16 @@ impl fmt::Display for ArtifactError {
             Self::InvalidZeroTerminal => {
                 formatter.write_str("artifact zero-sector terminal is invalid or unproved")
             }
+            Self::InvalidFactorization { detail } => {
+                write!(formatter, "invalid artifact factorization: {detail}")
+            }
+            Self::InvalidCanonicalizer => {
+                formatter.write_str("artifact canonicalizer has a foreign arity or ordering")
+            }
             Self::UnsupportedClosureShape => formatter
                 .write_str("no installed closure verifier supports this artifact candidate shape"),
             Self::InvalidRuleShape { detail } => {
-                write!(formatter, "invalid one-loop closing rule: {detail}")
+                write!(formatter, "invalid closing rule: {detail}")
             }
             Self::InvalidDescentWitness {
                 right_hand_side_ordinal,
@@ -97,10 +119,16 @@ artifact_from!(CoefficientContextError, CoefficientContext);
 artifact_from!(IntegralFamilyError, Family);
 artifact_from!(ParametricIbpError, Identity);
 artifact_from!(ParametricRuleError, ParametricRule);
+artifact_from!(RuleCellError, RuleCell);
 artifact_from!(ParametricRelationError, Relation);
+artifact_from!(TranslatedSourceError, TranslatedSource);
+artifact_from!(sector::symmetry::Error, Symmetry);
+artifact_from!(permutation::Error, SymmetryPermutation);
+artifact_from!(CanonicalizationError, Canonicalization);
 artifact_from!(IndexedAlgebraError, IndexedAlgebra);
 artifact_from!(IntegralKeyError, IntegralKey);
 artifact_from!(sector::Error, Ordering);
+artifact_from!(sector::zero::Error, ZeroAnalysis);
 
 /// Typed failure at the deterministic durable-artifact boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -48,19 +48,20 @@ byte-identical output for `N=1`, `N=2`, and `N=4`. The forthcoming
 multi-topology campaign scheduler uses the same option to bound all
 concurrently active topology/sector/case work.
 
-`parameters(d,m2)` is intentionally absent. RustRed infers the scalar
-parameters after excluding declared family identifiers, loop momenta,
-external momenta, and propagator IDs. Add a `parameters(...)` clause only when
-an exact allowlist is useful. Parameters used only by `numerator(...)` are not
-inferred by `derive`; declare them explicitly, inside the expression or in
-hybrid TOML, when later numerator processing will need them. RustRed retains
-the complete declared allowlist and its source order in the canonical `I(...)`
-and in `provenance.input_parameters`. Only the parameters actually discovered
-in dimension, propagators, power shifts, and external Gram values enter the
-operational coefficient field. That active subset is sorted in
+`parameters(d,m2)` is intentionally absent: RustRed infers family scalars after
+excluding declared family identifiers, momenta, and propagator IDs. The
+optional `parameters(...)` clause is only an advanced strict allowlist. It can
+also disambiguate a numerator-only scalar from tensor syntax—for example, in
+`c*vec(k,mu)`, an explicit list can identify `c` as scalar without treating the
+Lorentz index `mu` as one. The current `derive` command retains numerators as
+unprocessed target metadata and therefore does not guess that distinction.
+
+RustRed retains an explicitly declared allowlist and its source order in the
+canonical `I(...)` and in `provenance.input_parameters`. Only scalars actually
+discovered in dimension, propagators, power shifts, and external Gram values
+enter the operational coefficient field. That active subset is sorted in
 `family.parameters`, so declaration order and numerator-only extras cannot
-change a family fingerprint or specialize a parametric IBP. The numerator and
-its declared-only symbols remain target metadata for later processing.
+change a family fingerprint or specialize a parametric IBP.
 
 ## Input modes
 
@@ -124,10 +125,6 @@ I(
 )
 """
 
-# Optional. If omitted, d and m2 are inferred. If parameters(...) also occurs
-# inside I(...), the two ordered declarations must agree exactly.
-parameters = ["d", "m2"]
-
 [metadata]
 description = "two-loop massive vacuum family"
 campaign = "massive-vacuum-validation"
@@ -136,10 +133,11 @@ tags = ["vacuum", "two-loop"]
 
 Metadata is a bounded, sorted table whose values are strings or string arrays.
 It is reported as provenance but never enters the family or relation
-fingerprint. `parameters` is a strict declared allowlist, not metadata: every
-scalar discovered in a family-defining field must occur in it. Its complete
-user-written order is retained in provenance and canonical input, while only
-the discovered subset enters the sorted operational coefficient context.
+fingerprint. If supplied, `parameters` is a strict declared allowlist, not
+metadata: every scalar discovered in a family-defining field must occur in it.
+Its complete user-written order is retained in provenance and canonical input,
+while only the discovered subset enters the sorted operational coefficient
+context.
 Consequently, a declared parameter used solely by `numerator(...)` remains
 available for later tensor processing without changing derived IBPs.
 
@@ -151,7 +149,6 @@ matrices:
 
 ```toml
 schema = "rustred.project.toml.v1"
-parameters = ["d", "m2"] # optional; inference is also available here
 
 [family]
 name = "sunset"
@@ -312,9 +309,6 @@ I(
 )
 """
 
-# Optional; the same strict declaration semantics as hybrid project TOML.
-parameters = ["d", "m2"]
-
 [roots.metadata]
 purpose = "scalar validation root"
 ```
@@ -416,8 +410,8 @@ profiles contain illustrative values, not named-host measurements.
 
 ### Durable closing artifacts
 
-Three fine-grained campaign operations expose the completed one-loop closing
-artifact without introducing topology-name dispatch:
+Three fine-grained campaign operations expose the completed `K = 1` and
+`K = 3` closing artifacts without introducing topology-name dispatch:
 
 ```console
 rustred campaign generate \
@@ -432,16 +426,28 @@ rustred campaign reduce \
   --artifact one_loop.rr \
   --powers 3 \
   --output one_loop.I3.toml
+
+rustred campaign generate \
+  --family unit-mass-vacuum-k3 \
+  --output two_loop_sunset.rr
+
+rustred campaign reduce \
+  --artifact two_loop_sunset.rr \
+  --powers 2,2,1 \
+  --output two_loop_sunset.I221.toml
 ```
 
 `campaign generate` writes the deterministic binary artifact itself, not a
-TOML proxy. The semantic family selector is currently exactly
-`unit-mass-vacuum-k1`; `K = 3` and `K = 6` remain future Stage 1 work.
+TOML proxy. The semantic family selectors are `unit-mass-vacuum-k1` and
+`unit-mass-vacuum-k3`; the three-loop `K = 6` family remains Stage 1 work.
 `campaign inspect` and `campaign reduce` require artifact bytes from a path or
-from `--artifact -`; neither silently regenerates a preset. Generation output
-uses the existing atomic file installer, so `--force` is required to replace
-an existing file. Invalid or truncated bytes are rejected before any requested
-TOML output file is created.
+from `--artifact -`; neither substitutes a hidden preset for those bytes. The
+`K = 3` untrusted-load boundary cold-regenerates its registered derivation once
+and requires a byte-exact comparison before returning the sealed owner; no
+foundry work or authentication repeats in the reducer hot path. Generation
+output uses the existing atomic file installer, so `--force` is required to
+replace an existing file. Invalid or truncated bytes are rejected before any
+requested TOML output file is created.
 
 The equivalent stream operation is exact binary piping:
 
@@ -475,8 +481,9 @@ without constructing a pool. The roots-only CLI remains separate; the resource
 preflight exposes only the pure decision from an explicit profile. Named-host
 calibration, task-specific estimator adapters, the actual foundry scheduler,
 multi-family campaign execution, and checkpointing remain unimplemented. The
-fine-grained one-loop artifact commands are separate from roots-only planning
-and physical preflight; they do not claim two- or three-loop closure.
+fine-grained `K = 1` and `K = 3` artifact commands are separate from roots-only
+planning and physical preflight; they do not claim three-loop closure or
+Vakint integration.
 
 `--n-cores` is always a ceiling. The planner derives an effective execution
 width `E` with `1 <= E <= --n-cores`. `E=1` denotes inline coordinator

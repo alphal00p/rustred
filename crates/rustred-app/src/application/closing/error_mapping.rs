@@ -87,17 +87,28 @@ fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
             AppErrorKind::Limit
         }
         ArtifactError::Ordering(error) if sector_error_is_limit(error) => AppErrorKind::Limit,
+        ArtifactError::ZeroAnalysis(error) if zero_analysis_error_is_limit(error) => {
+            AppErrorKind::Limit
+        }
         ArtifactError::CoefficientContext(_)
         | ArtifactError::Family(_)
         | ArtifactError::Identity(_)
+        | ArtifactError::RuleCell(_)
         | ArtifactError::Relation(_)
+        | ArtifactError::TranslatedSource(_)
+        | ArtifactError::Symmetry(_)
+        | ArtifactError::SymmetryPermutation(_)
+        | ArtifactError::Canonicalization(_)
         | ArtifactError::IntegralKey(_)
         | ArtifactError::Ordering(_)
+        | ArtifactError::ZeroAnalysis(_)
         | ArtifactError::WrongFamily
         | ArtifactError::WrongCoefficientContext
         | ArtifactError::WrongArity { .. }
         | ArtifactError::InvalidMasterManifest
         | ArtifactError::InvalidZeroTerminal
+        | ArtifactError::InvalidFactorization { .. }
+        | ArtifactError::InvalidCanonicalizer
         | ArtifactError::UnsupportedClosureShape
         | ArtifactError::InvalidRuleShape { .. }
         | ArtifactError::InvalidDescentWitness { .. }
@@ -133,6 +144,7 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         }
         ReductionError::Ordering(error) if sector_error_is_limit(error) => AppErrorKind::Limit,
         ReductionError::WrongArity { .. }
+        | ReductionError::OutsideCertifiedRootDomain { .. }
         | ReductionError::ZeroCommonMass
         | ReductionError::IntegralKey(IntegralKeyError::EmptyPowers) => AppErrorKind::Input,
         ReductionError::UncoveredIntegral { .. }
@@ -142,12 +154,24 @@ fn reduction_error_kind(error: &ReductionError) -> AppErrorKind {
         }
         ReductionError::CycleDetected { .. }
         | ReductionError::ReducerInvariant { .. }
-        | ReductionError::UnexpectedCoefficientGuard
+        | ReductionError::UnexpectedDependencyMaster { .. }
+        | ReductionError::RuleCell(_)
+        | ReductionError::Canonicalization(_)
         | ReductionError::IntegralKey(_)
         | ReductionError::IndexedAlgebra(_)
         | ReductionError::ExactAlgebra(_)
         | ReductionError::Ordering(_) => AppErrorKind::InternalInvariant,
     }
+}
+
+fn zero_analysis_error_is_limit(error: &rustred::sector::zero::Error) -> bool {
+    matches!(
+        error,
+        rustred::sector::zero::Error::ResourceLimit { .. }
+            | rustred::sector::zero::Error::ResourceCountOverflow { .. }
+            | rustred::sector::zero::Error::AllocationFailure { .. }
+            | rustred::sector::zero::Error::MatrixDimensionOverflow { .. }
+    )
 }
 
 fn exact_algebra_error_is_limit(error: &ExactAlgebraError) -> bool {
@@ -172,6 +196,8 @@ fn indexed_algebra_error_is_limit(error: &IndexedAlgebraError) -> bool {
         | IndexedAlgebraError::IndexSymbolCollision { .. }
         | IndexedAlgebraError::WrongContext
         | IndexedAlgebraError::WrongIndexArity { .. }
+        | IndexedAlgebraError::FixedIndexOutOfRange { .. }
+        | IndexedAlgebraError::DuplicateFixedIndex { .. }
         | IndexedAlgebraError::ZeroDenominator
         | IndexedAlgebraError::Symbolica(_) => false,
     }
@@ -189,6 +215,8 @@ fn untrusted_indexed_algebra_error_kind(error: &IndexedAlgebraError) -> AppError
         | IndexedAlgebraError::InvalidScope
         | IndexedAlgebraError::WrongContext
         | IndexedAlgebraError::WrongIndexArity { .. }
+        | IndexedAlgebraError::FixedIndexOutOfRange { .. }
+        | IndexedAlgebraError::DuplicateFixedIndex { .. }
         | IndexedAlgebraError::ZeroDenominator
         | IndexedAlgebraError::ExactAlgebra(_)
         | IndexedAlgebraError::ResourceLimit { .. }

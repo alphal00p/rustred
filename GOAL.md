@@ -68,22 +68,22 @@ uniform descent, exactly replay source combinations, partition target-sector
 domains, and stream proper-subsector obligations.
 
 The core now freshly generates and seals the canonical unit-mass one-loop
-partition as the first mathematical and durable closing artifact. Its tagged
-binary representation independently regenerates the canonical ordinary
-source at the untrusted load boundary, compares the complete semantic witness,
-rederives the exact rule, and installs explicit master, zero, and common-mass
-homogeneity terminals once. A topology-independent deterministic memoizing
-reducer applies the sealed owner without repeating whole-artifact
-authentication. The Rust application API, `campaign` CLI, and public
-`import rustred` Python package generate, inspect, load, and apply those actual
-artifact bytes with typed errors and deterministic output.
+partition and equal-mass two-loop sunset as mathematical and durable closing
+artifacts. Their tagged binary representations authenticate complete source,
+rule-cell, projection, symmetry, factorization, terminal, and homogeneity
+semantics once at the untrusted load boundary. The sunset owner derives all
+four ordinary sources, closes its generic and exceptional cells, routes exact
+`S3` symmetries, and feeds its pinched face into the immutable one-loop
+dependency. A topology-independent deterministic memoizing reducer applies
+both sealed owners without repeating whole-artifact authentication. The Rust
+application API, `campaign` CLI, and public `import rustred` Python package
+generate, inspect, load, and apply those actual artifact bytes with typed
+errors and deterministic output.
 
-This publication is deliberately only `K = 1`. RustRed still does **not**
-refine every exceptional coefficient/guard locus, feed all proper-subsector
-dependencies to a fixed point, close or publish the two- or three-loop
-families, or substitute masters. The current two-loop sunset and translated
-source machinery remain Stage 1 ingredients rather than an installed table,
-and Vakint does not yet consume the standalone artifact.
+RustRed still does **not** close or publish the three-loop `K = 6` family or
+substitute evaluated masters. Vakint does not yet consume either standalone
+artifact: its opt-in RustRed scalar method remains a deliberately unavailable
+API seam, with no end-to-end RustRed-backed one-loop result claimed yet.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

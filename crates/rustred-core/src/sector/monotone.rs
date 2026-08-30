@@ -27,6 +27,45 @@ pub struct SectorMonotoneDomain {
 }
 
 impl SectorMonotoneDomain {
+    /// Construct an explicitly tightened parent-sector box for one rule.
+    ///
+    /// Unlike [`Self::try_maximal_for_rule`], this is the refinement seam used
+    /// by exceptional and singleton foundry cells. Base points and the pivot
+    /// remain in the declared parent sector; RHS shifts need only stay
+    /// representable because their proper-subsector descent is proved
+    /// separately.
+    pub fn try_new_for_rule<S>(
+        sector: Mask,
+        bounds: impl IntoIterator<Item = InteriorBounds>,
+        pivot_shift: &[i64],
+        right_hand_side_shifts: &[S],
+    ) -> Result<Self, Error>
+    where
+        S: AsRef<[i64]>,
+    {
+        check_arity(&sector, pivot_shift.len())?;
+        for shift in right_hand_side_shifts {
+            check_arity(&sector, shift.as_ref().len())?;
+        }
+        let interior = SectorInteriorDomain::try_new(sector, bounds)?;
+        let mut retained = Vec::new();
+        try_reserve_exact(
+            &mut retained,
+            interior.arity(),
+            "sector-monotone domain bounds",
+        )?;
+        retained.extend_from_slice(interior.bounds());
+        let domain = Self {
+            sector: interior.sector().clone(),
+            bounds: Arc::new(retained),
+        };
+        domain.require_parent_sector_shift(pivot_shift)?;
+        for shift in right_hand_side_shifts {
+            domain.require_representable_shift(shift.as_ref())?;
+        }
+        Ok(domain)
+    }
+
     /// Construct the maximal representable parent-sector box for one pivot
     /// and all retained RHS shifts.
     ///
@@ -331,7 +370,10 @@ impl SectorMonotoneShiftDescentWitness {
                 return false;
             };
             let active = self.domain.sector.active_bits()[position];
-            if !active && target_shift > 0 {
+            if !active
+                && target_shift > 0
+                && i128::from(self.domain.bounds[position].upper()) + i128::from(target_shift) > 0
+            {
                 return false;
             }
             if !active || target_shift >= 0 || partition_closed {
@@ -421,7 +463,15 @@ impl OrderingPolicy {
             .zip(domain.sector.active_bits())
             .enumerate()
         {
-            if !active && target_shift > 0 {
+            // A positive shift on an inactive line is an activation only if
+            // the tightened cell can actually reach a positive power. This
+            // distinction is essential for numerator recurrences on faces:
+            // e.g. n<=-1 with shift +1 remains wholly in the same inactive
+            // sector. The maximal untightened domain still rejects it.
+            if !active
+                && target_shift > 0
+                && i128::from(bounds.upper()) + i128::from(target_shift) > 0
+            {
                 return Err(Error::InactiveLineActivation {
                     position,
                     shift: target_shift,

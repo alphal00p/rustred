@@ -1,11 +1,8 @@
 # Python example
 
-[`two_loop_single_mass_vacuum.py`](two_loop_single_mass_vacuum.py) embeds the
-family declaration, calls the public `import rustred` API, verifies that all
-four ordinary rows were generated, and prints the canonical TOML result.
-
-Build the development extension once and run the example from the repository
-root:
+[`two_loop_single_mass_vacuum.py`](two_loop_single_mass_vacuum.py) uses the
+public `import rustred` API to generate, inspect, and apply the complete
+two-loop closing artifact.
 
 ```bash
 uv venv .venv
@@ -13,3 +10,7 @@ uv venv .venv
 maturin develop --features extension-module
 python examples/python/two_loop_single_mass_vacuum.py
 ```
+
+The script asserts four generated source rows, five guarded rule cells, and
+the two expected master/mass-power pairs before printing the generation and
+reduction TOML documents.

@@ -19,6 +19,13 @@ pub enum IndexedAlgebraError {
         expected: usize,
         actual: usize,
     },
+    FixedIndexOutOfRange {
+        position: usize,
+        index_count: usize,
+    },
+    DuplicateFixedIndex {
+        position: usize,
+    },
     ZeroDenominator,
     ResourceLimit {
         resource: &'static str,
@@ -58,6 +65,19 @@ impl fmt::Display for IndexedAlgebraError {
                 formatter,
                 "index vector has arity {actual}, expected {expected}"
             ),
+            Self::FixedIndexOutOfRange {
+                position,
+                index_count,
+            } => write!(
+                formatter,
+                "fixed index position {position} is outside index arity {index_count}"
+            ),
+            Self::DuplicateFixedIndex { position } => {
+                write!(
+                    formatter,
+                    "fixed index position {position} occurs more than once"
+                )
+            }
             Self::ZeroDenominator => {
                 formatter.write_str("rational coefficient has a zero denominator")
             }

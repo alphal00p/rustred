@@ -289,6 +289,10 @@ impl IntegralFamily {
         &self.coefficients
     }
 
+    pub(crate) const fn construction_limits(&self) -> IntegralFamilyLimits {
+        self.limits
+    }
+
     pub fn dimension(&self) -> &Coefficient {
         &self.dimension
     }

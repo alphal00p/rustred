@@ -10,6 +10,7 @@ use rustred_app::{
 };
 
 const SELECTOR: &str = "unit-mass-vacuum-k1";
+const SUNSET_SELECTOR: &str = "unit-mass-vacuum-k3";
 
 struct TestDirectory(PathBuf);
 
@@ -109,9 +110,63 @@ fn family_selectors_are_semantic_and_typed() {
         SELECTOR.parse(),
         Ok(ClosingFamilySelector::UnitMassVacuumK1)
     );
+    assert_eq!(
+        SUNSET_SELECTOR.parse(),
+        Ok(ClosingFamilySelector::UnitMassVacuumK3)
+    );
     let family_error = "I1L".parse::<ClosingFamilySelector>().unwrap_err();
     assert_eq!(family_error.value(), "I1L");
     assert!(family_error.to_string().contains(SELECTOR));
+}
+
+#[test]
+fn two_loop_generation_and_application_surfaces_publish_the_closed_sunset() {
+    let generated = closing_artifact_generate(ClosingArtifactGenerateRequest {
+        family: ClosingFamilySelector::UnitMassVacuumK3,
+    })
+    .expect("generate durable sunset closure");
+    assert!(
+        generated
+            .to_toml()
+            .contains("family_selector = \"unit-mass-vacuum-k3\"")
+    );
+    assert!(generated.to_toml().contains("source_rows = 4"));
+    assert!(generated.to_toml().contains("guarded_rules = 5"));
+    assert!(generated.to_toml().contains("arity = 3"));
+    let generation_document: toml::Value =
+        toml::from_str(generated.to_toml()).expect("sunset generation TOML");
+    let rendered_rule_sizes = generation_document["rules"]
+        .as_array()
+        .expect("rendered sunset rules")
+        .iter()
+        .map(|rule| {
+            rule["right_hand_side"]
+                .as_array()
+                .expect("rendered retained RHS")
+                .len()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(rendered_rule_sizes, [5, 4, 3, 2, 1]);
+
+    let reduction = closing_artifact_reduce(ClosingArtifactReduceRequest {
+        artifact: generated.artifact().to_vec(),
+        target_powers: vec![2, 2, 1],
+        max_rule_applications: MAX_CLOSING_RULE_APPLICATIONS,
+    })
+    .expect("reduce the two-loop dotted sunset");
+    assert_eq!(reduction.target_powers(), [2, 2, 1]);
+    assert_eq!(reduction.terms().len(), 2);
+    assert!(reduction.terms().iter().any(|term| {
+        term.master_powers() == [1, 1, 1] && term.common_mass_squared_power() == -2
+    }));
+    assert!(reduction.terms().iter().any(|term| {
+        term.master_powers() == [0, 1, 1] && term.common_mass_squared_power() == -3
+    }));
+
+    assert_eq!(
+        successful_cli(&["campaign", "generate", "--family", SUNSET_SELECTOR], b""),
+        generated.artifact()
+    );
 }
 
 #[test]

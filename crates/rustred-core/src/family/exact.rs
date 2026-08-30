@@ -4,7 +4,7 @@
 use crate::algebra::matrix::verify_coefficient_matrix_inverse;
 use crate::algebra::matrix::{
     SymbolicaCoefficientMatrixError, SymbolicaCoefficientMatrixLimits,
-    invert_and_verify_coefficient_matrix,
+    congruence_of_coefficient_matrix, invert_and_verify_coefficient_matrix,
 };
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
@@ -23,7 +23,24 @@ pub(super) fn coefficients_are_equal(
     Ok(context.try_sub(left, right, limits)?.is_zero())
 }
 
-pub(super) fn invert_symbolic_matrix<Row>(
+pub(crate) fn congruence_symbolic_matrix(
+    context: &CoefficientContext,
+    transform: &[Vec<Coefficient>],
+    middle: &[Vec<Coefficient>],
+    limits: IntegralFamilyLimits,
+) -> Result<Vec<Vec<Coefficient>>, IntegralFamilyError> {
+    let size = transform.len().max(middle.len());
+    let (product, _stats) = congruence_of_coefficient_matrix(
+        context,
+        transform,
+        middle,
+        symbolica_matrix_limits(limits),
+    )
+    .map_err(|error| map_symbolica_matrix_error(error, size))?;
+    Ok(product)
+}
+
+pub(crate) fn invert_symbolic_matrix<Row>(
     context: &CoefficientContext,
     matrix: &[Row],
     limits: IntegralFamilyLimits,
@@ -55,7 +72,7 @@ where
     Ok(())
 }
 
-pub(super) fn symbolica_matrix_limits(
+pub(crate) fn symbolica_matrix_limits(
     limits: IntegralFamilyLimits,
 ) -> SymbolicaCoefficientMatrixLimits {
     SymbolicaCoefficientMatrixLimits::for_family(

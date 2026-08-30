@@ -1,48 +1,37 @@
-"""Generate the parametric IBPs for the two-loop equal-mass vacuum family."""
+"""Generate and apply the closing IBPs for the equal-mass sunset family."""
 
 import tomllib
 
 import rustred
 
 
-FAMILY = r"""
-I(
-  name(equal_mass_sunset),
-  loops(k1,k2),
-  externals(),
-  parameters(d,m2),
-  dimension(d),
-  prop(D1,k1^2-m2,1),
-  prop(D2,k2^2-m2,1),
-  prop(D3,(k1+k2)^2-m2,1)
-)
-"""
-
-EXPECTED_ROWS = [
-    "ordinary-ibp:0:0",
-    "ordinary-ibp:0:1",
-    "ordinary-ibp:1:0",
-    "ordinary-ibp:1:1",
-]
-
-
 def main() -> None:
-    result = rustred.derive(
-        FAMILY,
-        input_format=rustred.InputFormat.SYMBOLICA,
-        relations=rustred.RelationSelection.ORDINARY,
-        n_cores=1,
+    generated = rustred.generate_closing_artifact(
+        family=rustred.ClosingFamily.UNIT_MASS_VACUUM_K3,
     )
-    document = tomllib.loads(result.to_toml())
+    generation = tomllib.loads(generated.to_toml())
+    assert generation["family_selector"] == "unit-mass-vacuum-k3"
+    assert generation["validation"]["source_rows"] == 4
+    assert generation["validation"]["guarded_rules"] == 5
+    assert len(generation["rules"]) == 5
 
-    assert document["schema"] == "rustred.derive-output.toml.v1"
-    counts = document["relation_counts"]
-    assert counts["generated_ordinary"] == 4
-    assert counts["generated_li"] == 0
-    assert counts["emitted_total"] == 4
-    assert [row["stable_id"] for row in document["relations"]] == EXPECTED_ROWS
+    inspection = rustred.inspect_closing_artifact(generated.artifact)
+    assert inspection.status == "inspected"
 
-    print(result.to_toml(), end="")
+    reduction = rustred.reduce_with_closing_artifact(
+        generated.artifact,
+        [2, 2, 1],
+    )
+    assert reduction.target_powers == [2, 2, 1]
+    assert len(reduction.terms) == 2
+    mass_powers = {
+        tuple(term.master_powers): term.common_mass_squared_power
+        for term in reduction.terms
+    }
+    assert mass_powers == {(1, 1, 1): -2, (0, 1, 1): -3}
+
+    print(generated.to_toml(), end="")
+    print(reduction.to_toml(), end="")
 
 
 if __name__ == "__main__":

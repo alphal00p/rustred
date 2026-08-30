@@ -16,7 +16,7 @@ use super::model::ParametricRelation;
 /// propagate every construction error and only [`Self::finish`] exposes the
 /// completed relation. This avoids cloning the complete growing row before
 /// each fallible insertion.
-pub(in crate::identity) struct Builder {
+pub(crate) struct Builder {
     relation: ParametricRelation,
 }
 
@@ -31,7 +31,7 @@ enum CoefficientIngress {
 }
 
 impl Builder {
-    pub(in crate::identity) fn new(
+    pub(crate) fn new(
         family_fingerprint: impl Into<std::sync::Arc<String>>,
         row_id: RowId,
         context: &IndexedCoefficientContext,
@@ -41,7 +41,7 @@ impl Builder {
         }
     }
 
-    pub(in crate::identity) fn finish(self) -> ParametricRelation {
+    pub(crate) fn finish(self) -> ParametricRelation {
         self.relation
     }
 
@@ -61,7 +61,7 @@ impl Builder {
 
     /// Attach a condition produced and authenticated by a checked indexed
     /// operation in this call chain without rescanning its polynomial.
-    pub(in crate::identity) fn add_sealed_nonzero_condition(
+    pub(crate) fn add_sealed_nonzero_condition(
         &mut self,
         context: &IndexedCoefficientContext,
         condition: ParametricNonZeroCondition,
@@ -128,7 +128,7 @@ impl Builder {
         Ok(())
     }
 
-    pub(in crate::identity) fn add_term(
+    pub(crate) fn add_term(
         &mut self,
         context: &IndexedCoefficientContext,
         shift: IndexShift,
@@ -146,7 +146,7 @@ impl Builder {
 
     /// Insert a coefficient produced and authenticated by a checked indexed
     /// operation in this call chain without rescanning its complete payload.
-    pub(in crate::identity) fn add_sealed_term(
+    pub(crate) fn add_sealed_term(
         &mut self,
         context: &IndexedCoefficientContext,
         shift: IndexShift,

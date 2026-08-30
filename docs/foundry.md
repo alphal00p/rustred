@@ -38,24 +38,24 @@ corner `[1,1,1]` is the first sentinel. This API still requires a nonempty
 common fixed-sector interior for the supplied source span; it does not yet
 replace source preparation with a fully piecewise reducer.
 
-The general dependency foundry is not yet closing: it does not authenticate
-that an arbitrary caller-supplied relation slice is a fresh complete source
-set, refine coefficient/guard applicability on each cell, or feed solved
-proper subsectors back into the parent. A deliberately narrow
-`foundry::artifact` installer now does close the canonical one-loop `q^2-1`
-vacuum partition from its freshly generated source, and `reduction::Reducer`
-applies that sealed owner. A deterministic schema-v1 codec persists its exact
-family inputs, a tagged canonical ordinary-source derivation plan and complete
-semantic witness (including pre-cancellation provenance), the complete rule
-snapshot, masters, zero terminal, and homogeneity proof. Loading bounded
-untrusted bytes independently regenerates that source plan under explicit
-context/relation policies and requires byte-exact retained semantics before it
-derives or installs a rule. It then performs one exact foundry replay against
-the rule snapshot and invokes the same closure installer once. The reducer
-uses the sealed owner without repeating artifact authentication. No two- or
-higher-loop candidate can pass that installer. Discovery cursors are not
-durable artifact identities, and cold proof replay may perform fallible O(K)
-allocations outside the streaming work budget. The
+The general dependency foundry is not yet a generic closure search for an
+arbitrary caller-supplied family. A registered `foundry::artifact` installer
+does, however, close the canonical unit-mass `K = 1` tadpole and `K = 3`
+sunset partitions from freshly generated sources. The sunset owns five exact
+application cells, `S3` routing, Lee--Pomeransky zero proofs, a certified
+unimodular pinch factorization, and immutable lower-family feedback.
+`reduction::Reducer` applies either sealed owner.
+
+A deterministic schema-v1 codec persists exact family inputs, tagged source
+plans and semantic witnesses, rules/cells, symmetry and factorization data,
+masters, zero terminals, and homogeneity proofs. Bounded loading independently
+reconstructs and exactly compares the registered semantics once under the
+caller's family/source/rule policies, then returns a sealed owner. The reducer
+does not repeat artifact authentication. Three-loop `K = 6` remains open;
+successfully deriving one isolated rule for any other family is not a closure
+claim. Discovery cursors are not durable artifact identities, and cold proof
+replay may perform fallible O(K) allocations outside the streaming work
+budget. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 
@@ -246,7 +246,7 @@ primitives, but must not grow a parallel CAS.
 ## Artifact boundary
 
 The current durable schema-v1 format records the semantics needed to load and
-apply the narrow sealed one-loop artifact:
+apply the sealed `K = 1` and `K = 3` artifacts:
 
 - schema/algorithm identifiers and canonical bounded sparse binary Symbolica
   rational-polynomial payloads;
@@ -254,9 +254,13 @@ apply the narrow sealed one-loop artifact:
   fingerprints, and the ordering identifier;
 - a tagged complete-ordinary source derivation plan plus a full semantic
   witness retaining source terms and pre-cancellation condition provenance;
-- the guarded rule snapshot, strict-descent and exact replay evidence; and
-- stable master keys, the proved zero-sector terminal, the common-mass
-  homogeneity proof, and deterministic tagged-section/rule-plan metadata.
+- ordered guarded rule-cell domains and proofs, fixed-index source views,
+  proof-bearing residual projections, rule snapshots, strict-descent and exact
+  replay evidence;
+- exact canonical symmetry actions, immutable lower-artifact dependencies, and
+  factorization projections; and
+- stable master keys, proved zero-sector terminals, common-mass homogeneity
+  proofs, and deterministic tagged-section/rule-plan metadata.
 
 Encoding and decoding have explicit total, collection, string, per-payload and
 aggregate coefficient, aggregate semantic-witness, family, source-generation,
@@ -269,10 +273,12 @@ witnesses are opaque exact-comparison bytes with their own shared monotonic
 budget, rather than being reparsed as algebra. Untrusted bytes are
 authenticated once at load/installation, and hot-path reduction does not
 repeat schema round trips or whole-artifact replay. Atomic filesystem
-publication remains an application-layer responsibility. Symmetry,
-factorization, lower-sector dependencies, and multi-rule closure will extend
-or supersede this schema only when their installers exist; schema v1 makes no
-`K = 3` claim.
+publication remains an application-layer responsibility. The `K = 3`
+installer independently validates its complete five-cell projection,
+symmetry, factorization, and terminal layout at this cold boundary. No such
+authentication is repeated by recursive hot-path reduction. The future
+`K = 6` owner may extend or supersede schema v1 when its exact semantics are
+known.
 
 ## RAM-aware deterministic parallelism
 

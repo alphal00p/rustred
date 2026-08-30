@@ -12,6 +12,7 @@
 //! this proof boundary: graph signatures, numerical samples, denominator
 //! counts, and topology names are never accepted as proof.
 
+pub mod canonical;
 mod condition;
 mod error;
 mod limits;
@@ -19,6 +20,11 @@ mod model;
 pub mod permutation;
 mod verify;
 
+pub use canonical::{
+    Canonicalization, CanonicalizationLimits, Canonicalizer, DescendingCanonicalization,
+    Error as CanonicalizationError, ExactOrbit, NoHarderWitness, OrbitImage, RoutingCoefficient,
+    RoutingWitness,
+};
 pub use condition::{ConditionSource, NonZeroCondition};
 pub use error::Error;
 pub use limits::{DEFAULT_MAX_MATRIX_ENTRIES, Limits, Stats};

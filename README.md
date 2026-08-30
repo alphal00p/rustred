@@ -34,26 +34,23 @@ The currently evidenced core can:
 - provide deterministic core-owned campaign execution and memory-preflight
   primitives, with roots-only composition in the application layer;
 - freshly generate, exactly replay, and seal the complete canonical one-loop
-  `q^2-1` vacuum partition over `Q(d)`, with `I(1)` as an explicit master, the
-  inactive sector as a proof-backed zero terminal, and a checked common-mass
-  homogeneity witness; and
+  `K = 1` and equal-mass two-loop sunset `K = 3` vacuum partitions over
+  `Q(d)`, including explicit masters, scaleless zero terminals, exact `S3`
+  routing, pinched-face factorization, exceptional numerator-corner cells,
+  and checked common-mass homogeneity; and
 - apply a sealed artifact with the topology-independent `reduction::Reducer`,
   using deterministic first-applicable rule selection, concrete strict-descent
   checks, an explicit work stack, memoization with retained-payload limits,
   like-master collection, typed uncovered/cycle failures, and optional common-
-  mass restoration.
-- deterministically encode the sealed one-loop artifact, authenticate and
-  replay it once when loading untrusted bytes, and expose durable generation,
+  mass restoration; and
+- deterministically encode both sealed artifacts, authenticate and replay them
+  once when loading untrusted bytes, and expose durable generation,
   inspection, and exact reduction through the Rust application API, the
   `campaign` CLI, and `import rustred` Python API.
 
-It does **not** yet refine coefficient/guard applicability on dependency cells,
-feed back or close proper subsectors beyond the dedicated one-loop installer,
-substitute masters, or support generic/higher-even-rank tensor reduction. The
-general foundry API still accepts a caller-
-supplied source span; only the narrow one-loop builder currently certifies its
-own fresh complete source set. Structural source counts—at any loop count—are
-not closure evidence.
+It does **not** yet close the three-loop `K = 6` family, substitute evaluated
+masters, or support generic/higher-even-rank tensor reduction. Structural
+source counts—at any loop count—remain insufficient closure evidence.
 
 ## Active development stage
 
@@ -64,13 +61,10 @@ the tadpole, the sunset and its pinch, and the K4/Mercedes parent with four
 inequivalent contractions. Their complete ordinary-source counts are 1, 4,
 and 9 respectively.
 
-The one-loop recurrence is installed as a mathematically closed artifact,
-deterministically encoded, authenticated on load, and consumed by the generic
-recursive reducer through Rust, CLI, and Python application surfaces. The
-current two-loop sunset rules remain generated and replayed ingredients rather
-than a closed artifact. Two-loop closure and Vakint scalar integration are the
-active work; `K = 3` and `K = 6` are future artifacts, not capabilities of the
-one-loop selector.
+The `K = 1` and `K = 3` families are installed as mathematically closed,
+deterministically encoded artifacts and consumed by the generic recursive
+reducer through Rust, CLI, and Python surfaces. Three-loop `K = 6` closure and
+Vakint scalar integration are the remaining active Stage 1 work.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend will be FORM-free
@@ -133,10 +127,10 @@ python -c 'import rustred'
 
 ## Durable closing artifacts
 
-The currently supported semantic generation selector is
-`unit-mass-vacuum-k1`. It denotes the canonical one-loop `q^2-1` family; it is
-not a Vakint topology name. Generate deterministic binary artifact bytes, then
-inspect or apply those exact bytes:
+The semantic generation selectors are `unit-mass-vacuum-k1` for the canonical
+one-loop family and `unit-mass-vacuum-k3` for the equal-mass two-loop sunset.
+They are family selectors, not Vakint topology names. Generate deterministic
+binary bytes, then inspect or apply those exact bytes:
 
 ```bash
 rustred campaign generate \
@@ -151,6 +145,15 @@ rustred campaign reduce \
   --artifact one_loop.rr \
   --powers 3 \
   --output one_loop.I3.toml
+
+rustred campaign generate \
+  --family unit-mass-vacuum-k3 \
+  --output two_loop_sunset.rr
+
+rustred campaign reduce \
+  --artifact two_loop_sunset.rr \
+  --powers 2,2,1 \
+  --output two_loop_sunset.I221.toml
 ```
 
 Artifact input and output also support standard streams. For example, this
@@ -188,104 +191,71 @@ assert term.common_mass_squared_power == -2
 
 Loading authenticates and exactly replays untrusted artifact bytes once;
 recursive application then uses the sealed owner without repeating cold-load
-authentication in the hot path. The `K = 3` and `K = 6` family selectors and
-artifacts are still Stage 1 work.
+authentication in the hot path. The `K = 6` artifact remains Stage 1 work.
 
 ## Two-loop parametric-IBP examples
 
 The [`examples/`](examples/) tree contains complete, runnable versions of the
-same calculation through the Rust library, CLI, and Python APIs. They define
-the equal-mass two-loop vacuum (sunset) family
+same closing-artifact calculation through the Rust library, CLI, and Python
+APIs. The registered `K = 3` family is the unit-mass presentation of
 
 ```text
-D1 = k1^2 - m2
-D2 = k2^2 - m2
-D3 = (k1 + k2)^2 - m2
+D1 = k1^2 - 1
+D2 = k2^2 - 1
+D3 = (k1 + k2)^2 - 1.
 ```
 
-with symbolic dimension `d`, no external momenta, and common squared mass
-`m2`. Because `L = 2` and `E = 0`, RustRed must generate exactly
-`L * (L + E) = 4` ordinary parametric IBP sources and no LI sources. Their
-stable IDs are:
+RustRed generates all four ordinary sources, derives five guarded rule cells,
+proves exact `S3` routing and four scaleless zero sectors, and factorizes the
+two-line face through the immutable `K = 1` artifact. The two explicit masters
+are `I(1,1,1)` and `I(0,1,1)`. An arbitrary common `m^2` is restored after
+unit-mass reduction by the reported homogeneity power.
 
-```text
-ordinary-ibp:0:0
-ordinary-ibp:0:1
-ordinary-ibp:1:0
-ordinary-ibp:1:1
-```
-
-These are the complete universal source identities for this family, with
-equation convention `sum(coefficient * I(n + shift)) = 0`. They are not yet a
-closed sector-reduction table. For the scale-free presentation used by the
-single-scale vacuum program, `m2` may subsequently be specialized to `1`.
-
-The commands below are for a Git checkout. Run them from the repository root
-inside `nix develop` (or an equivalent environment).
-
-### Rust library
-
-[`examples/rust/two_loop_single_mass_vacuum.rs`](examples/rust/two_loop_single_mass_vacuum.rs)
-uses the public `rustred` crate directly: it compiles and lowers the family,
-prepares all ordinary rows, completes the batch, checks the four stable IDs,
-and renders the equations.
+The Rust example calls the public `rustred` crate directly:
 
 ```bash
 cargo run --locked -p rustred-app --example two-loop-single-mass-vacuum
 ```
 
-After any Cargo build messages, the expected program output is:
+Its defining output is:
 
 ```text
-# sum(coefficient * I(n + shift)) = 0
-ordinary-ibp:0:0: (-n2) * I(n0-1,n1,n2+1) + (n2) * I(n0,n1-1,n2+1) + (d-2*n0-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-2*m2*n0) * I(n0+1,n1,n2) = 0
-ordinary-ibp:0:1: (-n2) * I(n0-1,n1,n2+1) + (n1) * I(n0-1,n1+1,n2) + (n2) * I(n0,n1-1,n2+1) + (n1-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-n1) * I(n0,n1+1,n2-1) + (m2*n1) * I(n0,n1+1,n2) = 0
-ordinary-ibp:1:0: (n2) * I(n0-1,n1,n2+1) + (-n2) * I(n0,n1-1,n2+1) + (n0-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (n0) * I(n0+1,n1-1,n2) + (-n0) * I(n0+1,n1,n2-1) + (m2*n0) * I(n0+1,n1,n2) = 0
-ordinary-ibp:1:1: (n2) * I(n0-1,n1,n2+1) + (-n2) * I(n0,n1-1,n2+1) + (d-2*n1-n2) * I(n0,n1,n2) + (-m2*n2) * I(n0,n1,n2+1) + (-2*m2*n1) * I(n0,n1+1,n2) = 0
+algorithm = rustred.generated.two-loop-unit-mass-sunset.v1
+ordinary_sources = 4
+closing_rule_cells = 5
+source = ordinary-ibp:0:0
+source = ordinary-ibp:0:1
+source = ordinary-ibp:1:0
+source = ordinary-ibp:1:1
+target = [2, 2, 1]
+master [0, 1, 1]: ... mass_squared_power = -3
+master [1, 1, 1]: ... mass_squared_power = -2
 ```
 
-### CLI
-
-[`examples/cli/two_loop_single_mass_vacuum.symbolica`](examples/cli/two_loop_single_mass_vacuum.symbolica)
-is the family input. The portable runner resolves the checkout independently
-of the caller's working directory and requests ordinary rows explicitly:
+The CLI runner generates durable bytes, authenticates them, and reduces
+`I(2,2,1)`:
 
 ```bash
 sh examples/cli/run.sh
 ```
 
-The CLI prints a canonical `rustred.derive-output.toml.v1` document. It is
-verbose because it includes exact family/context fingerprints and every sparse
-term; the defining expected fields are:
+Its inspection TOML reports:
 
 ```toml
-schema = "rustred.derive-output.toml.v1"
-status = "ok"
-relation_selection = "ordinary"
+[artifact]
+algorithm_id = "rustred.generated.two-loop-unit-mass-sunset.v1"
+arity = 3
 
-[family]
-name = "equal_mass_sunset"
-loop_momenta = ["k1", "k2"]
-external_momenta = []
-denominator_count = 3
-index_symbols = ["n0", "n1", "n2"]
-
-[relation_counts]
-generated_ordinary = 4
-generated_li = 0
-emitted_ordinary = 4
-emitted_li = 0
-emitted_total = 4
+[validation]
+source_rows = 4
+guarded_rules = 5
+master_terminals = 2
+zero_sector_terminals = 4
 ```
 
-The four `[[relations]]` records have the stable IDs listed above, in that
-order. The CLI integration test pins this input and those counts/IDs.
-
-### Python
-
 [`examples/python/two_loop_single_mass_vacuum.py`](examples/python/two_loop_single_mass_vacuum.py)
-uses the public package name `import rustred`, embeds the same family, checks
-the output schema, counts, and row IDs, then prints the canonical TOML.
+uses the public package name `import rustred`, checks the complete five-cell
+artifact, and verifies both exact master keys and mass powers:
 
 ```bash
 uv venv .venv
@@ -293,10 +263,6 @@ uv venv .venv
 maturin develop --features extension-module
 python examples/python/two_loop_single_mass_vacuum.py
 ```
-
-Its expected output is byte-identical to the CLI's canonical TOML for the same
-build. Any schema, count, or stable-ID mismatch makes the script fail before
-printing.
 
 ## Vakint integration
 
@@ -306,9 +272,9 @@ Vakint development occurs in the independent GammaLoop repository on branch
 `EvaluationOrder::rustred_only()` are present, but deliberately report no
 supported topology and direct dispatch returns a typed `ReducerUnavailable`
 until the scalar adapter consumes shipped artifacts and its oracle tests pass.
-The standalone durable `K = 1` artifact does not activate that reserved Vakint
-backend by itself. This prevents the method from intercepting mixed evaluation
-orders.
+The standalone durable `K = 1` and `K = 3` artifacts do not activate that
+reserved Vakint backend by themselves. This prevents the method from
+intercepting mixed evaluation orders.
 
 Once activated, the backend will consume Vakint's existing topology match and
 simultaneous routing witness, apply shipped RustRed artifacts, return exact
