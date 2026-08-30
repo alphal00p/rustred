@@ -265,24 +265,52 @@ the already-open scalar corner at `N=-2`. Exact coefficient, replay, descent,
 and `S4` placement evidence prevents any endpoint, higher-dot, two-dot, or
 two-negative overclaim.
 
+The deeper opposite inactive-pair ray `J(-1,1,1,1,1,N)`, `N<=-2`, is now
+owned by a five-row compact reprojection selected from the complete depth-one
+ordinary-source span. It exposes one new canonical decorated-path point. A
+coordinated three-line module supplies two depth-one inactive-pair rays and a
+depth-zero shifted-dot ray, each with independent compact reprojection, exact
+guard/descent/replay evidence, machine-wide bounds, and exhaustive `S4`
+ownership tests. These cells are retained as exact control fixtures for the
+new stratum-driven discovery experiments.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
-canonicalization retains 44 roots and discovery visits 86 nodes. The report
-pins 46 applications across all 37 current rule-cell owners, 27 independently
-proved zero/factorization terminals, and 13 uncovered nodes. A
+canonicalization retains 44 roots and discovery visits 89 nodes. The report
+pins 53 applications from 46 registered rule cells, 27 independently proved
+zero/factorization terminals, and nine uncovered nodes. Three are scalar
+corner certification obligations and six are recurrence witnesses. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
 factorization compiler. Scalar corners and the reported mixed-dot/numerator
 holes stay uncovered; no census value is promoted to publication evidence.
 
+The final terminal set is not required to be a minimal master basis. If exact
+sector-wide coverage proves that its complement is finite, those finitely many
+integral keys may be retained as explicit evaluation terminals. Stage 1 must
+then supply either an exact map of each such terminal to Vakint's MATAD basis
+or a separately validated, shipped high-precision Laurent evaluation. The
+present nine sampled misses do not satisfy that condition: some are
+representatives of potentially unbounded strata, so simply relabeling them as
+masters would conceal a closure failure.
+Vakint/MATAD may nevertheless reduce these keys offline to expose the missing
+lowering relations and supply high-precision reference values. Such oracle
+data guides discovery and validation only; installed RustRed rules still need
+fresh exact source replay and the scalar runtime remains FORM-free.
+
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
 must remain generic in topology and loop count. A specialized high-throughput
 lane may be selected only from proved family properties such as vacuum
 kinematics, common nonzero mass, and valid unit-mass homogeneity. Stage 1 uses
-the current exact methods through three loops; high-loop breakthrough and
-extreme-efficiency work are explicitly deferred.
+exact methods through three loops. Bounded algorithm experiments are now
+explicitly driven by eventual six-loop scaling: LiteRed-style translated
+diamonds remain the control, while exact lattice-stratum completion and a
+modular target-separation scout are the first proposed replacements. Four-
+through six-loop artifact production and an extreme-efficiency campaign remain
+deferred. The hypotheses, kill criteria, and primary sources are recorded in
+the [breakthrough research note](research/parametric_ibp_breakthrough.md).
 
 ## Input and output contract
 
@@ -336,6 +364,12 @@ of the following:
 2. an already closed proper-subsector or cross-family dependency;
 3. an independently certified zero, product, or factorized terminal; or
 4. a finite master key selected by an explicit, versioned terminal manifest.
+
+That manifest may be nonminimal, but its finiteness must follow from exact
+all-rank domain coverage rather than a finite probe. Each terminal must also
+have downstream evaluation ownership; at three loops this may be an exact
+basis-change row to Vakint's MATAD masters or a separately validated,
+high-precision Laurent table generated once with MATAD.
 
 Every rule must retain its exact integer-domain guard, pre-cancellation
 polynomial nonzero guards, source-row combination, dependency set, and descent
@@ -551,7 +585,10 @@ reducer restores a target-to-master coefficient by
 `s^(sum(master) - sum(target))`. The specialization does not reduce the index
 dimension or establish closure by itself.
 
-Four- through six-loop closure, dedicated high-loop reconstruction, and
-extreme parallel scaling belong to Stage 2 and must not start without explicit
-new guidance. Stage 1 algorithms nevertheless remain topology- and
-loop-count-generic and share the same proof and publication path.
+Four- through six-loop artifact closure and extreme parallel execution belong
+to Stage 2 and must not start without explicit new guidance. Stage 1 does
+include bounded research into reconstruction and completion algorithms whose
+scaling models target those later families. Such work must pass stated K6
+falsification gates before it becomes production architecture. All algorithms
+remain topology- and loop-count-generic and share the same exact proof and
+publication path.

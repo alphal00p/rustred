@@ -18,6 +18,8 @@
 pub mod anchored;
 pub mod artifact;
 pub mod cell;
+#[cfg(test)]
+pub(crate) mod completion;
 pub mod dependency;
 pub mod parametric;
 pub mod search;

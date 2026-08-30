@@ -40,10 +40,15 @@ Development is divided into two hard-gated stages:
   in Vakint, and reproduce Vakint's end-to-end expectations through three
   loops. Vakint continues to use its existing FORM tensor reduction before the
   new scalar backend when tensor numerators are present.
-- **Stage 2 is deferred and must not start without new user guidance:** do not
-  enhance tensor reduction, integrate speculative collaborator tensor work,
-  pursue four- through six-loop closure, or optimize the foundry for a
-  six-loop breakthrough. Those remain long-term goals, not current tasks.
+- **Stage 2 artifact production is deferred and must not start without new
+  user guidance:** do not enhance tensor reduction, integrate speculative
+  collaborator tensor work, or run four- through six-loop closure campaigns.
+  The current user direction does authorize deep algorithm research and
+  bounded, falsifiable foundry prototypes during Stage 1. LiteRed2 is a
+  correctness baseline rather than an architecture target: candidate methods
+  must be judged creatively against the eventual six-loop scaling problem,
+  with independent research and adversarial viability audits. This permission
+  does not authorize claiming or producing a four- through six-loop artifact.
 
 The existing experimental RustRed tensor service and GammaLoop
 `TensorReductionMode::RustRed` adapter are frozen. They may remain in their
@@ -297,11 +302,24 @@ corner at the endpoint. Exact `S4` ownership covers only the one-dot/inactive-
 numerator orbit and rejects its endpoint, higher-dot, two-dot, and two-negative
 neighbors.
 
+The opposite inactive-pair endpoint now continues through the exact bulk ray
+`J(-1,1,1,1,1,N)`, `N<=-2`. A complete depth-one span selects five generated
+rows and independently reprojects them over the machine-safe domain. The new
+child is handled by a coordinated three-line path cluster: exact depth-one
+rules own the two inequivalent inactive-pair placements
+`J(0,-1,1,N,2,1)` and `J(-1,0,2,N,1,1)`, while an untranslated six-row rule
+owns `J(0,0,1,N,1,2)`, `N<=-2`. Complete-versus-compact selection witnesses,
+guards, full-i64 endpoints, descent, and exact `S4` nonownership are pinned.
+These are regression fixtures for the systematic completion work, not a
+sample-driven closure representation.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 86 nodes: all 37 presently derived cell owners are
-exercised in 46 applications, 27 nodes terminate through independently checked
-zero or factorization proofs, and 13 remain explicitly uncovered. The census
+roots and discover 89 nodes: 46 rule cells are registered and produce 53
+applications, 27 nodes terminate through independently checked zero or
+factorization proofs, and nine remain explicitly uncovered. Three are scalar
+corner certification obligations and six are genuine recurrence witnesses;
+their exact inventory is frozen in the breakthrough research note. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
@@ -414,6 +432,28 @@ artifact only after it also establishes item 7:
 Finite-field or numerical samples may propose candidates, but exact
 regenerated-source replay is mandatory.
 
+Closure does not require a *minimal* master basis. If exact all-rank coverage
+proves that the residual complement is finite, RustRed may publish those
+finitely many keys as an explicit, versioned set of evaluation terminals.
+Merely observing finitely many misses in a bounded census is not such a proof:
+the misses may lie on an uncovered infinite ray or algebraic guard locus. For
+Stage 1, every accepted nonminimal terminal must additionally carry either an
+exact basis-change row to Vakint's existing MATAD masters or a separately
+validated, shipped high-precision Laurent evaluation. At higher loops, a
+finite nonminimal set may instead receive precomputed AMFlow values. Minimality
+is an efficiency and canonicalization objective, not a closure requirement.
+
+For the eventual six-loop programme, favorable closure scaling takes priority
+over reproducing a historically minimal basis. Every campaign therefore
+records a terminal budget: terminal count, simultaneous AMFlow feasibility,
+required precision and storage, and numerical conditioning. The finite
+universal terminal set must remain small enough to evaluate once at very high
+precision and ship, but it need not be minimal. At three loops, Vakint's MATAD
+mode is an authorized offline oracle for discovering exact relations missing
+from RustRed's current rule set and for producing high-precision reference
+values. Oracle output may guide and validate freshly replayed RustRed rules or
+terminal maps; FORM/MATAD never enters the production RustRed scalar path.
+
 ## Stage 1 implementation tracks
 
 ### Closing foundry and artifacts
@@ -454,8 +494,10 @@ behavior. The adapter:
   topology registry;
 - applies shipped immutable RustRed artifacts and never regenerates them at
   evaluation time;
-- returns exact coefficients in Vakint's existing MATAD master basis and reuses
-  its pure-Rust master substitution/evaluation data;
+- returns exact coefficients of typed RustRed evaluation terminals; Vakint
+  uses an exact MATAD-basis map when one exists, otherwise it substitutes a
+  separately validated shipped high-precision Laurent table generated once
+  with MATAD (and, for a future four-loop artifact, FMFT);
 - exposes master substitution control, enabled by default; and
 - reports no FORM dependency and never invokes or falls back to FORM for
   scalar IBP reduction or master substitution.
@@ -488,11 +530,16 @@ Acceptance requires:
 
 - exact regenerated-source replay, strict descent, explicit terminals, and no
   uncovered branch in each installed artifact;
+- exact finiteness of any nonminimal terminal complement, plus exact MATAD
+  basis-change rows or independently validated high-precision Laurent values
+  for every such Stage 1 terminal;
 - deterministic artifacts and reductions across supported worker counts;
-- guard selection, termination, memoization, symmetry routing, master-only
+- guard selection, termination, memoization, symmetry routing, terminal-only
   output, and non-unit-mass restoration tests;
-- exact raw master-coefficient comparison with AlphaLoop/MATAD oracle outputs
-  and matching existing Laurent-series expectations;
+- exact raw terminal-coefficient tests inside RustRed and matching numerical
+  Laurent-series expectations against AlphaLoop/MATAD across the applicable
+  Vakint harness; exact cross-backend raw-master comparison is required only
+  where an explicit common-basis map exists;
 - scalar RustRed-backend tests with an invalid FORM path;
 - tensor-bearing tests using the unchanged FORM tensor prepass followed by the
   FORM-free RustRed scalar tail; and
@@ -506,9 +553,12 @@ PySecDec comparisons are optional, non-gating corroboration.
 ## Stage 2 — deferred, not authorized
 
 Stage 2 preserves the long-term ambition from the historical preamble, but no
-Stage 2 implementation or performance campaign may begin until the user
-provides the collaborator's tensor-reduction direction, the high-loop IBP
-breakthrough, and explicit permission. It includes:
+four- through six-loop artifact-production or high-loop performance campaign
+may begin until the user provides the collaborator's tensor-reduction
+direction and explicit permission. Stage 1 may research and prototype the IBP
+breakthrough now, provided every experiment is bounded, topology-neutral, and
+directly falsifiable on the three-loop `K = 6` pressure family. Stage 2
+includes:
 
 - integrating or replacing tensor reduction and making it generic in rank;
 - changing Vakint's tensor preprocessing away from FORM;
@@ -517,8 +567,9 @@ breakthrough, and explicit permission. It includes:
   efficiency work; and
 - the eventual six-loop QCD beta-function evaluation chain.
 
-Stage 1 code must not preclude Stage 2, but speculative infrastructure is not a
-Stage 1 deliverable.
+Stage 1 code must not preclude Stage 2. Research prototypes become durable
+infrastructure only after measured K6 evidence; attractive but unvalidated
+architecture is documented and killed or retained explicitly.
 
 ## Engineering and repository invariants
 
@@ -544,7 +595,8 @@ Stage 1 deliverable.
 - Deterministic parallel work uses one bounded coordinator/pool, shared
   immutable state, RAM-aware admission, stable ordinals, and sorted merges.
   Stage 1 implements only the parallelism justified by three-loop workloads;
-  high-loop scaling research belongs to Stage 2.
+  high-loop execution belongs to Stage 2, while scaling models and bounded
+  K6 experiments are active research inputs now.
 - `FOR_REFERENCE_ONLY_DO_NOT_PUSH` is ignored and never enters RustRed history.
   GammaLoop inside it is a separate repository and branch.
 - Never escalate commands. Use rollback-sized commits, push passing milestones
@@ -569,4 +621,7 @@ into Stage 2.
 - [Application, Python, and Vakint interfaces](docs/interfaces.md)
 - [Validation and oracle ladder](docs/validation.md)
 - [LiteRed2 semantic reference](docs/references/litered2.md)
+- [Parametric-IBP breakthrough research](docs/research/parametric_ibp_breakthrough.md)
+- [Independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md)
+- [Primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md)
 - [Current CLI contract](docs/CLI.md)

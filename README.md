@@ -150,14 +150,21 @@ the complete nine-row source span, is guard-free, reaches `i64::MIN`, and
 routes only to the installed scalar-numerator/decorated-path lanes or the
 already-open scalar corner. Exact `S4` tests own all eight equivalent
 dot/numerator placements while rejecting the endpoint, higher-dot, two-dot,
-and two-negative neighbors. The
-current test-only K6 census
-submits 115 bounded probes, which canonicalize to 44 roots and discover 86
-nodes. It exercises all 37 current cell
-owners through 46 rule applications,
-discharges 27 nodes only by
-freshly proved zero/factorization terminals, and leaves 13 nodes explicitly
-uncovered. Two independent complete depth-two projections now also lower the
+and two-negative neighbors. A depth-one continuation now covers the deeper
+opposite inactive-pair ray `J(-1,1,1,1,1,N)`, `N<=-2`, from five selected
+generated rows. Its first new child is closed by a coordinated three-line
+cluster: two machine-wide inactive-pair rays and one shifted-dot ray are
+independently reprojected from complete ordinary-source spans with exact
+guards, replay, descent, and `S4` ownership. These additions replace one
+finite frontier witness without treating any sampled miss as a terminal.
+
+The current test-only K6 census submits 115 bounded probes, which canonicalize
+to 44 roots and discover 89 nodes. It applies rules 53 times from 46 registered
+cells, discharges 27 nodes only by freshly proved zero/factorization terminals,
+and leaves nine nodes explicitly uncovered: the three scalar-corner
+certification obligations and six genuine recurrence witnesses enumerated in
+the [breakthrough research note](docs/research/parametric_ibp_breakthrough.md).
+Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;
 both rules descend only to the certified path factorization and the unresolved
@@ -204,6 +211,17 @@ The remaining complementary ray, the exposed descendant
 `J(0,1,1,2,N,0)`, inequivalent path-numerator orbits, other numerator faces,
 scalar corners, and the rest of the fixed point remain open.
 
+RustRed does not require the eventual evaluation-terminal set to be a minimal
+master basis. An exactly proved finite complement may be shipped as a larger,
+versioned terminal set, provided each entry has an exact MATAD basis map or a
+separately validated, shipped high-precision Laurent evaluation at Stage 1
+(with AMFlow serving the analogous later high-loop role). The current nine
+bounded K6 misses are not such a proof: recurrence
+witnesses may sit on infinite uncovered strata and therefore cannot simply be
+declared masters. Vakint/MATAD may be used offline to diagnose their missing
+relations and to produce high-precision reference values; neither is part of
+the production RustRed scalar path.
+
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
 
@@ -211,8 +229,13 @@ Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend is FORM-free
 from scalar IBP application through master substitution. Existing experimental
 RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
-high-loop performance work, and new tensor technology are deferred until
-explicit new guidance. See [`GOAL.md`](GOAL.md) for the authoritative gates.
+high-loop artifact production, and new tensor technology are deferred until
+explicit new guidance. Algorithm research and bounded K6 foundry experiments
+are active now: LiteRed2 is the correctness control, while modular
+target-separation, exact lattice-stratum completion, seedless syzygy sources,
+generating-function operators, and decorated graph/minor reuse are evaluated
+as possible routes beyond its scaling. See [`GOAL.md`](GOAL.md) for the
+authoritative gates.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
@@ -450,7 +473,10 @@ Stable design documents are:
 - [closing-rule foundry target](docs/foundry.md);
 - [application, Python, and Vakint interfaces](docs/interfaces.md);
 - [validation and oracle ladder](docs/validation.md);
-- [LiteRed2 semantic reference](docs/references/litered2.md); and
+- [LiteRed2 semantic reference](docs/references/litered2.md);
+- [parametric-IBP breakthrough research](docs/research/parametric_ibp_breakthrough.md);
+- [independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md);
+- [primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md); and
 - [current CLI contract](docs/CLI.md).
 
 Local LiteRed2, GammaLoop/Vakint, FORM, and other reference checkouts live only

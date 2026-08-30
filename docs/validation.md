@@ -13,8 +13,8 @@ closure claim.
 | 2. Identity | Generic ordinary IBP/LI rows have the expected count and each exact specialization/replay is zero. |
 | 3. Sector and symmetry | Zero/excluded states and exact symmetry transports agree after canonical naming. |
 | 4. Closed rules | Guarded parametric rules exactly replay and cover every declared generic and exceptional domain. |
-| 5. Target reduction | Requested integrals reduce to the same exact combination of unsubstituted canonical masters. |
-| 6. Evaluated result | A separately validated master provider and normalization map give the same Laurent or numerical result. |
+| 5. Target reduction | Requested integrals reduce exactly to the artifact's finite typed evaluation-terminal set. |
+| 6. Evaluated result | A separately validated terminal provider and normalization map give the same Laurent or numerical result as the oracle. |
 
 Levels are cumulative for a particular fixture. An inventoried notebook is
 level 0 source evidence, not a computational pass. A live backend differential
@@ -318,8 +318,9 @@ Vakint comparisons are reported separately at three boundaries:
 1. **Matching/tensor:** exact canonical topology, routing/permutation witness,
    and projected scalar/tensor expression before IBP application.
 2. **Reduction:** exact rational coefficients multiplying unsubstituted stable
-   masters, after an explicit dimension, mass, metric, propagator-sign, and
-   master-basis map.
+   RustRed evaluation terminals, after explicit dimension, mass, metric, and
+   propagator-sign maps. Exact cross-backend coefficient comparison is added
+   only when a common master-basis map is available.
 3. **Evaluation:** optional master substitution, measure and MS-bar
    normalization, and Laurent/numerical comparison.
 
@@ -332,11 +333,13 @@ The active Stage 1 ladder is completed in this order:
 - the three-loop K4/Mercedes parent and four inequivalent contractions reduced
   by a future installed `K = 6` artifact.
 
-Each case is compared first as exact coefficients of unsubstituted MATAD-basis
-masters and then, where an existing expectation exists, after Vakint's
-pure-Rust master substitution and Laurent expansion. Alternate routings are
-tests of Vakint's existing matcher and simultaneous witness, not permission for
-RustRed to rematch a topology.
+Each case is tested first for exact deterministic reduction to RustRed's own
+typed terminals. Where an explicit MATAD-basis map exists, exact raw
+coefficients are compared too. Otherwise the required cross-backend gate is
+numerical parity of the substituted Laurent series at a precision safely below
+the independently generated terminal data. Alternate routings are tests of
+Vakint's existing matcher and simultaneous witness, not permission for RustRed
+to rematch a topology.
 
 Existing Vakint input-matching and inline expected-expression tests can be
 used without FORM. The current RustRed-mode tests use invalid FORM paths and
@@ -367,10 +370,12 @@ complete tensor-bearing chain is not claimed to be FORM-free.
 
 Vakint's existing AlphaLoop and MATAD reductions may run with a pinned FORM in
 segregated oracle coverage through three loops. An oracle-regeneration job
-records the executable identity, input, Vakint revision, convention map, and
-raw output. Reviewed raw master coefficients and evaluated expectations become
-versioned fixtures; production RustRed never copies authored oracle recurrence
-tables. FMFT and four-loop comparison belong to deferred Stage 2.
+records the executable identity, input, Vakint revision, convention map, raw
+output, Laurent order, and precision. Reviewed raw coefficients, where a basis
+map exists, and high-precision evaluated terminal data become versioned
+fixtures; production RustRed never copies authored oracle recurrence tables.
+Four-loop artifact production remains deferred, but FMFT is the designated
+offline evaluator and parity oracle for a future finite RustRed terminal set.
 
 A directory named `form5` is not assumed to contain a FORM executable. Oracle
 availability is checked explicitly, and its absence neither blocks pure-Rust
