@@ -225,11 +225,20 @@ edge over the scalar sector's full `S4` orbit proves that this is the unique
 24-image inactive-numerator placement orbit. The endpoint therefore removes
 one more frontier node; no unproved negative-power bulk is installed.
 
+The factorized four-line lanes live together under the semantic
+`four_line::factorized` module. Its third singleton owns exactly the orbit of
+`J(0,-1,2,2,1,1)`. A complete depth-one search retains 63 rows and selects
+nine; independent compact reprojection removes the complete elimination's
+spurious `d-1` guard. The four strictly descending children route to
+factorization owners 2, 0, 1, and 2. Exhaustive enumeration partitions all six
+inequivalent two-dot/numerator placement classes and explicitly excludes the
+neighboring higher-dot and deeper-numerator representatives.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
-canonicalization retains 44 roots and discovery visits 84 nodes. The report
-pins 40 applications across all 31 current rule-cell owners, 26 independently
-proved zero/factorization terminals, and 18 uncovered nodes. A
+canonicalization retains 44 roots and discovery visits 85 nodes. The report
+pins 41 applications across all 32 current rule-cell owners, 27 independently
+proved zero/factorization terminals, and 17 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production

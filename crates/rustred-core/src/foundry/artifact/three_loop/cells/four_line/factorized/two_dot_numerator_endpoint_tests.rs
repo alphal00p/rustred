@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::family::IntegralKey;
 use crate::foundry::artifact::ArtifactError;
@@ -11,14 +11,14 @@ use crate::foundry::search::{
 };
 use crate::sector::InteriorBounds;
 
-use super::super::super::{
+use super::super::super::super::{
     K6ReachabilityTerminals, canonical_family, canonical_s4, exact_zero_sectors,
 };
-use super::factorized_face_numerator_endpoint::{
-    FACTORIZED_FACE_NUMERATOR_PIVOT, FACTORIZED_FACE_SECTOR, FactorizedFaceNumeratorEndpointBuild,
-    derive_factorized_face_numerator_candidate, derive_factorized_face_numerator_endpoint,
-    derive_factorized_face_numerator_endpoint_build, factorized_face_numerator_search_depth,
-    fixed_endpoint,
+use super::FACTORIZED_FACE_SECTOR;
+use super::two_dot_numerator_endpoint::{
+    FactorizedTwoDotEndpointBuild, TWO_DOT_NUMERATOR_PIVOT, derive_factorized_two_dot_candidate,
+    derive_factorized_two_dot_endpoint_build, derive_factorized_two_dot_numerator_endpoint,
+    factorized_two_dot_search_depth, fixed_endpoint,
 };
 
 const ORDINARY_ROWS: [&str; 9] = [
@@ -41,32 +41,37 @@ const DEPTH_ONE_OFFSETS: [[i64; 6]; 7] = [
     [0, 0, 0, 1, 0, 0],
     [0, 0, 1, 0, 0, 0],
 ];
-const COMPLETE_SELECTION: [usize; 8] = [6, 7, 8, 18, 19, 20, 24, 26];
-const TARGET: [i64; 6] = [0, -1, 1, 1, 1, 1];
-const RHS: [[i64; 6]; 3] = [[0, 0, 1, -1, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, -1, 0, 0]];
+const COMPLETE_SELECTION: [usize; 9] = [18, 19, 24, 27, 28, 29, 33, 34, 35];
+const TARGET: [i64; 6] = [0, -1, 2, 2, 1, 1];
+const RHS: [[i64; 6]; 4] = [
+    [0, 0, 1, -1, 0, 1],
+    [0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, -1, 1],
+    [0, 0, 0, -1, 0, 1],
+];
 
 #[test]
 fn complete_depth_one_selection_and_compact_reprojection_are_exact() {
     assert_eq!(
-        derive_factorized_face_numerator_candidate(0),
+        derive_factorized_two_dot_candidate(0),
         Err(ArtifactError::ParametricRule(
             ParametricRuleError::TargetShiftAbsent
         ))
     );
-    let FactorizedFaceNumeratorEndpointBuild {
+    let FactorizedTwoDotEndpointBuild {
         context,
         endpoint,
         selected_complete_source_ordinals,
         selection_witness,
-    } = derive_factorized_face_numerator_endpoint_build(true).unwrap();
+    } = derive_factorized_two_dot_endpoint_build(true).unwrap();
     let witness = selection_witness.expect("exact test retains the complete span");
     let search = SectorSearchDiamond::try_new(
         IntegralKey::try_new(FACTORIZED_FACE_SECTOR).unwrap(),
-        factorized_face_numerator_search_depth(),
+        factorized_two_dot_search_depth(),
         SectorSearchLimits::default(),
     )
     .unwrap();
-    assert_eq!(factorized_face_numerator_search_depth(), 1);
+    assert_eq!(factorized_two_dot_search_depth(), 1);
     assert_eq!(search.offset_count(), DEPTH_ONE_OFFSETS.len());
     assert_eq!(
         search
@@ -94,7 +99,7 @@ fn complete_depth_one_selection_and_compact_reprojection_are_exact() {
     assert_eq!(endpoint.sources().len(), COMPLETE_SELECTION.len());
     assert_eq!(
         selected_ordinals(endpoint.rule()),
-        (0..8).collect::<Vec<_>>()
+        (0..9).collect::<Vec<_>>()
     );
     for (provenance, &complete_ordinal) in endpoint
         .sources()
@@ -145,132 +150,98 @@ fn complete_depth_one_selection_and_compact_reprojection_are_exact() {
 }
 
 #[test]
-fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
-    let build = derive_factorized_face_numerator_endpoint_build(true).unwrap();
-    let witness = build
+fn compact_coefficients_remove_the_complete_span_guard_exactly() {
+    let build = derive_factorized_two_dot_endpoint_build(true).unwrap();
+    let complete = &build
         .selection_witness
         .as_ref()
-        .expect("exact test retains the complete span");
-    assert_rule_metrics(&witness.complete_rule, (8, 51, 123));
-    assert_rule_metrics(build.endpoint.rule(), (8, 18, 90));
+        .expect("exact test retains the complete span")
+        .complete_rule;
+    let compact = build.endpoint.rule();
+    assert_rule_metrics(complete, (9, 51, 138), (9, 53, 4, 58, 1, 157, 30));
+    assert_rule_metrics(compact, (9, 19, 106), (9, 53, 4, 58, 0, 156, 30));
     assert_eq!(
-        witness.complete_rule.pivot_guard().coefficient(),
-        build.endpoint.rule().pivot_guard().coefficient()
-    );
-    assert_eq!(
-        witness.complete_rule.pivot_guard().nonzero_polynomial(),
-        build.endpoint.rule().pivot_guard().nonzero_polynomial()
-    );
-    assert_eq!(
-        witness
-            .complete_rule
+        complete
             .source_combination()
             .iter()
             .map(|source| source.coefficient())
             .collect::<Vec<_>>(),
-        build
-            .endpoint
-            .rule()
+        compact
             .source_combination()
             .iter()
             .map(|source| source.coefficient())
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        witness
-            .complete_rule
+        complete
             .right_hand_side()
             .iter()
             .map(|term| term.coefficient())
             .collect::<Vec<_>>(),
-        build
-            .endpoint
-            .rule()
+        compact
             .right_hand_side()
             .iter()
             .map(|term| term.coefficient())
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        witness
-            .complete_rule
-            .nonzero_guards()
-            .iter()
-            .map(|guard| guard.polynomial())
-            .collect::<Vec<_>>(),
-        build
-            .endpoint
-            .rule()
-            .nonzero_guards()
-            .iter()
-            .map(|guard| guard.polynomial())
             .collect::<Vec<_>>()
     );
 
-    let reciprocal = build
-        .context
-        .lift(&build.context.base().coefficient_fixture("1/(d-1)"))
-        .unwrap();
-    let twice_reciprocal = build
-        .context
-        .lift(&build.context.base().coefficient_fixture("2/(d-1)"))
-        .unwrap();
-    let minus_twice_reciprocal = build
-        .context
-        .lift(&build.context.base().coefficient_fixture("-2/(d-1)"))
-        .unwrap();
-    assert_eq!(
+    let indexed = |expression| {
         build
-            .endpoint
-            .rule()
+            .context
+            .lift(&build.context.base().coefficient_fixture(expression))
+            .unwrap()
+    };
+    let minus_d_over_six = indexed("-d/6");
+    let d_over_three = indexed("d/3");
+    let minus_one = indexed("-1");
+    let half = indexed("1/2");
+    assert_eq!(
+        compact
             .source_combination()
             .iter()
             .map(|source| source.coefficient())
             .collect::<Vec<_>>(),
         [
-            &reciprocal,
-            &reciprocal,
-            &reciprocal,
-            &minus_twice_reciprocal,
-            &minus_twice_reciprocal,
-            &minus_twice_reciprocal,
-            &twice_reciprocal,
-            &reciprocal,
+            &minus_d_over_six,
+            &minus_d_over_six,
+            &d_over_three,
+            &minus_one,
+            &minus_one,
+            &minus_one,
+            &half,
+            &half,
+            &half,
         ]
     );
+    let one = indexed("1");
+    let d_times_d_minus_three_over_six = indexed("d*(d-3)/6");
+    let d_over_six = indexed("d/6");
     assert_eq!(
-        build
-            .endpoint
-            .rule()
+        compact
             .right_hand_side()
             .iter()
             .map(|term| term.coefficient())
             .collect::<Vec<_>>(),
-        [&twice_reciprocal, &build.context.one(), &reciprocal]
+        [
+            &one,
+            &d_times_d_minus_three_over_six,
+            &d_over_six,
+            &minus_d_over_six,
+        ]
     );
-    let guard = build
+    let minus_two = indexed("-2");
+    assert_eq!(complete.pivot_guard().coefficient(), &minus_two);
+    assert_eq!(compact.pivot_guard().coefficient(), &minus_two);
+
+    let dimension_minus_one = indexed("d-1");
+    let spurious_guard = build
         .context
-        .denominator_condition_with_limits(&reciprocal, Default::default())
+        .numerator_condition_with_limits(&dimension_minus_one, Default::default())
         .unwrap();
-    let dimension_minus_one = build
-        .context
-        .lift(&build.context.base().coefficient_fixture("d-1"))
-        .unwrap();
-    assert_eq!(
-        build.endpoint.rule().pivot_guard().coefficient(),
-        &dimension_minus_one
-    );
-    assert_eq!(
-        build.endpoint.rule().pivot_guard().nonzero_polynomial(),
-        &guard
-    );
-    assert_eq!(build.endpoint.rule().nonzero_guards().len(), 1);
-    assert_eq!(
-        build.endpoint.rule().nonzero_guards()[0].polynomial(),
-        &guard
-    );
-    assert_eq!(build.endpoint.guards().len(), 1);
-    assert_eq!(build.endpoint.guards()[0].polynomial(), &guard);
+    assert_eq!(complete.nonzero_guards().len(), 1);
+    assert_eq!(complete.nonzero_guards()[0].polynomial(), &spurious_guard);
+    assert!(compact.nonzero_guards().is_empty());
+    assert!(build.endpoint.guards().is_empty());
 
     assert_eq!(
         build.endpoint.domain_proof(),
@@ -296,9 +267,9 @@ fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
         Some(FACTORIZED_FACE_SECTOR.to_vec())
     );
     for unowned in [
-        [0, -2, 1, 1, 1, 1],
-        [0, i64::MIN, 1, 1, 1, 1],
-        [0, -1, 1, 1, 2, 1],
+        [0, -2, 2, 2, 1, 1],
+        [0, i64::MIN, 2, 2, 1, 1],
+        [0, -1, 1, 3, 1, 1],
     ] {
         assert!(
             build
@@ -316,10 +287,10 @@ fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
         Default::default(),
     )
     .unwrap();
-    assert_eq!(held_out, build.endpoint.rule().concrete_replay().clone());
+    assert_eq!(held_out, compact.concrete_replay().clone());
 
-    let (_second_context, second) = derive_factorized_face_numerator_endpoint().unwrap();
-    assert_eq!(second.rule(), build.endpoint.rule());
+    let (_second_context, second) = derive_factorized_two_dot_numerator_endpoint().unwrap();
+    assert_eq!(second.rule(), compact);
     assert_eq!(
         second.application_domain(),
         build.endpoint.application_domain()
@@ -331,8 +302,8 @@ fn exact_coefficients_guard_replay_domain_and_rebuild_are_pinned() {
 }
 
 #[test]
-fn exhaustive_inactive_placement_orbit_and_children_are_exact() {
-    let (_context, endpoint) = derive_factorized_face_numerator_endpoint().unwrap();
+fn exact_s4_placement_partition_nonownership_and_children_are_pinned() {
+    let (_context, endpoint) = derive_factorized_two_dot_numerator_endpoint().unwrap();
     let family = canonical_family().unwrap();
     let canonicalizer = canonical_s4(&family).unwrap();
     let terminals = K6ReachabilityTerminals::try_new().unwrap();
@@ -348,54 +319,77 @@ fn exhaustive_inactive_placement_orbit_and_children_are_exact() {
     );
     assert_eq!(target_orbit.canonical().integral(), &target);
 
-    let base = IntegralKey::try_new(FACTORIZED_FACE_SECTOR).unwrap();
-    let base_orbit = canonicalizer.orbit(&base).unwrap();
-    assert_eq!(base_orbit.orbit_size(), 12);
-    assert!(
-        base_orbit
-            .images()
-            .iter()
-            .all(|image| image.routing_multiplicity() == 2)
-    );
-    let mut exhaustive_placements = BTreeSet::new();
-    for image in base_orbit.images() {
-        for inactive in image
-            .integral()
-            .powers()
-            .iter()
-            .enumerate()
-            .filter_map(|(position, &power)| (power == 0).then_some(position))
-        {
-            let mut powers: [i64; 6] = image.integral().powers().try_into().unwrap();
-            powers[inactive] = -1;
-            let decorated = IntegralKey::try_new(powers).unwrap();
-            assert_eq!(
-                canonicalizer.canonicalize(&decorated).unwrap().canonical(),
-                &target
-            );
-            exhaustive_placements.insert(decorated);
+    let mut placement_classes = BTreeMap::<[i64; 6], BTreeSet<(usize, usize, usize)>>::new();
+    for numerator in [0, 1] {
+        for first_dot in [2, 3, 4, 5] {
+            for second_dot in (first_dot + 1)..6 {
+                let mut powers = FACTORIZED_FACE_SECTOR;
+                powers[numerator] = -1;
+                powers[first_dot] = 2;
+                powers[second_dot] = 2;
+                let canonical: [i64; 6] = canonicalizer
+                    .canonicalize(&IntegralKey::try_new(powers).unwrap())
+                    .unwrap()
+                    .canonical()
+                    .powers()
+                    .try_into()
+                    .unwrap();
+                placement_classes
+                    .entry(canonical)
+                    .or_default()
+                    .insert((numerator, first_dot, second_dot));
+            }
         }
     }
-    assert_eq!(exhaustive_placements.len(), 24);
-    assert_eq!(
-        exhaustive_placements,
-        target_orbit
-            .images()
-            .iter()
-            .map(|image| image.integral().clone())
-            .collect()
-    );
+    let expected = BTreeMap::from([
+        ([0, -1, 1, 1, 2, 2], BTreeSet::from([(0, 3, 4), (1, 4, 5)])),
+        ([0, -1, 1, 2, 1, 2], BTreeSet::from([(0, 3, 5), (1, 3, 5)])),
+        ([0, -1, 1, 2, 2, 1], BTreeSet::from([(0, 4, 5), (1, 3, 4)])),
+        ([0, -1, 2, 1, 1, 2], BTreeSet::from([(0, 2, 3), (1, 2, 5)])),
+        ([0, -1, 2, 1, 2, 1], BTreeSet::from([(0, 2, 4), (1, 2, 4)])),
+        (TARGET, BTreeSet::from([(0, 2, 5), (1, 2, 3)])),
+    ]);
+    assert_eq!(placement_classes, expected);
+    for representative in placement_classes.keys() {
+        let representative = IntegralKey::try_new(*representative).unwrap();
+        let orbit = canonicalizer.orbit(&representative).unwrap();
+        assert_eq!(orbit.orbit_size(), 24);
+        assert_eq!(orbit.canonical().integral(), &representative);
+        if representative != target {
+            assert!(
+                endpoint
+                    .assignment_for_target(&representative)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    for unowned in [[0, -1, 1, 3, 1, 1], [0, -2, 2, 2, 1, 1]] {
+        let unowned = IntegralKey::try_new(unowned).unwrap();
+        let orbit = canonicalizer.orbit(&unowned).unwrap();
+        assert_eq!(orbit.orbit_size(), 24);
+        assert_eq!(orbit.canonical().integral(), &unowned);
+        assert!(
+            target_orbit
+                .images()
+                .iter()
+                .all(|image| image.integral() != &unowned)
+        );
+        assert!(endpoint.assignment_for_target(&unowned).unwrap().is_none());
+    }
 
     let children = canonical_children(&canonicalizer, &endpoint, &FACTORIZED_FACE_SECTOR);
     assert_eq!(
         children,
         [
-            vec![0, 0, 1, 0, 2, 1],
+            vec![0, 0, 1, 0, 2, 2],
             vec![0, 0, 1, 1, 1, 1],
-            vec![0, 0, 1, 0, 1, 1],
+            vec![0, 0, 1, 1, 0, 2],
+            vec![0, 0, 1, 0, 1, 2],
         ]
     );
-    for (child, owner) in children.iter().zip([2, 0, 2]) {
+    for (child, owner) in children.iter().zip([2, 0, 1, 2]) {
         assert!(matches!(
             terminals.classify(&key(child)),
             Some(terminal)
@@ -425,9 +419,13 @@ fn assert_complete_provenance(
     }
 }
 
-fn assert_rule_metrics(rule: &ParametricRule, parametric: (usize, usize, usize)) {
+fn assert_rule_metrics(
+    rule: &ParametricRule,
+    parametric: (usize, usize, usize),
+    concrete: (usize, usize, usize, usize, usize, usize, usize),
+) {
     assert_eq!(rule.anchor().powers(), FACTORIZED_FACE_SECTOR);
-    assert_eq!(rule.pivot().values(), FACTORIZED_FACE_NUMERATOR_PIVOT);
+    assert_eq!(rule.pivot().values(), TWO_DOT_NUMERATOR_PIVOT);
     assert_eq!(
         rule.right_hand_side()
             .iter()
@@ -439,13 +437,13 @@ fn assert_rule_metrics(rule: &ParametricRule, parametric: (usize, usize, usize))
     assert_eq!(rule.replay().shift_columns_checked(), parametric.1);
     assert_eq!(rule.replay().exact_operations(), parametric.2);
     let replay = rule.concrete_replay();
-    assert_eq!(replay.source_contributions_checked(), 8);
-    assert_eq!(replay.source_terms_checked(), 45);
-    assert_eq!(replay.right_hand_side_terms_checked(), 3);
-    assert_eq!(replay.integral_keys_checked(), 49);
-    assert_eq!(replay.nonzero_guards_checked(), 1);
-    assert_eq!(replay.exact_operations(), 133);
-    assert_eq!(replay.peak_retained_coefficient_terms(), 30);
+    assert_eq!(replay.source_contributions_checked(), concrete.0);
+    assert_eq!(replay.source_terms_checked(), concrete.1);
+    assert_eq!(replay.right_hand_side_terms_checked(), concrete.2);
+    assert_eq!(replay.integral_keys_checked(), concrete.3);
+    assert_eq!(replay.nonzero_guards_checked(), concrete.4);
+    assert_eq!(replay.exact_operations(), concrete.5);
+    assert_eq!(replay.peak_retained_coefficient_terms(), concrete.6);
 }
 
 fn selected_ordinals(rule: &ParametricRule) -> Vec<usize> {

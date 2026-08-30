@@ -27,10 +27,10 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
-use super::super::support::complete_ordinary_sources;
+use super::super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
+use super::super::super::support::complete_ordinary_sources;
 
-pub(super) const FACTORIZED_FOUR_LINE_SECTOR: [i64; 6] = [0, 0, 1, 1, 1, 1];
+pub(super) use super::FACTORIZED_FACE_SECTOR as FACTORIZED_FOUR_LINE_SECTOR;
 pub(super) const BRIDGE_DOT_NUMERATOR_PIVOT: [i64; 6] = [0, -1, 1, 0, 0, 0];
 pub(super) const BULK_REPLAY_ANCHOR: [i64; 6] = [0, -8, 8, 8, 8, 8];
 pub(super) const FREE_POSITION: usize = 1;
@@ -54,7 +54,7 @@ pub(super) struct FactorizedBridgeDotNumeratorBuild {
     pub(super) selection_witness: Option<FactorizedBridgeDotSelectionWitness>,
 }
 
-pub(super) fn derive_factorized_bridge_dot_numerator_cells()
+pub(in super::super) fn derive_factorized_bridge_dot_numerator_cells()
 -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
     let build = derive_factorized_bridge_dot_numerator_build(false)?;
     Ok((build.context, build.endpoint, build.bulk))

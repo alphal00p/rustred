@@ -254,11 +254,20 @@ All three children route to factorization owners 2, 0, and 2, so this second
 singleton also removes one frontier node without creating another. No
 negative-power bulk is inferred.
 
+A third exact endpoint owns only the `S4` orbit of
+`J(0,-1,2,2,1,1)`. Its complete depth-one search again retains all 63 rows and
+selects nine; production independently reprojects those rows and eliminates
+the complete-system's spurious `d-1` guard. All four children are immutable
+factorization terminals with owner ordinals 2, 0, 1, and 2. Exhaustive
+classification of the six inequivalent two-dot/numerator placements proves
+the singleton boundary and keeps the neighboring bulk and higher-dot lanes
+open.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 84 nodes: all 31 presently derived cell owners are
-exercised in 40 applications, 26 nodes terminate through independently checked
-zero or factorization proofs, and 18 remain explicitly uncovered. The census
+roots and discover 85 nodes: all 32 presently derived cell owners are
+exercised in 41 applications, 27 nodes terminate through independently checked
+zero or factorization proofs, and 17 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

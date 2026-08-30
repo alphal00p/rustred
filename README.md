@@ -120,12 +120,18 @@ continues only to the installed decorated-path endpoint and an authenticated
 product. The other direct child, `J(0,-1,1,1,1,1)`, now has a separate
 depth-one endpoint cell selected from 8 of 63 complete rows. Its sole guard is
 `d-1`, and all three children are authenticated products; deeper negative
-powers remain explicitly open. The
+powers remain explicitly open. A distinct two-dot placement,
+`J(0,-1,2,2,1,1)`, is owned by another exact endpoint selected from 9 of the
+same 63-row search span. Independent compact reprojection removes the
+complete-system's spurious `d-1` guard, and its four children terminate in
+factorization owners 2, 0, 1, and 2. The six inequivalent `S4` placement
+classes are exhaustively partitioned, so neighboring dot or numerator
+patterns are not overclaimed. The
 current test-only K6 census
-submits 115 bounded probes, which canonicalize to 44 roots and discover 84
-nodes. It exercises all 31 current cell owners through 40 rule applications,
-discharges 26 nodes only by
-freshly proved zero/factorization terminals, and leaves 18 nodes explicitly
+submits 115 bounded probes, which canonicalize to 44 roots and discover 85
+nodes. It exercises all 32 current cell owners through 41 rule applications,
+discharges 27 nodes only by
+freshly proved zero/factorization terminals, and leaves 17 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;

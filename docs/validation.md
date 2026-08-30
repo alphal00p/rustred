@@ -147,6 +147,15 @@ inactive-edge decoration over all 12 scalar-sector images and prove equality
 with the endpoint's 24-image `S4` orbit. All three children are checked against
 factorization owners 2, 0, and 2.
 
+The factorized two-dot numerator endpoint repeats that complete 63-row audit
+for `J(0,-1,2,2,1,1)`, pins the nine selected ordinals, and proves that
+independent compact reprojection removes the complete-system's spurious
+`d-1` guard. Exact coefficient, replay, strict-descent, and deterministic
+rebuild assertions are joined by an exhaustive partition of all six
+inequivalent `S4` two-dot/numerator placement classes. Its four children are
+checked against factorization owners 2, 0, 1, and 2; adjacent higher-dot and
+deeper-numerator patterns remain nonowners.
+
 The factorized bridge-dot numerator tests derive endpoint and bulk rules from
 the complete depth-zero span of all nine ordinary sources. They pin exact
 selected ordinals, independent compact reprojection, authenticated
@@ -164,9 +173,9 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
-following exact deterministic report: 44 canonical roots, 84 discovered
-nodes, 40 rule applications spanning all 31 current cell owners, 26
-zero/factorization terminals, and 18 uncovered nodes. The census pins
+following exact deterministic report: 44 canonical roots, 85 discovered
+nodes, 41 rule applications spanning all 32 current cell owners, 27
+zero/factorization terminals, and 17 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

@@ -21,10 +21,10 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
-use super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
-use super::super::support::complete_ordinary_sources;
+use super::super::super::super::{canonical_family, canonical_s4, exact_zero_sectors};
+use super::super::super::support::complete_ordinary_sources;
+use super::FACTORIZED_FACE_SECTOR;
 
-pub(super) const FACTORIZED_FACE_SECTOR: [i64; 6] = [0, 0, 1, 1, 1, 1];
 pub(super) const FACTORIZED_FACE_NUMERATOR_PIVOT: [i64; 6] = [0, -1, 0, 0, 0, 0];
 const SEARCH_DEPTH: usize = 1;
 
@@ -40,7 +40,7 @@ pub(super) struct FactorizedFaceNumeratorEndpointBuild {
     pub(super) selection_witness: Option<FactorizedFaceNumeratorSelectionWitness>,
 }
 
-pub(super) fn derive_factorized_face_numerator_endpoint()
+pub(in super::super) fn derive_factorized_face_numerator_endpoint()
 -> Result<(IndexedCoefficientContext, RuleCell), ArtifactError> {
     let build = derive_factorized_face_numerator_endpoint_build(false)?;
     Ok((build.context, build.endpoint))

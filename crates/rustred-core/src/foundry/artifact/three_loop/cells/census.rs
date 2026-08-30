@@ -38,6 +38,7 @@ const FOUR_LINE_SCALAR_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 1, -2];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 1, 1, 1, 1];
+const FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 2, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
 const THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 0, 1, 0, 2, 1];
@@ -73,6 +74,7 @@ enum K6CellKind {
     FourLineFactorizedBridgeDotNumeratorEndpoint,
     FourLineFactorizedBridgeDotNumeratorBulk,
     FourLineFactorizedFaceNumeratorEndpoint,
+    FourLineFactorizedTwoDotNumeratorEndpoint,
     ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorBulk,
@@ -127,6 +129,7 @@ impl K6ReachabilityCensus {
             factorized_bridge_dot_numerator_endpoint,
             factorized_bridge_dot_numerator_bulk,
             factorized_face_numerator_endpoint,
+            factorized_two_dot_numerator_endpoint,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
@@ -241,6 +244,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
                 cell: factorized_face_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+                cell: factorized_two_dot_numerator_endpoint,
             },
             OwnedCell {
                 kind: K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
@@ -422,7 +429,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 31,
+            max_rule_cells: 32,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -466,6 +473,7 @@ mod tests {
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorEndpoint,
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
                 K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
+                K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
                 K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
@@ -523,6 +531,7 @@ mod tests {
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk, 1,),
                 (K6CellKind::FourLineFactorizedFaceNumeratorEndpoint, 1,),
+                (K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
@@ -536,17 +545,17 @@ mod tests {
             terminals,
             BTreeMap::from([
                 (ReachabilityTerminalKind::ZeroSector, 1),
-                (ReachabilityTerminalKind::Factorization, 25),
+                (ReachabilityTerminalKind::Factorization, 26),
             ])
         );
 
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 115);
         assert_eq!(statistics.canonical_roots(), 44);
-        assert_eq!(statistics.discovered_nodes(), 84);
-        assert_eq!(statistics.terminal_nodes(), 26);
-        assert_eq!(statistics.rule_applications(), 40);
-        assert_eq!(statistics.uncovered_nodes(), 18);
+        assert_eq!(statistics.discovered_nodes(), 85);
+        assert_eq!(statistics.terminal_nodes(), 27);
+        assert_eq!(statistics.rule_applications(), 41);
+        assert_eq!(statistics.uncovered_nodes(), 17);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -615,6 +624,10 @@ mod tests {
             (
                 FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE,
                 K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
             ),
             (
                 THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE,
@@ -871,6 +884,49 @@ mod tests {
             ));
         }
 
+        // The two-dot inactive-numerator placement is a deliberately narrow
+        // singleton.  Its compact selected-source replay removes the
+        // complete-system's spurious d-1 guard, and every child is discharged
+        // by an immutable factorization owner.
+        let ReachabilityDisposition::Rule(two_dot_endpoint) = disposition(
+            &census,
+            &first,
+            FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
+        ) else {
+            panic!("expected factorized two-dot numerator endpoint")
+        };
+        assert_eq!(
+            census.cell_kind(two_dot_endpoint.cell_ordinal()),
+            K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint
+        );
+        assert_eq!(two_dot_endpoint.assignment(), [0, 0, 1, 1, 1, 1]);
+        assert_eq!(
+            two_dot_endpoint
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [
+                [0, 0, 1, 0, 2, 2],
+                [0, 0, 1, 1, 1, 1],
+                [0, 0, 1, 1, 0, 2],
+                [0, 0, 1, 0, 1, 2],
+            ]
+        );
+        for (powers, owner) in [
+            ([0, 0, 1, 0, 2, 2], 2),
+            ([0, 0, 1, 1, 1, 1], 0),
+            ([0, 0, 1, 1, 0, 2], 1),
+            ([0, 0, 1, 0, 1, 2], 2),
+        ] {
+            assert!(matches!(
+                disposition(&census, &first, powers),
+                ReachabilityDisposition::Terminal(terminal)
+                    if terminal.kind() == ReachabilityTerminalKind::Factorization
+                        && terminal.owner_ordinal() == owner
+            ));
+        }
+
         // The first bridge-bulk obligation now has its own exact singleton
         // owner.  Both children were already reachable and owned, so this
         // cell removes one uncovered node without growing the frontier.
@@ -1011,7 +1067,6 @@ mod tests {
                 [0, -1, 1, 2, 1, 1],
                 [0, -1, 1, 2, 2, 1],
                 [0, -1, 1, 3, 1, 1],
-                [0, -1, 2, 2, 1, 1],
                 [0, -2, 2, 2, 1, 1],
                 [0, 1, 1, 1, 1, 0],
                 [-1, 1, 1, 1, 1, -1],

@@ -11,10 +11,10 @@ use crate::foundry::search::{
 };
 use crate::sector::InteriorBounds;
 
-use super::super::super::{
+use super::super::super::super::{
     K6ReachabilityTerminals, canonical_family, canonical_s4, exact_zero_sectors,
 };
-use super::factorized_bridge_dot_numerator::{
+use super::bridge_dot_numerator::{
     BRIDGE_DOT_NUMERATOR_PIVOT, BULK_REPLAY_ANCHOR, FACTORIZED_FOUR_LINE_SECTOR, FREE_POSITION,
     FactorizedBridgeDotNumeratorBuild, derive_factorized_bridge_dot_numerator_build,
     derive_factorized_bridge_dot_numerator_cells, factorized_bridge_dot_search_depth,
