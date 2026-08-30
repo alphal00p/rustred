@@ -105,8 +105,14 @@ bounds, and strict-descent proofs. Exact residual projection on the canonical
 five-line face additionally derives the two inequivalent positive dotted-edge
 cells from all nine sources, retaining the complete 26-sector zero routing and
 strict-descent evidence. This does not close the five-line sector: negative
-inactive powers and numerator faces remain open. The fixture does not expose
-an installable artifact until the complete rule fixed point is closed.
+inactive powers and numerator faces remain open. On the canonical irreducible
+four-line face, the same exact projection boundary now derives a guarded
+canonical-dot multi-excess cell from one target-aligned translated source span
+and a canonical mixed numerator/dot cell from the untranslated span. Exact
+`S4` tests route all four dotted and all eight mixed placements; the pure-dot
+cell's `n1 - 1` guard deliberately leaves its isolated corner uncovered. The
+fixture does not expose an installable artifact until the complete rule fixed
+point is closed.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

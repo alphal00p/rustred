@@ -15,16 +15,18 @@ use crate::sector::{
 use super::super::{canonical_family, canonical_s4};
 use super::support::{complete_ordinary_sources, exact_zero_sectors};
 
-const FIVE_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 1];
-const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 2];
-const ADJACENT_EDGE_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, 0];
-const OPPOSITE_EDGE_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 0, 1];
+const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
+const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 0];
+const CANONICAL_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, 0];
+const MIXED_NUMERATOR_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, -1];
+const CANONICAL_TARGET_SOURCE_SHIFT: [i64; 6] = [0, -1, 0, 0, 1, 0];
+const ZERO_SOURCE_SHIFT: [i64; 6] = [0; 6];
 
-/// Derive exact projected recurrences for the two inequivalent dotted-edge
-/// orbits on the canonical five-line residual face. These test-only cells are
-/// discovery slices, not a claim that the five-line sector (or the `K = 6`
-/// artifact) is closed.
-fn derive_five_line_cells() -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError>
+/// Derive exact projected recurrences for one canonical active-line dot and
+/// one mixed numerator/dot boundary on the canonical four-line residual
+/// face. These test-only cells are discovery slices, not a claim that the
+/// four-line sector or `K = 6` artifact is closed.
+fn derive_four_line_cells() -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError>
 {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
@@ -32,60 +34,71 @@ fn derive_five_line_cells() -> Result<(IndexedCoefficientContext, RuleCell, Rule
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
     let (completed, source_count) = complete_ordinary_sources(&generator)?;
-    let adjacent_sources = projected_sources(
+    let canonical_dot_sources = projected_sources(
         &generator,
         &completed,
         source_count,
         &canonicalizer,
         &zero_sectors,
+        CANONICAL_TARGET_SOURCE_SHIFT,
     )?;
-    let adjacent_rule = derive_sector_monotone_rule_for_target(
+    let canonical_dot_rule = derive_sector_monotone_rule_for_target(
         generator.context(),
-        adjacent_sources.relations(),
+        canonical_dot_sources.relations(),
         &ANCHOR,
-        &ADJACENT_EDGE_TARGET_SHIFT,
+        &CANONICAL_DOT_TARGET_SHIFT,
         OrderingPolicy::default(),
         ParametricRuleLimits::default(),
     )?;
-    let adjacent_application = five_line_application_domain(&adjacent_rule)?;
-    let adjacent = RuleCell::try_refined(
+    // The exact translated-source guards include n1 - 1, so n1 >= 2 is the
+    // maximal positive half-box on which every guard is uniformly nonzero.
+    let canonical_dot_application = four_line_application_domain(&canonical_dot_rule, 2)?;
+    let canonical_dot = RuleCell::try_refined(
         generator.context(),
-        adjacent_rule,
-        adjacent_sources,
-        adjacent_application,
-        [FixedIndexRestriction::new(0, 0)],
+        canonical_dot_rule,
+        canonical_dot_sources,
+        canonical_dot_application,
+        fixed_inactive_indices(),
         [],
         RuleCellLimits::default(),
     )?;
 
-    let opposite_sources = projected_sources(
+    let mixed_sources = projected_sources(
         &generator,
         &completed,
         source_count,
         &canonicalizer,
         &zero_sectors,
+        ZERO_SOURCE_SHIFT,
     )?;
-    let opposite_rule = derive_sector_monotone_rule_for_target(
+    let mixed_rule = derive_sector_monotone_rule_for_target(
         generator.context(),
-        opposite_sources.relations(),
+        mixed_sources.relations(),
         &ANCHOR,
-        &OPPOSITE_EDGE_TARGET_SHIFT,
+        &MIXED_NUMERATOR_DOT_TARGET_SHIFT,
         OrderingPolicy::default(),
         ParametricRuleLimits::default(),
     )?;
-    let opposite_application = five_line_application_domain(&opposite_rule)?;
+    let mixed_application = four_line_application_domain(&mixed_rule, 1)?;
     let context = generator.context().clone();
-    let opposite = RuleCell::try_refined(
+    let mixed = RuleCell::try_refined(
         generator.context(),
-        opposite_rule,
-        opposite_sources,
-        opposite_application,
-        [FixedIndexRestriction::new(0, 0)],
+        mixed_rule,
+        mixed_sources,
+        mixed_application,
+        fixed_inactive_indices(),
         [],
         RuleCellLimits::default(),
     )?;
     drop(generator);
-    Ok((context, adjacent, opposite))
+    Ok((context, canonical_dot, mixed))
+}
+
+fn fixed_inactive_indices() -> [FixedIndexRestriction; 2] {
+    [
+        FixedIndexRestriction::new(0, 0),
+        FixedIndexRestriction::new(5, 0),
+    ]
 }
 
 fn projected_sources(
@@ -94,21 +107,22 @@ fn projected_sources(
     source_count: usize,
     canonicalizer: &crate::sector::symmetry::Canonicalizer,
     zero_sectors: &[Mask],
+    translation: [i64; 6],
 ) -> Result<SourceViewBatch, ArtifactError> {
     let translated = generator.translate_completed_source_rows(
         completed,
-        [IntegralShift::try_new([0; 6])?],
+        [IntegralShift::try_new(translation)?],
         TranslatedSourceLimits::default(),
     )?;
     let domain = SectorInteriorDomain::try_new(
-        Mask::try_from_indices(&FIVE_LINE_SECTOR)?,
+        Mask::try_from_indices(&FOUR_LINE_SECTOR)?,
         [
             InteriorBounds::new(0, 0),
             InteriorBounds::new(1, i64::MAX),
             InteriorBounds::new(1, i64::MAX),
             InteriorBounds::new(1, i64::MAX),
             InteriorBounds::new(1, i64::MAX),
-            InteriorBounds::new(1, i64::MAX),
+            InteriorBounds::new(0, 0),
         ],
     )?;
     let ordinals = (0..source_count).collect::<Vec<_>>();
@@ -117,26 +131,29 @@ fn projected_sources(
         &ordinals,
         generator.context(),
         domain,
-        [FixedIndexRestriction::new(0, 0)],
+        fixed_inactive_indices(),
         canonicalizer,
         zero_sectors,
         RuleCellLimits::default(),
     )?)
 }
 
-fn five_line_application_domain(
+fn four_line_application_domain(
     rule: &ParametricRule,
+    guard_safe_first_active_lower: i64,
 ) -> Result<SectorMonotoneDomain, ArtifactError> {
     let rhs = rule
         .right_hand_side()
         .iter()
         .map(|term| term.shift().values())
         .collect::<Vec<_>>();
-    let sector = Mask::try_from_indices(&FIVE_LINE_SECTOR)?;
+    let sector = Mask::try_from_indices(&FOUR_LINE_SECTOR)?;
     let maximal =
         SectorMonotoneDomain::try_maximal_for_rule(sector.clone(), rule.pivot().values(), &rhs)?;
     let mut bounds = maximal.bounds().to_vec();
     bounds[0] = InteriorBounds::new(0, 0);
+    bounds[1] = InteriorBounds::new(guard_safe_first_active_lower, bounds[1].upper());
+    bounds[5] = InteriorBounds::new(0, 0);
     Ok(SectorMonotoneDomain::try_new_for_rule(
         sector,
         bounds,

@@ -67,9 +67,14 @@ maximal application box, and strict-descent witnesses. A separate residual
 projection supplies all nine sources and all 26 exact zero masks to derive the
 two canonical positive dotted-edge cells on the five-line face; each retains
 its projection replay, guards, application box, and descent proof. Those cells
-do not cover negative inactive powers or numerator faces, so the fixture
-intentionally exposes no closed artifact while its complete rule fixed point
-is incomplete. The
+do not cover negative inactive powers or numerator faces. On the irreducible
+four-line face, a target-aligned translation derives a guarded canonical-dot
+multi-excess cell and the untranslated span derives the canonical mixed
+numerator/dot boundary cell. All four raw dot and eight raw mixed placements
+are routed through the exact `S4` canonicalizer. The translated dot rule is
+singular at the isolated pure-dot corner, which therefore remains an explicit
+residual obligation. The fixture intentionally exposes no closed artifact
+while its complete rule fixed point is incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 

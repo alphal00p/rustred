@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::algebra::IndexedAlgebraLimits;
+use crate::family::IntegralKey;
 use crate::foundry::cell::{ResidualTermDisposition, RuleCellDomainProof, SourceViewConstruction};
 use symbolica::prelude::Integer;
 

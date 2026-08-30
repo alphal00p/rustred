@@ -6,13 +6,13 @@ use crate::foundry::parametric::{
     ParametricRule, ParametricRuleLimits, derive_sector_monotone_rule_for_target,
 };
 use crate::identity::{
-    CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
-    TranslatedSourceLimits,
+    IntegralShift, ParametricIbpConfig, ParametricIbpGenerator, TranslatedSourceLimits,
 };
 use crate::sector::{InteriorBounds, Mask, OrderingPolicy, SectorMonotoneDomain};
 use symbolica::prelude::Integer;
 
 use super::super::canonical_family;
+use super::support::complete_ordinary_sources;
 
 const ORDINARY_SOURCE_COUNT: usize = 9;
 const TOP_SECTOR: [i64; 6] = [1; 6];
@@ -56,17 +56,6 @@ fn derive_top_cell() -> Result<(IndexedCoefficientContext, RuleCell), ArtifactEr
     )?;
     drop(generator);
     Ok((context, cell))
-}
-
-fn complete_ordinary_sources(
-    generator: &ParametricIbpGenerator<'_>,
-) -> Result<(CompletedIbpSourceRows, usize), ArtifactError> {
-    let prepared = generator.prepare_ordinary_ibp()?;
-    let source_count = prepared.len();
-    let rows = (0..prepared.len())
-        .map(|ordinal| prepared.generate(ordinal))
-        .collect();
-    Ok((prepared.complete(rows)?, source_count))
 }
 
 fn top_application_domain(rule: &ParametricRule) -> Result<SectorMonotoneDomain, ArtifactError> {

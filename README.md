@@ -81,9 +81,13 @@ both inequivalent `K1 x K1 x K1` factorization sectors. It also derives the
 first exact top-sector rule cell and the two inequivalent positive dotted-edge
 cells on the canonical five-line residual face. Each cell is projected from
 all nine sources and retains exact residual replay, guards, bounded application
-proof, provenance, and strict descent. Negative inactive powers and numerator
-faces remain open. Live matcher comparison remains an integration gate, and no
-artifact is published before the complete rule fixed point closes.
+proof, provenance, and strict descent. On the irreducible four-line face, an
+exact target-aligned translation supplies a guarded canonical-dot multi-excess
+cell, while the untranslated span supplies the canonical mixed
+numerator/dot cell, including its isolated mixed corner. The isolated pure-dot
+corner, deeper numerator faces, and the rest of the fixed point remain open.
+Live matcher comparison remains an integration gate, and no artifact is
+published before the complete rule fixed point closes.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend is FORM-free
