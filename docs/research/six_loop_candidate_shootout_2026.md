@@ -22,8 +22,10 @@ if it produces:
 
 1. exact relations replayable into regenerated ordinary IBP sources;
 2. complete ownership of every sector, boundary, and coefficient-guard stratum;
-3. a well-founded, deterministic normal form for every supported integral rank;
-4. a finite universal terminal frame with exact relations among redundant terminals;
+3. deterministic pointwise ownership whose canonicalized children strictly decrease one
+   well-founded order at every supported integral rank;
+4. a genuinely finite universal terminal set with either exact maps or independently validated
+   values for every retained key;
 5. a finite bound on accumulated epsilon-pole depth; and
 6. a terminal quotient that can realistically be evaluated simultaneously by AMFlow or an
    approved offline evaluator.
@@ -55,7 +57,7 @@ closed-form Baikov/logarithmic generators
         -> direct equal-mass translated-source frame
         -> modular sparse or black-box row discovery
         -> exact source-certificate reconstruction and replay
-        -> exact border, relation-module, guard, and pole-depth proof
+        -> exact guarded corner cover, finite-tail, and pole-depth proof
 ```
 
 This order exploits Symbolica's arithmetic without depending on facilities it does not provide.
@@ -106,6 +108,19 @@ MiB. Tenfold fill is already a serious degree-four failure; hundredfold fill is 
 
 The average support of 50 is an explicit modelling assumption, not a measurement. Every proxy run
 must replace it with observed rows, nonzeros, fill, peak resident memory, and I/O.
+
+### Parent-family universality gate
+
+`K=L(L+1)/2` is the dimension of the scalar-product space, not a theorem that the coordinate
+family with lines `q_i` and `q_i-q_j` contains every physical vacuum graph. That root family has a
+graphic line-vector matroid. A physical vacuum graph `G` presents the cographic matroid `M*(G)`.
+Already at four loops the cubic `K_{3,3}` vacuum graph is nonplanar, so `M*(K_{3,3})` is
+non-graphic and cannot be a restriction of `M(K_5)` under a unimodular routing. K10, K15, and K21
+must therefore freeze matcher-derived multi-parent manifests. Graph, matroid, or
+Lee--Pomeransky canonicalization proposes cache reuse; an exact affine/unimodular routing witness
+acting on every propagator, ISP, mass, guard, cut, and ordering is the certificate. See the modern
+sector-groupoid construction in
+[*Discrete symmetries of Feynman integrals*](https://arxiv.org/abs/2604.08332).
 
 ## Candidate 1: Baikov logarithmic sources
 
@@ -209,10 +224,11 @@ translated ordinary or logarithmic sources extensionally in sector-chart coordin
 into exterior, frame, and lower-sector integral keys. Search for exact relations for the complete
 first border, not only for currently requested targets.
 
-If `O` is redundant, compute its exact relation module `R` and treat the terminal space as
-`span(O) / R`. Prove that every shift action preserves `R`, that commuting shifts commute modulo
-`R`, and that all action rows replay into original IBP sources. This additional presentation proof
-is not part of a classical border basis with an independent order ideal.
+If compression is economically useful, RustRed may compute an exact relation module `R` and treat
+the terminal space as `span(O) / R`. Shift preservation, commuting actions modulo `R`, and replay of
+every recovered action row are then mandatory for that optional quotient/action presentation. They
+are not prerequisites for a deterministic nonconfluent pointwise owner cover that terminates on
+actual finite keys with independently supplied values.
 
 The discrete IBP coefficients depend on index variables, so a commutative border calculation alone
 is insufficient. Extensional source translation must enforce the Ore relation between shifts and
@@ -232,8 +248,9 @@ coefficients. All leading-coefficient zeros require exact guard strata.
 - A guessed frame can keep growing with the inspected border and never prove finite complement.
 - Completion degree may rise beyond three; row count and fill then dominate.
 - A generic modular quotient can hide coefficient-zero strata.
-- First-border closure without relation preservation or commuting actions is not enough for a
-  redundant frame.
+- First-border closure is not enough unless it proves ownership outside a genuinely finite tail.
+  Relation preservation and commuting actions become additional requirements only if the artifact
+  publishes a compressed quotient/action presentation.
 - A finite but large quotient can be impossible to evaluate through AMFlow.
 - Rule coefficients can accumulate unbounded negative epsilon valuation with target rank.
 
@@ -250,8 +267,9 @@ relation-module recovery, guard completion, exact replay, and pole-depth analysi
 - `K = 6`: attempt degrees zero through three on the complete K4 family. Remove each source and each
   border owner in turn; the corresponding hole must be exposed. Require exact closure of every guard
   stratum and deterministic artifacts across worker counts.
-- `K = 10`: attempt degrees one through three on the parent and banana. Record terminal-frame size
-  `t`, quotient rank `r`, relation support, input nonzeros, elimination fill, exact certificate
+- `K = 10`: attempt degrees one through three on a matcher-derived multi-parent manifest including
+  the nonplanar `K_{3,3}` completion, a planar dense control, and the banana. Record terminal-frame
+  size `t`, quotient rank `r` when available, input nonzeros, elimination fill, exact certificate
   size, and peak memory.
 - `K = 15`: construct degree-one and degree-two frames, then degree three only if projected fill is
   within budget. A terminal set that continues to grow when the tested border is enlarged fails.
@@ -510,15 +528,17 @@ For every candidate:
 2. translate every accepted relation back to exact ordinary-source provenance;
 3. close the complete first border and every discovered guard intersection;
 4. run source/rule deletion negative controls;
-5. compare exact normal forms on overlapping rule domains;
-6. prove terminal relations, strict descent, and bounded pole debt; and
+5. check strict descent after canonicalization and compare overlapping paths only after their exact
+   MATAD images or numerical evaluations;
+6. prove finite-tail ownership and bounded pole debt; and
 7. reproduce artifacts byte-for-byte across supported worker counts.
 
 Only candidates passing Gate A may consume a `K = 10` completion budget.
 
 ### Gate B: `K = 10` measured scaling
 
-Use a nine-propagator/one-ISP trivalent parent and a five-propagator/five-ISP banana. Record, rather
+Freeze a matcher-derived multi-parent manifest. It must include a nine-propagator/one-ISP
+`K_{3,3}` completion, a planar dense control, and a five-propagator/five-ISP banana. Record, rather
 than extrapolate:
 
 - base-source count and coefficient support;

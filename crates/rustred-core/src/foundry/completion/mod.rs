@@ -9,8 +9,10 @@
 //!
 //! This bounded E0 prototype is test-only until measured K6 evidence justifies
 //! promoting it into the production foundry.  It owns lattice geometry only.
-//! Coefficient guards, Symbolica elimination, source replay, strict descent,
-//! and exceptional algebraic strata remain separate proof obligations.
+//! Its separate semantic-guard prototype compiles exact Symbolica coefficient
+//! ideals into a bounded discovery DAG, but same-point binding, source replay,
+//! strict descent, and exceptional integer-locus ownership remain proof
+//! obligations before either prototype gains closure authority.
 //! [`SectorChart`] maps only the `i64` carrier.  No carrier endpoint is treated
 //! as mathematical infinity without a separate asymptotic-extension witness.
 
@@ -18,6 +20,7 @@ mod chart;
 mod coverage;
 mod error;
 pub(crate) mod frame;
+pub(crate) mod guard;
 mod limits;
 mod model;
 mod region;

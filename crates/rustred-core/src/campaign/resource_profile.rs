@@ -6,7 +6,7 @@
 //! included in mathematical family, work, rule, or bundle identities.  Given
 //! operator-selected core and memory limits, the profile only assembles the
 //! existing checked
-//! [`CampaignExecutionWidthRequest`](crate::campaign::CampaignExecutionWidthRequest).
+//! [`CampaignExecutionWidthRequest`].
 
 use std::fmt;
 

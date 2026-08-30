@@ -388,10 +388,28 @@ For scaling, a guard in `Q(lambda)[n]` must ultimately be interpreted after
 integer-index specialization: it vanishes identically in the generic
 parameters `lambda` exactly when all of its parameter coefficients vanish.
 That exceptional set is therefore a coefficient ideal, not necessarily one
-polynomial hypersurface. The eager first-zero chain remains a sound fallback;
-a hash-consed decision DAG over semantic coefficient-ideal atoms and exact
-entailment is the research candidate for avoiding its quadratic repeated
-prefixes. Any nonlinear integer leaf not owned by another exact descending
+polynomial hypersurface. The eager first-zero chain remains a sound fallback.
+The first test-only semantic compiler now performs the target pullback before
+this coefficient split, binds the normalized generator set to the indexed
+context, removes a literal unit generator, and compiles first-applicable
+candidate conjunctions into a bounded reduced ordered decision DAG. Nodes are
+hash-indexed but shared only after complete structural equality; aggregate
+atom bytes, references, memo states, bitset words, candidate scans, nodes,
+edges, and pending work are all capped. Exhaustive small truth-table tests and
+the shared-wall family `g_i=(n_1-1)(n_i-1)` through 15 coordinates retain
+linear node count and fail closed under any zero branch. Stable IDs define
+strict candidate priority after an upstream deterministic content sort, and a
+lazy abstract oracle evaluates only the selected path. Independent audit found
+no semantic or ordered-DAG blocker in this scoped test compiler. The compiler
+emits discovery candidate labels and `Incomplete`, never RuleCell owners or
+terminals. It also assumes the declared base parameters are algebraically
+independent: physical quotient relations and unit-mass substitutions must be
+applied first, while an arbitrary later specialization needs fresh guard
+evaluation. Before production use, the oracle must bind every branch to one
+exact indexed point and publication must prove that no reachable `Incomplete`
+branch lies outside the finite tail. The existing logical caps are not yet a
+complete peak-RSS envelope, and no implication pruning between distinct ideals
+is claimed. Any nonlinear integer leaf not owned by another exact descending
 rule remains `Incomplete`.
 
 Terminal snapshots are the base of the completion DAG, not its final owner

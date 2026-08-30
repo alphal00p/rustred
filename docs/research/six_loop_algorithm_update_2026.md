@@ -240,6 +240,22 @@ variables, wall time, and worker peak RSS. Relaxed master minimality changes onl
 gate: exact finite coverage comes first, followed by terminal count, symmetry compression,
 dot/numerator complexity, epsilon debt, and measured AMFlow block/SCC dimensions.
 
+**Implementation status, 2026-08-30.** The first test-only slice now performs the exact target
+pullback before Symbolica's coefficient split, binds normalized primitive generator sets to the
+indexed context, removes literal-unit ideals, and compiles priority-ordered conjunctions into a
+bounded reduced ordered decision DAG. Hash lookup is followed by full structural equality.
+Aggregate identity bytes, raw/canonical references, memo states and bitset words, candidate scans,
+nodes, edges, and pending work all fail closed under explicit caps. The two semantic-ideal examples,
+the shifted-lead regression, an exhaustive small truth table, and the K15 shared-wall proxy pass.
+Strictly increasing stable candidate IDs define priority after the deferred canonical content sort;
+the abstract branch oracle is lazy. Independent audit found no first-applicable/ordered-DAG blocker.
+Leaves are only discovery candidates or `Incomplete`; no RuleCell, integer-locus owner, or closure
+authority has been added. The base variables are declared algebraically independent. A physical
+parameter quotient or unit-mass fibre must be imposed before compilation, and a later arbitrary
+specialization requires fresh guard evaluation. Production promotion still requires exact same-point
+predicate binding, proof that no reachable `Incomplete` branch escapes the finite tail, and a measured
+RSS envelope; no algebraic-implication pruning is claimed.
+
 #### Nonconfluent corner-cover theorem candidate
 
 **Verified result.** In the rational Weyl setting, a border prebasis already gives a terminating
@@ -619,6 +635,13 @@ thousands of redundant terminals, or a 20,000-digit K21 campaign, plausible. `m`
 dominant numerical feasibility measure and can exceed both `t` and `r`. No public complete fully
 massive K21 master count or universal reduction was found in this scan.
 
+The recursive auxiliary-flow construction determines integrals in principle once the required
+linear/IBP reductions are supplied and demonstrates examples through five loops
+([Liu and Ma](https://arxiv.org/abs/2201.11637)). For a vacuum terminal its recursion enters
+lower-loop propagator or multiscale auxiliary families. A unit-mass vacuum-only RustRed artifact
+does not reduce those families, so the evaluator ledger must name the reducer at every recursion
+node. This is a concrete dependency, not a claim that AMFlow is mathematically circular.
+
 The affordability ledger must therefore also retain evaluator target count `e`, unique recursion
 families, physical and auxiliary master counts, differential-equation nonzeros and strongly
 connected block sizes, flow segments, series orders, epsilon samples, working precision, boundary
@@ -639,6 +662,18 @@ only `1`, `3`, and `6`. It is not a topology-generic scaling argument. The corre
 bananas retain `5`, `9`, and `14` inactive directions, while asymmetric three-vertex multitheta
 graphs with edge-bundle multiplicities `(1,2,3)`, `(1,2,4)`, and `(1,2,5)` retain `4`, `8`, and
 `13`.
+
+This coordinate count does **not** make the root family with lines `q_i` and `q_i-q_j` a universal
+physical parent beyond three loops. Its line-vector matroid is graphic, whereas a vacuum graph
+`G` presents the cographic matroid `M*(G)`. At four loops the cubic vacuum graph `K_{3,3}` is the
+decisive counterexample: because it is nonplanar, `M*(K_{3,3})` is non-graphic and cannot be a
+restriction of `M(K_5)` under a unimodular loop routing. K10 is therefore already a multi-parent
+campaign; K15 and K21 need matcher-derived physical parent manifests rather than complete-graph
+mask counts. Graph or parameter-polynomial canonicalization may propose an equivalence, but every
+accepted reuse must retain and replay an exact simultaneous routing witness on propagators, ISPs,
+masses, guards, cuts, and ordering. The modern groupoid treatment constructs such affine momentum
+maps from parameter permutations in [Duhr et al.](https://arxiv.org/abs/2604.08332); it does not
+turn a canonical label into a proof.
 
 The six-loop seven-edge banana makes the symmetry tradeoff concrete. Its loop space is the
 standard `S7` representation `V`; its scalar products decompose as
@@ -805,8 +840,10 @@ evaluable.
    module across the whole guard stratum before recovering shift actions with block-Krylov, FGLM,
    or Hermite methods. Call the compressed set independent only after a separate exact lower-rank
    certificate closes the rank sandwich.
-6. Verify source annihilation, guard ownership, lower-sector maps, symmetry routes, strict descent,
-   overlap normal forms, and all required discrete shift-algebra critical pairs.
+6. Verify source annihilation, guard ownership, lower-sector maps, symmetry routes, and strict
+   descent after canonicalization. Overlap normal forms, commuting shift actions, and critical-pair
+   completion are optional diagnostics unless RustRed publishes an independent quotient/action
+   presentation; a deterministic nonconfluent pointwise owner cover does not require them.
 7. Prove a uniform epsilon-valuation bound and derive the Laurent depth required of every terminal.
 8. Partition the independent terminal quotient into numerical blocks and measure the largest
    AMFlow auxiliary dimension before commissioning high-precision data.
@@ -823,15 +860,16 @@ The numerical thresholds below are engineering gates, not literature theorems.
 - Replay every rule from regenerated exact sources on every guard stratum.
 - Eliminate every positive-dimensional standard pair and explicitly enumerate any resulting
   zero-dimensional finite residue as terminals.
-- Verify strict descent, overlap normal forms, shift-algebra critical pairs, and immutable
-  lower-sector boundaries.
+- Verify strict descent after canonicalization and immutable lower-sector boundaries. Compare
+  overlapping paths only after an exact MATAD terminal map or numerical evaluation unless a
+  separate quotient/action presentation is being claimed.
 - Prove a target-rank-independent epsilon-valuation bound; sampled ray reductions are insufficient.
 
 ### `K = 10`
 
-- Require exact finite-complement results for a nine-propagator dense parent, the five-edge
-  banana, and the `(1,2,3)` multitheta. Dense-parent or banana success alone cannot promote the
-  architecture.
+- Freeze a matcher-derived multi-parent manifest and require exact finite-complement results for a
+  nine-propagator `K_{3,3}` completion, a planar dense control, the five-edge banana, and the
+  `(1,2,3)` multitheta. Any single complete-graph/root-coordinate family is insufficient.
 - Require stable candidate rank and support across at least three good primes and held-out rational
   `D` points, followed by exact lift and replay.
 - Run at least two larger outer-frame controls. They are falsification tests only; exact complement

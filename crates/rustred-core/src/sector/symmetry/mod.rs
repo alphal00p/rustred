@@ -7,7 +7,7 @@
 //! p_source = C p_target,
 //! ```
 //!
-//! and [`verify`] derives and independently replays the induced scalar-product
+//! and [`verify()`] derives and independently replays the induced scalar-product
 //! and affine-denominator maps. Candidate generation is deliberately outside
 //! this proof boundary: graph signatures, numerical samples, denominator
 //! counts, and topology names are never accepted as proof.

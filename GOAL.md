@@ -402,12 +402,35 @@ fire before allocation. Independent audit found no false-closure or
 non-disjointness path.
 
 This still does not complete A0 or install a new RuleCell. The eager syntactic
-partition is a sound fallback, not the intended scaling representation: after
-integer-index specialization, a guard over generic parameters vanishes when
-its complete parameter-coefficient ideal vanishes, so semantic ideal atoms
-and a hash-consed decision DAG are being researched to avoid redundant and
-quadratic first-zero trees. The next production step is full rule-construction
-replay on admitted semantic strata. Completion state remains separate by
+partition is a sound fallback, not the intended scaling representation. A
+first test-only semantic compiler is now executable: it performs the exact Ore
+target pullback `n -> n - target_shift` before asking Symbolica to split a guard
+over the declared algebraically independent base parameters, retains the
+simultaneous primitive coefficient-generator set without claiming radical
+canonicality, removes literal-unit ideals, and compiles priority-ordered
+candidate conjunctions into a bounded reduced decision DAG. Full structural
+equality, rather than a hash value, controls sharing. Its exhaustive small
+truth table, forced resource caps, and the 14-atom shared-wall K15 proxy pass.
+Stable candidate IDs define priority, must be strictly increasing, and are to
+be assigned only after the deferred deterministic content sort; branch
+predicates are queried lazily along the selected path. Independent audit found
+no semantic or ordered-DAG blocker in this scoped compiler.
+Every residual leaf is typed `Incomplete`, and candidate leaves are discovery
+routing results rather than RuleCells, terminals, or closure owners. Physical
+parameter relations must be specialized or reduced before this split; a
+generic-field nonzero result is not authority after an arbitrary later
+specialization.
+
+The audit also fixes the remaining boundary: the current abstract branch
+oracle does not authenticate that all answers came from one exact indexed
+point. Production admission must retain exact predicate payloads, evaluate
+them at one context-bound point, and reject every reachable `Incomplete`
+branch outside the separately proved finite terminal tail. Logical-object caps
+are not yet a complete peak-RSS envelope, and no algebraic-implication pruning
+is claimed.
+
+The next production step is full rule-construction replay on admitted semantic
+strata. Completion state remains separate by
 sector, fixed/free coordinates, application box, and guard branch. Exact
 all-rank coverage must then be proved by a finite owner cover rather than by
 the present `i64` carrier endpoints. A finite strictly descending rewrite
@@ -534,7 +557,7 @@ is an efficiency and canonicalization objective, not a closure requirement.
 
 For the eventual six-loop programme, favorable closure scaling takes priority
 over reproducing a historically minimal basis. Every campaign therefore
-records a terminal budget: terminal count, simultaneous AMFlow feasibility,
+records a terminal budget: terminal count, simultaneous evaluator feasibility,
 required precision and storage, and numerical conditioning. The finite
 universal terminal set must remain small enough to evaluate once at very high
 precision and ship, but it need not be minimal. At three loops, Vakint's MATAD
@@ -549,6 +572,13 @@ most 100. Counts through 1,000 terminals and system dimension 300 are
 conditional on a successful simultaneous-evaluation pilot; larger proposals
 return to completion or compression unless measurements justify a reviewed
 exception. Exact finite closure alone does not prove AMFlow computability.
+AMFlow's recursive construction is valid in principle but enters auxiliary
+lower-loop propagator or multiscale families and assumes their linear/IBP
+reductions are available. Every proposed AMFlow campaign must therefore name
+the reducer at every recursion node; a vacuum-only RustRed artifact is not by
+itself that reducer. A RustRed-derived difference-equation/factorial-series
+evaluator or another audited high-precision method may be used instead after
+K6/K10 oracle validation.
 Every pilot must also bound accumulated `(d-4)` pole depth with index rank,
 because an unbounded spurious-pole order would require an unbounded Laurent
 table even for a finite terminal set. These are falsifiable engineering gates,
@@ -668,6 +698,15 @@ includes:
 - high-loop-specific distributed-memory, reconstruction, and extreme
   efficiency work; and
 - the eventual six-loop QCD beta-function evaluation chain.
+
+The Stage 2 manifest is necessarily multi-parent. `K=L(L+1)/2` counts scalar
+products but does not make the `q_i`, `q_i-q_j` root-coordinate family
+universal. Already at four loops the nonplanar cubic `K_{3,3}` vacuum graph has
+a non-graphic cographic line matroid and cannot be embedded as a restriction of
+the graphic `K_5` root family by a unimodular routing. Complete-graph mask
+counts remain proxy/cache experiments only. Each loop order must instead use a
+matcher-derived census of physical parent families with exact simultaneous
+routing witnesses on denominators, ISPs, masses, guards, cuts, and ordering.
 
 Stage 1 code must not preclude Stage 2. Research prototypes become durable
 infrastructure only after measured K6 evidence; attractive but unvalidated

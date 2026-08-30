@@ -275,9 +275,21 @@ ordered first-zero chain. A known-zero branch blocks the proposal; only the
 all-nonzero child retains the circuit, and every exceptional child restarts
 discovery without an owner. Authority-tagged identities, complete join checks,
 and pre-allocation byte/count envelopes are independently tested. This eager
-syntactic partition deliberately has no closure authority: semantic generic-
-parameter guard ideals, full rule admission, all-rank complement ownership,
-and the outer-extension proof remain.
+syntactic partition deliberately has no closure authority. A separate
+test-only semantic path now pulls every guard into target coordinates before
+Symbolica splits it into the simultaneous coefficient ideal over the declared
+independent parameters. It merges only identical retained primitive generator
+sets, removes literal-unit conditions, and builds a bounded reduced ordered
+decision DAG whose full node payload—not its hash—controls sharing. Candidate
+IDs define a strict deterministic priority order, and only predicates on the
+selected path are queried. Exhaustive small truth tables, forced caps, and a
+14-shared-wall proxy pass; independent audit found no ordered-DAG semantic
+blocker. `Incomplete` remains the only uncovered leaf, and candidate leaves
+are not RuleCells or closure owners. The current abstract branch oracle is not
+yet bound to one exact indexed point. Unit-mass specialization must precede
+this compilation; an arbitrary later parameter specialization must re-evaluate
+or recompile its guards. Exact point binding, full rule admission, integer-wall
+ownership, all-rank complement ownership, and the outer-extension proof remain.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

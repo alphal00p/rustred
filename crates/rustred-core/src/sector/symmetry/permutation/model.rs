@@ -1,7 +1,7 @@
 /// An exact affine self-map compiled into an intrinsic family permutation.
 ///
 /// Construction is private to
-/// [`compile`](crate::sector::symmetry::permutation::compile). The retained
+/// [`compile()`](crate::sector::symmetry::permutation::compile()). The retained
 /// inverse maps each target denominator to its unique source denominator. The
 /// complete affine proof is consumed during compilation and is not duplicated
 /// in the reusable transport object.

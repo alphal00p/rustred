@@ -2,7 +2,7 @@
 //!
 //! Candidate momentum maps remain outside this boundary. [`Canonicalizer`]
 //! consumes only denominator permutations already authenticated through
-//! [`crate::sector::symmetry::verify`] and
+//! [`crate::sector::symmetry::verify()`] and
 //! [`crate::sector::symmetry::permutation::compile`], derives their complete
 //! finite group, and selects the minimum existing persisted integral-order
 //! key. Exact route and weak-order witnesses let a reducer canonicalize roots
