@@ -4,7 +4,7 @@ use crate::algebra::{ExactAlgebraLimits, IndexedCoefficientContext, IndexedPolyn
 use crate::sector::SectorMonotoneDomain;
 
 use super::identity::{
-    BoundedIdentityBuilder, try_copy_identity, try_indexed_polynomial_guard_identity,
+    BoundedIdentityBuilder, try_copy_identity, try_indexed_polynomial_guard_identity_and_associate,
 };
 use super::{StratumRegistryError, StratumRegistryLimits, check_limit, checked_add, try_reserve};
 
@@ -88,17 +88,38 @@ impl GuardBranchIdentity {
         algebra_limits: ExactAlgebraLimits,
         limits: StratumRegistryLimits,
     ) -> Result<Self, StratumRegistryError> {
-        let predicate = try_indexed_polynomial_guard_identity(
+        Self::try_from_indexed_polynomial_retaining_associate(
+            context,
+            polynomial,
+            branch,
+            algebra_limits,
+            limits,
+        )
+        .map(|(identity, _)| identity)
+    }
+
+    /// Build the canonical identity and return the exact primitive associate
+    /// used to serialize it. This avoids repeating Symbolica normalization
+    /// when another sealed proof object must retain the predicate payload.
+    pub(crate) fn try_from_indexed_polynomial_retaining_associate(
+        context: &IndexedCoefficientContext,
+        polynomial: &IndexedPolynomial,
+        branch: GuardBranch,
+        algebra_limits: ExactAlgebraLimits,
+        limits: StratumRegistryLimits,
+    ) -> Result<(Self, IndexedPolynomial), StratumRegistryError> {
+        let (predicate, associate) = try_indexed_polynomial_guard_identity_and_associate(
             context,
             polynomial,
             algebra_limits,
             limits.max_guard_identity_bytes,
         )?;
-        Ok(Self {
+        let identity = Self {
             predicate: Arc::new(predicate),
             authority: GuardPredicateAuthority::IndexedPolynomial,
             branch,
-        })
+        };
+        Ok((identity, associate))
     }
 
     pub(crate) fn predicate(&self) -> &str {

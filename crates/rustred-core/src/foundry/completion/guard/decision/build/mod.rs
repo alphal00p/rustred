@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::algebra::IndexedCoefficientContext;
 
-use super::super::model::CoefficientIdealGuardAtomId;
+use super::super::model::CoefficientIdealGuardPredicate;
 use super::model::CanonicalGuardCandidate;
 use super::{
     CoefficientIdealGuardDag, GuardDecisionCandidate, GuardDecisionDagError,
@@ -47,7 +47,7 @@ impl CoefficientIdealGuardDag {
             limits.max_candidate_atom_references,
         )?;
 
-        let mut atoms = try_vec(raw_references, UNIQUE_ATOMS)?;
+        let mut raw_atoms = try_vec(raw_references, UNIQUE_ATOMS)?;
         for candidate in candidates {
             for (atom_ordinal, atom) in candidate.required_nonzero().iter().enumerate() {
                 if atom.context_fingerprint() != context.fingerprint() {
@@ -57,14 +57,29 @@ impl CoefficientIdealGuardDag {
                     });
                 }
                 if !atom.has_literal_unit_generator() {
-                    atoms.push(atom.id().clone());
+                    raw_atoms.push(atom.predicate());
                 }
             }
         }
-        atoms.sort_unstable();
-        atoms.dedup();
-        check_limit(UNIQUE_ATOMS, atoms.len(), limits.max_unique_atoms)?;
-        check_atom_identity_bytes(&atoms, limits)?;
+        raw_atoms.sort_unstable_by(|left, right| {
+            left.id().cmp(right.id()).then_with(|| {
+                left.representative_identity()
+                    .cmp(right.representative_identity())
+            })
+        });
+        let mut representatives = try_vec(raw_atoms.len(), UNIQUE_ATOMS)?;
+        for atom in raw_atoms {
+            if representatives
+                .last()
+                .is_none_or(|previous: &&CoefficientIdealGuardPredicate| previous.id() != atom.id())
+            {
+                representatives.push(atom);
+            }
+        }
+        check_limit(UNIQUE_ATOMS, representatives.len(), limits.max_unique_atoms)?;
+        check_atom_identity_bytes(representatives.iter().copied(), limits)?;
+        let mut atoms = try_vec(representatives.len(), UNIQUE_ATOMS)?;
+        atoms.extend(representatives.into_iter().cloned());
 
         let mut canonical = try_vec(candidates.len(), CANDIDATES)?;
         for candidate in candidates {
@@ -76,11 +91,13 @@ impl CoefficientIdealGuardDag {
                 if atom.has_literal_unit_generator() {
                     continue;
                 }
-                let ordinal = atoms.binary_search(atom.id()).map_err(|_| {
-                    GuardDecisionDagError::InternalInvariant(
-                        "canonical guard atom is absent from the global order",
-                    )
-                })?;
+                let ordinal = atoms
+                    .binary_search_by(|candidate| candidate.id().cmp(atom.id()))
+                    .map_err(|_| {
+                        GuardDecisionDagError::InternalInvariant(
+                            "canonical guard atom is absent from the global order",
+                        )
+                    })?;
                 required.push(ordinal);
             }
             required.sort_unstable();
@@ -121,7 +138,7 @@ pub(super) fn try_verify(
 
 fn compile_canonical(
     context_fingerprint: Arc<String>,
-    atoms: Box<[CoefficientIdealGuardAtomId]>,
+    atoms: Box<[CoefficientIdealGuardPredicate]>,
     candidates: Box<[CanonicalGuardCandidate]>,
     limits: GuardDecisionDagLimits,
 ) -> Result<CoefficientIdealGuardDag, GuardDecisionDagError> {

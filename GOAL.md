@@ -413,21 +413,27 @@ equality, rather than a hash value, controls sharing. Its exhaustive small
 truth table, forced resource caps, and the 14-atom shared-wall K15 proxy pass.
 Stable candidate IDs define priority, must be strictly increasing, and are to
 be assigned only after the deferred deterministic content sort; branch
-predicates are queried lazily along the selected path. Independent audit found
-no semantic or ordered-DAG blocker in this scoped compiler.
+predicates are queried lazily along the selected path. Each atom now retains
+the least exact primitive full-guard representative seen for its coefficient-
+ideal identity, and exact routing specializes those predicates itself at one
+context-bound index assignment under cumulative predicate, input-term, and
+specialization power-call caps. Per-predicate integer-bit limits remain in the
+indexed algebra; a cumulative path bit-volume cap is still required before
+untrusted production use. Independent re-audit found this generic same-context
+branch semantics sound; it does not bind a physical parameter fibre.
 Every residual leaf is typed `Incomplete`, and candidate leaves are discovery
 routing results rather than RuleCells, terminals, or closure owners. Physical
 parameter relations must be specialized or reduced before this split; a
 generic-field nonzero result is not authority after an arbitrary later
 specialization.
 
-The audit also fixes the remaining boundary: the current abstract branch
-oracle does not authenticate that all answers came from one exact indexed
-point. Production admission must retain exact predicate payloads, evaluate
-them at one context-bound point, and reject every reachable `Incomplete`
-branch outside the separately proved finite terminal tail. Logical-object caps
-are not yet a complete peak-RSS envelope, and no algebraic-implication pruning
-is claimed.
+The caller-supplied Boolean oracle remains only for exhaustive compiler tests;
+it has no admission authority. Production promotion must additionally persist
+the physical-fibre signature, reject every reachable `Incomplete` branch
+outside the separately proved finite terminal tail, and bind the selected
+circuit/rule payload—not merely its candidate label—to that same point.
+Logical-object caps are not yet a complete peak-RSS envelope, and no
+algebraic-implication or radical-equivalence pruning is claimed.
 
 The next production step is full rule-construction replay on admitted semantic
 strata. Completion state remains separate by

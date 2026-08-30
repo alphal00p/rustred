@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::algebra::IndexedAlgebraError;
+
 /// Typed failures at the bounded semantic guard-DAG boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum GuardDecisionDagError {
@@ -7,6 +9,7 @@ pub(crate) enum GuardDecisionDagError {
         candidate: usize,
         atom: usize,
     },
+    WrongEvaluationContext,
     DuplicateCandidate {
         candidate: usize,
     },
@@ -30,6 +33,7 @@ pub(crate) enum GuardDecisionDagError {
         resource: &'static str,
         requested: usize,
     },
+    IndexedAlgebra(IndexedAlgebraError),
     InternalInvariant(&'static str),
 }
 
@@ -40,6 +44,9 @@ impl fmt::Display for GuardDecisionDagError {
                 formatter,
                 "candidate {candidate} guard atom {atom} belongs to another indexed context"
             ),
+            Self::WrongEvaluationContext => {
+                formatter.write_str("semantic guard DAG evaluation used another indexed context")
+            }
             Self::DuplicateCandidate { candidate } => {
                 write!(
                     formatter,
@@ -73,6 +80,12 @@ impl fmt::Display for GuardDecisionDagError {
                 formatter,
                 "could not reserve {requested} entries for {resource}"
             ),
+            Self::IndexedAlgebra(error) => {
+                write!(
+                    formatter,
+                    "semantic guard predicate evaluation failed: {error}"
+                )
+            }
             Self::InternalInvariant(message) => {
                 write!(formatter, "semantic guard DAG invariant failed: {message}")
             }
@@ -80,4 +93,17 @@ impl fmt::Display for GuardDecisionDagError {
     }
 }
 
-impl std::error::Error for GuardDecisionDagError {}
+impl std::error::Error for GuardDecisionDagError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IndexedAlgebra(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<IndexedAlgebraError> for GuardDecisionDagError {
+    fn from(error: IndexedAlgebraError) -> Self {
+        Self::IndexedAlgebra(error)
+    }
+}

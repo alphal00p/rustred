@@ -399,18 +399,25 @@ edges, and pending work are all capped. Exhaustive small truth-table tests and
 the shared-wall family `g_i=(n_1-1)(n_i-1)` through 15 coordinates retain
 linear node count and fail closed under any zero branch. Stable IDs define
 strict candidate priority after an upstream deterministic content sort, and a
-lazy abstract oracle evaluates only the selected path. Independent audit found
-no semantic or ordered-DAG blocker in this scoped test compiler. The compiler
-emits discovery candidate labels and `Incomplete`, never RuleCell owners or
-terminals. It also assumes the declared base parameters are algebraically
+lazy oracle evaluates only the selected path. Each atom retains the least
+exact primitive full-guard representative seen for its semantic identity, and
+the exact API specializes these representatives itself at one context-bound
+integer assignment. Cumulative predicate, input-term, and specialization
+power-call caps bound one traversal, while the indexed algebra retains its
+per-predicate integer-bit cap. A cumulative path bit-volume cap remains a
+production obligation. The caller-supplied Boolean path remains an abstract
+test surface. Independent re-audit found the generic same-context branch
+semantics sound; it explicitly did not promote this to a physical-fibre proof.
+The compiler emits discovery candidate labels and `Incomplete`, never RuleCell
+owners or terminals. It assumes the declared base parameters are algebraically
 independent: physical quotient relations and unit-mass substitutions must be
 applied first, while an arbitrary later specialization needs fresh guard
-evaluation. Before production use, the oracle must bind every branch to one
-exact indexed point and publication must prove that no reachable `Incomplete`
-branch lies outside the finite tail. The existing logical caps are not yet a
-complete peak-RSS envelope, and no implication pruning between distinct ideals
-is claimed. Any nonlinear integer leaf not owned by another exact descending
-rule remains `Incomplete`.
+evaluation. Before production use, the physical-fibre signature and selected
+circuit payload must be sealed, and publication must prove that no reachable
+`Incomplete` branch lies outside the finite tail. The existing logical caps
+are not yet a complete peak-RSS envelope, and no implication or radical-
+equivalence pruning between distinct ideals is claimed. Any nonlinear integer
+leaf not owned by another exact descending rule remains `Incomplete`.
 
 Terminal snapshots are the base of the completion DAG, not its final owner
 model. A K6 campaign cannot construct a closed parent artifact first and then

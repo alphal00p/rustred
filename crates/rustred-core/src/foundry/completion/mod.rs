@@ -10,9 +10,10 @@
 //! This bounded E0 prototype is test-only until measured K6 evidence justifies
 //! promoting it into the production foundry.  It owns lattice geometry only.
 //! Its separate semantic-guard prototype compiles exact Symbolica coefficient
-//! ideals into a bounded discovery DAG, but same-point binding, source replay,
-//! strict descent, and exceptional integer-locus ownership remain proof
-//! obligations before either prototype gains closure authority.
+//! ideals into a bounded discovery DAG and binds generic predicates at one
+//! exact index point. Physical-fibre sealing, source replay, strict descent,
+//! and exceptional integer-locus ownership remain proof obligations before
+//! either prototype gains closure authority.
 //! [`SectorChart`] maps only the `i64` carrier.  No carrier endpoint is treated
 //! as mathematical infinity without a separate asymptotic-extension witness.
 

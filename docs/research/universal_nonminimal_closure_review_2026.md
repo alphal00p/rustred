@@ -50,7 +50,7 @@ The strongest composite remains:
 ordinary physical-family IBPs and closed-form logarithmic sources
         -> modular candidate discovery or generating-function guidance
         -> exact source provenance and physical guard stratification
-        -> exact all-rank coverage and overlap-normal-form proof
+        -> exact all-rank coverage and deterministic pointwise ownership
         -> uniform epsilon-debt certificate
         -> finite universal terminal table evaluated offline
 ```
@@ -70,12 +70,15 @@ rewrite artifact is universal if it proves all of the following:
 3. every accepted rule replays into an exact combination of regenerated ordinary IBP sources;
 4. every application strictly decreases a declared well-founded order;
 5. deterministic precedence is defined where rule domains overlap;
-6. exact normal forms agree on overlaps; and
+6. every selected owner and its canonicalized children retain the same typed family routes; and
 7. lower-sector dependencies form an acyclic, already-certified graph.
 
 This certificate does **not** require minimizing `T` or finding exact relations among its members.
 Vakint may ship a separately generated numerical Laurent value for every member of `T`.
 Redundant terminals cost evaluation and storage, but do not invalidate the rewrite proof.
+Two legal paths need not produce identical raw coordinates in a redundant terminal spanning set.
+Overlap equality is a diagnostic unless an independently certified quotient/action presentation is
+claimed; otherwise compare only after an exact terminal map or independent numerical evaluation.
 
 ### Finite quotient or action certificate
 
@@ -402,7 +405,7 @@ numerator-ray obligation.
 4. Prove guard-aware coverage of the entire lattice complement. Test ranks through at least 16,
    but label this only regression evidence beside the symbolic proof.
 5. Remove one source, one boundary rule, and one guard branch in separate negative controls. The
-   verifier must expose a nonempty uncovered region or inconsistent overlap.
+   verifier must expose a nonempty uncovered region or an invalid selected owner.
 6. Build an overcomplete intersection metric for the proposed terminal set. Check that its rank
    diagnoses known dependencies, while deliberately omitting a spanning candidate demonstrates
    that metric rank alone cannot assert universal span.
@@ -411,8 +414,9 @@ numerator-ray obligation.
 8. Produce the offline evaluation manifest and evaluate a nontrivial terminal batch to the required
    order plus `B_epsilon`.
 
-Pass condition: exact source replay, zero uncovered symbolic regions, consistent overlap normal
-forms, strict descent, finite `T`, constant `B_epsilon`, and an executable terminal-value plan.
+Pass condition: exact source replay, zero uncovered symbolic regions, deterministic precedence,
+strict descent, finite `T`, constant `B_epsilon`, and an executable terminal-value plan. Raw overlap
+normal forms are required only for a separately claimed quotient/action presentation.
 
 ### Gate B: `K = 10` scaling and physical-stratum test
 

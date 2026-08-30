@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
+use crate::algebra::{IndexedAlgebraError, IndexedCoefficientContext};
 use crate::foundry::completion::stratum::GuardBranch;
 
-use super::super::{CoefficientIdealGuardAtom, model::CoefficientIdealGuardAtomId};
-use super::{GuardDecisionDagError, GuardDecisionDagLimits};
+use super::super::{CoefficientIdealGuardAtom, model::CoefficientIdealGuardPredicate};
+use super::{GuardDecisionDagError, GuardDecisionDagLimits, GuardDecisionEvaluationLimits};
+
+const PREDICATE_EVALUATIONS: &str = "semantic guard predicate evaluations";
+const EVALUATION_INPUT_TERMS: &str = "semantic guard evaluation input terms";
+const EVALUATION_POWER_OPERATIONS: &str = "semantic guard specialization power operations";
 
 /// Stable discovery-candidate priority and label.
 ///
@@ -88,7 +93,7 @@ pub(crate) struct GuardDecisionDagStats {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CoefficientIdealGuardDag {
     pub(super) context_fingerprint: Arc<String>,
-    pub(super) atoms: Arc<[CoefficientIdealGuardAtomId]>,
+    pub(super) atoms: Arc<[CoefficientIdealGuardPredicate]>,
     pub(super) candidates: Arc<[CanonicalGuardCandidate]>,
     pub(super) nodes: Arc<[GuardDecisionNode]>,
     pub(super) root: GuardDecisionRef,
@@ -106,10 +111,77 @@ impl CoefficientIdealGuardDag {
 
     pub(crate) fn atom_ordinal(&self, atom: &CoefficientIdealGuardAtom) -> Option<usize> {
         (atom.context_fingerprint() == self.context_fingerprint())
-            .then(|| self.atoms.binary_search(atom.id()).ok())
+            .then(|| {
+                self.atoms
+                    .binary_search_by(|candidate| candidate.id().cmp(atom.id()))
+                    .ok()
+            })
             .flatten()
     }
 
+    /// Evaluate every requested semantic predicate at one authenticated exact
+    /// index assignment and route the resulting branch path.
+    pub(crate) fn try_decide_at(
+        &self,
+        context: &IndexedCoefficientContext,
+        assignment: &[i64],
+        limits: GuardDecisionEvaluationLimits,
+    ) -> Result<GuardDecisionOutcome, GuardDecisionDagError> {
+        if context.fingerprint() != self.context_fingerprint() {
+            return Err(GuardDecisionDagError::WrongEvaluationContext);
+        }
+        if assignment.len() != context.index_count() {
+            return Err(GuardDecisionDagError::IndexedAlgebra(
+                IndexedAlgebraError::WrongIndexArity {
+                    expected: context.index_count(),
+                    actual: assignment.len(),
+                },
+            ));
+        }
+        let mut evaluations = 0usize;
+        let mut input_terms = 0usize;
+        let mut power_operations = 0usize;
+        self.try_decide_with_result(|atom| {
+            let predicate =
+                self.atoms
+                    .get(atom)
+                    .ok_or(GuardDecisionDagError::InternalInvariant(
+                        "atom reference is out of range",
+                    ))?;
+            evaluations = checked_evaluation_add(
+                PREDICATE_EVALUATIONS,
+                evaluations,
+                1,
+                limits.max_predicate_evaluations,
+            )?;
+            input_terms = checked_evaluation_add(
+                EVALUATION_INPUT_TERMS,
+                input_terms,
+                predicate.input_terms(),
+                limits.max_input_terms,
+            )?;
+            let predicate_power_operations = predicate
+                .input_terms()
+                .checked_mul(context.index_count())
+                .ok_or(GuardDecisionDagError::ResourceCountOverflow {
+                    resource: EVALUATION_POWER_OPERATIONS,
+                })?;
+            power_operations = checked_evaluation_add(
+                EVALUATION_POWER_OPERATIONS,
+                power_operations,
+                predicate_power_operations,
+                limits.max_specialization_power_operations,
+            )?;
+            predicate
+                .try_branch_at(context, assignment, limits.indexed_algebra)
+                .map_err(GuardDecisionDagError::IndexedAlgebra)
+        })
+    }
+
+    /// Route a complete abstract Boolean assignment for compiler tests.
+    ///
+    /// This method does not bind branches to an indexed point or a physical
+    /// parameter fibre and therefore carries no admission authority.
     pub(crate) fn try_decide(
         &self,
         branches: &[GuardBranch],
@@ -133,6 +205,13 @@ impl CoefficientIdealGuardDag {
         &self,
         mut branch: impl FnMut(usize) -> GuardBranch,
     ) -> Result<GuardDecisionOutcome, GuardDecisionDagError> {
+        self.try_decide_with_result(|atom| Ok(branch(atom)))
+    }
+
+    fn try_decide_with_result(
+        &self,
+        mut branch: impl FnMut(usize) -> Result<GuardBranch, GuardDecisionDagError>,
+    ) -> Result<GuardDecisionOutcome, GuardDecisionDagError> {
         let mut cursor = self.root;
         for _ in 0..=self.nodes.len() {
             match cursor {
@@ -149,7 +228,7 @@ impl CoefficientIdealGuardDag {
                             "atom reference is out of range",
                         ));
                     }
-                    cursor = match branch(node.atom) {
+                    cursor = match branch(node.atom)? {
                         GuardBranch::Zero => node.zero,
                         GuardBranch::NonZero => node.nonzero,
                     };
@@ -166,5 +245,25 @@ impl CoefficientIdealGuardDag {
         limits: GuardDecisionDagLimits,
     ) -> Result<bool, GuardDecisionDagError> {
         super::build::try_verify(self, limits)
+    }
+}
+
+fn checked_evaluation_add(
+    resource: &'static str,
+    current: usize,
+    increment: usize,
+    limit: usize,
+) -> Result<usize, GuardDecisionDagError> {
+    let requested = current
+        .checked_add(increment)
+        .ok_or(GuardDecisionDagError::ResourceCountOverflow { resource })?;
+    if requested > limit {
+        Err(GuardDecisionDagError::ResourceLimit {
+            resource,
+            requested,
+            limit,
+        })
+    } else {
+        Ok(requested)
     }
 }

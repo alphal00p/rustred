@@ -1,4 +1,4 @@
-use super::super::super::model::CoefficientIdealGuardAtomId;
+use super::super::super::model::CoefficientIdealGuardPredicate;
 use super::super::model::CanonicalGuardCandidate;
 use super::super::{GuardDecisionCandidate, GuardDecisionDagError, GuardDecisionDagLimits};
 use super::resource::{
@@ -8,7 +8,7 @@ use super::resource::{
 
 pub(super) fn validate(
     context_fingerprint: &str,
-    atoms: &[CoefficientIdealGuardAtomId],
+    atoms: &[CoefficientIdealGuardPredicate],
     candidates: &[CanonicalGuardCandidate],
     limits: GuardDecisionDagLimits,
 ) -> Result<(), GuardDecisionDagError> {
@@ -19,12 +19,12 @@ pub(super) fn validate(
     )?;
     check_limit(CANDIDATES, candidates.len(), limits.max_candidates)?;
     check_limit(UNIQUE_ATOMS, atoms.len(), limits.max_unique_atoms)?;
-    if atoms.windows(2).any(|pair| pair[0] >= pair[1]) {
+    if atoms.windows(2).any(|pair| pair[0].id() >= pair[1].id()) {
         return Err(GuardDecisionDagError::InternalInvariant(
             "global guard atoms are not strictly ordered",
         ));
     }
-    check_atom_identity_bytes(atoms, limits)?;
+    check_atom_identity_bytes(atoms.iter(), limits)?;
     let mut references = 0usize;
     require_canonical_ids(candidates.iter().map(|candidate| candidate.id))?;
     for candidate in candidates {
@@ -86,12 +86,18 @@ fn require_canonical_ids(
     Ok(())
 }
 
-pub(super) fn check_atom_identity_bytes(
-    atoms: &[CoefficientIdealGuardAtomId],
+pub(super) fn check_atom_identity_bytes<'a>(
+    atoms: impl IntoIterator<Item = &'a CoefficientIdealGuardPredicate>,
     limits: GuardDecisionDagLimits,
 ) -> Result<(), GuardDecisionDagError> {
-    let bytes = atoms.iter().try_fold(0usize, |total, atom| {
-        atom.generators()
+    let bytes = atoms.into_iter().try_fold(0usize, |total, atom| {
+        let total = checked_add(
+            ATOM_IDENTITY_BYTES,
+            total,
+            atom.representative_identity().predicate().len(),
+        )?;
+        atom.id()
+            .generators()
             .iter()
             .try_fold(total, |total, generator| {
                 checked_add(ATOM_IDENTITY_BYTES, total, generator.predicate().len())

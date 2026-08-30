@@ -46,6 +46,15 @@ impl CoefficientIdealGuardAtom {
         if pulled_back_guard.is_zero() {
             return Err(CoefficientIdealGuardError::IdenticallyZeroGuard);
         }
+        let (representative_identity, pulled_back_guard) =
+            GuardBranchIdentity::try_from_indexed_polynomial_retaining_associate(
+                context,
+                &pulled_back_guard,
+                GuardBranch::Zero,
+                limits.indexed_algebra.exact_algebra,
+                limits.predicate_identity,
+            )
+            .map_err(CoefficientIdealGuardError::PredicateIdentity)?;
         let coefficient_system = context.base_coefficient_system(
             &pulled_back_guard,
             limits.indexed_algebra,
@@ -104,6 +113,7 @@ impl CoefficientIdealGuardAtom {
         Ok(Self::from_parts(
             context.fingerprint_owner(),
             pulled_back_guard,
+            representative_identity,
             coefficient_system,
             generators,
             has_literal_unit_generator,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::super::super::model::CoefficientIdealGuardAtomId;
+use super::super::super::model::CoefficientIdealGuardPredicate;
 use super::super::model::{CanonicalGuardCandidate, GuardDecisionNode, GuardDecisionRef};
 use super::super::{GuardDecisionDagError, GuardDecisionDagLimits, GuardDecisionOutcome};
 use super::resource::{
@@ -16,7 +16,7 @@ pub(super) struct DagBuild {
 }
 
 pub(super) fn try_build(
-    atoms: &[CoefficientIdealGuardAtomId],
+    atoms: &[CoefficientIdealGuardPredicate],
     candidates: &[CanonicalGuardCandidate],
     limits: GuardDecisionDagLimits,
 ) -> Result<DagBuild, GuardDecisionDagError> {
@@ -60,7 +60,7 @@ struct NodeKey {
 }
 
 struct DagBuilder<'a> {
-    atoms: &'a [CoefficientIdealGuardAtomId],
+    atoms: &'a [CoefficientIdealGuardPredicate],
     candidates: &'a [CanonicalGuardCandidate],
     limits: GuardDecisionDagLimits,
     nodes: Vec<GuardDecisionNode>,
@@ -73,7 +73,7 @@ struct DagBuilder<'a> {
 
 impl<'a> DagBuilder<'a> {
     fn new(
-        atoms: &'a [CoefficientIdealGuardAtomId],
+        atoms: &'a [CoefficientIdealGuardPredicate],
         candidates: &'a [CanonicalGuardCandidate],
         limits: GuardDecisionDagLimits,
     ) -> Result<Self, GuardDecisionDagError> {

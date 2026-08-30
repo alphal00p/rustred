@@ -181,22 +181,16 @@ fn exact_rules_guards_pruning_and_domains_are_pinned() {
         (12, 117, 21, 9, 139, 382),
     );
 
-    assert_eq!(
-        guard_expressions(&cells.scalar_numerator_bulk),
-        ["2-d+n0", "-2+d-n0", "-4+2*d-2*n0"]
+    assert_guard_expressions(
+        &cells.scalar_numerator_bulk,
+        &["2-d+n0", "-2+d-n0", "-4+2*d-2*n0"],
     );
-    assert_eq!(
-        guard_expressions(&cells.scalar_numerator_endpoint),
-        ["2-d", "-2+d", "-4+2*d"]
-    );
-    assert_eq!(guard_expressions(&cells.adjacent_numerator_bulk), ["-1+n4"]);
-    assert_eq!(
-        guard_expressions(&cells.adjacent_numerator_endpoint),
-        ["-1+n4"]
-    );
-    assert_eq!(
-        guard_expressions(&cells.opposite_numerator_bulk),
-        [
+    assert_guard_expressions(&cells.scalar_numerator_endpoint, &["2-d", "-2+d", "-4+2*d"]);
+    assert_guard_expressions(&cells.adjacent_numerator_bulk, &["-1+n4"]);
+    assert_guard_expressions(&cells.adjacent_numerator_endpoint, &["-1+n4"]);
+    assert_guard_expressions(
+        &cells.opposite_numerator_bulk,
+        &[
             "-n3",
             "n4",
             "-2*n1",
@@ -206,11 +200,11 @@ fn exact_rules_guards_pruning_and_domains_are_pinned() {
             "n1",
             "2+2*d-2*n0-4*n1-2*n2",
             "1+d-n0-2*n1-n2",
-        ]
+        ],
     );
-    assert_eq!(
-        guard_expressions(&cells.opposite_numerator_endpoint),
-        [
+    assert_guard_expressions(
+        &cells.opposite_numerator_endpoint,
+        &[
             "-n3",
             "n4",
             "-2*n1",
@@ -220,7 +214,7 @@ fn exact_rules_guards_pruning_and_domains_are_pinned() {
             "n1",
             "2+2*d-4*n1-2*n2",
             "1+d-2*n1-n2",
-        ]
+        ],
     );
     for cell in [
         &cells.scalar_numerator_bulk,
@@ -616,11 +610,31 @@ fn assert_pair_rule(
     }
 }
 
-fn guard_expressions(cell: &RuleCell) -> Vec<String> {
-    cell.guards()
+fn assert_guard_expressions(cell: &RuleCell, expected: &[&str]) {
+    let actual = cell
+        .guards()
         .iter()
-        .map(|guard| guard.polynomial().to_expression().to_string())
-        .collect()
+        .map(|guard| normalized_additive_terms(&guard.polynomial().to_expression().to_string()))
+        .collect::<Vec<_>>();
+    let expected = expected
+        .iter()
+        .map(|expression| normalized_additive_terms(expression))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+
+/// Symbolica's globally registered symbol order may vary when this test runs
+/// concurrently with other contexts. Pin the exact signed term multisets,
+/// without treating presentation order as algebraic evidence.
+fn normalized_additive_terms(expression: &str) -> Vec<String> {
+    let mut terms = expression
+        .replace('-', "+-")
+        .split('+')
+        .filter(|term| !term.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    terms.sort_unstable();
+    terms
 }
 
 fn assert_dimension_guards_have_constant_nonzero_lead(

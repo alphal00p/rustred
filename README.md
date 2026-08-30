@@ -285,10 +285,16 @@ IDs define a strict deterministic priority order, and only predicates on the
 selected path are queried. Exhaustive small truth tables, forced caps, and a
 14-shared-wall proxy pass; independent audit found no ordered-DAG semantic
 blocker. `Incomplete` remains the only uncovered leaf, and candidate leaves
-are not RuleCells or closure owners. The current abstract branch oracle is not
-yet bound to one exact indexed point. Unit-mass specialization must precede
-this compilation; an arbitrary later parameter specialization must re-evaluate
-or recompile its guards. Exact point binding, full rule admission, integer-wall
+are not RuleCells or closure owners. Each semantic atom retains a deterministic
+primitive full-guard representative, so the exact path now evaluates every
+requested predicate at one context-bound index assignment under cumulative
+predicate, input-term, and power-call caps; indexed algebra still applies a
+per-predicate integer-bit cap, while aggregate path bit volume remains a
+production obligation. Independent re-audit found the generic branch
+semantics sound. The caller-supplied Boolean oracle remains test-only. Unit-mass
+specialization must precede this compilation; an arbitrary later parameter
+specialization must re-evaluate or recompile its guards. Physical-fibre
+sealing, full rule admission, integer-wall
 ownership, all-rank complement ownership, and the outer-extension proof remain.
 
 The codebase has no RustRed backward-compatibility promise during deep

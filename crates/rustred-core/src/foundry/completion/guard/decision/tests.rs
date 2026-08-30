@@ -1,10 +1,11 @@
-use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
+use crate::algebra::{CoefficientContext, IndexedAlgebraError, IndexedCoefficientContext};
 use crate::foundry::completion::stratum::GuardBranch;
 
 use super::super::{CoefficientIdealGuardAtom, CoefficientIdealGuardLimits};
 use super::{
     CoefficientIdealGuardDag, GuardDecisionCandidate, GuardDecisionCandidateId,
-    GuardDecisionDagError, GuardDecisionDagLimits, GuardDecisionOutcome,
+    GuardDecisionDagError, GuardDecisionDagLimits, GuardDecisionEvaluationLimits,
+    GuardDecisionOutcome,
 };
 
 fn polynomial(
@@ -310,6 +311,303 @@ fn lazy_branch_oracle_queries_only_the_selected_path() {
         GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(7))
     );
     assert_eq!(queries, 0);
+}
+
+#[test]
+fn exact_point_routing_binds_every_semantic_branch_to_one_context() {
+    let base = CoefficientContext::new(["d"]);
+    let context = IndexedCoefficientContext::try_new(&base, "semantic-dag-point", 2).unwrap();
+    let d = context.lift(&base.parameter("d").unwrap()).unwrap();
+    let n0_minus_one = context
+        .sub(&context.index(0).unwrap(), &context.one())
+        .unwrap();
+    let n1_minus_one = context
+        .sub(&context.index(1).unwrap(), &context.one())
+        .unwrap();
+    let guard = context
+        .add(&context.mul(&d, &n0_minus_one).unwrap(), &n1_minus_one)
+        .unwrap();
+    let guard = atom(&context, &guard);
+    let guarded = [guard];
+    let candidates = [
+        GuardDecisionCandidate::new(GuardDecisionCandidateId(0), &guarded),
+        GuardDecisionCandidate::new(GuardDecisionCandidateId(1), &[]),
+    ];
+    let dag =
+        CoefficientIdealGuardDag::try_compile(&context, &candidates, Default::default()).unwrap();
+
+    assert_eq!(
+        dag.try_decide_at(&context, &[1, 1], Default::default())
+            .unwrap(),
+        GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(1))
+    );
+    for assignment in [[2, 1], [1, 2], [-3, 7]] {
+        assert_eq!(
+            dag.try_decide_at(&context, &assignment, Default::default())
+                .unwrap(),
+            GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(0))
+        );
+    }
+
+    let foreign =
+        IndexedCoefficientContext::try_new(&base, "semantic-dag-point-foreign", 2).unwrap();
+    assert_eq!(
+        dag.try_decide_at(&foreign, &[1, 1], Default::default())
+            .unwrap_err(),
+        GuardDecisionDagError::WrongEvaluationContext
+    );
+    assert_eq!(
+        dag.try_decide_at(&context, &[1], Default::default())
+            .unwrap_err(),
+        GuardDecisionDagError::IndexedAlgebra(IndexedAlgebraError::WrongIndexArity {
+            expected: 2,
+            actual: 1,
+        })
+    );
+
+    let mut evaluation_limited = GuardDecisionEvaluationLimits {
+        max_predicate_evaluations: 0,
+        ..Default::default()
+    };
+    assert!(matches!(
+        dag.try_decide_at(&context, &[2, 1], evaluation_limited),
+        Err(GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard predicate evaluations",
+            requested: 1,
+            limit: 0,
+        })
+    ));
+    evaluation_limited = GuardDecisionEvaluationLimits {
+        max_input_terms: 0,
+        ..Default::default()
+    };
+    assert!(matches!(
+        dag.try_decide_at(&context, &[2, 1], evaluation_limited),
+        Err(GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard evaluation input terms",
+            requested,
+            limit: 0,
+        }) if requested > 0
+    ));
+    evaluation_limited = GuardDecisionEvaluationLimits {
+        max_specialization_power_operations: 0,
+        ..Default::default()
+    };
+    assert!(matches!(
+        dag.try_decide_at(&context, &[2, 1], evaluation_limited),
+        Err(GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard specialization power operations",
+            requested,
+            limit: 0,
+        }) if requested > 0
+    ));
+}
+
+#[test]
+fn exact_point_limits_charge_the_complete_selected_path() {
+    let base = CoefficientContext::new(std::iter::empty::<&str>());
+    let context = IndexedCoefficientContext::try_new(&base, "semantic-dag-path-budget", 2).unwrap();
+    let mut atoms = [
+        atom(&context, &context.index(0).unwrap()),
+        atom(&context, &context.index(1).unwrap()),
+    ];
+    atoms.sort_by(|left, right| left.id().cmp(right.id()));
+    let candidates = [GuardDecisionCandidate::new(
+        GuardDecisionCandidateId(0),
+        &atoms,
+    )];
+    let dag =
+        CoefficientIdealGuardDag::try_compile(&context, &candidates, Default::default()).unwrap();
+
+    let evaluation_limited = GuardDecisionEvaluationLimits {
+        max_predicate_evaluations: 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        dag.try_decide_at(&context, &[1, 1], evaluation_limited)
+            .unwrap_err(),
+        GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard predicate evaluations",
+            requested: 2,
+            limit: 1,
+        }
+    );
+
+    let input_limited = GuardDecisionEvaluationLimits {
+        max_input_terms: 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        dag.try_decide_at(&context, &[1, 1], input_limited)
+            .unwrap_err(),
+        GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard evaluation input terms",
+            requested: 2,
+            limit: 1,
+        }
+    );
+
+    let work_limited = GuardDecisionEvaluationLimits {
+        max_specialization_power_operations: 2,
+        ..Default::default()
+    };
+    assert_eq!(
+        dag.try_decide_at(&context, &[1, 1], work_limited)
+            .unwrap_err(),
+        GuardDecisionDagError::ResourceLimit {
+            resource: "semantic guard specialization power operations",
+            requested: 4,
+            limit: 2,
+        }
+    );
+}
+
+#[test]
+fn radical_equivalent_atoms_remain_distinct_but_exact_points_never_fake_a_branch() {
+    let base = CoefficientContext::new(std::iter::empty::<&str>());
+    let context = IndexedCoefficientContext::try_new(&base, "semantic-dag-radical", 1).unwrap();
+    let n = context.index(0).unwrap();
+    let n_squared = context.mul(&n, &n).unwrap();
+    let linear = atom(&context, &n);
+    let quadratic = atom(&context, &n_squared);
+    assert!(!linear.same_retained_ideal(&quadratic));
+
+    let linear_atoms = [linear.clone()];
+    let quadratic_atoms = [quadratic.clone()];
+    let candidates = [
+        GuardDecisionCandidate::new(GuardDecisionCandidateId(0), &linear_atoms),
+        GuardDecisionCandidate::new(GuardDecisionCandidateId(1), &quadratic_atoms),
+        GuardDecisionCandidate::new(GuardDecisionCandidateId(2), &[]),
+    ];
+    let dag =
+        CoefficientIdealGuardDag::try_compile(&context, &candidates, Default::default()).unwrap();
+    assert_eq!(dag.stats().atoms, 2);
+
+    let mut impossible = vec![GuardBranch::Zero; 2];
+    impossible[dag.atom_ordinal(&quadratic).unwrap()] = GuardBranch::NonZero;
+    assert_eq!(
+        dag.try_decide(&impossible).unwrap(),
+        GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(1))
+    );
+    assert_eq!(
+        dag.try_decide_at(&context, &[0], Default::default())
+            .unwrap(),
+        GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(2))
+    );
+    for value in [-2, -1, 1, 2] {
+        assert_eq!(
+            dag.try_decide_at(&context, &[value], Default::default())
+                .unwrap(),
+            GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(0))
+        );
+    }
+}
+
+#[test]
+fn equivalent_ideal_representatives_are_selected_by_exact_content_order() {
+    let base = CoefficientContext::new(["d"]);
+    let context =
+        IndexedCoefficientContext::try_new(&base, "semantic-dag-representative", 1).unwrap();
+    let n_minus_one = context
+        .sub(&context.index(0).unwrap(), &context.one())
+        .unwrap();
+    let d_plus_one = context
+        .add(
+            &context.lift(&base.parameter("d").unwrap()).unwrap(),
+            &context.one(),
+        )
+        .unwrap();
+    let direct = atom(&context, &n_minus_one);
+    let expanded = atom(&context, &context.mul(&d_plus_one, &n_minus_one).unwrap());
+    assert!(direct.same_retained_ideal(&expanded));
+
+    let direct_first = [direct.clone(), expanded.clone()];
+    let expanded_first = [expanded, direct];
+    let first = [GuardDecisionCandidate::new(
+        GuardDecisionCandidateId(0),
+        &direct_first,
+    )];
+    let second = [GuardDecisionCandidate::new(
+        GuardDecisionCandidateId(0),
+        &expanded_first,
+    )];
+    let first =
+        CoefficientIdealGuardDag::try_compile(&context, &first, Default::default()).unwrap();
+    let second =
+        CoefficientIdealGuardDag::try_compile(&context, &second, Default::default()).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.stats().atoms, 1);
+    assert_eq!(
+        first
+            .try_decide_at(&context, &[1], Default::default())
+            .unwrap(),
+        GuardDecisionOutcome::Incomplete
+    );
+    assert_eq!(
+        first
+            .try_decide_at(&context, &[2], Default::default())
+            .unwrap(),
+        GuardDecisionOutcome::Candidate(GuardDecisionCandidateId(0))
+    );
+}
+
+#[test]
+fn equal_semantic_ids_have_identical_branches_on_a_small_exact_grid() {
+    let base = CoefficientContext::new(["d", "e"]);
+    let context = IndexedCoefficientContext::try_new(&base, "semantic-dag-grid", 2).unwrap();
+    let d = context.lift(&base.parameter("d").unwrap()).unwrap();
+    let e = context.lift(&base.parameter("e").unwrap()).unwrap();
+    let factors = [
+        context.one(),
+        d.clone(),
+        context.add(&d, &context.one()).unwrap(),
+        context
+            .add(&context.mul(&d, &e).unwrap(), &context.one())
+            .unwrap(),
+    ];
+    let n0 = context.index(0).unwrap();
+    let n1 = context.index(1).unwrap();
+    let index_polynomials = [
+        n0.clone(),
+        context.sub(&n1, &context.one()).unwrap(),
+        context.add(&n0, &n1).unwrap(),
+        context.sub(&context.mul(&n0, &n1).unwrap(), &n0).unwrap(),
+    ];
+    let mut atoms = Vec::new();
+    for factor in &factors {
+        for index_polynomial in &index_polynomials {
+            let product = context.mul(factor, index_polynomial).unwrap();
+            atoms.push(atom(&context, &product));
+            atoms.push(atom(
+                &context,
+                &context.mul(&context.integer(-3), &product).unwrap(),
+            ));
+        }
+    }
+
+    let mut equal_pairs = 0usize;
+    for (left_ordinal, left) in atoms.iter().enumerate() {
+        for right in &atoms[left_ordinal + 1..] {
+            if !left.same_retained_ideal(right) {
+                continue;
+            }
+            equal_pairs += 1;
+            for n0 in -2..=2 {
+                for n1 in -2..=2 {
+                    assert_eq!(
+                        left.predicate()
+                            .try_branch_at(&context, &[n0, n1], Default::default())
+                            .unwrap(),
+                        right
+                            .predicate()
+                            .try_branch_at(&context, &[n0, n1], Default::default())
+                            .unwrap()
+                    );
+                }
+            }
+        }
+    }
+    assert!(equal_pairs >= 16);
 }
 
 #[test]

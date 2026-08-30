@@ -74,12 +74,12 @@ pub(super) fn try_copy_identity(
 /// The context fingerprint commits to the complete variable order. Symbolica
 /// supplies the primitive associate, so integer multiples and sign changes
 /// cannot manufacture distinct Boolean branches.
-pub(super) fn try_indexed_polynomial_guard_identity(
+pub(super) fn try_indexed_polynomial_guard_identity_and_associate(
     context: &IndexedCoefficientContext,
     polynomial: &IndexedPolynomial,
     algebra_limits: ExactAlgebraLimits,
     byte_limit: usize,
-) -> Result<String, StratumRegistryError> {
+) -> Result<(String, IndexedPolynomial), StratumRegistryError> {
     if polynomial.is_zero() {
         return Err(StratumRegistryError::ZeroGuardPolynomial);
     }
@@ -117,5 +117,5 @@ pub(super) fn try_indexed_polynomial_guard_identity(
         }
         stable.push("];")?;
     }
-    Ok(stable.finish())
+    Ok((stable.finish(), polynomial))
 }
