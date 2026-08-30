@@ -28,6 +28,9 @@ pub use persistence::{ArtifactEncodingLimits, ArtifactLoadLimits};
 pub use two_loop::derive_two_loop_unit_mass_sunset;
 
 #[cfg(test)]
+pub(crate) use three_loop::canonical_family as canonical_three_loop_family;
+
+#[cfg(test)]
 #[path = "tests/one_loop.rs"]
 mod one_loop_tests;
 #[cfg(test)]

@@ -732,6 +732,15 @@ indispensable. An exact alternative certificate is a valid outcome.
 
 ### Gate 0: reproducible matrix plan
 
+Implementation status (2026-08-30): the test-only physical-frame planner is
+green for all twelve `S6`/`S5`/`S4a`/`S4b`, degree-one through degree-three
+envelopes. It preserves the required row chronology and source provenance,
+builds a checked raw-physical-column CSR with no provenance augmentation, and
+passes repeat-build byte-determinism plus exact CSR/source-entry checks. Gate
+0 is not yet declared complete: supported-worker-count comparisons, the
+coefficient-valued dense reference, and target-specific forbidden-set rank
+queries belong to the next implementation slice.
+
 - Regenerate the exact row, column, and entry counts in this note.
 - Produce byte-identical row/column registries at every supported worker count.
 - Verify checked CSR construction against a dense K6 reference.

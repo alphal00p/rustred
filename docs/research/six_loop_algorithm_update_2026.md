@@ -225,6 +225,48 @@ thousands of redundant terminals, or a 20,000-digit K21 campaign, plausible. `m`
 dominant numerical feasibility measure and can exceed both `t` and `r`. No public complete fully
 massive K21 master count or universal reduction was found in this scan.
 
+### Dense-parent extrapolation and sparse controls
+
+**RustRed derivation.** Face-local completion can make complexity follow the dimension of the
+currently uncovered inactive/ISP face instead of the complete index count. This is particularly
+promising for connected cubic vacuum parents: with `K = L(L+1)/2` scalar-product coordinates and
+at most `3(L-1)` propagators, their top-sector inactive dimensions at four, five, and six loops are
+only `1`, `3`, and `6`. It is not a topology-generic scaling argument. The corresponding equal-mass
+bananas retain `5`, `9`, and `14` inactive directions, while asymmetric three-vertex multitheta
+graphs with edge-bundle multiplicities `(1,2,3)`, `(1,2,4)`, and `(1,2,5)` retain `4`, `8`, and
+`13`.
+
+The six-loop seven-edge banana makes the symmetry tradeoff concrete. Its loop space is the
+standard `S7` representation `V`; its scalar products decompose as
+
+```text
+Sym^2(V) = [7] + [6,1] + [5,2].
+```
+
+The seven propagator quadrics span the first two summands, leaving the 14-dimensional `[5,2]` ISP
+quotient. A Burnside/Molien audit gives 344 invariant degree-ten numerator polynomials on the
+fully undotted symmetric stratum instead of 1,144,066 raw monomials, while dot excess ten has 38
+`S7` orbits instead of 8,008 raw compositions. These reductions matter in practice, and Symbolica
+graph stabilizers should provide their exact transport. A finite group supplies only an eventual
+constant factor, however; generic unequal dot patterns destroy the stabilizer and do not change
+the polynomial growth degree.
+
+**Verified result.** The equal-mass `L`-loop banana family has `L+1` masters and an all-loop
+differential-equation treatment:
+[*Bananas of equal mass: any loop, any order in the dimensional regularisation parameter*](https://arxiv.org/abs/2212.08908),
+arXiv:`2212.08908`. For generic masses, `L+3` explicit differential operators annihilate the
+banana integral; Macaulay calculations through `L=8` give rank `2^(L+1)-1`, while generation of
+the complete annihilating ideal remains a conjecture:
+[*D-ideal of generic mass banana integrals in dimensional regularization*](https://arxiv.org/abs/2508.04309),
+arXiv:`2508.04309`.
+
+**RustRed inference.** The banana is a valuable high-dimensional-face and specialized-lane
+control, but its small equal-mass evaluator block and exceptional symmetry make it too friendly as
+the only sparse benchmark. Every K10/K15 promotion must also pass an asymmetric multitheta family,
+whose distinct bundle sizes remove vertex permutations and whose generic dot patterns retain only
+small within-bundle stabilizers. Dense-parent, banana, and multitheta results must be reported
+separately.
+
 ## Architecture delta by component
 
 | component | accepted role | forbidden inference |
@@ -274,6 +316,9 @@ The numerical thresholds below are engineering gates, not literature theorems.
 
 ### `K = 10`
 
+- Require exact finite-complement results for a nine-propagator dense parent, the five-edge
+  banana, and the `(1,2,3)` multitheta. Dense-parent or banana success alone cannot promote the
+  architecture.
 - Require stable candidate rank and support across at least three good primes and held-out rational
   `D` points, followed by exact lift and replay.
 - Run at least two larger outer-frame controls. They are falsification tests only; exact complement
@@ -285,6 +330,9 @@ The numerical thresholds below are engineering gates, not literature theorems.
 
 This is the mandatory design gate before K21.
 
+- Require exact finite complements for a twelve-propagator dense parent, the six-edge banana, and
+  the `(1,2,4)` multitheta; the sparse multitheta generic lane may not escalate beyond face level
+  four without rejecting or redesigning the architecture.
 - When an independent quotient is computed, compare its rank with the known fully massive scale
   of roughly one hundred and explain large discrepancies by exact maps or physical-stratum
   relations. Otherwise the complete typed set `t` must itself pass the numerical budget.

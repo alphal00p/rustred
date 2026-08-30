@@ -4,10 +4,26 @@ use super::model::{
     CompletedIbpSourceRows, IbpSourceRow, ParametricIbpGenerator, PreparedIbpSource,
     PreparedIbpSourceBatch,
 };
+#[cfg(test)]
+use super::scope::IbpSourceLayout;
 
 impl CompletedIbpSourceRows {
     pub fn into_relations(self) -> Vec<super::super::relation::ParametricRelation> {
         self.relations
+    }
+
+    /// Whether this barrier owns the complete `L * (L + E)` ordinary span.
+    ///
+    /// Consumers that make rank or completeness claims must reject the
+    /// intentionally smaller external-contraction-only source layout.
+    #[cfg(test)]
+    pub(crate) const fn is_complete_ordinary(&self) -> bool {
+        matches!(self.layout, IbpSourceLayout::CompleteOrdinary)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn layout_name(&self) -> &'static str {
+        self.layout.name()
     }
 }
 

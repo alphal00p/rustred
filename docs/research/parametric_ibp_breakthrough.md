@@ -107,13 +107,20 @@ the `i64` chart carrier. Neither is called an infinite ray without a symbolic
 extension proof.
 
 The first bounded implementation experiment is narrower than a global
-Macaulay solve. It assembles the degree-one physical `S4a` frame with 63
-translated source rows, 157 physical columns, and 630 entries. Each requested
-border target has its own forbidden-column query. Modular hits are lifted and
-replayed exactly; modular misses are inconclusive. Source-provenance identity
-columns remain outside physical rank tests, and no `S4` orbit quotient is used
-inside assembly. Any accepted RuleCell refines only its exact decorated
-sector/fixed-coordinate/application-box/guard stratum. See the
+Macaulay solve. Its test-only physical-frame planner now regenerates all
+twelve degree-one through degree-three `S6`, `S5`, `S4a`, and `S4b` matrix
+envelopes from exact translated sources. The degree-one `S4a` frame has 63
+translated source rows, 157 physical columns, and 630 entries. Rows have a
+deterministic total-degree, chart-lexicographic, ordinary-source chronology;
+the CSR contains sorted raw physical shifts, while source provenance is a row
+sidecar. The modular evaluator and target-specific rank layer are still the
+next experiment, so this evidence is not a relation or closure claim. Each
+requested border target will have its own forbidden-column query. Modular hits
+will be lifted and replayed exactly; modular misses remain inconclusive.
+Source-provenance identity columns stay outside physical rank tests, and no
+`S4` orbit quotient is used inside assembly. Any accepted RuleCell refines
+only its exact decorated sector/fixed-coordinate/application-box/guard
+stratum. See the
 [executable K6 prototype specification](k6_breakthrough_prototype_spec_2026.md)
 and its [2026 algorithm update](six_loop_algorithm_update_2026.md).
 

@@ -17,6 +17,7 @@
 mod chart;
 mod coverage;
 mod error;
+pub(crate) mod frame;
 mod limits;
 mod model;
 mod region;

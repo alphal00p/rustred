@@ -345,9 +345,15 @@ six-dimensional varying boxes and more than one million carrier points. This
 is a lower bound on the true uncovered set and a precise diagnosis of missing
 all-rank coverage, not a terminal count or closure claim.
 
-The next bounded completion experiment is the physical `S4a`, degree-one A0
-matrix plan: 63 translated ordinary sources, 157 physical columns, and 630
-nonzero source entries. A0 is only a modular discovery and provenance kernel.
+The physical-frame half of the next bounded completion experiment is now an
+executable test-only prototype. It deterministically regenerates the complete
+one-sided degree-one through degree-three plans for `S6`, `S5`, and both `S4`
+sector representatives from the nine ordinary sources. In particular, the
+`S4a` degree-one plan has 63 translated rows, 157 raw physical columns, and
+630 nonzero entries. Raw shifts alone enter the checked CSR pattern; exact
+source/translation provenance remains a row sidecar, and no `S4` quotient is
+taken. The next step is the target-specific A0 modular query and exact-lift
+boundary. A0 is only a modular discovery and provenance kernel.
 Every target has its own forbidden-column rank query; provenance columns never
 enter that physical rank; no `S4` quotient is taken during assembly; and a
 modular miss remains inconclusive. Only an exactly lifted and replayed relation
