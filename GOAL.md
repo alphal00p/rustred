@@ -328,17 +328,34 @@ publication gate.
 The first exact completion-geometry prototype maps every one of those 46
 cells into the corresponding sector-local nonnegative lattice. Exhaustive
 `3^6` membership comparisons per cell (33,534 comparisons in total) agree
-with `RuleCell::assignment_for_target`. The mapping records 205 coefficient
-guards separately from structural coverage and leaves all 276 outer
-coordinate endpoints as explicit extension obligations. Of these, 61 reach a
-maximal rule-safe application endpoint but only 35 actually touch the `i64`
-chart carrier; neither condition is treated as a proof of mathematical
-infinity. On the two sectors containing the six recurrence
+with `RuleCell::assignment_for_target`. Exact Symbolica expansion in the base
+parameters turns every retained guard into simultaneous integer-polynomial
+coefficient equations. Of 205 guard occurrences, 119 have an immediate
+nonzero constant equation and the remaining 86 depend on exactly one index;
+exact GCD, factorization, and replay find every common integer root. None lies
+inside its owning application box, so the current 46 cells have no unowned
+guard-zero branch. The mapping still keeps guards separate from structural
+coverage and leaves all 276 outer coordinate endpoints as explicit extension
+obligations. Of these, 61 reach a maximal rule-safe application endpoint but
+only 35 actually touch the `i64` chart carrier; neither condition is treated
+as a proof of mathematical infinity. On the two sectors containing the six recurrence
 witnesses, the exact guard-blind structural complements contain respectively
 20 and 32 disjoint boxes after subtracting 7 and 19 rule boxes. Both retain
 six-dimensional varying boxes and more than one million carrier points. This
 is a lower bound on the true uncovered set and a precise diagnosis of missing
 all-rank coverage, not a terminal count or closure claim.
+
+The next bounded completion experiment is the physical `S4a`, degree-one A0
+matrix plan: 63 translated ordinary sources, 157 physical columns, and 630
+nonzero source entries. A0 is only a modular discovery and provenance kernel.
+Every target has its own forbidden-column rank query; provenance columns never
+enter that physical rank; no `S4` quotient is taken during assembly; and a
+modular miss remains inconclusive. Only an exactly lifted and replayed relation
+may refine the exact decorated-stratum complement. Completion state remains
+separate by sector, fixed/free coordinates, application box, and guard branch.
+A finite strictly descending rewrite partition may close on an affordable
+nonminimal typed terminal set without constructing a minimal quotient or all
+shift-action matrices.
 
 The MATAD oracle fixes the eventual in-family basis boundary without being used
 as a rule generator. The scalar six-line and four-line corners map directly to
@@ -653,5 +670,12 @@ into Stage 2.
 - [Independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md)
 - [Primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md)
 - [Finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md)
+- [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md)
+- [Nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md)
+- [Independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md)
+- [Universal nonminimal closure evidence update](docs/research/universal_nonminimal_closure_review_2026.md)
+- [Graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md)
+- [Executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md)
+- [Six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md)
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md)
 - [Current CLI contract](docs/CLI.md)

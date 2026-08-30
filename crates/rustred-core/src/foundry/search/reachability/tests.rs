@@ -276,10 +276,19 @@ fn ordered_cell_selection_stops_at_the_first_applicable_owner() {
 
 #[test]
 fn a_vanished_exact_guard_exposes_the_key_without_applying_the_cell() {
-    // The physical power shift -1 makes the tadpole pivot proportional to
-    // n-1. Derivation at n=2 is valid, while the same cell's concrete n=1
-    // assignment is deliberately exceptional.
-    let (context, cell) = tadpole_cell(None, -1, 2);
+    // Production construction rejects a cell whose guard can vanish anywhere
+    // in its application box. Corrupt an otherwise admissible cell through a
+    // test-only seam so reachability still proves that runtime guard checking
+    // fails closed if an untrusted cell ever crosses that boundary.
+    let (context, mut cell) = tadpole_cell(None, 0, 1);
+    let exceptional_guard = context
+        .sub(&context.index(0).unwrap(), &context.one())
+        .unwrap();
+    cell.replace_first_guard_polynomial_for_test(
+        context
+            .numerator_condition_with_limits(&exceptional_guard, Default::default())
+            .unwrap(),
+    );
     let planner = ReachabilityPlanner::try_new(
         &context,
         OrderingPolicy::default(),

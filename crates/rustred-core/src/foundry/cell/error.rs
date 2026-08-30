@@ -43,6 +43,21 @@ pub enum RuleCellError {
         ordinal: usize,
     },
     EmptyRetainedRule,
+    GuardIdenticallyZero {
+        ordinal: usize,
+    },
+    UnsupportedMultivariateGuardLocus {
+        ordinal: usize,
+    },
+    GuardAlgebra {
+        ordinal: usize,
+        source: IndexedAlgebraError,
+    },
+    GuardVanishesInApplicationDomain {
+        ordinal: usize,
+        position: usize,
+        value: i64,
+    },
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -134,6 +149,24 @@ impl fmt::Display for RuleCellError {
             Self::EmptyRetainedRule => {
                 formatter.write_str("rule-cell refinement pruned every RHS term")
             }
+            Self::GuardIdenticallyZero { ordinal } => {
+                write!(formatter, "rule guard {ordinal} is identically zero")
+            }
+            Self::UnsupportedMultivariateGuardLocus { ordinal } => write!(
+                formatter,
+                "rule guard {ordinal} has an unsupported multivariate exceptional locus"
+            ),
+            Self::GuardAlgebra { ordinal, source } => {
+                write!(formatter, "rule guard {ordinal} algebra failed: {source}")
+            }
+            Self::GuardVanishesInApplicationDomain {
+                ordinal,
+                position,
+                value,
+            } => write!(
+                formatter,
+                "rule guard {ordinal} vanishes at index {position} = {value} inside the application domain"
+            ),
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "rule-cell {resource} count overflowed usize")
             }

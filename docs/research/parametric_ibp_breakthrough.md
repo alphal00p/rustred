@@ -95,11 +95,27 @@ The first exact geometry prototype maps all 46 current cells to sector-local
 carrier boxes and agrees with 33,534 direct cell-membership checks. On the two
 sectors above, subtracting the 7 and 19 structural domain boxes leaves 20 and
 32 disjoint boxes, each with a six-dimensional varying component. This is a
-guard-blind lower bound on the genuinely uncovered set: 205 nonzero guards
-still require separate stratification. Likewise, 61 of 276 outer endpoints
-reach a maximal rule-safe application endpoint, but only 35 touch the `i64`
-chart carrier. Neither is called an infinite ray without a symbolic extension
-proof.
+guard-blind lower bound on the genuinely uncovered set. The separate exact
+guard pass has now expanded all 205 retained occurrences in the base
+parameters: 119 have a nonzero constant coefficient, while the other 86 have
+one-index coefficient systems whose complete common integer roots are obtained
+by Symbolica GCD and factorization and then replayed against the original
+system. No root intersects its owning cell, so guard stratification adds no
+hole to the 46 current application domains. Likewise, 61 of 276 outer
+endpoints reach a maximal rule-safe application endpoint, but only 35 touch
+the `i64` chart carrier. Neither is called an infinite ray without a symbolic
+extension proof.
+
+The first bounded implementation experiment is narrower than a global
+Macaulay solve. It assembles the degree-one physical `S4a` frame with 63
+translated source rows, 157 physical columns, and 630 entries. Each requested
+border target has its own forbidden-column query. Modular hits are lifted and
+replayed exactly; modular misses are inconclusive. Source-provenance identity
+columns remain outside physical rank tests, and no `S4` orbit quotient is used
+inside assembly. Any accepted RuleCell refines only its exact decorated
+sector/fixed-coordinate/application-box/guard stratum. See the
+[executable K6 prototype specification](k6_breakthrough_prototype_spec_2026.md)
+and its [2026 algorithm update](six_loop_algorithm_update_2026.md).
 
 ## What the literature establishes
 

@@ -178,6 +178,8 @@ impl RuleCellTerm {
     }
 }
 
+/// A retained source guard whose exceptional integer locus was proved disjoint
+/// from the owning cell's complete application domain during construction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuleCellGuard {
     pub(super) source_guard_ordinal: usize,
@@ -236,6 +238,14 @@ impl RuleCell {
     }
     pub(crate) fn indexed_context_matches(&self, context: &IndexedCoefficientContext) -> bool {
         self.rule.context_fingerprint() == context.fingerprint()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_first_guard_polynomial_for_test(
+        &mut self,
+        polynomial: IndexedPolynomial,
+    ) {
+        self.guards[0].polynomial = polynomial;
     }
     pub fn assignment_for_target(
         &self,

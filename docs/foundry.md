@@ -296,6 +296,18 @@ outer endpoints remain typed extension obligations. Sixty-one reach a maximal
 rule-safe application endpoint, whereas only 35 touch the `i64` chart carrier;
 neither is an infinity proof.
 
+Rule-cell installation nevertheless proves guard applicability separately.
+Symbolica expands each specialized guard by base-parameter monomial, leaving
+exact simultaneous polynomials in the integral indices. Among the 205 current
+K6 guard occurrences, 119 systems contain an immediate nonzero constant
+equation. Every remaining system depends on one index only; exact polynomial
+GCD and factorization enumerate its common integer roots, and exact replay
+rejects spurious candidates. The resulting 86 exceptional sets are all
+disjoint from their owning application boxes. Unsupported multivariate loci
+and any in-domain root are typed construction errors rather than runtime
+fallthrough. This proves that the current structural boxes have no guard-zero
+holes; it does not close any box in the structural complement.
+
 Arbitrary-box subtraction gives a deterministic disjoint guard-blind
 structural complement. For sectors `[0,0,1,1,1,1]` and
 `[0,1,1,1,1,0]`, respectively,
@@ -303,9 +315,9 @@ structural complement. For sectors `[0,0,1,1,1,1]` and
 operations. All six known recurrence witnesses lie in those complements,
 whose maximal varying dimension remains six. The fact that an `i64` carrier
 complement is finite is tautological; only a separate exact outer-extension
-and guard-stratification proof can turn this diagnostic into an all-rank
-terminal certificate. Because guard zero loci can add holes, this structural
-complement is only a lower bound on the genuinely uncovered domain.
+proof can turn this diagnostic into an all-rank terminal certificate. The
+current cells' guards add no holes by the independent proof above, but a
+future cell with an unresolved exceptional locus remains inadmissible.
 
 The final terminal set is not required to be a minimal master basis. If exact
 sector-wide coverage proves that its complement is finite, those finitely many

@@ -207,8 +207,9 @@ impl ClosedArtifact {
         &self.source_relations
     }
 
-    /// Stable installer order used for deterministic first-applicable rule
-    /// selection.
+    /// Stable installer order used for deterministic first-applicable direct
+    /// rule selection. The reducer checks every retained guard before a direct
+    /// rule may apply, just as it does for proof-bearing rule cells.
     pub fn rules(&self) -> &[ParametricRule] {
         &self.rules
     }
@@ -313,6 +314,25 @@ impl ClosedArtifact {
     pub(crate) fn duplicate_first_rule_for_test(&mut self) {
         let rule = self.rules[0].clone();
         self.rules.push(rule);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_first_raw_rule_guard_for_test(
+        &mut self,
+        polynomial: crate::algebra::IndexedPolynomial,
+    ) {
+        self.rules[0].replace_first_guard_polynomial_for_test(polynomial);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_guard_failing_cell_raw_fallback_for_test(
+        &mut self,
+        polynomial: crate::algebra::IndexedPolynomial,
+    ) {
+        self.rule_cells[0].replace_first_guard_polynomial_for_test(polynomial.clone());
+        let mut raw = self.rule_cells[0].rule().clone();
+        raw.replace_first_guard_polynomial_for_test(polynomial);
+        self.rules.push(raw);
     }
 
     #[cfg(test)]

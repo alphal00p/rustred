@@ -1,9 +1,10 @@
-use crate::algebra::IndexedAlgebraLimits;
+use crate::algebra::{IndexedAlgebraLimits, IndexedGuardLimits};
 use crate::identity::RelationLimits;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleCellLimits {
     pub indexed_algebra: IndexedAlgebraLimits,
+    pub guard_algebra: IndexedGuardLimits,
     pub relation: RelationLimits,
     pub max_source_views: usize,
     pub max_fixed_restrictions: usize,
@@ -19,6 +20,7 @@ impl Default for RuleCellLimits {
     fn default() -> Self {
         Self {
             indexed_algebra: IndexedAlgebraLimits::default(),
+            guard_algebra: IndexedGuardLimits::default(),
             relation: RelationLimits::default(),
             max_source_views: 1_000_000,
             max_fixed_restrictions: 4_096,

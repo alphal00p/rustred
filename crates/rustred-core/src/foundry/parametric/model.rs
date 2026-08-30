@@ -258,6 +258,14 @@ impl ParametricRule {
         self.context_fingerprint.as_str()
     }
 
+    #[cfg(test)]
+    pub(crate) fn replace_first_guard_polynomial_for_test(
+        &mut self,
+        polynomial: IndexedPolynomial,
+    ) {
+        self.nonzero_guards[0].polynomial = polynomial;
+    }
+
     pub fn sector(&self) -> &Mask {
         self.domain.sector()
     }

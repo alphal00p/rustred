@@ -140,7 +140,13 @@ The current indexed services are:
   `replace_with_poly` after a complete support/bit/work preflight; and
 - simultaneous integer specialization back to `K`, returning both the
   normalized coefficient and the mapped nonconstant denominator before
-  cancellation. A caller must retain that polynomial as a nonzero guard.
+  cancellation. A caller must retain that polynomial as a nonzero guard; and
+- cold exact guard decomposition by base-parameter monomial, followed by a
+  resource-admitted Symbolica polynomial GCD/factorization lane when the
+  simultaneous exceptional system depends on one integral index. Every
+  candidate integer root is replayed against every original coefficient
+  equation. Identically-zero and multivariate exceptional systems remain
+  distinct typed outcomes rather than being guessed through samples.
 
 The translation is restricted to commuting per-index integer shifts. It is not
 a general mixed affine-substitution service. Specialization performs bounded
@@ -148,6 +154,13 @@ structural traversal and constructs Symbolica integer/polynomial values; it
 does not define independent integer or polynomial arithmetic. Any expansion
 of this surface, especially general affine substitution, must pass the
 search-compose-probe gate rather than grow a handwritten substitution engine.
+`IndexedGuardLimits` caps sparse input/equation counts, univariate degree,
+aggregate integer bits, the worst-case `2^degree` modular-factor recombination
+count, coefficient-limb-weighted dense work, a prospective Mignotte-style
+factor-height bound, and retained factor terms. Native factorization is
+unwind-contained and its output is rechecked, but Symbolica exposes neither
+cancellation nor a hard scratch-memory census; these conservative cold-path
+limits are an admission envelope, not a hard RSS or wall-time guarantee.
 
 ### Feynman-polynomial contract
 

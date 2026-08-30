@@ -173,11 +173,15 @@ faces, and remaining numerator directions remain obligations rather than implici
 masters.
 The test-only completion geometry independently maps all 46 cells to exact
 sector-local carrier boxes and checks 33,534 small-lattice membership points.
-It keeps 205 guards outside structural coverage and reports guard-blind
-complements of 20 and 32 disjoint boxes in the two sectors containing the six
-recurrence witnesses. Each complement still has a six-dimensional varying component;
-even endpoints that saturate the `i64` carrier remain explicit all-rank
-extension obligations rather than assumed rays.
+The foundry expands every one of the 205 retained guard occurrences in the
+base parameters with Symbolica. Of these, 119 have an immediate nonzero
+constant coefficient; the other 86 have exact one-index exceptional sets, and
+none of their roots intersects the owning application box. Thus the current
+cells have no hidden guard-zero holes. Their guard-blind structural complements
+still contain 20 and 32 disjoint boxes in the two sectors containing the six
+recurrence witnesses, with a six-dimensional varying component in each. Even
+endpoints that saturate the `i64` carrier remain explicit all-rank extension
+obligations rather than assumed rays.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
 while complete provenance and projection replay retain the full search span.
@@ -485,6 +489,13 @@ Stable design documents are:
 - [independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md);
 - [primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md);
 - [finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md);
+- [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md);
+- [nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md);
+- [independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md);
+- [universal nonminimal closure review](docs/research/universal_nonminimal_closure_review_2026.md);
+- [graph-orbit and Baikov source-compression audit](docs/research/graph_orbit_baikov_source_compression_2026.md);
+- [executable K6 breakthrough prototype specification](docs/research/k6_breakthrough_prototype_spec_2026.md);
+- [six-loop algorithm and implementation update](docs/research/six_loop_algorithm_update_2026.md);
 - [Vakint K6 oracle and terminal-budget audit](docs/research/vakint_k6_oracle.md); and
 - [current CLI contract](docs/CLI.md).
 

@@ -6,6 +6,7 @@
 //! Symbolica can automatically unify variable maps; this module deliberately
 //! rejects that behavior at the authenticated boundary.
 
+mod base_coefficients;
 mod context;
 mod error;
 mod limits;
@@ -14,6 +15,8 @@ mod specialization;
 mod translation;
 mod value;
 
+pub use base_coefficients::IndexedGuardLimits;
+pub(crate) use base_coefficients::IntegerZeroSetResolution;
 pub use context::IndexedCoefficientContext;
 pub use error::IndexedAlgebraError;
 pub use limits::{IndexedAlgebraLimits, IndexedContextLimits};

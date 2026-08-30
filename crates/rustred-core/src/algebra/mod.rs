@@ -16,6 +16,6 @@ pub(crate) use coefficient::{
 };
 pub use indexed::{
     IndexedAlgebraError, IndexedAlgebraLimits, IndexedCoefficient, IndexedCoefficientContext,
-    IndexedContextLimits, IndexedPolynomial,
+    IndexedContextLimits, IndexedGuardLimits, IndexedPolynomial,
 };
 pub(crate) use symbol::is_exact_plain_symbol;

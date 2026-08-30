@@ -616,6 +616,49 @@ fn generic_failure_and_collection_primitives_are_typed_and_exact() {
         "selection must deterministically choose the first applicable installed rule"
     );
 
+    let mut guard_failing = derive_one_loop_unit_mass_tadpole().unwrap();
+    let zero_at_assignment_one = {
+        let context = guard_failing.indexed_context();
+        let coefficient = context
+            .sub(&context.index(0).unwrap(), &context.one())
+            .unwrap();
+        context
+            .numerator_condition_with_limits(&coefficient, Default::default())
+            .unwrap()
+    };
+    guard_failing.replace_first_raw_rule_guard_for_test(zero_at_assignment_one);
+    assert_eq!(
+        Reducer::new(&guard_failing)
+            .unwrap()
+            .reduce_unit_mass(&target),
+        Err(ReductionError::UncoveredIntegral {
+            target: target.clone(),
+        }),
+        "a guard-failing raw rule must not bypass guarded-cell selection"
+    );
+
+    let mut mixed = derive_two_loop_unit_mass_sunset().unwrap();
+    let top_target = IntegralKey::try_new([1, 1, 2]).unwrap();
+    let zero_at_top_assignment = {
+        let context = mixed.indexed_context();
+        let coefficient = context
+            .sub(&context.index(0).unwrap(), &context.one())
+            .unwrap();
+        context
+            .numerator_condition_with_limits(&coefficient, Default::default())
+            .unwrap()
+    };
+    mixed.inject_guard_failing_cell_raw_fallback_for_test(zero_at_top_assignment);
+    assert!(
+        matches!(
+            Reducer::new(&mixed)
+                .unwrap()
+                .select_first_rule(&top_target),
+            Err(ReductionError::UncoveredIntegral { target }) if target == top_target
+        ),
+        "a raw fallback must not bypass the same failed guard on a rule cell"
+    );
+
     let mut no_homogeneity_proof = derive_one_loop_unit_mass_tadpole().unwrap();
     no_homogeneity_proof.clear_common_mass_homogeneity_for_test();
     assert_eq!(

@@ -209,16 +209,24 @@ routing, sorted root deduplication, and exact resource boundaries. It reports
 only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
-Its first K6 pressure-family census submits 115 bounded probes and has the
-following exact deterministic report: 44 canonical roots, 86 discovered
-nodes, 46 rule applications spanning all 37 current cell owners, 27
-zero/factorization terminals, and 13 uncovered nodes. The census pins
+Its current K6 pressure-family census submits 115 bounded probes and has the
+following exact deterministic report: 44 canonical roots, 89 discovered
+nodes, 53 rule applications from 46 registered rule cells, 27
+zero/factorization terminals, and nine uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is
 freshly checked by Symbolica exact matrix rank before it may terminate
 discovery. These numbers are regression evidence for the current finite graph
 only, not the Stage 1 closure acceptance result.
+
+The adjacent exact guard census expands all 205 retained K6 guard occurrences
+by base-parameter monomial. It pins 119 immediate nonzero-constant
+certificates, 86 one-index exceptional systems, their complete integer-root
+histogram, and an empty intersection with every owning application box.
+Rule-cell negative tests reject an in-domain root and an unresolved
+multivariate locus. This is an exact applicability proof for the installed
+cells, not a proof that the structural complement is closed.
 
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python

@@ -547,6 +547,115 @@ mod tests {
     }
 
     #[test]
+    fn k6_guard_base_coefficient_systems_bound_exceptional_stratification() {
+        let census = K6ReachabilityCensus::try_new().unwrap();
+        let context = census.terminals.context();
+        let base_count = context.base().variables().len();
+        let mut occurrences = 0usize;
+        let mut literal_nonzero_occurrences = 0usize;
+        let mut residual_support_histogram = BTreeMap::<usize, usize>::new();
+        let mut residual_equation_histogram = BTreeMap::<usize, usize>::new();
+        let mut empty_exceptional_loci = 0usize;
+        let mut finite_exceptional_loci = 0usize;
+        let mut exceptional_roots = BTreeMap::<(usize, String), usize>::new();
+        let mut in_domain_exceptional_roots = BTreeMap::<(usize, String), usize>::new();
+        let mut distinct = BTreeMap::<String, (bool, usize, usize)>::new();
+
+        for owned in &census.cells {
+            for guard in owned.cell.guards() {
+                occurrences += 1;
+                let system = context
+                    .base_coefficient_system(
+                        guard.polynomial(),
+                        Default::default(),
+                        Default::default(),
+                    )
+                    .unwrap();
+                let literal_nonzero = system.has_nonzero_constant_equation();
+                literal_nonzero_occurrences += usize::from(literal_nonzero);
+                let mut support = BTreeSet::new();
+                for equation in system.equations() {
+                    for exponents in equation.index_polynomial().raw().exponents_iter() {
+                        for (position, &power) in exponents[base_count..].iter().enumerate() {
+                            if power != 0 {
+                                support.insert(position);
+                            }
+                        }
+                    }
+                }
+                if !literal_nonzero {
+                    *residual_support_histogram.entry(support.len()).or_default() += 1;
+                    *residual_equation_histogram
+                        .entry(system.equations().len())
+                        .or_default() += 1;
+                }
+                let integer_locus = match context
+                    .univariate_integer_zero_set(&system, Default::default())
+                    .unwrap()
+                {
+                    crate::algebra::indexed::IntegerZeroSetResolution::Exact(locus) => locus,
+                    other => panic!("every K6 guard system must resolve exactly, got {other:?}"),
+                };
+                if let Some(position) = integer_locus.index_position() {
+                    finite_exceptional_loci += 1;
+                    for root in integer_locus.roots() {
+                        *exceptional_roots
+                            .entry((position, root.to_string()))
+                            .or_default() += 1;
+                        let root = root.to_i64().expect("all current K6 roots fit i64");
+                        if owned.cell.application_domain().bounds()[position].contains(root) {
+                            *in_domain_exceptional_roots
+                                .entry((position, root.to_string()))
+                                .or_default() += 1;
+                        }
+                    }
+                } else {
+                    empty_exceptional_loci += 1;
+                }
+                distinct
+                    .entry(guard.polynomial().to_expression().to_string())
+                    .or_insert((literal_nonzero, system.equations().len(), support.len()));
+            }
+        }
+
+        assert_eq!(occurrences, 205);
+        assert_eq!(literal_nonzero_occurrences, 119);
+        assert_eq!(distinct.len(), 126);
+        assert_eq!(distinct.values().filter(|summary| summary.0).count(), 71);
+        assert_eq!(distinct.values().filter(|summary| !summary.0).count(), 55);
+        assert_eq!(residual_support_histogram, BTreeMap::from([(1, 86)]));
+        assert_eq!(
+            residual_equation_histogram,
+            BTreeMap::from([(1, 71), (2, 10), (3, 5)])
+        );
+        assert!(
+            distinct
+                .values()
+                .filter(|summary| !summary.0)
+                .all(|summary| summary.2 == 1 && (1..=3).contains(&summary.1))
+        );
+        assert_eq!(empty_exceptional_loci, 119);
+        assert_eq!(finite_exceptional_loci, 86);
+        assert_eq!(
+            exceptional_roots,
+            BTreeMap::from([
+                ((0, "0".to_owned()), 3),
+                ((1, "0".to_owned()), 7),
+                ((1, "1".to_owned()), 3),
+                ((2, "0".to_owned()), 6),
+                ((3, "0".to_owned()), 11),
+                ((4, "-1".to_owned()), 19),
+                ((4, "-2".to_owned()), 4),
+                ((4, "-3".to_owned()), 1),
+                ((4, "0".to_owned()), 29),
+                ((4, "1".to_owned()), 2),
+                ((5, "0".to_owned()), 8),
+            ])
+        );
+        assert!(in_domain_exceptional_roots.is_empty());
+    }
+
+    #[test]
     fn finite_k6_census_reports_current_coverage_without_promoting_corners() {
         let census = K6ReachabilityCensus::try_new().unwrap();
         assert_exact_carrier_regions(&census);

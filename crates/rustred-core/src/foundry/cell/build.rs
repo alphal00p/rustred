@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use crate::algebra::IndexedCoefficientContext;
+use crate::algebra::indexed::IntegerZeroSetResolution;
+use crate::algebra::{
+    IndexedAlgebraLimits, IndexedCoefficientContext, IndexedGuardLimits, IndexedPolynomial,
+};
 use crate::foundry::parametric::ParametricRule;
 use crate::identity::TranslatedSourceBatch;
 use crate::sector::{InteriorBounds, SectorInteriorDomain, SectorMonotoneDomain};
@@ -258,13 +261,24 @@ fn build(
             requested: rule.nonzero_guards().len(),
         })?;
     for (ordinal, guard) in rule.nonzero_guards().iter().enumerate() {
-        guards.push(RuleCellGuard {
-            source_guard_ordinal: ordinal,
-            polynomial: context.specialize_fixed_polynomial_sealed(
+        let polynomial = context
+            .specialize_fixed_polynomial_sealed(
                 guard.polynomial(),
                 &fixed_pairs,
                 limits.indexed_algebra,
-            )?,
+            )
+            .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
+        validate_guard_on_bounds(
+            context,
+            ordinal,
+            &polynomial,
+            application_domain.bounds(),
+            limits.indexed_algebra,
+            limits.guard_algebra,
+        )?;
+        guards.push(RuleCellGuard {
+            source_guard_ordinal: ordinal,
+            polynomial,
         });
     }
     Ok(RuleCell::from_parts(
@@ -277,6 +291,52 @@ fn build(
         terms.into_boxed_slice(),
         guards.into_boxed_slice(),
     ))
+}
+
+pub(super) fn validate_guard_on_bounds(
+    context: &IndexedCoefficientContext,
+    ordinal: usize,
+    polynomial: &IndexedPolynomial,
+    bounds: &[InteriorBounds],
+    limits: IndexedAlgebraLimits,
+    guard_limits: IndexedGuardLimits,
+) -> Result<(), RuleCellError> {
+    if bounds.len() != context.index_count() {
+        return Err(RuleCellError::WrongApplicationArity {
+            expected: context.index_count(),
+            actual: bounds.len(),
+        });
+    }
+    let coefficient_system = context
+        .base_coefficient_system(polynomial, limits, guard_limits)
+        .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?;
+    let integer_locus = match context
+        .univariate_integer_zero_set(&coefficient_system, guard_limits)
+        .map_err(|source| RuleCellError::GuardAlgebra { ordinal, source })?
+    {
+        IntegerZeroSetResolution::IdenticallyZero => {
+            return Err(RuleCellError::GuardIdenticallyZero { ordinal });
+        }
+        IntegerZeroSetResolution::UnsupportedMultivariate => {
+            return Err(RuleCellError::UnsupportedMultivariateGuardLocus { ordinal });
+        }
+        IntegerZeroSetResolution::Exact(locus) => locus,
+    };
+    if let Some(position) = integer_locus.index_position() {
+        let bounds = bounds[position];
+        for root in integer_locus.roots() {
+            if let Some(value) = root.to_i64()
+                && bounds.contains(value)
+            {
+                return Err(RuleCellError::GuardVanishesInApplicationDomain {
+                    ordinal,
+                    position,
+                    value,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_bindings(

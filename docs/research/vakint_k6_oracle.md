@@ -127,6 +127,27 @@ These nine inputs are diagnostic points. The six witnesses sample
 positive-dimensional strata; any accepted RustRed owner must prove the whole
 stratum and every exceptional branch.
 
+The ignored GammaLoop oracle test now pins the complete canonical raw
+expression by byte length and FNV-1a fingerprint and checks exact Symbolica
+subatom support against every MATAD master name. The independently replayed
+results are:
+
+| input class | exact raw master support | leading Laurent power |
+| --- | --- | ---: |
+| four-line scalar corner | `miBN` | `epsilon^-3` |
+| five-line scalar corner | `Gam(1,1)^3`, `Gam(1,1) miT111`, `miD5`, `miBN` | `epsilon^-3` |
+| six-line scalar corner | `miD6` | `epsilon^-1` |
+| witnesses `[0,-1,1,2,2,1]`, `[0,-2,2,2,1,1]` | `Gam(1,1)^3`, `Gam(1,1) miT111` | `epsilon^-3` |
+| witnesses `[0,1,1,2,4,0]`, `[0,1,1,2,5,0]` | `Gam(1,1)^3`, `miBN` | `epsilon^-2` |
+| witnesses `[0,1,2,3,3,0]`, `[0,1,3,2,3,0]` | `Gam(1,1)^3`, `miBN` | `epsilon^0` |
+
+The last witness pair has an identical exact canonical expression. All nine
+expanded evaluations reach `epsilon^1` at 80-digit working precision; four
+representative Laurent series are independently pinned to 55 decimal digits.
+This proves that the current diagnostic points need no new numerical master at
+three loops. It does not prove a recurrence for the positive-dimensional
+witness strata and therefore does not change the K6 closure gate.
+
 ### Exact raw master coefficients
 
 Use the Rust API with:

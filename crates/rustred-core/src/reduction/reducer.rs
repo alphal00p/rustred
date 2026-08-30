@@ -382,7 +382,25 @@ impl<'artifact> Reducer<'artifact> {
                 };
                 assignment.push(value);
             }
-            if representable && rule.domain().contains(&assignment)? {
+            if !representable || !rule.domain().contains(&assignment)? {
+                continue;
+            }
+            let mut applicable = true;
+            for guard in rule.nonzero_guards() {
+                let specialized = self
+                    .artifact
+                    .indexed_context()
+                    .specialize_polynomial_sealed(
+                        guard.polynomial(),
+                        &assignment,
+                        self.limits.indexed_algebra,
+                    )?;
+                if specialized.is_zero() {
+                    applicable = false;
+                    break;
+                }
+            }
+            if applicable {
                 return Ok(SelectedRule {
                     rule,
                     assignment,
