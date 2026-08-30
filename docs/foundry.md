@@ -118,6 +118,17 @@ artifact while its complete rule fixed point is incomplete. The [project
 goal](../GOAL.md) is the authority whenever this design and the implementation
 frontier differ.
 
+The current K6 fixture composes those owners in one test-only census rather
+than another synthetic closure artifact. From 107 bounded probes, exact `S4`
+canonicalization retains 36 roots and discovery visits 44 nodes. The report
+pins 14 applications across all ten current rule-cell owners, 11 independently
+proved zero/factorization terminals, and 19 uncovered nodes. A five-line point
+shared by both positive-dot domains explicitly pins first-applicable ownership.
+All 26 raw zero masks are rechecked using Symbolica's exact active-edge
+momentum rank, and the three product domains reuse the production
+factorization compiler. Scalar corners and the reported deeper-dot/numerator
+holes stay uncovered; no census value is promoted to publication evidence.
+
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
 must remain generic in topology and loop count. A specialized high-throughput

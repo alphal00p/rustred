@@ -92,6 +92,17 @@ routing, sorted root deduplication, and exact resource boundaries. It reports
 only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
+Its first K6 pressure-family census submits 107 bounded probes and has the
+following exact deterministic report: 36 canonical roots, 44 discovered
+nodes, 14 rule applications spanning all ten current cell owners, 11
+zero/factorization terminals, and 19 uncovered nodes. Tests pin overlapping
+five-line cell precedence, all three factorization owner ordinals,
+representative scalar/deeper-dot/numerator holes, and the exact
+discovered-node resource boundary. Every raw zero mask is freshly checked by
+Symbolica exact matrix rank before it may terminate discovery. These numbers
+are regression evidence for the current finite graph only, not the Stage 1
+closure acceptance result.
+
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python
 package. Untrusted loading authenticates and replays the artifact once; the

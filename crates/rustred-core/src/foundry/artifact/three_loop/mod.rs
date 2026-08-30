@@ -8,10 +8,20 @@
 
 #[cfg(test)]
 mod cells;
+#[cfg(test)]
+mod factorization;
 mod family;
 mod manifest;
+#[cfg(test)]
+mod momentum_rank;
 mod symmetry;
+#[cfg(test)]
+mod terminals;
 mod tests;
 
+#[cfg(test)]
+pub(crate) use factorization::K6FactorizationSupport;
 pub(crate) use family::canonical_family;
 pub(crate) use symmetry::canonical_s4;
+#[cfg(test)]
+pub(crate) use terminals::{K6ReachabilityTerminals, exact_zero_sectors};

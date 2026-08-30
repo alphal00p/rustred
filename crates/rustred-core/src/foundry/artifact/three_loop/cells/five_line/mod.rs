@@ -12,8 +12,9 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
+use super::super::exact_zero_sectors;
 use super::super::{canonical_family, canonical_s4};
-use super::support::{complete_ordinary_sources, exact_zero_sectors};
+use super::support::complete_ordinary_sources;
 
 const FIVE_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 1];
 const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 2];
@@ -24,8 +25,8 @@ const OPPOSITE_EDGE_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 0, 1];
 /// orbits on the canonical five-line residual face. These test-only cells are
 /// discovery slices, not a claim that the five-line sector (or the `K = 6`
 /// artifact) is closed.
-fn derive_five_line_cells() -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError>
-{
+pub(super) fn derive_five_line_cells()
+-> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;

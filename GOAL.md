@@ -170,6 +170,15 @@ rays: `J(0,1,1,1,4,0)`, `J(0,1,1,2,3,0)`,
 open. The fixture does not expose an installable artifact until the complete
 rule fixed point is closed.
 
+The first K6-specific consumer of that generic planner now runs a deterministic
+test-only fixed census. Its 107 submitted probes reduce under exact `S4` to 36
+roots and discover 44 nodes: all ten presently derived cell owners are
+exercised in 14 applications, 11 nodes terminate through independently checked
+zero or factorization proofs, and 19 remain explicitly uncovered. The census
+checks first-applicable overlap ownership and never labels the scalar top,
+five-line, or four-line corners as masters. It measures the present frontier;
+it does not weaken the required zero-uncovered fixed-point publication gate.
+
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish
 rank-generic tensor reduction and are frozen for Stage 1.

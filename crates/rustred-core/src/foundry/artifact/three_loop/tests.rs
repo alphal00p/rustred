@@ -1,23 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::algebra::matrix::{SymbolicaCoefficientMatrixLimits, rank_of_coefficient_matrix};
 use crate::family::{IntegralKey, invert_symbolic_matrix};
 use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
+use crate::sector::Mask;
 
 use super::family::canonical_family;
 use super::manifest::{
     FULL_RANK_ORBITS, VAKINT_CLASSES, VAKINT_SOURCE_REVISION, VAKINT_TOPOLOGIES_BLOB, ZERO_ORBITS,
 };
+use super::momentum_rank::{EDGE_MOMENTA, active_momentum_rank};
 use super::symmetry::canonical_s4;
-
-const EDGE_MOMENTA: [[i64; 3]; 6] = [
-    [1, 0, 0],
-    [0, 1, 0],
-    [0, 0, 1],
-    [-1, 0, 1],
-    [1, -1, 0],
-    [0, 1, -1],
-];
 
 #[test]
 fn pressure_family_owns_the_exact_nine_ordinary_sources() {
@@ -99,26 +91,8 @@ fn exact_s4_action_partitions_all_sectors_into_zero_and_full_rank_orbits() {
         // orbit as a closure obligation; it is not used as an analytic
         // nonzero certificate. Exercise Symbolica's authenticated exact matrix
         // rank rather than a parallel CAS implementation.
-        let rows = EDGE_MOMENTA
-            .iter()
-            .zip(orbit.representative)
-            .map(|(momentum, power)| {
-                momentum
-                    .iter()
-                    .map(|&component| {
-                        family
-                            .coefficient_context()
-                            .integer(if power == 0 { 0 } else { component })
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let (rank, _) = rank_of_coefficient_matrix(
-            family.coefficient_context(),
-            &rows,
-            SymbolicaCoefficientMatrixLimits::default(),
-        )
-        .unwrap();
+        let sector = Mask::try_from_indices(&orbit.representative).unwrap();
+        let rank = active_momentum_rank(&family, &sector).unwrap();
         assert_eq!(
             rank < family.loop_count(),
             expected_zero,

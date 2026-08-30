@@ -96,7 +96,12 @@ An independent finite reachability planner applies caller-ordered rule cells
 with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
-closing artifact.
+closing artifact. The current test-only K6 census submits 107 bounded probes,
+which canonicalize to 36 roots and discover 44 nodes. It exercises all ten
+current cell owners through 14 rule applications, discharges 11 nodes only by
+freshly proved zero/factorization terminals, and leaves 19 nodes explicitly
+uncovered. In particular, the three scalar graph corners, deeper dot rays, and
+numerator directions remain obligations rather than implicit masters.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
 while complete provenance and projection replay retain the full search span.

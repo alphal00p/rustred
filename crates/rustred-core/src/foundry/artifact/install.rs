@@ -52,6 +52,20 @@ pub(super) fn install(
     }
 }
 
+/// Authenticate and compile a test-only factorization fixture without
+/// pretending that its incomplete rule partition is a closing artifact.
+///
+/// The three-loop pressure fixture uses this seam to retain exactly the same
+/// generic binding, kinematic, dependency, and master-embedding proofs as the
+/// production installer while its K=6 closure verifier is still absent.
+#[cfg(test)]
+pub(crate) fn validate_factorization_fixture(
+    candidate: &mut ClosingArtifactCandidate,
+) -> Result<(), ArtifactError> {
+    validate_generic_bindings(candidate)?;
+    factorization::validate_and_compile(candidate)
+}
+
 fn validate_generic_bindings(candidate: &ClosingArtifactCandidate) -> Result<(), ArtifactError> {
     if candidate.schema != ArtifactSchemaVersion::CURRENT {
         return Err(ArtifactError::UnsupportedSchema {

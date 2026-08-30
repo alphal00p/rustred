@@ -14,8 +14,9 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
+use super::super::super::exact_zero_sectors;
 use super::super::super::{canonical_family, canonical_s4};
-use super::super::support::{complete_ordinary_sources, exact_zero_sectors};
+use super::super::support::complete_ordinary_sources;
 use super::{CANONICAL_DOT_TARGET_SHIFT, FOUR_LINE_SECTOR, ZERO_SOURCE_SHIFT};
 
 const BASE_CORNER: [i64; 6] = FOUR_LINE_SECTOR;

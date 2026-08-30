@@ -4,6 +4,7 @@
 //! below the pressure fixture prevents a successful local derivation from
 //! being mistaken for sector-complete publication.
 
+mod census;
 mod five_line;
 mod four_line;
 mod support;

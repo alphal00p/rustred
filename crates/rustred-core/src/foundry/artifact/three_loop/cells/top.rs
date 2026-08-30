@@ -22,7 +22,7 @@ const TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 0, 1];
 /// Derive one exact, sector-monotone top-sector recurrence from all nine
 /// generic ordinary sources. This is deliberately test-only and does not
 /// imply that the `K = 6` family is closed.
-fn derive_top_cell() -> Result<(IndexedCoefficientContext, RuleCell), ArtifactError> {
+pub(super) fn derive_top_cell() -> Result<(IndexedCoefficientContext, RuleCell), ArtifactError> {
     let family = canonical_family()?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;

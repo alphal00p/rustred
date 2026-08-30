@@ -12,12 +12,15 @@ use crate::sector::{
     InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
 };
 
+use super::super::exact_zero_sectors;
 use super::super::{canonical_family, canonical_s4};
-use super::support::{complete_ordinary_sources, exact_zero_sectors};
+use super::support::complete_ordinary_sources;
 
 mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
+
+use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
 
 const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
 const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 0];
@@ -25,6 +28,41 @@ const CANONICAL_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, 0];
 const MIXED_NUMERATOR_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, -1];
 const CANONICAL_TARGET_SOURCE_SHIFT: [i64; 6] = [0, -1, 0, 0, 1, 0];
 const ZERO_SOURCE_SHIFT: [i64; 6] = [0; 6];
+
+/// Complete ordered owner of the currently derived four-line discovery
+/// slices.  The singleton corner exceptions precede the broad positive-box
+/// cells so future domain refinements cannot silently change first-applicable
+/// ownership at an exceptional endpoint.
+pub(super) struct FourLineCellSet {
+    pub(super) isolated: RuleCell,
+    pub(super) opposite: RuleCell,
+    pub(super) adjacent: RuleCell,
+    pub(super) triple: RuleCell,
+    pub(super) three_distinct: RuleCell,
+    pub(super) canonical_dot: RuleCell,
+    pub(super) mixed_numerator: RuleCell,
+}
+
+pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactError> {
+    let ExceptionalFourLineCells {
+        context: _,
+        isolated,
+        opposite,
+        adjacent,
+        triple,
+        three_distinct,
+    } = derive_exceptional_four_line_cells()?;
+    let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
+    Ok(FourLineCellSet {
+        isolated,
+        opposite,
+        adjacent,
+        triple,
+        three_distinct,
+        canonical_dot,
+        mixed_numerator,
+    })
+}
 
 /// Derive exact projected recurrences for one canonical active-line dot and
 /// one mixed numerator/dot boundary on the canonical four-line residual
