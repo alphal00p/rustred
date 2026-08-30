@@ -78,10 +78,12 @@ are the remaining active Stage 1 work. A test-only K6 pressure fixture already
 pins its exact family, nine sources, order-24 `S4` sector partition, the five
 revision-stamped Vakint class/routing snapshots, and certified `K3 x K1` plus
 both inequivalent `K1 x K1 x K1` factorization sectors. It also derives the
-first exact top-sector rule cell from all nine sources while retaining its
-guards, bounded application proof, provenance, and strict descent. Live
-matcher comparison remains an integration gate, and no artifact is published
-before the complete rule fixed point closes.
+first exact top-sector rule cell and the two inequivalent positive dotted-edge
+cells on the canonical five-line residual face. Each cell is projected from
+all nine sources and retains exact residual replay, guards, bounded application
+proof, provenance, and strict descent. Negative inactive powers and numerator
+faces remain open. Live matcher comparison remains an integration gate, and no
+artifact is published before the complete rule fixed point closes.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend is FORM-free

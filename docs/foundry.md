@@ -63,7 +63,11 @@ remains a separate cross-repository gate. Generic factorization tests certify
 `K3 x K1` and both inequivalent spanning-tree `K1 x K1 x K1` products. The
 first test-only K6 rule cell derives an exact top-sector recurrence from the
 complete nine-source span and retains its elimination provenance, guards,
-maximal application box, and strict-descent witnesses. The fixture
+maximal application box, and strict-descent witnesses. A separate residual
+projection supplies all nine sources and all 26 exact zero masks to derive the
+two canonical positive dotted-edge cells on the five-line face; each retains
+its projection replay, guards, application box, and descent proof. Those cells
+do not cover negative inactive powers or numerator faces, so the fixture
 intentionally exposes no closed artifact while its complete rule fixed point
 is incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the

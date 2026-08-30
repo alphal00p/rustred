@@ -101,8 +101,12 @@ integration gate. Generic factorization tests separately certify both the
 `K3 x K1` sector and both inequivalent `K1 x K1 x K1` spanning-tree sectors.
 The first exact top-sector recurrence is derived from the complete nine-source
 span as a test-only rule cell with retained provenance, guards, application
-bounds, and strict-descent proofs. The fixture does not expose an installable
-artifact until the complete rule fixed point is closed.
+bounds, and strict-descent proofs. Exact residual projection on the canonical
+five-line face additionally derives the two inequivalent positive dotted-edge
+cells from all nine sources, retaining the complete 26-sector zero routing and
+strict-descent evidence. This does not close the five-line sector: negative
+inactive powers and numerator faces remain open. The fixture does not expose
+an installable artifact until the complete rule fixed point is closed.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish
