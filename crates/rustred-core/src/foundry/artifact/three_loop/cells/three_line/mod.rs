@@ -10,6 +10,9 @@ mod bridge_descendant_dot_numerator_tests;
 mod decorated_path_numerator;
 #[cfg(test)]
 mod decorated_path_numerator_tests;
+mod factorized_dot_numerator_rays;
+#[cfg(test)]
+mod factorized_dot_numerator_rays_tests;
 mod incident_path_dot_numerator_endpoint;
 #[cfg(test)]
 mod incident_path_dot_numerator_endpoint_tests;
@@ -22,6 +25,7 @@ use crate::foundry::cell::RuleCell;
 
 use bridge_descendant_dot_numerator::derive_bridge_descendant_dot_numerator_endpoint;
 use decorated_path_numerator::derive_decorated_path_numerator_cells;
+use factorized_dot_numerator_rays::derive_factorized_three_line_dot_numerator_rays;
 use incident_path_dot_numerator_endpoint::derive_incident_path_dot_numerator_endpoint;
 use undotted_path_numerator::derive_undotted_path_numerator_cells;
 
@@ -32,6 +36,8 @@ use undotted_path_numerator::derive_undotted_path_numerator_cells;
 pub(super) struct ThreeLineCellSet {
     pub(super) bridge_descendant_dot_numerator_endpoint: RuleCell,
     pub(super) incident_path_dot_numerator_endpoint: RuleCell,
+    pub(super) factorized_path_middle_dot_numerator_ray: RuleCell,
+    pub(super) factorized_star_spoke_dot_numerator_ray: RuleCell,
     pub(super) decorated_path_numerator_endpoint: RuleCell,
     pub(super) decorated_path_numerator_bulk: RuleCell,
     pub(super) undotted_path_numerator_endpoint: RuleCell,
@@ -43,6 +49,11 @@ pub(super) fn derive_three_line_cells() -> Result<ThreeLineCellSet, ArtifactErro
         derive_bridge_descendant_dot_numerator_endpoint()?;
     let (_context, incident_path_dot_numerator_endpoint) =
         derive_incident_path_dot_numerator_endpoint()?;
+    let (
+        _context,
+        factorized_path_middle_dot_numerator_ray,
+        factorized_star_spoke_dot_numerator_ray,
+    ) = derive_factorized_three_line_dot_numerator_rays()?;
     let (_context, decorated_path_numerator_endpoint, decorated_path_numerator_bulk) =
         derive_decorated_path_numerator_cells()?;
     let (_context, undotted_path_numerator_endpoint, undotted_path_numerator_bulk) =
@@ -50,6 +61,8 @@ pub(super) fn derive_three_line_cells() -> Result<ThreeLineCellSet, ArtifactErro
     Ok(ThreeLineCellSet {
         bridge_descendant_dot_numerator_endpoint,
         incident_path_dot_numerator_endpoint,
+        factorized_path_middle_dot_numerator_ray,
+        factorized_star_spoke_dot_numerator_ray,
         decorated_path_numerator_endpoint,
         decorated_path_numerator_bulk,
         undotted_path_numerator_endpoint,

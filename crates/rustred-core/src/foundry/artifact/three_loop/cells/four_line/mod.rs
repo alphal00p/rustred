@@ -39,7 +39,7 @@ use complementary_mixed_dot::derive_complementary_mixed_dot_cell;
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
 use factorized::{
     derive_factorized_bridge_dot_numerator_cells, derive_factorized_face_numerator_endpoint,
-    derive_factorized_two_dot_numerator_endpoint,
+    derive_factorized_triangle_dot_numerator_cells, derive_factorized_two_dot_numerator_endpoint,
 };
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
@@ -77,6 +77,9 @@ pub(super) struct FourLineCellSet {
     pub(super) factorized_bridge_dot_numerator_bulk: RuleCell,
     pub(super) factorized_face_numerator_endpoint: RuleCell,
     pub(super) factorized_two_dot_numerator_endpoint: RuleCell,
+    pub(super) factorized_bridge_opposite_triangle_dot_numerator_ray: RuleCell,
+    pub(super) factorized_opposite_edge_dot_numerator_endpoint: RuleCell,
+    pub(super) factorized_opposite_edge_repeated_dot_numerator_endpoint: RuleCell,
     pub(super) incident_two_dot_numerator_endpoint: RuleCell,
     pub(super) opposite_inactive_numerator_pair_endpoint: RuleCell,
     pub(super) opposite_inactive_numerator_pair_dot_endpoint: RuleCell,
@@ -110,6 +113,12 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         derive_factorized_face_numerator_endpoint()?;
     let (_context, factorized_two_dot_numerator_endpoint) =
         derive_factorized_two_dot_numerator_endpoint()?;
+    let (
+        _context,
+        factorized_bridge_opposite_triangle_dot_numerator_ray,
+        factorized_opposite_edge_dot_numerator_endpoint,
+        factorized_opposite_edge_repeated_dot_numerator_endpoint,
+    ) = derive_factorized_triangle_dot_numerator_cells()?;
     let (_context, incident_two_dot_numerator_endpoint) =
         derive_incident_two_dot_numerator_endpoint()?;
     let (
@@ -136,6 +145,9 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         factorized_bridge_dot_numerator_bulk,
         factorized_face_numerator_endpoint,
         factorized_two_dot_numerator_endpoint,
+        factorized_bridge_opposite_triangle_dot_numerator_ray,
+        factorized_opposite_edge_dot_numerator_endpoint,
+        factorized_opposite_edge_repeated_dot_numerator_endpoint,
         incident_two_dot_numerator_endpoint,
         opposite_inactive_numerator_pair_endpoint,
         opposite_inactive_numerator_pair_dot_endpoint,

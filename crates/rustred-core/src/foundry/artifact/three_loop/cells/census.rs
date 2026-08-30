@@ -43,11 +43,19 @@ const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 1, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 2, 1, 1];
+const FOUR_LINE_FACTORIZED_BRIDGE_OPPOSITE_TRIANGLE_DOT_NUMERATOR_RAY_PROBE: [i64; 6] =
+    [0, -1, 1, 1, 2, 1];
+const FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] =
+    [0, -1, 1, 2, 1, 1];
+const FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_REPEATED_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] =
+    [0, -1, 1, 3, 1, 1];
 const FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 2, -2];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
 const THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 0, 1, 0, 2, 1];
 const THREE_LINE_INCIDENT_PATH_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 1, -1, 2, 1];
+const THREE_LINE_FACTORIZED_PATH_MIDDLE_DOT_NUMERATOR_RAY_PROBE: [i64; 6] = [0, 0, 1, -1, 1, 2];
+const THREE_LINE_FACTORIZED_STAR_SPOKE_DOT_NUMERATOR_RAY_PROBE: [i64; 6] = [0, 0, 1, 1, -1, 2];
 const THREE_LINE_UNDOTTED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 1, -1, 1, 1];
 const THREE_LINE_UNDOTTED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 1, -2, 1, 1];
 const FACTORIZATION_SECTORS: [[i64; 6]; 3] =
@@ -81,12 +89,17 @@ enum K6CellKind {
     FourLineFactorizedBridgeDotNumeratorBulk,
     FourLineFactorizedFaceNumeratorEndpoint,
     FourLineFactorizedTwoDotNumeratorEndpoint,
+    FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+    FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+    FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
     FourLineIncidentTwoDotNumeratorEndpoint,
     FourLineOppositeInactiveNumeratorPairEndpoint,
     FourLineOppositeInactiveNumeratorPairDotEndpoint,
     FourLineDottedNegativeNumeratorBulk,
     ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineIncidentPathDotNumeratorEndpoint,
+    ThreeLineFactorizedPathMiddleDotNumeratorRay,
+    ThreeLineFactorizedStarSpokeDotNumeratorRay,
     ThreeLineDecoratedPathNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorBulk,
     ThreeLineUndottedPathNumeratorEndpoint,
@@ -141,6 +154,9 @@ impl K6ReachabilityCensus {
             factorized_bridge_dot_numerator_bulk,
             factorized_face_numerator_endpoint,
             factorized_two_dot_numerator_endpoint,
+            factorized_bridge_opposite_triangle_dot_numerator_ray,
+            factorized_opposite_edge_dot_numerator_endpoint,
+            factorized_opposite_edge_repeated_dot_numerator_endpoint,
             incident_two_dot_numerator_endpoint,
             opposite_inactive_numerator_pair_endpoint,
             opposite_inactive_numerator_pair_dot_endpoint,
@@ -151,6 +167,8 @@ impl K6ReachabilityCensus {
         let ThreeLineCellSet {
             bridge_descendant_dot_numerator_endpoint,
             incident_path_dot_numerator_endpoint,
+            factorized_path_middle_dot_numerator_ray,
+            factorized_star_spoke_dot_numerator_ray,
             decorated_path_numerator_endpoint,
             decorated_path_numerator_bulk,
             undotted_path_numerator_endpoint,
@@ -266,6 +284,18 @@ impl K6ReachabilityCensus {
                 cell: factorized_two_dot_numerator_endpoint,
             },
             OwnedCell {
+                kind: K6CellKind::FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+                cell: factorized_bridge_opposite_triangle_dot_numerator_ray,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+                cell: factorized_opposite_edge_dot_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
+                cell: factorized_opposite_edge_repeated_dot_numerator_endpoint,
+            },
+            OwnedCell {
                 kind: K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
                 cell: incident_two_dot_numerator_endpoint,
             },
@@ -288,6 +318,14 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint,
                 cell: incident_path_dot_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineFactorizedPathMiddleDotNumeratorRay,
+                cell: factorized_path_middle_dot_numerator_ray,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay,
+                cell: factorized_star_spoke_dot_numerator_ray,
             },
             OwnedCell {
                 kind: K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
@@ -457,7 +495,7 @@ fn first_active_slot(sector: &[i64; 6]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::foundry::search::{ReachabilityDisposition, ReachabilityTerminalKind};
 
@@ -465,7 +503,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 37,
+            max_rule_cells: 42,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -510,12 +548,17 @@ mod tests {
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
                 K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+                K6CellKind::FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+                K6CellKind::FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+                K6CellKind::FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
                 K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
                 K6CellKind::FourLineOppositeInactiveNumeratorPairEndpoint,
                 K6CellKind::FourLineOppositeInactiveNumeratorPairDotEndpoint,
                 K6CellKind::FourLineDottedNegativeNumeratorBulk,
                 K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint,
+                K6CellKind::ThreeLineFactorizedPathMiddleDotNumeratorRay,
+                K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
                 K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
@@ -573,6 +616,18 @@ mod tests {
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk, 1,),
                 (K6CellKind::FourLineFactorizedFaceNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint, 1,),
+                (
+                    K6CellKind::FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+                    1,
+                ),
+                (
+                    K6CellKind::FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+                    1,
+                ),
+                (
+                    K6CellKind::FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
+                    1,
+                ),
                 (K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineOppositeInactiveNumeratorPairEndpoint, 1,),
                 (
@@ -582,6 +637,8 @@ mod tests {
                 (K6CellKind::FourLineDottedNegativeNumeratorBulk, 1,),
                 (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint, 1,),
+                (K6CellKind::ThreeLineFactorizedPathMiddleDotNumeratorRay, 1,),
+                (K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
                 (K6CellKind::ThreeLineUndottedPathNumeratorEndpoint, 1),
@@ -601,10 +658,10 @@ mod tests {
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 115);
         assert_eq!(statistics.canonical_roots(), 44);
-        assert_eq!(statistics.discovered_nodes(), 86);
+        assert_eq!(statistics.discovered_nodes(), 88);
         assert_eq!(statistics.terminal_nodes(), 27);
-        assert_eq!(statistics.rule_applications(), 46);
-        assert_eq!(statistics.uncovered_nodes(), 13);
+        assert_eq!(statistics.rule_applications(), 51);
+        assert_eq!(statistics.uncovered_nodes(), 10);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -679,6 +736,18 @@ mod tests {
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
             ),
             (
+                FOUR_LINE_FACTORIZED_BRIDGE_OPPOSITE_TRIANGLE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+            ),
+            (
+                FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_REPEATED_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
+            ),
+            (
                 FOUR_LINE_INCIDENT_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
                 K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
             ),
@@ -701,6 +770,14 @@ mod tests {
             (
                 THREE_LINE_INCIDENT_PATH_DOT_NUMERATOR_ENDPOINT_PROBE,
                 K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint,
+            ),
+            (
+                THREE_LINE_FACTORIZED_PATH_MIDDLE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::ThreeLineFactorizedPathMiddleDotNumeratorRay,
+            ),
+            (
+                THREE_LINE_FACTORIZED_STAR_SPOKE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay,
             ),
             (
                 THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE,
@@ -1173,6 +1250,82 @@ mod tests {
             ));
         }
 
+        // Three factorized four-line owners share the same exact lower-sector
+        // boundary. Two generated positive-dot rays discharge its only
+        // nonterminal children directly into authenticated products.
+        let factorized_triangle_children = BTreeSet::from([
+            THREE_LINE_FACTORIZED_PATH_MIDDLE_DOT_NUMERATOR_RAY_PROBE.to_vec(),
+            THREE_LINE_FACTORIZED_STAR_SPOKE_DOT_NUMERATOR_RAY_PROBE.to_vec(),
+            vec![0, 0, 1, 0, 2, 1],
+            vec![0, 0, 1, 1, 1, 1],
+            vec![0, 0, 1, 1, 0, 2],
+            vec![0, 0, 1, 0, 1, 2],
+            vec![0, 0, 1, 1, 0, 1],
+            vec![0, 0, 1, 0, 1, 1],
+        ]);
+        for (powers, kind) in [
+            (
+                FOUR_LINE_FACTORIZED_BRIDGE_OPPOSITE_TRIANGLE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::FourLineFactorizedBridgeOppositeTriangleDotNumeratorRay,
+            ),
+            (
+                FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineFactorizedOppositeEdgeDotNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_REPEATED_DOT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FourLineFactorizedOppositeEdgeRepeatedDotNumeratorEndpoint,
+            ),
+        ] {
+            let ReachabilityDisposition::Rule(application) = disposition(&census, &first, powers)
+            else {
+                panic!("expected factorized triangle dot/numerator owner at {powers:?}")
+            };
+            assert_eq!(census.cell_kind(application.cell_ordinal()), kind);
+            assert_eq!(application.assignment(), FACTORIZATION_SECTORS[0]);
+            assert_eq!(
+                application
+                    .dependencies()
+                    .iter()
+                    .map(|dependency| dependency.canonical_child().powers().to_vec())
+                    .collect::<BTreeSet<_>>(),
+                factorized_triangle_children
+            );
+        }
+
+        for (powers, kind, assignment, owner) in [
+            (
+                THREE_LINE_FACTORIZED_PATH_MIDDLE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::ThreeLineFactorizedPathMiddleDotNumeratorRay,
+                [0, 0, 1, 0, 1, 1],
+                2,
+            ),
+            (
+                THREE_LINE_FACTORIZED_STAR_SPOKE_DOT_NUMERATOR_RAY_PROBE,
+                K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay,
+                [0, 0, 1, 1, 0, 1],
+                1,
+            ),
+        ] {
+            let ReachabilityDisposition::Rule(application) = disposition(&census, &first, powers)
+            else {
+                panic!("expected factorized three-line dot/numerator ray at {powers:?}")
+            };
+            assert_eq!(census.cell_kind(application.cell_ordinal()), kind);
+            assert_eq!(application.assignment(), assignment);
+            assert_eq!(application.dependencies().len(), 1);
+            assert_eq!(
+                application.dependencies()[0].canonical_child().powers(),
+                assignment
+            );
+            assert!(matches!(
+                disposition(&census, &first, assignment),
+                ReachabilityDisposition::Terminal(terminal)
+                    if terminal.kind() == ReachabilityTerminalKind::Factorization
+                        && terminal.owner_ordinal() == owner
+            ));
+        }
+
         // The first bridge-bulk obligation now has its own exact singleton
         // owner.  Both children were already reachable and owned, so this
         // cell removes one uncovered node without growing the frontier.
@@ -1308,10 +1461,7 @@ mod tests {
                 .map(|key| key.powers().to_vec())
                 .collect::<Vec<_>>(),
             [
-                [0, -1, 1, 1, 2, 1],
-                [0, -1, 1, 2, 1, 1],
                 [0, -1, 1, 2, 2, 1],
-                [0, -1, 1, 3, 1, 1],
                 [0, -2, 2, 2, 1, 1],
                 [0, 1, 1, 1, 1, 0],
                 [-1, 1, 1, 1, 1, -2],
