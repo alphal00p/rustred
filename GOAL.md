@@ -121,7 +121,13 @@ subject to the surrounding fixed-point obligations. Exact global
 canonicalization covers all four isolated-dot placements and both raw
 opposite-pair placements. A generic bounded same-sector search planner now
 constructs complete deterministic L1 translation diamonds with exact resource
-preflight. At the four-line corner, depths zero and one retain typed target
+preflight. A separate topology-neutral reachability planner now applies
+ordered rule cells exactly over finite concrete root graphs: terminals precede
+rules, guards and coefficients are specialized exactly, zero branches are
+dropped, raw descent is proved before optional symmetry routing, and the
+deterministic uncovered frontier carries typed work/storage counts. It is a
+discovery census, never an infinite-domain closure witness. At the four-line
+corner, depths zero and one retain typed target
 misses, while depth two contains 28 offsets and the complete 252-row translated
 ordinary-source span. Exact targeted RREF selects 16 rows and yields the
 adjacent-pair recurrence
@@ -134,10 +140,35 @@ J(0,1,1,2,2,0)=
 
 with nine retained exact guards, complete projection replay, strict descent,
 and exact `S4` routing of all four raw adjacent placements. The first RHS term
-is the already certified spanning-tree `K1 x K1 x K1` dependency. Deeper dot
-and numerator faces and the descendants of the dotted-corner cells remain
-open, and the fixture does not expose an installable artifact until the
-complete rule fixed point is closed.
+is the already certified spanning-tree `K1 x K1 x K1` dependency. The same
+complete diamond separately yields the first deeper endpoint required by the
+opposite-pair recurrence,
+
+\[
+J(0,1,1,1,3,0)=
+\frac{3}{8(d-4)}J(0,0,2,2,2,0)
++\frac{(d-7)(3d-8)(3d-10)}{128(d-4)}J(0,1,1,1,1,0).
+\]
+
+Its exact targeted RREF again selects 16 rows, retains nine guards and the
+complete 252-row projection replay, and descends only to the certified path
+factorization and the prospective scalar four-line terminal. A third target
+selection on a separately retained copy of that complete span exhausts the
+remaining unit-dot decoration orbit,
+
+\[
+J(0,1,2,2,2,0)=
+\frac{38-11d}{32(d-4)}J(0,0,2,2,2,0)
++\frac{3(d-3)(d-2)(3d-8)(3d-10)}{512(d-4)}J(0,1,1,1,1,0).
+\]
+
+This exact cell selects 17 RREF rows, retains nine guards and the complete
+252-row replay, and routes all four raw three-distinct-dot placements under
+`S4`. These results close two singleton endpoints, not repeated- or mixed-dot
+rays: `J(0,1,1,1,4,0)`, `J(0,1,1,2,3,0)`,
+`J(0,1,2,1,3,0)`, numerator faces, and the rest of the fixed point remain
+open. The fixture does not expose an installable artifact until the complete
+rule fixed point is closed.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

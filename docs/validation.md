@@ -72,9 +72,25 @@ corner is derived from the complete depth-two same-sector diamond: 28 offsets,
 252 projected ordinary rows, exact target RREF with 16 selected rows, nine
 retained guards, complete projection replay, strict descent, and exact routing
 of all four `S4` placements. Its factorized child is an already certified
-`K1 x K1 x K1` sector. This certifies that one exceptional cell only; dotted
-descendants, deeper dot/numerator faces, the complete fixed point, publication,
-and all five three-loop Vakint reductions remain open.
+`K1 x K1 x K1` sector. The opposite-pair cell's triple-dot child
+`[0,1,1,1,3,0]` is now a second depth-two target over a separately retained
+252-row projection: exact RREF again selects 16 rows and lowers it only to the
+certified path factorization and scalar four-line corner. Typed depth-zero and
+depth-one failures pin search minimality for both targets. The remaining
+three-distinct-dot representative `[0,1,2,2,2,0]` is independently projected
+from the same complete span; exact target RREF selects 17 rows, retains nine
+guards, descends to the same two children, and routes all four raw placements.
+Depths zero and one both retain typed target-absent witnesses. These are exact
+singleton certificates, not repeated- or mixed-dot rays; higher decorations,
+numerator faces, the complete fixed point, publication, and all five
+three-loop Vakint reductions remain open.
+
+The topology-neutral finite reachability planner is separately tested for
+deterministic concrete chains, caller-ordered rule selection, vanished-guard
+rejection, exact-zero RHS pruning, terminal precedence, root/child symmetry
+routing, sorted root deduplication, and exact resource boundaries. It reports
+only the graph actually visited; none of these bounded tests is promoted to an
+infinite-domain K6 closure claim.
 
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python

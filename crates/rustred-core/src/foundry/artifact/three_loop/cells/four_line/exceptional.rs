@@ -21,11 +21,22 @@ use super::{CANONICAL_DOT_TARGET_SHIFT, FOUR_LINE_SECTOR, ZERO_SOURCE_SHIFT};
 const BASE_CORNER: [i64; 6] = FOUR_LINE_SECTOR;
 const ISOLATED_DOT_SOURCE_ORDINALS: [usize; 2] = [0, 3];
 const OPPOSITE_PAIR_SOURCE_SHIFT: [i64; 6] = [0, 0, 1, 0, 0, 0];
-const ADJACENT_PAIR_SEARCH_DEPTH: usize = 2;
+const DOTTED_CORNER_SEARCH_DEPTH: usize = 2;
 pub(super) const ADJACENT_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 1, 1, 0];
 pub(super) const OPPOSITE_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 0, 1, 0];
+pub(super) const THREE_DISTINCT_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 1, 1, 0];
+pub(super) const TRIPLE_DOT_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 2, 0];
 
-/// Derive the three exact singleton cells currently owned on the scalar
+pub(super) struct ExceptionalFourLineCells {
+    pub(super) context: IndexedCoefficientContext,
+    pub(super) isolated: RuleCell,
+    pub(super) opposite: RuleCell,
+    pub(super) adjacent: RuleCell,
+    pub(super) triple: RuleCell,
+    pub(super) three_distinct: RuleCell,
+}
+
+/// Derive the five exact singleton cells currently owned on the scalar
 /// four-line corner.
 ///
 /// The first lowers the isolated canonical dot excluded by the ordinary
@@ -33,11 +44,14 @@ pub(super) const OPPOSITE_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 0, 1, 0];
 /// one complete nine-row translated ordinary-source layer. The third lowers
 /// the adjacent two-dot orbit from the complete depth-two same-sector search
 /// diamond: 28 translations and all nine ordinary rows at each translation.
-/// All three specialize the whole base corner so its order-eight setwise
-/// stabilizer can route equivalent edge decorations. Deeper dot and numerator
-/// faces remain explicit closure obligations.
-pub(super) fn derive_exceptional_four_line_cells()
--> Result<(IndexedCoefficientContext, RuleCell, RuleCell, RuleCell), ArtifactError> {
+/// The fourth lowers the one-line triple-dot descendant left by the opposite
+/// pair from the same complete search plan. The fifth lowers the remaining
+/// three-distinct-dot decoration orbit. All five specialize the whole base
+/// corner so its order-eight setwise stabilizer can route equivalent edge
+/// decorations. Deeper dot and numerator faces remain explicit closure
+/// obligations.
+pub(super) fn derive_exceptional_four_line_cells() -> Result<ExceptionalFourLineCells, ArtifactError>
+{
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
@@ -69,9 +83,9 @@ pub(super) fn derive_exceptional_four_line_cells()
         &OPPOSITE_DOT_PAIR_TARGET_SHIFT,
     )?;
 
-    let adjacent_search = SectorSearchDiamond::try_new(
+    let dotted_search = SectorSearchDiamond::try_new(
         IntegralKey::try_new(BASE_CORNER)?,
-        ADJACENT_PAIR_SEARCH_DEPTH,
+        DOTTED_CORNER_SEARCH_DEPTH,
         SectorSearchLimits::default(),
     )?;
     let adjacent_sources = project_complete_exact_corner_sources(
@@ -79,7 +93,7 @@ pub(super) fn derive_exceptional_four_line_cells()
         &completed,
         &canonicalizer,
         &zero_sectors,
-        adjacent_search.offsets().iter().cloned(),
+        dotted_search.offsets().iter().cloned(),
     )?;
     let adjacent = derive_exact_corner_cell(
         &generator,
@@ -87,14 +101,66 @@ pub(super) fn derive_exceptional_four_line_cells()
         &ADJACENT_DOT_PAIR_TARGET_SHIFT,
     )?;
 
+    let triple_sources = project_complete_exact_corner_sources(
+        &generator,
+        &completed,
+        &canonicalizer,
+        &zero_sectors,
+        dotted_search.offsets().iter().cloned(),
+    )?;
+    let triple = derive_exact_corner_cell(&generator, triple_sources, &TRIPLE_DOT_TARGET_SHIFT)?;
+
+    let three_distinct_sources = project_complete_exact_corner_sources(
+        &generator,
+        &completed,
+        &canonicalizer,
+        &zero_sectors,
+        dotted_search.offsets().iter().cloned(),
+    )?;
+    let three_distinct = derive_exact_corner_cell(
+        &generator,
+        three_distinct_sources,
+        &THREE_DISTINCT_DOT_TARGET_SHIFT,
+    )?;
+
     let context = generator.context().clone();
     drop(generator);
-    Ok((context, isolated, opposite, adjacent))
+    Ok(ExceptionalFourLineCells {
+        context,
+        isolated,
+        opposite,
+        adjacent,
+        triple,
+        three_distinct,
+    })
 }
 
 /// Re-run one bounded complete same-sector diamond for the adjacent pair.
 /// Depths below two retain concise typed witnesses for search minimality.
 pub(super) fn derive_adjacent_same_sector_candidate(
+    depth: usize,
+) -> Result<ParametricRule, ArtifactError> {
+    derive_same_sector_candidate(&ADJACENT_DOT_PAIR_TARGET_SHIFT, depth)
+}
+
+/// Re-run one bounded complete same-sector diamond for the triple dot. Depths
+/// below two retain concise typed witnesses for search minimality.
+pub(super) fn derive_triple_dot_same_sector_candidate(
+    depth: usize,
+) -> Result<ParametricRule, ArtifactError> {
+    derive_same_sector_candidate(&TRIPLE_DOT_TARGET_SHIFT, depth)
+}
+
+/// Re-run one bounded complete same-sector diamond for three distinct dots.
+/// Depths below two retain concise typed witnesses for search minimality.
+pub(super) fn derive_three_distinct_dot_same_sector_candidate(
+    depth: usize,
+) -> Result<ParametricRule, ArtifactError> {
+    derive_same_sector_candidate(&THREE_DISTINCT_DOT_TARGET_SHIFT, depth)
+}
+
+fn derive_same_sector_candidate(
+    target_shift: &[i64; 6],
     depth: usize,
 ) -> Result<ParametricRule, ArtifactError> {
     let family = canonical_family()?;
@@ -119,14 +185,22 @@ pub(super) fn derive_adjacent_same_sector_candidate(
         generator.context(),
         sources.relations(),
         &BASE_CORNER,
-        &ADJACENT_DOT_PAIR_TARGET_SHIFT,
+        target_shift,
         OrderingPolicy::default(),
         ParametricRuleLimits::default(),
     )?)
 }
 
 pub(super) const fn adjacent_pair_search_depth() -> usize {
-    ADJACENT_PAIR_SEARCH_DEPTH
+    DOTTED_CORNER_SEARCH_DEPTH
+}
+
+pub(super) const fn triple_dot_search_depth() -> usize {
+    DOTTED_CORNER_SEARCH_DEPTH
+}
+
+pub(super) const fn three_distinct_dot_search_depth() -> usize {
+    DOTTED_CORNER_SEARCH_DEPTH
 }
 
 pub(super) fn fixed_base_corner() -> [FixedIndexRestriction; 6] {

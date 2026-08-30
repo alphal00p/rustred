@@ -92,12 +92,24 @@ from the complete nine-row one-dot translated source layer, with exact RREF
 selecting five rows. A topology-neutral bounded same-sector search now grows
 complete L1 translation diamonds deterministically; its first successful
 depth-two cone contains 28 translations and all 252 translated ordinary rows.
+An independent finite reachability planner applies caller-ordered rule cells
+with exact terminal/guard/coefficient semantics, strict descent, symmetry
+routing, and bounded deterministic uncovered-frontier reporting. It is a
+discovery aid, not a substitute for the symbolic proof required to publish a
+closing artifact.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
 while complete provenance and projection replay retain the full search span.
 The resulting fixed-corner cells route all three dotted orbits under the exact
-`S4` action. Their descendants, deeper dot/numerator faces, and the rest of the
-fixed point remain open.
+`S4` action. The same complete diamond also derives the opposite-pair rule's
+single-line triple-dot descendant, again from 16 selected rows with exact
+guards and full 252-row replay; both children are the certified path
+factorization and the scalar four-line corner. A third target over a separately
+retained copy of the complete span lowers the remaining three-distinct-dot
+orbit onto the same two children using 17 selected rows and nine exact guards;
+`S4` routes all four raw placements. These exact singleton endpoints do not
+form repeated- or mixed-dot rays: the fourth power, mixed higher decorations,
+numerator faces, and the rest of the fixed point remain open.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.

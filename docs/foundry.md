@@ -88,18 +88,35 @@ canonicalization routes its two raw placements. Its descendants remain
 obligations of the surrounding fixed point. `foundry::search` now supplies a
 generic, bounded, immutable same-sector L1 diamond around any concrete
 `IntegralKey`. It preflights retained offsets and coordinate storage before
-iterative lexicographic enumeration. For the four-line corner, exact typed
-misses at depths zero and one are followed by the first success at depth two:
+iterative lexicographic enumeration. Its independent `ReachabilityPlanner`
+binds a caller-ordered set of same-family rule cells once, then follows exact
+nonzero dependencies from finite concrete roots. It applies terminal
+precedence, guard fallthrough, coefficient-zero pruning, raw strict descent,
+and optional canonical symmetry routing exactly, returning a deterministic
+typed census of terminals, applications, and uncovered keys under explicit
+work and retained-coordinate limits. This finite report exposes the next
+obligations; it is not evidence that unvisited lattice domains close. For the
+four-line corner, exact typed misses at depths zero and one are followed by the
+first success at depth two:
 28 translations and all nine ordinary rows per translation are projected as a
 complete 252-row batch. Targeted RREF uses 16 rows to derive a guarded
 two-term adjacent-pair recurrence, while the cell retains the complete source
 span and exact projection replay. Exact canonicalization routes all four raw
 adjacent placements; its factorized RHS child is already certified as the
-second spanning-tree `K1 x K1 x K1` sector. Deeper dot and numerator faces and
-the cells' descendants remain open. The fixture intentionally exposes no
-closed artifact while its complete rule fixed point is incomplete. The
-[project goal](../GOAL.md) is the authority whenever this design and the
-implementation frontier differ.
+second spanning-tree `K1 x K1 x K1` sector. A second target selection from the
+same complete diamond lowers `J(0,1,1,1,3,0)`, the triple-dot descendant of
+the opposite-pair cell, directly onto that certified factorization and the
+scalar four-line corner. It also selects 16 rows, retains nine exact guards,
+and owns a separate complete projection replay. This singleton does not cover
+`J(0,1,1,1,4,0)` or a parametric repeated-dot ray. A third complete projection
+of the same search span derives the unique three-distinct-dot representative
+`J(0,1,2,2,2,0)` from 17 selected rows. Its two exact children are again the
+certified path factorization and scalar corner, and exact canonicalization
+routes all four raw placements. Mixed repeated-dot and numerator faces and the
+remaining fixed point stay open. The fixture intentionally exposes no closed
+artifact while its complete rule fixed point is incomplete. The [project
+goal](../GOAL.md) is the authority whenever this design and the implementation
+frontier differ.
 
 The foundry will be an offline service. Ordinary Vakint evaluation will load
 precomputed closed artifacts; it will not rerun the search. The implementation
