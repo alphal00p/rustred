@@ -188,7 +188,12 @@ agreement with the independently derived anchor. Targeted discovery performs
 physical-pivot-only deterministic back-substitution while retaining identity
 columns as free source weights. Those general rule-discovery
 paths are not yet an exceptional-domain engine or complete-source/closure
-search. The targeted parametric API can additionally retain a maximal parent-
+search. `foundry::search` supplies the smaller topology-neutral planning
+primitive now required by that engine: a bounded exact-sector L1 diamond around
+one concrete integral, with exact count/storage preflight and deterministic
+lexicographic offsets. It deliberately plans translations only; translation,
+projection, elimination, applicability refinement, and closure remain with
+their existing owners. The targeted parametric API can additionally retain a maximal parent-
 sector domain with compact first-pinched witnesses and exact fixed-target-
 sector product partitions. `foundry::dependency` owns aggregate work admission
 and a stable process-local cursor over O(1) proper-subsector descriptors; exact
@@ -304,7 +309,7 @@ The live core now contains two cohesive Stage 1 domains:
 
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|
-| `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary. A test-only `K = 6` pressure fixture owns its exact family, nine sources, `S4` sector orbits, revision-stamped internally checked Vakint class snapshots, certified `K3 x K1` plus both inequivalent `K1 x K1 x K1` factorization sectors, a guarded top-sector recurrence, both positive dotted-edge cells on the canonical five-line residual face, guarded canonical-dot/mixed-numerator slices on the irreducible four-line face, and exact fixed-corner cells for the isolated-dot and opposite two-dot orbits—the latter projected from a complete nine-row translated layer whose RREF selects five rows—all with replay and strict descent but without claiming closure. | The adjacent two-dot orbit and deeper dot/numerator faces, live Vakint matcher comparison, and the remainder of the `K = 6` rule fixed point, installer, durable codec, and complete five-class closure proof |
+| `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary. A test-only `K = 6` pressure fixture owns its exact family, nine sources, `S4` sector orbits, revision-stamped internally checked Vakint class snapshots, certified `K3 x K1` plus both inequivalent `K1 x K1 x K1` factorization sectors, a guarded top-sector recurrence, both positive dotted-edge cells on the canonical five-line residual face, guarded canonical-dot/mixed-numerator slices on the irreducible four-line face, and exact fixed-corner cells for all three dotted orbits. The adjacent cell comes from a complete 28-offset/252-row same-sector diamond, retains full projection replay, and reduces to a certified spanning-tree child plus the scalar corner. All cells have exact provenance, guards, and strict descent without claiming closure. | Deeper dot/numerator faces, dotted-cell descendants, live Vakint matcher comparison, and the remainder of the `K = 6` rule fixed point, installer, durable codec, and complete five-class closure proof |
 | `reduction` | Topology-independent deterministic guarded rule selection/application, canonical symmetry routing, lower-artifact factorization, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | The additional generic features demanded by `K = 6`; Vakint comparison through two loops is complete |
 
 These are real owners rather than empty shells. Both closed artifacts cross a

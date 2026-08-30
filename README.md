@@ -89,11 +89,16 @@ numerator/dot cell, including its isolated mixed corner. Exact fixed-corner
 projections additionally lower the isolated pure-dot orbit to the scalar
 corner and supply a strict-descent recurrence for the opposite two-dot orbit
 from the complete nine-row one-dot translated source layer, with exact RREF
-selecting five rows. The latter's descendants remain part of the fixed-point
-obligations. The inequivalent adjacent two-dot orbit remains explicitly
-uncovered after exact tests of the complete untranslated span and its natural
-one-dot translation. Deeper dot/numerator faces and the rest of the fixed point
-remain open.
+selecting five rows. A topology-neutral bounded same-sector search now grows
+complete L1 translation diamonds deterministically; its first successful
+depth-two cone contains 28 translations and all 252 translated ordinary rows.
+Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
+strictly descending recurrence for the inequivalent adjacent two-dot orbit,
+while complete provenance and projection replay retain the full search span.
+The resulting fixed-corner cells route all three dotted orbits under the exact
+`S4` action. Their descendants, deeper dot/numerator faces, and the rest of the
+fixed point remain open.
+
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
 

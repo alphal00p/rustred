@@ -4,6 +4,7 @@ use crate::algebra::{CoefficientContextError, IndexedAlgebraError};
 use crate::family::{IntegralFamilyError, IntegralKeyError};
 use crate::foundry::cell::RuleCellError;
 use crate::foundry::parametric::ParametricRuleError;
+use crate::foundry::search::SectorSearchError;
 use crate::identity::{ParametricIbpError, ParametricRelationError, TranslatedSourceError};
 use crate::sector;
 use crate::sector::symmetry::{CanonicalizationError, permutation};
@@ -15,6 +16,7 @@ pub enum ArtifactError {
     Family(IntegralFamilyError),
     Identity(ParametricIbpError),
     ParametricRule(ParametricRuleError),
+    SectorSearch(SectorSearchError),
     RuleCell(RuleCellError),
     Relation(ParametricRelationError),
     TranslatedSource(TranslatedSourceError),
@@ -47,6 +49,7 @@ impl fmt::Display for ArtifactError {
             Self::Family(error) => error.fmt(formatter),
             Self::Identity(error) => error.fmt(formatter),
             Self::ParametricRule(error) => error.fmt(formatter),
+            Self::SectorSearch(error) => error.fmt(formatter),
             Self::RuleCell(error) => error.fmt(formatter),
             Self::Relation(error) => error.fmt(formatter),
             Self::TranslatedSource(error) => error.fmt(formatter),
@@ -119,6 +122,7 @@ artifact_from!(CoefficientContextError, CoefficientContext);
 artifact_from!(IntegralFamilyError, Family);
 artifact_from!(ParametricIbpError, Identity);
 artifact_from!(ParametricRuleError, ParametricRule);
+artifact_from!(SectorSearchError, SectorSearch);
 artifact_from!(RuleCellError, RuleCell);
 artifact_from!(ParametricRelationError, Relation);
 artifact_from!(TranslatedSourceError, TranslatedSource);

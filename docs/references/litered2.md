@@ -142,6 +142,16 @@ complexity-ordered elimination, generalizes a useful pivot, and subtracts its
 applicable domain from an exact residual case queue. It is not simply one
 large elimination around the sector corner.
 
+The audited `preparepoints` path keeps every translated source anchor in the
+sector being solved. At a sector corner this turns the nominal signed L1 ball
+into a one-sided cone: active coordinates may move upward and inactive
+coordinates downward, while a noncorner anchor can move in either direction
+only until the same-sector boundary. A rule that activates an inactive RHS
+line is rejected rather than repaired with a higher-sector dependency.
+`IBPReduce` later composes lower-sector dependencies. RustRed's bounded
+`foundry::search::SectorSearchDiamond` mirrors this source-domain invariant;
+an unrestricted signed ball is useful only as a negative diagnostic.
+
 For an affine case `F(t) = b + A t` and local offset `delta`, correct
 recentering is
 

@@ -1,9 +1,11 @@
 use crate::algebra::IndexedCoefficientContext;
+use crate::family::IntegralKey;
 use crate::foundry::artifact::ArtifactError;
 use crate::foundry::cell::{FixedIndexRestriction, RuleCell, RuleCellLimits, SourceViewBatch};
 use crate::foundry::parametric::{
     ParametricRule, ParametricRuleLimits, derive_sector_monotone_rule_for_target,
 };
+use crate::foundry::search::{SectorSearchDiamond, SectorSearchLimits};
 use crate::identity::{
     CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
     TranslatedSourceLimits,
@@ -19,26 +21,29 @@ use super::{CANONICAL_DOT_TARGET_SHIFT, FOUR_LINE_SECTOR, ZERO_SOURCE_SHIFT};
 const BASE_CORNER: [i64; 6] = FOUR_LINE_SECTOR;
 const ISOLATED_DOT_SOURCE_ORDINALS: [usize; 2] = [0, 3];
 const OPPOSITE_PAIR_SOURCE_SHIFT: [i64; 6] = [0, 0, 1, 0, 0, 0];
+const ADJACENT_PAIR_SEARCH_DEPTH: usize = 2;
 pub(super) const ADJACENT_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 1, 1, 0];
 pub(super) const OPPOSITE_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 0, 1, 0];
 
-/// Derive the two exact singleton cells currently owned on the scalar
+/// Derive the three exact singleton cells currently owned on the scalar
 /// four-line corner.
 ///
 /// The first lowers the isolated canonical dot excluded by the ordinary
 /// positive-box recurrence. The second lowers the opposite two-dot orbit from
-/// the complete nine-row translated ordinary-source layer, whose exact RREF
-/// selects five rows. Both specialize the whole base corner so its order-eight
-/// setwise stabilizer can route equivalent edge decorations. The adjacent
-/// two-dot orbit and every numerator face remain explicit closure obligations.
+/// one complete nine-row translated ordinary-source layer. The third lowers
+/// the adjacent two-dot orbit from the complete depth-two same-sector search
+/// diamond: 28 translations and all nine ordinary rows at each translation.
+/// All three specialize the whole base corner so its order-eight setwise
+/// stabilizer can route equivalent edge decorations. Deeper dot and numerator
+/// faces remain explicit closure obligations.
 pub(super) fn derive_exceptional_four_line_cells()
--> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
+-> Result<(IndexedCoefficientContext, RuleCell, RuleCell, RuleCell), ArtifactError> {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
-    let (completed, ordinary_source_count) = complete_ordinary_sources(&generator)?;
+    let (completed, _ordinary_source_count) = complete_ordinary_sources(&generator)?;
 
     let isolated_sources = project_exact_corner_sources(
         &generator,
@@ -51,14 +56,12 @@ pub(super) fn derive_exceptional_four_line_cells()
     let isolated =
         derive_exact_corner_cell(&generator, isolated_sources, &CANONICAL_DOT_TARGET_SHIFT)?;
 
-    let opposite_source_ordinals = (0..ordinary_source_count).collect::<Vec<_>>();
-    let opposite_sources = project_exact_corner_sources(
+    let opposite_sources = project_complete_exact_corner_sources(
         &generator,
         &completed,
-        &opposite_source_ordinals,
         &canonicalizer,
         &zero_sectors,
-        OPPOSITE_PAIR_SOURCE_SHIFT,
+        [IntegralShift::try_new(OPPOSITE_PAIR_SOURCE_SHIFT)?],
     )?;
     let opposite = derive_exact_corner_cell(
         &generator,
@@ -66,31 +69,51 @@ pub(super) fn derive_exceptional_four_line_cells()
         &OPPOSITE_DOT_PAIR_TARGET_SHIFT,
     )?;
 
+    let adjacent_search = SectorSearchDiamond::try_new(
+        IntegralKey::try_new(BASE_CORNER)?,
+        ADJACENT_PAIR_SEARCH_DEPTH,
+        SectorSearchLimits::default(),
+    )?;
+    let adjacent_sources = project_complete_exact_corner_sources(
+        &generator,
+        &completed,
+        &canonicalizer,
+        &zero_sectors,
+        adjacent_search.offsets().iter().cloned(),
+    )?;
+    let adjacent = derive_exact_corner_cell(
+        &generator,
+        adjacent_sources,
+        &ADJACENT_DOT_PAIR_TARGET_SHIFT,
+    )?;
+
     let context = generator.context().clone();
     drop(generator);
-    Ok((context, isolated, opposite))
+    Ok((context, isolated, opposite, adjacent))
 }
 
-/// Re-run the bounded full-span adjacent-pair candidate used to retain a
-/// concise typed negative witness. This does not authenticate an exhaustive
-/// translated-source search or turn the rejected orbit into a terminal.
-pub(super) fn derive_adjacent_full_span_candidate(
-    translation: [i64; 6],
+/// Re-run one bounded complete same-sector diamond for the adjacent pair.
+/// Depths below two retain concise typed witnesses for search minimality.
+pub(super) fn derive_adjacent_same_sector_candidate(
+    depth: usize,
 ) -> Result<ParametricRule, ArtifactError> {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
-    let (completed, source_count) = complete_ordinary_sources(&generator)?;
-    let ordinals = (0..source_count).collect::<Vec<_>>();
-    let sources = project_exact_corner_sources(
+    let (completed, _source_count) = complete_ordinary_sources(&generator)?;
+    let search = SectorSearchDiamond::try_new(
+        IntegralKey::try_new(BASE_CORNER)?,
+        depth,
+        SectorSearchLimits::default(),
+    )?;
+    let sources = project_complete_exact_corner_sources(
         &generator,
         &completed,
-        &ordinals,
         &canonicalizer,
         &zero_sectors,
-        translation,
+        search.offsets().iter().cloned(),
     )?;
     Ok(derive_sector_monotone_rule_for_target(
         generator.context(),
@@ -100,6 +123,10 @@ pub(super) fn derive_adjacent_full_span_candidate(
         OrderingPolicy::default(),
         ParametricRuleLimits::default(),
     )?)
+}
+
+pub(super) const fn adjacent_pair_search_depth() -> usize {
+    ADJACENT_PAIR_SEARCH_DEPTH
 }
 
 pub(super) fn fixed_base_corner() -> [FixedIndexRestriction; 6] {
@@ -157,6 +184,29 @@ fn project_exact_corner_sources(
     Ok(SourceViewBatch::try_project_residual(
         translated,
         ordinals,
+        generator.context(),
+        singleton_domain()?,
+        fixed_base_corner(),
+        canonicalizer,
+        zero_sectors,
+        RuleCellLimits::default(),
+    )?)
+}
+
+fn project_complete_exact_corner_sources(
+    generator: &ParametricIbpGenerator<'_>,
+    completed: &CompletedIbpSourceRows,
+    canonicalizer: &crate::sector::symmetry::Canonicalizer,
+    zero_sectors: &[Mask],
+    translations: impl IntoIterator<Item = IntegralShift>,
+) -> Result<SourceViewBatch, ArtifactError> {
+    let translated = generator.translate_completed_source_rows(
+        completed,
+        translations,
+        TranslatedSourceLimits::default(),
+    )?;
+    Ok(SourceViewBatch::try_project_complete_residual(
+        translated,
         generator.context(),
         singleton_domain()?,
         fixed_base_corner(),

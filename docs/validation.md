@@ -66,6 +66,16 @@ denominator blocks and unit Jacobian. The explicit typed terminals are the sunse
 integer cube `[-3,4]^3`, check exact interior, boundary, numerator, symmetry,
 memoization, and mass-restoration goldens, and reject foreign terminals.
 
+The test-only `K = 6` fixture has partial evidence through levels 2--4, not a
+family-level closure pass. In particular, the adjacent two-dot four-line
+corner is derived from the complete depth-two same-sector diamond: 28 offsets,
+252 projected ordinary rows, exact target RREF with 16 selected rows, nine
+retained guards, complete projection replay, strict descent, and exact routing
+of all four `S4` placements. Its factorized child is an already certified
+`K1 x K1 x K1` sector. This certifies that one exceptional cell only; dotted
+descendants, deeper dot/numerator faces, the complete fixed point, publication,
+and all five three-loop Vakint reductions remain open.
+
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python
 package. Untrusted loading authenticates and replays the artifact once; the

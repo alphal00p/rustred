@@ -13,6 +13,35 @@ use super::{
 };
 
 impl SourceViewBatch {
+    /// Project every translated source in one complete admitted batch.
+    ///
+    /// Unlike the ordinal-selection entry point, this admits every row already
+    /// owned by `translated` exactly once and in batch order, without retaining
+    /// a temporary ordinal vector. The caller still owns completeness of the
+    /// upstream translation plan. The resulting evidence is otherwise
+    /// identical to [`Self::try_project_residual`].
+    pub fn try_project_complete_residual(
+        translated: TranslatedSourceBatch,
+        context: &IndexedCoefficientContext,
+        domain: SectorInteriorDomain,
+        fixed: impl IntoIterator<Item = FixedIndexRestriction>,
+        canonicalizer: &Canonicalizer,
+        zero_sectors: &[Mask],
+        limits: RuleCellLimits,
+    ) -> Result<Self, RuleCellError> {
+        let source_count = translated.len();
+        Self::try_project_residual_selection(
+            translated,
+            SourceSelection::Complete(source_count),
+            context,
+            domain,
+            fixed,
+            canonicalizer,
+            zero_sectors,
+            limits,
+        )
+    }
+
     /// Restrict translated sources to one residual face and replay exact
     /// immutable feedback before parametric elimination.
     ///
@@ -33,10 +62,32 @@ impl SourceViewBatch {
         zero_sectors: &[Mask],
         limits: RuleCellLimits,
     ) -> Result<Self, RuleCellError> {
-        if ordinals.is_empty() {
+        Self::try_project_residual_selection(
+            translated,
+            SourceSelection::Ordinals(ordinals),
+            context,
+            domain,
+            fixed,
+            canonicalizer,
+            zero_sectors,
+            limits,
+        )
+    }
+
+    fn try_project_residual_selection(
+        translated: TranslatedSourceBatch,
+        selection: SourceSelection<'_>,
+        context: &IndexedCoefficientContext,
+        domain: SectorInteriorDomain,
+        fixed: impl IntoIterator<Item = FixedIndexRestriction>,
+        canonicalizer: &Canonicalizer,
+        zero_sectors: &[Mask],
+        limits: RuleCellLimits,
+    ) -> Result<Self, RuleCellError> {
+        if selection.is_empty() {
             return Err(RuleCellError::EmptySourceSelection);
         }
-        check_limit("source views", ordinals.len(), limits.max_source_views)?;
+        check_limit("source views", selection.len(), limits.max_source_views)?;
         let arity = context.index_count();
         if domain.arity() != arity {
             return Err(RuleCellError::ProjectionDomainArity {
@@ -77,7 +128,7 @@ impl SourceViewBatch {
             return Err(RuleCellError::ForeignContext);
         }
         let available = sources.len();
-        let selected_term_count = ordinals.iter().try_fold(0usize, |count, &ordinal| {
+        let selected_term_count = selection.try_fold(0usize, |count, ordinal| {
             let source = sources
                 .get(ordinal)
                 .ok_or(RuleCellError::SourceOrdinalOutOfRange { ordinal, available })?;
@@ -93,13 +144,14 @@ impl SourceViewBatch {
             limits.max_projected_source_terms,
         )?;
 
-        let mut slots = sources.into_iter().map(Some).collect::<Vec<_>>();
-        let mut relations = try_vec(ordinals.len(), "projected source relations")?;
-        let mut original_relations = try_vec(ordinals.len(), "original projected sources")?;
-        let mut provenance = try_vec(ordinals.len(), "projected source provenance")?;
-        let mut term_projections = try_vec(ordinals.len(), "source term projections")?;
+        let mut slots = try_vec(available, "projected source slots")?;
+        slots.extend(sources.into_iter().map(Some));
+        let mut relations = try_vec(selection.len(), "projected source relations")?;
+        let mut original_relations = try_vec(selection.len(), "original projected sources")?;
+        let mut provenance = try_vec(selection.len(), "projected source provenance")?;
+        let mut term_projections = try_vec(selection.len(), "source term projections")?;
 
-        for &ordinal in ordinals {
+        for ordinal in selection.iter() {
             let slot = slots
                 .get_mut(ordinal)
                 .ok_or(RuleCellError::SourceOrdinalOutOfRange { ordinal, available })?;
@@ -355,6 +407,44 @@ impl SourceViewBatch {
             }
         }
         Ok(true)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SourceSelection<'a> {
+    Ordinals(&'a [usize]),
+    Complete(usize),
+}
+
+impl SourceSelection<'_> {
+    fn len(self) -> usize {
+        match self {
+            Self::Ordinals(ordinals) => ordinals.len(),
+            Self::Complete(count) => count,
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    fn iter(self) -> impl Iterator<Item = usize> {
+        (0..self.len()).map(move |position| match self {
+            Self::Ordinals(ordinals) => ordinals[position],
+            Self::Complete(_) => position,
+        })
+    }
+
+    fn try_fold<T, E>(
+        self,
+        initial: T,
+        mut operation: impl FnMut(T, usize) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let mut accumulator = initial;
+        for ordinal in self.iter() {
+            accumulator = operation(accumulator, ordinal)?;
+        }
+        Ok(accumulator)
     }
 }
 

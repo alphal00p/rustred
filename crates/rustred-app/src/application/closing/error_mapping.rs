@@ -1,6 +1,7 @@
 use rustred::algebra::{ExactAlgebraError, IndexedAlgebraError};
 use rustred::family::IntegralKeyError;
 use rustred::foundry::artifact::{ArtifactError, ArtifactPersistenceError};
+use rustred::foundry::search::SectorSearchError;
 use rustred::reduction::ReductionError;
 use rustred::sector;
 
@@ -79,6 +80,7 @@ fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
             AppErrorKind::Limit
         }
         ArtifactError::ParametricRule(error) => parametric_rule_error_kind(error),
+        ArtifactError::SectorSearch(error) => sector_search_error_kind(error),
         ArtifactError::Relation(error) if parametric_relation_error_is_limit(error) => {
             AppErrorKind::Limit
         }
@@ -114,6 +116,23 @@ fn artifact_validation_error_kind(error: &ArtifactError) -> AppErrorKind {
         | ArtifactError::InvalidDescentWitness { .. }
         | ArtifactError::UnprovedGuardApplicability { .. }
         | ArtifactError::InvalidReplayEvidence { .. } => AppErrorKind::Input,
+    }
+}
+
+fn sector_search_error_kind(error: &SectorSearchError) -> AppErrorKind {
+    match error {
+        SectorSearchError::ResourceCountOverflow { .. }
+        | SectorSearchError::ResourceLimit { .. }
+        | SectorSearchError::AllocationFailure { .. }
+        | SectorSearchError::IntegralShift(
+            rustred::identity::TranslatedSourceError::ResourceCountOverflow { .. }
+            | rustred::identity::TranslatedSourceError::ResourceLimit { .. }
+            | rustred::identity::TranslatedSourceError::AllocationFailure { .. },
+        ) => AppErrorKind::Limit,
+        SectorSearchError::DepthNotRepresentable { .. } => AppErrorKind::Input,
+        SectorSearchError::IntegralShift(_) | SectorSearchError::Invariant { .. } => {
+            AppErrorKind::InternalInvariant
+        }
     }
 }
 
@@ -475,6 +494,30 @@ mod tests {
         for error in resource_errors {
             assert_eq!(map_artifact_load_error(error).kind(), AppErrorKind::Limit);
         }
+    }
+
+    #[test]
+    fn sector_search_limits_and_invariants_keep_distinct_categories() {
+        assert_eq!(
+            sector_search_error_kind(&SectorSearchError::ResourceLimit {
+                resource: "sector-search depth",
+                requested: 2,
+                limit: 1,
+            }),
+            AppErrorKind::Limit
+        );
+        assert_eq!(
+            sector_search_error_kind(&SectorSearchError::DepthNotRepresentable {
+                depth: usize::MAX,
+            }),
+            AppErrorKind::Input
+        );
+        assert_eq!(
+            sector_search_error_kind(&SectorSearchError::Invariant {
+                detail: "test invariant",
+            }),
+            AppErrorKind::InternalInvariant
+        );
     }
 
     #[test]

@@ -7,6 +7,8 @@
 //! serial-RREF path. The parametric target path can also prove a recurrence on
 //! a sector-monotone parent box, retaining every pinch cylinder as an explicit
 //! unresolved proper-subsector dependency.
+//! [`search`] plans complete, bounded same-sector L1 translation diamonds
+//! around concrete integral anchors; it owns no topology or elimination logic.
 //! [`artifact`] generates and seals the canonical unit-mass `K = 1` tadpole
 //! and `K = 3` sunset partitions, and [`crate::reduction`] applies either
 //! sealed owner through a topology-independent runtime. Three-loop `K = 6`
@@ -17,5 +19,6 @@ pub mod artifact;
 pub mod cell;
 pub mod dependency;
 pub mod parametric;
+pub mod search;
 
 mod target_rref;

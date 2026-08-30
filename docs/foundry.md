@@ -85,14 +85,19 @@ routes all four raw dot placements. A one-dot translated projection supplies
 a strict-descent recurrence for the opposite two-dot orbit from the complete
 nine-row ordinary-source layer; exact RREF selects five rows and exact
 canonicalization routes its two raw placements. Its descendants remain
-obligations of the surrounding fixed point.
-The inequivalent four-placement adjacent-pair orbit remains an explicit typed
-residual after the complete untranslated span reports the target absent and
-the natural translated span reports that it is not a pivot. These bounded
-negative results are not an exhaustive translated-source search or a terminal
-classification. Deeper dot and numerator faces remain open. The fixture
-intentionally exposes no closed artifact while its complete rule fixed point
-is incomplete. The
+obligations of the surrounding fixed point. `foundry::search` now supplies a
+generic, bounded, immutable same-sector L1 diamond around any concrete
+`IntegralKey`. It preflights retained offsets and coordinate storage before
+iterative lexicographic enumeration. For the four-line corner, exact typed
+misses at depths zero and one are followed by the first success at depth two:
+28 translations and all nine ordinary rows per translation are projected as a
+complete 252-row batch. Targeted RREF uses 16 rows to derive a guarded
+two-term adjacent-pair recurrence, while the cell retains the complete source
+span and exact projection replay. Exact canonicalization routes all four raw
+adjacent placements; its factorized RHS child is already certified as the
+second spanning-tree `K1 x K1 x K1` sector. Deeper dot and numerator faces and
+the cells' descendants remain open. The fixture intentionally exposes no
+closed artifact while its complete rule fixed point is incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 

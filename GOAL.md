@@ -119,13 +119,25 @@ recurrence for the opposite two-dot orbit; exact RREF selects five rows and
 produces three strictly descending right-hand-side terms. Those terms remain
 subject to the surrounding fixed-point obligations. Exact global
 canonicalization covers all four isolated-dot placements and both raw
-opposite-pair placements. The inequivalent
-adjacent two-dot orbit remains a typed uncovered obligation: neither the
-untranslated complete source span nor its natural one-dot translation yields
-the requested rule—the target is absent from the former and present without
-being a pivot in the latter. Deeper dot and numerator faces remain open, and the
-fixture does not expose an installable artifact until the complete rule fixed
-point is closed.
+opposite-pair placements. A generic bounded same-sector search planner now
+constructs complete deterministic L1 translation diamonds with exact resource
+preflight. At the four-line corner, depths zero and one retain typed target
+misses, while depth two contains 28 offsets and the complete 252-row translated
+ordinary-source span. Exact targeted RREF selects 16 rows and yields the
+adjacent-pair recurrence
+
+\[
+J(0,1,1,2,2,0)=
+-\frac{J(0,0,2,2,2,0)}{4(d-4)}
++\frac{(d-3)(3d-8)(3d-10)}{64(d-4)}J(0,1,1,1,1,0),
+\]
+
+with nine retained exact guards, complete projection replay, strict descent,
+and exact `S4` routing of all four raw adjacent placements. The first RHS term
+is the already certified spanning-tree `K1 x K1 x K1` dependency. Deeper dot
+and numerator faces and the descendants of the dotted-corner cells remain
+open, and the fixture does not expose an installable artifact until the
+complete rule fixed point is closed.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish
