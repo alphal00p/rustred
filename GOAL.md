@@ -274,6 +274,18 @@ route to the installed adjacent-pair and triple-dot cells, factorization owner
 2, and the unresolved scalar four-line corner, so the finite frontier shrinks
 without acquiring a new node.
 
+The same semantic numerator module derives exact endpoints for the opposite
+inactive-numerator pair `J(-1,1,1,1,1,-1)` and its one-dot child
+`J(-1,1,1,1,2,-1)`. The first independently reprojects four selected rows
+from a complete 63-row depth-one search and retains the single effective
+`3d-4` guard; the second reprojects two selected untranslated rows and is
+guard-free. Both expose `J(0,0,1,-1,2,1)`. A separate guard-free depth-zero
+three-line endpoint selects ordinary rows 0 and 3 for that shared child and
+routes only to the installed undotted-path cell and factorization owner 2.
+Exact `S4` partitions keep all three singleton domains disjoint from the
+remaining numerator placements, and the coordinated cluster adds no uncovered
+descendant.
+
 The irreducible scalar four-line face now also has a guard-free bulk owner for
 the complete machine-wide ray `J(0,1,1,1,2,N)`, `N<=-2`. Its depth-zero
 search starts from all nine ordinary rows and independently reprojects selected
@@ -287,9 +299,9 @@ neighbors.
 
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 85 nodes: all 34 presently derived cell owners are
-exercised in 43 applications, 27 nodes terminate through independently checked
-zero or factorization proofs, and 15 remain explicitly uncovered. The census
+roots and discover 86 nodes: all 37 presently derived cell owners are
+exercised in 46 applications, 27 nodes terminate through independently checked
+zero or factorization proofs, and 13 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

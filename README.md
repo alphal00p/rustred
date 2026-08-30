@@ -135,7 +135,15 @@ reprojection removes the complete elimination's spurious `6-3d` guard. Its
 four children route through the existing adjacent-pair and triple-dot cells,
 factorization owner 2, and the still-open scalar corner. The other two
 inequivalent two-dot/inactive-numerator placement classes remain explicitly
-unowned. On the irreducible scalar four-line face, a
+unowned. Two further endpoints own the undotted and one-dot members of the
+opposite-inactive-numerator-pair class, respectively
+`J(-1,1,1,1,1,-1)` and `J(-1,1,1,1,2,-1)`. The undotted rule selects four
+rows from a complete 63-row depth-one span and retains only the effective
+`3d-4` guard; the dotted rule selects two of the nine untranslated rows and is
+guard-free. Both share `J(0,0,1,-1,2,1)`, whose separate guard-free depth-zero
+endpoint selects rows 0 and 3 and closes through the installed undotted-path
+cell and factorization owner 2. Exact orbit tests keep all three cells narrow.
+On the irreducible scalar four-line face, a
 separate depth-zero bulk recurrence covers the full machine-wide ray
 `J(0,1,1,1,2,N)`, `N<=-2`. It independently reprojects rows 0, 3, and 4 of
 the complete nine-row source span, is guard-free, reaches `i64::MIN`, and
@@ -144,10 +152,11 @@ already-open scalar corner. Exact `S4` tests own all eight equivalent
 dot/numerator placements while rejecting the endpoint, higher-dot, two-dot,
 and two-negative neighbors. The
 current test-only K6 census
-submits 115 bounded probes, which canonicalize to 44 roots and discover 85
-nodes. It exercises all 34 current cell owners through 43 rule applications,
+submits 115 bounded probes, which canonicalize to 44 roots and discover 86
+nodes. It exercises all 37 current cell
+owners through 46 rule applications,
 discharges 27 nodes only by
-freshly proved zero/factorization terminals, and leaves 15 nodes explicitly
+freshly proved zero/factorization terminals, and leaves 13 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;

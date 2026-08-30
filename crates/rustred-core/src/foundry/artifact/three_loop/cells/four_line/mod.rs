@@ -45,7 +45,7 @@ use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
 use numerator::{
     derive_dotted_negative_numerator_bulk, derive_inactive_numerator_cells,
-    derive_incident_two_dot_numerator_endpoint,
+    derive_incident_two_dot_numerator_endpoint, derive_opposite_inactive_numerator_pair_endpoints,
 };
 use repeated_dot::derive_repeated_dot_ray_cell;
 
@@ -78,6 +78,8 @@ pub(super) struct FourLineCellSet {
     pub(super) factorized_face_numerator_endpoint: RuleCell,
     pub(super) factorized_two_dot_numerator_endpoint: RuleCell,
     pub(super) incident_two_dot_numerator_endpoint: RuleCell,
+    pub(super) opposite_inactive_numerator_pair_endpoint: RuleCell,
+    pub(super) opposite_inactive_numerator_pair_dot_endpoint: RuleCell,
     pub(super) dotted_negative_numerator_bulk: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
@@ -110,6 +112,11 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         derive_factorized_two_dot_numerator_endpoint()?;
     let (_context, incident_two_dot_numerator_endpoint) =
         derive_incident_two_dot_numerator_endpoint()?;
+    let (
+        _context,
+        opposite_inactive_numerator_pair_endpoint,
+        opposite_inactive_numerator_pair_dot_endpoint,
+    ) = derive_opposite_inactive_numerator_pair_endpoints()?;
     let (_context, dotted_negative_numerator_bulk) = derive_dotted_negative_numerator_bulk()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
@@ -130,6 +137,8 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         factorized_face_numerator_endpoint,
         factorized_two_dot_numerator_endpoint,
         incident_two_dot_numerator_endpoint,
+        opposite_inactive_numerator_pair_endpoint,
+        opposite_inactive_numerator_pair_dot_endpoint,
         dotted_negative_numerator_bulk,
         canonical_dot,
         mixed_numerator,

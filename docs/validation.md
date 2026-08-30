@@ -166,6 +166,22 @@ exactly three inequivalent `S4` placement classes. Child routing is checked
 against the adjacent-pair and triple-dot owners, factorization owner 2, and the
 still-uncovered scalar corner.
 
+The opposite inactive-numerator-pair tests retain the complete depth-one
+63-row span for `J(-1,1,1,1,1,-1)` and the complete untranslated nine-row
+span for `J(-1,1,1,1,2,-1)`. They pin selected ordinals `[0,4,18,22]` and
+`[0,4]`, independently compact-reproject both selections, compare exact
+source/pivot/RHS coefficients, and distinguish the complete undotted rule's
+four guards from the installed rule's sole effective `3d-4` guard. The dotted
+endpoint is guard-free. Replay, fixed domains, strict descent, deterministic
+rebuild, exhaustive `S4` nonownership, and child routing are all pinned.
+
+The shared incident-path child `J(0,0,1,-1,2,1)` is tested from the complete
+nine untranslated rows, selecting `[0,3]` for independent compact
+reprojection. Its source coefficients `[-1/2,1/2]`, pivot `2`, RHS
+coefficients `[(d-1)/2,1/2]`, empty guard set, replay, singleton boundary, and
+strict descent are exact. The two children are checked against the installed
+undotted-path endpoint and factorization owner 2.
+
 The dotted negative-numerator bulk tests start from all nine untranslated
 ordinary rows, select ordinals 0, 3, and 4, and independently reproject only
 those rows over the machine-safe interval. They pin pivot `-4`, source weights
@@ -194,9 +210,9 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
-following exact deterministic report: 44 canonical roots, 85 discovered
-nodes, 43 rule applications spanning all 34 current cell owners, 27
-zero/factorization terminals, and 15 uncovered nodes. The census pins
+following exact deterministic report: 44 canonical roots, 86 discovered
+nodes, 46 rule applications spanning all 37 current cell owners, 27
+zero/factorization terminals, and 13 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

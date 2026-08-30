@@ -244,6 +244,18 @@ inequivalent two-dot/inactive-numerator placement classes and proves that the
 cell owns exactly one. Its children route to the adjacent-pair and triple-dot
 cells, factorization owner 2, and the unresolved scalar corner.
 
+Two more exact endpoints in `four_line::numerator` own the opposite inactive-
+numerator pair `J(-1,1,1,1,1,-1)` and its one-dot child
+`J(-1,1,1,1,2,-1)`. The undotted endpoint selects ordinals 0, 4, 18, and 22
+from a complete depth-one span of 63 rows; compact reprojection leaves the
+single effective `3d-4` guard. The dotted endpoint selects ordinals 0 and 4
+from the complete nine untranslated rows and is guard-free. Their shared
+three-line child `J(0,0,1,-1,2,1)` has a separate guard-free depth-zero owner
+selected from ordinary rows 0 and 3. It descends through the installed
+undotted-path endpoint and factorization owner 2, so the coordinated cluster
+adds no further obligation. Exhaustive `S4` tests preserve the inequivalent
+placement classes rather than widening any singleton domain.
+
 On the irreducible scalar four-line face, the guard-free depth-zero recurrence
 for `J(0,1,1,1,2,N)`, `N<=-2`, selects ordinary rows 0, 3, and 4 from the
 complete nine-row span and independently reprojects them over the full
@@ -255,9 +267,9 @@ two-negative overclaim.
 
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
-canonicalization retains 44 roots and discovery visits 85 nodes. The report
-pins 43 applications across all 34 current rule-cell owners, 27 independently
-proved zero/factorization terminals, and 15 uncovered nodes. A
+canonicalization retains 44 roots and discovery visits 86 nodes. The report
+pins 46 applications across all 37 current rule-cell owners, 27 independently
+proved zero/factorization terminals, and 13 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
