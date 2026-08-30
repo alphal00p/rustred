@@ -85,6 +85,46 @@ prove coefficient guards on the integer index domain, sector boundaries, ordinar
 provenance, and the relevant shift/Ore critical pairs. The comprehensive algorithm is a guard-
 branching blueprint, not evidence that multivariate physical strata will remain small.
 
+### The weaker owner-cover certificate
+
+**Verified result.** Effective standard-pair algorithms compute irreducible and standard-pair
+decompositions for monomial ideals, while complementary-decomposition algorithms can compile
+overlapping descriptions into direct sums:
+[*Standard pairs for monomial ideals in semigroup rings*](https://arxiv.org/abs/2005.10968),
+arXiv:`2005.10968`, together with the complementary-decomposition work cited above. Comprehensive
+involutive systems branch on leading-coefficient zero/nonzero conditions and terminate through
+Noetherian ideal chains in their stated commutative parameter setting:
+[*Comprehensive involutive systems*](https://arxiv.org/abs/1206.0181), arXiv:`1206.0181`.
+
+**RustRed inference.** Universal descending reduction needs less than a complete Ore, Janet, or
+Groebner basis. At every exact guard leaf, it is sufficient to retain a finite set of exactly
+replayed rules, one global well-founded rank, and a finite symbolic owner cover. For each module
+component, let `I` be the commutative monomial ideal generated only by the applicable leading
+shifts. A disjoint Stanley cover `C=(a,F)` of its complement can be authenticated by the fine
+Hilbert-numerator identity
+
+```text
+Q_I(z) = sum_C z^a product_{i not in F} (1-z_i).
+```
+
+Every cell with a nonempty free-coordinate set `F` must delegate to another rule, guard wall, or
+lower-sector owner. Only a zero-free-direction cell, or a separately certified zero-dimensional
+integer wall, may become a finite terminal. This proves span and termination without proving
+confluence, exhausting every critical pair, interreducing a basis, or matching an independent
+master count. Those omitted steps are precisely the potential saving allowed by nonminimal
+terminals.
+
+Index-dependent coefficients cannot be treated as static comprehensive-system parameters. If a
+lead is `c(n) S^alpha`, application at target `N` requires the pulled-back guard
+`c(N-alpha) != 0`, and prolongation obeys
+`S^delta c(n) = sigma^delta(c(n)) S^delta`. Guard-DAG atoms must therefore bind an exact
+polynomial identity to its affine target pullback. A commutative leading ideal remains a coverage
+index only; it never proves the shifted coefficient wall or the source identity. Discovery should
+use a deterministic breadth-fair queue of Ore pairs, nonmultiplicative prolongations, guard
+splits, and owner restrictions, but stop as soon as the weaker owner-cover verifier succeeds.
+Fairness prevents starvation; it does not turn discovery into a guaranteed terminating
+algorithm.
+
 ### Signatures, source cofactors, and reusable modular traces
 
 **Verified result.** Hofstadler and Verron construct signature Groebner bases and syzygy bases in
@@ -244,6 +284,44 @@ rank, maximal cuts, AMFlow values, and SCC-local kernels are valuable diagnostic
 themselves supply this lower half. If it remains unaffordable, RustRed must retain the honest
 finite spanning set and call it a spanning set, not a basis.
 
+### Regulated Lee--Pomeransky rank as a global falsifier
+
+**Verified result.** For a fixed, possibly coefficient-special Laurent polynomial `G`, generic
+twist parameters concentrate the relevant twisted cohomology and relate its dimension to the
+Euler characteristic and logarithmic critical-point count. Special coefficients can lower that
+dimension, so a generic Newton-polytope volume cannot simply be specialized to the equal-mass
+family:
+[*Vector Spaces of Generalized Euler Integrals*](https://arxiv.org/abs/2208.08967),
+arXiv:`2208.08967`. Regulating every Feynman parameter combines top sectors and subsectors in one
+global critical system; this is the correct setting in which cross-sector relations can change
+the count:
+[*Magic Relations and Critical Varieties of Feynman Integrals*](https://arxiv.org/abs/2605.29789),
+arXiv:`2605.29789`.
+
+For the equal-unit-mass K6 family, a bounded exact experiment should construct `G` from the
+authenticated routing and work over `Q(d,rho_1,...,rho_6)` with the likelihood ideal
+
+```text
+2 rho_i G - d x_i partial_i G,   z G - 1.
+```
+
+Generic nonzero `rho_i` and `zG-1` avoid a separate coordinate/product saturation. Homogeneity and
+`G=U(1+sum x_i)` also give a simplex formulation eliminating one parameter and the highest-degree
+`G` inversion equation. The direct and simplex ideals must yield the same exact zero-dimensional
+degree. The equal-mass lightlike bubble, whose global rank is one although separate face counting
+retains two tadpoles, is the mandatory cross-sector regression.
+
+**RustRed inference.** This degree is an independent whole-family rank/finiteness diagnostic, not
+a reducer. It supplies a fatal lower-bound test when a proposed expanded terminal collection has
+fewer than the regulated rank and measures possible redundancy when it has more. It does not show
+that RustRed's terminals span, provide coefficient projectors, include graph symmetry, or prove
+that the nine ordinary K6 momentum-space sources generate the complete parametric relation
+space—the exact Mellin-transform relation does not currently settle that generation question
+([arXiv:1712.09215](https://arxiv.org/abs/1712.09215)). A finite nonminimal `T` is cheaper than a
+projector only because RustRed's own guarded descending owner cover proves span. Constructing a
+relative de Rham presentation that maps every boundary terminal would recover most of the hard
+projection machinery and is not a Stage 1 dependency.
+
 ### Local-ring pivots and epsilon debt
 
 **Verified result.** A sequential `D = 4` projection and local-ring Gaussian elimination can avoid
@@ -344,6 +422,83 @@ the only sparse benchmark. Every K10/K15 promotion must also pass an asymmetric 
 whose distinct bundle sizes remove vertex permutations and whose generic dot patterns retain only
 small within-bundle stabilizers. Dense-parent, banana, and multitheta results must be reported
 separately.
+
+### Source-aware modular batching, not rank-only Krylov
+
+**RustRed API audit.** Symbolica's public sparse matrix owns its CSR pattern and values; its
+forward sparse reduction is serial and fill-retaining, while its parallel solve accelerates only
+back substitution. The public tree supplies finite fields, exact polynomials, evaluation,
+univariate Newton interpolation, and integer/rational reconstruction pieces, but no turnkey block
+Wiedemann, distributed sparse operator, shared-pattern matrix, or multivariate rational-function
+reconstructor. RustRed should therefore keep one versioned immutable structural CSR and exact
+coefficient-evaluation trace per frame, memory-map it on each node, and share one evaluated value
+array only among workers using the same prime and point. The structural plan may be shared, but a
+sampled compact CSR that drops modular zeros has sample-dependent offsets and column indices and
+must stay sample-local (or retain explicit zeros). Prime gangs cannot share values or elimination
+arithmetic. This is necessary RAM engineering, not an algorithmic breakthrough.
+
+Black-box rank is insufficient because exact lift needs deterministic original-source provenance.
+A Krylov lane is admissible only after a source-aware modular pilot selects a square minor and a
+canonical row/column trace. If selecting that minor already incurs global fill, or its inverse
+produces unaffordable dense source multipliers, Krylov is falsified for this pipeline. Every
+reconstructed multiplier must still replay through all exact physical columns and every
+denominator-zero stratum must close separately. Never reconstruct or ship a global filled `U`.
+
+The more promising batching opportunity is target-role structure. If exact owner partitions prove
+that forbidden sets are laminar, or admit a small cover by maximal chains, one
+forbidden-before-target rank-profile pass and one selected minor can answer many targets with a
+multi-RHS transpose solve. Approximate grouping is unsound. The K15 gate must therefore report the
+number of targets, distinct forbidden sets, exact chain-cover size, selected-minor dimensions,
+fill, multiplier-support quantiles, and exact replay cost. Require at least a tenfold reduction in
+factorizations before retaining this extra architecture. A bounded prototype is attempted only
+when the minimum forbidden-set chain-cover width is at most eight, the ninetieth-percentile
+target-specific delta is at most eight columns, and measured work and RSS improve by at least
+threefold. Crossing sets otherwise retain independent target-local queries. A shared-pattern or
+Krylov campaign is
+rejected when deterministic hashes change with worker count, trace pivots are unstable at held-out
+samples, provenance densifies beyond exact reconstruction, or communication exceeds half of
+iteration time. The underlying black-box boundaries are consistent with sparse exact SpMV and
+Krylov-certificate work
+([arXiv:1004.3719](https://arxiv.org/abs/1004.3719),
+[arXiv:1507.01083](https://arxiv.org/abs/1507.01083)); neither result proves RustRed closure.
+
+### Provisional global separator-circuit oracle
+
+**Research candidate, not a project result.** For routing vectors `c_e`, write
+`Q = sum_e x_e c_e c_e^T`, `U = det Q`, `h = 1 + sum_e x_e`, and `G = U h`. One exact global lift
+of the regulated critical ideal introduces symmetric `Y` and `w`, imposes `QY = I` and `wh = 1`,
+and replaces inverse occurrences by `Y,w`. A second lift represents `U` and all derivatives by a
+triangular spanning-forest/configuration arithmetic circuit with reverse differentiation. Both
+preserve the one global regulated object only if torus localization, multiplicity, regulators,
+`h`, all derivative equations, and every separator boundary state are retained. A separator may
+choose a compact circuit and elimination order; it may never justify adding or multiplying local
+critical-point counts. This distinction is essential because global regulation absorbs magic
+relations that a sector-wise sum can miss
+([arXiv:2605.29789](https://arxiv.org/abs/2605.29789)).
+
+A scratch three-prime analysis, followed by an independent exact-BigInt subset-rank replay of the
+published standard five-loop A15 routing, found no nontrivial direct or two-separation in its four
+twelve-line parents. For
+`q(A) = rank(C_A) + rank(C_(E\\A)) - rank(C_E)`, an exact subset-DP *provisionally* found recursive
+maximum raw overlaps `3,3,2,2`. This suggests small configuration interfaces, not small Gröbner
+bases: `q` is a matroid overlap, not the primal treewidth or degree of regularity of the lifted
+ideal, and global `h`, regulators, inverse-`Q` variables, reverse derivatives, and message degrees
+may still expand to the whole quotient. The numbers remain provisional project evidence until a
+Rust replay binds the published routing to RustRed's manifest, computes every rational subset
+rank, verifies the optimal trees, proves the direct and circuit `U` and derivative representations
+equal in Symbolica, and reproduces them under rerooting and edge permutations. The first algebraic
+falsifier is a K6 K4-parent-versus-five-edge-pinch direct/inverse/circuit shootout including a known
+magic-relation control; K10 must show an actual reduction in rows, fill, and RSS before any K15
+algebra. The inverse lift and circuit lift are independent global oracles, not terminal-span
+certificates.
+
+Relaxed minimality changes neither candidate's proof boundary. A finite universal typed set may be
+kept without a unique normal form, but the campaign still records `t`, independent rank `r` when
+available, value count `e`, largest numerical block `m`, coefficient support, epsilon debt, and
+shipped table size. The global rank oracle can falsify `t < r`; it cannot prove `t` spans. The
+rewrite certificate must close every unbounded direction, and a target-rank-independent epsilon
+valuation bound plus a measured AMFlow pilot must show that the finite nonminimal set is actually
+evaluable.
 
 ## Architecture delta by component
 

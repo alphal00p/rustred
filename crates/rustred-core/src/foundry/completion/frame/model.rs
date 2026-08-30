@@ -57,6 +57,14 @@ pub(crate) struct PhysicalFramePlan {
 }
 
 impl PhysicalFramePlan {
+    pub(crate) fn family_fingerprint(&self) -> &str {
+        self.translated_sources.family_fingerprint()
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> &str {
+        self.translated_sources.context_fingerprint()
+    }
+
     pub(crate) const fn sector(&self) -> &Mask {
         &self.sector
     }

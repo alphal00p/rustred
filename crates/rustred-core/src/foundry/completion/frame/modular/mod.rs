@@ -13,7 +13,8 @@ mod sample;
 pub(crate) use error::ModularKernelError;
 pub(crate) use limits::ModularKernelLimits;
 pub(crate) use model::{
-    ModularHit, ModularNoHit, ModularPhysicalFrame, ModularRankDiagnostics, ModularTargetQuery,
+    ModularHit, ModularNoHit, ModularPhysicalFrame, ModularRankDiagnostics,
+    ModularSampleFingerprint, ModularTargetQuery,
 };
 
 #[cfg(test)]

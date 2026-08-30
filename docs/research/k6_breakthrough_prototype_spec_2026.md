@@ -738,20 +738,31 @@ envelopes. It preserves the required row chronology and source provenance,
 builds a checked raw-physical-column CSR with no provenance augmentation, and
 passes repeat-build byte-determinism plus exact CSR/source-entry checks.
 
-The first modular kernel slice is also green. It samples the exact 63 by 157
-`S4a` degree-one frame over a validated Symbolica `Zp64`, rejects zero source
-conditions and coefficient denominators before division, and retains the
-original row ordinals selected by each sparse elimination. A nonempty
-target-specific physical partition agrees with an independent dense reference
-for both ranks, pivot columns, and chronological independent rows. Symbolica
-records coefficient-free `L` patterns and coefficient-valued `U`; the kernel
-preflights `r(R+C)` total fill and enforces the registered 20-times-input fill
-gate. The finite-field normal-equation negative control passes.
+The first modular and exact-lift slices are green. The modular layer samples
+the exact 63 by 157 `S4a` degree-one frame over a validated Symbolica `Zp64`,
+rejects zero source conditions and coefficient denominators before division,
+and retains the original row ordinals selected by each sparse elimination. A
+target-local decorated-stratum registry now supplies the complete physical
+target/allowed/forbidden partition. Strict descent alone owns only the
+same-sector image; every exact proper-subsector child needs a terminalizing
+zero, factorization, or master owner frozen from a sealed artifact. Unowned
+children stay forbidden.
 
-Gate 0 is not yet declared complete: the exact decorated-stratum owner has not
-yet produced the full physical target/forbidden registry, so all registered
-targets and supported worker counts have not been compared. Gate 1 additionally
-still needs the multi-prime/held-out schedule and exact lift/replay.
+The exact layer consumes a frame- and sample-bound modular hit, constructs
+`[F_b | b | identity]` over Symbolica's rational-function field with full `L`,
+recovers the translated-source multipliers and every inverted pivot, and
+independently replays the resulting zero equation over all raw physical
+columns. It retains source, pivot, and denominator guards plus all descent and
+lower-owner witnesses. A genuine nonempty degree-one `S4a` partition produces
+an exactly replayed circuit; a selected support that loses its exact target
+pivot returns typed inconclusive evidence. The reducer preflights
+`R(P+2R)` retained `U+L` entries.
+
+Gate 0 is not yet declared complete because all registered targets and
+supported worker counts have not been compared. Gate 1 still needs the full
+multi-prime/held-out schedule, exact guard-stratum refinement, and RuleCell
+admission for every accepted circuit. No lifted circuit is presently an
+installed rule or a closure claim.
 
 - Regenerate the exact row, column, and entry counts in this note.
 - Produce byte-identical row/column registries at every supported worker count.

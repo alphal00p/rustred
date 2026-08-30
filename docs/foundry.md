@@ -319,6 +319,40 @@ proof can turn this diagnostic into an all-rank terminal certificate. The
 current cells' guards add no holes by the independent proof above, but a
 future cell with an unresolved exceptional locus remains inadmissible.
 
+The bounded physical-frame lane now has a conservative exact admission
+boundary. For one target and one decorated family/context/domain stratum it
+classifies every raw integral-shift column exactly once. A same-sector RHS must
+carry the global sector-monotone strict-descent witness. If that shift pinches
+a line, every exact target-sector child must additionally be covered by a
+terminalizing owner copied from an immutable sealed artifact. Only proof-
+backed zero sectors, installed factorizations into sealed dependencies, and
+explicit master points enter that snapshot; an ordinary RuleCell is a one-step
+identity and is not transitive closure authority. Missing owners make the
+column forbidden rather than widening the claim. The snapshot identity commits
+to the complete ordered zero-proof, factorization-domain, and master-key
+payload under an explicit byte limit; counts alone can never rebind terminal
+authority. Promotion must still rejoin the sealed snapshot and verify its
+retained witnesses rather than trusting the identity string in isolation.
+
+The corresponding modular hit is bound by pointer identity to its physical
+frame and by an immutable prime/sample fingerprint. Exact lifting projects the
+selected chronological source rows onto `[forbidden, target, identity]`, uses
+Symbolica's rational-function sparse reducer with full `L`, retains every
+pre-inversion pivot, and reads the normalized target row's identity block as
+the ordinary-source combination. A separate full-column replay then requires
+target coefficient one, cancellation of every forbidden column, and only
+proved allowed residuals. Source conditions, coefficient denominators, pivot
+numerators/denominators, multiplier denominators, and residual denominators are
+retained as exact guards with provenance. Failure of a modularly selected
+support to retain the exact target pivot is explicitly inconclusive. The
+canonical degree-one `S4a` frame now supplies a genuine nonempty-partition
+exact circuit, but no circuit is promoted until its guard branches and full
+RuleCell construction replay. Symbolica 2.2.0 exposes no per-operation scratch
+or coefficient-growth hook inside this sparse reducer: structural envelopes,
+authenticated inputs/outputs, and the independently bounded replay are hard
+limits, but promotion must additionally run native exact elimination inside a
+worker-level RSS/time envelope.
+
 The final terminal set is not required to be a minimal master basis. If exact
 sector-wide coverage proves that its complement is finite, those finitely many
 integral keys may be retained as explicit evaluation terminals. Stage 1 must

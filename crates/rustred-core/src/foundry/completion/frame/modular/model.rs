@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use symbolica::domains::finite_field::{FiniteFieldElement, Zp64};
 use symbolica::tensors::sparse::SparseMatrix;
 
@@ -13,8 +15,37 @@ use super::{ModularKernelError, ModularKernelLimits};
 pub(crate) struct ModularPhysicalFrame<'frame> {
     pub(super) plan: &'frame PhysicalFramePlan,
     pub(super) field: Zp64,
-    pub(super) point: Box<[FiniteFieldElement<u64>]>,
+    pub(super) sample: Arc<ModularSampleFingerprint>,
     pub(super) matrix: SparseMatrix<Zp64>,
+}
+
+/// Immutable identity of one admitted modular evaluation point.
+///
+/// The point stores the ordered base-parameter residues followed by the
+/// mapped integral-index residues. Sharing this owner between the sampled
+/// frame and every query result prevents a hit from losing the exact sample
+/// at which its independent-row chronology was discovered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModularSampleFingerprint {
+    modulus: u64,
+    point: Arc<[FiniteFieldElement<u64>]>,
+}
+
+impl ModularSampleFingerprint {
+    pub(crate) const fn modulus(&self) -> u64 {
+        self.modulus
+    }
+
+    pub(crate) fn point(&self) -> &[FiniteFieldElement<u64>] {
+        &self.point
+    }
+
+    pub(super) fn new(modulus: u64, point: Box<[FiniteFieldElement<u64>]>) -> Self {
+        Self {
+            modulus,
+            point: Arc::from(point),
+        }
+    }
 }
 
 impl<'frame> ModularPhysicalFrame<'frame> {
@@ -28,7 +59,11 @@ impl<'frame> ModularPhysicalFrame<'frame> {
 
     /// Ordered base-parameter values followed by mapped integral indices.
     pub(crate) fn point(&self) -> &[FiniteFieldElement<u64>] {
-        &self.point
+        self.sample.point()
+    }
+
+    pub(crate) fn sample_fingerprint(&self) -> &Arc<ModularSampleFingerprint> {
+        &self.sample
     }
 
     pub(crate) const fn matrix(&self) -> &SparseMatrix<Zp64> {
@@ -44,7 +79,7 @@ impl<'frame> ModularPhysicalFrame<'frame> {
         target_column: usize,
         forbidden_columns: &[usize],
         limits: ModularKernelLimits,
-    ) -> Result<ModularTargetQuery, ModularKernelError> {
+    ) -> Result<ModularTargetQuery<'frame>, ModularKernelError> {
         super::rank::query_target(self, target_column, forbidden_columns, limits)
     }
 }
@@ -75,10 +110,48 @@ pub(crate) struct ModularRankDiagnostics {
 
 /// Positive modular discovery evidence.  Exact lift and replay are still
 /// required before this may become a closing relation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ModularHit {
+#[derive(Clone, Debug)]
+pub(crate) struct ModularHit<'frame> {
+    plan: &'frame PhysicalFramePlan,
+    sample: Arc<ModularSampleFingerprint>,
     pub(crate) diagnostics: ModularRankDiagnostics,
 }
+
+impl<'frame> ModularHit<'frame> {
+    pub(crate) const fn plan(&self) -> &'frame PhysicalFramePlan {
+        self.plan
+    }
+
+    pub(crate) fn sample_fingerprint(&self) -> &Arc<ModularSampleFingerprint> {
+        &self.sample
+    }
+
+    pub(crate) const fn diagnostics(&self) -> &ModularRankDiagnostics {
+        &self.diagnostics
+    }
+
+    pub(super) fn new(
+        plan: &'frame PhysicalFramePlan,
+        sample: Arc<ModularSampleFingerprint>,
+        diagnostics: ModularRankDiagnostics,
+    ) -> Self {
+        Self {
+            plan,
+            sample,
+            diagnostics,
+        }
+    }
+}
+
+impl PartialEq for ModularHit<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.plan, other.plan)
+            && self.sample == other.sample
+            && self.diagnostics == other.diagnostics
+    }
+}
+
+impl Eq for ModularHit<'_> {}
 
 /// A target-local modular no-hit.  This is explicitly inconclusive: another
 /// sample, prime, source frame, or exact computation may still find a relation.
@@ -88,12 +161,12 @@ pub(crate) struct ModularNoHit {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ModularTargetQuery {
-    Hit(ModularHit),
+pub(crate) enum ModularTargetQuery<'frame> {
+    Hit(ModularHit<'frame>),
     ModularNoHit(ModularNoHit),
 }
 
-impl ModularTargetQuery {
+impl ModularTargetQuery<'_> {
     pub(crate) const fn diagnostics(&self) -> &ModularRankDiagnostics {
         match self {
             Self::Hit(hit) => &hit.diagnostics,

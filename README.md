@@ -250,15 +250,20 @@ authoritative gates.
 
 The current test-only A0 kernel samples the canonical degree-one `S4a`
 physical frame (63 ordinary-source rows, 157 raw integral columns, and 630
-structural entries) directly over Symbolica `Zp64`. It rejects singular
-coefficient or source-guard samples, keeps exact original-row provenance, and
-answers a separate target-versus-forbidden rank question for each requested
-column. A nonempty physical partition agrees with an independent dense
-reference for ranks, pivots, and selected source rows; Symbolica's pattern-only
-`L` and coefficient-valued `U` supply the registered fill metric. This is a
-discovery kernel, not a closing result: decorated-stratum column ownership,
-multi-prime support, exact circuit lift, guard refinement, and ordinary-source
-replay remain before any new RuleCell can be admitted.
+structural entries) directly over Symbolica `Zp64`. An exhaustive
+decorated-stratum registry classifies every raw column as the target, a proved
+strictly descending RHS with all proper-subsector images terminal-owned, or a
+forbidden column. The registry admits lower images only from immutable sealed-
+artifact zero, factorization, or master owners; it never upgrades an ordinary
+RuleCell into closure authority.
+
+Positive finite-field supports can now be lifted over Symbolica's exact
+rational-function field. The lift recovers the original translated-source
+combination, retains every pivot/source/denominator guard, and independently
+replays all physical columns. Synthetic controls and a genuine nonempty `S4a`
+partition pass. This is still a discovery result, not a closing RuleCell:
+multi-prime and held-out agreement, exact guard-stratum refinement, rule
+admission, all-rank complement ownership, and the outer-extension proof remain.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

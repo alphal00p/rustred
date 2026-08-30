@@ -28,12 +28,12 @@ struct RankSummary {
     independent_source_rows: Box<[usize]>,
 }
 
-pub(super) fn query_target(
-    frame: &ModularPhysicalFrame<'_>,
+pub(super) fn query_target<'frame>(
+    frame: &ModularPhysicalFrame<'frame>,
     target_column: usize,
     forbidden_columns: &[usize],
     limits: ModularKernelLimits,
-) -> Result<ModularTargetQuery, ModularKernelError> {
+) -> Result<ModularTargetQuery<'frame>, ModularKernelError> {
     let physical_columns = frame.matrix().ncols() as usize;
     if target_column >= physical_columns {
         return Err(ModularKernelError::TargetColumnOutOfRange {
@@ -103,7 +103,11 @@ pub(super) fn query_target(
         augmented_total_fill_nonzeros: augmented_summary.total_fill_nonzeros,
     };
     if diagnostics.augmented_rank > diagnostics.forbidden_rank {
-        Ok(ModularTargetQuery::Hit(ModularHit { diagnostics }))
+        Ok(ModularTargetQuery::Hit(ModularHit::new(
+            frame.plan(),
+            frame.sample_fingerprint().clone(),
+            diagnostics,
+        )))
     } else {
         Ok(ModularTargetQuery::ModularNoHit(ModularNoHit {
             diagnostics,

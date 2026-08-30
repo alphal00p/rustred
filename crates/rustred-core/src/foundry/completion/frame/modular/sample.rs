@@ -6,7 +6,9 @@ use symbolica::tensors::sparse::SparseMatrix;
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 
 use super::super::PhysicalFramePlan;
-use super::{ModularKernelError, ModularKernelLimits, ModularPhysicalFrame};
+use super::{
+    ModularKernelError, ModularKernelLimits, ModularPhysicalFrame, ModularSampleFingerprint,
+};
 
 const POINT_COORDINATES: &str = "modular sample point coordinates";
 const SOURCE_CONDITIONS: &str = "modular source conditions";
@@ -196,10 +198,11 @@ impl PhysicalFramePlan {
             field.clone(),
         );
 
+        let sample = ModularSampleFingerprint::new(modulus, point.into_boxed_slice());
         Ok(ModularPhysicalFrame {
             plan: self,
             field,
-            point: point.into_boxed_slice(),
+            sample: std::sync::Arc::new(sample),
             matrix,
         })
     }

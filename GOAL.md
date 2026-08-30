@@ -358,21 +358,34 @@ The A0 modular kernel validates an odd prime before constructing Symbolica's
 `Zp64`, maps sector-chart coordinates to the actual signed indices, evaluates
 coefficient numerators and denominators separately, rejects vanishing source
 conditions, and drops only sampled numerator zeros. Every target receives its
-own `[F_b | b]` rank query. The canonical nonempty `S4a` probe agrees with an
-independent dense Symbolica reference for both ranks, pivot columns, and the
-chronological original rows selected for exact lifting. Pattern-only `L` plus
-coefficient-valued `U` fill is measured and subject to the registered 20-times
-input gate. Provenance columns never enter the physical rank, and a modular
-miss remains explicitly inconclusive.
+own `[F_b | b]` rank query. Pattern-only `L` plus coefficient-valued `U` fill
+is measured and subject to the registered 20-times-input gate. Provenance
+columns never enter the physical rank, and a modular miss remains explicitly
+inconclusive.
 
-This does not yet complete A0. The next step is to build the exact decorated-
-stratum column-role owner, run the multi-prime/held-out target schedule, and
-lift each modular hit to an exact ordinary-source circuit with complete guard
-and replay evidence. Only that exact boundary may refine the completion.
-Completion state remains separate by sector, fixed/free coordinates,
-application box, and guard branch. A finite strictly descending rewrite
-partition may close on an affordable nonminimal typed terminal set without
-constructing a minimal quotient or all shift-action matrices.
+The exact decorated-stratum and lift boundary is now executable. Every raw
+physical column is classified exactly once as target, allowed strict descent,
+or forbidden. An allowed column may cross into a proper subsector only when
+every exact child cell is covered by a proof-backed zero, factorization, or
+master terminal frozen from an immutable sealed artifact; ordinary RuleCells
+are deliberately not treated as closure owners. A positive modular support is
+bound to its physical frame and sample, lifted through Symbolica's exact
+`[F_b | b | identity]` reducer, and independently replayed over all raw
+columns. The retained circuit includes its translated-source combination,
+pivot and denominator guards, stratum/snapshot identities, strict-descent
+witnesses, and lower-owner dependencies. Synthetic controls and a genuine
+nonempty degree-one `S4a` circuit pass; support that does not lift remains a
+typed inconclusive result.
+
+This still does not complete A0 or install a new RuleCell. The next step is to
+run the multi-prime/held-out target schedule, refine every exact circuit onto
+its proved guard strata, and admit only circuits whose full rule construction
+replays. Completion state remains separate by sector, fixed/free coordinates,
+application box, and guard branch. Exact all-rank coverage must then be proved
+by a finite owner cover rather than by the present `i64` carrier endpoints. A
+finite strictly descending rewrite partition may close on an affordable
+nonminimal typed terminal set without constructing a minimal quotient or all
+shift-action matrices.
 
 The MATAD oracle fixes the eventual in-family basis boundary without being used
 as a rule generator. The scalar six-line and four-line corners map directly to
