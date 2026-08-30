@@ -98,9 +98,11 @@ order-24 `S4` edge action and eleven sector orbits. It freezes an internally
 validated five-class Vakint routing snapshot with its exact upstream revision
 and source-blob provenance; live cross-repository matching remains an
 integration gate. Generic factorization tests separately certify both the
-`K3 x K1` sector and the additional `K1 x K1 x K1` spanning-tree sector. The
-fixture does not expose an installable artifact until the rule fixed point is
-closed.
+`K3 x K1` sector and both inequivalent `K1 x K1 x K1` spanning-tree sectors.
+The first exact top-sector recurrence is derived from the complete nine-source
+span as a test-only rule cell with retained provenance, guards, application
+bounds, and strict-descent proofs. The fixture does not expose an installable
+artifact until the complete rule fixed point is closed.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

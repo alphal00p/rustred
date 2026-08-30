@@ -60,9 +60,12 @@ six-denominator family, all nine ordinary sources, the order-24 `S4` action,
 and the complete eleven-orbit sector partition. It freezes internally checked,
 revision-stamped snapshots for all five Vakint classes; live matcher comparison
 remains a separate cross-repository gate. Generic factorization tests certify
-both `K3 x K1` and the additional spanning-tree `K1 x K1 x K1` product. The
-fixture intentionally exposes no closed artifact while its rule fixed point is
-incomplete. The
+`K3 x K1` and both inequivalent spanning-tree `K1 x K1 x K1` products. The
+first test-only K6 rule cell derives an exact top-sector recurrence from the
+complete nine-source span and retains its elimination provenance, guards,
+maximal application box, and strict-descent witnesses. The fixture
+intentionally exposes no closed artifact while its complete rule fixed point
+is incomplete. The
 [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
 

@@ -50,7 +50,7 @@ fn synthetic_three_loop_factorization_artifact() -> ClosedArtifact {
         UnimodularLoopBasis::new(3, [-1, 0, 1, 1, -1, 0, 0, 0, 1]),
     );
 
-    let k1_cubed = FactorizationRule::new(
+    let star_k1_cubed = FactorizationRule::new(
         SectorInteriorDomain::try_new(
             Mask::try_from_indices(&[0, 0, 1, 1, 0, 1]).unwrap(),
             [
@@ -74,6 +74,30 @@ fn synthetic_three_loop_factorization_artifact() -> ClosedArtifact {
         family.coefficient_context().one(),
         UnimodularLoopBasis::new(3, [0, 0, 1, -1, 0, 1, 0, 1, -1]),
     );
+    let path_k1_cubed = FactorizationRule::new(
+        SectorInteriorDomain::try_new(
+            Mask::try_from_indices(&[0, 0, 1, 0, 1, 1]).unwrap(),
+            [
+                InteriorBounds::new(0, 0),
+                InteriorBounds::new(0, 0),
+                InteriorBounds::new(1, i64::MAX),
+                InteriorBounds::new(0, 0),
+                InteriorBounds::new(1, i64::MAX),
+                InteriorBounds::new(1, i64::MAX),
+            ],
+        )
+        .unwrap(),
+        [
+            // q0=k3 owns parent D3.
+            FactorizationFactor::new(1, [2], [0]),
+            // q1=k1-k2 owns parent D5.
+            FactorizationFactor::new(1, [4], [1]),
+            // q2=k2-k3 owns parent D6.
+            FactorizationFactor::new(1, [5], [2]),
+        ],
+        family.coefficient_context().one(),
+        UnimodularLoopBasis::new(3, [0, 0, 1, 1, -1, 0, 0, 1, -1]),
+    );
     let masters = BTreeSet::from([
         IntegralKey::try_new([0, 0, 1, 0, 1, 1]).unwrap(),
         IntegralKey::try_new([0, 0, 1, 1, 0, 1]).unwrap(),
@@ -95,7 +119,7 @@ fn synthetic_three_loop_factorization_artifact() -> ClosedArtifact {
             Box::new(derive_two_loop_unit_mass_sunset().unwrap()),
             Box::new(derive_one_loop_unit_mass_tadpole().unwrap()),
         ],
-        factorization_rules: vec![k3_times_k1, k1_cubed],
+        factorization_rules: vec![k3_times_k1, star_k1_cubed, path_k1_cubed],
         masters,
         zero_sectors: Vec::new(),
         common_mass_homogeneity: Some(CommonMassHomogeneityProof::UniformVacuumMassSquared),
@@ -167,32 +191,8 @@ fn compiled_k3_times_k1_factorization_recurses_to_both_parent_terminals() {
 }
 
 #[test]
-fn compiled_k1_cubed_factorization_closes_the_extra_spanning_tree_orbit() {
+fn compiled_k1_cubed_factorizations_close_both_spanning_tree_orbits() {
     let artifact = synthetic_three_loop_factorization_artifact();
-    let factorization = &artifact.factorization_rules()[1];
-    assert_eq!(
-        factorization.application_domain().sector().active_bits(),
-        [false, false, true, true, false, true]
-    );
-    assert_eq!(factorization.master_embeddings().len(), 1);
-    assert_eq!(
-        factorization.master_embeddings()[0]
-            .raw_parent_master()
-            .powers(),
-        [0, 0, 1, 1, 0, 1]
-    );
-    assert_eq!(
-        factorization.master_embeddings()[0]
-            .parent_terminal()
-            .powers(),
-        [0, 0, 1, 1, 0, 1]
-    );
-
-    let target = IntegralKey::try_new([0, 0, 2, 3, 0, 4]).unwrap();
-    let parent = Reducer::new(&artifact)
-        .unwrap()
-        .reduce_unit_mass(&target)
-        .unwrap();
     let tadpole = derive_one_loop_unit_mass_tadpole().unwrap();
     let mut tadpole_reducer = Reducer::new(&tadpole).unwrap();
     let master = IntegralKey::try_new([1]).unwrap();
@@ -209,9 +209,38 @@ fn compiled_k1_cubed_factorization_closes_the_extra_spanning_tree_orbit() {
         .try_mul(&factors[0], &factors[1], Default::default())
         .and_then(|product| context.try_mul(&product, &factors[2], Default::default()))
         .unwrap();
-    assert_eq!(parent.terms().len(), 1);
-    assert_eq!(
-        parent.coefficient(&IntegralKey::try_new([0, 0, 1, 1, 0, 1]).unwrap()),
-        Some(&expected)
-    );
+
+    for (rule_ordinal, sector, target) in [
+        (1, [0, 0, 1, 1, 0, 1], [0, 0, 2, 3, 0, 4]),
+        (2, [0, 0, 1, 0, 1, 1], [0, 0, 2, 0, 3, 4]),
+    ] {
+        let factorization = &artifact.factorization_rules()[rule_ordinal];
+        assert_eq!(
+            factorization.application_domain().sector(),
+            &Mask::try_from_indices(&sector).unwrap()
+        );
+        assert_eq!(factorization.master_embeddings().len(), 1);
+        assert_eq!(
+            factorization.master_embeddings()[0]
+                .raw_parent_master()
+                .powers(),
+            sector
+        );
+        assert_eq!(
+            factorization.master_embeddings()[0]
+                .parent_terminal()
+                .powers(),
+            sector
+        );
+
+        let parent = Reducer::new(&artifact)
+            .unwrap()
+            .reduce_unit_mass(&IntegralKey::try_new(target).unwrap())
+            .unwrap();
+        assert_eq!(parent.terms().len(), 1);
+        assert_eq!(
+            parent.coefficient(&IntegralKey::try_new(sector).unwrap()),
+            Some(&expected)
+        );
+    }
 }

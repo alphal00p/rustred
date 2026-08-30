@@ -76,10 +76,12 @@ consumed by Vakint's FORM-free scalar backend. Three-loop `K = 6` closure and
 extension of that backend across the five registered three-loop graph classes
 are the remaining active Stage 1 work. A test-only K6 pressure fixture already
 pins its exact family, nine sources, order-24 `S4` sector partition, the five
-revision-stamped Vakint class/routing snapshots, and certified `K3 x K1` and
-`K1 x K1 x K1` factorization sectors. Live matcher comparison remains an
-integration gate, and no artifact is published before the rule fixed point
-closes.
+revision-stamped Vakint class/routing snapshots, and certified `K3 x K1` plus
+both inequivalent `K1 x K1 x K1` factorization sectors. It also derives the
+first exact top-sector rule cell from all nine sources while retaining its
+guards, bounded application proof, provenance, and strict descent. Live
+matcher comparison remains an integration gate, and no artifact is published
+before the complete rule fixed point closes.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
 FORM tensor prepass, while the new RustRed evaluation backend is FORM-free

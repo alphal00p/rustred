@@ -6,6 +6,8 @@
 //! matching remains a separate integration gate. The module deliberately does
 //! not expose a [`super::ClosedArtifact`] until the rule fixed point is closed.
 
+#[cfg(test)]
+mod cells;
 mod family;
 mod manifest;
 mod symmetry;
