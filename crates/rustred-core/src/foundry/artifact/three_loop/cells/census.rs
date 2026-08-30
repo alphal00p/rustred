@@ -39,6 +39,7 @@ const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 1, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 2, 1, 1];
+const FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 2, -2];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
 const THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 0, 1, 0, 2, 1];
@@ -75,6 +76,7 @@ enum K6CellKind {
     FourLineFactorizedBridgeDotNumeratorBulk,
     FourLineFactorizedFaceNumeratorEndpoint,
     FourLineFactorizedTwoDotNumeratorEndpoint,
+    FourLineDottedNegativeNumeratorBulk,
     ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorBulk,
@@ -130,6 +132,7 @@ impl K6ReachabilityCensus {
             factorized_bridge_dot_numerator_bulk,
             factorized_face_numerator_endpoint,
             factorized_two_dot_numerator_endpoint,
+            dotted_negative_numerator_bulk,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
@@ -248,6 +251,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
                 cell: factorized_two_dot_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineDottedNegativeNumeratorBulk,
+                cell: dotted_negative_numerator_bulk,
             },
             OwnedCell {
                 kind: K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
@@ -429,7 +436,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 32,
+            max_rule_cells: 33,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -474,6 +481,7 @@ mod tests {
                 K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk,
                 K6CellKind::FourLineFactorizedFaceNumeratorEndpoint,
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+                K6CellKind::FourLineDottedNegativeNumeratorBulk,
                 K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
@@ -532,6 +540,7 @@ mod tests {
                 (K6CellKind::FourLineFactorizedBridgeDotNumeratorBulk, 1,),
                 (K6CellKind::FourLineFactorizedFaceNumeratorEndpoint, 1,),
                 (K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint, 1,),
+                (K6CellKind::FourLineDottedNegativeNumeratorBulk, 1,),
                 (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
@@ -554,8 +563,8 @@ mod tests {
         assert_eq!(statistics.canonical_roots(), 44);
         assert_eq!(statistics.discovered_nodes(), 85);
         assert_eq!(statistics.terminal_nodes(), 27);
-        assert_eq!(statistics.rule_applications(), 41);
-        assert_eq!(statistics.uncovered_nodes(), 17);
+        assert_eq!(statistics.rule_applications(), 42);
+        assert_eq!(statistics.uncovered_nodes(), 16);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -628,6 +637,10 @@ mod tests {
             (
                 FOUR_LINE_FACTORIZED_TWO_DOT_NUMERATOR_ENDPOINT_PROBE,
                 K6CellKind::FourLineFactorizedTwoDotNumeratorEndpoint,
+            ),
+            (
+                FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE,
+                K6CellKind::FourLineDottedNegativeNumeratorBulk,
             ),
             (
                 THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE,
@@ -765,6 +778,49 @@ mod tests {
                 ReachabilityDisposition::Rule(_)
             ));
         }
+
+        // The one-dot/deeper-numerator ray is disjoint from the existing
+        // N=-1 mixed-numerator boundary.  At its first target all children
+        // were already present: the scalar numerator endpoint, the decorated
+        // path endpoint, and the still-unresolved scalar four-line corner.
+        // The new owner therefore shrinks this finite frontier without
+        // manufacturing another obligation.
+        let ReachabilityDisposition::Rule(dotted_negative_bulk) = disposition(
+            &census,
+            &first,
+            FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE,
+        ) else {
+            panic!("expected dotted negative-numerator bulk")
+        };
+        assert_eq!(
+            census.cell_kind(dotted_negative_bulk.cell_ordinal()),
+            K6CellKind::FourLineDottedNegativeNumeratorBulk
+        );
+        assert_eq!(dotted_negative_bulk.assignment(), [0, 1, 1, 1, 1, -1]);
+        assert_eq!(
+            dotted_negative_bulk
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [[0, 1, 1, 1, 1, -1], [0, 0, 2, -1, 1, 1], FOUR_LINE_CORNER,]
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            FOUR_LINE_SCALAR_NUMERATOR_ENDPOINT_PROBE,
+            K6CellKind::FourLineScalarNumeratorEndpoint,
+        );
+        assert_rule_kind(
+            &census,
+            &first,
+            THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE,
+            K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
+        );
+        assert!(matches!(
+            disposition(&census, &first, FOUR_LINE_CORNER),
+            ReachabilityDisposition::Uncovered
+        ));
 
         // The factorized bridge-dot lane owns exactly its endpoint and bulk
         // orbit.  Its endpoint closes into authenticated factorization
@@ -1071,7 +1127,6 @@ mod tests {
                 [0, 1, 1, 1, 1, 0],
                 [-1, 1, 1, 1, 1, -1],
                 [-1, 1, 1, 1, 1, -2],
-                [0, 1, 1, 1, 2, -2],
                 [-1, 1, 1, 1, 2, -1],
                 [0, 1, 2, 2, 1, -1],
                 [0, 1, 1, 2, 4, 0],

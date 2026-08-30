@@ -234,11 +234,20 @@ factorization owners 2, 0, 1, and 2. Exhaustive enumeration partitions all six
 inequivalent two-dot/numerator placement classes and explicitly excludes the
 neighboring higher-dot and deeper-numerator representatives.
 
+On the irreducible scalar four-line face, the guard-free depth-zero recurrence
+for `J(0,1,1,1,2,N)`, `N<=-2`, selects ordinary rows 0, 3, and 4 from the
+complete nine-row span and independently reprojects them over the full
+machine-safe source interval. Its target reaches `i64::MIN`; every child
+routes to the existing scalar-numerator or decorated-path lanes, apart from
+the already-open scalar corner at `N=-2`. Exact coefficient, replay, descent,
+and `S4` placement evidence prevents any endpoint, higher-dot, two-dot, or
+two-negative overclaim.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
 canonicalization retains 44 roots and discovery visits 85 nodes. The report
-pins 41 applications across all 32 current rule-cell owners, 27 independently
-proved zero/factorization terminals, and 17 uncovered nodes. A
+pins 42 applications across all 33 current rule-cell owners, 27 independently
+proved zero/factorization terminals, and 16 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production

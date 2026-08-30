@@ -156,6 +156,17 @@ inequivalent `S4` two-dot/numerator placement classes. Its four children are
 checked against factorization owners 2, 0, 1, and 2; adjacent higher-dot and
 deeper-numerator patterns remain nonowners.
 
+The dotted negative-numerator bulk tests start from all nine untranslated
+ordinary rows, select ordinals 0, 3, and 4, and independently reproject only
+those rows over the machine-safe interval. They pin pivot `-4`, source weights
+`[5/8,-1,-3/4]`, RHS coefficients
+`[(d-6*n5)/8,1,-3*n5/4]`, empty guards, concrete and parametric replay,
+strict descent, deterministic rebuild, and the `i64::MIN` target. Exact `S4`
+tests own the complete one-dot/inactive-numerator placement orbit and reject
+the endpoint, undotted, higher-dot, two-dot, and two-negative neighbors. Child
+routing is checked against the installed scalar-numerator and decorated-path
+endpoint/bulk cells while preserving the scalar corner as uncovered.
+
 The factorized bridge-dot numerator tests derive endpoint and bulk rules from
 the complete depth-zero span of all nine ordinary sources. They pin exact
 selected ordinals, independent compact reprojection, authenticated
@@ -174,8 +185,8 @@ infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
 following exact deterministic report: 44 canonical roots, 85 discovered
-nodes, 41 rule applications spanning all 32 current cell owners, 27
-zero/factorization terminals, and 17 uncovered nodes. The census pins
+nodes, 42 rule applications spanning all 33 current cell owners, 27
+zero/factorization terminals, and 16 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

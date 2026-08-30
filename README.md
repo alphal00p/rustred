@@ -126,12 +126,19 @@ same 63-row search span. Independent compact reprojection removes the
 complete-system's spurious `d-1` guard, and its four children terminate in
 factorization owners 2, 0, 1, and 2. The six inequivalent `S4` placement
 classes are exhaustively partitioned, so neighboring dot or numerator
-patterns are not overclaimed. The
+patterns are not overclaimed. On the irreducible scalar four-line face, a
+separate depth-zero bulk recurrence covers the full machine-wide ray
+`J(0,1,1,1,2,N)`, `N<=-2`. It independently reprojects rows 0, 3, and 4 of
+the complete nine-row source span, is guard-free, reaches `i64::MIN`, and
+routes only to the installed scalar-numerator/decorated-path lanes or the
+already-open scalar corner. Exact `S4` tests own all eight equivalent
+dot/numerator placements while rejecting the endpoint, higher-dot, two-dot,
+and two-negative neighbors. The
 current test-only K6 census
 submits 115 bounded probes, which canonicalize to 44 roots and discover 85
-nodes. It exercises all 32 current cell owners through 41 rule applications,
+nodes. It exercises all 33 current cell owners through 42 rule applications,
 discharges 27 nodes only by
-freshly proved zero/factorization terminals, and leaves 17 nodes explicitly
+freshly proved zero/factorization terminals, and leaves 16 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;

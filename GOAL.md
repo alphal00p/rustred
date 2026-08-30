@@ -263,11 +263,22 @@ classification of the six inequivalent two-dot/numerator placements proves
 the singleton boundary and keeps the neighboring bulk and higher-dot lanes
 open.
 
+The irreducible scalar four-line face now also has a guard-free bulk owner for
+the complete machine-wide ray `J(0,1,1,1,2,N)`, `N<=-2`. Its depth-zero
+search starts from all nine ordinary rows and independently reprojects selected
+ordinals 0, 3, and 4 over `i64::MIN+1<=n5<=-1`, so the target reaches
+`i64::MIN`. The exact pivot, source, and right-hand-side coefficients are
+replay-pinned; strict descent routes every child to the existing scalar
+numerator or decorated-path recurrences, except for the already-open scalar
+corner at the endpoint. Exact `S4` ownership covers only the one-dot/inactive-
+numerator orbit and rejects its endpoint, higher-dot, two-dot, and two-negative
+neighbors.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 85 nodes: all 32 presently derived cell owners are
-exercised in 41 applications, 27 nodes terminate through independently checked
-zero or factorization proofs, and 17 remain explicitly uncovered. The census
+roots and discover 85 nodes: all 33 presently derived cell owners are
+exercised in 42 applications, 27 nodes terminate through independently checked
+zero or factorization proofs, and 16 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
