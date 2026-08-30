@@ -37,7 +37,12 @@ fn singleton_projections_replay_the_selected_generated_sources_exactly() {
             vec![
                 "ordinary-ibp:0:0",
                 "ordinary-ibp:0:1",
+                "ordinary-ibp:0:2",
                 "ordinary-ibp:1:0",
+                "ordinary-ibp:1:1",
+                "ordinary-ibp:1:2",
+                "ordinary-ibp:2:0",
+                "ordinary-ibp:2:1",
                 "ordinary-ibp:2:2",
             ],
         ),
@@ -94,7 +99,7 @@ fn singleton_projections_replay_the_selected_generated_sources_exactly() {
 
 #[test]
 fn exact_singleton_rules_own_the_isolated_dot_and_opposite_pair_only() {
-    let (_context, isolated, opposite) = derive_exceptional_four_line_cells().unwrap();
+    let (context, isolated, opposite) = derive_exceptional_four_line_cells().unwrap();
     assert_eq!(isolated.rule().anchor().powers(), BASE_CORNER);
     assert_eq!(opposite.rule().anchor().powers(), BASE_CORNER);
     assert_eq!(isolated.rule().pivot().values(), CANONICAL_DOT_TARGET_SHIFT);
@@ -119,12 +124,93 @@ fn exact_singleton_rules_own_the_isolated_dot_and_opposite_pair_only() {
         vec![
             (0, "ordinary-ibp:0:0".to_owned()),
             (1, "ordinary-ibp:0:1".to_owned()),
-            (2, "ordinary-ibp:1:0".to_owned()),
-            (3, "ordinary-ibp:2:2".to_owned()),
+            (2, "ordinary-ibp:0:2".to_owned()),
+            (3, "ordinary-ibp:1:0".to_owned()),
+            (5, "ordinary-ibp:1:2".to_owned()),
         ]
     );
     assert_eq!(isolated.rule().replay().source_rows_used(), 2);
-    assert_eq!(opposite.rule().replay().source_rows_used(), 4);
+    assert_eq!(opposite.rule().replay().source_rows_used(), 5);
+
+    let expected_source_weights = [
+        context
+            .div(&context.integer(-3), &context.integer(2))
+            .unwrap(),
+        context.integer(-1),
+        context
+            .div(&context.integer(-1), &context.integer(2))
+            .unwrap(),
+        context
+            .div(&context.integer(1), &context.integer(2))
+            .unwrap(),
+        context
+            .div(&context.integer(-1), &context.integer(2))
+            .unwrap(),
+    ];
+    assert_eq!(
+        opposite
+            .rule()
+            .source_combination()
+            .iter()
+            .map(|source| source.coefficient())
+            .collect::<Vec<_>>(),
+        expected_source_weights.iter().collect::<Vec<_>>()
+    );
+
+    let expected_pivot_guards = [
+        (
+            0,
+            "ordinary-ibp:0:0",
+            1,
+            [0, 0, 1, 0, 1, -1],
+            context.integer(-1),
+        ),
+        (
+            1,
+            "ordinary-ibp:0:1",
+            0,
+            [0, 0, 1, 1, 0, -1],
+            context.integer(-1),
+        ),
+        (
+            2,
+            "ordinary-ibp:0:2",
+            2,
+            [0, 0, 0, 1, 1, -1],
+            context.integer(1),
+        ),
+        (
+            3,
+            "ordinary-ibp:1:0",
+            3,
+            [0, 0, 0, 0, 2, -1],
+            context.integer(2),
+        ),
+        (
+            5,
+            "ordinary-ibp:1:2",
+            4,
+            OPPOSITE_DOT_PAIR_TARGET_SHIFT,
+            context.integer(-2),
+        ),
+    ];
+    let pivot_guards = opposite.rule().elimination_pivot_guards();
+    assert_eq!(pivot_guards.len(), expected_pivot_guards.len());
+    for (guard, (source, row, column, shift, coefficient)) in
+        pivot_guards.iter().zip(&expected_pivot_guards)
+    {
+        assert_eq!(guard.source_ordinal(), *source);
+        assert_eq!(guard.row_id().stable_string(), *row);
+        assert_eq!(guard.pivot_column(), *column);
+        assert_eq!(guard.pivot_shift().values(), shift);
+        assert_eq!(guard.coefficient(), coefficient);
+        assert_eq!(
+            guard.nonzero_polynomial(),
+            &context
+                .numerator_condition_with_limits(coefficient, Default::default())
+                .unwrap()
+        );
+    }
 
     let singleton_bounds = BASE_CORNER.map(|value| InteriorBounds::new(value, value));
     for cell in [&isolated, &opposite] {

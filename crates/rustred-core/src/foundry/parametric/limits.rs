@@ -45,9 +45,11 @@ pub struct ParametricRuleLimits {
     /// serial Symbolica back-substitution output. This is charged only by the
     /// target-directed API.
     pub max_back_substitution_output_nonzero_entries: usize,
-    /// Maximum conservative live nonzero-entry capacity while Symbolica's
-    /// forward `U`/`L` matrices coexist with the serial back-substitution
-    /// output. This is charged only by the target-directed API.
+    /// Maximum conservative live nonzero-entry capacity while the original
+    /// forward `U`/`L`, the copied physical-pivot rows of `U`, and the
+    /// prospective serial back-substitution output coexist. Column-bounded
+    /// pivot-map and native scratch storage are not counted in these units.
+    /// This is charged only by the target-directed API.
     pub max_back_substitution_live_nonzero_entries: usize,
     pub max_rule_guards: usize,
     pub max_guard_origins: usize,

@@ -18,7 +18,6 @@ use super::{CANONICAL_DOT_TARGET_SHIFT, FOUR_LINE_SECTOR, ZERO_SOURCE_SHIFT};
 
 const BASE_CORNER: [i64; 6] = FOUR_LINE_SECTOR;
 const ISOLATED_DOT_SOURCE_ORDINALS: [usize; 2] = [0, 3];
-const OPPOSITE_PAIR_SOURCE_ORDINALS: [usize; 4] = [0, 1, 3, 8];
 const OPPOSITE_PAIR_SOURCE_SHIFT: [i64; 6] = [0, 0, 1, 0, 0, 0];
 pub(super) const ADJACENT_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 1, 1, 0];
 pub(super) const OPPOSITE_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 0, 1, 0];
@@ -28,10 +27,10 @@ pub(super) const OPPOSITE_DOT_PAIR_TARGET_SHIFT: [i64; 6] = [0, 0, 1, 0, 1, 0];
 ///
 /// The first lowers the isolated canonical dot excluded by the ordinary
 /// positive-box recurrence. The second lowers the opposite two-dot orbit from
-/// one translated ordinary-source layer. Both specialize the whole base
-/// corner so its order-eight setwise stabilizer can route equivalent edge
-/// decorations. The adjacent two-dot orbit and every numerator face remain
-/// explicit closure obligations.
+/// the complete nine-row translated ordinary-source layer, whose exact RREF
+/// selects five rows. Both specialize the whole base corner so its order-eight
+/// setwise stabilizer can route equivalent edge decorations. The adjacent
+/// two-dot orbit and every numerator face remain explicit closure obligations.
 pub(super) fn derive_exceptional_four_line_cells()
 -> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
     let family = canonical_family()?;
@@ -39,7 +38,7 @@ pub(super) fn derive_exceptional_four_line_cells()
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
-    let (completed, _ordinary_source_count) = complete_ordinary_sources(&generator)?;
+    let (completed, ordinary_source_count) = complete_ordinary_sources(&generator)?;
 
     let isolated_sources = project_exact_corner_sources(
         &generator,
@@ -52,10 +51,11 @@ pub(super) fn derive_exceptional_four_line_cells()
     let isolated =
         derive_exact_corner_cell(&generator, isolated_sources, &CANONICAL_DOT_TARGET_SHIFT)?;
 
+    let opposite_source_ordinals = (0..ordinary_source_count).collect::<Vec<_>>();
     let opposite_sources = project_exact_corner_sources(
         &generator,
         &completed,
-        &OPPOSITE_PAIR_SOURCE_ORDINALS,
+        &opposite_source_ordinals,
         &canonicalizer,
         &zero_sectors,
         OPPOSITE_PAIR_SOURCE_SHIFT,

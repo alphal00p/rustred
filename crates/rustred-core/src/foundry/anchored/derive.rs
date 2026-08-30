@@ -43,9 +43,10 @@ pub fn derive_strictly_descending_rule(
 /// forward pivot. RustRed computes the complete pivot reachability before
 /// invoking Symbolica's deterministic serial back-substitution, retains every
 /// required pivot guard, and exactly replays the resulting source-row
-/// combination. A reachable provenance-column pivot is reported explicitly
-/// because the public guard model currently names physical pivots only. This
-/// function does not generalize the anchor or claim sector closure.
+/// combination. Back-substitution admits physical pivots only and treats the
+/// identity-augmentation columns as free right-hand-side coefficients, so
+/// dependent source rows cannot obstruct an otherwise valid target rule.
+/// This function does not generalize the anchor or claim sector closure.
 pub fn derive_strictly_descending_rule_for_target(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],

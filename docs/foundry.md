@@ -18,6 +18,13 @@ agreement gates. Generated tadpole and caller-selected two-loop sunset spans,
 a genuine two-source ordinary-IBP/LI elimination, and an all-four-row sunset
 target recurrence exercise these paths.
 
+Targeted back-substitution copies only normalized physical-pivot rows into its
+Symbolica upper-triangular system. Chronological identity/provenance columns
+remain free right-hand-side source weights, so linearly dependent input rows
+cannot become artificial elimination pivots. Duplicate-row and interleaved
+physical/provenance chronology tests pin exact transitive source weights and
+normalization guards.
+
 The target-directed parametric path also has a sector-monotone admission. It
 retains the exact fixed-sector rule and replay, then admits specialization on
 the maximal i64-representable parent-sector box. Each RHS shift first stores a
@@ -75,9 +82,10 @@ are routed through the exact `S4` canonicalizer. The translated dot rule is
 singular at the isolated pure-dot corner. A fixed-corner residual projection
 lowers that corner to the scalar corner from two selected ordinary rows and
 routes all four raw dot placements. A one-dot translated projection supplies
-a strict-descent recurrence for the opposite two-dot orbit from four selected
-rows; exact canonicalization routes its two raw placements. Its descendants
-remain obligations of the surrounding fixed point.
+a strict-descent recurrence for the opposite two-dot orbit from the complete
+nine-row ordinary-source layer; exact RREF selects five rows and exact
+canonicalization routes its two raw placements. Its descendants remain
+obligations of the surrounding fixed point.
 The inequivalent four-placement adjacent-pair orbit remains an explicit typed
 residual after the complete untranslated span reports the target absent and
 the natural translated span reports that it is not a pivot. These bounded

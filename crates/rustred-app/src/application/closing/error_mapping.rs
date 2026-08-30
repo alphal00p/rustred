@@ -344,7 +344,6 @@ fn anchored_rule_error_kind(error: &rustred::foundry::anchored::AnchoredRuleErro
         | AnchoredRuleError::TargetIntegralAbsent
         | AnchoredRuleError::TargetIntegralNotPivot
         | AnchoredRuleError::TargetHasNoStrictlyDescendingRule
-        | AnchoredRuleError::TargetBackSubstitutionUsesProvenancePivot { .. }
         | AnchoredRuleError::WrongSourceContext { .. }
         | AnchoredRuleError::WrongSourceFamily { .. }
         | AnchoredRuleError::AnchorIndexOverflow { .. }
@@ -381,7 +380,6 @@ fn parametric_rule_error_kind(
         | ParametricRuleError::TargetShiftAbsent
         | ParametricRuleError::TargetShiftNotPivot
         | ParametricRuleError::TargetHasNoUniformlyDescendingRule
-        | ParametricRuleError::TargetBackSubstitutionUsesProvenancePivot { .. }
         | ParametricRuleError::WrongSourceContext { .. }
         | ParametricRuleError::WrongSourceFamily { .. }
         | ParametricRuleError::IdenticallyZeroSourceCondition { .. }

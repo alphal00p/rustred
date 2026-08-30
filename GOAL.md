@@ -63,9 +63,10 @@ IBP and LI source rows, authenticates physical and auxiliary family
 presentations, verifies supplied affine symmetries, analyzes requested zero
 sectors, and provides deterministic campaign primitives. Its foundry can
 derive concrete-anchor and guarded fixed-sector recurrences over Symbolica
-`K(n)`, select a requested pivot with deterministic Symbolica RREF, prove
-uniform descent, exactly replay source combinations, partition target-sector
-domains, and stream proper-subsector obligations.
+`K(n)`, select a requested physical pivot with deterministic Symbolica RREF
+while keeping provenance columns free, prove uniform descent, exactly replay
+source combinations, partition target-sector domains, and stream proper-
+subsector obligations.
 
 The core now freshly generates and seals the canonical unit-mass one-loop
 partition and equal-mass two-loop sunset as mathematical and durable closing
@@ -113,9 +114,10 @@ and a canonical mixed numerator/dot cell from the untranslated span. Exact
 cell's `n1 - 1` guard excludes its isolated corner. A fixed-corner residual
 projection now lowers that isolated dot to the scalar corner with the exact
 rows `ordinary-ibp:0:0` and `ordinary-ibp:1:0`. A one-dot translated
-projection supplies a recurrence for the opposite two-dot orbit with four
-selected rows and three strictly descending right-hand-side terms; those terms
-remain subject to the surrounding fixed-point obligations. Exact global
+projection of the complete nine-row ordinary-source layer supplies a
+recurrence for the opposite two-dot orbit; exact RREF selects five rows and
+produces three strictly descending right-hand-side terms. Those terms remain
+subject to the surrounding fixed-point obligations. Exact global
 canonicalization covers all four isolated-dot placements and both raw
 opposite-pair placements. The inequivalent
 adjacent two-dot orbit remains a typed uncovered obligation: neither the

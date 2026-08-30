@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use symbolica::domains::SelfRing;
+
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext};
 use crate::foundry::dependency::{
     ParametricDependencyError, ParametricDependencyLimits, ParametricProperSubsectorPlan,
@@ -653,7 +655,7 @@ fn targeted_parametric_back_substitution_budgets_have_exact_boundaries() {
     let defaults = ParametricRuleLimits::default();
     let exact = ParametricRuleLimits {
         max_back_substitution_output_nonzero_entries: 3,
-        max_back_substitution_live_nonzero_entries: 7,
+        max_back_substitution_live_nonzero_entries: 10,
         ..defaults
     };
     derive_sector_interior_rule_for_target(
@@ -692,20 +694,20 @@ fn targeted_parametric_back_substitution_budgets_have_exact_boundaries() {
             &[1],
             OrderingPolicy::default(),
             ParametricRuleLimits {
-                max_back_substitution_live_nonzero_entries: 6,
+                max_back_substitution_live_nonzero_entries: 9,
                 ..exact
             },
         ),
         Err(ParametricRuleError::ResourceLimit {
             resource: "Symbolica target back-substitution live nonzero entries",
-            requested: 7,
-            limit: 6,
+            requested: 10,
+            limit: 9,
         })
     );
 }
 
 #[test]
-fn targeted_parametric_path_rejects_reachable_provenance_pivots() {
+fn targeted_parametric_path_keeps_duplicate_provenance_columns_free() {
     let (_, context, relations) = sunset_sources();
     let limits = ParametricRuleLimits::default();
     let mut problem = prepare_problem(
@@ -716,18 +718,37 @@ fn targeted_parametric_path_rejects_reachable_provenance_pivots() {
         limits,
     )
     .unwrap();
-    let provenance_pivot = problem.columns.len();
     problem.sources = duplicate_physical_rows(&context);
 
+    let reduced = reduce_rows_for_target(&context, &problem, 0, limits).unwrap();
+    assert_eq!(reduced.pivot_column, 0);
     assert_eq!(
-        reduce_rows_for_target(&context, &problem, 0, limits).err(),
-        Some(
-            ParametricRuleError::TargetBackSubstitutionUsesProvenancePivot {
-                source_ordinal: 1,
-                pivot_column: provenance_pivot,
-            }
-        )
+        reduced
+            .shift_entries
+            .iter()
+            .map(|(column, coefficient)| (*column, coefficient.raw().is_one()))
+            .collect::<Vec<_>>(),
+        [(0, true), (1, true)]
     );
+    assert_eq!(reduced.source_combination.len(), 1);
+    assert_eq!(reduced.source_combination[0].source_ordinal(), 0);
+    assert_eq!(
+        reduced.source_combination[0].row_id(),
+        &RowId::Derived {
+            label: Arc::from("first")
+        }
+    );
+    assert!(reduced.source_combination[0].coefficient().raw().is_one());
+    assert_eq!(reduced.pivot_guards.len(), 1);
+    assert_eq!(reduced.pivot_guards[0].source_ordinal(), 0);
+    assert_eq!(
+        reduced.pivot_guards[0].row_id(),
+        &RowId::Derived {
+            label: Arc::from("first")
+        }
+    );
+    assert_eq!(reduced.pivot_guards[0].pivot_column(), 0);
+    assert!(reduced.pivot_guards[0].coefficient().raw().is_one());
 
     problem.sources = vec![PreparedSourceRow {
         row_id: RowId::Derived {
@@ -740,6 +761,102 @@ fn targeted_parametric_path_rejects_reachable_provenance_pivots() {
         reduce_rows_for_target(&context, &problem, 0, limits).err(),
         Some(ParametricRuleError::TargetHasNoUniformlyDescendingRule)
     );
+}
+
+#[test]
+fn targeted_parametric_path_remaps_a_later_physical_pivot_across_a_provenance_row() {
+    let (_, context, relations) = sunset_sources();
+    let limits = ParametricRuleLimits::default();
+    let mut problem = prepare_problem(
+        &context,
+        &relations,
+        &[2, 2, 2],
+        OrderingPolicy::default(),
+        limits,
+    )
+    .unwrap();
+    assert!(problem.columns.len() >= 3);
+    problem.sources = vec![
+        PreparedSourceRow {
+            row_id: RowId::Derived {
+                label: Arc::from("first-physical"),
+            },
+            entries: vec![(0, context.integer(2))],
+            guards: Vec::new(),
+        },
+        PreparedSourceRow {
+            row_id: RowId::Derived {
+                label: Arc::from("dependent-provenance"),
+            },
+            entries: vec![(0, context.integer(4))],
+            guards: Vec::new(),
+        },
+        PreparedSourceRow {
+            row_id: RowId::Derived {
+                label: Arc::from("later-physical"),
+            },
+            entries: vec![
+                (0, context.integer(6)),
+                (1, context.integer(3)),
+                (2, context.integer(3)),
+            ],
+            guards: Vec::new(),
+        },
+    ];
+
+    // The requested pivot starts as reducer row 2, becomes physical-CSR row 1,
+    // and becomes reverse-RREF row 0. Looking it up through the remapped pivot
+    // map is therefore required to recover this exact row.
+    let reduced = reduce_rows_for_target(&context, &problem, 1, limits).unwrap();
+    assert_eq!(reduced.pivot_column, 1);
+    assert_eq!(
+        reduced
+            .shift_entries
+            .iter()
+            .map(|(column, coefficient)| (*column, coefficient.raw().is_one()))
+            .collect::<Vec<_>>(),
+        [(1, true), (2, true)]
+    );
+
+    let minus_one = context.integer(-1);
+    let one_third = context.div(&context.one(), &context.integer(3)).unwrap();
+    assert_eq!(reduced.source_combination.len(), 2);
+    assert_eq!(reduced.source_combination[0].source_ordinal(), 0);
+    assert_eq!(
+        reduced.source_combination[0].row_id(),
+        &RowId::Derived {
+            label: Arc::from("first-physical")
+        }
+    );
+    assert_eq!(reduced.source_combination[0].coefficient(), &minus_one);
+    assert_eq!(reduced.source_combination[1].source_ordinal(), 2);
+    assert_eq!(
+        reduced.source_combination[1].row_id(),
+        &RowId::Derived {
+            label: Arc::from("later-physical")
+        }
+    );
+    assert_eq!(reduced.source_combination[1].coefficient(), &one_third);
+
+    assert_eq!(reduced.pivot_guards.len(), 2);
+    assert_eq!(reduced.pivot_guards[0].source_ordinal(), 0);
+    assert_eq!(
+        reduced.pivot_guards[0].row_id(),
+        &RowId::Derived {
+            label: Arc::from("first-physical")
+        }
+    );
+    assert_eq!(reduced.pivot_guards[0].pivot_column(), 0);
+    assert_eq!(reduced.pivot_guards[0].coefficient(), &context.integer(2));
+    assert_eq!(reduced.pivot_guards[1].source_ordinal(), 2);
+    assert_eq!(
+        reduced.pivot_guards[1].row_id(),
+        &RowId::Derived {
+            label: Arc::from("later-physical")
+        }
+    );
+    assert_eq!(reduced.pivot_guards[1].pivot_column(), 1);
+    assert_eq!(reduced.pivot_guards[1].coefficient(), &context.integer(3));
 }
 
 fn duplicate_physical_rows(context: &IndexedCoefficientContext) -> Vec<PreparedSourceRow> {

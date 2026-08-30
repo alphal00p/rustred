@@ -299,7 +299,9 @@ RustRed supplies map authentication, guards, structural admission, uniform
 descent, and exact source replay. Requested pivots use Symbolica's public
 deterministic serial back-substitution after a RustRed-owned resource and pivot
 reachability preflight; the reduced row is replayed from its chronological
-provenance. The native reducer's fixed forward-pivot semantics, lack of
+provenance. Only normalized physical-pivot rows enter that back-substitution;
+chronological identity columns remain free source-weight columns. The native
+reducer's fixed forward-pivot semantics, lack of
 cancellation, and opaque scratch memory remain explicit limitations, not
 permission to write another sparse field reducer.
 

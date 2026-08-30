@@ -24,8 +24,9 @@ The currently evidenced core can:
   parametric recurrence over `K(n)`, accepting the latter only after exact
   symbolic replay, uniform descent proofs, retained nonzero guards, and
   independent anchored agreement, with an optional requested-pivot path that
-  performs deterministic Symbolica RREF and retains every reachable pivot
-  guard;
+  performs deterministic Symbolica RREF over physical pivots, keeps
+  chronological provenance columns as free source weights, and retains every
+  reachable pivot guard;
 - refine sector-monotone RHS shifts into lazy exact fixed-target-sector cells
   and stream preflighted O(1), rule-bound proper-subsector obligation
   descriptors with stable process-local resume and on-demand domain
@@ -87,11 +88,12 @@ cell, while the untranslated span supplies the canonical mixed
 numerator/dot cell, including its isolated mixed corner. Exact fixed-corner
 projections additionally lower the isolated pure-dot orbit to the scalar
 corner and supply a strict-descent recurrence for the opposite two-dot orbit
-from selected source subsets. The latter's descendants remain part of
-the fixed-point obligations. The inequivalent adjacent two-dot orbit remains
-explicitly uncovered after exact tests of the complete untranslated span and
-its natural one-dot translation. Deeper dot/numerator faces and the rest of
-the fixed point remain open.
+from the complete nine-row one-dot translated source layer, with exact RREF
+selecting five rows. The latter's descendants remain part of the fixed-point
+obligations. The inequivalent adjacent two-dot orbit remains explicitly
+uncovered after exact tests of the complete untranslated span and its natural
+one-dot translation. Deeper dot/numerator faces and the rest of the fixed point
+remain open.
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.
 

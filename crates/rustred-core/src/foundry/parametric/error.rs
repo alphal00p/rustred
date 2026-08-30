@@ -21,10 +21,6 @@ pub enum ParametricRuleError {
     TargetShiftAbsent,
     TargetShiftNotPivot,
     TargetHasNoUniformlyDescendingRule,
-    TargetBackSubstitutionUsesProvenancePivot {
-        source_ordinal: usize,
-        pivot_column: usize,
-    },
     WrongSourceContext {
         source_ordinal: usize,
     },
@@ -107,13 +103,6 @@ impl fmt::Display for ParametricRuleError {
             ),
             Self::TargetHasNoUniformlyDescendingRule => formatter.write_str(
                 "the requested target pivot has no nonempty uniformly lower right-hand side after back-substitution",
-            ),
-            Self::TargetBackSubstitutionUsesProvenancePivot {
-                source_ordinal,
-                pivot_column,
-            } => write!(
-                formatter,
-                "targeted back-substitution reaches unsupported provenance-column pivot {pivot_column} from source row {source_ordinal}"
             ),
             Self::WrongSourceContext { source_ordinal } => write!(
                 formatter,

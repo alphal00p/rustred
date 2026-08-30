@@ -53,10 +53,11 @@ pub fn derive_sector_interior_rule(
 /// invoking Symbolica's deterministic serial back-substitution, retains every
 /// required physical pivot guard, replays the exact indexed source
 /// combination, proves uniform descent, and compares against an independently
-/// targeted anchored derivation. A reachable provenance-column pivot is
-/// reported explicitly because the public guard model currently names
-/// physical pivots only. This function does not claim exceptional-domain
-/// coverage or closure.
+/// targeted anchored derivation. Back-substitution admits physical pivots only
+/// and treats the identity-augmentation columns as free right-hand-side
+/// coefficients, so dependent source rows cannot obstruct an otherwise valid
+/// target rule. This function does not claim exceptional-domain coverage or
+/// closure.
 pub fn derive_sector_interior_rule_for_target(
     context: &IndexedCoefficientContext,
     relations: &[ParametricRelation],

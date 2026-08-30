@@ -278,19 +278,24 @@ fn reduce_rows_with_selection(
                     max_output_nonzero_entries: limits.max_back_substitution_output_nonzero_entries,
                     max_live_nonzero_entries: limits.max_back_substitution_live_nonzero_entries,
                 };
-                let admission = target_rref::admit_back_substitution(
-                    &reducer,
-                    augmented_columns,
-                    target_limits,
-                )
-                .map_err(map_target_rref_error)?;
+                let (admission, physical_u, physical_pivots) =
+                    target_rref::admit_back_substitution(
+                        &reducer,
+                        integral_columns,
+                        augmented_columns,
+                        target_limits,
+                    )
+                    .map_err(map_target_rref_error)?;
+                let mut physical_reducer = call_native(
+                    "constructing Symbolica's physical target upper-triangular system",
+                    || SparseRowReducer::from_upper_triangular_matrix(physical_u, physical_pivots),
+                )?;
                 call_native(
-                    "serially back-substituting Symbolica's sparse row reducer",
-                    || reducer.back_substitute(),
+                    "serially back-substituting Symbolica's physical sparse row reducer",
+                    || physical_reducer.back_substitute(),
                 )?;
                 let output_nonzeros = target_rref::postvalidate_back_substitution(
-                    &reducer,
-                    metadata.len(),
+                    &physical_reducer,
                     augmented_columns,
                     admission,
                     target_limits,
@@ -301,7 +306,7 @@ fn reduce_rows_with_selection(
                     output_nonzeros,
                     limits.max_native_decomposition_nonzero_entries,
                 )?;
-                let target_row = reducer
+                let target_row = physical_reducer
                     .pivots()
                     .get(integral_column)
                     .copied()
@@ -309,6 +314,7 @@ fn reduce_rows_with_selection(
                     .ok_or(AnchoredRuleError::ReducerInvariant {
                         detail: "serial back-substitution lost the requested target pivot",
                     })? as usize;
+                reducer = physical_reducer;
                 (integral_column, target_row, None, true)
             }
         };
@@ -470,12 +476,5 @@ fn map_target_rref_error(error: TargetRrefError) -> AnchoredRuleError {
             requested,
         },
         TargetRrefError::Invariant { detail } => AnchoredRuleError::ReducerInvariant { detail },
-        TargetRrefError::ProvenancePivot {
-            source_ordinal,
-            pivot_column,
-        } => AnchoredRuleError::TargetBackSubstitutionUsesProvenancePivot {
-            source_ordinal,
-            pivot_column,
-        },
     }
 }
