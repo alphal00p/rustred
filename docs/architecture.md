@@ -19,8 +19,10 @@ RustRed currently provides a topology-neutral mathematical spine for:
   symbolic integral indices;
 - authenticated physical/auxiliary family presentations and sealed semantic
   admission for a common-scale vacuum lane;
-- bounded scalar, odd-rank, and global rank-two vacuum tensor projection, with
-  separately callable affine scalar-product lowering onto integral keys;
+- bounded scalar, odd-rank, and global rank-two vacuum tensor projection;
+- separate, artifact-bound lowering of already scalarized polynomial vacuum
+  numerators onto shifted integral keys, with exact affine coefficients and
+  explicit common-mass powers;
 - concrete-anchor and fixed-sector parametric foundry boundaries that derive
   guarded strictly descending rows through Symbolica's sparse reducer; the
   latter eliminates directly over `K(n)` and requires exact symbolic replay,
@@ -100,7 +102,7 @@ mathematical representation or independent output schema.
 
 ## Core ownership DAG
 
-The nine current core domains are rooted at
+The ten current core domains are rooted at
 [`crates/rustred-core/src`](../crates/rustred-core/src):
 
 ```text
@@ -113,6 +115,7 @@ sector -----> family, algebra
 tensor -----> family, algebra, Symbolica public Rust API
 foundry ----> identity, sector, family, algebra, Symbolica public Rust API
 reduction --> foundry, sector, family, algebra
+scalar_numerator --> foundry, family, algebra, Symbolica public Rust API
 campaign ---> Rayon and Symbolica license admission
 ```
 

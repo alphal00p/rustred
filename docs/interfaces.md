@@ -38,6 +38,10 @@ The public `rustred` facade is organized by mathematical owner:
 - `tensor` owns validated caller Symbolica heads, sealed-evidence lane
   selection, bounded key-aware Lorentz projection, and affine scalar-product
   lowering onto typed integral keys;
+- `scalar_numerator` starts after tensor projection and lowers an already
+  scalarized polynomial vacuum numerator through a sealed artifact's affine
+  basis, returning exact shifted keys, spectator coefficients, and explicit
+  common-mass powers; it does not perform Lorentz projection;
 - `foundry::anchored` owns concrete-index rule derivation, while
   `foundry::parametric` owns fixed-sector `K(n)` elimination, uniform descent,
   exact symbolic replay, guards/provenance, and anchored agreement; both expose

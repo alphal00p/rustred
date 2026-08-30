@@ -17,8 +17,9 @@ The currently evidenced core can:
 - generate the complete ordinary parametric IBP and LI source rows;
 - exactly replay physical family rows/common-scale claims, retain auxiliary
   roles, and structurally validate caller-attested presentation metadata;
-- project scalar, odd-rank, and rank-two vacuum tensors and separately lower
-  explicit scalar products onto family integral keys;
+- project scalar, odd-rank, and rank-two vacuum tensors and, through a
+  separate post-projection service, lower polynomial loop--loop scalar
+  numerators onto shifted family keys with explicit common-mass powers;
 - derive both a guarded rule at one concrete anchor and a genuine fixed-sector
   parametric recurrence over `K(n)`, accepting the latter only after exact
   symbolic replay, uniform descent proofs, retained nonzero guards, and
