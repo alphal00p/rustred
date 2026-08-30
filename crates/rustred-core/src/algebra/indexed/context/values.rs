@@ -1,3 +1,6 @@
+#[cfg(test)]
+use std::mem::size_of;
+
 use symbolica::domains::rational_polynomial::FromNumeratorAndDenominator;
 use symbolica::prelude::*;
 
@@ -7,6 +10,8 @@ use crate::algebra::{
 };
 
 use super::super::error::IndexedAlgebraError;
+#[cfg(test)]
+use super::super::limits::integer_magnitude_bits;
 use super::super::value::{IndexedCoefficient, IndexedPolynomial};
 use super::{BoundIndexedCoefficient, IndexedCoefficientContext};
 
@@ -66,6 +71,41 @@ impl IndexedCoefficientContext {
         value: &CoefficientPolynomial,
     ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
         let raw = self.extend_base_polynomial(value)?;
+        Ok(IndexedPolynomial {
+            raw,
+            context: self.fingerprint.clone(),
+        })
+    }
+
+    /// Return the canonical primitive associate of one authenticated nonzero
+    /// integer polynomial.
+    ///
+    /// Exact guard predicates are zero loci, so multiplication by a nonzero
+    /// integer constant must not create another branch. Symbolica removes the
+    /// integer content; RustRed fixes the remaining unit by requiring a
+    /// positive leading coefficient. Callers must reject zero before entering
+    /// this boundary.
+    #[cfg(test)]
+    pub(crate) fn primitive_guard_associate_with_limits(
+        &self,
+        value: &IndexedPolynomial,
+        limits: ExactAlgebraLimits,
+        serialization_byte_limit: usize,
+    ) -> Result<IndexedPolynomial, IndexedAlgebraError> {
+        self.validate_polynomial_with_limits(value, limits)?;
+        debug_assert!(!value.is_zero());
+        preflight_guard_polynomial_payload(&value.raw, serialization_byte_limit)?;
+        let mut raw = value.raw.clone().make_primitive();
+        if raw.lcoeff().is_negative() {
+            raw = raw.mul_coeff(Integer::from(-1));
+        }
+        validate_polynomial_on_map(
+            &raw,
+            &self.variables,
+            crate::algebra::CoefficientPolynomialPart::Numerator,
+            limits,
+        )?;
+        preflight_guard_polynomial_payload(&raw, serialization_byte_limit)?;
         Ok(IndexedPolynomial {
             raw,
             context: self.fingerprint.clone(),
@@ -196,4 +236,132 @@ impl IndexedCoefficientContext {
         }
         result
     }
+}
+
+/// Conservatively bound the complete sparse payload before cloning or
+/// formatting a guard polynomial. The rational upper approximation
+/// `30103 / 100000 > log10(2)` bounds decimal coefficient strings without
+/// allocating them; the second envelope includes the cloned integer and
+/// exponent buffers.
+#[cfg(test)]
+fn preflight_guard_polynomial_payload(
+    polynomial: &CoefficientPolynomial,
+    byte_limit: usize,
+) -> Result<(), IndexedAlgebraError> {
+    const LOG10_2_NUMERATOR_UPPER: usize = 30_103;
+    const LOG10_2_DENOMINATOR: usize = 100_000;
+    let mut serialized = 0usize;
+    let mut cloned = polynomial
+        .coefficients
+        .len()
+        .checked_mul(size_of::<Integer>())
+        .and_then(|bytes| {
+            polynomial
+                .exponents
+                .len()
+                .checked_mul(size_of::<u16>())
+                .and_then(|exponents| bytes.checked_add(exponents))
+        })
+        .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+            resource: "guard polynomial cloned payload bytes",
+        })?;
+    for (coefficient, exponents) in polynomial
+        .coefficients
+        .iter()
+        .zip(polynomial.exponents_iter())
+    {
+        let bits = usize::try_from(integer_magnitude_bits(coefficient)).map_err(|_| {
+            IndexedAlgebraError::ResourceCountOverflow {
+                resource: "guard polynomial serialized payload bytes",
+            }
+        })?;
+        let digits = bits
+            .checked_mul(LOG10_2_NUMERATOR_UPPER)
+            .and_then(|scaled| scaled.checked_add(LOG10_2_DENOMINATOR - 1))
+            .map(|rounded| rounded / LOG10_2_DENOMINATOR)
+            .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                resource: "guard polynomial serialized payload bytes",
+            })?
+            .max(1);
+        let coefficient_bytes = digits
+            .checked_add(usize::from(coefficient.is_negative()))
+            .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                resource: "guard polynomial serialized payload bytes",
+            })?;
+        let mut term = decimal_digits(coefficient_bytes)
+            .checked_add(1)
+            .and_then(|bytes| bytes.checked_add(coefficient_bytes))
+            .and_then(|bytes| bytes.checked_add(2))
+            .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                resource: "guard polynomial serialized payload bytes",
+            })?;
+        for (position, &exponent) in exponents.iter().enumerate() {
+            if position != 0 {
+                term = term
+                    .checked_add(1)
+                    .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                        resource: "guard polynomial serialized payload bytes",
+                    })?;
+            }
+            term = term
+                .checked_add(decimal_digits(usize::from(exponent)))
+                .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard polynomial serialized payload bytes",
+                })?;
+        }
+        term = term
+            .checked_add(2)
+            .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                resource: "guard polynomial serialized payload bytes",
+            })?;
+        serialized =
+            serialized
+                .checked_add(term)
+                .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard polynomial serialized payload bytes",
+                })?;
+        if let Integer::Large(value) = coefficient {
+            let capacity_bits = usize::try_from(value.capacity()).map_err(|_| {
+                IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard polynomial cloned payload bytes",
+                }
+            })?;
+            let capacity_bytes = capacity_bits
+                .checked_add(7)
+                .map(|rounded| rounded / 8)
+                .ok_or(IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard polynomial cloned payload bytes",
+                })?;
+            cloned = cloned.checked_add(capacity_bytes).ok_or(
+                IndexedAlgebraError::ResourceCountOverflow {
+                    resource: "guard polynomial cloned payload bytes",
+                },
+            )?;
+        }
+        if serialized > byte_limit {
+            return Err(IndexedAlgebraError::ResourceLimit {
+                resource: "guard polynomial serialized payload bytes",
+                requested: serialized,
+                limit: byte_limit,
+            });
+        }
+    }
+    if cloned > byte_limit {
+        return Err(IndexedAlgebraError::ResourceLimit {
+            resource: "guard polynomial cloned payload bytes",
+            requested: cloned,
+            limit: byte_limit,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn decimal_digits(mut value: usize) -> usize {
+    let mut digits = 1usize;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    digits
 }

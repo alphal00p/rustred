@@ -2,7 +2,7 @@ use std::sync::{Arc, Barrier};
 
 use symbolica::{
     atom::{NamespacedSymbol, SymbolAttribute, SymbolBuilder},
-    prelude::AtomCore,
+    prelude::{AtomCore, Integer},
 };
 
 use crate::algebra::{CoefficientContext, ExactAlgebraError, ExactAlgebraLimits};
@@ -411,6 +411,54 @@ fn native_result_ingress_authenticates_once_before_sealing() {
     assert!(context.contains(&admitted));
     assert_eq!(after.0 - before.0, 0);
     assert_eq!(after.1 - before.1, 1);
+}
+
+#[test]
+fn primitive_guard_serialization_rejects_large_integers_before_formatting() {
+    let base = CoefficientContext::new(["x"]);
+    let context = IndexedCoefficientContext::try_new(&base, "guard-byte-preflight", 1).unwrap();
+    let mut raw = context.one().raw().clone();
+    raw.numerator.coefficients[0] = Integer::from(1) << 2_000_u32;
+    let coefficient = context
+        .admit_native_result_with_limits(raw, ExactAlgebraLimits::default())
+        .unwrap();
+    let polynomial = context
+        .numerator_condition_with_limits(&coefficient, ExactAlgebraLimits::default())
+        .unwrap();
+    assert!(matches!(
+        context.primitive_guard_associate_with_limits(
+            &polynomial,
+            ExactAlgebraLimits::default(),
+            16,
+        ),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "guard polynomial serialized payload bytes",
+            requested,
+            limit: 16,
+        }) if requested > 16
+    ));
+}
+
+#[test]
+fn primitive_guard_serialization_bounds_the_exponent_clone_before_allocation() {
+    let base = CoefficientContext::new(["x"]);
+    let context =
+        IndexedCoefficientContext::try_new(&base, "guard-exponent-preflight", 64).unwrap();
+    let polynomial = context
+        .numerator_condition_with_limits(&context.index(0).unwrap(), ExactAlgebraLimits::default())
+        .unwrap();
+    assert!(matches!(
+        context.primitive_guard_associate_with_limits(
+            &polynomial,
+            ExactAlgebraLimits::default(),
+            16,
+        ),
+        Err(IndexedAlgebraError::ResourceLimit {
+            resource: "guard polynomial serialized payload bytes",
+            requested,
+            limit: 16,
+        }) if requested > 16
+    ));
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use crate::algebra::{CoefficientContext, IndexedCoefficientContext};
 use crate::foundry::artifact::derive_one_loop_unit_mass_tadpole;
 use crate::identity::{CompletedIbpSourceRows, ParametricIbpGenerator};
 use crate::sector::{
@@ -6,8 +7,9 @@ use crate::sector::{
 
 use super::super::frame::{PhysicalFrameLimits, PhysicalFramePlan};
 use super::{
-    DecoratedStratum, ForbiddenColumnReason, GuardBranch, GuardBranchIdentity, ImmutableOwnerKind,
-    ImmutableOwnerSnapshot, StratumRegistryError, StratumRegistryLimits, TargetColumnPartition,
+    DecoratedStratum, ForbiddenColumnReason, GuardBranch, GuardBranchIdentity,
+    GuardPredicateAuthority, ImmutableOwnerKind, ImmutableOwnerSnapshot, StratumRegistryError,
+    StratumRegistryLimits, TargetColumnPartition,
 };
 
 fn complete_ordinary(generator: &ParametricIbpGenerator<'_>) -> CompletedIbpSourceRows {
@@ -77,7 +79,12 @@ fn decorated_guard_identity_is_canonical_and_rejects_ambiguous_branches() {
             .try_verify(StratumRegistryLimits::default())
             .unwrap()
     );
-    assert!(ordered.id().as_str().contains("1#g=nonzero,1#h=zero"));
+    assert!(
+        ordered
+            .id()
+            .as_str()
+            .contains("1#g=external/nonzero,1#h=external/zero")
+    );
 
     assert_eq!(
         DecoratedStratum::try_new(
@@ -151,9 +158,100 @@ fn decorated_guard_identity_is_canonical_and_rejects_ambiguous_branches() {
         .unwrap_err(),
         StratumRegistryError::ResourceLimit {
             resource: "decorated-stratum identity bytes",
-            requested: "rustred.decorated-stratum.v2:".len(),
+            requested: "rustred.decorated-stratum.v3:".len(),
             limit: 0,
         }
+    );
+}
+
+#[test]
+fn exact_guard_identity_uses_symbolica_primitive_associates_and_context_order() {
+    let base = CoefficientContext::new(["d"]);
+    let context = IndexedCoefficientContext::try_new(&base, "guard-associates", 1).unwrap();
+    let n_plus_one = context
+        .add(&context.index(0).unwrap(), &context.one())
+        .unwrap();
+    let minus_two_times = context.mul(&context.integer(-2), &n_plus_one).unwrap();
+    let positive = context
+        .numerator_condition_with_limits(&n_plus_one, Default::default())
+        .unwrap();
+    let associate = context
+        .numerator_condition_with_limits(&minus_two_times, Default::default())
+        .unwrap();
+    let limits = StratumRegistryLimits::default();
+    let first = GuardBranchIdentity::try_from_indexed_polynomial(
+        &context,
+        &positive,
+        GuardBranch::NonZero,
+        Default::default(),
+        limits,
+    )
+    .unwrap();
+    let second = GuardBranchIdentity::try_from_indexed_polynomial(
+        &context,
+        &associate,
+        GuardBranch::NonZero,
+        Default::default(),
+        limits,
+    )
+    .unwrap();
+    assert_eq!(first, second);
+    assert_eq!(
+        first.authority(),
+        GuardPredicateAuthority::IndexedPolynomial
+    );
+    assert!(
+        first
+            .predicate()
+            .starts_with("rustred.indexed-polynomial-guard.v1:")
+    );
+
+    let external_same_label = GuardBranchIdentity::try_new(
+        first.predicate(),
+        GuardBranch::Zero,
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert!(!first.same_predicate(&external_same_label));
+    let (_, frame) = one_loop_frame(0);
+    let base_stratum = maximal_stratum(&frame, 0);
+    let authority_namespaced = DecoratedStratum::try_new(
+        frame.family_fingerprint(),
+        frame.context_fingerprint(),
+        base_stratum.domain().clone(),
+        [first.clone(), external_same_label],
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(authority_namespaced.guards().len(), 2);
+
+    let foreign = IndexedCoefficientContext::try_new(&base, "guard-associates-foreign", 1).unwrap();
+    let foreign_polynomial = foreign
+        .numerator_condition_with_limits(&foreign.index(0).unwrap(), Default::default())
+        .unwrap();
+    let foreign_identity = GuardBranchIdentity::try_from_indexed_polynomial(
+        &foreign,
+        &foreign_polynomial,
+        GuardBranch::NonZero,
+        Default::default(),
+        limits,
+    )
+    .unwrap();
+    assert!(!first.same_predicate(&foreign_identity));
+
+    let zero = context
+        .numerator_condition_with_limits(&context.zero(), Default::default())
+        .unwrap();
+    assert_eq!(
+        GuardBranchIdentity::try_from_indexed_polynomial(
+            &context,
+            &zero,
+            GuardBranch::NonZero,
+            Default::default(),
+            limits,
+        )
+        .unwrap_err(),
+        StratumRegistryError::ZeroGuardPolynomial
     );
 }
 

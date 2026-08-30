@@ -268,9 +268,16 @@ pivot traces, exactly lifts one deterministic Discovery proposal, and treats
 HeldOut agreement strictly as nonauthoritative telemetry. Same-prime residue
 aliases cannot inflate a group, all retained forbidden-column diagnostics are
 preflighted, and coefficients are never combined across primes. This is still
-a discovery result, not a closing RuleCell: exact guard-stratum refinement,
-rule admission, all-rank complement ownership, and the outer-extension proof
-remain.
+a discovery result, not a closing RuleCell. The next exact test-only gate now
+canonicalizes every circuit guard to its Symbolica primitive integer
+associate and refines the parent into one all-nonzero child plus a disjoint
+ordered first-zero chain. A known-zero branch blocks the proposal; only the
+all-nonzero child retains the circuit, and every exceptional child restarts
+discovery without an owner. Authority-tagged identities, complete join checks,
+and pre-allocation byte/count envelopes are independently tested. This eager
+syntactic partition deliberately has no closure authority: semantic generic-
+parameter guard ideals, full rule admission, all-rank complement ownership,
+and the outer-extension proof remain.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

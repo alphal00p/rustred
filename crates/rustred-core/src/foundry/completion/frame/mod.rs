@@ -6,6 +6,7 @@
 //! [`modular`] child can sample and probe that physical pattern for discovery;
 //! neither layer performs symmetry quotienting or closure inference.
 
+pub(crate) mod admission;
 mod build;
 mod error;
 pub(crate) mod evidence;

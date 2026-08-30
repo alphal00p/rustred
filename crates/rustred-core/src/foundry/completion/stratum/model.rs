@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+use crate::algebra::{ExactAlgebraLimits, IndexedCoefficientContext, IndexedPolynomial};
 use crate::sector::SectorMonotoneDomain;
 
-use super::identity::{BoundedIdentityBuilder, try_copy_identity};
+use super::identity::{
+    BoundedIdentityBuilder, try_copy_identity, try_indexed_polynomial_guard_identity,
+};
 use super::{StratumRegistryError, StratumRegistryLimits, check_limit, checked_add, try_reserve};
 
 /// Which exact branch of one coefficient predicate defines a stratum.
@@ -21,6 +24,25 @@ impl GuardBranch {
     }
 }
 
+/// Which exact layer owns the predicate payload behind a branch identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) enum GuardPredicateAuthority {
+    /// A stable proof identity owned by another exact subsystem. The label is
+    /// not sufficient for exact-circuit guard admission.
+    BoundExternalProof,
+    /// Canonical primitive sparse polynomial plus indexed-context identity.
+    IndexedPolynomial,
+}
+
+impl GuardPredicateAuthority {
+    const fn stable_id(self) -> &'static str {
+        match self {
+            Self::BoundExternalProof => "external",
+            Self::IndexedPolynomial => "indexed-polynomial",
+        }
+    }
+}
+
 /// Stable identity of one already-proved guard branch.
 ///
 /// This value binds discovery evidence to a predicate owned by another exact
@@ -29,6 +51,7 @@ impl GuardBranch {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct GuardBranchIdentity {
     predicate: Arc<String>,
+    authority: GuardPredicateAuthority,
     branch: GuardBranch,
 }
 
@@ -50,6 +73,30 @@ impl GuardBranchIdentity {
         )?;
         Ok(Self {
             predicate: Arc::new(predicate),
+            authority: GuardPredicateAuthority::BoundExternalProof,
+            branch,
+        })
+    }
+
+    /// Bind a branch to the canonical primitive associate of one exact
+    /// indexed polynomial. Unlike [`Self::try_new`], this identity can satisfy
+    /// an exact-circuit guard during guard-stratum refinement.
+    pub(crate) fn try_from_indexed_polynomial(
+        context: &IndexedCoefficientContext,
+        polynomial: &IndexedPolynomial,
+        branch: GuardBranch,
+        algebra_limits: ExactAlgebraLimits,
+        limits: StratumRegistryLimits,
+    ) -> Result<Self, StratumRegistryError> {
+        let predicate = try_indexed_polynomial_guard_identity(
+            context,
+            polynomial,
+            algebra_limits,
+            limits.max_guard_identity_bytes,
+        )?;
+        Ok(Self {
+            predicate: Arc::new(predicate),
+            authority: GuardPredicateAuthority::IndexedPolynomial,
             branch,
         })
     }
@@ -58,8 +105,24 @@ impl GuardBranchIdentity {
         self.predicate.as_str()
     }
 
+    pub(crate) const fn authority(&self) -> GuardPredicateAuthority {
+        self.authority
+    }
+
     pub(crate) const fn branch(&self) -> GuardBranch {
         self.branch
+    }
+
+    pub(crate) fn same_predicate(&self, other: &Self) -> bool {
+        self.authority == other.authority && self.predicate == other.predicate
+    }
+
+    pub(crate) fn with_branch(&self, branch: GuardBranch) -> Self {
+        Self {
+            predicate: self.predicate.clone(),
+            authority: self.authority,
+            branch,
+        }
     }
 }
 
@@ -131,7 +194,7 @@ impl DecoratedStratum {
         }
         retained_guards.sort_unstable();
         for pair in retained_guards.windows(2) {
-            if pair[0].predicate() == pair[1].predicate() {
+            if pair[0].same_predicate(&pair[1]) {
                 return Err(if pair[0].branch() == pair[1].branch() {
                     StratumRegistryError::DuplicateGuardPredicate {
                         predicate: pair[0].predicate().to_owned(),
@@ -215,7 +278,7 @@ fn build_id(
         limits.max_stratum_identity_bytes,
         "decorated-stratum identity bytes",
     );
-    stable.push("rustred.decorated-stratum.v2:")?;
+    stable.push("rustred.decorated-stratum.v3:")?;
     stable.push_usize(family.len())?;
     stable.push("#")?;
     stable.push(family)?;
@@ -248,6 +311,8 @@ fn build_id(
         stable.push("#")?;
         stable.push(guard.predicate())?;
         stable.push("=")?;
+        stable.push(guard.authority().stable_id())?;
+        stable.push("/")?;
         stable.push(guard.branch().stable_id())?;
     }
     stable.push("]")?;

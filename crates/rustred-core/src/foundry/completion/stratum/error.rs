@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::algebra::IndexedAlgebraError;
 use crate::sector;
 
 /// Typed failures while binding physical columns to one exact stratum.
@@ -14,6 +15,7 @@ pub(crate) enum StratumRegistryError {
     ContradictoryGuardPredicate {
         predicate: String,
     },
+    ZeroGuardPolynomial,
     WrongFrameFamily,
     WrongFrameContext,
     WrongOwnerFamily,
@@ -43,6 +45,7 @@ pub(crate) enum StratumRegistryError {
         resource: &'static str,
         requested: usize,
     },
+    IndexedAlgebra(IndexedAlgebraError),
     Sector(sector::Error),
     Invariant {
         detail: &'static str,
@@ -63,6 +66,9 @@ impl fmt::Display for StratumRegistryError {
                 formatter,
                 "decorated stratum assigns both branches to guard predicate {predicate:?}"
             ),
+            Self::ZeroGuardPolynomial => {
+                formatter.write_str("an exact guard predicate polynomial is identically zero")
+            }
             Self::WrongFrameFamily => formatter
                 .write_str("decorated stratum and physical frame belong to different families"),
             Self::WrongFrameContext => formatter.write_str(
@@ -110,6 +116,12 @@ impl fmt::Display for StratumRegistryError {
                 formatter,
                 "could not reserve {requested} entries for {resource}"
             ),
+            Self::IndexedAlgebra(error) => {
+                write!(
+                    formatter,
+                    "exact guard polynomial authentication failed: {error}"
+                )
+            }
             Self::Sector(error) => write!(formatter, "sector proof failed: {error}"),
             Self::Invariant { detail } => write!(
                 formatter,
@@ -122,9 +134,16 @@ impl fmt::Display for StratumRegistryError {
 impl std::error::Error for StratumRegistryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::IndexedAlgebra(error) => Some(error),
             Self::Sector(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<IndexedAlgebraError> for StratumRegistryError {
+    fn from(error: IndexedAlgebraError) -> Self {
+        Self::IndexedAlgebra(error)
     }
 }
 

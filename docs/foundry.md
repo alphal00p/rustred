@@ -368,6 +368,32 @@ forbidden-column diagnostic—including the selected exact result's clone—and
 the one shared canonical trace scope before promotion. Tadpole adversarial
 controls and a genuine K6 `S4a` target exercise this boundary.
 
+The next exact circuit gate is now an executable test-only fallback. It binds
+the context, frame, target, parent stratum, immutable lower-owner snapshot,
+and complete forbidden-column diagnostics again before inspecting a circuit.
+Every nonzero guard receives an authority-tagged identity of its Symbolica
+primitive integer associate; constant multiples and sign cannot manufacture
+different atoms, while external proof labels cannot impersonate exact
+polynomials. Unknown atoms produce the deterministic disjoint first-zero
+partition `C and g0=0`, `C and g0!=0 and g1=0`, and so on, with one final
+all-nonzero child. Existing exact nonzero branches are reused, an existing
+zero branch blocks the circuit normally, and only the final child retains the
+circuit. Exceptional children carry no partition or owner and must restart
+discovery. Count, reference, identity, integer-formatting, and sparse-payload
+limits are enforced before the corresponding allocations. This proves only
+an exhaustive Boolean refinement of the retained syntactic atoms. It neither
+proves branch nonemptiness nor installs a RuleCell or a closure owner.
+
+For scaling, a guard in `Q(lambda)[n]` must ultimately be interpreted after
+integer-index specialization: it vanishes identically in the generic
+parameters `lambda` exactly when all of its parameter coefficients vanish.
+That exceptional set is therefore a coefficient ideal, not necessarily one
+polynomial hypersurface. The eager first-zero chain remains a sound fallback;
+a hash-consed decision DAG over semantic coefficient-ideal atoms and exact
+entailment is the research candidate for avoiding its quadratic repeated
+prefixes. Any nonlinear integer leaf not owned by another exact descending
+rule remains `Incomplete`.
+
 Terminal snapshots are the base of the completion DAG, not its final owner
 model. A K6 campaign cannot construct a closed parent artifact first and then
 use that same artifact to justify its own lower sectors. Completion therefore

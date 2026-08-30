@@ -389,9 +389,25 @@ unstable. It cannot invalidate a replayed exact identity or turn agreement
 into closure evidence. Cross-prime coefficients are never combined. Synthetic
 controls and a genuine K6 `S4a` target pass this complete schedule.
 
-This still does not complete A0 or install a new RuleCell. The next step is to
-refine every exact circuit onto its proved guard strata and admit only circuits
-whose full rule construction replays. Completion state remains separate by
+The first exact guard-refinement gate is now executable but remains test-only.
+It rebinds every circuit to the exact frame, target, parent stratum, forbidden
+columns, and immutable lower-owner snapshot; canonicalizes guards to
+authority-tagged Symbolica primitive integer associates; reuses known nonzero
+branches; blocks known-zero proposals; and partitions unknown atoms into one
+all-nonzero child plus a deterministic disjoint first-zero chain. Only the
+all-nonzero child retains the circuit. Exceptional children carry neither
+partition nor owner, so they restart discovery. Aggregate count/reference/
+identity limits and conservative arbitrary-integer/sparse-payload envelopes
+fire before allocation. Independent audit found no false-closure or
+non-disjointness path.
+
+This still does not complete A0 or install a new RuleCell. The eager syntactic
+partition is a sound fallback, not the intended scaling representation: after
+integer-index specialization, a guard over generic parameters vanishes when
+its complete parameter-coefficient ideal vanishes, so semantic ideal atoms
+and a hash-consed decision DAG are being researched to avoid redundant and
+quadratic first-zero trees. The next production step is full rule-construction
+replay on admitted semantic strata. Completion state remains separate by
 sector, fixed/free coordinates, application box, and guard branch. Exact
 all-rank coverage must then be proved by a finite owner cover rather than by
 the present `i64` carrier endpoints. A finite strictly descending rewrite

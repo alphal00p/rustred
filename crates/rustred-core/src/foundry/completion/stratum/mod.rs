@@ -20,7 +20,9 @@ mod partition;
 
 pub(crate) use error::StratumRegistryError;
 pub(crate) use limits::StratumRegistryLimits;
-pub(crate) use model::{DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity};
+pub(crate) use model::{
+    DecoratedStratum, DecoratedStratumId, GuardBranch, GuardBranchIdentity, GuardPredicateAuthority,
+};
 pub(crate) use owners::{
     ImmutableOwnerKind, ImmutableOwnerSnapshot, ImmutableOwnerSnapshotId, ImmutableOwnerWitness,
 };

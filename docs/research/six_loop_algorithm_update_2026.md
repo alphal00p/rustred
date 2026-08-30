@@ -167,6 +167,117 @@ must be converted to an exact implication witness before it enters this trusted 
 unbounded affine wall, congruence class, or nonlinear integer wall is a hard `Incomplete`, never a
 terminal label.
 
+#### Semantic generic-parameter guard atoms
+
+**Verified algebra.** For algebraically independent generic parameters `lambda`, expand a pulled-
+back guard as
+
+```text
+g(n;lambda) = sum_alpha c_alpha(n) lambda^alpha.
+```
+
+After specializing only the integer indices to `N`, the guard is zero in `Q[lambda]` exactly when
+every `c_alpha(N)` vanishes. Its exceptional locus is therefore the coefficient-ideal variety
+`V(I_g)`, with `I_g=<c_alpha(n)>`; applicability is the grouped open condition `D(I_g)`, not a
+hypersurface obtained by choosing numerical generic parameters. Rational denominators must be
+cleared first and retained as separate nonzero obligations. The target pullback also precedes the
+coefficient split: a coefficient `c(n)` multiplying shift `alpha` is tested as `c(N-alpha)`. For
+example, `(n1-n2) S1` has target guard `N1-1-N2`, not `N1-N2`.
+
+Two regressions distinguish this semantics from whole-polynomial identities. The guard
+`d(n0-1)+(n1-1)` has ideal `<n0-1,n1-1>`, hence is bad precisely when both indices equal one.
+The guards `(d+1)(n0-1)` and `n0-1` define the same generic-`d` bad locus. RustRed's current eager
+first-zero fallback deliberately does not merge either case: it canonicalizes only primitive
+integer associates, produces `u+1` disjoint children for `u` new atoms, and confers no closure
+authority. With `p` inherited and `u` new atoms it retains
+`p(u+1)+u(u+3)/2` branch references; `u=4096,p=0` already gives 8,394,752. This is sound but not a
+scaling representation.
+
+**RustRed inference.** A trusted leaf should have the factored form
+
+```text
+coordinate domain intersect V(E) intersect D(J1) intersect ... intersect D(Js),
+```
+
+where each `Jj` is one grouped coefficient ideal. Use a globally ordered, hash-consed decision DAG
+whose branch atom stores the complete context, source-guard fingerprint, affine pullback, normalized
+generator payload, and normalization proof. Complementary edges make Boolean disjointness
+structural; equal children are reduced. Hashes index full structurally compared payloads and never
+act as proof. This shares a conjunction of `u` required predicates in `O(u)` nodes rather than
+copying quadratic prefixes, though genuinely distinct overlapping conditions can still create an
+exponential state space.
+
+For algebraic-closure entailment, a constructible leaf is empty over `Qbar` iff one belongs to the
+ideal obtained from `E` and, for each open group `Jj=<f_jk>`, a fresh inverse equation
+`sum_k y_jk f_jk - 1`. Containment reduces to the same emptiness test. A publication certificate
+must retain a Nullstellensatz identity `sum_i h_i f_i=1`; a computed basis containing one is not
+independently checkable unless source cofactors are also recovered. Symbolica 2.2 exposes exact
+`Q`, multivariate GCD/factorization, public F4 `GroebnerBasis::new`, basis reduction, and basis
+verification ([polynomial API](https://symbolica.io/docs/polynomials.html)), but not extended-basis
+cofactors, saturation/radicals, comprehensive systems, hard term/degree/time/scratch limits, or
+cancellation. Consequently its Groebner engine is appropriate for a bounded helper-process
+prototype, not yet as artifact publication authority. RustRed should not implement a second CAS;
+bounded Macaulay cofactor recovery or an upstream Symbolica cofactor API is the preferred bridge.
+
+`Qbar` and integer conclusions must remain different types. Algebraic-closure emptiness safely
+prunes integer points; nonemptiness says nothing decisive over the integer lattice. Pell walls can
+have infinitely many sparse non-semilinear points, other positive-dimensional curves can have only
+finitely many integer points, and modular obstructions can prove integer emptiness even when the
+complex variety is nonempty. Generic nonlinear integer solvability is undecidable already in
+restricted finite-variable formulations; see [Sun, *Further results on Hilbert's Tenth
+Problem*](https://arxiv.org/abs/1704.03504). Such a wall remains an exact `Incomplete` DAG leaf
+unless another descending rule owns it or a bounded, affine-lattice, modular, or zero-dimensional
+integer certificate resolves it.
+
+The semantic-DAG implementation is a GO now; general Groebner pruning is research-only. K6 must
+pass the two coefficient-ideal examples and shifted-lead regression while keeping the existing 205
+guard occurrences on their cheap constant/univariate path. K10 must retain a Pell wall as
+unresolved and distinguish an algebraically nonempty but modularly integer-empty wall. K15 must
+compress the shared-wall family `g_i=(n1-1)(n_i-1)`, `i=2,...,15`, without allocating mask times
+truth-table state, and must fail closed under its node/byte cap. Every benchmark records guard-
+interaction treewidth, variables, generators, terms, degree, coefficient bits, auxiliary
+variables, wall time, and worker peak RSS. Relaxed master minimality changes only the economic
+gate: exact finite coverage comes first, followed by terminal count, symmetry compression,
+dot/numerator complexity, epsilon debt, and measured AMFlow block/SCC dimensions.
+
+#### Nonconfluent corner-cover theorem candidate
+
+**Verified result.** In the rational Weyl setting, a border prebasis already gives a terminating
+division into its finite order ideal; the later integrability conditions promote that spanning
+collection to an independent basis of the stated rank:
+[Rodriguez and Sattelberger, Algorithm 2.9 and Theorem 2.11](https://arxiv.org/abs/2510.23411).
+The ordinary IBP left ideal is finitely generated by the standard relations, although direct
+noncommutative Groebner computation can be impractical even for much smaller examples:
+[Barakat et al., Proposition 2.2](https://arxiv.org/abs/2210.05347).
+
+**RustRed inference.** The analogous positive-difference statement is the weakest promising
+six-loop certificate found in this review. Let `J` be generated by admitted exact IBP consequences,
+so `J` is a subideal of the complete physical IBP ideal. If every lattice point outside one finite
+sectorized tail has an applicable rule and every right-hand side decreases in one global
+well-founded order, induction reduces every target into that tail modulo `J`. The same terminals
+therefore span the further physical quotient. Rules may overlap and yield different terminal
+expressions: that exposes redundancy, not a failure of spanning. Confluence, critical-pair
+completion, equality `J = I_IBP`, integrability of shift-action matrices, terminal independence,
+and master-count equality are unnecessary unless RustRed later claims a unique/minimal quotient or
+uses recovered action matrices as new relations.
+
+The trusted object is consequently a guarded corner cover. Each sector has a compact tail bound
+`b`; its disjoint guard DAG ends either at an exact descending owner or at a leaf proved to lie in
+`0 <= x_i < b_i` for every coordinate. The learner always attacks the least unowned unbounded leaf,
+using differentiated descendants, syzygy-constrained sources, bounded seedless/triangular frames,
+and modular lift in a fair deterministic dovetail. Discovery has no termination theorem: resource
+exhaustion or any surviving unbounded leaf returns `Incomplete`. This direct cover may bypass a
+huge Janet completion, but it cannot bypass pulled-back guards, exact ordinary-source replay,
+sector representability, one global descent order, mathematical outer-extension evidence, or the
+independent epsilon-debt certificate.
+
+The decisive synthetic separation is `<E_1^q,...,E_K^q>`. Its certificate can contain only `K`
+corner rules and one compact bounded tail, while its terminal volume is `q^K`. K6 must certify
+`q=4` without enumerating the first border; K10 must keep `q=10` compact while adding all 45
+diagonal walls; K15 must keep `q=15` compact while stressing 105 diagonal walls and an injected
+same-degree cycle. A compact closure proof on these controls is a GO for the representation only;
+the enormous terminal volume is deliberately a NO-GO for direct numerical evaluation.
+
 ### Signatures, source cofactors, and reusable modular traces
 
 **Verified result.** Hofstadler and Verron construct signature Groebner bases and syzygy bases in
