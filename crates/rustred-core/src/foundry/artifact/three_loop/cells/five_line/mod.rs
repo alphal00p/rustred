@@ -1,150 +1,84 @@
+//! Generated rule-cell slices on the canonical five-line K6 face.
+//!
+//! These cells are test-only discovery evidence. In particular, the scalar
+//! five-line corner remains an uncovered obligation rather than a master.
+
+mod numerator;
+#[cfg(test)]
+mod numerator_tests;
+mod positive;
+#[cfg(test)]
+mod positive_tests;
+
 use crate::algebra::IndexedCoefficientContext;
 use crate::foundry::artifact::ArtifactError;
-use crate::foundry::cell::{FixedIndexRestriction, RuleCell, RuleCellLimits, SourceViewBatch};
-use crate::foundry::parametric::{
-    ParametricRule, ParametricRuleLimits, derive_sector_monotone_rule_for_target,
-};
-use crate::identity::{
-    CompletedIbpSourceRows, IntegralShift, ParametricIbpConfig, ParametricIbpGenerator,
-    TranslatedSourceLimits,
-};
-use crate::sector::{
-    InteriorBounds, Mask, OrderingPolicy, SectorInteriorDomain, SectorMonotoneDomain,
-};
+use crate::foundry::cell::RuleCell;
+use crate::identity::{ParametricIbpConfig, ParametricIbpGenerator};
 
-use super::super::exact_zero_sectors;
-use super::super::{canonical_family, canonical_s4};
+use self::numerator::{NegativeNumeratorCells, derive_negative_numerator_cells};
+use self::positive::{PositiveDotCells, derive_positive_dot_cells};
+use super::super::{canonical_family, canonical_s4, exact_zero_sectors};
 use super::support::complete_ordinary_sources;
 
-const FIVE_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 1];
-const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 2];
-const ADJACENT_EDGE_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 1, 0];
-const OPPOSITE_EDGE_TARGET_SHIFT: [i64; 6] = [0, 0, 0, 0, 0, 1];
+pub(super) const FIVE_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 1];
 
-/// Derive exact projected recurrences for the two inequivalent dotted-edge
-/// orbits on the canonical five-line residual face. These test-only cells are
-/// discovery slices, not a claim that the five-line sector (or the `K = 6`
-/// artifact) is closed.
+pub(super) struct FiveLineCellSet {
+    pub(super) adjacent_dot: RuleCell,
+    pub(super) opposite_dot: RuleCell,
+    pub(super) scalar_numerator_endpoint: RuleCell,
+    pub(super) scalar_numerator_bulk: RuleCell,
+    pub(super) adjacent_numerator_endpoint: RuleCell,
+    pub(super) adjacent_numerator_bulk: RuleCell,
+    pub(super) opposite_numerator_endpoint: RuleCell,
+    pub(super) opposite_numerator_bulk: RuleCell,
+}
+
+/// Derive every presently certified five-line discovery slice from the nine
+/// ordinary generated K6 rows and their exact translated source views.
 pub(super) fn derive_five_line_cells()
--> Result<(IndexedCoefficientContext, RuleCell, RuleCell), ArtifactError> {
+-> Result<(IndexedCoefficientContext, FiveLineCellSet), ArtifactError> {
     let family = canonical_family()?;
     let canonicalizer = canonical_s4(&family)?;
     let zero_sectors = exact_zero_sectors(&canonicalizer)?;
     let generator =
         ParametricIbpGenerator::try_new_with_config(&family, ParametricIbpConfig::default())?;
     let (completed, source_count) = complete_ordinary_sources(&generator)?;
-    let adjacent_sources = projected_sources(
+
+    let PositiveDotCells { adjacent, opposite } = derive_positive_dot_cells(
         &generator,
         &completed,
         source_count,
         &canonicalizer,
         &zero_sectors,
     )?;
-    let adjacent_rule = derive_sector_monotone_rule_for_target(
-        generator.context(),
-        adjacent_sources.relations(),
-        &ANCHOR,
-        &ADJACENT_EDGE_TARGET_SHIFT,
-        OrderingPolicy::default(),
-        ParametricRuleLimits::default(),
-    )?;
-    let adjacent_application = five_line_application_domain(&adjacent_rule)?;
-    let adjacent = RuleCell::try_refined(
-        generator.context(),
-        adjacent_rule,
-        adjacent_sources,
-        adjacent_application,
-        [FixedIndexRestriction::new(0, 0)],
-        [],
-        RuleCellLimits::default(),
+    let NegativeNumeratorCells {
+        scalar_endpoint,
+        scalar_bulk,
+        adjacent_endpoint,
+        adjacent_bulk,
+        opposite_endpoint,
+        opposite_bulk,
+    } = derive_negative_numerator_cells(
+        &generator,
+        &completed,
+        source_count,
+        &canonicalizer,
+        &zero_sectors,
     )?;
 
-    let opposite_sources = projected_sources(
-        &generator,
-        &completed,
-        source_count,
-        &canonicalizer,
-        &zero_sectors,
-    )?;
-    let opposite_rule = derive_sector_monotone_rule_for_target(
-        generator.context(),
-        opposite_sources.relations(),
-        &ANCHOR,
-        &OPPOSITE_EDGE_TARGET_SHIFT,
-        OrderingPolicy::default(),
-        ParametricRuleLimits::default(),
-    )?;
-    let opposite_application = five_line_application_domain(&opposite_rule)?;
     let context = generator.context().clone();
-    let opposite = RuleCell::try_refined(
-        generator.context(),
-        opposite_rule,
-        opposite_sources,
-        opposite_application,
-        [FixedIndexRestriction::new(0, 0)],
-        [],
-        RuleCellLimits::default(),
-    )?;
     drop(generator);
-    Ok((context, adjacent, opposite))
+    Ok((
+        context,
+        FiveLineCellSet {
+            adjacent_dot: adjacent,
+            opposite_dot: opposite,
+            scalar_numerator_endpoint: scalar_endpoint,
+            scalar_numerator_bulk: scalar_bulk,
+            adjacent_numerator_endpoint: adjacent_endpoint,
+            adjacent_numerator_bulk: adjacent_bulk,
+            opposite_numerator_endpoint: opposite_endpoint,
+            opposite_numerator_bulk: opposite_bulk,
+        },
+    ))
 }
-
-fn projected_sources(
-    generator: &ParametricIbpGenerator<'_>,
-    completed: &CompletedIbpSourceRows,
-    source_count: usize,
-    canonicalizer: &crate::sector::symmetry::Canonicalizer,
-    zero_sectors: &[Mask],
-) -> Result<SourceViewBatch, ArtifactError> {
-    let translated = generator.translate_completed_source_rows(
-        completed,
-        [IntegralShift::try_new([0; 6])?],
-        TranslatedSourceLimits::default(),
-    )?;
-    let domain = SectorInteriorDomain::try_new(
-        Mask::try_from_indices(&FIVE_LINE_SECTOR)?,
-        [
-            InteriorBounds::new(0, 0),
-            InteriorBounds::new(1, i64::MAX),
-            InteriorBounds::new(1, i64::MAX),
-            InteriorBounds::new(1, i64::MAX),
-            InteriorBounds::new(1, i64::MAX),
-            InteriorBounds::new(1, i64::MAX),
-        ],
-    )?;
-    let ordinals = (0..source_count).collect::<Vec<_>>();
-    Ok(SourceViewBatch::try_project_residual(
-        translated,
-        &ordinals,
-        generator.context(),
-        domain,
-        [FixedIndexRestriction::new(0, 0)],
-        canonicalizer,
-        zero_sectors,
-        RuleCellLimits::default(),
-    )?)
-}
-
-fn five_line_application_domain(
-    rule: &ParametricRule,
-) -> Result<SectorMonotoneDomain, ArtifactError> {
-    let rhs = rule
-        .right_hand_side()
-        .iter()
-        .map(|term| term.shift().values())
-        .collect::<Vec<_>>();
-    let sector = Mask::try_from_indices(&FIVE_LINE_SECTOR)?;
-    let maximal =
-        SectorMonotoneDomain::try_maximal_for_rule(sector.clone(), rule.pivot().values(), &rhs)?;
-    let mut bounds = maximal.bounds().to_vec();
-    bounds[0] = InteriorBounds::new(0, 0);
-    Ok(SectorMonotoneDomain::try_new_for_rule(
-        sector,
-        bounds,
-        rule.pivot().values(),
-        &rhs,
-    )?)
-}
-
-#[cfg(test)]
-mod tests;

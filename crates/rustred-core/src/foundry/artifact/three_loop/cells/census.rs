@@ -16,15 +16,22 @@ use crate::identity::IntegralShift;
 use crate::sector::OrderingPolicy;
 
 use super::super::K6ReachabilityTerminals;
-use super::five_line::derive_five_line_cells;
+use super::five_line::{FiveLineCellSet, derive_five_line_cells};
 use super::four_line::{FourLineCellSet, derive_all_four_line_cells};
 use super::top::derive_top_cell;
 
 const TOP_CORNER: [i64; 6] = [1; 6];
 const FIVE_LINE_CORNER: [i64; 6] = [0, 1, 1, 1, 1, 1];
 const FIVE_LINE_OVERLAP_PROBE: [i64; 6] = [0, 1, 1, 1, 2, 2];
+const FIVE_LINE_SCALAR_NUMERATOR_BULK_PROBE: [i64; 6] = [-2, 1, 1, 1, 1, 1];
+const FIVE_LINE_ADJACENT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 1, 1, 1, 2, 1];
+const FIVE_LINE_ADJACENT_NUMERATOR_BULK_PROBE: [i64; 6] = [-2, 1, 1, 1, 2, 1];
+const FIVE_LINE_OPPOSITE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 1, 1, 1, 1, 2];
+const FIVE_LINE_OPPOSITE_NUMERATOR_BULK_PROBE: [i64; 6] = [-2, 1, 1, 1, 1, 2];
+const FIVE_LINE_NUMERATOR_OVERLAP_PROBE: [i64; 6] = [-1, 1, 1, 1, 2, 2];
 const FOUR_LINE_CORNER: [i64; 6] = [0, 1, 1, 1, 1, 0];
 const FOUR_LINE_BULK_DOT_PROBE: [i64; 6] = [0, 2, 2, 2, 3, 0];
+const FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE: [i64; 6] = [0, 1, 2, 3, 2, 0];
 const FACTORIZATION_SECTORS: [[i64; 6]; 3] =
     [[0, 0, 1, 1, 1, 1], [0, 0, 1, 1, 0, 1], [0, 0, 1, 0, 1, 1]];
 const ZERO_PROBE: [i64; 6] = [0, 0, 0, 1, 1, 1];
@@ -32,6 +39,12 @@ const ZERO_PROBE: [i64; 6] = [0, 0, 0, 1, 1, 1];
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum K6CellKind {
     Top,
+    FiveLineScalarNumeratorEndpoint,
+    FiveLineScalarNumeratorBulk,
+    FiveLineAdjacentNumeratorEndpoint,
+    FiveLineAdjacentNumeratorBulk,
+    FiveLineOppositeNumeratorEndpoint,
+    FiveLineOppositeNumeratorBulk,
     FiveLineAdjacent,
     FiveLineOpposite,
     FourLineIsolated,
@@ -41,6 +54,7 @@ enum K6CellKind {
     FourLineThreeDistinct,
     FourLineAdjacentMixedDot,
     FourLineOppositeMixedDot,
+    FourLineComplementaryMixedDot,
     FourLineMixedDotRay,
     FourLineRepeatedDotRay,
     FourLineDotBulk,
@@ -63,7 +77,19 @@ impl K6ReachabilityCensus {
     fn try_new() -> Result<Self, ArtifactError> {
         let terminals = K6ReachabilityTerminals::try_new()?;
         let (_top_context, top) = derive_top_cell()?;
-        let (_five_line_context, five_adjacent, five_opposite) = derive_five_line_cells()?;
+        let (
+            _five_line_context,
+            FiveLineCellSet {
+                adjacent_dot: five_adjacent,
+                opposite_dot: five_opposite,
+                scalar_numerator_endpoint,
+                scalar_numerator_bulk,
+                adjacent_numerator_endpoint,
+                adjacent_numerator_bulk,
+                opposite_numerator_endpoint,
+                opposite_numerator_bulk,
+            },
+        ) = derive_five_line_cells()?;
         let FourLineCellSet {
             isolated,
             opposite,
@@ -72,19 +98,46 @@ impl K6ReachabilityCensus {
             three_distinct,
             adjacent_mixed_dot,
             opposite_mixed_dot,
+            complementary_mixed_dot,
             mixed_dot_ray,
             repeated_dot_ray,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
 
-        // First-applicable order is explicit.  Exact corner exceptions own
-        // their singleton endpoints, then the selected-source ray owns its
-        // certified face before the broad four-line cells.
+        // First-applicable order is explicit. Five-line numerator endpoints
+        // precede their disjoint bulk rays, and the adjacent active-dot lane
+        // owns its genuine overlap with the opposite lane. Exact four-line
+        // corner exceptions and selected-source rays likewise precede broad
+        // positive boxes.
         let cells = vec![
             OwnedCell {
                 kind: K6CellKind::Top,
                 cell: top,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineScalarNumeratorEndpoint,
+                cell: scalar_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineScalarNumeratorBulk,
+                cell: scalar_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineAdjacentNumeratorEndpoint,
+                cell: adjacent_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineAdjacentNumeratorBulk,
+                cell: adjacent_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineOppositeNumeratorEndpoint,
+                cell: opposite_numerator_endpoint,
+            },
+            OwnedCell {
+                kind: K6CellKind::FiveLineOppositeNumeratorBulk,
+                cell: opposite_numerator_bulk,
             },
             OwnedCell {
                 kind: K6CellKind::FiveLineAdjacent,
@@ -121,6 +174,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineOppositeMixedDot,
                 cell: opposite_mixed_dot,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineComplementaryMixedDot,
+                cell: complementary_mixed_dot,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineMixedDotRay,
@@ -197,11 +254,24 @@ fn bounded_roots() -> Result<Vec<IntegralKey>, ArtifactError> {
     append_diamond(&mut roots, TOP_CORNER, 1)?;
     append_diamond(&mut roots, FIVE_LINE_CORNER, 1)?;
     roots.push(IntegralKey::try_new(FIVE_LINE_OVERLAP_PROBE)?);
+    for probe in [
+        FIVE_LINE_SCALAR_NUMERATOR_BULK_PROBE,
+        FIVE_LINE_ADJACENT_NUMERATOR_ENDPOINT_PROBE,
+        FIVE_LINE_ADJACENT_NUMERATOR_BULK_PROBE,
+        FIVE_LINE_OPPOSITE_NUMERATOR_ENDPOINT_PROBE,
+        FIVE_LINE_OPPOSITE_NUMERATOR_BULK_PROBE,
+        FIVE_LINE_NUMERATOR_OVERLAP_PROBE,
+    ] {
+        roots.push(IntegralKey::try_new(probe)?);
+    }
     append_diamond(&mut roots, FOUR_LINE_CORNER, 3)?;
     // The broad positive-box recurrence starts beyond the depth-three corner
     // diamond; retain one explicit interior representative so every installed
     // discovery cell is exercised.
     roots.push(IntegralKey::try_new(FOUR_LINE_BULK_DOT_PROBE)?);
+    roots.push(IntegralKey::try_new(
+        FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE,
+    )?);
     for sector in FACTORIZATION_SECTORS {
         roots.push(IntegralKey::try_new(sector)?);
         let dotted: [i64; 6] = std::array::from_fn(|slot| {
@@ -268,8 +338,8 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 14,
-            max_roots: 107,
+            max_rule_cells: 21,
+            max_roots: 114,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
             max_retained_lattice_coordinate_cells: 100_000,
@@ -284,11 +354,17 @@ mod tests {
     #[test]
     fn finite_k6_census_reports_current_coverage_without_promoting_corners() {
         let census = K6ReachabilityCensus::try_new().unwrap();
-        assert_eq!(census.roots.len(), 107);
+        assert_eq!(census.roots.len(), 114);
         assert_eq!(
             census.cell_kinds().collect::<Vec<_>>(),
             [
                 K6CellKind::Top,
+                K6CellKind::FiveLineScalarNumeratorEndpoint,
+                K6CellKind::FiveLineScalarNumeratorBulk,
+                K6CellKind::FiveLineAdjacentNumeratorEndpoint,
+                K6CellKind::FiveLineAdjacentNumeratorBulk,
+                K6CellKind::FiveLineOppositeNumeratorEndpoint,
+                K6CellKind::FiveLineOppositeNumeratorBulk,
                 K6CellKind::FiveLineAdjacent,
                 K6CellKind::FiveLineOpposite,
                 K6CellKind::FourLineIsolated,
@@ -298,6 +374,7 @@ mod tests {
                 K6CellKind::FourLineThreeDistinct,
                 K6CellKind::FourLineAdjacentMixedDot,
                 K6CellKind::FourLineOppositeMixedDot,
+                K6CellKind::FourLineComplementaryMixedDot,
                 K6CellKind::FourLineMixedDotRay,
                 K6CellKind::FourLineRepeatedDotRay,
                 K6CellKind::FourLineDotBulk,
@@ -329,8 +406,14 @@ mod tests {
             owners,
             BTreeMap::from([
                 (K6CellKind::Top, 1),
+                (K6CellKind::FiveLineScalarNumeratorEndpoint, 1),
+                (K6CellKind::FiveLineScalarNumeratorBulk, 1),
+                (K6CellKind::FiveLineAdjacentNumeratorEndpoint, 2),
+                (K6CellKind::FiveLineAdjacentNumeratorBulk, 1),
+                (K6CellKind::FiveLineOppositeNumeratorEndpoint, 1),
+                (K6CellKind::FiveLineOppositeNumeratorBulk, 1),
                 (K6CellKind::FiveLineAdjacent, 2),
-                (K6CellKind::FiveLineOpposite, 1),
+                (K6CellKind::FiveLineOpposite, 2),
                 (K6CellKind::FourLineIsolated, 1),
                 (K6CellKind::FourLineOppositePair, 1),
                 (K6CellKind::FourLineAdjacentPair, 1),
@@ -338,6 +421,7 @@ mod tests {
                 (K6CellKind::FourLineThreeDistinct, 1),
                 (K6CellKind::FourLineAdjacentMixedDot, 1),
                 (K6CellKind::FourLineOppositeMixedDot, 1),
+                (K6CellKind::FourLineComplementaryMixedDot, 1),
                 (K6CellKind::FourLineMixedDotRay, 2),
                 (K6CellKind::FourLineRepeatedDotRay, 2),
                 (K6CellKind::FourLineDotBulk, 1),
@@ -348,20 +432,48 @@ mod tests {
             terminals,
             BTreeMap::from([
                 (ReachabilityTerminalKind::ZeroSector, 1),
-                (ReachabilityTerminalKind::Factorization, 21),
+                (ReachabilityTerminalKind::Factorization, 25),
             ])
         );
 
         let statistics = first.statistics();
-        assert_eq!(statistics.submitted_roots(), 107);
-        assert_eq!(statistics.canonical_roots(), 36);
-        assert_eq!(statistics.discovered_nodes(), 58);
-        assert_eq!(statistics.terminal_nodes(), 22);
-        assert_eq!(statistics.rule_applications(), 20);
-        assert_eq!(statistics.uncovered_nodes(), 16);
+        assert_eq!(statistics.submitted_roots(), 114);
+        assert_eq!(statistics.canonical_roots(), 43);
+        assert_eq!(statistics.discovered_nodes(), 79);
+        assert_eq!(statistics.terminal_nodes(), 26);
+        assert_eq!(statistics.rule_applications(), 29);
+        assert_eq!(statistics.uncovered_nodes(), 24);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
+            (
+                [-1, 1, 1, 1, 1, 1],
+                K6CellKind::FiveLineScalarNumeratorEndpoint,
+            ),
+            (
+                FIVE_LINE_SCALAR_NUMERATOR_BULK_PROBE,
+                K6CellKind::FiveLineScalarNumeratorBulk,
+            ),
+            (
+                FIVE_LINE_ADJACENT_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FiveLineAdjacentNumeratorEndpoint,
+            ),
+            (
+                FIVE_LINE_ADJACENT_NUMERATOR_BULK_PROBE,
+                K6CellKind::FiveLineAdjacentNumeratorBulk,
+            ),
+            (
+                FIVE_LINE_OPPOSITE_NUMERATOR_ENDPOINT_PROBE,
+                K6CellKind::FiveLineOppositeNumeratorEndpoint,
+            ),
+            (
+                FIVE_LINE_OPPOSITE_NUMERATOR_BULK_PROBE,
+                K6CellKind::FiveLineOppositeNumeratorBulk,
+            ),
+            (
+                FIVE_LINE_NUMERATOR_OVERLAP_PROBE,
+                K6CellKind::FiveLineAdjacentNumeratorEndpoint,
+            ),
             ([0, 1, 1, 1, 2, 1], K6CellKind::FiveLineAdjacent),
             (FIVE_LINE_OVERLAP_PROBE, K6CellKind::FiveLineAdjacent),
             ([0, 1, 1, 1, 1, 2], K6CellKind::FiveLineOpposite),
@@ -372,6 +484,10 @@ mod tests {
             ([0, 1, 2, 2, 2, 0], K6CellKind::FourLineThreeDistinct),
             ([0, 1, 1, 2, 3, 0], K6CellKind::FourLineAdjacentMixedDot),
             ([0, 1, 2, 1, 3, 0], K6CellKind::FourLineOppositeMixedDot),
+            (
+                FOUR_LINE_COMPLEMENTARY_MIXED_DOT_PROBE,
+                K6CellKind::FourLineComplementaryMixedDot,
+            ),
             ([0, 1, 2, 2, 3, 0], K6CellKind::FourLineMixedDotRay),
             ([0, 1, 2, 2, 4, 0], K6CellKind::FourLineMixedDotRay),
             ([0, 1, 1, 1, 4, 0], K6CellKind::FourLineRepeatedDotRay),
@@ -441,7 +557,6 @@ mod tests {
             FIVE_LINE_CORNER,
             FOUR_LINE_CORNER,
             [0, 1, 1, 1, 1, -1],
-            [-1, 1, 1, 1, 1, 1],
             [0, 1, 2, 2, 1, -1],
             [0, 1, 1, 2, 4, 0],
             [0, 1, 1, 2, 5, 0],
@@ -451,6 +566,39 @@ mod tests {
                 ReachabilityDisposition::Uncovered
             ));
         }
+        assert_eq!(
+            first
+                .uncovered()
+                .map(|key| key.powers().to_vec())
+                .collect::<Vec<_>>(),
+            [
+                [0, 0, 2, -1, 1, 1],
+                [0, -1, 1, 1, 2, 1],
+                [0, -1, 1, 2, 1, 1],
+                [0, -1, 2, 1, 1, 1],
+                [0, -2, 2, 1, 1, 1],
+                [0, -1, 1, 2, 2, 1],
+                [0, -1, 1, 3, 1, 1],
+                [0, -1, 2, 2, 1, 1],
+                [0, -2, 2, 2, 1, 1],
+                [0, 1, 1, 1, 1, 0],
+                [0, 1, 1, 1, 1, -1],
+                [0, 1, 1, 1, 1, -2],
+                [-1, 1, 1, 1, 1, -1],
+                [0, 1, 1, 1, 1, -3],
+                [-1, 1, 1, 1, 1, -2],
+                [0, 1, 1, 1, 2, -2],
+                [-1, 1, 1, 1, 2, -1],
+                [0, 1, 2, 2, 1, -1],
+                [0, 1, 1, 2, 4, 0],
+                [0, 1, 1, 2, 5, 0],
+                [0, 1, 2, 3, 3, 0],
+                [0, 1, 3, 2, 3, 0],
+                FIVE_LINE_CORNER,
+                TOP_CORNER,
+            ]
+            .map(|powers| powers.to_vec())
+        );
 
         for node in first.nodes() {
             if let ReachabilityDisposition::Terminal(terminal) = node.disposition() {

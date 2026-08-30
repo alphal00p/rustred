@@ -82,7 +82,13 @@ both inequivalent `K1 x K1 x K1` factorization sectors. It also derives the
 first exact top-sector rule cell and the two inequivalent positive dotted-edge
 cells on the canonical five-line residual face. Each cell is projected from
 all nine sources and retains exact residual replay, guards, bounded application
-proof, provenance, and strict descent. On the irreducible four-line face, an
+proof, provenance, and strict descent. Six further generated cells advance the
+five-line inactive-numerator partition: disjoint endpoint and bulk owners for
+the all-unit active-power lane, the adjacent active-dot orbit, and the opposite active-dot
+orbit. They retain exact source selections, endpoint specialization and
+pruning, held-out replay, machine-boundary coverage, and strict descent; the
+five-line scalar corner and the rest of the fixed point remain explicit
+obligations. On the irreducible four-line face, an
 exact target-aligned translation supplies a guarded canonical-dot multi-excess
 cell, while the untranslated span supplies the canonical mixed
 numerator/dot cell, including its isolated mixed corner. Exact fixed-corner
@@ -96,10 +102,10 @@ An independent finite reachability planner applies caller-ordered rule cells
 with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
-closing artifact. The current test-only K6 census submits 107 bounded probes,
-which canonicalize to 36 roots and discover 58 nodes. It exercises all fourteen
-current cell owners through 20 rule applications, discharges 22 nodes only by
-freshly proved zero/factorization terminals, and leaves 16 nodes explicitly
+closing artifact. The current test-only K6 census submits 114 bounded probes,
+which canonicalize to 43 roots and discover 79 nodes. It exercises all 21
+current cell owners through 29 rule applications, discharges 26 nodes only by
+freshly proved zero/factorization terminals, and leaves 24 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
 corner. Exact elimination selects 17 and 18 source contributions respectively;
@@ -137,9 +143,15 @@ schema-V3 operations. The anchor free index one and held-out indices two and
 eight replay identically, and a symbolic leading-coefficient proof covers the
 complete positive ray. The concrete i64 rule cell owns
 `3 <= N <= i64::MAX - 1`; the final machine endpoint is rejected because an
-RHS shift would overflow. The complementary `S4` orbit, the exposed descendant
-`J(0,1,1,2,N,0)`, numerator faces, scalar corners, and the rest of the fixed
-point remain open.
+RHS shift would overflow. A separate complete depth-three projection closes the
+first point of the complementary orbit, `J(0,1,2,3,2,0)`: exact elimination
+selects 46 of 756 generated rows (310 source terms), producing four RHS terms,
+22 guards, 315 replay keys, and 939 exact schema-V3 operations. Depths zero
+through two retain typed target-absent results, the fixed application box owns
+only this `S4` orbit point, and neighboring points remain explicitly unowned.
+The remaining complementary ray, the exposed descendant
+`J(0,1,1,2,N,0)`, other numerator faces, scalar corners, and the rest of the
+fixed point remain open.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.

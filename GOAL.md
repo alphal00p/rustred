@@ -105,8 +105,12 @@ span as a test-only rule cell with retained provenance, guards, application
 bounds, and strict-descent proofs. Exact residual projection on the canonical
 five-line face additionally derives the two inequivalent positive dotted-edge
 cells from all nine sources, retaining the complete 26-sector zero routing and
-strict-descent evidence. This does not close the five-line sector: negative
-inactive powers and numerator faces remain open. On the canonical irreducible
+strict-descent evidence. Six exact generated-source cells now partition the
+negative inactive-power direction into disjoint endpoint and bulk owners on
+the all-unit active-power, adjacent active-dot, and opposite active-dot domains. Their exact
+endpoint pruning, held-out replay, machine bounds, guard domains, and `S4`
+routing are pinned. This advances but does not close the five-line sector: its
+scalar corner and the remaining fixed-point branches stay open. On the canonical irreducible
 four-line face, the same exact projection boundary now derives a guarded
 canonical-dot multi-excess cell from one target-aligned translated source span
 and a canonical mixed numerator/dot cell from the untranslated span. Exact
@@ -199,15 +203,20 @@ for any positive free index. Its concrete i64 application box owns
 `3 <= N <= i64::MAX - 1` and rejects the overflowing final endpoint. The
 complete 756-row free-index projection itself retains the typed
 exceptional-anchor diagnosis instead of silently selecting a
-different rule. The complementary `S4` orbit and the first exposed descendant
+different rule. A separate complete depth-three projection derives the first
+complementary-orbit singleton `J(0,1,2,3,2,0)` from 46 selected contributions
+containing 310 source terms, with four RHS terms, 22 guards, 315 replay keys,
+939 exact concrete replay operations, and typed target absence through depth
+two. Its fixed application box and exact 16/8 `S4` orbit split prevent a ray
+overclaim. The rest of that complementary ray and the first exposed descendant
 ray `J(0,1,1,2,N,0)` remain explicit obligations. The fixture exposes no
 installable artifact until the complete rule fixed point is closed.
 
 The first K6-specific consumer of that generic planner now runs a deterministic
-test-only fixed census. Its 107 submitted probes reduce under exact `S4` to 36
-roots and discover 58 nodes: all fourteen presently derived cell owners are
-exercised in 20 applications, 22 nodes terminate through independently checked
-zero or factorization proofs, and 16 remain explicitly uncovered. The census
+test-only fixed census. Its 114 submitted probes reduce under exact `S4` to 43
+roots and discover 79 nodes: all 21 presently derived cell owners are
+exercised in 29 applications, 26 nodes terminate through independently checked
+zero or factorization proofs, and 24 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
@@ -218,10 +227,21 @@ as a rule generator. The scalar six-line and four-line corners map directly to
 `miD6` and `m_uv^4 miBN`, respectively. The scalar five-line corner is a third
 independent RustRed terminal but is not identical to MATAD's `miD5`: MATAD's
 definition includes a massless `1/p^2` auxiliary denominator outside the fixed
-all-massive K6 lattice. Vakint will therefore own an exact basis-change row from
-that typed RustRed key to `miD5`, `miBN`, `miT111 Gam(1,1)`, and `Gam(1,1)^3`.
-These three candidates are not installed as artifact masters until the
-remaining numerator fixed point and publication checks are complete.
+all-massive K6 lattice. Exact raw MATAD oracles for three symmetry-equivalent
+missing-edge representatives fix the unit-mass basis-change row
+
+\[
+T_5(d)=
+\frac{4\,\mathrm{miT111}\,\mathrm{Gam}(1,1)}{(d-3)(d-4)}
++\frac{3(d-4)}{2(d-3)}\,\mathrm{miD5}
++\frac{8-3d}{8(d-3)}\,\mathrm{miBN}
++\frac{16\,\mathrm{Gam}(1,1)^3}{(d-2)(d-3)^2(d-4)^3}.
+\]
+
+Vakint will own this exact row and restore the common physical factor `m_uv^2`;
+the degree-six denominator factorization above is independently checked with
+Symbolica. These three typed candidates are not installed as artifact masters
+until the remaining numerator fixed point and publication checks are complete.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

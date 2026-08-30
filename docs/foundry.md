@@ -92,8 +92,13 @@ complete nine-source span and retains its elimination provenance, guards,
 maximal application box, and strict-descent witnesses. A separate residual
 projection supplies all nine sources and all 26 exact zero masks to derive the
 two canonical positive dotted-edge cells on the five-line face; each retains
-its projection replay, guards, application box, and descent proof. Those cells
-do not cover negative inactive powers or numerator faces. On the irreducible
+its projection replay, guards, application box, and descent proof. Six further
+generated-source cells partition the negative inactive-power direction into
+disjoint endpoint and bulk owners on the all-unit active-power, adjacent active-dot, and
+opposite active-dot domains. They pin exact source selection, endpoint
+specialization/pruning, held-out replay, machine bounds, strict descent, and
+the two active-dot `S4` orbits. This still does not promote the scalar
+five-line corner or claim complete face closure. On the irreducible
 four-line face, a target-aligned translation derives a guarded canonical-dot
 multi-excess cell and the untranslated span derives the canonical mixed
 numerator/dot boundary cell. All four raw dot and eight raw mixed placements
@@ -168,14 +173,19 @@ polynomials in `d` on the whole positive ray. The concrete i64 cell owns
 `3 <= N <= i64::MAX - 1`; it rejects the final endpoint because an RHS shift
 would overflow. Direct elimination of the full
 756-row free-index projection records a typed exceptional-anchor guard instead
-of being misreported as target absence. The complementary `S4` orbit and the
-new child ray `J(0,1,1,2,N,0)` remain open.
+of being misreported as target absence. A separate complete depth-three
+projection derives exactly one point of the complementary `S4` orbit,
+`J(0,1,2,3,2,0)`: 46 selected contributions containing 310 source terms yield
+four RHS terms, 22 guards, 315 replay keys, and 939 exact schema-V3 concrete
+operations. Typed target absence through depth two, a fixed singleton domain,
+and the exact 16/8 orbit split rule out a neighboring-ray claim. The remaining
+complementary ray and the new child ray `J(0,1,1,2,N,0)` remain open.
 
 The current K6 fixture composes those owners in one test-only census rather
-than another synthetic closure artifact. From 107 bounded probes, exact `S4`
-canonicalization retains 36 roots and discovery visits 58 nodes. The report
-pins 20 applications across all fourteen current rule-cell owners, 22
-independently proved zero/factorization terminals, and 16 uncovered nodes. A
+than another synthetic closure artifact. From 114 bounded probes, exact `S4`
+canonicalization retains 43 roots and discovery visits 79 nodes. The report
+pins 29 applications across all 21 current rule-cell owners, 26 independently
+proved zero/factorization terminals, and 24 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production

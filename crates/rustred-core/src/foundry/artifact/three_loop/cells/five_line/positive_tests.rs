@@ -1,15 +1,24 @@
+//! Exact evidence for the two positive-dot five-line cells.
+
 use std::collections::BTreeSet;
 
 use crate::algebra::IndexedAlgebraLimits;
 use crate::family::IntegralKey;
-use crate::foundry::cell::{ResidualTermDisposition, RuleCellDomainProof, SourceViewConstruction};
+use crate::foundry::cell::{
+    FixedIndexRestriction, ResidualTermDisposition, RuleCellDomainProof, RuleCellLimits,
+    SourceViewConstruction,
+};
+use crate::sector::InteriorBounds;
 use symbolica::prelude::Integer;
 
+use super::positive::{ADJACENT_EDGE_TARGET_SHIFT, ANCHOR, OPPOSITE_EDGE_TARGET_SHIFT};
 use super::*;
 
 #[test]
 fn projected_source_span_replays_all_nine_rows_on_the_exact_residual_face() {
-    let (context, adjacent, opposite) = derive_five_line_cells().unwrap();
+    let (context, cells) = derive_five_line_cells().unwrap();
+    let adjacent = &cells.adjacent_dot;
+    let opposite = &cells.opposite_dot;
     let family = canonical_family().unwrap();
     let canonicalizer = canonical_s4(&family).unwrap();
     let zero_sectors = exact_zero_sectors(&canonicalizer).unwrap();
@@ -38,7 +47,7 @@ fn projected_source_span_replays_all_nine_rows_on_the_exact_residual_face() {
         [0, 0, 8],
     ];
 
-    for cell in [&adjacent, &opposite] {
+    for cell in [adjacent, opposite] {
         let sources = cell.sources();
         assert_eq!(sources.len(), 9);
         assert_eq!(
@@ -113,7 +122,9 @@ fn projected_source_span_replays_all_nine_rows_on_the_exact_residual_face() {
 
 #[test]
 fn exact_rules_target_the_two_canonical_dotted_edge_representatives() {
-    let (_context, adjacent, opposite) = derive_five_line_cells().unwrap();
+    let (_context, cells) = derive_five_line_cells().unwrap();
+    let adjacent = &cells.adjacent_dot;
+    let opposite = &cells.opposite_dot;
     assert_eq!(adjacent.rule().anchor().powers(), ANCHOR);
     assert_eq!(opposite.rule().anchor().powers(), ANCHOR);
     assert_eq!(adjacent.rule().pivot().values(), ADJACENT_EDGE_TARGET_SHIFT);
@@ -182,7 +193,7 @@ fn exact_rules_target_the_two_canonical_dotted_edge_representatives() {
     );
     assert_eq!(adjacent.rule().replay().source_rows_used(), 3);
     assert_eq!(opposite.rule().replay().source_rows_used(), 5);
-    for cell in [&adjacent, &opposite] {
+    for cell in [adjacent, opposite] {
         assert_eq!(
             cell.domain_proof(),
             RuleCellDomainProof::ReprovedSectorMonotone
@@ -236,11 +247,13 @@ fn exact_rules_target_the_two_canonical_dotted_edge_representatives() {
 
 #[test]
 fn guards_and_application_boxes_are_exact_on_each_canonical_cell() {
-    let (context, adjacent, opposite) = derive_five_line_cells().unwrap();
-    assert_monomial_guards(&context, &adjacent, &[(-1, 3), (1, 3), (-3, 4), (3, 4)]);
+    let (context, cells) = derive_five_line_cells().unwrap();
+    let adjacent = &cells.adjacent_dot;
+    let opposite = &cells.opposite_dot;
+    assert_monomial_guards(&context, adjacent, &[(-1, 3), (1, 3), (-3, 4), (3, 4)]);
     assert_monomial_guards(
         &context,
-        &opposite,
+        opposite,
         &[(-1, 3), (1, 4), (-2, 1), (-1, 2), (-6, 5), (3, 5), (6, 5)],
     );
     assert_eq!(
@@ -265,7 +278,7 @@ fn guards_and_application_boxes_are_exact_on_each_canonical_cell() {
             InteriorBounds::new(1, i64::MAX - 1),
         ]
     );
-    for cell in [&adjacent, &opposite] {
+    for cell in [adjacent, opposite] {
         assert_eq!(
             cell.fixed_restrictions(),
             [FixedIndexRestriction::new(0, 0)]

@@ -67,7 +67,15 @@ integer cube `[-3,4]^3`, check exact interior, boundary, numerator, symmetry,
 memoization, and mass-restoration goldens, and reject foreign terminals.
 
 The test-only `K = 6` fixture has partial evidence through levels 2--4, not a
-family-level closure pass. In particular, the adjacent two-dot four-line
+family-level closure pass. Its five-line inactive-numerator partition now has
+six exact generated cells: scalar, adjacent active-dot, and opposite active-dot
+six exact generated cells: all-unit active-power, adjacent active-dot, and
+opposite active-dot domains each have disjoint endpoint and bulk owners. Tests pin their respective
+`(contributions, source terms, RHS, guards, replay keys, operations)` metrics
+as `(5,29,8,3,38,105)`, `(1,8,7,1,16,40)`, and
+`(12,117,21,9,139,382)`, together with exact endpoint pruning, held-out replay, strict
+descent, `S4` routing, and both i64 endpoints. The scalar five-line corner
+remains uncovered. In particular, the adjacent two-dot four-line
 corner is derived from the complete depth-two same-sector diamond: 28 offsets,
 252 projected ordinary rows, exact target RREF with 16 selected rows, nine
 retained guards, complete projection replay, strict descent, and exact routing
@@ -98,9 +106,14 @@ checked free indices one, two, and eight. Exact source/projection replay,
 strict descent, orbit non-overclaim, and a uniform symbolic guard proof are all
 pinned. Concrete endpoint tests delimit the i64 application cell to
 `3 <= N <= i64::MAX - 1` and reject the overflowing final endpoint. The
-complementary mixed-dot orbit, the descendant `[0,1,1,2,N,0]`,
-numerator faces, scalar corners, the complete fixed point, publication, and all
-five three-loop Vakint reductions remain open.
+first complementary-orbit point `[0,1,2,3,2,0]` is independently derived from
+the complete depth-three span: 46 selected rows, 310 source terms, four RHS
+terms, 22 guards, 315 replay keys, and 939 exact schema-V3 concrete operations.
+Depths zero through two retain typed target absence, and exact singleton and
+16/8 orbit tests reject neighboring-ray ownership. The rest of the
+complementary mixed-dot ray, the descendant `[0,1,1,2,N,0]`, other numerator
+faces, scalar corners, the complete fixed point, publication, and all five
+three-loop Vakint reductions remain open.
 
 The topology-neutral finite reachability planner is separately tested for
 deterministic concrete chains, caller-ordered rule selection, vanished-guard
@@ -109,10 +122,10 @@ routing, sorted root deduplication, and exact resource boundaries. It reports
 only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
-Its first K6 pressure-family census submits 107 bounded probes and has the
-following exact deterministic report: 36 canonical roots, 58 discovered
-nodes, 20 rule applications spanning all fourteen current cell owners, 22
-zero/factorization terminals, and 16 uncovered nodes. The census pins
+Its first K6 pressure-family census submits 114 bounded probes and has the
+following exact deterministic report: 43 canonical roots, 79 discovered
+nodes, 29 rule applications spanning all 21 current cell owners, 26
+zero/factorization terminals, and 24 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is
@@ -127,6 +140,23 @@ memoized hot reducer does not repeat that work. Vakint now ships and consumes
 both artifacts through its opt-in scalar RustRed backend; the three-loop
 `K = 6` artifact remains open Stage 1 work. Tensor development and master
 substitution inside RustRed remain outside this checkpoint.
+
+For the eventual K6 adapter, raw MATAD oracle runs on three
+symmetry-equivalent five-line pinches agree exactly. After removing Vakint's
+shared normalization and the common `m_uv^2`, the typed scalar five-line
+terminal maps to
+
+\[
+\frac{4\,\mathrm{miT111}\,\mathrm{Gam}(1,1)}{(d-3)(d-4)}
++\frac{3(d-4)}{2(d-3)}\,\mathrm{miD5}
++\frac{8-3d}{8(d-3)}\,\mathrm{miBN}
++\frac{16\,\mathrm{Gam}(1,1)^3}{(d-2)(d-3)^2(d-4)^3}.
+\]
+
+Symbolica independently verifies that MATAD's expanded degree-six denominator
+is `(d-2)(d-3)^2(d-4)^3`. This freezes an oracle boundary only; Vakint does not
+consume the row until the closed K6 artifact and its typed master certificate
+exist.
 
 Translated-source tests regenerate a complete sealed ordinary-IBP batch and
 replay exact rows after deterministic integral-lattice recentering, including

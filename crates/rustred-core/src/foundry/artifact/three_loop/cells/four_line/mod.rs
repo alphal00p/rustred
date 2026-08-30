@@ -16,6 +16,9 @@ use super::super::exact_zero_sectors;
 use super::super::{canonical_family, canonical_s4};
 use super::support::complete_ordinary_sources;
 
+mod complementary_mixed_dot;
+#[cfg(test)]
+mod complementary_mixed_dot_tests;
 mod corner;
 mod exceptional;
 #[cfg(test)]
@@ -30,6 +33,7 @@ mod repeated_dot;
 #[cfg(test)]
 mod repeated_dot_tests;
 
+use complementary_mixed_dot::derive_complementary_mixed_dot_cell;
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
 use mixed_dot_ray::derive_mixed_dot_ray_cell;
@@ -54,6 +58,7 @@ pub(super) struct FourLineCellSet {
     pub(super) three_distinct: RuleCell,
     pub(super) adjacent_mixed_dot: RuleCell,
     pub(super) opposite_mixed_dot: RuleCell,
+    pub(super) complementary_mixed_dot: RuleCell,
     pub(super) mixed_dot_ray: RuleCell,
     pub(super) repeated_dot_ray: RuleCell,
     pub(super) canonical_dot: RuleCell,
@@ -74,6 +79,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         adjacent: adjacent_mixed_dot,
         opposite: opposite_mixed_dot,
     } = derive_mixed_dot_four_line_cells()?;
+    let complementary_mixed_dot = derive_complementary_mixed_dot_cell()?.cell;
     let (_context, mixed_dot_ray) = derive_mixed_dot_ray_cell()?;
     let (_context, repeated_dot_ray) = derive_repeated_dot_ray_cell()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
@@ -85,6 +91,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         three_distinct,
         adjacent_mixed_dot,
         opposite_mixed_dot,
+        complementary_mixed_dot,
         mixed_dot_ray,
         repeated_dot_ray,
         canonical_dot,
