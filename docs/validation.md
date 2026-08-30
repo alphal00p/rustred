@@ -88,9 +88,19 @@ RHS terms, 32 guards, and 367 replay keys. Schema-V3 exact replay costs are
 leading-in-`d` coefficient test proves that every specialized guard remains a
 nonzero polynomial in `d` for every positive free index; concrete exceptional
 dimensions remain guarded. Exact symmetry tests route all four active-edge
-placements. Mixed higher decorations, numerator faces, scalar corners, the
-complete fixed point, publication, and all five three-loop Vakint reductions
-remain open.
+placements. A complete depth-three search next retains 84 translations and all
+756 generated ordinary rows. Exact corner elimination selects 46 of them for
+`[0,1,2,2,3,0]`; independently retranslating and reprojecting that generated
+selection derives one `S4` orbit of `[0,1,2,2,N,0]`, structurally `N >= 3`.
+The resulting cell uses 13 source contributions, 90 source terms, five RHS terms, seven
+guards, 96 replay keys, and 275 exact schema-V3 operations at each of the
+checked free indices one, two, and eight. Exact source/projection replay,
+strict descent, orbit non-overclaim, and a uniform symbolic guard proof are all
+pinned. Concrete endpoint tests delimit the i64 application cell to
+`3 <= N <= i64::MAX - 1` and reject the overflowing final endpoint. The
+complementary mixed-dot orbit, the descendant `[0,1,1,2,N,0]`,
+numerator faces, scalar corners, the complete fixed point, publication, and all
+five three-loop Vakint reductions remain open.
 
 The topology-neutral finite reachability planner is separately tested for
 deterministic concrete chains, caller-ordered rule selection, vanished-guard
@@ -100,16 +110,11 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 107 bounded probes and has the
-following exact deterministic report: 36 canonical roots, 48 discovered
-nodes, 17 rule applications spanning all thirteen current cell owners, 15
-zero/factorization terminals, and 16 uncovered nodes. Two complete depth-two
-mixed-dot singleton cells account exactly for the latest delta: the node and
-terminal sets are unchanged while two formerly uncovered roots become rule
-applications. Their tests retain separate 28-by-9 generated source batches,
-typed depth-zero/one misses, exact replay metrics, all twelve ordered `S4`
-placements, and descent only to a proved factorization plus the unresolved
-scalar corner. The census also pins overlapping cell precedence, all three
-factorization owner ordinals, representative scalar/deeper-mixed/numerator
+following exact deterministic report: 36 canonical roots, 58 discovered
+nodes, 20 rule applications spanning all fourteen current cell owners, 22
+zero/factorization terminals, and 16 uncovered nodes. The census pins
+overlapping cell precedence, all three factorization owner ordinals,
+representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is
 freshly checked by Symbolica exact matrix rank before it may terminate
 discovery. These numbers are regression evidence for the current finite graph
@@ -222,9 +227,12 @@ establish exact frozen dot/indexed outputs, valid topology relabeling, scalar
 and odd-rank behavior, the rank-four typed frontier, exact numeric mass and
 nonunit-power retention, malformed-routing rejection, and nonsymbolic-
 dimension rejection. Separate compatibility tests establish that the default
-builder equals the existing FORM path. These existing gates establish a
-bounded rank-two multi-loop bridge only. That bridge is frozen during Stage 1
-and does not establish scalar-IBP correctness.
+builder equals the existing FORM path. That compatibility obligation applies
+to Vakint's public API/defaults and existing FORM-backed methods, not to the
+RustRed artifact format: Vakint must reject every obsolete artifact schema and
+must not migrate, dual-decode, or fall back from it. These existing gates
+establish a bounded rank-two multi-loop bridge only. That bridge is frozen
+during Stage 1 and does not establish scalar-IBP correctness.
 
 The detailed tensor, routing, convention, and vertical-oracle contract lives in
 [`tensor.md`](tensor.md).

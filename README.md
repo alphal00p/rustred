@@ -97,8 +97,8 @@ with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
 closing artifact. The current test-only K6 census submits 107 bounded probes,
-which canonicalize to 36 roots and discover 48 nodes. It exercises all thirteen
-current cell owners through 17 rule applications, discharges 15 nodes only by
+which canonicalize to 36 roots and discover 58 nodes. It exercises all fourteen
+current cell owners through 20 rule applications, discharges 22 nodes only by
 freshly proved zero/factorization terminals, and leaves 16 nodes explicitly
 uncovered. Two independent complete depth-two projections now also lower the
 adjacent and opposite placements of powers two and three on the four-line
@@ -126,9 +126,20 @@ free index one and 1080 at held-out indices two and eight. A symbolic
 leading-coefficient proof establishes that none of the 32 specialized guards
 becomes the zero polynomial in `d` for any positive free index, while concrete
 exceptional dimensions remain guarded. Exact `S4` routing covers every choice
-of the repeated active edge. This pure repeated-dot ray does not cover mixed
-higher decorations, numerator faces, scalar corners, or the rest of the fixed
-point.
+of the repeated active edge. A complete depth-three search over 84 translations
+and 756 ordinary rows next derives the exact corner target
+`J(0,1,2,2,3,0)`. Its exact elimination selects 46 generated rows. Reprojecting
+only that generated selection on a one-free-index face yields an algebraic
+recurrence for one `S4` orbit of `J(0,1,2,2,N,0)`, structurally `N >= 3`,
+with 13 source contributions, 90 source terms, five RHS terms, seven guards,
+96 replay keys, and 275 exact
+schema-V3 operations. The anchor free index one and held-out indices two and
+eight replay identically, and a symbolic leading-coefficient proof covers the
+complete positive ray. The concrete i64 rule cell owns
+`3 <= N <= i64::MAX - 1`; the final machine endpoint is rejected because an
+RHS shift would overflow. The complementary `S4` orbit, the exposed descendant
+`J(0,1,1,2,N,0)`, numerator faces, scalar corners, and the rest of the fixed
+point remain open.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.

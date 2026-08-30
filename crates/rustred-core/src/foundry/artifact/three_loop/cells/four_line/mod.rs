@@ -21,6 +21,9 @@ mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
 mod mixed_dot;
+mod mixed_dot_ray;
+#[cfg(test)]
+mod mixed_dot_ray_tests;
 #[cfg(test)]
 mod mixed_dot_tests;
 mod repeated_dot;
@@ -29,6 +32,7 @@ mod repeated_dot_tests;
 
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
 use mixed_dot::{MixedDotFourLineCells, derive_mixed_dot_four_line_cells};
+use mixed_dot_ray::derive_mixed_dot_ray_cell;
 use repeated_dot::derive_repeated_dot_ray_cell;
 
 const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
@@ -39,9 +43,9 @@ const CANONICAL_TARGET_SOURCE_SHIFT: [i64; 6] = [0, -1, 0, 0, 1, 0];
 const ZERO_SOURCE_SHIFT: [i64; 6] = [0; 6];
 
 /// Complete ordered owner of the currently derived four-line discovery
-/// slices.  The singleton corner exceptions precede the broad positive-box
-/// cells so future domain refinements cannot silently change first-applicable
-/// ownership at an exceptional endpoint.
+/// slices.  The singleton corner exceptions and selected-source ray precede
+/// the broad positive-box cells so future domain refinements cannot silently
+/// change first-applicable ownership on their certified domains.
 pub(super) struct FourLineCellSet {
     pub(super) isolated: RuleCell,
     pub(super) opposite: RuleCell,
@@ -50,6 +54,7 @@ pub(super) struct FourLineCellSet {
     pub(super) three_distinct: RuleCell,
     pub(super) adjacent_mixed_dot: RuleCell,
     pub(super) opposite_mixed_dot: RuleCell,
+    pub(super) mixed_dot_ray: RuleCell,
     pub(super) repeated_dot_ray: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
@@ -69,6 +74,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         adjacent: adjacent_mixed_dot,
         opposite: opposite_mixed_dot,
     } = derive_mixed_dot_four_line_cells()?;
+    let (_context, mixed_dot_ray) = derive_mixed_dot_ray_cell()?;
     let (_context, repeated_dot_ray) = derive_repeated_dot_ray_cell()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
@@ -79,6 +85,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         three_distinct,
         adjacent_mixed_dot,
         opposite_mixed_dot,
+        mixed_dot_ray,
         repeated_dot_ray,
         canonical_dot,
         mixed_numerator,

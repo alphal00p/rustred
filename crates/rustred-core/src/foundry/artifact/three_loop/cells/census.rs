@@ -41,6 +41,7 @@ enum K6CellKind {
     FourLineThreeDistinct,
     FourLineAdjacentMixedDot,
     FourLineOppositeMixedDot,
+    FourLineMixedDotRay,
     FourLineRepeatedDotRay,
     FourLineDotBulk,
     FourLineMixedNumerator,
@@ -71,13 +72,15 @@ impl K6ReachabilityCensus {
             three_distinct,
             adjacent_mixed_dot,
             opposite_mixed_dot,
+            mixed_dot_ray,
             repeated_dot_ray,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
 
         // First-applicable order is explicit.  Exact corner exceptions own
-        // their singleton endpoints before the broad four-line cells.
+        // their singleton endpoints, then the selected-source ray owns its
+        // certified face before the broad four-line cells.
         let cells = vec![
             OwnedCell {
                 kind: K6CellKind::Top,
@@ -118,6 +121,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineOppositeMixedDot,
                 cell: opposite_mixed_dot,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineMixedDotRay,
+                cell: mixed_dot_ray,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineRepeatedDotRay,
@@ -261,7 +268,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 13,
+            max_rule_cells: 14,
             max_roots: 107,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -291,6 +298,7 @@ mod tests {
                 K6CellKind::FourLineThreeDistinct,
                 K6CellKind::FourLineAdjacentMixedDot,
                 K6CellKind::FourLineOppositeMixedDot,
+                K6CellKind::FourLineMixedDotRay,
                 K6CellKind::FourLineRepeatedDotRay,
                 K6CellKind::FourLineDotBulk,
                 K6CellKind::FourLineMixedNumerator,
@@ -330,7 +338,8 @@ mod tests {
                 (K6CellKind::FourLineThreeDistinct, 1),
                 (K6CellKind::FourLineAdjacentMixedDot, 1),
                 (K6CellKind::FourLineOppositeMixedDot, 1),
-                (K6CellKind::FourLineRepeatedDotRay, 1),
+                (K6CellKind::FourLineMixedDotRay, 2),
+                (K6CellKind::FourLineRepeatedDotRay, 2),
                 (K6CellKind::FourLineDotBulk, 1),
                 (K6CellKind::FourLineMixedNumerator, 4),
             ])
@@ -339,16 +348,16 @@ mod tests {
             terminals,
             BTreeMap::from([
                 (ReachabilityTerminalKind::ZeroSector, 1),
-                (ReachabilityTerminalKind::Factorization, 14),
+                (ReachabilityTerminalKind::Factorization, 21),
             ])
         );
 
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 107);
         assert_eq!(statistics.canonical_roots(), 36);
-        assert_eq!(statistics.discovered_nodes(), 48);
-        assert_eq!(statistics.terminal_nodes(), 15);
-        assert_eq!(statistics.rule_applications(), 17);
+        assert_eq!(statistics.discovered_nodes(), 58);
+        assert_eq!(statistics.terminal_nodes(), 22);
+        assert_eq!(statistics.rule_applications(), 20);
         assert_eq!(statistics.uncovered_nodes(), 16);
 
         for (powers, kind) in [
@@ -363,6 +372,8 @@ mod tests {
             ([0, 1, 2, 2, 2, 0], K6CellKind::FourLineThreeDistinct),
             ([0, 1, 1, 2, 3, 0], K6CellKind::FourLineAdjacentMixedDot),
             ([0, 1, 2, 1, 3, 0], K6CellKind::FourLineOppositeMixedDot),
+            ([0, 1, 2, 2, 3, 0], K6CellKind::FourLineMixedDotRay),
+            ([0, 1, 2, 2, 4, 0], K6CellKind::FourLineMixedDotRay),
             ([0, 1, 1, 1, 4, 0], K6CellKind::FourLineRepeatedDotRay),
             (FOUR_LINE_BULK_DOT_PROBE, K6CellKind::FourLineDotBulk),
             ([0, 1, 1, 1, 2, -1], K6CellKind::FourLineMixedNumerator),
@@ -400,6 +411,28 @@ mod tests {
                 if terminal.kind() == ReachabilityTerminalKind::Factorization
         ));
 
+        // The generated selected-source ray owns both finite-census points
+        // with one parametric cell.  Its exact first child exposes the next
+        // same-sector ray honestly; the remaining children descend into the
+        // existing repeated-dot and factorization owners.
+        for (target_power, free_power) in [(3, 1), (4, 2)] {
+            let powers = [0, 1, 2, 2, target_power, 0];
+            let ReachabilityDisposition::Rule(application) = disposition(&census, &first, powers)
+            else {
+                panic!("expected selected-source mixed-dot ray at {powers:?}")
+            };
+            assert_eq!(
+                census.cell_kind(application.cell_ordinal()),
+                K6CellKind::FourLineMixedDotRay
+            );
+            assert_eq!(application.assignment(), [0, 1, 1, 1, free_power, 0]);
+            assert_eq!(application.dependencies().len(), 5);
+            assert_eq!(
+                application.dependencies()[0].canonical_child().powers(),
+                [0, 1, 1, 2, free_power + 3, 0]
+            );
+        }
+
         // Scalar graph corners are obligations, never assumed masters.
         // The additional representatives pin the distinct deeper-dot and
         // inactive-numerator holes exposed by this bounded root set.
@@ -410,6 +443,8 @@ mod tests {
             [0, 1, 1, 1, 1, -1],
             [-1, 1, 1, 1, 1, 1],
             [0, 1, 2, 2, 1, -1],
+            [0, 1, 1, 2, 4, 0],
+            [0, 1, 1, 2, 5, 0],
         ] {
             assert!(matches!(
                 disposition(&census, &first, powers),

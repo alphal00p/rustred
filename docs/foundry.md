@@ -152,18 +152,33 @@ lower the adjacent and opposite placements of powers two and three. They use
 and full 252-row projection replay apiece, and descend only to the certified
 path factorization and scalar four-line corner. Depths zero and one retain
 typed `TargetShiftAbsent` witnesses, and exhaustive `S4` tests cover all twelve
-ordered placements. Four deeper mixed-dot representatives remain open.
+ordered placements.
+
+The first promoted mixed-dot ray is generated from a complete depth-three
+search rather than from an authored source list. Exact corner elimination over
+84 translations and all 756 ordinary rows selects 46 source ordinals for
+`J(0,1,2,2,3,0)`. RustRed independently retranslates and reprojects those
+generated rows with one free positive index, then performs a second exact
+elimination. The resulting algebraic recurrence covers one `S4` orbit of
+`J(0,1,2,2,N,0)` for structural `N >= 3`: 13 source contributions, 90 source
+terms, five RHS terms, seven guards, 96 replay keys, and 275 exact schema-V3
+replay operations. It replays at anchor free index one and held-out indices two and eight. A
+uniform-sign leading-in-`d` coefficient proves the guards remain nonzero
+polynomials in `d` on the whole positive ray. The concrete i64 cell owns
+`3 <= N <= i64::MAX - 1`; it rejects the final endpoint because an RHS shift
+would overflow. Direct elimination of the full
+756-row free-index projection records a typed exceptional-anchor guard instead
+of being misreported as target absence. The complementary `S4` orbit and the
+new child ray `J(0,1,1,2,N,0)` remain open.
 
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 107 bounded probes, exact `S4`
-canonicalization retains 36 roots and discovery visits 48 nodes. The report
-pins 17 applications across all thirteen current rule-cell owners, 15
-independently proved zero/factorization terminals, and 16 uncovered nodes. The
-two newest mixed-dot owners convert two existing uncovered roots into rule
-applications without changing the node or terminal sets. A five-line
-point shared by both positive-dot domains explicitly pins first-applicable
-ownership. All 26 raw zero masks are rechecked using Symbolica's exact
-active-edge momentum rank, and the three product domains reuse the production
+canonicalization retains 36 roots and discovery visits 58 nodes. The report
+pins 20 applications across all fourteen current rule-cell owners, 22
+independently proved zero/factorization terminals, and 16 uncovered nodes. A
+five-line point shared by both positive-dot domains explicitly pins
+first-applicable ownership. All 26 raw zero masks are rechecked using
+Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
 factorization compiler. Scalar corners and the reported mixed-dot/numerator
 holes stay uncovered; no census value is promoted to publication evidence.
 

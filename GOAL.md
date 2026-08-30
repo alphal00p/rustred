@@ -173,11 +173,7 @@ and 1080 at held-out indices two and eight. After fixed-coordinate
 specialization, a uniform-sign leading-in-`d` coefficient proof shows that no
 guard is identically zero in `d` at any positive free index; individual
 exceptional dimensions remain guarded. Exact `S4` canonicalization routes all
-four choices of repeated active edge. This selected pure ray does not cover
-mixed higher-dot rays such as `J(0,1,1,2,3,0)` and
-`J(0,1,2,1,3,0)`, numerator faces, scalar corners, or the rest of the fixed
-point. The fixture does not expose an installable artifact until the complete
-rule fixed point is closed.
+four choices of repeated active edge.
 
 Two further independently retained copies of the complete depth-two
 four-line-corner span derive exact singleton recurrences for the two
@@ -190,14 +186,29 @@ twelve ordered placements route into the two cells under the authenticated
 `S4` action. The remaining deeper mixed-dot points and all numerator faces
 remain open.
 
+A complete depth-three search then spans 84 translations and all 756 generated
+ordinary rows for the exact corner target `J(0,1,2,2,3,0)`. Its exact
+elimination selects 46 rows. Those generated rows are independently
+retranslated and reprojected on a one-free-index face, producing a guarded
+recurrence for one `S4` orbit of `J(0,1,2,2,N,0)`, structurally `N >= 3`.
+The parametric rule uses 13 source contributions containing 90 source terms, has five RHS
+terms, seven guards, 96 replay keys, and 275 exact schema-V3 replay operations.
+The anchor free index one and held-out indices two and eight reproduce the same
+exact metrics; a uniform-sign leading-in-`d` proof establishes that no guard is identically zero
+for any positive free index. Its concrete i64 application box owns
+`3 <= N <= i64::MAX - 1` and rejects the overflowing final endpoint. The
+complete 756-row free-index projection itself retains the typed
+exceptional-anchor diagnosis instead of silently selecting a
+different rule. The complementary `S4` orbit and the first exposed descendant
+ray `J(0,1,1,2,N,0)` remain explicit obligations. The fixture exposes no
+installable artifact until the complete rule fixed point is closed.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 107 submitted probes reduce under exact `S4` to 36
-roots and discover 48 nodes: all thirteen presently derived cell owners are
-exercised in 17 applications, 15 nodes terminate through independently checked
-zero or factorization proofs, and 16 remain explicitly uncovered. The two new
-mixed-dot roots were already present with both of their descendants, so this
-milestone changes only their dispositions from uncovered to rule applications.
-The census checks first-applicable overlap ownership and never labels the
+roots and discover 58 nodes: all fourteen presently derived cell owners are
+exercised in 20 applications, 22 nodes terminate through independently checked
+zero or factorization proofs, and 16 remain explicitly uncovered. The census
+checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
 publication gate.
@@ -380,7 +391,10 @@ Acceptance requires:
 - scalar RustRed-backend tests with an invalid FORM path;
 - tensor-bearing tests using the unchanged FORM tensor prepass followed by the
   FORM-free RustRed scalar tail; and
-- unchanged Vakint defaults and backward-compatibility tests.
+- unchanged Vakint public API conventions, defaults, and existing FORM-backed
+  behavior, together with a negative test that obsolete RustRed artifact
+  schemas are rejected rather than migrated, dual-decoded, or used through a
+  fallback.
 
 PySecDec comparisons are optional, non-gating corroboration.
 
