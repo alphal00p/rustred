@@ -39,6 +39,7 @@ const FOUR_LINE_INCIDENT_TWO_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 1, 2, 
 const FOUR_LINE_OPPOSITE_INACTIVE_NUMERATOR_PAIR_ENDPOINT_PROBE: [i64; 6] = [-1, 1, 1, 1, 1, -1];
 const FOUR_LINE_OPPOSITE_INACTIVE_NUMERATOR_PAIR_DOT_ENDPOINT_PROBE: [i64; 6] =
     [-1, 1, 1, 1, 2, -1];
+const FOUR_LINE_OPPOSITE_INACTIVE_NUMERATOR_PAIR_BULK_PROBE: [i64; 6] = [-1, 1, 1, 1, 1, -2];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_BRIDGE_DOT_NUMERATOR_BULK_PROBE: [i64; 6] = [0, -2, 2, 1, 1, 1];
 const FOUR_LINE_FACTORIZED_FACE_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, -1, 1, 1, 1, 1];
@@ -52,6 +53,7 @@ const FOUR_LINE_FACTORIZED_OPPOSITE_EDGE_REPEATED_DOT_NUMERATOR_ENDPOINT_PROBE: 
 const FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 1, 1, 1, 2, -2];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 2, -1, 1, 1];
 const THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE: [i64; 6] = [0, 0, 2, -2, 1, 1];
+const THREE_LINE_DECORATED_PATH_OPPOSITE_INACTIVE_PAIR_BULK_PROBE: [i64; 6] = [0, -1, 1, -1, 2, 1];
 const THREE_LINE_BRIDGE_DESCENDANT_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [-1, 0, 1, 0, 2, 1];
 const THREE_LINE_INCIDENT_PATH_DOT_NUMERATOR_ENDPOINT_PROBE: [i64; 6] = [0, 0, 1, -1, 2, 1];
 const THREE_LINE_FACTORIZED_PATH_MIDDLE_DOT_NUMERATOR_RAY_PROBE: [i64; 6] = [0, 0, 1, -1, 1, 2];
@@ -95,6 +97,7 @@ enum K6CellKind {
     FourLineIncidentTwoDotNumeratorEndpoint,
     FourLineOppositeInactiveNumeratorPairEndpoint,
     FourLineOppositeInactiveNumeratorPairDotEndpoint,
+    FourLineOppositeInactiveNumeratorPairBulk,
     FourLineDottedNegativeNumeratorBulk,
     ThreeLineBridgeDescendantDotNumeratorEndpoint,
     ThreeLineIncidentPathDotNumeratorEndpoint,
@@ -102,6 +105,9 @@ enum K6CellKind {
     ThreeLineFactorizedStarSpokeDotNumeratorRay,
     ThreeLineDecoratedPathNumeratorEndpoint,
     ThreeLineDecoratedPathNumeratorBulk,
+    ThreeLineDecoratedPathOppositeInactivePairBulk,
+    ThreeLineDecoratedPathAdjacentInactivePairBulk,
+    ThreeLinePathMiddleDeepNumeratorDotBulk,
     ThreeLineUndottedPathNumeratorEndpoint,
     ThreeLineUndottedPathNumeratorBulk,
     FourLineDotBulk,
@@ -160,6 +166,7 @@ impl K6ReachabilityCensus {
             incident_two_dot_numerator_endpoint,
             opposite_inactive_numerator_pair_endpoint,
             opposite_inactive_numerator_pair_dot_endpoint,
+            opposite_inactive_numerator_pair_bulk,
             dotted_negative_numerator_bulk,
             canonical_dot,
             mixed_numerator,
@@ -171,6 +178,9 @@ impl K6ReachabilityCensus {
             factorized_star_spoke_dot_numerator_ray,
             decorated_path_numerator_endpoint,
             decorated_path_numerator_bulk,
+            decorated_path_opposite_inactive_pair_bulk,
+            decorated_path_adjacent_inactive_pair_bulk,
+            path_middle_deep_numerator_dot_bulk,
             undotted_path_numerator_endpoint,
             undotted_path_numerator_bulk,
         } = derive_three_line_cells()?;
@@ -308,6 +318,10 @@ impl K6ReachabilityCensus {
                 cell: opposite_inactive_numerator_pair_dot_endpoint,
             },
             OwnedCell {
+                kind: K6CellKind::FourLineOppositeInactiveNumeratorPairBulk,
+                cell: opposite_inactive_numerator_pair_bulk,
+            },
+            OwnedCell {
                 kind: K6CellKind::FourLineDottedNegativeNumeratorBulk,
                 cell: dotted_negative_numerator_bulk,
             },
@@ -334,6 +348,18 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
                 cell: decorated_path_numerator_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineDecoratedPathOppositeInactivePairBulk,
+                cell: decorated_path_opposite_inactive_pair_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLineDecoratedPathAdjacentInactivePairBulk,
+                cell: decorated_path_adjacent_inactive_pair_bulk,
+            },
+            OwnedCell {
+                kind: K6CellKind::ThreeLinePathMiddleDeepNumeratorDotBulk,
+                cell: path_middle_deep_numerator_dot_bulk,
             },
             OwnedCell {
                 kind: K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
@@ -503,7 +529,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 42,
+            max_rule_cells: 46,
             max_roots: 115,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -554,6 +580,7 @@ mod tests {
                 K6CellKind::FourLineIncidentTwoDotNumeratorEndpoint,
                 K6CellKind::FourLineOppositeInactiveNumeratorPairEndpoint,
                 K6CellKind::FourLineOppositeInactiveNumeratorPairDotEndpoint,
+                K6CellKind::FourLineOppositeInactiveNumeratorPairBulk,
                 K6CellKind::FourLineDottedNegativeNumeratorBulk,
                 K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint,
                 K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint,
@@ -561,6 +588,9 @@ mod tests {
                 K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay,
                 K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
+                K6CellKind::ThreeLineDecoratedPathOppositeInactivePairBulk,
+                K6CellKind::ThreeLineDecoratedPathAdjacentInactivePairBulk,
+                K6CellKind::ThreeLinePathMiddleDeepNumeratorDotBulk,
                 K6CellKind::ThreeLineUndottedPathNumeratorEndpoint,
                 K6CellKind::ThreeLineUndottedPathNumeratorBulk,
                 K6CellKind::FourLineDotBulk,
@@ -634,6 +664,7 @@ mod tests {
                     K6CellKind::FourLineOppositeInactiveNumeratorPairDotEndpoint,
                     1,
                 ),
+                (K6CellKind::FourLineOppositeInactiveNumeratorPairBulk, 1,),
                 (K6CellKind::FourLineDottedNegativeNumeratorBulk, 1,),
                 (K6CellKind::ThreeLineBridgeDescendantDotNumeratorEndpoint, 1,),
                 (K6CellKind::ThreeLineIncidentPathDotNumeratorEndpoint, 1,),
@@ -641,6 +672,10 @@ mod tests {
                 (K6CellKind::ThreeLineFactorizedStarSpokeDotNumeratorRay, 1,),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineDecoratedPathNumeratorBulk, 1),
+                (
+                    K6CellKind::ThreeLineDecoratedPathOppositeInactivePairBulk,
+                    1,
+                ),
                 (K6CellKind::ThreeLineUndottedPathNumeratorEndpoint, 1),
                 (K6CellKind::ThreeLineUndottedPathNumeratorBulk, 1),
                 (K6CellKind::FourLineDotBulk, 1),
@@ -658,10 +693,10 @@ mod tests {
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 115);
         assert_eq!(statistics.canonical_roots(), 44);
-        assert_eq!(statistics.discovered_nodes(), 88);
+        assert_eq!(statistics.discovered_nodes(), 89);
         assert_eq!(statistics.terminal_nodes(), 27);
-        assert_eq!(statistics.rule_applications(), 51);
-        assert_eq!(statistics.uncovered_nodes(), 10);
+        assert_eq!(statistics.rule_applications(), 53);
+        assert_eq!(statistics.uncovered_nodes(), 9);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -760,6 +795,10 @@ mod tests {
                 K6CellKind::FourLineOppositeInactiveNumeratorPairDotEndpoint,
             ),
             (
+                FOUR_LINE_OPPOSITE_INACTIVE_NUMERATOR_PAIR_BULK_PROBE,
+                K6CellKind::FourLineOppositeInactiveNumeratorPairBulk,
+            ),
+            (
                 FOUR_LINE_DOTTED_NEGATIVE_NUMERATOR_BULK_PROBE,
                 K6CellKind::FourLineDottedNegativeNumeratorBulk,
             ),
@@ -786,6 +825,10 @@ mod tests {
             (
                 THREE_LINE_DECORATED_PATH_NUMERATOR_BULK_PROBE,
                 K6CellKind::ThreeLineDecoratedPathNumeratorBulk,
+            ),
+            (
+                THREE_LINE_DECORATED_PATH_OPPOSITE_INACTIVE_PAIR_BULK_PROBE,
+                K6CellKind::ThreeLineDecoratedPathOppositeInactivePairBulk,
             ),
             (
                 THREE_LINE_UNDOTTED_PATH_NUMERATOR_ENDPOINT_PROBE,
@@ -954,6 +997,65 @@ mod tests {
             disposition(&census, &first, FOUR_LINE_CORNER),
             ReachabilityDisposition::Uncovered
         ));
+
+        // The opposite inactive-pair bulk removes the deeper B frontier
+        // point and exposes exactly one new canonical node, E.  E's
+        // symmetry-oriented generated recurrence then closes into nodes that
+        // were already owned or authenticated terminals.
+        let ReachabilityDisposition::Rule(opposite_pair_bulk) = disposition(
+            &census,
+            &first,
+            FOUR_LINE_OPPOSITE_INACTIVE_NUMERATOR_PAIR_BULK_PROBE,
+        ) else {
+            panic!("expected opposite inactive-numerator pair bulk")
+        };
+        assert_eq!(
+            census.cell_kind(opposite_pair_bulk.cell_ordinal()),
+            K6CellKind::FourLineOppositeInactiveNumeratorPairBulk
+        );
+        assert_eq!(opposite_pair_bulk.assignment(), [-1, 1, 1, 1, 1, -1]);
+        assert_eq!(
+            opposite_pair_bulk
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [
+                [-1, 1, 1, 1, 1, -1],
+                THREE_LINE_DECORATED_PATH_OPPOSITE_INACTIVE_PAIR_BULK_PROBE,
+                [0, 1, 1, 1, 1, -2],
+                [0, 1, 1, 1, 1, -1],
+                [0, 1, 1, 1, 1, -1],
+            ]
+        );
+
+        let ReachabilityDisposition::Rule(opposite_path_pair) = disposition(
+            &census,
+            &first,
+            THREE_LINE_DECORATED_PATH_OPPOSITE_INACTIVE_PAIR_BULK_PROBE,
+        ) else {
+            panic!("expected decorated-path opposite inactive-pair bulk")
+        };
+        assert_eq!(
+            census.cell_kind(opposite_path_pair.cell_ordinal()),
+            K6CellKind::ThreeLineDecoratedPathOppositeInactivePairBulk
+        );
+        assert_eq!(opposite_path_pair.assignment(), [0, 0, 1, -1, 2, 1]);
+        assert_eq!(
+            opposite_path_pair
+                .dependencies()
+                .iter()
+                .map(|dependency| dependency.canonical_child().powers())
+                .collect::<Vec<_>>(),
+            [
+                [-1, 0, 1, 0, 2, 1],
+                [0, 0, 2, -1, 1, 1],
+                [0, 0, 1, -1, 2, 1],
+                [0, 0, 1, 0, 2, 1],
+                [0, 0, 1, -1, 1, 1],
+                [0, 0, 1, 0, 1, 1],
+            ]
+        );
 
         // The factorized bridge-dot lane owns exactly its endpoint and bulk
         // orbit.  Its endpoint closes into authenticated factorization
@@ -1464,7 +1566,6 @@ mod tests {
                 [0, -1, 1, 2, 2, 1],
                 [0, -2, 2, 2, 1, 1],
                 [0, 1, 1, 1, 1, 0],
-                [-1, 1, 1, 1, 1, -2],
                 [0, 1, 1, 2, 4, 0],
                 [0, 1, 1, 2, 5, 0],
                 [0, 1, 2, 3, 3, 0],

@@ -7,6 +7,9 @@
 mod bridge_descendant_dot_numerator;
 #[cfg(test)]
 mod bridge_descendant_dot_numerator_tests;
+mod decorated_path_inactive_pair;
+#[cfg(test)]
+mod decorated_path_inactive_pair_tests;
 mod decorated_path_numerator;
 #[cfg(test)]
 mod decorated_path_numerator_tests;
@@ -24,6 +27,7 @@ use crate::foundry::artifact::ArtifactError;
 use crate::foundry::cell::RuleCell;
 
 use bridge_descendant_dot_numerator::derive_bridge_descendant_dot_numerator_endpoint;
+use decorated_path_inactive_pair::derive_decorated_path_inactive_pair_cells;
 use decorated_path_numerator::derive_decorated_path_numerator_cells;
 use factorized_dot_numerator_rays::derive_factorized_three_line_dot_numerator_rays;
 use incident_path_dot_numerator_endpoint::derive_incident_path_dot_numerator_endpoint;
@@ -40,6 +44,9 @@ pub(super) struct ThreeLineCellSet {
     pub(super) factorized_star_spoke_dot_numerator_ray: RuleCell,
     pub(super) decorated_path_numerator_endpoint: RuleCell,
     pub(super) decorated_path_numerator_bulk: RuleCell,
+    pub(super) decorated_path_opposite_inactive_pair_bulk: RuleCell,
+    pub(super) decorated_path_adjacent_inactive_pair_bulk: RuleCell,
+    pub(super) path_middle_deep_numerator_dot_bulk: RuleCell,
     pub(super) undotted_path_numerator_endpoint: RuleCell,
     pub(super) undotted_path_numerator_bulk: RuleCell,
 }
@@ -56,6 +63,12 @@ pub(super) fn derive_three_line_cells() -> Result<ThreeLineCellSet, ArtifactErro
     ) = derive_factorized_three_line_dot_numerator_rays()?;
     let (_context, decorated_path_numerator_endpoint, decorated_path_numerator_bulk) =
         derive_decorated_path_numerator_cells()?;
+    let (
+        _context,
+        decorated_path_opposite_inactive_pair_bulk,
+        decorated_path_adjacent_inactive_pair_bulk,
+        path_middle_deep_numerator_dot_bulk,
+    ) = derive_decorated_path_inactive_pair_cells()?;
     let (_context, undotted_path_numerator_endpoint, undotted_path_numerator_bulk) =
         derive_undotted_path_numerator_cells()?;
     Ok(ThreeLineCellSet {
@@ -65,6 +78,9 @@ pub(super) fn derive_three_line_cells() -> Result<ThreeLineCellSet, ArtifactErro
         factorized_star_spoke_dot_numerator_ray,
         decorated_path_numerator_endpoint,
         decorated_path_numerator_bulk,
+        decorated_path_opposite_inactive_pair_bulk,
+        decorated_path_adjacent_inactive_pair_bulk,
+        path_middle_deep_numerator_dot_bulk,
         undotted_path_numerator_endpoint,
         undotted_path_numerator_bulk,
     })
