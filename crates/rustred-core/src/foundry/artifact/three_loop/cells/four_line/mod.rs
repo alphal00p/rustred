@@ -19,8 +19,12 @@ use super::support::complete_ordinary_sources;
 mod exceptional;
 #[cfg(test)]
 mod exceptional_tests;
+mod repeated_dot;
+#[cfg(test)]
+mod repeated_dot_tests;
 
 use exceptional::{ExceptionalFourLineCells, derive_exceptional_four_line_cells};
+use repeated_dot::derive_repeated_dot_ray_cell;
 
 const FOUR_LINE_SECTOR: [i64; 6] = [0, 1, 1, 1, 1, 0];
 const ANCHOR: [i64; 6] = [0, 2, 2, 2, 2, 0];
@@ -39,6 +43,7 @@ pub(super) struct FourLineCellSet {
     pub(super) adjacent: RuleCell,
     pub(super) triple: RuleCell,
     pub(super) three_distinct: RuleCell,
+    pub(super) repeated_dot_ray: RuleCell,
     pub(super) canonical_dot: RuleCell,
     pub(super) mixed_numerator: RuleCell,
 }
@@ -52,6 +57,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         triple,
         three_distinct,
     } = derive_exceptional_four_line_cells()?;
+    let (_context, repeated_dot_ray) = derive_repeated_dot_ray_cell()?;
     let (_context, canonical_dot, mixed_numerator) = derive_four_line_cells()?;
     Ok(FourLineCellSet {
         isolated,
@@ -59,6 +65,7 @@ pub(super) fn derive_all_four_line_cells() -> Result<FourLineCellSet, ArtifactEr
         adjacent,
         triple,
         three_distinct,
+        repeated_dot_ray,
         canonical_dot,
         mixed_numerator,
     })

@@ -164,20 +164,32 @@ J(0,1,2,2,2,0)=
 
 This exact cell selects 17 RREF rows, retains nine guards and the complete
 252-row replay, and routes all four raw three-distinct-dot placements under
-`S4`. These results close two singleton endpoints, not repeated- or mixed-dot
-rays: `J(0,1,1,1,4,0)`, `J(0,1,1,2,3,0)`,
-`J(0,1,2,1,3,0)`, numerator faces, and the rest of the fixed point remain
-open. The fixture does not expose an installable artifact until the complete
+`S4`. A fourth complete depth-two projection now derives a parametric rule on
+the selected repeated-edge ray `J(0,1,1,1,N,0)` for every structural target
+`N >= 3`. The pivot shift `[0,0,0,0,2,0]` is obtained from 50 selected source
+contributions (358 source terms) and has eight RHS terms, 32 exact guards, and
+367 replay keys. Schema-V3 replay uses 1078 exact operations at free index one
+and 1080 at held-out indices two and eight. After fixed-coordinate
+specialization, a uniform-sign leading-in-`d` coefficient proof shows that no
+guard is identically zero in `d` at any positive free index; individual
+exceptional dimensions remain guarded. Exact `S4` canonicalization routes all
+four choices of repeated active edge. This selected pure ray does not cover
+mixed higher-dot rays such as `J(0,1,1,2,3,0)` and
+`J(0,1,2,1,3,0)`, numerator faces, scalar corners, or the rest of the fixed
+point. The fixture does not expose an installable artifact until the complete
 rule fixed point is closed.
 
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 107 submitted probes reduce under exact `S4` to 36
-roots and discover 44 nodes: all ten presently derived cell owners are
-exercised in 14 applications, 11 nodes terminate through independently checked
-zero or factorization proofs, and 19 remain explicitly uncovered. The census
-checks first-applicable overlap ownership and never labels the scalar top,
-five-line, or four-line corners as masters. It measures the present frontier;
-it does not weaken the required zero-uncovered fixed-point publication gate.
+roots and discover 48 nodes: all eleven presently derived cell owners are
+exercised in 15 applications, 15 nodes terminate through independently checked
+zero or factorization proofs, and 18 remain explicitly uncovered. The exact
+delta is one formerly uncovered fourth-power ray root becoming a rule
+application and introducing four new canonical factorization descendants.
+The census checks first-applicable overlap ownership and never labels the
+scalar top, five-line, or four-line corners as masters. It measures the present
+frontier; it does not weaken the required zero-uncovered fixed-point
+publication gate.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

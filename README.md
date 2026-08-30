@@ -97,10 +97,13 @@ with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
 closing artifact. The current test-only K6 census submits 107 bounded probes,
-which canonicalize to 36 roots and discover 44 nodes. It exercises all ten
-current cell owners through 14 rule applications, discharges 11 nodes only by
-freshly proved zero/factorization terminals, and leaves 19 nodes explicitly
-uncovered. In particular, the three scalar graph corners, deeper dot rays, and
+which canonicalize to 36 roots and discover 48 nodes. It exercises all eleven
+current cell owners through 15 rule applications, discharges 15 nodes only by
+freshly proved zero/factorization terminals, and leaves 18 nodes explicitly
+uncovered. Relative to the preceding census, the previously uncovered
+`J(0,1,1,1,4,0)` root is now one exact rule application and exposes four new
+canonical factorization terminals; this accounts exactly for the changes in
+the finite report. The three scalar graph corners, mixed higher-dot faces, and
 numerator directions remain obligations rather than implicit masters.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
@@ -112,9 +115,18 @@ guards and full 252-row replay; both children are the certified path
 factorization and the scalar four-line corner. A third target over a separately
 retained copy of the complete span lowers the remaining three-distinct-dot
 orbit onto the same two children using 17 selected rows and nine exact guards;
-`S4` routes all four raw placements. These exact singleton endpoints do not
-form repeated- or mixed-dot rays: the fourth power, mixed higher decorations,
-numerator faces, and the rest of the fixed point remain open.
+`S4` routes all four raw placements. A fourth complete depth-two projection
+derives the selected repeated-edge ray `J(0,1,1,1,N,0)` for `N >= 3`. Its
+pivot shift is `[0,0,0,0,2,0]`; exact elimination selects 50 source
+contributions containing 358 source terms and produces eight RHS terms, 32
+guards, and 367 replay keys. Schema-V3 replay takes 1078 exact operations at
+free index one and 1080 at held-out indices two and eight. A symbolic
+leading-coefficient proof establishes that none of the 32 specialized guards
+becomes the zero polynomial in `d` for any positive free index, while concrete
+exceptional dimensions remain guarded. Exact `S4` routing covers every choice
+of the repeated active edge. This pure repeated-dot ray does not cover mixed
+higher decorations, numerator faces, scalar corners, or the rest of the fixed
+point.
 
 Live matcher comparison remains an integration gate, and no artifact is
 published before the complete rule fixed point closes.

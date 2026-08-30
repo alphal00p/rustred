@@ -80,10 +80,17 @@ depth-one failures pin search minimality for both targets. The remaining
 three-distinct-dot representative `[0,1,2,2,2,0]` is independently projected
 from the same complete span; exact target RREF selects 17 rows, retains nine
 guards, descends to the same two children, and routes all four raw placements.
-Depths zero and one both retain typed target-absent witnesses. These are exact
-singleton certificates, not repeated- or mixed-dot rays; higher decorations,
-numerator faces, the complete fixed point, publication, and all five
-three-loop Vakint reductions remain open.
+Depths zero and one both retain typed target-absent witnesses. A fourth complete
+depth-two projection validates the selected repeated-edge ray
+`[0,1,1,1,N,0]`, `N >= 3`: 50 source contributions, 358 source terms, eight
+RHS terms, 32 guards, and 367 replay keys. Schema-V3 exact replay costs are
+1078 at free index one and 1080 at held-out indices two and eight. A symbolic
+leading-in-`d` coefficient test proves that every specialized guard remains a
+nonzero polynomial in `d` for every positive free index; concrete exceptional
+dimensions remain guarded. Exact symmetry tests route all four active-edge
+placements. Mixed higher decorations, numerator faces, scalar corners, the
+complete fixed point, publication, and all five three-loop Vakint reductions
+remain open.
 
 The topology-neutral finite reachability planner is separately tested for
 deterministic concrete chains, caller-ordered rule selection, vanished-guard
@@ -93,11 +100,13 @@ only the graph actually visited; none of these bounded tests is promoted to an
 infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 107 bounded probes and has the
-following exact deterministic report: 36 canonical roots, 44 discovered
-nodes, 14 rule applications spanning all ten current cell owners, 11
-zero/factorization terminals, and 19 uncovered nodes. Tests pin overlapping
-five-line cell precedence, all three factorization owner ordinals,
-representative scalar/deeper-dot/numerator holes, and the exact
+following exact deterministic report: 36 canonical roots, 48 discovered
+nodes, 15 rule applications spanning all eleven current cell owners, 15
+zero/factorization terminals, and 18 uncovered nodes. The previously uncovered
+fourth-power ray root is now one application whose four new canonical children
+are all discharged by exact factorization proofs; tests pin this entire delta.
+They also pin overlapping five-line cell precedence, all three factorization
+owner ordinals, representative scalar/mixed-dot/numerator holes, and the exact
 discovered-node resource boundary. Every raw zero mask is freshly checked by
 Symbolica exact matrix rank before it may terminate discovery. These numbers
 are regression evidence for the current finite graph only, not the Stage 1

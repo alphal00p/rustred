@@ -126,26 +126,38 @@ second spanning-tree `K1 x K1 x K1` sector. A second target selection from the
 same complete diamond lowers `J(0,1,1,1,3,0)`, the triple-dot descendant of
 the opposite-pair cell, directly onto that certified factorization and the
 scalar four-line corner. It also selects 16 rows, retains nine exact guards,
-and owns a separate complete projection replay. This singleton does not cover
-`J(0,1,1,1,4,0)` or a parametric repeated-dot ray. A third complete projection
+and owns a separate complete projection replay. A third complete projection
 of the same search span derives the unique three-distinct-dot representative
 `J(0,1,2,2,2,0)` from 17 selected rows. Its two exact children are again the
 certified path factorization and scalar corner, and exact canonicalization
-routes all four raw placements. Mixed repeated-dot and numerator faces and the
-remaining fixed point stay open. The fixture intentionally exposes no closed
-artifact while its complete rule fixed point is incomplete. The [project
-goal](../GOAL.md) is the authority whenever this design and the implementation
-frontier differ.
+routes all four raw placements. A fourth complete 28-offset/252-row projection
+derives the selected repeated-edge ray `J(0,1,1,1,N,0)` for structural targets
+`N >= 3`. Exact targeted elimination uses 50 source contributions containing
+358 source terms and yields eight RHS terms, 32 guards, and 367 replay keys.
+Schema-V3 replay records 1078 exact operations at free index one and 1080 at
+held-out indices two and eight. After the five fixed coordinates are
+specialized, every guard depends only on `d` and the positive free index. The
+uniform-sign coefficient of its leading `d` power proves that no guard becomes
+the zero polynomial in `d` anywhere on that integer ray; exceptional dimension
+roots remain exact guard exclusions. Exact `S4` routing covers all four active
+edge placements. Mixed repeated-dot and numerator faces, scalar corners, and
+the remaining fixed point stay open. The fixture intentionally exposes no
+closed artifact while its complete rule fixed point is incomplete. The
+[project goal](../GOAL.md) is the authority whenever this design and the
+implementation frontier differ.
 
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 107 bounded probes, exact `S4`
-canonicalization retains 36 roots and discovery visits 44 nodes. The report
-pins 14 applications across all ten current rule-cell owners, 11 independently
-proved zero/factorization terminals, and 19 uncovered nodes. A five-line point
-shared by both positive-dot domains explicitly pins first-applicable ownership.
-All 26 raw zero masks are rechecked using Symbolica's exact active-edge
-momentum rank, and the three product domains reuse the production
-factorization compiler. Scalar corners and the reported deeper-dot/numerator
+canonicalization retains 36 roots and discovery visits 48 nodes. The report
+pins 15 applications across all eleven current rule-cell owners, 15
+independently proved zero/factorization terminals, and 18 uncovered nodes. The
+new repeated-dot owner converts the formerly uncovered
+`J(0,1,1,1,4,0)` root into one application and discovers four new canonical
+factorization terminals, exactly accounting for the census delta. A five-line
+point shared by both positive-dot domains explicitly pins first-applicable
+ownership. All 26 raw zero masks are rechecked using Symbolica's exact
+active-edge momentum rank, and the three product domains reuse the production
+factorization compiler. Scalar corners and the reported mixed-dot/numerator
 holes stay uncovered; no census value is promoted to publication evidence.
 
 The foundry will be an offline service. Ordinary Vakint evaluation will load

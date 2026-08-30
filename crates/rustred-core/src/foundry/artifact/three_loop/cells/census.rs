@@ -39,6 +39,7 @@ enum K6CellKind {
     FourLineAdjacentPair,
     FourLineTriple,
     FourLineThreeDistinct,
+    FourLineRepeatedDotRay,
     FourLineDotBulk,
     FourLineMixedNumerator,
 }
@@ -66,6 +67,7 @@ impl K6ReachabilityCensus {
             adjacent,
             triple,
             three_distinct,
+            repeated_dot_ray,
             canonical_dot,
             mixed_numerator,
         } = derive_all_four_line_cells()?;
@@ -104,6 +106,10 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineThreeDistinct,
                 cell: three_distinct,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineRepeatedDotRay,
+                cell: repeated_dot_ray,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineDotBulk,
@@ -243,7 +249,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 10,
+            max_rule_cells: 11,
             max_roots: 107,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -271,6 +277,7 @@ mod tests {
                 K6CellKind::FourLineAdjacentPair,
                 K6CellKind::FourLineTriple,
                 K6CellKind::FourLineThreeDistinct,
+                K6CellKind::FourLineRepeatedDotRay,
                 K6CellKind::FourLineDotBulk,
                 K6CellKind::FourLineMixedNumerator,
             ]
@@ -307,6 +314,7 @@ mod tests {
                 (K6CellKind::FourLineAdjacentPair, 1),
                 (K6CellKind::FourLineTriple, 1),
                 (K6CellKind::FourLineThreeDistinct, 1),
+                (K6CellKind::FourLineRepeatedDotRay, 1),
                 (K6CellKind::FourLineDotBulk, 1),
                 (K6CellKind::FourLineMixedNumerator, 4),
             ])
@@ -315,17 +323,17 @@ mod tests {
             terminals,
             BTreeMap::from([
                 (ReachabilityTerminalKind::ZeroSector, 1),
-                (ReachabilityTerminalKind::Factorization, 10),
+                (ReachabilityTerminalKind::Factorization, 14),
             ])
         );
 
         let statistics = first.statistics();
         assert_eq!(statistics.submitted_roots(), 107);
         assert_eq!(statistics.canonical_roots(), 36);
-        assert_eq!(statistics.discovered_nodes(), 44);
-        assert_eq!(statistics.terminal_nodes(), 11);
-        assert_eq!(statistics.rule_applications(), 14);
-        assert_eq!(statistics.uncovered_nodes(), 19);
+        assert_eq!(statistics.discovered_nodes(), 48);
+        assert_eq!(statistics.terminal_nodes(), 15);
+        assert_eq!(statistics.rule_applications(), 15);
+        assert_eq!(statistics.uncovered_nodes(), 18);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -337,6 +345,7 @@ mod tests {
             ([0, 1, 1, 2, 2, 0], K6CellKind::FourLineAdjacentPair),
             ([0, 1, 1, 1, 3, 0], K6CellKind::FourLineTriple),
             ([0, 1, 2, 2, 2, 0], K6CellKind::FourLineThreeDistinct),
+            ([0, 1, 1, 1, 4, 0], K6CellKind::FourLineRepeatedDotRay),
             (FOUR_LINE_BULK_DOT_PROBE, K6CellKind::FourLineDotBulk),
             ([0, 1, 1, 1, 2, -1], K6CellKind::FourLineMixedNumerator),
         ] {
@@ -352,7 +361,6 @@ mod tests {
             FOUR_LINE_CORNER,
             [0, 1, 1, 1, 1, -1],
             [-1, 1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 4, 0],
             [0, 1, 1, 2, 3, 0],
             [0, 1, 2, 1, 3, 0],
             [0, 1, 2, 2, 1, -1],
@@ -378,6 +386,22 @@ mod tests {
                 ReachabilityDisposition::Terminal(terminal)
                     if terminal.kind() == ReachabilityTerminalKind::Factorization
                         && terminal.owner_ordinal() == owner_ordinal
+            ));
+        }
+        // The newly covered fourth-power ray point produces four distinct
+        // canonical lower-sector children, all discharged by the existing
+        // exact factorization registry rather than assumed to vanish or to be
+        // masters.
+        for powers in [
+            [0, 0, 2, 2, 3, 0],
+            [0, 1, 0, 2, 3, 0],
+            [0, 1, 0, 2, 2, 0],
+            [0, 0, 1, 1, 3, 0],
+        ] {
+            assert!(matches!(
+                disposition(&census, &first, powers),
+                ReachabilityDisposition::Terminal(terminal)
+                    if terminal.kind() == ReachabilityTerminalKind::Factorization
             ));
         }
         assert!(matches!(
