@@ -69,9 +69,10 @@ memoization, and mass-restoration goldens, and reject foreign terminals.
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python
 package. Untrusted loading authenticates and replays the artifact once; the
-memoized hot reducer does not repeat that work. Vakint consumption and the
-three-loop `K = 6` artifact remain open Stage 1 work. Tensor development and
-master substitution inside RustRed remain outside this checkpoint.
+memoized hot reducer does not repeat that work. Vakint now ships and consumes
+both artifacts through its opt-in scalar RustRed backend; the three-loop
+`K = 6` artifact remains open Stage 1 work. Tensor development and master
+substitution inside RustRed remain outside this checkpoint.
 
 Translated-source tests regenerate a complete sealed ordinary-IBP batch and
 replay exact rows after deterministic integral-lattice recentering, including
@@ -153,10 +154,10 @@ Vakint comparisons are reported separately at three boundaries:
 
 The active Stage 1 ladder is completed in this order:
 
-- one-loop scalar powers reduced by the installed, durably encoded `K = 1`
-  artifact (Vakint application remains open);
-- two-loop sunset powers and its pinch reduced by the installed, durably
-  encoded `K = 3` artifact (Vakint application remains open); and
+- one-loop scalar powers reduced in RustRed and Vakint by the installed,
+  durably encoded `K = 1` artifact;
+- two-loop sunset powers and its pinch reduced in RustRed and Vakint by the
+  installed, durably encoded `K = 3` artifact; and
 - the three-loop K4/Mercedes parent and four inequivalent contractions reduced
   by a future installed `K = 6` artifact.
 
@@ -181,10 +182,11 @@ The detailed tensor, routing, convention, and vertical-oracle contract lives in
 
 ### FORM tensor prepass and scalar oracle
 
-FORM is forbidden from RustRed and from the future functional Vakint RustRed
-**scalar** backend. The currently reserved Vakint method supports no topology
-and has no scalar end-to-end tests. Before support is enabled, scalar-backend
-tests must pass with an invalid FORM path. Stage 1 nevertheless retains
+FORM is forbidden from RustRed and from the functional Vakint RustRed
+**scalar** backend. That backend now passes nontrivial one- and two-loop scalar
+tests with an invalid FORM path, exact raw-master comparisons against MATAD,
+and substituted-result comparisons against Vakint's existing expectations.
+Stage 1 nevertheless retains
 Vakint's existing FORM tensor prepass, so a tensor-bearing end-to-end test may
 run that prepass before entering the FORM-free RustRed scalar tail. Such a
 complete tensor-bearing chain is not claimed to be FORM-free.

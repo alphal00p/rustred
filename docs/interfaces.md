@@ -180,9 +180,9 @@ default. This experiment is frozen during Stage 1: it is not extended, made
 rank-generic, or used as the Stage 1 tensor path. Vakint retains its existing
 FORM tensor preprocessing and behavior.
 
-## Active Stage 1 Vakint seam
+## Active Stage 1 Vakint backend
 
-The new additive interface reserves a scalar evaluation backend, separate
+The new additive interface provides a scalar evaluation backend, separate
 from tensor mode selection:
 
 ```rust
@@ -190,27 +190,26 @@ EvaluationMethod::RustRed(RustRedEvaluationOptions::default())
 EvaluationOrder::rustred_only()
 ```
 
-`RustRedEvaluationOptions` already controls optional master substitution,
-enabled by default. At the present boundary, however, `supports()` is false
-for every topology and direct dispatch returns typed `ReducerUnavailable`.
-The Vakint adapter does not yet load the now-available standalone RustRed
-artifact, reduce scalars, map masters, or pass invalid-FORM-path end-to-end
-tests; mixed orders therefore continue safely to the next supported existing
-method.
+`RustRedEvaluationOptions` controls optional master substitution, enabled by
+default. The backend currently supports the registered one-loop tadpole,
+two-loop sunset, and pinch. It consumes the topology match and simultaneous
+routing witness already produced by Vakint, loads the corresponding shipped
+immutable artifact once, applies guarded rules through RustRed, and returns
+exact coefficients of typed master keys mapped to Vakint's existing MATAD
+master basis. It reuses Vakint's pure-Rust master values when substitution is
+requested, reports no FORM dependency, invokes no FORM scalar reduction, and
+never falls back internally. Unsupported graph classes remain unsupported so
+mixed orders can continue safely to their next configured method.
 
-When activated, the backend will consume the topology match and simultaneous
-routing witness already produced by Vakint, load the corresponding shipped
-immutable artifact, apply guarded rules through RustRed, and return exact
-coefficients of typed master keys mapped to Vakint's existing MATAD master
-basis. It will reuse Vakint's pure-Rust master values when substitution is
-requested, report no FORM dependency, invoke no FORM scalar reduction, and
-never fall back internally. Tensor-bearing inputs will deliberately retain
+Tensor-bearing inputs deliberately retain
 Vakint's unchanged FORM tensor prepass before this FORM-free scalar tail.
-Invalid-FORM-path scalar tests are required before support is enabled.
+Nontrivial invalid-FORM-path scalar tests and MATAD oracle comparisons pass
+through two loops.
 
-Production artifacts will be generated once by RustRed, checked into and
-shipped with Vakint, validated once when loaded, and reused for ordinary
-evaluation. Vakint must not regenerate them or maintain topology-authored
+Production `K = 1` and `K = 3` artifacts are generated once by RustRed, checked
+into and shipped with Vakint, validated once when lazily loaded, and reused for
+ordinary evaluation. The same ownership applies to the pending `K = 6`
+artifact. Vakint does not regenerate them or maintain topology-authored
 recurrence code.
 
 Milestone commits in GammaLoop pin RustRed to an exact Git revision and resolve

@@ -47,11 +47,18 @@ The currently evidenced core can:
 - deterministically encode both sealed artifacts, authenticate and replay them
   once when loading untrusted bytes, and expose durable generation,
   inspection, and exact reduction through the Rust application API, the
-  `campaign` CLI, and `import rustred` Python API.
+  `campaign` CLI, and `import rustred` Python API; and
+- drive Vakint's opt-in `EvaluationMethod::RustRed` scalar backend through the
+  shipped `K = 1` and `K = 3` artifacts, reusing Vakint's existing matcher and
+  routing witness, returning exact MATAD-basis master coefficients, restoring
+  a symbolic or exact common mass, and optionally applying Vakint's pure-Rust
+  master values without invoking or falling back to FORM.
 
-It does **not** yet close the three-loop `K = 6` family, substitute evaluated
-masters, or support generic/higher-even-rank tensor reduction. Structural
-source counts—at any loop count—remain insufficient closure evidence.
+It does **not** yet close the three-loop `K = 6` family or support
+generic/higher-even-rank tensor reduction. RustRed itself deliberately does not
+own evaluated master values; the Vakint adapter can substitute Vakint's
+existing values after reduction. Structural source counts—at any loop
+count—remain insufficient closure evidence.
 
 ## Active development stage
 
@@ -64,11 +71,13 @@ and 9 respectively.
 
 The `K = 1` and `K = 3` families are installed as mathematically closed,
 deterministically encoded artifacts and consumed by the generic recursive
-reducer through Rust, CLI, and Python surfaces. Three-loop `K = 6` closure and
-Vakint scalar integration are the remaining active Stage 1 work.
+reducer through Rust, CLI, and Python surfaces. They are also shipped with and
+consumed by Vakint's FORM-free scalar backend. Three-loop `K = 6` closure and
+extension of that backend across the five registered three-loop graph classes
+are the remaining active Stage 1 work.
 
 Tensor reduction is explicitly outside Stage 1. Vakint retains its existing
-FORM tensor prepass, while the new RustRed evaluation backend will be FORM-free
+FORM tensor prepass, while the new RustRed evaluation backend is FORM-free
 from scalar IBP application through master substitution. Existing experimental
 RustRed rank-two tensor code remains frozen. Four- through six-loop closure,
 high-loop performance work, and new tensor technology are deferred until
@@ -270,29 +279,25 @@ python examples/python/two_loop_single_mass_vacuum.py
 Vakint development occurs in the independent GammaLoop repository on branch
 `vakint_rustred`. The opt-in scalar API boundary
 `EvaluationMethod::RustRed(RustRedEvaluationOptions)` and
-`EvaluationOrder::rustred_only()` are present, but deliberately report no
-supported topology and direct dispatch returns a typed `ReducerUnavailable`
-until the scalar adapter consumes shipped artifacts and its oracle tests pass.
-The standalone durable `K = 1` and `K = 3` artifacts do not activate that
-reserved Vakint backend by themselves. This prevents the method from
-intercepting mixed evaluation orders.
-
-Once activated, the backend will consume Vakint's existing topology match and
-simultaneous routing witness, apply shipped RustRed artifacts, return exact
-coefficients in Vakint's existing MATAD master basis, and optionally reuse its
-pure-Rust master evaluations. It will not rematch graphs, regenerate
+`EvaluationOrder::rustred_only()` now support the one-loop tadpole, two-loop
+sunset, and its pinch. The backend consumes Vakint's existing topology match
+and simultaneous routing witness, applies shipped RustRed artifacts, returns
+exact coefficients in Vakint's existing MATAD master basis, and optionally
+reuses its pure-Rust master evaluations. It does not rematch graphs, regenerate
 artifacts, invoke FORM, or fall back to another scalar reducer.
 
-Vakint's defaults and backward compatibility remain unchanged. Once activated,
-tensor-bearing inputs will continue through the existing FORM tensor prepass
-before the FORM-free RustRed scalar tail, so that whole tensor-bearing chain
-will not be described as FORM-free. Invalid-FORM-path scalar tests are an
-activation acceptance gate, not a capability of the reserved stub. The
+Vakint's defaults and backward compatibility remain unchanged. Tensor-bearing
+inputs continue through the existing FORM tensor prepass before the FORM-free
+RustRed scalar tail, so that whole tensor-bearing chain is not described as
+FORM-free. Dedicated invalid-FORM-path tests exercise nontrivial one- and
+two-loop scalar numerators and prove that the scalar backend itself has no FORM
+dependency. Broad raw-master and substituted-result tests agree with MATAD. The
 previously implemented optional, bounded `TensorReductionMode::RustRed`
 experiment remains frozen and is not an active Stage 1 dependency.
 
-Production artifacts will be generated once, checked into and shipped with
-Vakint, and loaded rather than rediscovered during evaluation. RustRed owns
+Production `K = 1` and `K = 3` artifacts are generated once, checked into and
+shipped with Vakint, and loaded rather than rediscovered during evaluation.
+They are validated once at lazy load and reused thereafter. RustRed owns
 guarded rule application and typed master keys; Vakint owns topology matching,
 canonical routing, steering, normalization, presentation, and its existing
 master values.

@@ -283,14 +283,13 @@ graph.
 Vakint integration is developed in the GammaLoop repository on its own
 `vakint_rustred` branch. Vakint remains the user-facing steering layer, while
 RustRed supplies reusable mathematical services. The additive scalar RustRed
-API boundary is reserved but currently supports no topology and returns a
-typed unavailable error on direct dispatch. Activating it with shipped
-artifacts will provide the FORM-free scalar tail while deliberately retaining
-Vakint's existing FORM tensor prepass. Tensor-bearing end-to-end tests may then
-execute FORM before entering that tail; invalid-FORM-path scalar tests are an
-activation gate proving that the backend itself has no FORM dependency or
-fallback. Existing FORM-backed scalar methods remain compatibility oracles in
-segregated coverage.
+backend now ships and consumes the sealed `K = 1` and `K = 3` artifacts for the
+registered one- and two-loop families. It provides a FORM-free scalar tail
+while deliberately retaining Vakint's existing FORM tensor prepass.
+Tensor-bearing end-to-end tests may therefore execute FORM before entering
+that tail; separate invalid-FORM-path scalar tests prove that the backend itself
+has no FORM dependency or fallback. Existing FORM-backed scalar methods remain
+compatibility oracles in segregated coverage.
 
 ## Stage 1 artifact and reduction owners
 
@@ -299,7 +298,7 @@ The live core now contains two cohesive Stage 1 domains:
 | Owner | Current responsibility | Remaining production gate |
 |---|---|---|
 | `foundry::artifact` | Versioned immutable `K = 1` and `K = 3` artifacts; exact source/rule/projection replay; guarded exceptional cells; `S3` symmetry; zero, factorization, lower-artifact, master, and homogeneity proofs; deterministic bounded encoding/loading with one-time authentication at the untrusted boundary | The `K = 6` installer and its complete five-class coverage proof |
-| `reduction` | Topology-independent deterministic guarded rule selection/application, canonical symmetry routing, lower-artifact factorization, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | Vakint comparison and the additional generic features demanded by `K = 6` |
+| `reduction` | Topology-independent deterministic guarded rule selection/application, canonical symmetry routing, lower-artifact factorization, memoization with retained-payload budgets, typed master maps, common-mass restoration, and shared Rust/CLI/Python application surfaces | The additional generic features demanded by `K = 6`; Vakint comparison through two loops is complete |
 
 These are real owners rather than empty shells. Both closed artifacts cross a
 durable byte boundary through one user-facing application layer.

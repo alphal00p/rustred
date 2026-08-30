@@ -80,10 +80,16 @@ application API, `campaign` CLI, and public `import rustred` Python package
 generate, inspect, load, and apply those actual artifact bytes with typed
 errors and deterministic output.
 
-RustRed still does **not** close or publish the three-loop `K = 6` family or
-substitute evaluated masters. Vakint does not yet consume either standalone
-artifact: its opt-in RustRed scalar method remains a deliberately unavailable
-API seam, with no end-to-end RustRed-backed one-loop result claimed yet.
+RustRed still does **not** close or publish the three-loop `K = 6` family and
+deliberately does not own evaluated master values. Vakint now ships and lazily
+loads the `K = 1` and `K = 3` artifacts on branch `vakint_rustred`. Its opt-in
+FORM-free RustRed scalar backend reduces the registered one-loop tadpole,
+two-loop sunset, and pinch, maps typed terminals to the existing MATAD basis,
+restores a general common mass, and optionally applies Vakint's pure-Rust master
+values. Nontrivial scalar tests pass with an invalid FORM path, raw and
+substituted results agree with MATAD, the existing FORM tensor prepass remains
+unchanged, and the full applicable Vakint regression suite is green through
+two loops. Three-loop closure and adapter coverage remain open.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

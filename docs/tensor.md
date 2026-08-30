@@ -4,8 +4,8 @@
 document records the existing bounded RustRed tensor experiment and the
 ownership invariants that any future replacement must respect. Tensor
 development is frozen during Stage 1. Vakint uses its existing FORM tensor
-prepass; once the currently reserved scalar RustRed method is activated, that
-prepass will feed the FORM-free RustRed scalar-reduction backend. No section
+prepass; that prepass now feeds the FORM-free RustRed scalar-reduction backend
+for supported one- and two-loop families. No section
 below authorizes extension of the projector, its Vakint adapter, or generic
 tensor support before Stage 2.
 
@@ -91,9 +91,9 @@ GammaLoop local counterterm Atom
 ```
 
 The non-BPHZ analytical-evaluation caller uses the same middle sequence. During
-Stage 1, Vakint keeps its existing FORM tensor reduction. Its reserved RustRed
-scalar method currently supports no topology; after artifacts and the adapter
-land, only the scalar reduction tail will be replaced. The frozen experimental
+Stage 1, Vakint keeps its existing FORM tensor reduction. Its opt-in RustRed
+scalar method replaces only the scalar reduction tail for supported one- and
+two-loop families. The frozen experimental
 RustRed tensor slice remains optional and is not the Stage 1 end-to-end path.
 
 Vakint owns:
@@ -105,13 +105,13 @@ Vakint owns:
   and
 - backward compatibility for the existing FORM-backed mode.
 
-RustRed owns, or for the not-yet-activated Vakint tail will own:
+RustRed owns:
 
 - authentication of the matched family presentation;
 - Lorentz projection and family-aware scalar-product lowering;
 - exact guards, resource admission, and deterministic results; and
-- generic guarded artifact application in core and, once activated, stable
-  master output through the separate scalar backend.
+- generic guarded artifact application in core and stable master output
+  through the separate scalar backend.
 
 The adapter must remain thin. It must not copy Vakint's topology tables into
 RustRed or implement a second tensor projector in GammaLoop.
@@ -348,11 +348,11 @@ Evidence is reported at three distinct boundaries, as detailed in
 
 A higher-layer agreement cannot compensate for a lower-layer failure. During
 Stage 1, the existing bounded tensor tests remain regression coverage but are
-not widened. Once the scalar backend is activated, tensor-bearing Vakint
-acceptance tests will use the unchanged FORM tensor prepass, then compare the
-RustRed scalar tail at the reduction and evaluation boundaries through three
-loops. Invalid-FORM-path scalar tests are an activation gate, not current stub
-coverage.
+not widened. Tensor-bearing Vakint acceptance tests use the unchanged FORM
+tensor prepass, then compare the RustRed scalar tail at the reduction and
+evaluation boundaries for supported families; this is green through two loops
+and must extend through three. Invalid-FORM-path scalar tests separately cover
+the backend without the tensor prepass.
 
 The frozen optional `TensorReductionMode::RustRed` continues to avoid FORM, but
 it is not the active tensor path. Existing FORM-backed tensor and scalar oracle
