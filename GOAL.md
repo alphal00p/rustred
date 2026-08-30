@@ -179,17 +179,38 @@ mixed higher-dot rays such as `J(0,1,1,2,3,0)` and
 point. The fixture does not expose an installable artifact until the complete
 rule fixed point is closed.
 
+Two further independently retained copies of the complete depth-two
+four-line-corner span derive exact singleton recurrences for the two
+inequivalent placements of powers two and three. The adjacent target
+`J(0,1,1,2,3,0)` selects 17 generated source contributions containing 105
+terms; the opposite target `J(0,1,2,1,3,0)` selects 18 contributions containing
+113 terms. Each has two strictly descending children, nine guards, complete
+252-row residual-projection replay, and exact schema-V3 concrete replay. All
+twelve ordered placements route into the two cells under the authenticated
+`S4` action. The remaining deeper mixed-dot points and all numerator faces
+remain open.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 107 submitted probes reduce under exact `S4` to 36
-roots and discover 48 nodes: all eleven presently derived cell owners are
-exercised in 15 applications, 15 nodes terminate through independently checked
-zero or factorization proofs, and 18 remain explicitly uncovered. The exact
-delta is one formerly uncovered fourth-power ray root becoming a rule
-application and introducing four new canonical factorization descendants.
+roots and discover 48 nodes: all thirteen presently derived cell owners are
+exercised in 17 applications, 15 nodes terminate through independently checked
+zero or factorization proofs, and 16 remain explicitly uncovered. The two new
+mixed-dot roots were already present with both of their descendants, so this
+milestone changes only their dispositions from uncovered to rule applications.
 The census checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point
 publication gate.
+
+The MATAD oracle fixes the eventual in-family basis boundary without being used
+as a rule generator. The scalar six-line and four-line corners map directly to
+`miD6` and `m_uv^4 miBN`, respectively. The scalar five-line corner is a third
+independent RustRed terminal but is not identical to MATAD's `miD5`: MATAD's
+definition includes a massless `1/p^2` auxiliary denominator outside the fixed
+all-massive K6 lattice. Vakint will therefore own an exact basis-change row from
+that typed RustRed key to `miD5`, `miBN`, `miT111 Gam(1,1)`, and `Gam(1,1)^3`.
+These three candidates are not installed as artifact masters until the
+remaining numerator fixed point and publication checks are complete.
 
 The bounded scalar/odd/rank-two RustRed vacuum projector and its optional
 Vakint adapter are existing experimental capability. They do not establish

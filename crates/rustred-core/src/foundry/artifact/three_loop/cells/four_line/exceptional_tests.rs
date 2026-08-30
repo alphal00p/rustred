@@ -7,12 +7,13 @@ use crate::foundry::parametric::ParametricRuleError;
 use crate::foundry::search::{SectorSearchDiamond, SectorSearchLimits};
 use crate::sector::InteriorBounds;
 
+use super::corner::fixed_base_corner;
 use super::exceptional::{
     ADJACENT_DOT_PAIR_TARGET_SHIFT, ExceptionalFourLineCells, OPPOSITE_DOT_PAIR_TARGET_SHIFT,
     THREE_DISTINCT_DOT_TARGET_SHIFT, TRIPLE_DOT_TARGET_SHIFT, adjacent_pair_search_depth,
     derive_adjacent_same_sector_candidate, derive_exceptional_four_line_cells,
     derive_three_distinct_dot_same_sector_candidate, derive_triple_dot_same_sector_candidate,
-    fixed_base_corner, three_distinct_dot_search_depth, triple_dot_search_depth,
+    three_distinct_dot_search_depth, triple_dot_search_depth,
 };
 use super::*;
 

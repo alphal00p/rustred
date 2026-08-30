@@ -97,14 +97,16 @@ with exact terminal/guard/coefficient semantics, strict descent, symmetry
 routing, and bounded deterministic uncovered-frontier reporting. It is a
 discovery aid, not a substitute for the symbolic proof required to publish a
 closing artifact. The current test-only K6 census submits 107 bounded probes,
-which canonicalize to 36 roots and discover 48 nodes. It exercises all eleven
-current cell owners through 15 rule applications, discharges 15 nodes only by
-freshly proved zero/factorization terminals, and leaves 18 nodes explicitly
-uncovered. Relative to the preceding census, the previously uncovered
-`J(0,1,1,1,4,0)` root is now one exact rule application and exposes four new
-canonical factorization terminals; this accounts exactly for the changes in
-the finite report. The three scalar graph corners, mixed higher-dot faces, and
-numerator directions remain obligations rather than implicit masters.
+which canonicalize to 36 roots and discover 48 nodes. It exercises all thirteen
+current cell owners through 17 rule applications, discharges 15 nodes only by
+freshly proved zero/factorization terminals, and leaves 16 nodes explicitly
+uncovered. Two independent complete depth-two projections now also lower the
+adjacent and opposite placements of powers two and three on the four-line
+corner. Exact elimination selects 17 and 18 source contributions respectively;
+both rules descend only to the certified path factorization and the unresolved
+scalar four-line corner. The three scalar graph corners, deeper mixed-dot
+faces, and numerator directions remain obligations rather than implicit
+masters.
 Exact targeted RREF selects 16 of those rows and supplies a guarded two-term,
 strictly descending recurrence for the inequivalent adjacent two-dot orbit,
 while complete provenance and projection replay retain the full search span.
@@ -141,9 +143,11 @@ explicit new guidance. See [`GOAL.md`](GOAL.md) for the authoritative gates.
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,
 authored recurrences, and milestone-log architecture have been deleted rather
-than migrated. Durable artifacts accept the current RustRed schema only: V2
-is rejected and there is no migration or dual decoder. This does not weaken
-Vakint's separate API/default and existing FORM-method compatibility contract.
+than migrated. Durable artifacts accept the current RustRed schema only: every
+obsolete version, including V1 and V2, is rejected and there is no migration
+or dual decoder. Vakint likewise provides no compatibility layer for obsolete
+RustRed artifact schemas. This does not weaken Vakint's separate API/default
+and existing FORM-method compatibility contract.
 
 ## Workspace
 

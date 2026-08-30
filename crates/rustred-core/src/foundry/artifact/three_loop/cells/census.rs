@@ -39,6 +39,8 @@ enum K6CellKind {
     FourLineAdjacentPair,
     FourLineTriple,
     FourLineThreeDistinct,
+    FourLineAdjacentMixedDot,
+    FourLineOppositeMixedDot,
     FourLineRepeatedDotRay,
     FourLineDotBulk,
     FourLineMixedNumerator,
@@ -67,6 +69,8 @@ impl K6ReachabilityCensus {
             adjacent,
             triple,
             three_distinct,
+            adjacent_mixed_dot,
+            opposite_mixed_dot,
             repeated_dot_ray,
             canonical_dot,
             mixed_numerator,
@@ -106,6 +110,14 @@ impl K6ReachabilityCensus {
             OwnedCell {
                 kind: K6CellKind::FourLineThreeDistinct,
                 cell: three_distinct,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineAdjacentMixedDot,
+                cell: adjacent_mixed_dot,
+            },
+            OwnedCell {
+                kind: K6CellKind::FourLineOppositeMixedDot,
+                cell: opposite_mixed_dot,
             },
             OwnedCell {
                 kind: K6CellKind::FourLineRepeatedDotRay,
@@ -249,7 +261,7 @@ mod tests {
 
     fn census_limits() -> ReachabilityLimits {
         ReachabilityLimits {
-            max_rule_cells: 11,
+            max_rule_cells: 13,
             max_roots: 107,
             max_discovered_nodes: 2_048,
             max_pending_nodes: 1_024,
@@ -277,6 +289,8 @@ mod tests {
                 K6CellKind::FourLineAdjacentPair,
                 K6CellKind::FourLineTriple,
                 K6CellKind::FourLineThreeDistinct,
+                K6CellKind::FourLineAdjacentMixedDot,
+                K6CellKind::FourLineOppositeMixedDot,
                 K6CellKind::FourLineRepeatedDotRay,
                 K6CellKind::FourLineDotBulk,
                 K6CellKind::FourLineMixedNumerator,
@@ -314,6 +328,8 @@ mod tests {
                 (K6CellKind::FourLineAdjacentPair, 1),
                 (K6CellKind::FourLineTriple, 1),
                 (K6CellKind::FourLineThreeDistinct, 1),
+                (K6CellKind::FourLineAdjacentMixedDot, 1),
+                (K6CellKind::FourLineOppositeMixedDot, 1),
                 (K6CellKind::FourLineRepeatedDotRay, 1),
                 (K6CellKind::FourLineDotBulk, 1),
                 (K6CellKind::FourLineMixedNumerator, 4),
@@ -332,8 +348,8 @@ mod tests {
         assert_eq!(statistics.canonical_roots(), 36);
         assert_eq!(statistics.discovered_nodes(), 48);
         assert_eq!(statistics.terminal_nodes(), 15);
-        assert_eq!(statistics.rule_applications(), 15);
-        assert_eq!(statistics.uncovered_nodes(), 18);
+        assert_eq!(statistics.rule_applications(), 17);
+        assert_eq!(statistics.uncovered_nodes(), 16);
 
         for (powers, kind) in [
             ([1, 1, 1, 1, 1, 2], K6CellKind::Top),
@@ -345,12 +361,44 @@ mod tests {
             ([0, 1, 1, 2, 2, 0], K6CellKind::FourLineAdjacentPair),
             ([0, 1, 1, 1, 3, 0], K6CellKind::FourLineTriple),
             ([0, 1, 2, 2, 2, 0], K6CellKind::FourLineThreeDistinct),
+            ([0, 1, 1, 2, 3, 0], K6CellKind::FourLineAdjacentMixedDot),
+            ([0, 1, 2, 1, 3, 0], K6CellKind::FourLineOppositeMixedDot),
             ([0, 1, 1, 1, 4, 0], K6CellKind::FourLineRepeatedDotRay),
             (FOUR_LINE_BULK_DOT_PROBE, K6CellKind::FourLineDotBulk),
             ([0, 1, 1, 1, 2, -1], K6CellKind::FourLineMixedNumerator),
         ] {
             assert_rule_kind(&census, &first, powers, kind);
         }
+
+        // Both newly installed singleton owners expose exactly the certified
+        // path-factorization child and the still-unresolved scalar four-line
+        // corner.  First-applicable ordering must not silently route either
+        // target through a broader discovery slice.
+        for (powers, kind) in [
+            ([0, 1, 1, 2, 3, 0], K6CellKind::FourLineAdjacentMixedDot),
+            ([0, 1, 2, 1, 3, 0], K6CellKind::FourLineOppositeMixedDot),
+        ] {
+            let ReachabilityDisposition::Rule(application) = disposition(&census, &first, powers)
+            else {
+                panic!("expected mixed-dot singleton application for {powers:?}")
+            };
+            assert_eq!(census.cell_kind(application.cell_ordinal()), kind);
+            assert_eq!(application.assignment(), FOUR_LINE_CORNER);
+            assert_eq!(application.dependencies().len(), 2);
+            assert_eq!(
+                application.dependencies()[0].canonical_child().powers(),
+                [0, 0, 2, 0, 2, 2]
+            );
+            assert_eq!(
+                application.dependencies()[1].canonical_child().powers(),
+                FOUR_LINE_CORNER
+            );
+        }
+        assert!(matches!(
+            disposition(&census, &first, [0, 0, 2, 0, 2, 2]),
+            ReachabilityDisposition::Terminal(terminal)
+                if terminal.kind() == ReachabilityTerminalKind::Factorization
+        ));
 
         // Scalar graph corners are obligations, never assumed masters.
         // The additional representatives pin the distinct deeper-dot and
@@ -361,8 +409,6 @@ mod tests {
             FOUR_LINE_CORNER,
             [0, 1, 1, 1, 1, -1],
             [-1, 1, 1, 1, 1, 1],
-            [0, 1, 1, 2, 3, 0],
-            [0, 1, 2, 1, 3, 0],
             [0, 1, 2, 2, 1, -1],
         ] {
             assert!(matches!(

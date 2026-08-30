@@ -140,20 +140,27 @@ specialized, every guard depends only on `d` and the positive free index. The
 uniform-sign coefficient of its leading `d` power proves that no guard becomes
 the zero polynomial in `d` anywhere on that integer ray; exceptional dimension
 roots remain exact guard exclusions. Exact `S4` routing covers all four active
-edge placements. Mixed repeated-dot and numerator faces, scalar corners, and
-the remaining fixed point stay open. The fixture intentionally exposes no
-closed artifact while its complete rule fixed point is incomplete. The
-[project goal](../GOAL.md) is the authority whenever this design and the
+edge placements. Deeper mixed repeated-dot and numerator faces, scalar
+corners, and the remaining fixed point stay open. The fixture intentionally
+exposes no closed artifact while its complete rule fixed point is incomplete.
+The [project goal](../GOAL.md) is the authority whenever this design and the
 implementation frontier differ.
+
+Two additional independent copies of the same complete exact-corner span
+lower the adjacent and opposite placements of powers two and three. They use
+17 and 18 selected generated contributions, respectively, retain nine guards
+and full 252-row projection replay apiece, and descend only to the certified
+path factorization and scalar four-line corner. Depths zero and one retain
+typed `TargetShiftAbsent` witnesses, and exhaustive `S4` tests cover all twelve
+ordered placements. Four deeper mixed-dot representatives remain open.
 
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 107 bounded probes, exact `S4`
 canonicalization retains 36 roots and discovery visits 48 nodes. The report
-pins 15 applications across all eleven current rule-cell owners, 15
-independently proved zero/factorization terminals, and 18 uncovered nodes. The
-new repeated-dot owner converts the formerly uncovered
-`J(0,1,1,1,4,0)` root into one application and discovers four new canonical
-factorization terminals, exactly accounting for the census delta. A five-line
+pins 17 applications across all thirteen current rule-cell owners, 15
+independently proved zero/factorization terminals, and 16 uncovered nodes. The
+two newest mixed-dot owners convert two existing uncovered roots into rule
+applications without changing the node or terminal sets. A five-line
 point shared by both positive-dot domains explicitly pins first-applicable
 ownership. All 26 raw zero masks are rechecked using Symbolica's exact
 active-edge momentum rank, and the three product domains reuse the production
@@ -346,9 +353,10 @@ primitives, but must not grow a parallel CAS.
 
 ## Artifact boundary
 
-The durable loader accepts the current schema-v3 format only. It rejects V2
-with a typed schema error and deliberately provides neither migration nor a
-dual decoder; RustRed artifact schemas have no backward-compatibility promise.
+The durable loader accepts the current schema-v3 format only. It rejects every
+obsolete version, including V1 and V2, with a typed schema error and
+deliberately provides neither migration nor a dual decoder; RustRed artifact
+schemas have no backward-compatibility promise, including inside Vakint.
 Vakint's API/defaults and existing FORM methods retain their separate backward-
 compatibility obligation. Schema V3 records the semantics needed to load and
 apply the sealed `K = 1` and `K = 3` artifacts:

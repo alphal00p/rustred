@@ -101,16 +101,19 @@ infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 107 bounded probes and has the
 following exact deterministic report: 36 canonical roots, 48 discovered
-nodes, 15 rule applications spanning all eleven current cell owners, 15
-zero/factorization terminals, and 18 uncovered nodes. The previously uncovered
-fourth-power ray root is now one application whose four new canonical children
-are all discharged by exact factorization proofs; tests pin this entire delta.
-They also pin overlapping five-line cell precedence, all three factorization
-owner ordinals, representative scalar/mixed-dot/numerator holes, and the exact
-discovered-node resource boundary. Every raw zero mask is freshly checked by
-Symbolica exact matrix rank before it may terminate discovery. These numbers
-are regression evidence for the current finite graph only, not the Stage 1
-closure acceptance result.
+nodes, 17 rule applications spanning all thirteen current cell owners, 15
+zero/factorization terminals, and 16 uncovered nodes. Two complete depth-two
+mixed-dot singleton cells account exactly for the latest delta: the node and
+terminal sets are unchanged while two formerly uncovered roots become rule
+applications. Their tests retain separate 28-by-9 generated source batches,
+typed depth-zero/one misses, exact replay metrics, all twelve ordered `S4`
+placements, and descent only to a proved factorization plus the unresolved
+scalar corner. The census also pins overlapping cell precedence, all three
+factorization owner ordinals, representative scalar/deeper-mixed/numerator
+holes, and the exact discovered-node resource boundary. Every raw zero mask is
+freshly checked by Symbolica exact matrix rank before it may terminate
+discovery. These numbers are regression evidence for the current finite graph
+only, not the Stage 1 closure acceptance result.
 
 Both artifacts cross the bounded binary boundary and are exercised through
 the Rust application API, `campaign` CLI, and public `import rustred` Python
