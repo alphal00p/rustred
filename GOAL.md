@@ -245,11 +245,20 @@ reduces the finite frontier by one without creating another obligation. A
 candidate bulk mixed-numerator lane that would increase that frontier remains
 deliberately uninstalled.
 
+The remaining direct bridge-bulk child `J(0,-1,1,1,1,1)` is likewise owned
+only at its exact endpoint. A complete depth-one search retains all 63 rows,
+selects eight, and independently reprojects those eight for production. The
+sole guard is `d-1`; exhaustive decoration of every inactive edge over the
+12-image scalar-sector orbit reproduces exactly the endpoint's 24-image orbit.
+All three children route to factorization owners 2, 0, and 2, so this second
+singleton also removes one frontier node without creating another. No
+negative-power bulk is inferred.
+
 The first K6-specific consumer of that generic planner now runs a deterministic
 test-only fixed census. Its 115 submitted probes reduce under exact `S4` to 44
-roots and discover 84 nodes: all 30 presently derived cell owners are
-exercised in 39 applications, 26 nodes terminate through independently checked
-zero or factorization proofs, and 19 remain explicitly uncovered. The census
+roots and discover 84 nodes: all 31 presently derived cell owners are
+exercised in 40 applications, 26 nodes terminate through independently checked
+zero or factorization proofs, and 18 remain explicitly uncovered. The census
 checks first-applicable overlap ownership and never labels the
 scalar top, five-line, or four-line corners as masters. It measures the present
 frontier; it does not weaken the required zero-uncovered fixed-point

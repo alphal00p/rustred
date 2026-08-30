@@ -138,6 +138,15 @@ installed decorated endpoint or factorization owner 2. A separately measured
 mixed-numerator bulk candidate is not installed because it would add three
 open decorated obligations.
 
+The factorized-face numerator endpoint tests pin typed target absence at
+depth zero, all 63 complete depth-one rows, the eight selected ordinals and
+compact provenance, exact compact-versus-complete source/pivot/RHS
+coefficients, the sole `d-1` guard, replay metrics, strict descent, singleton
+nonownership of the bulk, and deterministic rebuild. They exhaust every
+inactive-edge decoration over all 12 scalar-sector images and prove equality
+with the endpoint's 24-image `S4` orbit. All three children are checked against
+factorization owners 2, 0, and 2.
+
 The factorized bridge-dot numerator tests derive endpoint and bulk rules from
 the complete depth-zero span of all nine ordinary sources. They pin exact
 selected ordinals, independent compact reprojection, authenticated
@@ -156,8 +165,8 @@ infinite-domain K6 closure claim.
 
 Its first K6 pressure-family census submits 115 bounded probes and has the
 following exact deterministic report: 44 canonical roots, 84 discovered
-nodes, 39 rule applications spanning all 30 current cell owners, 26
-zero/factorization terminals, and 19 uncovered nodes. The census pins
+nodes, 40 rule applications spanning all 31 current cell owners, 26
+zero/factorization terminals, and 18 uncovered nodes. The census pins
 overlapping cell precedence, all three factorization owner ordinals,
 representative scalar/deeper-mixed/numerator
 holes, and the exact discovered-node resource boundary. Every raw zero mask is

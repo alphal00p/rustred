@@ -216,11 +216,20 @@ bulk is intentionally deferred because its first application would expose
 three distinct new decorated obligations and increase, rather than decrease,
 the present frontier.
 
+The bridge bulk's undotted factorized-face child `J(0,-1,1,1,1,1)` has a
+separate singleton endpoint. It first appears in the complete depth-one span
+of 63 rows, which selects eight compact production rows. The final recurrence
+has the sole guard `d-1` and three strictly descending children, all discharged
+by factorization owners 2, 0, and 2. Exhaustive decoration of every inactive
+edge over the scalar sector's full `S4` orbit proves that this is the unique
+24-image inactive-numerator placement orbit. The endpoint therefore removes
+one more frontier node; no unproved negative-power bulk is installed.
+
 The current K6 fixture composes those owners in one test-only census rather
 than another synthetic closure artifact. From 115 bounded probes, exact `S4`
 canonicalization retains 44 roots and discovery visits 84 nodes. The report
-pins 39 applications across all 30 current rule-cell owners, 26 independently
-proved zero/factorization terminals, and 19 uncovered nodes. A
+pins 40 applications across all 31 current rule-cell owners, 26 independently
+proved zero/factorization terminals, and 18 uncovered nodes. A
 five-line point shared by both positive-dot domains explicitly pins
 first-applicable ownership. All 26 raw zero masks are rechecked using
 Symbolica's exact active-edge momentum rank, and the three product domains reuse the production
