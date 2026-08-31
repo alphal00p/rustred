@@ -101,6 +101,24 @@ substituted results agree with MATAD, the existing FORM tensor prepass remains
 unchanged, and the full applicable Vakint regression suite is green through
 two loops. Three-loop closure and adapter coverage remain open.
 
+The generic closing boundary has advanced beyond finite reachability probes.
+Frame-local modular supports are now admitted only after exact
+regenerated-source replay, compiled into deterministic semantic guard DAGs,
+and extended beyond their finite discovery envelope only by an opaque proof of
+same-sector strict descent. A separately audited owner-cover compiler combines
+those exact rays, proves their leading-ideal complement finite or reports the
+typed obstruction `NonFinite`, `GuardIncomplete`, or
+`FiniteTerminalOwnership`, and never promotes a sampled miss to a master. A
+test-only fraction-free reconstruction also demonstrates on the canonical K6
+S4a circuit that ten elimination-induced guards can be replaced by its one
+mandatory target-coefficient guard with exact source cofactors and full column
+replay; it has no production or closure authority until its measured promotion
+gates pass. On the Vakint side, the shared multimethod harness now exercises 21
+applicable historical tests comprising 27 concrete inputs through two loops,
+including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
+three-loop oracle fixtures and five matcher-class fixtures are executable but
+honestly ignored until the certified K6 artifact and terminal catalog exist.
+
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the
 six-denominator unit-mass family, all nine ordinary sources, and the complete
