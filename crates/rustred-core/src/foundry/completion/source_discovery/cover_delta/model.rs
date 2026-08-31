@@ -1,5 +1,7 @@
 use crate::foundry::completion::frame::admission::ExactOwnerCoverStatus;
 
+use super::ExactOwnerLedgerRevision;
+
 /// Whether a ledger has no compiled owner yet or retains an exact compiler
 /// verdict. Only `Compiled(Closed)` carries closure evidence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,9 +16,15 @@ impl ExactOwnerLedgerCoverStatus {
     }
 }
 
-/// Allocation-free scalar view of one exact ledger state.
+/// Allocation-free structural telemetry for one exact ledger state.
+///
+/// The revision makes before/after observations auditable, but this copyable
+/// value deliberately omits the opaque ledger nonce. It is not delayed-task
+/// authority; only `ExactOwnerLedgerSnapshotIdentity` can be rejoined to one
+/// concrete live ledger.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ExactOwnerCoverSnapshot {
+    revision: ExactOwnerLedgerRevision,
     status: ExactOwnerLedgerCoverStatus,
     owner_count: usize,
     terminal_count: usize,
@@ -27,6 +35,10 @@ pub(crate) struct ExactOwnerCoverSnapshot {
 }
 
 impl ExactOwnerCoverSnapshot {
+    pub(crate) const fn revision(self) -> ExactOwnerLedgerRevision {
+        self.revision
+    }
+
     pub(crate) const fn status(self) -> ExactOwnerLedgerCoverStatus {
         self.status
     }
@@ -56,6 +68,7 @@ impl ExactOwnerCoverSnapshot {
     }
 
     pub(super) const fn new(
+        revision: ExactOwnerLedgerRevision,
         status: ExactOwnerLedgerCoverStatus,
         owner_count: usize,
         terminal_count: usize,
@@ -65,6 +78,7 @@ impl ExactOwnerCoverSnapshot {
         guard_incomplete_owner_count: usize,
     ) -> Self {
         Self {
+            revision,
             status,
             owner_count,
             terminal_count,
@@ -87,8 +101,9 @@ pub(crate) enum ExactOwnerCoverDeltaKind {
     StrictGeometricShrink,
 }
 
-/// Scalar before/after evidence. Closure is exposed only through the exact
-/// compiler status in `updated`.
+/// Structural scalar before/after telemetry. Closure is exposed only through
+/// the exact compiler status in `updated`. A delta contains no ledger nonce
+/// and cannot authorize a delayed task or owner application.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ExactOwnerCoverDelta {
     kind: ExactOwnerCoverDeltaKind,

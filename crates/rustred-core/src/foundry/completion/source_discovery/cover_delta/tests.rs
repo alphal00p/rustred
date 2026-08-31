@@ -203,6 +203,20 @@ fn tadpole_ledger(
 fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
     let fixture = tadpole_fixture();
     let mut ledger = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    let peer = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    let owner_free_identity = ledger.snapshot_identity();
+    let peer_identity = peer.snapshot_identity();
+    assert!(
+        ledger
+            .predecessor_snapshot()
+            .same_authority_as(peer.predecessor_snapshot())
+    );
+    assert!(!owner_free_identity.same_ledger_as(&peer_identity));
+    assert_eq!(ledger.revision().get(), 0);
+    assert_eq!(peer_identity.revision().get(), 0);
+    ledger
+        .try_require_current_snapshot(&owner_free_identity)
+        .unwrap();
     assert_eq!(
         ledger.snapshot().status(),
         ExactOwnerLedgerCoverStatus::OwnerFree
@@ -212,11 +226,33 @@ fn one_loop_first_owner_strictly_shrinks_and_only_the_compiler_closes() {
     assert_eq!(owner_free.boxes()[0].free_dimension(), 1);
 
     let delta = ledger.try_apply_owner(fixture.first.clone()).unwrap();
+    assert_eq!(ledger.snapshot(), delta.updated());
     assert_eq!(
         delta.kind(),
         ExactOwnerCoverDeltaKind::StrictGeometricShrink
     );
     assert!(delta.strictly_shrank());
+    assert_eq!(delta.baseline().revision().get(), 0);
+    assert_eq!(delta.updated().revision().get(), 1);
+    assert_eq!(ledger.revision().get(), 1);
+    assert!(matches!(
+        peer.try_require_current_snapshot(&ledger.snapshot_identity()),
+        Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity)
+    ));
+    assert!(matches!(
+        ledger.try_require_current_snapshot(&peer_identity),
+        Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity)
+    ));
+    assert!(matches!(
+        ledger.try_require_current_snapshot(&owner_free_identity),
+        Err(ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity {
+            expected,
+            actual,
+        }) if expected.get() == 1 && actual.get() == 0
+    ));
+    ledger
+        .try_require_current_snapshot(&ledger.snapshot_identity())
+        .unwrap();
     assert_eq!(delta.baseline().owner_count(), 0);
     assert_eq!(delta.updated().owner_count(), 1);
     assert_eq!(
@@ -239,19 +275,26 @@ fn duplicate_and_redundant_owner_are_typed_without_false_shrink() {
     let fixture = tadpole_fixture();
     let mut ledger = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
     ledger.try_apply_owner(fixture.first.clone()).unwrap();
+    let after_first = ledger.snapshot_identity();
 
     let duplicate = ledger.try_apply_owner(fixture.first.clone()).unwrap();
     assert_eq!(duplicate.kind(), ExactOwnerCoverDeltaKind::Duplicate);
     assert_eq!(duplicate.baseline(), duplicate.updated());
     assert_eq!(ledger.owners().len(), 1);
+    assert_eq!(ledger.revision().get(), 1);
+    assert!(after_first.same_snapshot_as(&ledger.snapshot_identity()));
 
     let redundant = ledger.try_apply_owner(fixture.redundant.clone()).unwrap();
+    assert_eq!(ledger.snapshot(), redundant.updated());
     assert_eq!(
         redundant.kind(),
         ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink
     );
     assert!(!redundant.strictly_shrank());
     assert_eq!(ledger.owners().len(), 2);
+    assert_eq!(redundant.baseline().revision().get(), 1);
+    assert_eq!(redundant.updated().revision().get(), 2);
+    assert_eq!(ledger.revision().get(), 2);
     assert!(redundant.updated().status().is_compiler_closed());
 }
 
@@ -261,7 +304,8 @@ fn exact_comparison_limit_one_below_is_transactional() {
     let mut limits = ExactOwnerCoverDeltaLimits::default();
     limits.max_comparison_box_inputs = 1;
     let mut ledger = tadpole_ledger(&fixture, limits);
-    let error = ledger.try_apply_owner(fixture.first).unwrap_err();
+    let before_error = ledger.snapshot_identity();
+    let error = ledger.try_apply_owner(fixture.first.clone()).unwrap_err();
     assert!(matches!(
         error,
         ExactOwnerCoverDeltaError::ResourceLimit {
@@ -271,10 +315,80 @@ fn exact_comparison_limit_one_below_is_transactional() {
         }
     ));
     assert!(ledger.owners().is_empty());
+    assert_eq!(ledger.revision().get(), 0);
+    assert!(before_error.same_snapshot_as(&ledger.snapshot_identity()));
+    ledger.try_require_current_snapshot(&before_error).unwrap();
     assert_eq!(
         ledger.snapshot().status(),
         ExactOwnerLedgerCoverStatus::OwnerFree
     );
+
+    let mut overflow = tadpole_ledger(&fixture, ExactOwnerCoverDeltaLimits::default());
+    overflow.force_revision_overflow_boundary_for_test();
+    let before_overflow = overflow.snapshot();
+    let before_overflow_identity = overflow.snapshot_identity();
+    assert!(matches!(
+        overflow.try_apply_owner(fixture.first),
+        Err(ExactOwnerCoverDeltaError::LedgerRevisionOverflow)
+    ));
+    assert_eq!(overflow.snapshot(), before_overflow);
+    assert!(overflow.owners().is_empty());
+    assert!(before_overflow_identity.same_snapshot_as(&overflow.snapshot_identity()));
+    overflow
+        .try_require_current_snapshot(&before_overflow_identity)
+        .unwrap();
+}
+
+#[test]
+fn independently_installed_predecessor_authorities_never_alias_ledger_snapshots() {
+    let first_artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let second_artifact = Arc::new(derive_one_loop_unit_mass_tadpole().unwrap());
+    let first_generator = ParametricIbpGenerator::try_new(first_artifact.family()).unwrap();
+    let second_generator = ParametricIbpGenerator::try_new(second_artifact.family()).unwrap();
+    let first_predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        first_artifact.clone(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    let second_predecessor = ImmutableOwnerSnapshot::try_from_closed_artifact(
+        second_artifact.clone(),
+        StratumRegistryLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(first_predecessor.id(), second_predecessor.id());
+    assert!(!first_predecessor.same_authority_as(&second_predecessor));
+
+    let sector = Mask::try_new([true]).unwrap();
+    let first = CanonicalExactOwnerLedger::try_new(
+        first_generator.context(),
+        first_predecessor,
+        sector.clone(),
+        OrderingPolicy::default(),
+        [IntegralKey::try_new([1]).unwrap()],
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+    .unwrap();
+    let second = CanonicalExactOwnerLedger::try_new(
+        second_generator.context(),
+        second_predecessor,
+        sector,
+        OrderingPolicy::default(),
+        [IntegralKey::try_new([1]).unwrap()],
+        ExactOwnerCoverDeltaLimits::default(),
+    )
+    .unwrap();
+    let first_identity = first.snapshot_identity();
+    let second_identity = second.snapshot_identity();
+    assert!(!first_identity.same_ledger_as(&second_identity));
+    assert!(!first_identity.same_snapshot_as(&second_identity));
+    assert!(matches!(
+        first.try_require_current_snapshot(&second_identity),
+        Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity)
+    ));
+    assert!(matches!(
+        second.try_require_current_snapshot(&first_identity),
+        Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity)
+    ));
 }
 
 #[test]

@@ -271,6 +271,26 @@ fn oracle_disabled_k6_interior_replay_strictly_shrinks_the_exact_blind_orthant()
     assert_eq!(first_delta.updated().missing_terminal_count(), 0);
     assert_eq!(first_delta.updated().guard_incomplete_owner_count(), 0);
 
+    let first_summary = first_ledger
+        .proof_owner_summary(0)
+        .expect("the exact K=6 cover must retain its one canonical proof owner");
+    assert_eq!(first_summary.leading_lattice_point(), &[2; 6]);
+    assert!(first_summary.compiled_guard_total());
+    let first_dag = first_summary.semantic_dag_census();
+    assert_eq!(first_dag.candidates(), 1);
+    assert!(first_dag.atoms() > 0);
+    assert!(first_dag.candidate_atom_references() >= first_dag.atoms());
+    assert!(first_dag.memo_states() > 0);
+    assert!(first_dag.nodes() > 0);
+    assert_eq!(first_dag.edges(), 2 * first_dag.nodes());
+    assert!(first_dag.has_reachable_incomplete());
+    assert_eq!(first_ledger.proof_owner_summary(1), None);
+
+    let second_summary = second_ledger
+        .proof_owner_summary(0)
+        .expect("the repeated exact K=6 cover must retain its proof owner");
+    assert_eq!(first_summary, second_summary);
+
     let first_partition = first_ledger.try_clone_uncovered_partition().unwrap();
     let second_partition = second_ledger.try_clone_uncovered_partition().unwrap();
     assert_eq!(first_partition.boxes(), second_partition.boxes());

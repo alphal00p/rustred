@@ -16,6 +16,7 @@ use super::geometry::{
 use super::{
     ExactOwnerCoverDelta, ExactOwnerCoverDeltaError, ExactOwnerCoverDeltaKind,
     ExactOwnerCoverDeltaLimits, ExactOwnerCoverSnapshot, ExactOwnerLedgerCoverStatus,
+    ExactOwnerLedgerRevision, ExactOwnerLedgerSnapshotIdentity, ExactProofOwnerSummary,
 };
 
 const RETAINED_TERMINALS: &str = "exact cover-delta retained terminals";
@@ -35,6 +36,7 @@ pub(crate) struct CanonicalExactOwnerLedger {
     sector: Mask,
     ordering: OrderingPolicy,
     state: CanonicalLedgerState,
+    identity: ExactOwnerLedgerSnapshotIdentity,
     limits: ExactOwnerCoverDeltaLimits,
 }
 
@@ -79,6 +81,7 @@ impl CanonicalExactOwnerLedger {
             state: CanonicalLedgerState::OwnerFree {
                 terminals: terminals.into_boxed_slice(),
             },
+            identity: ExactOwnerLedgerSnapshotIdentity::fresh(ExactOwnerLedgerRevision::ZERO),
             limits,
         })
     }
@@ -109,9 +112,63 @@ impl CanonicalExactOwnerLedger {
         }
     }
 
+    pub(crate) const fn revision(&self) -> ExactOwnerLedgerRevision {
+        self.identity.revision()
+    }
+
+    /// Capture the exact process-local ledger authority and its current
+    /// monotonic revision for delayed-task validation.
+    pub(crate) fn snapshot_identity(&self) -> ExactOwnerLedgerSnapshotIdentity {
+        self.identity.clone()
+    }
+
+    /// Place only unit tests at the monotonic revision boundary without
+    /// exposing a general caller-authored revision constructor.
+    #[cfg(test)]
+    pub(super) fn force_revision_overflow_boundary_for_test(&mut self) {
+        self.identity = self
+            .identity
+            .at_revision(ExactOwnerLedgerRevision::overflow_boundary_for_test());
+    }
+
+    /// Reject a delayed task unless it was planned from this exact ledger at
+    /// its current committed revision.
+    pub(crate) fn try_require_current_snapshot(
+        &self,
+        expected: &ExactOwnerLedgerSnapshotIdentity,
+    ) -> Result<(), ExactOwnerCoverDeltaError> {
+        if !self.identity.same_ledger_as(expected) {
+            return Err(ExactOwnerCoverDeltaError::ForeignLedgerSnapshotIdentity);
+        }
+        if self.revision() != expected.revision() {
+            return Err(ExactOwnerCoverDeltaError::StaleLedgerSnapshotIdentity {
+                expected: self.revision(),
+                actual: expected.revision(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Return one allocation-free read-only summary from the canonical exact
+    /// proof cover. The ordinal is the compiler's stable proof-owner order.
+    pub(crate) fn proof_owner_summary(&self, ordinal: usize) -> Option<ExactProofOwnerSummary<'_>> {
+        match &self.state {
+            CanonicalLedgerState::OwnerFree { .. } => None,
+            CanonicalLedgerState::Compiled(cover) => cover
+                .proof_cover()
+                .owners()
+                .get(ordinal)
+                .map(ExactProofOwnerSummary::from_owner),
+        }
+    }
+
+    /// Return structural scalar telemetry for the current cover. This value
+    /// contains no opaque ledger nonce and cannot authorize delayed work;
+    /// callers must retain `snapshot_identity()` for that purpose.
     pub(crate) fn snapshot(&self) -> ExactOwnerCoverSnapshot {
         match &self.state {
             CanonicalLedgerState::OwnerFree { terminals } => ExactOwnerCoverSnapshot::new(
+                self.revision(),
                 ExactOwnerLedgerCoverStatus::OwnerFree,
                 0,
                 terminals.len(),
@@ -120,7 +177,7 @@ impl CanonicalExactOwnerLedger {
                 0,
                 0,
             ),
-            CanonicalLedgerState::Compiled(cover) => snapshot_compiled(cover),
+            CanonicalLedgerState::Compiled(cover) => snapshot_compiled(cover, self.revision()),
         }
     }
 
@@ -190,19 +247,28 @@ impl CanonicalExactOwnerLedger {
                 self.limits,
             )?,
         };
-        let updated = snapshot_compiled(&updated_cover);
+        let updated_revision = self
+            .revision()
+            .checked_next()
+            .ok_or(ExactOwnerCoverDeltaError::LedgerRevisionOverflow)?;
+        let updated = snapshot_compiled(&updated_cover, updated_revision);
         let kind = match partition_delta {
             ExactPartitionDelta::Equal => ExactOwnerCoverDeltaKind::ChangedWithoutGeometricShrink,
             ExactPartitionDelta::StrictSubset => ExactOwnerCoverDeltaKind::StrictGeometricShrink,
         };
         self.state = CanonicalLedgerState::Compiled(updated_cover);
+        self.identity = self.identity.at_revision(updated_revision);
         Ok(ExactOwnerCoverDelta::new(kind, baseline, updated))
     }
 }
 
-fn snapshot_compiled(cover: &ExactExecutableOwnerCover) -> ExactOwnerCoverSnapshot {
+fn snapshot_compiled(
+    cover: &ExactExecutableOwnerCover,
+    revision: ExactOwnerLedgerRevision,
+) -> ExactOwnerCoverSnapshot {
     let proof = cover.proof_cover();
     ExactOwnerCoverSnapshot::new(
+        revision,
         ExactOwnerLedgerCoverStatus::Compiled(proof.status()),
         cover.owners().len(),
         cover.terminals().len(),

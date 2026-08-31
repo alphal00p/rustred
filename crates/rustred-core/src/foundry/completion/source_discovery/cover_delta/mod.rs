@@ -8,17 +8,22 @@
 
 mod error;
 mod geometry;
+mod identity;
 mod ledger;
 mod limits;
 mod model;
+mod summary;
 
 pub(crate) use error::ExactOwnerCoverDeltaError;
+pub(crate) use identity::{ExactOwnerLedgerRevision, ExactOwnerLedgerSnapshotIdentity};
 pub(crate) use ledger::CanonicalExactOwnerLedger;
 pub(crate) use limits::ExactOwnerCoverDeltaLimits;
 pub(crate) use model::{
     ExactOwnerCoverDelta, ExactOwnerCoverDeltaKind, ExactOwnerCoverSnapshot,
     ExactOwnerLedgerCoverStatus,
 };
+#[allow(unused_imports)] // Public audit view consumed by the staged campaign driver.
+pub(crate) use summary::{ExactProofOwnerDagCensus, ExactProofOwnerSummary};
 
 #[cfg(test)]
 mod tests;

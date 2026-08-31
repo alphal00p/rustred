@@ -3,6 +3,7 @@ use std::fmt;
 use crate::foundry::completion::CompletionGeometryError;
 
 use super::super::StagedSectorClosureError;
+use super::ExactOwnerLedgerRevision;
 
 /// Hard failure while staging or exactly comparing one canonical proposal.
 #[derive(Debug)]
@@ -10,6 +11,12 @@ pub(crate) enum ExactOwnerCoverDeltaError {
     Staging(StagedSectorClosureError),
     Geometry(CompletionGeometryError),
     NonMonotoneExactCover,
+    ForeignLedgerSnapshotIdentity,
+    StaleLedgerSnapshotIdentity {
+        expected: ExactOwnerLedgerRevision,
+        actual: ExactOwnerLedgerRevision,
+    },
+    LedgerRevisionOverflow,
     ResourceCountOverflow {
         resource: &'static str,
     },
@@ -32,6 +39,18 @@ impl fmt::Display for ExactOwnerCoverDeltaError {
             Self::NonMonotoneExactCover => formatter.write_str(
                 "adding a canonical exact owner enlarged the compiler's uncovered box union",
             ),
+            Self::ForeignLedgerSnapshotIdentity => formatter.write_str(
+                "the exact owner-ledger snapshot identity belongs to another ledger authority",
+            ),
+            Self::StaleLedgerSnapshotIdentity { expected, actual } => write!(
+                formatter,
+                "the exact owner-ledger snapshot revision {} is stale; current revision is {}",
+                actual.get(),
+                expected.get(),
+            ),
+            Self::LedgerRevisionOverflow => {
+                formatter.write_str("the exact owner-ledger revision overflowed u64")
+            }
             Self::ResourceCountOverflow { resource } => {
                 write!(formatter, "{resource} overflowed usize")
             }
