@@ -175,12 +175,27 @@ is lifted and replayed synchronously before its query and plan can escape.
 Exhaustive misses can return only sealed fixed-sample dual evidence, typed
 rejection or stall, or a budget stop; aggregate exhaustion explicitly marks
 the unexecuted probe suffix. No scheduler result converts into a rule, owner,
-terminal, artifact, or exact no-relation claim. On the Vakint side, the shared multimethod harness
-now exercises 21 applicable historical tests comprising 27 concrete inputs
-through two loops,
-including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
-three-loop oracle fixtures and five matcher-class fixtures are executable but
-honestly ignored until the certified K6 artifact and terminal catalog exist.
+terminal, artifact, or exact no-relation claim. Replayed probe-local outcomes
+can now enter one bounded canonical-replay transaction. It harvests only raw
+probes and complete request identities, rebuilds bootstrap then the exact
+request union as one freshly tokened epoch, verifies that its maximal domain
+is contained in every contributing final domain, constructs the expensive
+target/lower-owner partition once, and re-samples every probe independently on
+that common plan. Old circuits never cross the boundary. Fresh exact lifts
+are hard-fail on every structural/replay error, sorted by exact content rather
+than modular telemetry, and deduplicated with bounded support, diagnostic,
+exact-payload, and integer-bit retention. The result is still a
+non-authoritative proposal batch, but a genuine distinct-request epoch-one
+union and its subsequent guarded `RuleCell` promotion are regression-pinned.
+The remaining production boundary pairs admitted executable cells with the
+semantic owner DAG, transactionally rebuilds the whole cover, and feeds a
+sealed solved sector into the next immutable layer.
+
+On the Vakint side, the shared multimethod harness now exercises 21 applicable
+historical tests comprising 27 concrete inputs through two loops, including
+nine inputs with the unchanged FORM tensor prepass. Eleven genuine three-loop
+oracle fixtures and five matcher-class fixtures are executable but honestly
+ignored until the certified K6 artifact and terminal catalog exist.
 
 The parallel high-loop research backlog is frozen in the
 [high-loop proposal experiments](docs/research/high_loop_proposal_experiments_2026.md): five

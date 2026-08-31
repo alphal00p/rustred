@@ -218,6 +218,7 @@ fn fresh_single_row_epoch_returns_plan_bound_checked_obstruction() {
     assert_eq!(epoch.plan().columns()[epoch.target_column()].values(), &[0]);
 
     let probe = CampaignModularProbe::try_new(PRIME, [37], [2], limits).unwrap();
+    assert_eq!(epoch.try_anchor_for_probe(&probe).unwrap().as_ref(), &[3]);
     let evidence = epoch
         .try_query(generator.context(), &probe, limits)
         .unwrap();
@@ -696,6 +697,15 @@ fn fixed_domain_is_never_widened_and_sample_membership_is_checked_before_query()
     )
     .unwrap();
     let outside = CampaignModularProbe::try_new(PRIME, [37], [10], limits).unwrap();
+    assert_eq!(
+        bounded_epoch.try_anchor_for_probe(&outside).unwrap_err(),
+        CampaignError::SampleOutsideFixedStratum {
+            position: 0,
+            index: 11,
+            lower: 1,
+            upper: 10,
+        }
+    );
     assert_eq!(
         bounded_epoch
             .try_query(generator.context(), &outside, limits)

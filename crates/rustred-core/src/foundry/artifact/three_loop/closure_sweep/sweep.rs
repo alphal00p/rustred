@@ -4,16 +4,15 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::family::IntegralKey;
-use crate::foundry::completion::frame::OneSidedChartFrame;
 use crate::foundry::completion::frame::admission::{
     ExactCircuitOuterExtensionWitness, ExactCircuitOwnerCover, ExactCircuitOwnerCoverError,
     ExactCircuitOwnerInput, ExactCircuitSemanticDag, ExactOwnerCoverStatus,
-    exact_content_equal_excluding_modular_telemetry,
 };
 use crate::foundry::completion::frame::exact::{
     ExactCircuitLift, ExactTargetCircuit, try_lift_exact_circuit,
 };
 use crate::foundry::completion::frame::modular::ModularTargetQuery;
+use crate::foundry::completion::frame::{OneSidedChartFrame, exact_circuit_content_equal};
 use crate::foundry::completion::stratum::{
     DecoratedStratum, ImmutableOwnerSnapshot, StratumRegistryError, TargetColumnPartition,
 };
@@ -293,7 +292,7 @@ fn insert_exact_candidate(
 ) -> bool {
     if candidates
         .iter()
-        .any(|existing| exact_content_equal_excluding_modular_telemetry(existing, &candidate))
+        .any(|existing| exact_circuit_content_equal(existing, &candidate))
     {
         true
     } else {

@@ -605,7 +605,10 @@ fn total_owner_dominance_removes_partial_obligations_and_input_order_is_stable()
             .zip(right.semantic.candidates())
         {
             assert_eq!(
-                super::super::semantic::compare_exact_content(left.circuit(), right.circuit()),
+                super::super::semantic::compare_exact_circuit_content(
+                    left.circuit(),
+                    right.circuit()
+                ),
                 std::cmp::Ordering::Equal
             );
         }

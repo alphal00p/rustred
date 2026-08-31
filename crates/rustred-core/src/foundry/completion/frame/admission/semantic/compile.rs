@@ -16,7 +16,7 @@ use super::limits::ExactCircuitSemanticLimits;
 use super::model::{
     ExactCircuitSemanticCandidate, ExactCircuitSemanticCandidateId, ExactCircuitSemanticDag,
 };
-use super::order::compare_exact_content;
+use super::order::compare_exact_circuit_content;
 use super::validation::{
     CANDIDATES, ContentTotals, NONZERO_GUARDS, charge_compiled_guard_atom, check_limit, try_vec,
     validate_candidate, validate_partition,
@@ -40,10 +40,10 @@ impl ExactCircuitSemanticDag {
 
         let mut ordered = try_vec(CANDIDATES, incoming.len())?;
         ordered.extend(incoming.iter().cloned());
-        ordered.sort_unstable_by(|left, right| compare_exact_content(left, right));
+        ordered.sort_unstable_by(|left, right| compare_exact_circuit_content(left, right));
         if ordered
             .windows(2)
-            .any(|pair| compare_exact_content(&pair[0], &pair[1]) == Ordering::Equal)
+            .any(|pair| compare_exact_circuit_content(&pair[0], &pair[1]) == Ordering::Equal)
         {
             return Err(ExactCircuitSemanticError::DuplicateExactContent);
         }

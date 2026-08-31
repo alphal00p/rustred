@@ -26,6 +26,10 @@ pub(crate) use model::{
     OneSidedChartFrame, PhysicalFramePlan, PhysicalFramePlanIdentity, SelectedSourceFrame,
     SourceInstanceId,
 };
+// Structural replay comparison only. These functions confer no admission,
+// ownership, terminal, or closure authority.
+#[allow(unused_imports)] // Consumed by the staged canonical-replay boundary.
+pub(crate) use admission::{compare_exact_circuit_content, exact_circuit_content_equal};
 
 #[cfg(test)]
 mod tests;

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::algebra::indexed::IntegerZeroSetResolution;
 use crate::algebra::{IndexedCoefficientContext, IndexedGuardLimits};
 use crate::family::IntegralKey;
-use crate::foundry::completion::frame::admission::semantic::compare_exact_content;
+use crate::foundry::completion::frame::admission::semantic::compare_exact_circuit_content;
 use crate::foundry::completion::{LatticeCardinality, LatticePoint, LeadingIdeal, SectorChart};
 use crate::sector::{Mask, OrderingPolicy};
 
@@ -369,7 +369,7 @@ fn compare_prepared_owners(left: &PreparedOwner, right: &PreparedOwner) -> Order
             .iter()
             .zip(right.semantic.candidates())
         {
-            let ordering = compare_exact_content(left.circuit(), right.circuit());
+            let ordering = compare_exact_circuit_content(left.circuit(), right.circuit());
             if ordering != Ordering::Equal {
                 return ordering;
             }

@@ -15,9 +15,13 @@ use crate::sector::{
     SectorMonotoneShiftDescentWitness, ShiftStrictDescentWitness,
 };
 
-/// Full structural comparison of exact proof content. Modular sample and
-/// modular diagnostics are intentionally excluded after join validation.
-pub(in crate::foundry::completion::frame::admission) fn compare_exact_content(
+/// Compare the structural proof content of two exact circuits.
+///
+/// Modular samples and modular diagnostics are intentionally excluded: they
+/// are discovery telemetry, not part of the exact replayed relation. Callers
+/// must establish all scope and partition joins independently. In particular,
+/// equality here grants no admission, ownership, or closure authority.
+pub(crate) fn compare_exact_circuit_content(
     left: &ExactTargetCircuit,
     right: &ExactTargetCircuit,
 ) -> Ordering {
@@ -50,6 +54,18 @@ pub(in crate::foundry::completion::frame::admission) fn compare_exact_content(
                 .then_with(|| left.physical_columns().cmp(&right.physical_columns()))
                 .then_with(|| left.exact_operations().cmp(&right.exact_operations()))
         })
+}
+
+/// Return whether two circuits carry identical exact replayed proof content.
+///
+/// This is the equality companion to [`compare_exact_circuit_content`], with
+/// the same exclusion of modular discovery telemetry and the same absence of
+/// admission authority.
+pub(crate) fn exact_circuit_content_equal(
+    left: &ExactTargetCircuit,
+    right: &ExactTargetCircuit,
+) -> bool {
+    compare_exact_circuit_content(left, right) == Ordering::Equal
 }
 
 fn cmp_term(left: &ExactCircuitTerm, right: &ExactCircuitTerm) -> Ordering {
@@ -314,20 +330,4 @@ fn cmp_option_by<T>(
         (Some(_), None) => Ordering::Greater,
         (Some(left), Some(right)) => cmp(left, right),
     }
-}
-
-#[cfg(test)]
-pub(crate) fn exact_content_equal_excluding_modular_telemetry(
-    left: &ExactTargetCircuit,
-    right: &ExactTargetCircuit,
-) -> bool {
-    left.stratum_id() == right.stratum_id()
-        && left.owner_snapshot_id() == right.owner_snapshot_id()
-        && left.target_column() == right.target_column()
-        && left.target_shift() == right.target_shift()
-        && left.residual_terms() == right.residual_terms()
-        && left.source_combination() == right.source_combination()
-        && left.pivot_guards() == right.pivot_guards()
-        && left.nonzero_guards() == right.nonzero_guards()
-        && left.replay() == right.replay()
 }

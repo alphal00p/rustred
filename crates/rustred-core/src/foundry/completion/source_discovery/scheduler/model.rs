@@ -443,6 +443,10 @@ impl ProbeLocalProbeReport {
         self.probe_ordinal
     }
 
+    pub(crate) const fn probe(&self) -> &CampaignModularProbe {
+        &self.probe
+    }
+
     pub(crate) const fn modulus(&self) -> u64 {
         self.probe.modulus()
     }
@@ -583,6 +587,27 @@ impl ProbeLocalSchedulerReport {
 
     pub(crate) fn into_probes(self) -> Box<[ProbeLocalProbeReport]> {
         self.probes
+    }
+
+    /// Assemble independently authenticated replay outcomes for cross-probe
+    /// canonicalization tests without exposing a production report forge.
+    #[cfg(test)]
+    pub(crate) fn from_replayed_for_test(
+        replays: impl IntoIterator<Item = (CampaignModularProbe, FreshTaskEpoch, ExactTargetCircuit)>,
+    ) -> Self {
+        let probes = replays
+            .into_iter()
+            .enumerate()
+            .map(|(probe_ordinal, (probe, epoch, circuit))| {
+                ProbeLocalProbeReport::new(
+                    probe_ordinal,
+                    probe,
+                    Vec::new(),
+                    ProbeLocalOutcome::Replayed { epoch, circuit },
+                )
+            })
+            .collect();
+        Self::new(probes, ProbeLocalRunCensus::default())
     }
 
     pub(super) fn new(probes: Vec<ProbeLocalProbeReport>, census: ProbeLocalRunCensus) -> Self {

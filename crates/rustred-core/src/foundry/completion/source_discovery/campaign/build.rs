@@ -15,6 +15,7 @@ use super::{
     CampaignModularProbe, CampaignRequestMerge, CampaignRequestMergeTelemetry,
     CampaignResourceStage, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
     FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry, GrowingTaskEpochState,
+    ReusedTaskPartitionQuery,
 };
 
 const SUBMITTED_REQUESTS: &str = "campaign submitted source requests";
@@ -23,6 +24,7 @@ const ACCUMULATED_REQUESTS: &str = "campaign accumulated source requests";
 const REQUEST_COORDINATES: &str = "campaign retained request coordinate cells";
 const MERGE_COMPARISONS: &str = "campaign stable request merge comparisons";
 const RETAINED_PROBE_COORDINATES: &str = "campaign retained raw probe coordinates";
+const EXACT_PROBE_ANCHOR_COORDINATES: &str = "campaign exact probe anchor coordinates";
 const GROWING_EPOCH_ORDINAL: &str = "growing campaign epoch ordinal";
 
 impl AccumulatedSourceRequests {
@@ -358,6 +360,28 @@ impl FreshTaskEpoch {
         .map_err(stratum_error)
     }
 
+    /// Recover the exact integral-index anchor represented by one retained
+    /// raw probe, authenticated against this epoch's fixed stratum.
+    pub(crate) fn try_anchor_for_probe(
+        &self,
+        probe: &CampaignModularProbe,
+    ) -> Result<Box<[i64]>, CampaignError> {
+        validate_probe_in_fixed_stratum(self.fixed_stratum(), probe)?;
+        let mut anchor = try_vec(
+            EXACT_PROBE_ANCHOR_COORDINATES,
+            self.fixed_stratum().domain().arity(),
+        )?;
+        for (position, (&coordinate, &active)) in probe
+            .chart_coordinates()
+            .iter()
+            .zip(self.fixed_stratum().domain().sector().active_bits())
+            .enumerate()
+        {
+            anchor.push(try_exact_probe_index(position, active, coordinate)?);
+        }
+        Ok(anchor.into_boxed_slice())
+    }
+
     /// Rebuild the exact target partition on this plan, resample from the
     /// retained original integer probe inputs, and query the target span.
     pub(crate) fn try_query<'epoch>(
@@ -393,6 +417,64 @@ impl FreshTaskEpoch {
             diagnostics.augmented_rank,
         );
         Ok(FreshTaskQuery::new(
+            partition,
+            sampled,
+            query,
+            probe.clone(),
+            telemetry,
+        ))
+    }
+
+    /// Reuse one already authenticated exact partition across independent
+    /// modular probes of this immutable epoch.
+    ///
+    /// Only cheap pointer and identity joins are repeated. Each call still
+    /// constructs a fresh sample and target query, so no modular values or
+    /// obstructions are shared between probes.
+    pub(crate) fn try_query_with_partition<'partition, 'epoch>(
+        &'epoch self,
+        context: &IndexedCoefficientContext,
+        probe: &CampaignModularProbe,
+        partition: &'partition TargetColumnPartition<'epoch>,
+        limits: CampaignLimits,
+    ) -> Result<ReusedTaskPartitionQuery<'partition, 'epoch>, CampaignError> {
+        if context.fingerprint() != self.plan().context_fingerprint()
+            || !std::ptr::eq(partition.frame(), self.plan())
+            || partition.target_column() != self.target_column()
+            || partition.stratum_id() != self.fixed_stratum().id()
+            || partition.snapshot_id() != self.fixed_snapshot_id()
+            || partition.ordering() != self.fixed_ordering()
+        {
+            return Err(CampaignError::FixedTaskScopeMismatch {
+                detail: "reused target partition differs from its immutable campaign epoch",
+            });
+        }
+        validate_probe_in_fixed_stratum(self.fixed_stratum(), probe)?;
+        let sampled = self
+            .plan()
+            .try_modular_sample(
+                context,
+                probe.modulus(),
+                probe.base_parameters(),
+                probe.chart_coordinates(),
+                limits.modular,
+            )
+            .map_err(modular_error)?;
+        let query = sampled
+            .query_target(
+                partition.target_column(),
+                partition.forbidden_columns(),
+                limits.modular,
+            )
+            .map_err(modular_error)?;
+        let diagnostics = query.diagnostics();
+        let telemetry = FreshTaskQueryTelemetry::new(
+            partition.allowed_columns().len(),
+            partition.forbidden_columns().len(),
+            diagnostics.forbidden_rank,
+            diagnostics.augmented_rank,
+        );
+        Ok(ReusedTaskPartitionQuery::new(
             partition,
             sampled,
             query,
@@ -656,33 +738,7 @@ fn validate_probe_in_fixed_stratum(
         .zip(stratum.domain().bounds())
         .enumerate()
     {
-        let index = if active {
-            let coordinate = i64::try_from(coordinate).map_err(|_| {
-                CampaignError::SampleCoordinateNotRepresentable {
-                    position,
-                    active,
-                    coordinate,
-                }
-            })?;
-            coordinate
-                .checked_add(1)
-                .ok_or(CampaignError::SampleCoordinateNotRepresentable {
-                    position,
-                    active,
-                    coordinate: coordinate as u64,
-                })?
-        } else if coordinate == (i64::MAX as u64) + 1 {
-            i64::MIN
-        } else {
-            let coordinate = i64::try_from(coordinate).map_err(|_| {
-                CampaignError::SampleCoordinateNotRepresentable {
-                    position,
-                    active,
-                    coordinate,
-                }
-            })?;
-            -coordinate
-        };
+        let index = try_exact_probe_index(position, active, coordinate)?;
         if !bounds.contains(index) {
             return Err(CampaignError::SampleOutsideFixedStratum {
                 position,
@@ -693,6 +749,40 @@ fn validate_probe_in_fixed_stratum(
         }
     }
     Ok(())
+}
+
+fn try_exact_probe_index(
+    position: usize,
+    active: bool,
+    coordinate: u64,
+) -> Result<i64, CampaignError> {
+    if active {
+        let coordinate = i64::try_from(coordinate).map_err(|_| {
+            CampaignError::SampleCoordinateNotRepresentable {
+                position,
+                active,
+                coordinate,
+            }
+        })?;
+        coordinate
+            .checked_add(1)
+            .ok_or(CampaignError::SampleCoordinateNotRepresentable {
+                position,
+                active,
+                coordinate: coordinate as u64,
+            })
+    } else if coordinate == (i64::MAX as u64) + 1 {
+        Ok(i64::MIN)
+    } else {
+        let coordinate = i64::try_from(coordinate).map_err(|_| {
+            CampaignError::SampleCoordinateNotRepresentable {
+                position,
+                active,
+                coordinate,
+            }
+        })?;
+        Ok(-coordinate)
+    }
 }
 
 fn validate_arity(arity: usize, limits: CampaignLimits) -> Result<(), CampaignError> {

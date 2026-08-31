@@ -29,11 +29,10 @@ pub(crate) use owner_cover::{
     ExactOwnerCoverObstructionKind, ExactOwnerCoverSelection, ExactOwnerCoverStatus,
 };
 pub(crate) use refine::try_refine_exact_circuit_guards;
-#[cfg(test)]
-pub(crate) use semantic::exact_content_equal_excluding_modular_telemetry;
 pub(crate) use semantic::{ExactCircuitSemanticDag, ExactCircuitSemanticError};
 #[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
 pub(crate) use semantic::{ExactCircuitSemanticLimits, ExactCircuitSemanticSelection};
+pub(crate) use semantic::{compare_exact_circuit_content, exact_circuit_content_equal};
 
 #[cfg(test)]
 mod tests;

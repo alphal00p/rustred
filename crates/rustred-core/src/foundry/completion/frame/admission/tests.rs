@@ -267,8 +267,10 @@ fn semantic_candidates_are_content_sorted_and_return_the_exact_replayed_arc() {
         19,
     ));
     assert_ne!(first.source_combination(), second.source_combination());
-    assert!(!super::semantic::exact_content_equal_excluding_modular_telemetry(&first, &second));
-    let content_order = super::semantic::compare_exact_content(&first, &second);
+    assert!(!super::semantic::exact_circuit_content_equal(
+        &first, &second
+    ));
+    let content_order = super::semantic::compare_exact_circuit_content(&first, &second);
     assert_ne!(content_order, Ordering::Equal);
     let expected = if content_order == Ordering::Less {
         &first
@@ -300,12 +302,10 @@ fn semantic_candidates_are_content_sorted_and_return_the_exact_replayed_arc() {
     {
         assert_eq!(left.id().ordinal(), ordinal);
         assert_eq!(right.id().ordinal(), ordinal);
-        assert!(
-            super::semantic::exact_content_equal_excluding_modular_telemetry(
-                left.circuit(),
-                right.circuit()
-            )
-        );
+        assert!(super::semantic::exact_circuit_content_equal(
+            left.circuit(),
+            right.circuit()
+        ));
     }
 
     let singleton_first = ExactCircuitSemanticDag::try_compile(
@@ -383,7 +383,9 @@ fn semantic_admission_rejects_duplicate_modular_discoveries_bad_joins_and_aggreg
     let first = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 37, 2));
     let second = Arc::new(exact_circuit_at(&context, &frame, &target_partition, 41, 3));
     assert_ne!(first.sample_fingerprint(), second.sample_fingerprint());
-    assert!(super::semantic::exact_content_equal_excluding_modular_telemetry(&first, &second));
+    assert!(super::semantic::exact_circuit_content_equal(
+        &first, &second
+    ));
     assert_eq!(
         ExactCircuitSemanticDag::try_compile(
             &context,

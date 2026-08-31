@@ -290,42 +290,34 @@ immutable solved-sector feedback work instead of a blind larger seed box.
 Positive finite-field supports can now be lifted over Symbolica's exact
 rational-function field. The lift recovers the original translated-source
 combination, retains every pivot/source/denominator guard, and independently
-replays all physical columns. Synthetic controls and a genuine nonempty `S4a`
-partition pass. A bounded serial scheduler now executes canonical finite-field
-Discovery and HeldOut tasks in declared order, retains rejected samples,
-rejected queries, no-hits, and hits separately, groups only identical source/
-pivot traces, exactly lifts one deterministic Discovery proposal, and treats
-HeldOut agreement strictly as nonauthoritative telemetry. Same-prime residue
-aliases cannot inflate a group, all retained forbidden-column diagnostics are
-preflighted, and coefficients are never combined across primes. This is still
-a discovery result, not a closing RuleCell. The next exact test-only gate now
-canonicalizes every circuit guard to its Symbolica primitive integer
-associate and refines the parent into one all-nonzero child plus a disjoint
-ordered first-zero chain. A known-zero branch blocks the proposal; only the
-all-nonzero child retains the circuit, and every exceptional child restarts
-discovery without an owner. Authority-tagged identities, complete join checks,
-and pre-allocation byte/count envelopes are independently tested. This eager
-syntactic partition deliberately has no closure authority. A separate
-test-only semantic path now pulls every guard into target coordinates before
-Symbolica splits it into the simultaneous coefficient ideal over the declared
-independent parameters. It merges only identical retained primitive generator
-sets, removes literal-unit conditions, and builds a bounded reduced ordered
-decision DAG whose full node payload—not its hash—controls sharing. Candidate
-IDs define a strict deterministic priority order, and only predicates on the
-selected path are queried. Exhaustive small truth tables, forced caps, and a
-14-shared-wall proxy pass; independent audit found no ordered-DAG semantic
-blocker. `Incomplete` remains the only uncovered leaf, and candidate leaves
-are not RuleCells or closure owners. Each semantic atom retains a deterministic
-primitive full-guard representative, so the exact path now evaluates every
-requested predicate at one context-bound index assignment under cumulative
-predicate, input-term, and power-call caps; indexed algebra still applies a
-per-predicate integer-bit cap, while aggregate path bit volume remains a
-production obligation. Independent re-audit found the generic branch
-semantics sound. The caller-supplied Boolean oracle remains test-only. Unit-mass
-specialization must precede this compilation; an arbitrary later parameter
-specialization must re-evaluate or recompile its guards. Physical-fibre
-sealing, full rule admission, integer-wall
-ownership, all-rank complement ownership, and the outer-extension proof remain.
+replays all physical columns. Probe-local exact results now enter a bounded
+canonical-replay transaction before promotion: only raw probes and complete
+request sets cross worker boundaries; old circuits are discarded; bootstrap
+and the exact request union are rebuilt as one fresh epoch; and one
+authenticated target/lower-owner partition is shared read-only while every
+probe is independently resampled. The common domain must lie inside every
+contributing final domain. Structural exact-lift failures abort the whole
+transaction, while sample singularities, no-hits, and support-not-lifted
+outcomes remain explicit diagnostics.
+
+Fresh exact circuits are sorted by proof content rather than modular telemetry
+and deduplicated under aggregate work, diagnostic, exact-payload, integer-bit,
+anchor, and support-reference limits. A genuine distinct-request regression
+builds an epoch-one union and proves that no stale plan token crosses it. The
+selected common-plan candidate then passes exact guard refinement, lossless
+lowering, descent/source replay, and ordinary guarded `RuleCell` admission;
+the admitted value keeps its epoch and circuit authority alongside the
+executable cell. Guard walls remain typed retry or exceptional-stratum
+obligations, never implicit coverage.
+
+The semantic target-coordinate guard DAG and all-rank outer-extension/owner-
+cover compiler are already individually exact and bounded. The remaining K6
+production step is to pair each admitted executable cell with its semantic
+circuit through deterministic owner sorting, transactionally recompute the
+whole cover, and seal a solved sector as immutable lower-sector feedback.
+`Incomplete` remains the only answer for an unbounded geometric complement,
+unresolved guard branch, or undeclared finite terminal. RustRed still has no
+closed K6 artifact.
 
 The codebase has no RustRed backward-compatibility promise during deep
 development. Obsolete prototype solvers, schemas, compatibility facades,

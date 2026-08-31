@@ -25,6 +25,7 @@ pub(crate) use model::{
     AccumulatedSourceRequests, CampaignModularProbe, CampaignRequestMerge,
     CampaignRequestMergeTelemetry, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
     FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry, GrowingTaskEpochState,
+    ReusedTaskPartitionQuery,
 };
 
 #[cfg(test)]

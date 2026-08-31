@@ -453,6 +453,21 @@ pub(crate) struct FreshTaskQuery<'epoch> {
     telemetry: FreshTaskQueryTelemetry,
 }
 
+/// One modular query borrowing a caller-retained, already authenticated
+/// partition for the same immutable epoch.
+///
+/// This is the multi-probe path: the expensive exact partition and lower-owner
+/// census is built once, while every probe still receives a fresh modular
+/// sample and target query. The cheap scope joins are repeated per probe.
+#[derive(Debug)]
+pub(crate) struct ReusedTaskPartitionQuery<'partition, 'epoch> {
+    partition: &'partition TargetColumnPartition<'epoch>,
+    sampled: ModularPhysicalFrame<'epoch>,
+    query: ModularTargetQuery<'epoch>,
+    probe: CampaignModularProbe,
+    telemetry: FreshTaskQueryTelemetry,
+}
+
 impl<'epoch> FreshTaskQuery<'epoch> {
     pub(crate) const fn partition(&self) -> &TargetColumnPartition<'epoch> {
         &self.partition
@@ -480,6 +495,44 @@ impl<'epoch> FreshTaskQuery<'epoch> {
 
     pub(super) const fn new(
         partition: TargetColumnPartition<'epoch>,
+        sampled: ModularPhysicalFrame<'epoch>,
+        query: ModularTargetQuery<'epoch>,
+        probe: CampaignModularProbe,
+        telemetry: FreshTaskQueryTelemetry,
+    ) -> Self {
+        Self {
+            partition,
+            sampled,
+            query,
+            probe,
+            telemetry,
+        }
+    }
+}
+
+impl<'partition, 'epoch> ReusedTaskPartitionQuery<'partition, 'epoch> {
+    pub(crate) const fn partition(&self) -> &'partition TargetColumnPartition<'epoch> {
+        self.partition
+    }
+
+    pub(crate) const fn query(&self) -> &ModularTargetQuery<'epoch> {
+        &self.query
+    }
+
+    pub(crate) const fn sampled(&self) -> &ModularPhysicalFrame<'epoch> {
+        &self.sampled
+    }
+
+    pub(crate) const fn probe(&self) -> &CampaignModularProbe {
+        &self.probe
+    }
+
+    pub(crate) const fn telemetry(&self) -> FreshTaskQueryTelemetry {
+        self.telemetry
+    }
+
+    pub(super) const fn new(
+        partition: &'partition TargetColumnPartition<'epoch>,
         sampled: ModularPhysicalFrame<'epoch>,
         query: ModularTargetQuery<'epoch>,
         probe: CampaignModularProbe,

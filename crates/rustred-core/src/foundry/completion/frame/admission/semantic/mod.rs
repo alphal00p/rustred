@@ -19,6 +19,4 @@ pub(crate) use limits::ExactCircuitSemanticLimits;
 pub(crate) use model::{
     ExactCircuitSemanticCandidate, ExactCircuitSemanticDag, ExactCircuitSemanticSelection,
 };
-pub(super) use order::compare_exact_content;
-#[cfg(test)]
-pub(crate) use order::exact_content_equal_excluding_modular_telemetry;
+pub(crate) use order::{compare_exact_circuit_content, exact_circuit_content_equal};

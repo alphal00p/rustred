@@ -5,6 +5,7 @@
 //! here can authorize a rule, owner, terminal, artifact, or closure claim.
 
 mod campaign;
+mod canonical_replay;
 mod dual;
 mod error;
 mod incidence;
@@ -24,6 +25,13 @@ pub(crate) use campaign::{
     CampaignModularProbe, CampaignRequestMerge, CampaignRequestMergeTelemetry,
     CampaignResourceStage, CandidateBatchExhaustionTelemetry, FreshTaskBuildTelemetry,
     FreshTaskEpoch, FreshTaskQuery, FreshTaskQueryTelemetry, GrowingTaskEpochState,
+    ReusedTaskPartitionQuery,
+};
+#[allow(unused_imports)] // Consumed by the staged sector-layer orchestrator.
+pub(crate) use canonical_replay::{
+    CanonicalRebaseAttempt, CanonicalRebaseAttemptOutcome, CanonicalRebasedCandidate,
+    CanonicalReplayBatch, CanonicalReplayDisposition, CanonicalReplayError, CanonicalReplayLimits,
+    CanonicalReplayTelemetry, try_canonicalize_replayed_probes,
 };
 #[allow(unused_imports)]
 pub(crate) use dual::{

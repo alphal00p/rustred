@@ -178,13 +178,15 @@ fn target_unit_bootstrap_hits_and_lifts_immediately() {
     let generator = ParametricIbpGenerator::try_new(artifact.family()).unwrap();
     let completed = complete_ordinary(&generator);
     let limits = ProbeLocalSchedulerLimits::default();
-    let report = tadpole_scheduler(&generator, &completed, [probe([37], [2], limits)], limits)
+    let declared_probe = probe([37], [2], limits);
+    let report = tadpole_scheduler(&generator, &completed, [declared_probe.clone()], limits)
         .run()
         .unwrap();
 
     assert_eq!(report.probes().len(), 1);
     let result = &report.probes()[0];
     assert_eq!(result.probe_ordinal(), 0);
+    assert_eq!(result.probe(), &declared_probe);
     assert_eq!(result.outcome().kind(), ProbeLocalOutcomeKind::Replayed);
     assert_eq!(result.iterations().len(), 1);
     assert_eq!(result.iterations()[0].epoch_ordinal(), 0);

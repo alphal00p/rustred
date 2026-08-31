@@ -586,17 +586,36 @@ with the all-nonzero refinement and every explicit first-zero obligation. It
 does not install a partial cell or alter coverage. A deliberately inserted
 tadpole guard wall and a structurally equal but freshly sealed epoch are both
 negative controls; a genuine scheduler-produced tadpole replay passes the
-full bridge. The remaining publication boundary begins with a canonical
-multi-probe epoch. Probe-local schedulers intentionally own distinct freshly
-tokened physical plans, so their exact circuits cannot be combined directly.
-The coordinator must union their final canonical request sets, build one
-superset epoch, replay every retained probe on that exact plan, sort and
-deduplicate exact circuit content, and only then promote at a deterministic
-certified all-nonzero anchor. A paired semantic owner compiler must preserve
-circuit-to-cell identity through candidate and owner sorting, followed by
-transactional whole-cover recomputation and solved-sector sealing. An ordinary
-globally admitted cell owns its complete carrier; its syntactic
-guard-refinement children are not separate cover obligations. Only
+full bridge.
+
+The canonical multi-probe epoch is now implemented as a non-authoritative
+production boundary. Probe-local schedulers intentionally own distinct
+freshly tokened physical plans, so their old exact circuits are discarded.
+The coordinator harvests only replayed raw probes and complete request sets,
+rebuilds the target-unit bootstrap and then the exact canonical request union,
+and proves that the common maximal domain is contained in every contributing
+final domain. It authenticates the common target/lower-owner partition once,
+re-samples every raw probe independently against that borrowed partition, and
+exact-lifts synchronously. Every exact-lift error is a hard transactional
+failure; only a typed modular support that does not lift is an inconclusive
+attempt. The circuit/sample pointer identity, plan, target, stratum, owner
+snapshot, ordering, descent, anchor, and domain joins are retained.
+
+Fresh circuits are sorted by exact proof content, with modular telemetry
+excluded, and whole `(circuit, anchor, probe)` records are deterministically
+deduplicated. Aggregate probes, request occurrences, modular work, partition
+work, diagnostics, exact payload cells, integer coefficient bits, anchors,
+support references, and sort work are bounded before the batch can escape. A
+real tadpole regression combines distinct bootstrap and augmented request
+sets into an epoch-one union, rejects every stale plan-token crossing, and
+promotes the canonical candidate through the guarded `RuleCell` boundary.
+This still grants no owner, terminal, artifact, or closure authority.
+
+The remaining publication boundary is a paired semantic executable-owner
+compiler that preserves circuit-to-cell identity through candidate and owner
+sorting, followed by transactional whole-cover recomputation and solved-sector
+sealing. An ordinary globally admitted cell owns its complete carrier; its
+syntactic guard-refinement children are not separate cover obligations. Only
 `NeedsGuardedStratum` exports zero-branch obligations. RustRed still has no
 published K6 artifact. Each first K6 sector/prime probe has rank 90 on both
 forbidden and augmented blocks and nominates roughly 3,586--3,822 broad
