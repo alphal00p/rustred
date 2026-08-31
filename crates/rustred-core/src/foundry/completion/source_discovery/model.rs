@@ -32,11 +32,12 @@ pub(crate) struct IncidentTranslationNominations {
 /// Canonical nominated translations whose complete sampled rows pair
 /// nontrivially with one checked right obstruction.
 ///
-/// This payload deliberately retains no finite-field coefficient: its
-/// requests may be unioned deterministically across independent modular
-/// states, while every numeric residual remains local to the checked sample
-/// which produced it.  It carries no exact-relation, owner, terminal, or
-/// closure authority.
+/// This payload deliberately retains no finite-field coefficient. Its
+/// requests belong exclusively to the probe-local accumulator whose checked
+/// sample produced them; they must never be unioned across independent
+/// modular states as scheduling or evidence input. A cross-probe identity
+/// union may be computed only as detached telemetry. It carries no
+/// exact-relation, owner, terminal, or closure authority.
 #[derive(Clone, Debug)]
 pub(crate) struct NonzeroIncidentTranslationResiduals {
     census: ResidualCensusProvenance,

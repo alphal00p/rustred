@@ -12,10 +12,11 @@ mod limits;
 mod model;
 mod nominate;
 mod residual;
+pub(crate) mod scheduler;
 
-// This is the staged integration seam for the next fixed-task driver. The
-// executable campaign is regression-tested in its child before that driver
-// consumes every reexport.
+// The probe-local scheduler consumes this sealed campaign boundary. A few
+// evidence and telemetry types remain reexported for sibling admission tests,
+// so keep the seam explicit without widening it outside completion.
 #[allow(unused_imports)]
 pub(crate) use campaign::{
     AccumulatedSourceRequests, CampaignBudgetExhaustion, CampaignError, CampaignLimits,
@@ -32,6 +33,5 @@ pub(crate) use error::SourceDiscoveryError;
 pub(crate) use incidence::OrdinarySourceIncidenceIndex;
 pub(crate) use limits::SourceDiscoveryLimits;
 pub(crate) use model::{IncidentTranslationNominations, NonzeroIncidentTranslationResiduals};
-
 #[cfg(test)]
 mod tests;
