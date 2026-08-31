@@ -127,9 +127,18 @@ and no terminals. Blind prolongation therefore helps without closing the
 sector. The next bounded experiment is a target-normalized dual-obstruction
 source oracle which nominates translated rows capable of cutting the current
 modular no-hit; every nomination remains discovery-only until the existing
-exact replay, semantic, descent, and owner-cover gates pass. On the Vakint side,
-the shared multimethod harness now exercises 21 applicable historical tests
-comprising 27 concrete inputs through two loops,
+exact replay, semantic, descent, and owner-cover gates pass. Its first two
+generic prerequisites are now implemented and independently audited: a bounded
+API translates only canonical requested `(ordinary source, signed offset)`
+pairs, and every modular no-hit retains a plan/sample-bound sparse right
+obstruction with logical target coefficient one and exact finite-field
+`A q = 0` replay. Multi-probe obstruction payloads have their own aggregate
+budget. The next implementation slice extracts one construction-neutral sealed
+physical-plan core so selected rows can reuse the existing pointer-bound
+partition, exact-lift, and replay machinery without pretending to be a
+rectangular degree shell. On the Vakint side, the shared multimethod harness
+now exercises 21 applicable historical tests comprising 27 concrete inputs
+through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
 three-loop oracle fixtures and five matcher-class fixtures are executable but
 honestly ignored until the certified K6 artifact and terminal catalog exist.
