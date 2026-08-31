@@ -84,6 +84,7 @@ pub(crate) struct GuardDecisionDagStats {
     pub(crate) memo_states: usize,
     pub(crate) nodes: usize,
     pub(crate) edges: usize,
+    pub(crate) has_reachable_incomplete: bool,
 }
 
 /// One context-bound, reduced, ordered semantic guard decision DAG.
@@ -103,6 +104,16 @@ pub(crate) struct CoefficientIdealGuardDag {
 impl CoefficientIdealGuardDag {
     pub(crate) const fn stats(&self) -> GuardDecisionDagStats {
         self.stats
+    }
+
+    /// Whether every abstract atom branch reaches a retained candidate.
+    ///
+    /// `true` is a strong, purely combinatorial totality certificate. `false`
+    /// deliberately makes no claim that a reachable incomplete Boolean branch
+    /// has an integer point: proving exceptional-locus coverage belongs to the
+    /// guarded owner-cover layer.
+    pub(crate) const fn is_abstractly_total(&self) -> bool {
+        !self.stats.has_reachable_incomplete
     }
 
     pub(crate) fn context_fingerprint(&self) -> &str {

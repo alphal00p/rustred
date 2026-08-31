@@ -16,7 +16,7 @@ use canonical::{
     check_atom_identity_bytes, require_canonical_candidate_ids, try_clone_candidates, validate,
 };
 use resource::{
-    CANDIDATE_ATOM_REFERENCES, CANDIDATES, EDGES, UNIQUE_ATOMS, check_limit, checked_add,
+    CANDIDATE_ATOM_REFERENCES, CANDIDATES, EDGES, NODES, UNIQUE_ATOMS, check_limit, checked_add,
     try_clone_boxed, try_vec,
 };
 
@@ -156,6 +156,7 @@ fn compile_canonical(
         .len()
         .checked_mul(2)
         .ok_or(GuardDecisionDagError::ResourceCountOverflow { resource: EDGES })?;
+    let has_reachable_incomplete = reachable_incomplete(&built.nodes, built.root)?;
     let stats = GuardDecisionDagStats {
         candidates: candidates.len(),
         atoms: atoms.len(),
@@ -163,6 +164,7 @@ fn compile_canonical(
         memo_states: built.memo_states,
         nodes: built.nodes.len(),
         edges,
+        has_reachable_incomplete,
     };
     Ok(CoefficientIdealGuardDag {
         context_fingerprint,
@@ -172,4 +174,46 @@ fn compile_canonical(
         root: built.root,
         stats,
     })
+}
+
+fn reachable_incomplete(
+    nodes: &[super::model::GuardDecisionNode],
+    root: super::model::GuardDecisionRef,
+) -> Result<bool, GuardDecisionDagError> {
+    use super::GuardDecisionOutcome;
+    use super::model::GuardDecisionRef;
+
+    let mut incomplete = resource::try_vec(nodes.len(), NODES)?;
+    for (ordinal, node) in nodes.iter().enumerate() {
+        let child_is_incomplete = |child| match child {
+            GuardDecisionRef::Leaf(GuardDecisionOutcome::Incomplete) => Ok(true),
+            GuardDecisionRef::Leaf(GuardDecisionOutcome::Candidate(_)) => Ok(false),
+            GuardDecisionRef::Node(child) => {
+                if child >= ordinal {
+                    return Err(GuardDecisionDagError::InternalInvariant(
+                        "guard DAG child is not in postorder",
+                    ));
+                }
+                incomplete
+                    .get(child)
+                    .copied()
+                    .ok_or(GuardDecisionDagError::InternalInvariant(
+                        "guard DAG child totality is unavailable",
+                    ))
+            }
+        };
+        incomplete.push(child_is_incomplete(node.zero)? || child_is_incomplete(node.nonzero)?);
+    }
+    match root {
+        GuardDecisionRef::Leaf(GuardDecisionOutcome::Incomplete) => Ok(true),
+        GuardDecisionRef::Leaf(GuardDecisionOutcome::Candidate(_)) => Ok(false),
+        GuardDecisionRef::Node(root) => {
+            incomplete
+                .get(root)
+                .copied()
+                .ok_or(GuardDecisionDagError::InternalInvariant(
+                    "guard DAG root totality is unavailable",
+                ))
+        }
+    }
 }

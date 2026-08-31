@@ -62,6 +62,7 @@ fn ordered_first_applicable_semantics_and_literal_units_are_exact() {
 
     assert_eq!(dag.stats().atoms, 2);
     assert_eq!(dag.stats().candidate_atom_references, 3);
+    assert!(dag.is_abstractly_total());
     assert_eq!(
         dag.try_decide(&[GuardBranch::NonZero, GuardBranch::NonZero])
             .unwrap(),
@@ -108,6 +109,7 @@ fn shared_wall_conjunction_is_linear_and_fails_closed() {
     assert_eq!(stats.atoms, 14);
     assert_eq!(stats.nodes, 14);
     assert_eq!(stats.edges, 28);
+    assert!(!dag.is_abstractly_total());
 
     let mut branches = vec![GuardBranch::NonZero; stats.atoms];
     assert_eq!(

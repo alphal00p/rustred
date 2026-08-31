@@ -9,6 +9,7 @@
 mod error;
 mod limits;
 mod model;
+mod owner_cover;
 mod refine;
 mod semantic;
 
@@ -17,6 +18,15 @@ pub(crate) use limits::ExactGuardRefinementLimits;
 pub(crate) use model::{
     ExactGuardRefinement, ExactGuardRefinementOutcome, ExceptionalGuardStratum,
     RequiredGuardPredicate,
+};
+// This staged production boundary is exercised internally before the foundry
+// orchestrator consumes every exported proof view.
+#[allow(unused_imports)]
+pub(crate) use owner_cover::{
+    ExactCircuitOuterExtensionError, ExactCircuitOuterExtensionWitness, ExactCircuitOwner,
+    ExactCircuitOwnerCover, ExactCircuitOwnerCoverError, ExactCircuitOwnerCoverLimits,
+    ExactCircuitOwnerId, ExactCircuitOwnerInput, ExactFinitePointOwner, ExactFiniteTerminalOwner,
+    ExactOwnerCoverObstructionKind, ExactOwnerCoverSelection, ExactOwnerCoverStatus,
 };
 pub(crate) use refine::try_refine_exact_circuit_guards;
 pub(crate) use semantic::{

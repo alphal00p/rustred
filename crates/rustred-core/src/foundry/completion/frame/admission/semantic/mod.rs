@@ -16,6 +16,9 @@ mod validation;
 
 pub(crate) use error::ExactCircuitSemanticError;
 pub(crate) use limits::ExactCircuitSemanticLimits;
-pub(crate) use model::{ExactCircuitSemanticDag, ExactCircuitSemanticSelection};
+pub(crate) use model::{
+    ExactCircuitSemanticCandidate, ExactCircuitSemanticDag, ExactCircuitSemanticSelection,
+};
+pub(super) use order::compare_exact_content;
 #[cfg(test)]
-pub(super) use order::{compare_exact_content, exact_content_equal_excluding_modular_telemetry};
+pub(super) use order::exact_content_equal_excluding_modular_telemetry;

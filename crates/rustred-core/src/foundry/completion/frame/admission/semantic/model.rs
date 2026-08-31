@@ -61,6 +61,10 @@ pub(crate) struct ExactCircuitSemanticDag {
 }
 
 impl ExactCircuitSemanticDag {
+    pub(crate) fn context_fingerprint(&self) -> &str {
+        self.context_fingerprint.as_str()
+    }
+
     pub(crate) fn candidates(&self) -> &[ExactCircuitSemanticCandidate] {
         &self.candidates
     }
@@ -95,5 +99,46 @@ impl ExactCircuitSemanticDag {
                 )),
             GuardDecisionOutcome::Incomplete => Ok(ExactCircuitSemanticSelection::Incomplete),
         }
+    }
+}
+
+#[cfg(test)]
+impl ExactCircuitSemanticDag {
+    /// Unit-test seam for exercising conservative owner-cover behavior with
+    /// additional sound restrictions on already replayed exact circuits.
+    pub(crate) fn try_from_test_candidates(
+        context: &IndexedCoefficientContext,
+        incoming: Vec<(Arc<ExactTargetCircuit>, Vec<CoefficientIdealGuardAtom>)>,
+    ) -> Result<Self, crate::foundry::completion::guard::decision::GuardDecisionDagError> {
+        use crate::foundry::completion::guard::decision::{
+            GuardDecisionCandidate, GuardDecisionCandidateId,
+        };
+
+        let candidates = incoming
+            .into_iter()
+            .enumerate()
+            .map(
+                |(ordinal, (circuit, guard_atoms))| ExactCircuitSemanticCandidate {
+                    id: ExactCircuitSemanticCandidateId(ordinal),
+                    circuit,
+                    guard_atoms: guard_atoms.into_boxed_slice(),
+                },
+            )
+            .collect::<Vec<_>>();
+        let borrowed = candidates
+            .iter()
+            .map(|candidate| {
+                GuardDecisionCandidate::new(
+                    GuardDecisionCandidateId(candidate.id.0),
+                    candidate.guard_atoms(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let guards = CoefficientIdealGuardDag::try_compile(context, &borrowed, Default::default())?;
+        Ok(Self {
+            context_fingerprint: context.fingerprint_owner(),
+            candidates: candidates.into_boxed_slice(),
+            guards,
+        })
     }
 }

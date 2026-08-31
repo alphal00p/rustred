@@ -317,6 +317,10 @@ impl<'frame> TargetColumnPartition<'frame> {
         self.owners.id()
     }
 
+    pub(crate) const fn ordering(&self) -> OrderingPolicy {
+        self.ordering
+    }
+
     pub(crate) fn allowed_columns(&self) -> &[AllowedColumnDescriptor] {
         &self.allowed
     }
