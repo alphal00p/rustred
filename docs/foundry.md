@@ -324,15 +324,20 @@ boundary. For one target and one decorated family/context/domain stratum it
 classifies every raw integral-shift column exactly once. A same-sector RHS must
 carry the global sector-monotone strict-descent witness. If that shift pinches
 a line, every exact target-sector child must additionally be covered by a
-terminalizing owner copied from an immutable sealed artifact. Only proof-
-backed zero sectors, installed factorizations into sealed dependencies, and
-explicit master points enter that snapshot; an ordinary RuleCell is a one-step
-identity and is not transitive closure authority. Missing owners make the
-column forbidden rather than widening the claim. The snapshot identity commits
-to the complete ordered zero-proof, factorization-domain, and master-key
-payload under an explicit byte limit; counts alone can never rebind terminal
-authority. Promotion must still rejoin the sealed snapshot and verify its
-retained witnesses rather than trusting the identity string in isolation.
+terminalizing owner copied from an immutable sealed artifact or a locally
+sealed terminal authority. The K6 authority replays zero proofs and exact
+factorization compilation once, requires its terminal manifest to equal the
+compiled factorization images, binds its canonicalizer to the family, and
+strongly retains its closed K1/K3 dependencies. It does not claim ordinary-rule
+closure and cannot be published as an artifact. Only proof-backed zero sectors,
+installed factorizations into sealed dependencies, and their derived terminal
+points enter its snapshot; an ordinary RuleCell is a one-step identity and is
+not transitive closure authority. Missing owners make the column forbidden
+rather than widening the claim. The snapshot identity commits to the complete
+ordered terminal-cover semantics under an explicit byte limit; counts alone
+can never rebind authority. The retained authority `Arc`, not that diagnostic
+identity string, remains the proof owner, and promotion must rejoin it and
+verify the retained witnesses.
 
 Physical storage is construction-neutral. `PhysicalFramePlan` contains the
 sealed exact translated rows, their provenance, the sorted union of raw
@@ -370,9 +375,26 @@ plan, sample, exhaustive partition, stratum, ordering, immutable owner snapshot,
 and incidence index. It retains no plan-local ordinals and cannot become a
 rule, owner, terminal, or exact no-relation result. There is no global
 materialized row set or cross-sample modular authority. The outer multi-epoch
-scheduler remains discovery work. Tasks are currently constructed natively at
-target zero; arbitrary-target source/domain/chart/coefficient/guard transport
-is deferred until a typed production caller exists.
+scheduler is now executable discovery work: it prevalidates the complete probe
+schedule, rejects canonical residue aliases, and runs independent bootstrap,
+accumulator, epoch, sample, and obstruction state per probe. Any modular hit is
+lifted synchronously against its live exact partition. Aggregate materialized-
+term, modular-entry, merge, epoch, retained-record, and exact-attempt limits
+produce a typed triggering stop and an explicitly unexecuted suffix. Every
+probe outcome remains proposal or diagnostic evidence only. Tasks are
+currently constructed natively at target zero; arbitrary-target
+source/domain/chart/coefficient/guard transport is deferred until a typed
+production caller exists.
+
+The first K6 control uses that boundary on every one of the six full-rank
+sector-orbit representatives and three declared primes. Its 18 independent
+first epochs each contain 90 selected rows, 253 physical columns, and 918
+structural entries. The forbidden and target-augmented ranks both remain 90,
+so no exact lift is attempted. Complete residual pairing nominates respectively
+3,763, 3,822, 3,765, 3,727, 3,726, and 3,586 nonzero translations for the six
+bottom-up representatives. Each task then stops at its explicit one-epoch
+limit. This is a reproducible pressure census, not evidence that those rows
+should all be materialized, and not a rule, terminal, or closure result.
 
 The corresponding modular hit is bound by pointer identity to its physical
 frame and by an immutable prime/sample fingerprint. Exact lifting projects the

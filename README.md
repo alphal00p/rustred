@@ -264,10 +264,28 @@ with target shift zero. `SampledDeclaredModuleDual` can seal one complete,
 guard-free fixed-sample empty residual census after independently replaying all
 inverse-incidence and translated-term/support counts and rejoining the exact
 plan, sample, partition, stratum, ordering, lower-owner snapshot, and incidence
-index. Each future probe must keep its request accumulator and selected matrix
-local; cross-probe unions are telemetry only. Guarded evidence fails closed,
-the multi-epoch outer driver is not yet implemented, and no arbitrary-target
-coordinate-transport subsystem exists.
+index. A bounded multi-epoch driver now executes a prevalidated probe schedule
+in declared order. Each probe owns its request accumulator, selected matrices,
+samples, obstructions, and exact-lift result; cross-probe state is bounded
+scalar telemetry only. Live hits are lifted before their query-local evidence
+can escape, guarded dual evidence fails closed, and aggregate exhaustion marks
+the unexecuted suffix explicitly. No arbitrary-target coordinate-transport
+subsystem exists yet.
+
+The test-only K6 campaign also has a proof-backed terminal authority that is
+not a synthetic closing artifact. It authenticates the exact zero and
+factorization cover once, binds symmetry to the family, strongly retains the
+closed K1/K3 dependencies, and requires its terminal manifest to equal the
+compiled factorization images. Immutable completion snapshots flatten that
+cover for lookup while retaining the exact authority for cold verification.
+
+Its first audited campaign census covers all six full-rank sector orbits at
+three independent primes. Every one-epoch task builds 90 rows, 253 columns,
+and 918 structural entries; none has an immediate target-unit hit, and the
+right obstruction nominates 3,586--3,822 additional nonzero translations.
+Those are diagnostic proposal counts, not installed rules or evidence of
+closure. They motivate the next certificate-/syzygy-guided batching and
+immutable solved-sector feedback work instead of a blind larger seed box.
 
 Positive finite-field supports can now be lifted over Symbolica's exact
 rational-function field. The lift recovers the original translated-source
@@ -550,6 +568,7 @@ Stable design documents are:
 - [independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md);
 - [primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md);
 - [finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md);
+- [high-loop proposal experiments and falsification gates](docs/research/high_loop_proposal_experiments_2026.md);
 - [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md);
 - [nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md);
 - [independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md);

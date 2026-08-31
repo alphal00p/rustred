@@ -167,16 +167,28 @@ exact no-relation result, artifact, or closure claim. Production discovery
 currently constructs each task natively with target shift zero. No general
 arbitrary-target coordinate transport is implemented; transport of source
 offsets, columns, domains, charts, coefficients, and guards is deferred until a
-typed production caller exists. The next slice is the bounded outer
-scheduler which repeats these epochs over a predeclared probe schedule, hands
-actual hits to exact lift and replay while their plan is alive, and reports
-only typed sampled-dual or budget evidence on exhaustive misses. On the Vakint
-side, the shared multimethod harness
+typed production caller exists. A bounded outer scheduler now executes a
+prevalidated probe schedule in declared order. Every probe owns its bootstrap,
+request accumulator, fresh epochs, modular state, obstructions, and outcome;
+only bounded scalar work counters cross probe boundaries. A live modular hit
+is lifted and replayed synchronously before its query and plan can escape.
+Exhaustive misses can return only sealed fixed-sample dual evidence, typed
+rejection or stall, or a budget stop; aggregate exhaustion explicitly marks
+the unexecuted probe suffix. No scheduler result converts into a rule, owner,
+terminal, artifact, or exact no-relation claim. On the Vakint side, the shared multimethod harness
 now exercises 21 applicable historical tests comprising 27 concrete inputs
 through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
 three-loop oracle fixtures and five matcher-class fixtures are executable but
 honestly ignored until the certified K6 artifact and terminal catalog exist.
+
+The parallel high-loop research backlog is frozen in the
+[high-loop proposal experiments](docs/research/high_loop_proposal_experiments_2026.md): five
+K6-controlled, staged `K = 10`, `K = 15`, and `K = 21` measurements of syzygy/minor reuse,
+certificate-driven row selection, probe-local modular throughput, symbolic lowering proposals,
+and guarded finite quotients. They cannot authorize a high-loop artifact, replace the sampled-dual,
+exact replay, guard, descent, or immutable-owner gates, introduce Stage 2 execution infrastructure,
+or require a minimal master basis.
 
 An independent exact K6 dependency census now fixes the bottom-up pressure
 order without introducing topology names into the generic core. None of the
@@ -186,13 +198,26 @@ while the inequivalent four-cycle depends on the path; the five-line orbit
 depends on both four-line orbits; and the top orbit depends on the five-line
 orbit. Existing factorization ownership covers active dots only when every
 inactive power is exactly zero, so all six decorated sectors still require
-rewrite layers for inactive numerators. The immediate implementation blocker
-is circular authority: `ImmutableOwnerSnapshot` currently obtains zero and
-factorization owners only from an already globally closed artifact. The next
-lower-sector slice must first build a generic, production-sealed terminal owner
-set by replaying the existing zero and factorization validators with strongly
-owned closed K1/K3 dependencies. Test-only synthetic K6 artifacts must not seed
-that authority.
+rewrite layers for inactive numerators. The circular-authority blocker is now
+removed without fabricating K6 closure: a crate-private terminal authority
+replays the generic zero and factorization validators once, requires its
+terminal manifest to equal the canonical compiled factorization images, binds
+its symmetry action to the exact family, and strongly owns the closed K1/K3
+dependencies. `ImmutableOwnerSnapshot` retains that exact authority while
+flattening only its proved terminal cover for cheap lookup and cold
+verification. The K6 fixture caches the seal once and no longer constructs a
+synthetic `ClosedArtifact` or fake validation witness. An independently audited
+bootstrap census now runs every one of the six full-rank orbit representatives
+against three declared primes, for 18 probe-local tasks. Each first epoch has
+90 selected rows, 253 physical columns, and 918 structural entries. At the
+declared sample every forbidden rank and target-augmented rank is 90, so no
+bootstrap support is falsely lifted; the exact obstruction instead nominates
+3,586--3,822 nonzero residual requests depending on the sector. The census
+stops at an explicit one-epoch research limit and claims neither a rule nor
+closure. The next K6 step is to replace that broad residual frontier with
+certificate-/syzygy-guided batches, rebuild the maximal stratum after request
+growth, promote successful exact circuits into guarded descending cells, and
+install solved sectors as immutable feedback before advancing bottom-up.
 
 The three-loop search nevertheless now starts from an exact, test-only
 pressure manifest rather than an informal topology list: it authenticates the
@@ -881,6 +906,7 @@ into Stage 2.
 - [Independent breakthrough viability audit](docs/research/parametric_ibp_breakthrough_audit.md)
 - [Primary-literature synthesis through 2026](docs/research/parametric_ibp_literature_2026.md)
 - [Finite-frame breakthrough candidates](docs/research/finite_frame_breakthrough_2026.md)
+- [High-loop proposal experiments and falsification gates](docs/research/high_loop_proposal_experiments_2026.md)
 - [Symbolica finite-frame feasibility audit](docs/research/symbolica_finite_frame_feasibility.md)
 - [Nonminimal-terminal viability audit](docs/research/nonminimal_terminal_viability_audit_2026.md)
 - [Independent six-loop candidate shootout](docs/research/six_loop_candidate_shootout_2026.md)
