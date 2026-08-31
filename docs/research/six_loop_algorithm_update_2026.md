@@ -980,6 +980,23 @@ replay and either a twofold reduction in nonconstant guards, owner leaves, or
 DAG nodes, or exact discharge of a previously open wall; the extra exact work
 is limited to 25 percent of baseline lift time and 10 percent artifact growth.
 
+The grouped-target statement is deliberately conditional. A unit ideal in the
+final target pivots proves only that at least one pivot is nonzero pointwise; it
+does not discharge the source-intrinsic or cleared-denominator gates on which
+the corresponding rows are valid. If every such gate is independently proved
+true on the complete owner domain, the grouped certificate may be total. If
+the rows merely share one identical unresolved gate, it seals only the branch
+where that gate holds and leaves its zero branch as an explicit obligation.
+Differing unresolved gates are rejected by the first implementation. The
+counterexample of a common gate `n != 0` with pivots `n` and `n-1` has a unit
+target ideal but remains invalid at `n = 0`; any compiler that calls it globally
+total is unsound. A production certificate must also persist a proof of the
+physical fibre used before splitting base-parameter coefficients, not only a
+free-variable map or fingerprint. Accordingly, literal units, exact univariate
+Bezout identities, and tiny exhaustive finite-field obstructions enter first as
+bounded test-only, fail-closed certificate producers; every timeout, resource
+cap, unresolved gate, or unsupported locus remains typed `Incomplete`.
+
 A bounded test-only fraction-free prototype now clears each ordinary source
 row, clears and primitive-normalizes the resulting source-cofactor vector, and
 replays every physical column with Symbolica-native exact polynomials. On the

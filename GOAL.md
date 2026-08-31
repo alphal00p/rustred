@@ -113,8 +113,16 @@ test-only fraction-free reconstruction also demonstrates on the canonical K6
 S4a circuit that ten elimination-induced guards can be replaced by its one
 mandatory target-coefficient guard with exact source cofactors and full column
 replay; it has no production or closure authority until its measured promotion
-gates pass. On the Vakint side, the shared multimethod harness now exercises 21
-applicable historical tests comprising 27 concrete inputs through two loops,
+gates pass. The first all-orbit degree-one owner sweep is now measured and
+regression-pinned across the six full-rank K6 sector representatives. All 17
+modular nominations lift and replay exactly, but they provide only
+`0, 3, 2, 2, 3, 7` admitted owners (with `0, 1, 0, 0, 1, 3` guard-total), and
+every compiled cover remains `NonFinite`; the empty first sector is reported as
+`NoAdmittedOwners`, never as closure. This makes insufficient source depth the
+current structural blocker and directs the next bounded experiment to a
+combined degree-one/degree-two exact owner supply without promoting any sampled
+miss to a terminal. On the Vakint side, the shared multimethod harness now
+exercises 21 applicable historical tests comprising 27 concrete inputs through two loops,
 including nine inputs with the unchanged FORM tensor prepass. Eleven genuine
 three-loop oracle fixtures and five matcher-class fixtures are executable but
 honestly ignored until the certified K6 artifact and terminal catalog exist.
